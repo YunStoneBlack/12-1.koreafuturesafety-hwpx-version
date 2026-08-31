@@ -136,13 +136,13 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SaveGenerateMixin):
         bottom_row.addStretch()
         save_btn = QPushButton("저장")
         save_btn.clicked.connect(self._save)
-        self.generate_btn = QPushButton("📄 보고서 생성 (PDF/워드/한글)")
+        self.generate_btn = QPushButton("📄 미리보기")
         self.generate_btn.setEnabled(False)
         self.generate_btn.setStyleSheet(
             "QPushButton { background: #4f46e5; color: white; padding: 10px 24px; border-radius: 6px; }"
             "QPushButton:disabled { background: #c7c7c7; }"
         )
-        self.generate_btn.clicked.connect(self._generate_pdf)
+        self.generate_btn.clicked.connect(self._open_preview)
         bottom_row.addWidget(save_btn)
         bottom_row.addWidget(self.generate_btn)
         bottom.addLayout(bottom_row)

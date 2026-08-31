@@ -8,6 +8,9 @@ venv/
 data/app.db
 data/*.db
 
+# 미리보기/보고서 생성 시 만들어지는 PDF 산출물 — 사용자마다 자기 PC에서 생성됨
+data/reports/
+
 # 제공자료 라이브러리 원본 파일 — 용량이 커서 제외 (81개 이미지, ~66MB)
 data/materials/
 

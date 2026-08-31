@@ -1,21 +1,22 @@
-"""ReportWizardView의 저장(DB 반영) / 산출물 생성(PDF·DOCX·HWPX) 로직.
+"""ReportWizardView의 저장(DB 반영) / 산출물 생성(PDF) 로직.
 
 report_wizard_view.py에서 분리됨. _SaveGenerateMixin은 그 자체로는 동작하지 않고,
 ReportWizardView가 이 믹스인을 상속해 self.xxx 위젯들의 값을 읽어 DB에 반영하거나
 파일로 내보낸다.
+
+워드(DOCX)/한글(HWPX) 생성은 당분간 보고서 미리보기 흐름에서 빠져있다 — 필요해지면
+core/report_builder.build_report_docx, core/hwpx_exporter.convert_docx_to_hwpx를
+다시 연결하면 된다 (둘 다 그대로 남아있음).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl
-from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from core.constants import FIXED_HAZARD_FACTORS
-from core.db import SessionLocal
-from core.hwpx_exporter import HwpxExportError, convert_docx_to_hwpx
+from core.db import BASE_DIR, SessionLocal
 from core.models_db import (
     Finding,
     Measurement,
@@ -28,7 +29,8 @@ from core.models_db import (
     Site,
     SiteProcessDefault,
 )
-from core.report_builder import build_report, build_report_docx
+from core.report_builder import build_report
+from desktop.dialogs.report_preview_dialog import ReportPreviewDialog
 
 
 class _SaveGenerateMixin:
@@ -185,46 +187,49 @@ class _SaveGenerateMixin:
     def _on_confirm_toggled(self, checked: bool) -> None:
         self.generate_btn.setEnabled(checked)
 
-    def _generate_pdf(self) -> None:
+    def _build_and_store_pdf(self, report_id: int) -> Path:
+        """report_id의 PDF를 앱이 관리하는 고정 위치에 만들고, 그 경로를 Report에 저장한다.
+
+        미리보기 모달이 "이 내용으로 PDF 재생성"을 누를 때마다 호출하므로, 매번 저장
+        위치를 물어보지 않도록 고정 경로(`data/reports/site_<site_id>/report_<id>.pdf`)를
+        쓴다. 이 경로가 현장상세 화면의 보고서 이력 "↓ PDF" 버튼이 여는 파일이 된다.
+        """
+        output_path = BASE_DIR / "data" / "reports" / f"site_{self._site_id}" / f"report_{report_id}.pdf"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        build_report(report_id, output_path)
+        with SessionLocal() as session:
+            report = session.get(Report, report_id)
+            report.pdf_path = str(output_path)
+            session.commit()
+        return output_path
+
+    def _export_pdf_as(self) -> Path | None:
+        """사용자가 고른 위치에 PDF를 저장한다. 파일명은 "{현장명}_{회차}회차.pdf"를 기본값으로
+        제안한다 (예: "코하이젠 군포부곡 수소충전소 구축공사_1회차.pdf")."""
+        if not self._report_id:
+            return None
+        default_name = f"{self.site_name_label.text()}_{self.visit_no_label.text()}회차.pdf"
+        default_path = str(Path.home() / "Desktop" / default_name)
+        chosen, _ = QFileDialog.getSaveFileName(self, "PDF로 저장", default_path, "PDF 파일 (*.pdf)")
+        if not chosen:
+            return None
+        chosen_path = Path(chosen)
+        if chosen_path.suffix.lower() != ".pdf":
+            chosen_path = chosen_path.with_suffix(".pdf")
+
+        build_report(self._report_id, chosen_path)
+        with SessionLocal() as session:
+            report = session.get(Report, self._report_id)
+            report.pdf_path = str(chosen_path)
+            session.commit()
+        QMessageBox.information(self, "저장 완료", f"PDF를 저장했습니다:\n{chosen_path}")
+        return chosen_path
+
+    def _open_preview(self) -> None:
+        # 미리보기는 마법사를 떠나지 않고 반복해서 열어볼 수 있어야 하므로(수정하기 →
+        # 다시 미리보기), 여기서는 site_detail로 되돌아가는 report_saved를 emit하지 않는다.
         self._save(navigate=False)
         if not self._report_id:
             return
-
-        default_dir_name = f"{self.site_name_label.text()}_{self.visit_no_label.text()}회차"
-        directory = QFileDialog.getExistingDirectory(self, "보고서 저장 위치 선택")
-        if not directory:
-            return
-
-        base_path = Path(directory) / default_dir_name
-        generated: list[str] = []
-        failed: list[str] = []
-
-        try:
-            pdf_path = build_report(self._report_id, f"{base_path}.pdf")
-            generated.append(f"PDF: {pdf_path}")
-        except Exception as e:  # noqa: BLE001 - 사용자에게 그대로 보여줄 에러 메시지
-            failed.append(f"PDF 생성 실패: {e}")
-            pdf_path = None
-
-        try:
-            docx_path = build_report_docx(self._report_id, f"{base_path}.docx")
-            generated.append(f"워드(DOCX): {docx_path}")
-        except Exception as e:  # noqa: BLE001
-            failed.append(f"워드(DOCX) 생성 실패: {e}")
-            docx_path = None
-
-        if docx_path is not None:
-            try:
-                hwpx_path = convert_docx_to_hwpx(docx_path, f"{base_path}.hwpx")
-                generated.append(f"한글(HWPX): {hwpx_path}")
-            except HwpxExportError as e:
-                failed.append(f"한글(HWPX) 생성 실패: {e}")
-
-        message = "다음 파일이 생성되었습니다:\n" + "\n".join(generated) if generated else ""
-        if failed:
-            message += ("\n\n" if message else "") + "실패한 항목:\n" + "\n".join(failed)
-        QMessageBox.information(self, "보고서 생성 결과", message or "생성된 파일이 없습니다.")
-
-        if pdf_path:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(pdf_path)))
-        self.report_saved.emit(self._site_id)
+        dialog = ReportPreviewDialog(self)
+        dialog.exec()
