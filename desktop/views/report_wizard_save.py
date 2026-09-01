@@ -18,9 +18,10 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from core.constants import FIXED_HAZARD_FACTORS
 from core.db import BASE_DIR, SessionLocal
 from core.models_db import (
+    CurrentProcessEntry,
+    CurrentProcessPhoto,
     Finding,
     Measurement,
-    OverviewPhoto,
     PreviousFinding,
     ProcessHazardEntry,
     ProvidedMaterial,
@@ -51,20 +52,17 @@ class _SaveGenerateMixin:
             report.progress_rate = self.progress_input.value()
             report.assigned_staff_id = self.staff_combo.currentData()
             report.special_note = self.special_note_edit.toPlainText()
-            report.overview_na = self.overview_header.na_button.isChecked()
             report.findings_na = self.findings_header.na_button.isChecked()
             report.previous_findings_na = self.previous_header.na_button.isChecked()
             report.measurements_na = self.measurement_header.na_button.isChecked()
             report.materials_na = self.materials_header.na_button.isChecked()
             report.hazard_factors_na = self.hazard_header.na_button.isChecked()
             report.process_na = self.process_header.na_button.isChecked()
+            report.major_hazard_na = self.major_hazard_header.na_button.isChecked()
+            report.equipment_checks_na = self.equipment_header.na_button.isChecked()
+            report.current_process_na = self.current_process_header.na_button.isChecked()
 
             session.flush()
-
-            session.query(OverviewPhoto).filter_by(report_id=report.id).delete()
-            for slot, zone in ((1, self.overview_photo_1), (2, self.overview_photo_2)):
-                if zone.photo_path:
-                    session.add(OverviewPhoto(report_id=report.id, slot=slot, photo_path=zone.photo_path))
 
             existing_education = session.query(SafetyEducation).filter_by(report_id=report.id).first()
             attendee_text = self.attendee_input.text().strip()
@@ -143,6 +141,42 @@ class _SaveGenerateMixin:
                 if checkbox.isChecked()
             ]
             report.hazard_factor_checks = checked_factor_numbers
+
+            report.major_hazard_work_checks = [
+                idx for idx, checkbox in enumerate(self.major_hazard_checkboxes) if checkbox.isChecked()
+            ]
+            report.machinery_checks = [
+                {"checked": row.checkbox.isChecked(), "note": row.note_input.text().strip()}
+                for row in self.machinery_rows
+            ]
+            report.hand_tool_checks = [
+                {"checked": row.checkbox.isChecked(), "note": row.note_input.text().strip()}
+                for row in self.hand_tool_rows
+            ]
+            report.hazmat_checks = [
+                {"checked": row.checkbox.isChecked(), "note": row.note_input.text().strip()}
+                for row in self.hazmat_rows
+            ]
+
+            report.current_process_name = self.current_process_name_input.text().strip()
+            session.query(CurrentProcessPhoto).filter_by(report_id=report.id).delete()
+            for slot, zone in ((1, self.current_process_photo_1), (2, self.current_process_photo_2)):
+                if zone.photo_path:
+                    session.add(CurrentProcessPhoto(report_id=report.id, slot=slot, photo_path=zone.photo_path))
+            session.query(CurrentProcessEntry).filter_by(report_id=report.id).delete()
+            for row in self.current_process_slots:
+                if not row.has_data():
+                    continue
+                session.add(
+                    CurrentProcessEntry(
+                        report_id=report.id,
+                        slot=row.slot,
+                        hazard_text=row.hazard_edit.toPlainText(),
+                        measure_text=row.measure_edit.toPlainText(),
+                        risk_level=row.risk_level(),
+                        evaluation=row.evaluation(),
+                    )
+                )
 
             session.query(ProcessHazardEntry).filter_by(report_id=report.id).delete()
             for process_slot in self.process_slots:

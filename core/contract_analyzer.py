@@ -82,12 +82,12 @@ def _encode_pdf(file_path: str | Path) -> str:
     return base64.standard_b64encode(path.read_bytes()).decode("utf-8")
 
 
-def _call_claude(pdf_b64: str, prompt: str, model: str | None = None) -> str:
+def _call_claude(pdf_b64: str, prompt: str, model: str | None = None, max_tokens: int = 1024) -> str:
     """실제 Claude API 호출. 분리해두면 테스트할 때 이 함수만 mocking하면 된다."""
     client = Anthropic(api_key=get_api_key())
     response = client.messages.create(
         model=model or get_model_name(),
-        max_tokens=1024,
+        max_tokens=max_tokens,
         messages=[
             {
                 "role": "user",

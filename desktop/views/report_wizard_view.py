@@ -34,12 +34,13 @@ from core.text_generator import generate_special_note
 from core.vision_analyzer import count_people
 from desktop.dialogs.material_picker_dialog import ClickableThumb, MaterialPickerDialog, MaterialPreviewDialog
 from desktop.views.report_wizard_sections import _SectionBuilderMixin
+from desktop.views.report_wizard_sections2 import _SectionBuilderMixin2
 from desktop.views.report_wizard_save import _SaveGenerateMixin
 from desktop.widgets.cursors import zoom_cursor
 from desktop.workers.ai_worker import AIWorker
 
 
-class ReportWizardView(QWidget, _SectionBuilderMixin, _SaveGenerateMixin):
+class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _SaveGenerateMixin):
     back_requested = pyqtSignal()
     report_saved = pyqtSignal(int)  # site_id
 
@@ -108,15 +109,17 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SaveGenerateMixin):
         content_layout.setContentsMargins(32, 10, 32, 24)
         content_layout.setSpacing(16)
 
-        content_layout.addWidget(self._build_overview_section())
         content_layout.addWidget(self._build_safety_education_section())
-        content_layout.addWidget(self._build_findings_section())
-        content_layout.addWidget(self._build_special_note_section())
         content_layout.addWidget(self._build_previous_findings_section())
+        content_layout.addWidget(self._build_major_hazard_work_section())
+        content_layout.addWidget(self._build_hazard_factors_section())
+        content_layout.addWidget(self._build_equipment_checks_section())
+        content_layout.addWidget(self._build_current_process_section())
+        content_layout.addWidget(self._build_findings_section())
+        content_layout.addWidget(self._build_process_section())
         content_layout.addWidget(self._build_measurement_section())
         content_layout.addWidget(self._build_materials_section())
-        content_layout.addWidget(self._build_hazard_factors_section())
-        content_layout.addWidget(self._build_process_section())
+        content_layout.addWidget(self._build_special_note_section())
         content_layout.addStretch()
 
         scroll.setWidget(content)
@@ -218,12 +221,49 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SaveGenerateMixin):
             if idx >= 0:
                 self.staff_combo.setCurrentIndex(idx)
 
-        for zone in (self.overview_photo_1, self.overview_photo_2):
+        major_hazard_checked = set(report.major_hazard_work_checks or [])
+        for idx, checkbox in enumerate(self.major_hazard_checkboxes):
+            checkbox.setChecked(idx in major_hazard_checked)
+        self.major_hazard_header.set_checked(report.major_hazard_na)
+
+        for rows, saved in (
+            (self.machinery_rows, report.machinery_checks or []),
+            (self.hand_tool_rows, report.hand_tool_checks or []),
+            (self.hazmat_rows, report.hazmat_checks or []),
+        ):
+            for row, entry in zip(rows, saved):
+                row.checkbox.setChecked(bool(entry.get("checked")))
+                row.note_input.setText(entry.get("note") or "")
+        self.equipment_header.set_checked(report.equipment_checks_na)
+
+        self.current_process_name_input.setText(report.current_process_name)
+        for zone in (self.current_process_photo_1, self.current_process_photo_2):
             zone.clear_photo()
-        for photo in report.overview_photos:
-            zone = self.overview_photo_1 if photo.slot == 1 else self.overview_photo_2
+        for photo in report.current_process_photos:
+            zone = self.current_process_photo_1 if photo.slot == 1 else self.current_process_photo_2
             zone.set_photo(photo.photo_path)
-        self.overview_header.set_checked(report.overview_na)
+        current_process_by_slot = {e.slot: e for e in report.current_process_entries}
+        for row in self.current_process_slots:
+            row.hazard_edit.clear()
+            row.measure_edit.clear()
+            row.risk_buttons.setExclusive(False)
+            for btn in row.risk_buttons.buttons():
+                btn.setChecked(False)
+            row.risk_buttons.setExclusive(True)
+            row.eval_buttons.setExclusive(False)
+            for btn in row.eval_buttons.buttons():
+                btn.setChecked(False)
+            row.eval_buttons.setExclusive(True)
+            entry = current_process_by_slot.get(row.slot)
+            if entry:
+                row.hazard_edit.setPlainText(entry.hazard_text)
+                row.measure_edit.setPlainText(entry.measure_text)
+                for btn in row.risk_buttons.buttons():
+                    btn.setChecked(btn.text() == entry.risk_level)
+                for btn in row.eval_buttons.buttons():
+                    btn.setChecked(btn.text() == entry.evaluation)
+            row._update_styles()
+        self.current_process_header.set_checked(report.current_process_na)
 
         if report.safety_education:
             if report.safety_education.photo_path:

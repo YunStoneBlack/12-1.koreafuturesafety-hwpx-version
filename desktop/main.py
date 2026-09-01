@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
 from core.db import init_db
 from desktop.views.dashboard_view import DashboardView
+from desktop.views.report_upload_view import ReportUploadView
 from desktop.views.report_wizard_view import ReportWizardView
 from desktop.views.settings_view import SettingsView
 from desktop.views.site_detail_view import SiteDetailView
@@ -34,6 +35,7 @@ class MainWindow(QMainWindow):
         self.settings_view = SettingsView()
         self.report_wizard_view = ReportWizardView()
         self.staff_view = StaffView()
+        self.report_upload_view = ReportUploadView()
 
         for widget in (
             self.dashboard_view,
@@ -42,6 +44,7 @@ class MainWindow(QMainWindow):
             self.settings_view,
             self.report_wizard_view,
             self.staff_view,
+            self.report_upload_view,
         ):
             self.stack.addWidget(widget)
 
@@ -49,6 +52,11 @@ class MainWindow(QMainWindow):
         self.dashboard_view.settings_requested.connect(self._show_settings)
         self.dashboard_view.staff_requested.connect(self._show_staff)
         self.dashboard_view.site_selected.connect(self._show_site_detail)
+        self.dashboard_view.continue_requested.connect(self._continue_report)
+        self.dashboard_view.report_upload_requested.connect(self._show_report_upload)
+
+        self.report_upload_view.back_requested.connect(self._show_dashboard)
+        self.report_upload_view.upload_completed.connect(self._show_dashboard)
 
         self.site_form_view.back_requested.connect(self._show_dashboard)
         self.site_form_view.site_saved.connect(self._show_site_detail)
@@ -94,6 +102,15 @@ class MainWindow(QMainWindow):
         self._current_site_id = site_id
         self.report_wizard_view.load_for_site(site_id, report_id)
         self.stack.setCurrentWidget(self.report_wizard_view)
+
+    def _continue_report(self, site_id: int, report_id: int | None) -> None:
+        if report_id:
+            self._show_report_wizard_for_edit(site_id, report_id)
+        else:
+            self._show_report_wizard(site_id)
+
+    def _show_report_upload(self) -> None:
+        self.stack.setCurrentWidget(self.report_upload_view)
 
 
 def main() -> None:

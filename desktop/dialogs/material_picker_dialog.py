@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.db import SessionLocal
+from core.hangul_match import matches as hangul_matches
 from core.models_db import MaterialLibrary
 from desktop.widgets.cursors import zoom_cursor
 from desktop.widgets.debounced_search_input import DebouncedSearchInput
@@ -211,11 +212,11 @@ class MaterialPickerDialog(QDialog):
     def _search(self) -> None:
         keyword = self.search_input.current_text().strip()
         with SessionLocal() as session:
-            query = session.query(MaterialLibrary)
-            if keyword:
-                query = query.filter(MaterialLibrary.title.like(f"%{keyword}%"))
-            items = query.order_by(MaterialLibrary.id.desc()).limit(120).all()
-            total = session.query(MaterialLibrary).count()
+            all_items = session.query(MaterialLibrary).order_by(MaterialLibrary.id.desc()).all()
+        # 자모 단위 매칭은 SQL LIKE로 못 하므로(원본 텍스트가 아니라 분해한 자모열끼리
+        # 비교해야 함) 파이썬에서 거른다. 라이브러리가 81건뿐이라 성능은 문제없다.
+        items = [m for m in all_items if hangul_matches(keyword, m.title)][:120]
+        total = len(all_items)
 
         while self._grid_layout.count():
             item = self._grid_layout.takeAt(0)

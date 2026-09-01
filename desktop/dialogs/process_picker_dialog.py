@@ -24,7 +24,9 @@ from PyQt6.QtWidgets import (
 from sqlalchemy import func
 
 from core.db import SessionLocal
+from core.hangul_match import matches as hangul_matches
 from core.models_db import ProcessCatalog
+from desktop.widgets.debounced_search_input import DebouncedSearchInput
 
 _CHIP_STYLE_OFF = (
     "QPushButton { background: white; color: #4b5563; border: 1px solid #d1d5db; "
@@ -85,9 +87,9 @@ class ProcessPickerDialog(QDialog):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        self.search_input = QLineEdit()
+        self.search_input = DebouncedSearchInput(delay_ms=250)
         self.search_input.setPlaceholderText("공정명으로 검색 (예: 굴착, 도장, 방수...)")
-        self.search_input.textChanged.connect(self._search)
+        self.search_input.search_triggered.connect(self._search)
         layout.addWidget(self.search_input)
 
         chip_scroll = QScrollArea()
@@ -165,14 +167,15 @@ class ProcessPickerDialog(QDialog):
         self._search()
 
     def _search(self) -> None:
-        keyword = self.search_input.text().strip()
+        keyword = self.search_input.current_text().strip()
         with SessionLocal() as session:
             query = session.query(ProcessCatalog)
             if self._active_category:
                 query = query.filter(ProcessCatalog.category == self._active_category)
-            if keyword:
-                query = query.filter(ProcessCatalog.process_name.like(f"%{keyword}%"))
-            items = query.order_by(ProcessCatalog.sort_order).limit(200).all()
+            rows = query.order_by(ProcessCatalog.sort_order).all()
+        # 자모 단위 매칭은 SQL LIKE로 못 하므로(원본 텍스트가 아니라 분해한 자모열끼리
+        # 비교해야 함) 파이썬에서 거른다. 카탈로그가 284건뿐이라 성능은 문제없다.
+        items = [row for row in rows if hangul_matches(keyword, row.process_name)][:200]
 
         self.result_list.clear()
         if not items:

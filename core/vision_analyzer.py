@@ -62,7 +62,7 @@ MEASUREMENT_READ_PROMPT = """첨부된 사진은 '{instrument_type}'의 측정 �
 
 반드시 아래 JSON 스키마와 동일한 형식의 JSON 객체만 응답하세요. 다른 설명 텍스트는 포함하지 마세요.
 
-{"value": "읽은 값(단위 제외, 숫자/문자 그대로) 또는 null"}"""
+{{"value": "읽은 값(단위 제외, 숫자/문자 그대로) 또는 null"}}"""
 
 
 def _encode_image(photo_path: str | Path) -> tuple[str, str]:

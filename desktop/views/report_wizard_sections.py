@@ -59,7 +59,7 @@ class _SectionBuilderMixin:
         return self._card(self.overview_header, photos_widget)
 
     def _build_safety_education_section(self) -> QFrame:
-        self.education_header = SectionHeader(2, "안전교육")
+        self.education_header = SectionHeader(1, "안전교육")
         row = QHBoxLayout()
         self.education_photo = PhotoDropZone("안전교육 사진")
         row.addWidget(self.education_photo)
@@ -81,7 +81,7 @@ class _SectionBuilderMixin:
         return self._card(self.education_header, row_widget)
 
     def _build_findings_section(self) -> QFrame:
-        self.findings_header = SectionHeader(3, "지적사항")
+        self.findings_header = SectionHeader(7, "지적사항")
         note = QLabel("✦ 사진 업로드 후 설명을 입력하시고 AI추천 버튼을 클릭하시면 관련 지적사항을 AI가 작성합니다")
         note.setStyleSheet("color: #4f46e5; font-size: 12px;")
         self.finding_slots = [_FindingSlot(i) for i in range(1, 5)]
@@ -89,7 +89,7 @@ class _SectionBuilderMixin:
 
     def _build_special_note_section(self) -> QFrame:
         header_row = QHBoxLayout()
-        badge = QLabel("4")
+        badge = QLabel("11")
         badge.setFixedSize(24, 24)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet("background: #4f46e5; color: white; border-radius: 12px; font-weight: 600;")
@@ -113,7 +113,7 @@ class _SectionBuilderMixin:
         return self._card(header_widget, note, self.special_note_edit, self.special_note_counter)
 
     def _build_previous_findings_section(self) -> QFrame:
-        self.previous_header = SectionHeader(5, "이전지적사항", required=False)
+        self.previous_header = SectionHeader(2, "이전지적사항", required=False)
         self.previous_hint_label = QLabel("이전 회차 지적사항이 없습니다. 직접 넣으실 항목이 있으면 아래 버튼으로 추가하세요.")
         self.previous_hint_label.setStyleSheet("color: #6b7280;")
         self.previous_slots = [_PreviousFindingSlot(i) for i in range(1, 5)]
@@ -136,7 +136,7 @@ class _SectionBuilderMixin:
         self.previous_add_btn.setEnabled(active_count < 4)
 
     def _build_measurement_section(self) -> QFrame:
-        self.measurement_header = SectionHeader(6, "계측자료")
+        self.measurement_header = SectionHeader(9, "계측자료")
         with SessionLocal() as session:
             standards = {s.instrument_type: s.standard_criteria for s in session.query(MeasurementStandard).all()}
         self.measurement_rows = [
@@ -145,7 +145,7 @@ class _SectionBuilderMixin:
         return self._card(self.measurement_header, *self.measurement_rows)
 
     def _build_materials_section(self) -> QFrame:
-        self.materials_header = SectionHeader(7, "제공자료")
+        self.materials_header = SectionHeader(10, "제공자료")
         note = QLabel("✦ AI추천을 누르면 지적사항 내용을 바탕으로 관련 자료를 찾아줍니다")
         note.setStyleSheet("color: #4f46e5; font-size: 12px;")
 
@@ -172,7 +172,7 @@ class _SectionBuilderMixin:
         return self._card(self.materials_header, note, buttons_widget, materials_preview_widget)
 
     def _build_hazard_factors_section(self) -> QFrame:
-        self.hazard_header = SectionHeader(8, "12대 사망사고 기인물 안전조치")
+        self.hazard_header = SectionHeader(4, "사망사고 다발 기인물과 필수 지도사항")
         self.hazard_checkboxes: list[QCheckBox] = []
         widgets: list[QWidget] = [self.hazard_header]
         for number, name, action in FIXED_HAZARD_FACTORS:
@@ -185,7 +185,7 @@ class _SectionBuilderMixin:
         return self._card(*widgets)
 
     def _build_process_section(self) -> QFrame:
-        self.process_header = SectionHeader(9, "진행공정 유해·위험 요인 파악 및 대책")
+        self.process_header = SectionHeader(8, "향후 진행공정 유해·위험 요인 파악 및 대책")
         note = QLabel("보고서 6번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
         self.process_slots = [_ProcessSlot(i) for i in range(1, 5)]

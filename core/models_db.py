@@ -135,7 +135,23 @@ class Report(Base):
     process_entries: Mapped[list["ProcessHazardEntry"]] = relationship(
         back_populates="report", order_by="ProcessHazardEntry.slot", cascade="all, delete-orphan"
     )
+    current_process_photos: Mapped[list["CurrentProcessPhoto"]] = relationship(
+        back_populates="report", order_by="CurrentProcessPhoto.slot", cascade="all, delete-orphan"
+    )
+    current_process_entries: Mapped[list["CurrentProcessEntry"]] = relationship(
+        back_populates="report", order_by="CurrentProcessEntry.slot", cascade="all, delete-orphan"
+    )
     hazard_factor_checks: Mapped[list] = mapped_column(JSON, default=list)
+
+    # Sub-phase 7 (실제 표준 서식 9섹션 개편)에서 추가된 필드.
+    major_hazard_work_checks: Mapped[list] = mapped_column(JSON, default=list)  # 4번 섹션, 체크된 인덱스 목록
+    # 아래 3개는 core.constants의 MACHINERY_EQUIPMENT_ITEMS/HAND_TOOL_ITEMS/HAZMAT_ITEMS와
+    # 같은 순서로 병렬 저장되는 [{"checked": bool, "note": str}, ...] — 항목마다 새 테이블을
+    # 만들기엔 과해서 hazard_factor_checks와 같은 JSON 방식을 그대로 따른다.
+    machinery_checks: Mapped[list] = mapped_column(JSON, default=list)
+    hand_tool_checks: Mapped[list] = mapped_column(JSON, default=list)
+    hazmat_checks: Mapped[list] = mapped_column(JSON, default=list)
+    current_process_name: Mapped[str] = mapped_column(Text, default="")  # 6번 섹션 상단 공정명
 
     # "해당사항없음"은 화면상 항목 단위가 아니라 섹션 단위 토글이라 Report에 둔다.
     overview_na: Mapped[bool] = mapped_column(default=False)
@@ -145,6 +161,9 @@ class Report(Base):
     materials_na: Mapped[bool] = mapped_column(default=False)
     hazard_factors_na: Mapped[bool] = mapped_column(default=False)
     process_na: Mapped[bool] = mapped_column(default=False)
+    major_hazard_na: Mapped[bool] = mapped_column(default=False)
+    equipment_checks_na: Mapped[bool] = mapped_column(default=False)
+    current_process_na: Mapped[bool] = mapped_column(default=False)
 
 
 class OverviewPhoto(Base):
@@ -260,6 +279,36 @@ class ProcessHazardEntry(Base):
     risk_level: Mapped[str] = mapped_column(Text, default="")  # 상/중/하
 
     report: Mapped[Report] = relationship(back_populates="process_entries")
+
+
+class CurrentProcessPhoto(Base):
+    """6. 현재 진행중인 공정 유해위험요인 파악 — 현장 사진 (최대 2장). OverviewPhoto와 동일한 모양."""
+
+    __tablename__ = "current_process_photo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
+    slot: Mapped[int] = mapped_column()  # 1~2
+    photo_path: Mapped[str] = mapped_column(Text, default="")
+
+    report: Mapped[Report] = relationship(back_populates="current_process_photos")
+
+
+class CurrentProcessEntry(Base):
+    """6. 현재 진행중인 공정 유해위험요인 파악 (최대 4행). ProcessHazardEntry와 거의 동일한
+    모양이지만 "현재안전보건조치"·"평가(양호/미흡)" 열이 있다는 점이 다르다."""
+
+    __tablename__ = "current_process_entry"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
+    slot: Mapped[int] = mapped_column()  # 1~4
+    hazard_text: Mapped[str] = mapped_column(Text, default="")
+    measure_text: Mapped[str] = mapped_column(Text, default="")  # 현재안전보건조치
+    risk_level: Mapped[str] = mapped_column(Text, default="")  # 상/중/하
+    evaluation: Mapped[str] = mapped_column(Text, default="")  # 양호/미흡
+
+    report: Mapped[Report] = relationship(back_populates="current_process_entries")
 
 
 class LawArticleCache(Base):
