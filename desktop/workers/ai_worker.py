@@ -24,3 +24,21 @@ class AIWorker(QThread):
             self.finished_error.emit(str(e))
         else:
             self.finished_ok.emit(result)
+
+
+def with_com(task: Callable[[], Any]) -> Callable[[], Any]:
+    """pyhwpx(win32com) 자동화처럼 COM을 쓰는 작업을 `AIWorker`(QThread) 안에서 돌릴 때
+    감싸는 헬퍼. COM은 스레드마다 초기화(`CoInitialize`)가 따로 필요해서, 메인 스레드가
+    아닌 QThread 안에서 그냥 호출하면 실패한다 — 실제로 COM 초기화 후 정상 동작하는 것까지
+    확인했다."""
+
+    def wrapped():
+        import pythoncom
+
+        pythoncom.CoInitialize()
+        try:
+            return task()
+        finally:
+            pythoncom.CoUninitialize()
+
+    return wrapped

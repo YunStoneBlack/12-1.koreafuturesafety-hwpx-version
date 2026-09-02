@@ -136,9 +136,17 @@ class SiteFormView(QWidget):
         row += 1
 
         self.manager_name_input = QLineEdit()
-        self.manager_contact_input = QLineEdit()
-        self.manager_contact_input.setPlaceholderText("연락처 또는 이메일")
-        add_pair("책임자", self.manager_name_input, "연락처(이메일)", self.manager_contact_input)
+        self.manager_phone_input = QLineEdit()
+        self.manager_phone_input.setPlaceholderText("핸드폰 번호")
+        self.manager_email_input = QLineEdit()
+        self.manager_email_input.setPlaceholderText("이메일")
+        contact_row = QHBoxLayout()
+        contact_row.setContentsMargins(0, 0, 0, 0)
+        contact_row.addWidget(self.manager_phone_input)
+        contact_row.addWidget(self.manager_email_input)
+        contact_widget = QWidget()
+        contact_widget.setLayout(contact_row)
+        add_pair("책임자", self.manager_name_input, "연락처(이메일)", contact_widget)
 
         self.address_input = QLineEdit()
         grid.addWidget(QLabel("주소"), row, 0)
@@ -178,6 +186,33 @@ class SiteFormView(QWidget):
 
         return card
 
+    def reset(self) -> None:
+        self._worker = None
+        self.file_label.setText("선택된 파일 없음")
+        self.ai_status_label.setText("")
+        for field in (
+            self.name_input,
+            self.site_mgmt_no_input,
+            self.biz_start_no_input,
+            self.manager_name_input,
+            self.manager_phone_input,
+            self.manager_email_input,
+            self.address_input,
+            self.hq_company_input,
+            self.corp_reg_no_input,
+            self.biz_reg_no_input,
+            self.license_no_input,
+            self.hq_phone_input,
+            self.hq_address_input,
+            self.amount_input,
+        ):
+            field.clear()
+        today = QDate.currentDate()
+        self.period_start_input.setDate(today)
+        self.period_end_input.setDate(today)
+        self.guidance_count_input.setValue(0)
+        self._reload_staff_combo()
+
     def _reload_staff_combo(self) -> None:
         self.staff_combo.clear()
         self.staff_combo.addItem("선택 안 함", userData=None)
@@ -210,8 +245,8 @@ class SiteFormView(QWidget):
         self.biz_start_no_input.setText(data.get("biz_start_no") or "")
         self.address_input.setText(data.get("address") or "")
         self.manager_name_input.setText(data.get("manager_name") or "")
-        contact = " / ".join(filter(None, [data.get("manager_phone"), data.get("manager_email")]))
-        self.manager_contact_input.setText(contact)
+        self.manager_phone_input.setText(data.get("manager_phone") or "")
+        self.manager_email_input.setText(data.get("manager_email") or "")
         self.hq_company_input.setText(data.get("hq_company") or "")
         self.corp_reg_no_input.setText(data.get("corp_reg_no") or "")
         self.biz_reg_no_input.setText(data.get("biz_reg_no") or "")
@@ -236,7 +271,6 @@ class SiteFormView(QWidget):
         self.ai_status_label.setText(f"AI 분석에 실패했습니다: {message}")
 
     def _save_site(self) -> None:
-        manager_phone, _, manager_email = self.manager_contact_input.text().partition(" / ")
         with SessionLocal() as session:
             site = Site(
                 name=self.name_input.text().strip(),
@@ -247,8 +281,8 @@ class SiteFormView(QWidget):
                 site_mgmt_no=self.site_mgmt_no_input.text().strip(),
                 biz_start_no=self.biz_start_no_input.text().strip(),
                 manager_name=self.manager_name_input.text().strip(),
-                manager_phone=manager_phone.strip(),
-                manager_email=manager_email.strip(),
+                manager_phone=self.manager_phone_input.text().strip(),
+                manager_email=self.manager_email_input.text().strip(),
                 hq_company=self.hq_company_input.text().strip(),
                 corp_reg_no=self.corp_reg_no_input.text().strip(),
                 biz_reg_no=self.biz_reg_no_input.text().strip(),

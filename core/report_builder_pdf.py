@@ -170,9 +170,9 @@ def _build_risk_and_hazard_section(report: Report) -> list:
 
     checked = set(report.hazard_factor_checks or [])
     hazard_rows = [[label("구분"), label("사망사고 다발 기인물"), label("필수 지도사항")]]
-    for number, name, action in FIXED_HAZARD_FACTORS:
-        mark = "■" if number in checked else "□"
-        hazard_rows.append([p(mark, align="CENTER"), p(f"{number}. {name}", size=8), p(action, size=8)])
+    for number, name, lines in FIXED_HAZARD_FACTORS:
+        mark = "■" if str(number) in checked else "□"
+        hazard_rows.append([p(mark, align="CENTER"), p(f"{number}. {name}", size=8), p(", ".join(lines), size=8)])
     hazard_table = Table(hazard_rows, colWidths=[14 * mm, 55 * mm, 91 * mm])
     hazard_table.setStyle(_grid_style([("BACKGROUND", (0, 0), (-1, 0), HEADER_BG)]))
 
@@ -190,12 +190,12 @@ def _build_risk_and_hazard_section(report: Report) -> list:
         ("유해위험물질에 대한 안전보건 조치 평가", HAZMAT_ITEMS, report.hazmat_checks or []),
     ):
         rows = [[label("항목"), label("유/무"), label("필수지도사항 확인"), label("평가")]]
-        for idx, (name, guidance) in enumerate(items):
+        for idx, (name, lines) in enumerate(items):
             entry = saved[idx] if idx < len(saved) else {}
             mark = "■" if entry.get("checked") else "□"
-            note = entry.get("note") or "-"
+            note = "/".join(n for n in (entry.get("notes") or []) if n) or "-"
             rows.append(
-                [p(name.replace("\n", " "), size=8), p(mark, align="CENTER"), p(guidance, size=7), p(note, size=8, align="CENTER")]
+                [p(name.replace("\n", " "), size=8), p(mark, align="CENTER"), p(", ".join(lines), size=7), p(note, size=8, align="CENTER")]
             )
         table = Table(rows, colWidths=[38 * mm, 12 * mm, 90 * mm, 20 * mm])
         table.setStyle(_grid_style([("BACKGROUND", (0, 0), (-1, 0), HEADER_BG)]))

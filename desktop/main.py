@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.dashboard_view)
 
     def _show_site_form(self) -> None:
+        self.site_form_view.reset()
         self.stack.setCurrentWidget(self.site_form_view)
 
     def _show_site_detail(self, site_id: int) -> None:

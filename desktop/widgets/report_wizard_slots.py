@@ -228,6 +228,17 @@ class _PreviousFindingSlot(QFrame):
         action_row.addWidget(QLabel("조치 결과"))
         self.action_input = QLineEdit("조치완료")
         action_row.addWidget(self.action_input)
+        action_row.addWidget(QLabel("위험성"))
+        self.risk_buttons = QButtonGroup(self)
+        self.risk_buttons.setExclusive(True)
+        for label in ("상", "중", "하"):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setAutoDefault(False)
+            btn.setStyleSheet(_badge_style(""))
+            btn.toggled.connect(self._update_risk_badge_styles)
+            self.risk_buttons.addButton(btn)
+            action_row.addWidget(btn)
         form_col.addLayout(action_row)
         layout.addLayout(form_col, stretch=1)
 
@@ -244,6 +255,18 @@ class _PreviousFindingSlot(QFrame):
 
         self._active = False
         self.setVisible(False)
+
+    def _update_risk_badge_styles(self) -> None:
+        for btn in self.risk_buttons.buttons():
+            btn.setStyleSheet(_badge_style(btn.text() if btn.isChecked() else ""))
+
+    def risk_level(self) -> str:
+        checked = self.risk_buttons.checkedButton()
+        return checked.text() if checked else ""
+
+    def set_risk_level(self, level: str) -> None:
+        for btn in self.risk_buttons.buttons():
+            btn.setChecked(btn.text() == level)
 
     def _on_confirm_toggled(self, checked: bool) -> None:
         if checked and not self.photo.photo_path:
@@ -278,6 +301,7 @@ class _PreviousFindingSlot(QFrame):
         self.content_edit.setPlainText(finding.content)
         self.action_input.setText("조치완료")
         self.confirm_btn.setChecked(False)
+        self.set_risk_level("")
 
 
 class _MeasurementRow(QFrame):

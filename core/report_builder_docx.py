@@ -125,11 +125,11 @@ def build_report_docx(report_id: int, output_path: str | Path) -> Path:
         hazard_table = _docx_add_table(document, 1 + len(FIXED_HAZARD_FACTORS), 3)
         for c, text in enumerate(("구분", "기인물", "안전조치")):
             _docx_set_cell(hazard_table.cell(0, c), text, bold=True)
-        for i, (number, name, action) in enumerate(FIXED_HAZARD_FACTORS, start=1):
-            mark = "■" if number in checked else "□"
+        for i, (number, name, lines) in enumerate(FIXED_HAZARD_FACTORS, start=1):
+            mark = "■" if str(number) in checked else "□"
             _docx_set_cell(hazard_table.cell(i, 0), mark, align="center")
             _docx_set_cell(hazard_table.cell(i, 1), f"{number}. {name}")
-            _docx_set_cell(hazard_table.cell(i, 2), action)
+            _docx_set_cell(hazard_table.cell(i, 2), ", ".join(lines))
 
         document.add_page_break()
 

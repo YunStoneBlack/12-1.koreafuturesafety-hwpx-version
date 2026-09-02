@@ -93,3 +93,18 @@ def get_law_api_oc() -> str:
 
 def set_law_api_oc(value: str) -> None:
     _set_setting(_KEY_LAW_API_OC, value.strip())
+
+
+def get_company_signature(role: str) -> tuple[str, str]:
+    """결재란(이사/대표이사) 서명 — 회사 전체 고정값. role: "director" | "ceo".
+
+    반환값: (signature_path, source). 등록 안 됐으면 ("", "").
+    """
+    path = (_get_setting(f"signature_{role}_path") or "").strip()
+    source = (_get_setting(f"signature_{role}_source") or "").strip()
+    return path, source
+
+
+def set_company_signature(role: str, path: str, source: str) -> None:
+    _set_setting(f"signature_{role}_path", path)
+    _set_setting(f"signature_{role}_source", source)

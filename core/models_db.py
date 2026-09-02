@@ -25,6 +25,10 @@ class Staff(Base):
     phone: Mapped[str] = mapped_column(Text, default="")
     active: Mapped[bool] = mapped_column(default=True)
 
+    # Sub-phase 8: 담당요원 서명 — 요원별 1회 등록, 모든 보고서에 재사용.
+    signature_path: Mapped[str] = mapped_column(Text, default="")
+    signature_source: Mapped[str] = mapped_column(Text, default="")  # "drawn" | "uploaded"
+
 
 class Site(Base):
     """현장. '신규현장추가' 화면 필드와 1:1 매핑."""
@@ -60,6 +64,9 @@ class Site(Base):
 
     # 12대 기인물 체크 상태(factor_no 리스트)와 진행공정 기본값은 회차 생성 시 그대로 승계된다.
     hazard_factor_checks: Mapped[list] = mapped_column(JSON, default=list)
+
+    # Sub-phase 8: 관리번호 — 현장 단위로 고정, 1회차 저장 시 채워지고 이후 회차는 그대로 재사용.
+    management_no: Mapped[str] = mapped_column(Text, default="")
 
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
@@ -105,7 +112,21 @@ class Report(Base):
 
     pdf_path: Mapped[str] = mapped_column(Text, default="")
     docx_path: Mapped[str] = mapped_column(Text, default="")
-    hwpx_path: Mapped[str] = mapped_column(Text, default="")
+    hwpx_path: Mapped[str] = mapped_column(Text, default="")  # 예전 DOCX→HWPX 변환 파이프라인용(미사용)
+    hwp_path: Mapped[str] = mapped_column(Text, default="")  # Sub-phase 8: 신규 템플릿 기반 .hwp 산출물
+
+    # Sub-phase 8: 통보방법 성명/서명 — 회차마다 통보 대상자가 다를 수 있어 Report에 둔다.
+    notify_signee_name: Mapped[str] = mapped_column(Text, default="")
+    notify_signature_path: Mapped[str] = mapped_column(Text, default="")
+    notify_signature_source: Mapped[str] = mapped_column(Text, default="")  # "drawn" | "uploaded"
+
+    # 표3 "기타 특이사항" 행 — 공사기간 편중/사진촬영 불가/기타(자유 텍스트)/재해발생현황(유·무 + 내용)
+    misc_overwork: Mapped[bool] = mapped_column(default=False)
+    misc_no_photo: Mapped[bool] = mapped_column(default=False)
+    misc_other: Mapped[bool] = mapped_column(default=False)
+    misc_other_text: Mapped[str] = mapped_column(Text, default="")
+    accident_status: Mapped[str] = mapped_column(Text, default="")  # "" | "유" | "무"
+    accident_content: Mapped[str] = mapped_column(Text, default="")
 
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
     updated_at: Mapped[datetime.datetime] = mapped_column(
@@ -190,6 +211,11 @@ class SafetyEducation(Base):
     attendee_count: Mapped[int | None] = mapped_column(default=None)
     na_flag: Mapped[bool] = mapped_column(default=False)
 
+    # Sub-phase 8 (표15 TBM 항목 대응)
+    location: Mapped[str] = mapped_column(Text, default="")  # 교육장소
+    content: Mapped[str] = mapped_column(Text, default="")  # 교육내용
+    material: Mapped[str] = mapped_column(Text, default="")  # 교육자료
+
     report: Mapped[Report] = relationship(back_populates="safety_education")
 
 
@@ -231,6 +257,7 @@ class PreviousFinding(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     action_result: Mapped[str] = mapped_column(Text, default="조치완료")
     confirmed: Mapped[bool] = mapped_column(default=False)
+    risk_level: Mapped[str] = mapped_column(Text, default="")  # 상/중/하 (Sub-phase 8, 표4 대응)
 
     report: Mapped[Report] = relationship(back_populates="previous_findings")
 

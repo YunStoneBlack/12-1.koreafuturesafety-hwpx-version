@@ -184,7 +184,7 @@ class DashboardView(QWidget):
         header_row.addLayout(header_text)
         header_row.addStretch()
 
-        staff_btn = QPushButton("👥 담당요원")
+        staff_btn = QPushButton("👥 담당요원 및 서명관리")
         staff_btn.clicked.connect(self.staff_requested.emit)
         settings_btn = QPushButton("⚙ AI 관리")
         settings_btn.clicked.connect(self.settings_requested.emit)

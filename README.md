@@ -26,22 +26,37 @@ python -m desktop.main
   - `contract_analyzer.py` — 계약서 PDF → 신규현장추가 폼 필드 AI 추출
   - `report_extractor.py` / `report_import.py` — 과거 보고서 PDF → 회차 데이터 AI 추출 / 현장 매칭·저장
     ("이전 보고서 업로드" 기능용)
-  - `report_builder.py` — 재수출 창구(`build_report`/`build_report_docx`). 실제 구현은
+  - `report_builder.py` — 재수출 창구(`build_report`/`build_report_docx`/`build_report_hwp`). 실제 구현은
     `report_builder_common.py`(공통 헬퍼) / `report_builder_pdf.py`(PDF, 실제 표준 서식 9섹션) /
-    `report_builder_docx.py`(DOCX, 아직 예전 7섹션 — 미리보기 흐름에 연결 안 돼있어 우선순위 낮음)
+    `report_builder_docx.py`(DOCX, 아직 예전 7섹션 — 미리보기 흐름에 연결 안 돼있어 우선순위 낮음) /
+    `report_builder_hwp.py` + `report_builder_hwp_fields.py`(텍스트 필드) +
+    `report_builder_hwp_images.py`(서명 이미지 삽입) — 한글(.hwp), 실제 서식 파일을 템플릿으로
+    재사용. 표0(결재란)·표1~3·표5·표6(17대 기인물)·표8~11·표13~15가 채워지고 결재란/담당요원/
+    현장책임자 서명 이미지도 삽입됨(Sub-phase 8~9) — 표4(이전지적사항)·표12는 아직 미채움
   - `hangul_match.py` — 자모 단위 부분일치 검색 (조합 중인 글자도 검색 가능)
-  - `config.py` — API 키/설정 관리
+  - `config.py` — API 키/설정 관리(+ Sub-phase 8: 이사/대표이사 결재 서명 저장)
 - `desktop/` — PyQt6 UI
   - `main.py` — 앱 진입점
-  - `views/` — 화면 (대시보드, 신규현장추가, 현장상세, 보고서 작성 마법사, 이전 보고서 업로드, AI 관리)
+  - `views/` — 화면 (대시보드, 신규현장추가, 현장상세, 보고서 작성 마법사, 이전 보고서 업로드,
+    담당요원 및 서명관리, AI 관리)
     - 보고서 작성 마법사는 파일 하나가 너무 커지지 않도록 나뉘어 있음: `report_wizard_view.py`
-      (메인 뷰, 회차 불러오기/AI 액션), `report_wizard_sections.py`(1~9번 섹션),
-      `report_wizard_sections2.py`(Sub-phase 7에서 추가된 신규 섹션 3개),
-      `report_wizard_save.py`(DB 저장 + PDF 생성)
-  - `dialogs/` — 법령 검색 / 공정 선택 / 제공자료 선택 / 보고서 미리보기 모달
+      (메인 뷰, 회차 불러오기/AI 액션), `report_wizard_sections.py`(1~9번 섹션 — 17대 기인물
+      표는 `QTableWidget`+`setSpan`으로 실제 서식과 같은 행 구조로 렌더링),
+      `report_wizard_sections2.py`(대형사고위험작업 + 5-3 건설기계장비·위험기계기구·
+      유해위험물질 — 5번 카드 하위 소제목으로 병합, 표8/9/10도 QTableWidget 기반),
+      `report_wizard_sections3.py`(관리번호·통보방법·서명 섹션),
+      `report_wizard_save.py`(DB 저장 + PDF/한글 생성)
+  - `dialogs/` — 법령 검색 / 공정 선택 / 제공자료 선택 / 보고서 미리보기 모달(한글·PDF 2버튼) /
+    담당요원 서명 등록(`staff_signature_dialog.py`) / 담당요원 정보 수정·선택
+    (`staff_edit_dialog.py`/`staff_picker_dialog.py`)
   - `workers/` — AI 호출을 백그라운드 스레드로 실행하는 워커
-  - `widgets/` — 재사용 UI 컴포넌트 (`report_wizard_slots.py`에 보고서 마법사 하위 "한 칸" 위젯들 포함)
-- `data/` — 로컬 DB 파일, 참조 데이터(계측기준 등), `migrate_v7_report_format.py`(Sub-phase 7 스키마 마이그레이션)
+  - `widgets/` — 재사용 UI 컴포넌트 (`report_wizard_slots.py`에 보고서 마법사 하위 "한 칸" 위젯들 포함,
+    `signature_pad.py`에 마우스 그리기/이미지 첨부 서명 위젯)
+- `data/` — 로컬 DB 파일, 참조 데이터(계측기준 등), `migrate_v7_report_format.py`/
+  `migrate_v8_hwp_signatures.py`/`migrate_v9_misc_notes.py`(스키마 마이그레이션),
+  `build_hwp_template.py`(한글 템플릿 생성 1회성 도구, 실행: `python -m data.build_hwp_template`) +
+  `build_hwp_template_table6.py`/`build_hwp_template_equipment.py`(표별 전용 처리 분리) +
+  `hwp_template_common.py`(공통 유틸), `templates/`(생성된 한글 템플릿 — git 미포함, 아래 진행 상황 참고)
 
 ## 진행 상황
 
@@ -56,22 +71,33 @@ python -m desktop.main
   매칭하거나 신규 생성 + 같은 회차 중복 자동 스킵. 검토는 핵심 필드(현장명/회차/지도일/공정률)만
   가볍게 하고, 세부 내용은 등록 후 보고서 작성 마법사에서 수정.
   - 남은 것: 보고서 미리보기 화면 안에서의 워드/한글(DOCX/HWPX) 생성(현재 PDF만 지원)
-- **Sub-phase 7 (진행 중)**: 실제 사용자가 쓰는 최신 표준 서식(9섹션)에 맞춰 보고서 양식 전면 개편.
+- **Sub-phase 7 (완료)**: 실제 사용자가 쓰는 최신 표준 서식(9섹션)에 맞춰 보고서 양식 전면 개편.
   스키마(대형사고위험작업 25종/기인물 12→17개/건설기계장비·위험기계기구·유해위험물질 3종 안전조치표/
-  현재진행중공정 섹션) + 마법사 입력화면 + PDF 생성까지 새 구조로 완료, 실제 9페이지를 렌더링해
-  실제 서식과 육안 대조 확인함. 사용자 피드백 "완벽하진 않은데 조금 더 다듬어야겠다"로 다음 세션에서
-  구체 내용 받아 이어갈 예정.
-  - 남은 것: DOCX를 9섹션 구조로 맞추기, 보고서 관리번호·서명 등록/입력·결재라인(다음 라운드로
-    미루기로 확정)
+  현재진행중공정 섹션) + 마법사 입력화면 + PDF 생성까지 새 구조로 완료.
+- **Sub-phase 8 (완료)**: 관리번호·서명 GUI(그리기/이미지 첨부 서명 위젯, 담당요원/이사·대표이사/
+  통보방법 3곳에 배치) + 실제 서식 `.hwp` 파일을 템플릿으로 재사용하는 한글 출력 파이프라인 +
+  미리보기 "한글 파일 생성"/"PDF 생성" 2버튼화.
+- **Sub-phase 9 (완료)**: 표0(결재란)·담당요원·현장책임자 서명을 실제 이미지로 산출물에 삽입,
+  표3(기술지도 개요)의 실제 고객사 PII 스크럽, 17대 기인물(표6) 마법사 UI를 실제 문서와 같은
+  줄 단위 체크 구조로 재설계(`QTableWidget`+`setSpan`), 5-3(건설기계장비·위험기계기구·
+  유해위험물질)을 5번 카드 하위로 병합하고 같은 표 구조로 재설계 + 유/무·평가(줄별 독립
+  양호/미흡) 산출물 연동까지 완료. 한글 템플릿은 표0/1/2/3/5/6/8/9/10/11/13/14/15가 채워지는
+  상태 — 표4(이전지적사항)·표12만 남음.
+  - 남은 것: 표4(이전지적사항)·표12 채우기(실 데이터 부재로 셀 의미 미확정), DOCX를 9섹션
+    구조로 맞추기(우선순위 낮음). 자세한 내용은 `작업내용.md`의 "Sub-phase 9" 절과 한글
+    COM 자동화 함정은 `핵심기술.md` 참고.
 
-### 한글(HWPX) 출력 — 현재 이 PC에서는 안 됨, 확인 필요
-DOCX를 한글에서 열어 HWPX로 저장하는 방식(`core/hwpx_exporter.py`, pyhwpx)으로 시도했는데,
-**이 PC의 한글에서 DOCX(OOXML) 파일 열기 자체가 실패**합니다 (빈 문서로 테스트해도 동일).
-반면 한글 고유 포맷(.hwp) 저장/열기는 COM 자동화로 정상 동작하는 것까지 확인했습니다 —
-즉 자동화 자체는 되는데 "MS오피스 문서 가져오기" 필터만 막혀있는 것으로 보입니다.
-→ **한글에서 직접 아무 .docx 파일이나 열어보시고 어떤 메시지가 뜨는지 알려주시면**, 그에 맞춰 고치거나
-(예: 호환 필터 설치 안내) 아니면 한글 API로 직접 문서를 만드는 방식으로 다시 짜야 합니다.
-현재는 PDF/DOCX만 생성되고 HWPX는 실패 메시지만 뜨도록 안전하게 처리해뒀습니다(앱이 죽지 않음).
+### 한글(.hwp) 출력 — 실제 서식 템플릿 방식은 정상 동작함
+현재 쓰는 한글 출력 경로는 `report_builder_hwp.py`(+ `report_builder_hwp_fields.py`/
+`report_builder_hwp_images.py`)로, **실제 서식 `.hwp` 파일 자체를 템플릿으로 재사용**해
+누름틀(필드)만 채우는 방식 — 정상 동작하며 미리보기 "한글 파일 생성" 버튼으로 실제 사용한다.
+
+아래는 그 이전에 시도했다가 막혀서 보류한 **별개의 옛 경로**(DOCX를 한글에서 열어 HWPX로
+저장, `core/hwpx_exporter.py`, pyhwpx)에 대한 기록 — **이 PC의 한글에서 DOCX(OOXML) 파일
+열기 자체가 실패**합니다(빈 문서로 테스트해도 동일). 반면 한글 고유 포맷(.hwp) 저장/열기는
+COM 자동화로 정상 동작하는 것까지 확인했습니다(바로 위 템플릿 방식이 그 증거) — 즉 자동화
+자체는 되는데 "MS오피스 문서 가져오기" 필터만 막혀있던 것으로 보입니다. 지금은 이 옛 경로
+대신 템플릿 방식을 쓰므로 더 이상 막혀있을 이유가 없지만, 코드는 참고용으로 남겨뒀습니다.
 
 ### 참조 데이터 현황
 - **제공자료 라이브러리(`MaterialLibrary`)**: 채워짐 — 사용자가 직접 고른 81개 포스터/카드뉴스 (`data/materials/`, 파일명=제목)

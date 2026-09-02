@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -26,7 +27,6 @@ from PyQt6.QtWidgets import (
 )
 
 from core import config
-from core.constants import FIXED_HAZARD_FACTORS
 from core.db import SessionLocal
 from core.material_recommender import recommend_materials
 from core.models_db import MaterialLibrary, Report, Site, Staff
@@ -35,12 +35,15 @@ from core.vision_analyzer import count_people
 from desktop.dialogs.material_picker_dialog import ClickableThumb, MaterialPickerDialog, MaterialPreviewDialog
 from desktop.views.report_wizard_sections import _SectionBuilderMixin
 from desktop.views.report_wizard_sections2 import _SectionBuilderMixin2
+from desktop.views.report_wizard_sections3 import _SectionBuilderMixin3
 from desktop.views.report_wizard_save import _SaveGenerateMixin
 from desktop.widgets.cursors import zoom_cursor
 from desktop.workers.ai_worker import AIWorker
 
 
-class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _SaveGenerateMixin):
+class ReportWizardView(
+    QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _SectionBuilderMixin3, _SaveGenerateMixin
+):
     back_requested = pyqtSignal()
     report_saved = pyqtSignal(int)  # site_id
 
@@ -50,6 +53,7 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
         self._report_id: int | None = None
         self._people_worker: AIWorker | None = None
         self._note_worker: AIWorker | None = None
+        self._export_worker: AIWorker | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -71,6 +75,9 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
         header_row.addStretch()
         header_row.addWidget(QLabel("담당요원"))
         self.staff_combo = QComboBox()
+        self.staff_combo.currentIndexChanged.connect(
+            lambda: self._refresh_signoff_previews(self.staff_combo.currentData())
+        )
         header_row.addWidget(self.staff_combo)
         top_bar.addLayout(header_row)
 
@@ -98,6 +105,21 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
         fields_row.addStretch()
         top_bar.addLayout(fields_row)
 
+        mgmt_row = QHBoxLayout()
+        mgmt_row.addWidget(QLabel("관리번호"))
+        self.management_no_input = QLineEdit()
+        self.management_no_input.setPlaceholderText("예: 2026-0000001")
+        self.management_no_input.setFixedWidth(160)
+        mgmt_row.addWidget(self.management_no_input)
+        self.management_no_auto_btn = QPushButton("자동생성")
+        self.management_no_auto_btn.clicked.connect(self._auto_generate_management_no)
+        mgmt_row.addWidget(self.management_no_auto_btn)
+        self.management_no_hint = QLabel("")
+        self.management_no_hint.setStyleSheet("color: #9ca3af; font-size: 11px;")
+        mgmt_row.addWidget(self.management_no_hint)
+        mgmt_row.addStretch()
+        top_bar.addLayout(mgmt_row)
+
         top_bar_widget = QWidget()
         top_bar_widget.setLayout(top_bar)
         root.addWidget(top_bar_widget)
@@ -109,14 +131,15 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
         content_layout.setContentsMargins(32, 10, 32, 24)
         content_layout.setSpacing(16)
 
-        content_layout.addWidget(self._build_safety_education_section())
+        content_layout.addWidget(self._build_signoff_section())
+        content_layout.addWidget(self._build_misc_note_section())
         content_layout.addWidget(self._build_previous_findings_section())
         content_layout.addWidget(self._build_major_hazard_work_section())
         content_layout.addWidget(self._build_hazard_factors_section())
-        content_layout.addWidget(self._build_equipment_checks_section())
         content_layout.addWidget(self._build_current_process_section())
         content_layout.addWidget(self._build_findings_section())
         content_layout.addWidget(self._build_process_section())
+        content_layout.addWidget(self._build_safety_education_section())
         content_layout.addWidget(self._build_measurement_section())
         content_layout.addWidget(self._build_materials_section())
         content_layout.addWidget(self._build_special_note_section())
@@ -176,6 +199,21 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
             )
             next_visit_no = (existing_reports[-1].visit_no + 1) if existing_reports else 1
             self.visit_no_label.setText(str(next_visit_no))
+            self._apply_management_no_editability(next_visit_no, site.management_no if site else "")
+
+            self.notify_signee_input.setText(site.manager_name if site else "")
+            self.notify_signature_pad.clear_signature()
+            self._set_notify_signature_status(False)
+            self.set_notification_method("")
+            self._refresh_signoff_previews(site.assigned_staff_id if site else None)
+
+            self.misc_overwork_check.setChecked(False)
+            self.misc_no_photo_check.setChecked(False)
+            self.misc_other_check.setChecked(False)
+            self.misc_other_input.clear()
+            self.accident_yes_check.setChecked(False)
+            self.accident_no_check.setChecked(True)
+            self.accident_content_input.clear()
 
             for slot in self.previous_slots:
                 slot.set_active(False)
@@ -188,9 +226,7 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
                     slot.load_from_finding(finding)
             self._update_previous_add_btn()
 
-            checked_factors = set(site.hazard_factor_checks or []) if site else set()
-            for checkbox, (number, _name, _action) in zip(self.hazard_checkboxes, FIXED_HAZARD_FACTORS):
-                checkbox.setChecked(number in checked_factors)
+            self._apply_hazard_checks(set(site.hazard_factor_checks or []) if site else set())
 
             process_defaults = site.process_defaults if site else []
             for process_slot in self.process_slots:
@@ -210,9 +246,57 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
                 if report:
                     self._load_existing_report(report)
 
+    def _apply_management_no_editability(self, visit_no: int, site_management_no: str) -> None:
+        """관리번호는 현장 단위로 고정 — 1회차에서만 입력/자동생성 가능, 이후 회차는 읽기전용."""
+        self.management_no_input.setText(site_management_no)
+        if visit_no <= 1:
+            self.management_no_input.setReadOnly(False)
+            self.management_no_auto_btn.setVisible(True)
+            self.management_no_hint.setText("1회차 관리번호는 이 현장의 모든 회차에 계속 쓰입니다.")
+        else:
+            self.management_no_input.setReadOnly(True)
+            self.management_no_auto_btn.setVisible(False)
+            self.management_no_hint.setText("이 현장의 관리번호(1회차에 등록됨)")
+
+    def _auto_generate_management_no(self) -> None:
+        year = self.guidance_date_input.date().year()
+        prefix = f"{year}-"
+        max_seq = 0
+        with SessionLocal() as session:
+            for (management_no,) in session.query(Site.management_no).all():
+                if management_no and management_no.startswith(prefix):
+                    suffix = management_no[len(prefix):]
+                    if suffix.isdigit():
+                        max_seq = max(max_seq, int(suffix))
+        self.management_no_input.setText(f"{prefix}{max_seq + 1:07d}")
+
     def _load_existing_report(self, report: Report) -> None:
         """기존 보고서를 수정 모드로 불러온다 — '새 회차' 기본값을 실제 저장값으로 덮어쓴다."""
         self.visit_no_label.setText(str(report.visit_no))
+        self._apply_management_no_editability(
+            report.visit_no, report.site.management_no if report.site else ""
+        )
+
+        self.set_notification_method(report.notification_method)
+        self.notify_signee_input.setText(
+            report.notify_signee_name or (report.site.manager_name if report.site else "")
+        )
+        if report.notify_signature_path:
+            self.notify_signature_pad.load_existing(report.notify_signature_path)
+            self._set_notify_signature_status(True)
+        else:
+            self.notify_signature_pad.clear_signature()
+            self._set_notify_signature_status(False)
+        self._refresh_signoff_previews(report.assigned_staff_id)
+
+        self.misc_overwork_check.setChecked(report.misc_overwork)
+        self.misc_no_photo_check.setChecked(report.misc_no_photo)
+        self.misc_other_check.setChecked(report.misc_other)
+        self.misc_other_input.setText(report.misc_other_text)
+        self.accident_yes_check.setChecked(report.accident_status == "유")
+        self.accident_no_check.setChecked(report.accident_status == "무")
+        self.accident_content_input.setText(report.accident_content)
+
         if report.guidance_date:
             self.guidance_date_input.setDate(QDate(report.guidance_date.year, report.guidance_date.month, report.guidance_date.day))
         self.progress_input.setValue(report.progress_rate or 0)
@@ -233,7 +317,7 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
         ):
             for row, entry in zip(rows, saved):
                 row.checkbox.setChecked(bool(entry.get("checked")))
-                row.note_input.setText(entry.get("note") or "")
+                row.set_evaluations(entry.get("notes") or [])
         self.equipment_header.set_checked(report.equipment_checks_na)
 
         self.current_process_name_input.setText(report.current_process_name)
@@ -272,6 +356,9 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
                 str(report.safety_education.attendee_count) if report.safety_education.attendee_count is not None else ""
             )
             self.education_header.set_checked(report.safety_education.na_flag)
+            self.education_location_input.setText(report.safety_education.location)
+            self.education_content_input.setText(report.safety_education.content)
+            self.education_material_input.setText(report.safety_education.material)
 
         findings_by_slot = {f.slot: f for f in report.findings}
         for slot_widget in self.finding_slots:
@@ -303,6 +390,7 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
                 slot_widget.content_edit.setPlainText(p.content)
                 slot_widget.action_input.setText(p.action_result)
                 slot_widget.confirm_btn.setChecked(p.confirmed)
+                slot_widget.set_risk_level(p.risk_level)
         self._update_previous_add_btn()
         self.previous_header.set_checked(report.previous_findings_na)
 
@@ -321,9 +409,7 @@ class ReportWizardView(QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _Sa
         self._update_materials_summary()
         self.materials_header.set_checked(report.materials_na)
 
-        checked = set(report.hazard_factor_checks or [])
-        for checkbox, (number, _name, _action) in zip(self.hazard_checkboxes, FIXED_HAZARD_FACTORS):
-            checkbox.setChecked(number in checked)
+        self._apply_hazard_checks(set(report.hazard_factor_checks or []))
         self.hazard_header.set_checked(report.hazard_factors_na)
 
         for process_slot in self.process_slots:

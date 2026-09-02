@@ -21,18 +21,22 @@ _NA_STYLE_ON = (
 class SectionHeader(QWidget):
     na_toggled = pyqtSignal(bool)
 
-    def __init__(self, number: int, title: str, required: bool = True, parent=None):
+    def __init__(self, number: int | None, title: str, required: bool = True, parent=None):
+        """`number`가 None이면 번호 배지를 안 그린다 — 큰 섹션의 하위 항목(예: "5-3. ...")처럼
+        독립된 번호가 아니라 상위 섹션에 속한 소제목으로 표시하고 싶을 때 쓴다(해당사항없음
+        토글은 그대로 유지)."""
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        badge = QLabel(str(number))
-        badge.setFixedSize(24, 24)
-        badge.setStyleSheet(
-            "background: #4f46e5; color: white; border-radius: 12px; font-weight: 600;"
-        )
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(badge)
+        if number is not None:
+            badge = QLabel(str(number))
+            badge.setFixedSize(24, 24)
+            badge.setStyleSheet(
+                "background: #4f46e5; color: white; border-radius: 12px; font-weight: 600;"
+            )
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(badge)
 
         title_text = title + (" •" if required else "")
         title_label = QLabel(title_text)

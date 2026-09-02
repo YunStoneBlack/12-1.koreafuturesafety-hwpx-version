@@ -8,13 +8,16 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
+    QTableWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -59,7 +62,7 @@ class _SectionBuilderMixin:
         return self._card(self.overview_header, photos_widget)
 
     def _build_safety_education_section(self) -> QFrame:
-        self.education_header = SectionHeader(1, "안전교육")
+        self.education_header = SectionHeader(9, "안전교육")
         row = QHBoxLayout()
         self.education_photo = PhotoDropZone("안전교육 사진")
         row.addWidget(self.education_photo)
@@ -73,6 +76,22 @@ class _SectionBuilderMixin:
         self.count_people_btn.clicked.connect(self._run_count_people)
         form_col.addWidget(self.count_people_btn)
         form_col.addWidget(QLabel("직접 입력하셔도 됩니다"))
+
+        form_col.addWidget(QLabel("교육장소"))
+        self.education_location_input = QLineEdit()
+        self.education_location_input.setPlaceholderText("예: 현장 사무실")
+        form_col.addWidget(self.education_location_input)
+
+        form_col.addWidget(QLabel("교육내용"))
+        self.education_content_input = QLineEdit()
+        self.education_content_input.setPlaceholderText("예: 추락재해 예방교육")
+        form_col.addWidget(self.education_content_input)
+
+        form_col.addWidget(QLabel("교육자료"))
+        self.education_material_input = QLineEdit()
+        self.education_material_input.setPlaceholderText("예: 안전보건표지판")
+        form_col.addWidget(self.education_material_input)
+
         form_col.addStretch()
         row.addLayout(form_col)
         row.addStretch()
@@ -89,12 +108,12 @@ class _SectionBuilderMixin:
 
     def _build_special_note_section(self) -> QFrame:
         header_row = QHBoxLayout()
-        badge = QLabel("11")
+        badge = QLabel("12")
         badge.setFixedSize(24, 24)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet("background: #4f46e5; color: white; border-radius: 12px; font-weight: 600;")
         header_row.addWidget(badge)
-        title = QLabel("기타 특이사항 •")
+        title = QLabel("무제 •")
         title.setStyleSheet("font-size: 15px; font-weight: 700; margin-left: 6px;")
         header_row.addWidget(title)
         header_row.addStretch()
@@ -113,7 +132,7 @@ class _SectionBuilderMixin:
         return self._card(header_widget, note, self.special_note_edit, self.special_note_counter)
 
     def _build_previous_findings_section(self) -> QFrame:
-        self.previous_header = SectionHeader(2, "이전지적사항", required=False)
+        self.previous_header = SectionHeader(3, "이전지적사항", required=False)
         self.previous_hint_label = QLabel("이전 회차 지적사항이 없습니다. 직접 넣으실 항목이 있으면 아래 버튼으로 추가하세요.")
         self.previous_hint_label.setStyleSheet("color: #6b7280;")
         self.previous_slots = [_PreviousFindingSlot(i) for i in range(1, 5)]
@@ -136,7 +155,7 @@ class _SectionBuilderMixin:
         self.previous_add_btn.setEnabled(active_count < 4)
 
     def _build_measurement_section(self) -> QFrame:
-        self.measurement_header = SectionHeader(9, "계측자료")
+        self.measurement_header = SectionHeader(10, "계측자료")
         with SessionLocal() as session:
             standards = {s.instrument_type: s.standard_criteria for s in session.query(MeasurementStandard).all()}
         self.measurement_rows = [
@@ -145,7 +164,7 @@ class _SectionBuilderMixin:
         return self._card(self.measurement_header, *self.measurement_rows)
 
     def _build_materials_section(self) -> QFrame:
-        self.materials_header = SectionHeader(10, "제공자료")
+        self.materials_header = SectionHeader(11, "제공자료")
         note = QLabel("✦ AI추천을 누르면 지적사항 내용을 바탕으로 관련 자료를 찾아줍니다")
         note.setStyleSheet("color: #4f46e5; font-size: 12px;")
 
@@ -171,18 +190,125 @@ class _SectionBuilderMixin:
 
         return self._card(self.materials_header, note, buttons_widget, materials_preview_widget)
 
+    def _hazard_checkbox_style(self, bold: bool = False) -> str:
+        # 체크박스 자체 모양(둥근 표시 등)은 4번 카드(대형사고 위험작업)와 같은 기본 스타일을
+        # 그대로 쓴다 — 여기서 커스텀 indicator를 따로 입히지 않는다.
+        weight = " font-weight: 600;" if bold else ""
+        return f"QCheckBox {{ padding: 2px 4px;{weight} }}"
+
+    def _hazard_column(self, numbers: list[int], factors_by_number: dict[int, tuple[str, list[str]]]) -> QTableWidget:
+        """기인물 번호 목록 하나를 표 한 열로 그린다(사망사고 다발 기인물 | 필수 지도사항).
+
+        셀 테두리를 QFrame/QLabel에 CSS border를 일일이 발라 흉내 내던 방식은 칸 사이 경계가
+        가끔 어긋나 보이는 문제가 있었다 — `QTableWidget`은 격자선을 own 렌더링 기능으로
+        그려주므로 이 문제 자체가 생기지 않는다. 기인물 이름 칸은 그 기인물의 지도사항
+        줄 수만큼 `setSpan()`으로 세로 병합한다.
+        """
+        table = QTableWidget()
+        table.setColumnCount(2)
+        table.setHorizontalHeaderLabels(["사망사고 다발 기인물", "필수 지도사항"])
+        table.verticalHeader().setVisible(False)
+        table.setShowGrid(True)
+        table.setStyleSheet(
+            "QTableWidget { gridline-color: #d1d5db; border: 1px solid #9ca3af; border-radius: 0px; background: white; }"
+            "QHeaderView::section { background: #dbeafe; font-weight: 600; border: 1px solid #9ca3af; padding: 4px; }"
+        )
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.setFrameShape(QFrame.Shape.NoFrame)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        total_rows = sum(max(len(factors_by_number[number][1]), 1) for number in numbers)
+        table.setRowCount(total_rows)
+
+        row_cursor = 0
+        for number in numbers:
+            name, lines = factors_by_number[number]
+            row_span = max(len(lines), 1)
+
+            checkbox = QCheckBox(f"{number}. {name}")
+            checkbox.setStyleSheet(self._hazard_checkbox_style(bold=True))
+            table.setCellWidget(row_cursor, 0, checkbox)
+            if row_span > 1:
+                table.setSpan(row_cursor, 0, row_span, 1)
+            self.hazard_checkboxes[number] = checkbox
+
+            line_checkboxes: list[QCheckBox] = []
+            for line in lines:
+                line_checkbox = QCheckBox(line)
+                line_checkbox.setStyleSheet(self._hazard_checkbox_style())
+                table.setCellWidget(row_cursor + len(line_checkboxes), 1, line_checkbox)
+                line_checkboxes.append(line_checkbox)
+            self.hazard_line_checkboxes[number] = line_checkboxes
+
+            row_cursor += row_span
+
+        table.resizeRowsToContents()
+        header_height = table.horizontalHeader().height()
+        rows_height = sum(table.rowHeight(r) for r in range(total_rows))
+        table.setFixedHeight(header_height + rows_height + 4)
+        return table
+
+    def _build_hazard_grid(
+        self, left_numbers: list[int], right_numbers: list[int], factors_by_number: dict[int, tuple[str, list[str]]]
+    ) -> QFrame:
+        """왼쪽/오른쪽 표는 각자 항목 수가 달라 원래 높이가 서로 다른데, 그대로 두면 짧은 쪽
+        표의 테두리가 긴 쪽보다 먼저 닫혀버려 중간에 네모난 모서리가 튀어나온 것처럼 보인다
+        (표 두 개가 옆으로 붙어있을 뿐 하나로 안 보임). 둘 중 더 큰 높이로 맞춰 짧은 쪽
+        아래에 빈 여백을 주면 테두리가 같은 줄에서 끝나 자연스럽게 이어져 보인다.
+        """
+        frame = QFrame()
+        outer = QHBoxLayout(frame)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        left_table = self._hazard_column(left_numbers, factors_by_number)
+        right_table = self._hazard_column(right_numbers, factors_by_number)
+        max_height = max(left_table.height(), right_table.height())
+        left_table.setFixedHeight(max_height)
+        right_table.setFixedHeight(max_height)
+        outer.addWidget(left_table, 0, Qt.AlignmentFlag.AlignTop)
+        outer.addWidget(right_table, 0, Qt.AlignmentFlag.AlignTop)
+        return frame
+
     def _build_hazard_factors_section(self) -> QFrame:
-        self.hazard_header = SectionHeader(4, "사망사고 다발 기인물과 필수 지도사항")
-        self.hazard_checkboxes: list[QCheckBox] = []
-        widgets: list[QWidget] = [self.hazard_header]
-        for number, name, action in FIXED_HAZARD_FACTORS:
-            checkbox = QCheckBox(f"{number}. {name} — {action}")
-            self.hazard_checkboxes.append(checkbox)
-            widgets.append(checkbox)
+        self.hazard_header = SectionHeader(5, "위험성평가 기준 및 12대 기인물 필수 지도사항")
+        self.hazard_checkboxes: dict[int, QCheckBox] = {}
+        self.hazard_line_checkboxes: dict[int, list[QCheckBox]] = {}
+        factors_by_number = {number: (name, lines) for number, name, lines in FIXED_HAZARD_FACTORS}
+
+        sub1 = QLabel("5-1. 사망사고 다발 12대 기인물과 필수 지도사항")
+        sub1.setStyleSheet("font-size: 13px; font-weight: 600; margin-top: 4px;")
+        main_grid_widget = self._build_hazard_grid([1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12], factors_by_number)
+
+        sub2 = QLabel("5-2. 기타사항")
+        sub2.setStyleSheet("font-size: 13px; font-weight: 600; margin-top: 8px;")
+        misc_grid_widget = self._build_hazard_grid([13, 15, 17], [14, 16], factors_by_number)
+
         note = QLabel("1회차에 체크하면 다음 회차부터 자동으로 동일하게 적용됩니다.")
         note.setStyleSheet("color: #9ca3af; font-size: 11px;")
-        widgets.append(note)
-        return self._card(*widgets)
+
+        # 5-3. 건설기계장비·위험기계기구·유해위험물질 안전조치 평가 — 실제 문서에서 12대
+        # 기인물 표 바로 뒤에 번호 없이 이어지는 구조라 별도 카드로 안 만들고 여기 이어붙인다
+        # (_SectionBuilderMixin2에 정의됨, ReportWizardView가 두 mixin을 함께 상속하므로
+        # self로 바로 접근된다).
+        equipment_widgets = self._build_equipment_check_widgets()
+
+        return self._card(
+            self.hazard_header, sub1, main_grid_widget, sub2, misc_grid_widget, *equipment_widgets, note
+        )
+
+    def _apply_hazard_checks(self, checked_ids: set[str]) -> None:
+        """`hazard_factor_checks`(JSON 문자열 목록, "N"=기인물 자체, "N-M"=지도사항 M번째 줄)를
+        체크박스 상태로 반영한다. 새 회차 초기화/기존 보고서 불러오기 둘 다 이 메서드를 쓴다."""
+        for number, checkbox in self.hazard_checkboxes.items():
+            checkbox.setChecked(str(number) in checked_ids)
+        for number, line_checkboxes in self.hazard_line_checkboxes.items():
+            for line_index, line_checkbox in enumerate(line_checkboxes):
+                line_checkbox.setChecked(f"{number}-{line_index}" in checked_ids)
 
     def _build_process_section(self) -> QFrame:
         self.process_header = SectionHeader(8, "향후 진행공정 유해·위험 요인 파악 및 대책")

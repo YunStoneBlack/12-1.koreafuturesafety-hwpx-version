@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.thumbnail_generator import render_pdf_pages
+from desktop.workers.ai_worker import AIWorker, with_com
 
 
 def _section_title(text: str) -> QLabel:
@@ -42,6 +43,7 @@ class ReportPreviewDialog(QDialog):
         self.resize(1400, 880)
         self._finding_rows: list[dict] = []
         self._previous_rows: list[dict] = []
+        self._preview_worker: AIWorker | None = None
         self._build_ui()
         self._load_from_wizard()
         self._regenerate()
@@ -65,16 +67,23 @@ class ReportPreviewDialog(QDialog):
 
         bottom = QHBoxLayout()
         bottom.addStretch()
-        edit_btn = QPushButton("수정하기")
-        edit_btn.clicked.connect(self.reject)
-        regen_btn = QPushButton("📄 이 내용으로 PDF 재생성")
-        regen_btn.setStyleSheet(
+        self.edit_btn = QPushButton("수정하기")
+        self.edit_btn.clicked.connect(self.reject)
+        self.hwp_btn = QPushButton("한글 파일 생성")
+        self.hwp_btn.setStyleSheet(
+            "QPushButton { background: white; color: #2563eb; border: 1px solid #2563eb; "
+            "padding: 10px 20px; border-radius: 6px; font-weight: 600; }"
+        )
+        self.hwp_btn.clicked.connect(self._regenerate_and_export_hwp)
+        self.pdf_btn = QPushButton("PDF 생성")
+        self.pdf_btn.setStyleSheet(
             "QPushButton { background: #2563eb; color: white; padding: 10px 20px; "
             "border-radius: 6px; font-weight: 600; }"
         )
-        regen_btn.clicked.connect(self._regenerate_and_export)
-        bottom.addWidget(edit_btn)
-        bottom.addWidget(regen_btn)
+        self.pdf_btn.clicked.connect(self._regenerate_and_export_pdf)
+        bottom.addWidget(self.edit_btn)
+        bottom.addWidget(self.hwp_btn)
+        bottom.addWidget(self.pdf_btn)
         root.addLayout(bottom)
 
     def _build_left_panel(self) -> QWidget:
@@ -85,9 +94,9 @@ class ReportPreviewDialog(QDialog):
         header = QHBoxLayout()
         header.addWidget(QLabel("실제 출력 미리보기"))
         header.addStretch()
-        refresh_btn = QPushButton("↻ 미리보기 갱신")
-        refresh_btn.clicked.connect(self._regenerate)
-        header.addWidget(refresh_btn)
+        self.refresh_btn = QPushButton("↻ 미리보기 갱신")
+        self.refresh_btn.clicked.connect(self._regenerate)
+        header.addWidget(self.refresh_btn)
         left_col.addLayout(header)
 
         self.preview_scroll = QScrollArea()
@@ -125,7 +134,7 @@ class ReportPreviewDialog(QDialog):
             info_layout.addLayout(col)
         self.right_layout.addWidget(info_frame)
 
-        self.right_layout.addWidget(_section_title("기타 특이사항"))
+        self.right_layout.addWidget(_section_title("무제"))
         self.note_edit = QTextEdit()
         self.note_edit.setFixedHeight(80)
         self.right_layout.addWidget(self.note_edit)
@@ -256,20 +265,71 @@ class ReportPreviewDialog(QDialog):
             return
         self._render_preview()
 
-    def _regenerate_and_export(self) -> None:
-        """하단 "이 내용으로 PDF 재생성" — 미리보기를 갱신하고, 사용자가 고른 위치에도
+    def _regenerate_and_export_pdf(self) -> None:
+        """하단 "PDF 생성" — 미리보기를 갱신한 뒤(완료되면 이어서) 사용자가 고른 위치에도
         PDF를 저장한다(파일명 기본값: "{현장명}_{회차}회차.pdf")."""
         self._sync_edits_to_wizard()
         self._wizard._save(navigate=False)
         if not self._wizard._report_id:
             return
-        self._render_preview()
-        self._wizard._export_pdf_as()
 
-    def _render_preview(self) -> None:
+        def _start_export():
+            self._set_busy(True)  # 내보내기 단계도 계속 "작업 중"으로 표시(연속 클릭 방지)
+            self._wizard._export_pdf_as(on_finished=lambda _path: self._set_busy(False))
+
+        self._render_preview(on_done=_start_export)
+
+    def _regenerate_and_export_hwp(self) -> None:
+        """하단 "한글 파일 생성" — 미리보기(왼쪽은 여전히 PDF 렌더링)를 갱신한 뒤(완료되면
+        이어서) 사용자가 고른 위치에 실제 서식 그대로의 .hwp 파일을 저장한다."""
+        self._sync_edits_to_wizard()
+        self._wizard._save(navigate=False)
+        if not self._wizard._report_id:
+            return
+
+        def _start_export():
+            self._set_busy(True)
+            self._wizard._export_hwp_as(on_finished=lambda _path: self._set_busy(False))
+
+        self._render_preview(on_done=_start_export)
+
+    def _set_busy(self, busy: bool) -> None:
+        for btn in (self.refresh_btn, self.hwp_btn, self.pdf_btn):
+            btn.setEnabled(not busy)
+
+    def _render_preview(self, on_done=None) -> None:
+        """PDF 산출물을 만들어 왼쪽 패널에 렌더링한다.
+
+        한글 자동화를 거치는 산출물 생성이 몇 초 걸려서(실측 약 8초 — 실제 서식과 100%
+        일치시키려고 reportlab 대신 한글 템플릿→PDF 변환 경로를 쓰기 때문에 생기는 지연,
+        `core/report_builder_hwp.py` 참고) 백그라운드에서 돌려 화면이 멈춘 것처럼 보이지
+        않게 한다. `on_done`은 성공적으로 렌더링까지 끝난 뒤 이어서 할 작업(내보내기 등)이
+        있을 때 쓴다.
+        """
+        self._clear_layout(self.preview_layout)
+        loading = QLabel("실제 서식으로 만드는 중입니다... (몇 초 걸릴 수 있습니다)")
+        loading.setStyleSheet("color: #6b7280;")
+        self.preview_layout.addWidget(loading)
+        self._set_busy(True)
+
+        report_id = self._wizard._report_id
+        self._preview_worker = AIWorker(with_com(lambda: self._wizard._build_and_store_pdf(report_id)))
+        self._preview_worker.finished_ok.connect(lambda path: self._on_preview_built(path, on_done))
+        self._preview_worker.finished_error.connect(self._on_preview_error)
+        self._preview_worker.start()
+
+    def _on_preview_error(self, message: str) -> None:
+        self._set_busy(False)
+        self._clear_layout(self.preview_layout)
+        err = QLabel(f"미리보기를 만들지 못했습니다: {message}")
+        err.setStyleSheet("color: #dc2626;")
+        err.setWordWrap(True)
+        self.preview_layout.addWidget(err)
+
+    def _on_preview_built(self, pdf_path, on_done) -> None:
+        self._set_busy(False)
         self._clear_layout(self.preview_layout)
         try:
-            pdf_path = self._wizard._build_and_store_pdf(self._wizard._report_id)
             # 좌측 패널 실제 폭(전체 7:4 비율 중 좌측 몫)에 맞춰 렌더링해서 스크롤 없이
             # 옆으로 잘리지 않게 한다. 다이얼로그가 아직 화면에 그려지기 전(생성 직후)에는
             # 자식 위젯의 viewport 폭이 레이아웃 계산 전이라 신뢰할 수 없어서, resize()로
@@ -280,10 +340,7 @@ class ReportPreviewDialog(QDialog):
             render_width = max(480, viewport_width - 30)
             pages = render_pdf_pages(pdf_path, width=render_width)
         except Exception as e:  # noqa: BLE001 - 사용자에게 그대로 보여줄 에러 메시지
-            err = QLabel(f"미리보기를 만들지 못했습니다: {e}")
-            err.setStyleSheet("color: #dc2626;")
-            err.setWordWrap(True)
-            self.preview_layout.addWidget(err)
+            self._on_preview_error(str(e))
             return
 
         if not pages:
@@ -298,3 +355,6 @@ class ReportPreviewDialog(QDialog):
             page_label.setStyleSheet("background: white; border: 1px solid #d1d5db;")
             self.preview_layout.addWidget(page_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.preview_layout.addStretch()
+
+        if on_done:
+            on_done()

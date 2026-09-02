@@ -1,12 +1,12 @@
-"""ReportWizardView의 저장(DB 반영) / 산출물 생성(PDF) 로직.
+"""ReportWizardView의 저장(DB 반영) / 산출물 생성(PDF·한글) 로직.
 
 report_wizard_view.py에서 분리됨. _SaveGenerateMixin은 그 자체로는 동작하지 않고,
 ReportWizardView가 이 믹스인을 상속해 self.xxx 위젯들의 값을 읽어 DB에 반영하거나
 파일로 내보낸다.
 
-워드(DOCX)/한글(HWPX) 생성은 당분간 보고서 미리보기 흐름에서 빠져있다 — 필요해지면
-core/report_builder.build_report_docx, core/hwpx_exporter.convert_docx_to_hwpx를
-다시 연결하면 된다 (둘 다 그대로 남아있음).
+워드(DOCX) 생성은 당분간 보고서 미리보기 흐름에서 빠져있다 — 필요해지면
+core/report_builder.build_report_docx를 다시 연결하면 된다(그대로 남아있음). 한글(.hwp)은
+Sub-phase 8부터 `build_report_hwp`(실제 서식 파일을 템플릿으로 재사용)로 지원한다.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
-from core.constants import FIXED_HAZARD_FACTORS
 from core.db import BASE_DIR, SessionLocal
 from core.models_db import (
     CurrentProcessEntry,
@@ -31,7 +30,24 @@ from core.models_db import (
     SiteProcessDefault,
 )
 from core.report_builder import build_report
+from core.report_builder_hwp import build_report_hwp
 from desktop.dialogs.report_preview_dialog import ReportPreviewDialog
+from desktop.widgets.signature_pad import move_or_reference
+from desktop.workers.ai_worker import AIWorker, with_com
+
+
+def _build_pdf_for_export(report_id: int, chosen_path: Path) -> Path:
+    build_report(report_id, chosen_path)
+    with SessionLocal() as session:
+        report = session.get(Report, report_id)
+        report.pdf_path = str(chosen_path)
+        session.commit()
+    return chosen_path
+
+
+def _build_hwp_for_export(report_id: int, chosen_path: Path) -> Path:
+    build_report_hwp(report_id, chosen_path)  # report.hwp_path/status는 이 함수가 직접 갱신
+    return chosen_path
 
 
 class _SaveGenerateMixin:
@@ -61,8 +77,28 @@ class _SaveGenerateMixin:
             report.major_hazard_na = self.major_hazard_header.na_button.isChecked()
             report.equipment_checks_na = self.equipment_header.na_button.isChecked()
             report.current_process_na = self.current_process_header.na_button.isChecked()
+            report.notification_method = self.notification_method()
+            report.notify_signee_name = self.notify_signee_input.text().strip()
+
+            report.misc_overwork = self.misc_overwork_check.isChecked()
+            report.misc_no_photo = self.misc_no_photo_check.isChecked()
+            report.misc_other = self.misc_other_check.isChecked()
+            report.misc_other_text = self.misc_other_input.text().strip()
+            if self.accident_yes_check.isChecked():
+                report.accident_status = "유"
+            elif self.accident_no_check.isChecked():
+                report.accident_status = "무"
+            else:
+                report.accident_status = ""
+            report.accident_content = self.accident_content_input.text().strip()
 
             session.flush()
+
+            notify_sig_final = BASE_DIR / "data" / "signatures" / f"report_{report.id}_notify.png"
+            moved = move_or_reference(self.notify_signature_pad, notify_sig_final)
+            if moved:
+                report.notify_signature_path = moved
+                report.notify_signature_source = self.notify_signature_pad.source
 
             existing_education = session.query(SafetyEducation).filter_by(report_id=report.id).first()
             attendee_text = self.attendee_input.text().strip()
@@ -71,6 +107,9 @@ class _SaveGenerateMixin:
                 existing_education.photo_path = self.education_photo.photo_path
                 existing_education.attendee_count = attendee_count
                 existing_education.na_flag = self.education_header.na_button.isChecked()
+                existing_education.location = self.education_location_input.text().strip()
+                existing_education.content = self.education_content_input.text().strip()
+                existing_education.material = self.education_material_input.text().strip()
             else:
                 session.add(
                     SafetyEducation(
@@ -78,6 +117,9 @@ class _SaveGenerateMixin:
                         photo_path=self.education_photo.photo_path,
                         attendee_count=attendee_count,
                         na_flag=self.education_header.na_button.isChecked(),
+                        location=self.education_location_input.text().strip(),
+                        content=self.education_content_input.text().strip(),
+                        material=self.education_material_input.text().strip(),
                     )
                 )
 
@@ -111,6 +153,7 @@ class _SaveGenerateMixin:
                         content=slot_widget.content_edit.toPlainText(),
                         action_result=slot_widget.action_input.text(),
                         confirmed=slot_widget.confirm_btn.isChecked(),
+                        risk_level=slot_widget.risk_level(),
                     )
                 )
             report.prev_guidance_implemented = (
@@ -135,27 +178,27 @@ class _SaveGenerateMixin:
                     ProvidedMaterial(report_id=report.id, slot=idx, material_id=material.id, title=material.title)
                 )
 
-            checked_factor_numbers = [
-                number
-                for checkbox, (number, _name, _action) in zip(self.hazard_checkboxes, FIXED_HAZARD_FACTORS)
-                if checkbox.isChecked()
-            ]
-            report.hazard_factor_checks = checked_factor_numbers
+            checked_factor_ids: list[str] = []
+            for number, checkbox in self.hazard_checkboxes.items():
+                if checkbox.isChecked():
+                    checked_factor_ids.append(str(number))
+            for number, line_checkboxes in self.hazard_line_checkboxes.items():
+                for line_index, line_checkbox in enumerate(line_checkboxes):
+                    if line_checkbox.isChecked():
+                        checked_factor_ids.append(f"{number}-{line_index}")
+            report.hazard_factor_checks = checked_factor_ids
 
             report.major_hazard_work_checks = [
                 idx for idx, checkbox in enumerate(self.major_hazard_checkboxes) if checkbox.isChecked()
             ]
             report.machinery_checks = [
-                {"checked": row.checkbox.isChecked(), "note": row.note_input.text().strip()}
-                for row in self.machinery_rows
+                {"checked": row.checkbox.isChecked(), "notes": row.evaluations()} for row in self.machinery_rows
             ]
             report.hand_tool_checks = [
-                {"checked": row.checkbox.isChecked(), "note": row.note_input.text().strip()}
-                for row in self.hand_tool_rows
+                {"checked": row.checkbox.isChecked(), "notes": row.evaluations()} for row in self.hand_tool_rows
             ]
             report.hazmat_checks = [
-                {"checked": row.checkbox.isChecked(), "note": row.note_input.text().strip()}
-                for row in self.hazmat_rows
+                {"checked": row.checkbox.isChecked(), "notes": row.evaluations()} for row in self.hazmat_rows
             ]
 
             report.current_process_name = self.current_process_name_input.text().strip()
@@ -195,7 +238,10 @@ class _SaveGenerateMixin:
 
             # 12대 기인물 체크 상태와 진행공정은 현장에 저장해서 다음 회차에 자동 승계한다.
             site = session.get(Site, self._site_id)
-            site.hazard_factor_checks = checked_factor_numbers
+            site.hazard_factor_checks = checked_factor_ids
+            # 관리번호는 현장 단위로 고정 — 1회차에서만 입력값을 site에 반영, 이후 회차는 손대지 않는다.
+            if report.visit_no <= 1:
+                site.management_no = self.management_no_input.text().strip()
             session.query(SiteProcessDefault).filter_by(site_id=self._site_id).delete()
             for process_slot in self.process_slots:
                 if not process_slot.has_data():
@@ -237,27 +283,80 @@ class _SaveGenerateMixin:
             session.commit()
         return output_path
 
-    def _export_pdf_as(self) -> Path | None:
+    def _export_pdf_as(self, on_finished=None) -> None:
         """사용자가 고른 위치에 PDF를 저장한다. 파일명은 "{현장명}_{회차}회차.pdf"를 기본값으로
-        제안한다 (예: "코하이젠 군포부곡 수소충전소 구축공사_1회차.pdf")."""
+        제안한다 (예: "코하이젠 군포부곡 수소충전소 구축공사_1회차.pdf").
+
+        PDF 생성이 한글 자동화를 거치면서 몇 초 걸리므로(체감 지연 원인) 백그라운드에서
+        돌린다 — 완료/실패는 메시지박스로 알린다. `on_finished`가 있으면 성공/실패/취소
+        **어느 경우에도** 정확히 한 번 불러준다(호출자가 "작업 중" 상태를 안전하게 풀 수
+        있도록 — 미리보기 창의 "PDF 생성"/"한글 파일 생성" 버튼이 이걸로 바쁨 표시를 관리한다)."""
         if not self._report_id:
-            return None
+            if on_finished:
+                on_finished(None)
+            return
         default_name = f"{self.site_name_label.text()}_{self.visit_no_label.text()}회차.pdf"
         default_path = str(Path.home() / "Desktop" / default_name)
         chosen, _ = QFileDialog.getSaveFileName(self, "PDF로 저장", default_path, "PDF 파일 (*.pdf)")
         if not chosen:
-            return None
+            if on_finished:
+                on_finished(None)
+            return
         chosen_path = Path(chosen)
         if chosen_path.suffix.lower() != ".pdf":
             chosen_path = chosen_path.with_suffix(".pdf")
 
-        build_report(self._report_id, chosen_path)
-        with SessionLocal() as session:
-            report = session.get(Report, self._report_id)
-            report.pdf_path = str(chosen_path)
-            session.commit()
-        QMessageBox.information(self, "저장 완료", f"PDF를 저장했습니다:\n{chosen_path}")
-        return chosen_path
+        report_id = self._report_id
+        self._export_worker = AIWorker(with_com(lambda: _build_pdf_for_export(report_id, chosen_path)))
+
+        def _ok(path):
+            QMessageBox.information(self, "저장 완료", f"PDF를 저장했습니다:\n{path}")
+            if on_finished:
+                on_finished(path)
+
+        def _err(msg):
+            QMessageBox.warning(self, "PDF 생성 실패", msg)
+            if on_finished:
+                on_finished(None)
+
+        self._export_worker.finished_ok.connect(_ok)
+        self._export_worker.finished_error.connect(_err)
+        self._export_worker.start()
+
+    def _export_hwp_as(self, on_finished=None) -> None:
+        """사용자가 고른 위치에 한글(.hwp) 파일을 저장한다. `_export_pdf_as`와 동일한
+        기본 파일명 규칙 + 백그라운드 실행 + `on_finished` 규칙을 쓴다."""
+        if not self._report_id:
+            if on_finished:
+                on_finished(None)
+            return
+        default_name = f"{self.site_name_label.text()}_{self.visit_no_label.text()}회차.hwp"
+        default_path = str(Path.home() / "Desktop" / default_name)
+        chosen, _ = QFileDialog.getSaveFileName(self, "한글 파일로 저장", default_path, "한글 파일 (*.hwp)")
+        if not chosen:
+            if on_finished:
+                on_finished(None)
+            return
+        chosen_path = Path(chosen)
+        if chosen_path.suffix.lower() != ".hwp":
+            chosen_path = chosen_path.with_suffix(".hwp")
+
+        report_id = self._report_id
+        self._export_worker = AIWorker(with_com(lambda: _build_hwp_for_export(report_id, chosen_path)))
+
+        def _ok(path):
+            QMessageBox.information(self, "저장 완료", f"한글 파일을 저장했습니다:\n{path}")
+            if on_finished:
+                on_finished(path)
+
+        def _err(msg):
+            QMessageBox.warning(self, "한글 파일 생성 실패", msg)
+            if on_finished:
+                on_finished(None)
+
+        self._export_worker.finished_ok.connect(_ok)
+        self._export_worker.finished_error.connect(_err)
+        self._export_worker.start()
 
     def _open_preview(self) -> None:
         # 미리보기는 마법사를 떠나지 않고 반복해서 열어볼 수 있어야 하므로(수정하기 →
