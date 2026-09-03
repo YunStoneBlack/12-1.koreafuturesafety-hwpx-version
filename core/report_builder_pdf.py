@@ -205,31 +205,21 @@ def _build_risk_and_hazard_section(report: Report) -> list:
 
 
 def _build_current_process_section(report: Report) -> list:
+    """6. 현재 진행공정에 대한 유해위험요인 파악 및 대책 — 8번(`_build_process_section`)과
+    완전히 같은 구조(진행공정/유해·위험요인/예방대책/위험성 표, 사진 없음)로 통일했다.
+    원래 있던 사진 2장은 사용자 요청으로 없앴다."""
     label = lambda t: p(t, bold=True, align="CENTER")
-    photos = {ph.slot: ph.photo_path for ph in report.current_process_photos}
-    photo_row = [scaled_image(photos.get(1, ""), 60 * mm, 45 * mm), scaled_image(photos.get(2, ""), 60 * mm, 45 * mm)]
-    photo_table = Table([photo_row], colWidths=[80 * mm, 80 * mm], rowHeights=[50 * mm])
-    photo_table.setStyle(_grid_style())
 
-    entries_by_slot = {e.slot: e for e in report.current_process_entries}
-    rows = [[label("유해위험요인"), label("현재안전보건조치"), label("위험성수준"), label("평가")]]
-    for slot in range(1, 5):
-        entry = entries_by_slot.get(slot)
-        if entry:
-            rows.append(
-                [p(entry.hazard_text, size=8), p(entry.measure_text, size=8), p(entry.risk_level, align="CENTER"), p(entry.evaluation, align="CENTER")]
-            )
-        else:
-            rows.append(["", "", "", ""])
-    table = Table(rows, colWidths=[60 * mm, 60 * mm, 20 * mm, 20 * mm], rowHeights=[10 * mm] + [20 * mm] * 4)
+    rows = [[label("진행공정"), label("유해·위험요인"), label("예방대책"), label("위험성수준")]]
+    for entry in report.current_process_entries:
+        rows.append([p(entry.process_name, size=8), p(entry.hazard_text, size=8), p(entry.prevention_text, size=8), p(entry.risk_level, size=8, align="CENTER")])
+    while len(rows) < 5:
+        rows.append(["", "", "", ""])
+    table = Table(rows, colWidths=[30 * mm, 55 * mm, 55 * mm, 22 * mm], rowHeights=[10 * mm] + [20 * mm] * 4)
     table.setStyle(_grid_style([("BACKGROUND", (0, 0), (-1, 0), HEADER_BG)]))
 
     return [
-        section_title(6, "현재 진행중인 공정 유해위험요인 파악"),
-        photo_table,
-        Spacer(1, 4 * mm),
-        p(report.current_process_name or "-", bold=True, size=11),
-        Spacer(1, 2 * mm),
+        section_title(6, "현재 진행공정에 대한 유해·위험요인 파악 및 대책"),
         table,
     ]
 
@@ -283,7 +273,7 @@ def _build_process_section(report: Report) -> list:
     process_table.setStyle(_grid_style([("BACKGROUND", (0, 0), (-1, 0), HEADER_BG)]))
 
     return [
-        section_title(8, "향후 진행공정에 대한 유해·위험 요인 파악 및 대책"),
+        section_title(8, "향후 진행공정에 대한 유해·위험요인 파악 및 대책"),
         combined,
         Spacer(1, 4 * mm),
         process_table,

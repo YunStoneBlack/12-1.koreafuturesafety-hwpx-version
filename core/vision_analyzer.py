@@ -64,6 +64,61 @@ MEASUREMENT_READ_PROMPT = """첨부된 사진은 '{instrument_type}'의 측정 �
 
 {{"value": "읽은 값(단위 제외, 숫자/문자 그대로) 또는 null"}}"""
 
+_GAS_METER_TYPE = "가스농도측정기"
+
+GAS_METER_READ_PROMPT = """첨부된 사진은 4종 복합가스측정기의 디스플레이 사진입니다.
+화면에는 보통 4개의 측정값이 동시에 표시됩니다:
+- EX: 가연성가스 농도, %LEL 단위
+- O2: 산소 농도, %VOL 단위
+- H2S: 황화수소 농도, ppm 단위
+- CO: 일산화탄소 농도, ppm 단위
+
+화면에서 이 4개 값의 숫자 부분만 각각 읽어주세요(단위·기호 제외, 숫자만). 화면이 흐리거나
+꺼져 있거나 특정 값을 읽을 수 없으면 그 값만 null로 응답하세요. 절대 추측하지 마세요.
+
+반드시 아래 JSON 스키마와 동일한 형식의 JSON 객체만 응답하세요. 다른 설명 텍스트는 포함하지 마세요.
+
+{{"ex": "숫자 또는 null", "o2": "숫자 또는 null", "h2s": "숫자 또는 null", "co": "숫자 또는 null"}}"""
+
+# (하한, 상한) — None이면 그쪽 경계 없음. 지도자가 실제 장비 화면을 보며 불러준 정상범위.
+_GAS_METER_RANGES: dict[str, tuple[float | None, float | None]] = {
+    "ex": (None, 10),  # 가연성가스: 10%LEL 이하
+    "o2": (19.5, 23.5),  # 산소: 19.5~23.5%
+    "h2s": (None, 10),  # 황화수소: 10ppm 이하
+    "co": (None, 50),  # 일산화탄소: 50ppm 이하
+}
+
+
+def _read_gas_meter_value(image_b64: str, media_type: str, model: str | None) -> str | None:
+    """4종 복합가스측정기는 화면 하나에 EX/O2/H2S/CO 네 값이 동시에 표시돼 일반
+    단일값 프롬프트로는 인식이 잘 안 됐다(실측 확인). 네 값을 각각 읽어 전부 정상범위
+    안이면 "정상범위", 하나라도 벗어나면 "정상범위 초과"를 반환한다 — 네 값 중 하나라도
+    못 읽으면(화면 일부가 안 보이는 등) 안전 판단을 잘못 내릴 수 있으므로 절대 추측하지
+    않고 None을 반환한다(다른 계측기와 동일하게 "직접 입력해주세요" 안내로 이어짐).
+    """
+    raw_response = _call_claude(image_b64, media_type, GAS_METER_READ_PROMPT, model=model)
+    data = _parse_json_object(raw_response)
+
+    readings: dict[str, float] = {}
+    for key in ("ex", "o2", "h2s", "co"):
+        raw = data.get(key)
+        if raw in (None, "null", ""):
+            continue
+        try:
+            readings[key] = float(str(raw).strip())
+        except ValueError:
+            continue
+
+    if len(readings) < 4:
+        return None
+
+    all_normal = all(
+        (low is None or value >= low) and (high is None or value <= high)
+        for key, value in readings.items()
+        for low, high in [_GAS_METER_RANGES[key]]
+    )
+    return "정상범위" if all_normal else "정상범위 초과"
+
 
 def _encode_image(photo_path: str | Path) -> tuple[str, str]:
     path = Path(photo_path)
@@ -149,13 +204,36 @@ def count_people(photo_path: str | Path, model: str | None = None) -> int | None
         return None
 
 
+_LUX_METER_TYPE = "조도계"
+_LUX_METER_MULTIPLIER = 1000  # 지도자가 실제 쓰는 조도계는 화면 숫자에 x1000을 해야 실제 lux값이 나온다.
+
+
+def _format_number(value: float) -> str:
+    if value == int(value):
+        return str(int(value))
+    return str(value)
+
+
 def read_measurement_value(photo_path: str | Path, instrument_type: str, model: str | None = None) -> str | None:
-    """계측장비 디스플레이 사진에서 측정값을 읽는다. 판단이 어려우면 None을 반환한다."""
+    """계측장비 디스플레이 사진에서 측정값을 읽는다. 판단이 어려우면 None을 반환한다.
+
+    '조도계'는 화면에 표시된 숫자 그대로가 아니라 그 숫자에 1000을 곱해야 실제 lux값이다
+    (실제 장비 특성 — 지도자가 확인해줌). 이 계산은 AI에게 시키지 않고(모델이 곱셈을
+    틀릴 위험) 화면 숫자만 그대로 읽게 한 뒤 파이썬에서 정확하게 곱한다 — 이렇게 하면
+    마법사 입력칸과 보고서에 들어가는 값도 자동으로 보정된 값이 된다.
+    """
     image_b64, media_type = _encode_image(photo_path)
+    if instrument_type == _GAS_METER_TYPE:
+        return _read_gas_meter_value(image_b64, media_type, model)
     prompt = MEASUREMENT_READ_PROMPT.format(instrument_type=instrument_type)
     raw_response = _call_claude(image_b64, media_type, prompt, model=model)
     data = _parse_json_object(raw_response)
     value = data.get("value")
     if value in (None, "null", ""):
         return None
+    if instrument_type == _LUX_METER_TYPE:
+        try:
+            return _format_number(float(str(value).strip()) * _LUX_METER_MULTIPLIER)
+        except ValueError:
+            return str(value)
     return str(value)

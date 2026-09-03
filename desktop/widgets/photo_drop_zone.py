@@ -28,7 +28,7 @@ class PhotoDropZone(QWidget):
             "QLabel { border: 1px dashed #d1d5db; border-radius: 8px; color: #9ca3af; background: #fafafa; }"
         )
         self.box.setCursor(Qt.CursorShape.PointingHandCursor)
-        layout.addWidget(self.box)
+        layout.addWidget(self.box, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         self.upload_btn = QPushButton("↑ 사진 업로드")
         self.upload_btn.clicked.connect(self._browse)

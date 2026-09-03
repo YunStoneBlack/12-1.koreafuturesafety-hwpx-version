@@ -25,7 +25,7 @@ from pathlib import Path
 from core.db import BASE_DIR, SessionLocal
 from core.models_db import Report
 from core.report_builder_hwp_fields import fill_all
-from core.report_builder_hwp_images import fill_signoff_images
+from core.report_builder_hwp_images import fill_signoff_images, fill_support_images
 
 _TEMPLATE_PATH = BASE_DIR / "data" / "templates" / "report_template.hwp"
 _PDF_CACHE_DIR = Path(tempfile.gettempdir()) / "claude" / "hwp_pdf_cache"
@@ -69,6 +69,7 @@ def _fill_and_save(report_id: int, hwp_path: Path, pdf_path: Path | None) -> Non
 
             fill_all(hwp, report, site)
             fill_signoff_images(hwp, report, site)
+            fill_support_images(hwp, report)
 
             if not hwp.save_as(str(hwp_path)):
                 raise HwpBuildError("한글 파일로 저장하는 데 실패했습니다.")

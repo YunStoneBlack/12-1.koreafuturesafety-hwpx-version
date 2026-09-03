@@ -15,19 +15,17 @@ from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QPushButton,
     QTableWidget,
-    QVBoxLayout,
     QWidget,
 )
 
 from core.constants import HAND_TOOL_ITEMS, HAZMAT_ITEMS, MACHINERY_EQUIPMENT_ITEMS, MAJOR_HAZARD_WORKS
-from desktop.widgets.photo_drop_zone import PhotoDropZone
-from desktop.widgets.report_wizard_slots import _badge_style, _limited_text_edit
+from desktop.widgets.report_wizard_slots import _ProcessSlot
 from desktop.widgets.section_header import SectionHeader
 
 
@@ -108,66 +106,6 @@ class _EquipmentItemControls:
     def set_evaluations(self, values: list[str]) -> None:
         for cell, value in zip(self._eval_cells, values):
             cell.set_evaluation(value)
-
-
-class _CurrentProcessRow(QFrame):
-    """6번 섹션(현재 진행중인 공정) 한 행 — 유해위험요인/현재안전보건조치/위험성수준/평가."""
-
-    def __init__(self, slot: int):
-        super().__init__()
-        self.slot = slot
-        self.setStyleSheet("QFrame { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 8px; }")
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"유해위험요인 {slot}"))
-
-        self.hazard_edit, self.hazard_counter = _limited_text_edit(200)
-        self.hazard_edit.setPlaceholderText("유해위험요인")
-        self.measure_edit, self.measure_counter = _limited_text_edit(200)
-        self.measure_edit.setPlaceholderText("현재안전보건조치")
-        layout.addWidget(self.hazard_edit)
-        layout.addWidget(self.hazard_counter)
-        layout.addWidget(self.measure_edit)
-        layout.addWidget(self.measure_counter)
-
-        bottom_row = QHBoxLayout()
-        bottom_row.addWidget(QLabel("위험성수준"))
-        self.risk_buttons = QButtonGroup(self)
-        self.risk_buttons.setExclusive(True)
-        for label in ("상", "중", "하"):
-            btn = QPushButton(label)
-            btn.setCheckable(True)
-            btn.setAutoDefault(False)
-            btn.setStyleSheet(_badge_style(""))
-            btn.toggled.connect(self._update_styles)
-            self.risk_buttons.addButton(btn)
-            bottom_row.addWidget(btn)
-
-        bottom_row.addWidget(QLabel("평가"))
-        self.eval_buttons = QButtonGroup(self)
-        self.eval_buttons.setExclusive(True)
-        for label in ("양호", "미흡"):
-            btn = QPushButton(label)
-            btn.setCheckable(True)
-            btn.setAutoDefault(False)
-            self.eval_buttons.addButton(btn)
-            bottom_row.addWidget(btn)
-
-        layout.addLayout(bottom_row)
-
-    def _update_styles(self) -> None:
-        for btn in self.risk_buttons.buttons():
-            btn.setStyleSheet(_badge_style(btn.text() if btn.isChecked() else ""))
-
-    def risk_level(self) -> str:
-        checked = self.risk_buttons.checkedButton()
-        return checked.text() if checked else ""
-
-    def evaluation(self) -> str:
-        checked = self.eval_buttons.checkedButton()
-        return checked.text() if checked else ""
-
-    def has_data(self) -> bool:
-        return bool(self.hazard_edit.toPlainText() or self.measure_edit.toPlainText())
 
 
 class _SectionBuilderMixin2:
@@ -287,27 +225,130 @@ class _SectionBuilderMixin2:
         return widgets
 
     def _build_current_process_section(self) -> QFrame:
-        self.current_process_header = SectionHeader(6, "현재 진행중인 공정 유해위험요인 파악")
+        """6. 현재 진행공정에 대한 유해위험요인 파악 및 대책.
 
-        name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("공정명"))
-        self.current_process_name_input = QLineEdit()
-        self.current_process_name_input.setPlaceholderText("예: 보도블록 철거작업")
-        name_row.addWidget(self.current_process_name_input)
-        name_widget = QWidget()
-        name_widget.setLayout(name_row)
+        실제 문서(표12)를 8번 섹션(표15, "향후 진행공정")과 완전히 같은 표 구조(진행공정/
+        유해·위험요인/예방대책 열)로 통일했다 — 그래서 이 섹션의 공정 선택 UI도
+        `_build_process_section()`(8번)과 완전히 같은 방식(`_ProcessSlot` 재사용, 공정
+        선택 다이얼로그, 2x2 요약 박스 + 상세 표)으로 만든다 — 제목만 "현재"/"향후"로 다르다.
+        원래 있던 사진 2장(현장사진) 업로드는 사용자 요청으로 없앴다(8번과 완전히 동일한
+        구성으로 맞춤).
+        """
+        self.current_process_header = SectionHeader(6, "현재 진행공정에 대한 유해·위험요인 파악 및 대책")
+        note = QLabel("보고서 6번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
+        note.setStyleSheet("color: #6b7280; font-size: 12px;")
 
-        photos_row = QHBoxLayout()
-        self.current_process_photo_1 = PhotoDropZone("현장사진1")
-        self.current_process_photo_2 = PhotoDropZone("현장사진2")
-        photos_row.addWidget(self.current_process_photo_1)
-        photos_row.addWidget(self.current_process_photo_2)
-        photos_row.addStretch()
-        photos_widget = QWidget()
-        photos_widget.setLayout(photos_row)
+        self.current_process_slots: list[_ProcessSlot] = [_ProcessSlot(i) for i in range(1, 5)]
 
-        self.current_process_slots: list[_CurrentProcessRow] = [_CurrentProcessRow(i) for i in range(1, 5)]
+        # 실제 사이트처럼 하나의 표(좌측 "주요 진행공정" 라벨 열 + 2x2 칸)로 배치한다.
+        # 순서는 1번칸(좌상)-3번칸(우상)-2번칸(좌하)-4번칸(우하) — 8번 섹션과 동일한 배치.
+        table = QFrame()
+        table.setStyleSheet("QFrame { background: white; border: 1px solid #d1d5db; border-radius: 8px; }")
+        table_layout = QHBoxLayout(table)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setSpacing(0)
+
+        label_cell = QLabel("주요\n진행공정")
+        label_cell.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label_cell.setFixedWidth(90)
+        label_cell.setStyleSheet(
+            "background: #f9fafb; color: #374151; font-weight: 600; "
+            "border-right: 1px solid #d1d5db;"
+        )
+        table_layout.addWidget(label_cell)
+
+        grid = QGridLayout()
+        grid.setSpacing(0)
+        grid.setContentsMargins(0, 0, 0, 0)
+        # 칸을 채우면(긴 "+ N번 칸 공정 선택" 버튼 -> 짧은 이름+배지+X) 내용물의 크기 힌트가
+        # 줄어들면서 Qt가 그 열만 좁혀버려 왼쪽/오른쪽 열 너비가 안 맞아 보이는 문제가 있었다
+        # — 두 열에 동일한 stretch를 줘서 내용물 크기와 무관하게 항상 50:50으로 고정한다.
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        positions = {1: (0, 0), 3: (0, 1), 2: (1, 0), 4: (1, 1)}
+        for process_slot in self.current_process_slots:
+            row, col = positions[process_slot.slot]
+            borders = []
+            if row == 0:
+                borders.append("border-bottom: 1px solid #e5e7eb")
+            if col == 0:
+                borders.append("border-right: 1px solid #e5e7eb")
+            border_css = "; ".join(borders)
+            process_slot.setStyleSheet(f"QFrame {{ background: transparent; border: none; {border_css}; }}")
+            grid.addWidget(process_slot, row, col)
+        grid_widget = QWidget()
+        grid_widget.setLayout(grid)
+        table_layout.addWidget(grid_widget, stretch=1)
+
+        # 실제 사이트처럼 선택된 공정만 아래쪽 "진행공정/유해·위험요인/예방대책/위험성"
+        # 4열 표에 번호를 새로 매겨 나열한다. 빈 칸은 이 표에 아예 나타나지 않는다.
+        self.current_process_detail_frame = QFrame()
+        self.current_process_detail_frame.setStyleSheet(
+            "QFrame { background: white; border: 1px solid #d1d5db; border-radius: 8px; }"
+        )
+        detail_grid = QGridLayout(self.current_process_detail_frame)
+        detail_grid.setSpacing(0)
+        detail_grid.setContentsMargins(0, 0, 0, 0)
+        detail_grid.setColumnStretch(0, 2)
+        detail_grid.setColumnStretch(1, 4)
+        detail_grid.setColumnStretch(2, 4)
+        detail_grid.setColumnStretch(3, 1)
+
+        for col, text in enumerate(("진행공정", "유해·위험요인", "예방대책", "위험성")):
+            header_cell = QLabel(text)
+            header_cell.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            border = "border-right: 1px solid #d1d5db;" if col < 3 else ""
+            header_cell.setStyleSheet(
+                f"background: #f9fafb; color: #374151; font-weight: 600; padding: 8px; "
+                f"border-bottom: 1px solid #d1d5db; {border}"
+            )
+            detail_grid.addWidget(header_cell, 0, col)
+
+        for row, process_slot in enumerate(self.current_process_slots, start=1):
+            cells = (
+                process_slot.detail_name_widget,
+                process_slot.hazard_cell,
+                process_slot.prevention_cell,
+                process_slot.risk_column,
+            )
+            for col, cell in enumerate(cells):
+                border = "border-right: 1px solid #e5e7eb;" if col < 3 else ""
+                cell.setStyleSheet(f"background: white; border-bottom: 1px solid #e5e7eb; {border}")
+                detail_grid.addWidget(cell, row, col)
+
+        help_note = QLabel(
+            "칸 순서 그대로 보고서 표에 인쇄됩니다. 진행공정 이름·유해위험요인·예방대책은 칸을 클릭해 직접 "
+            "수정할 수 있고, 위험성 등급은 상·중·하로 눌러 바꿀 수 있습니다."
+        )
+        help_note.setWordWrap(True)
+        help_note.setStyleSheet("color: #4f46e5; font-size: 12px;")
+
+        for process_slot in self.current_process_slots:
+            process_slot.changed.connect(self._update_current_process_table)
+        self._update_current_process_table()
 
         return self._card(
-            self.current_process_header, name_widget, photos_widget, *self.current_process_slots
+            self.current_process_header,
+            note,
+            table,
+            self.current_process_detail_frame,
+            help_note,
         )
+
+    def _update_current_process_table(self) -> None:
+        seq = 0
+        for process_slot in self.current_process_slots:
+            filled = process_slot.has_data()
+            cells = (
+                process_slot.detail_name_widget,
+                process_slot.hazard_cell,
+                process_slot.prevention_cell,
+                process_slot.risk_column,
+            )
+            for cell in cells:
+                cell.setVisible(filled)
+            if filled:
+                seq += 1
+                process_slot.seq_label.setText(f"{seq}.")
+        self.current_process_header.set_count(seq, 4)
+        self.current_process_detail_frame.setVisible(seq > 0)

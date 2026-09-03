@@ -139,8 +139,7 @@ class ReportWizardView(
         content_layout.addWidget(self._build_current_process_section())
         content_layout.addWidget(self._build_findings_section())
         content_layout.addWidget(self._build_process_section())
-        content_layout.addWidget(self._build_safety_education_section())
-        content_layout.addWidget(self._build_measurement_section())
+        content_layout.addWidget(self._build_support_section())
         content_layout.addWidget(self._build_materials_section())
         content_layout.addWidget(self._build_special_note_section())
         content_layout.addStretch()
@@ -241,6 +240,12 @@ class ReportWizardView(
                     }
                 )
 
+            # 8번(향후 진행공정)과 달리 현장 단위 기본값 승계는 없다 — "현재 진행중인 공정"은
+            # 회차마다 실제로 바뀌는 게 자연스러워서, 지난 회차 값을 자동으로 다시 채우면
+            # 오히려 오해를 살 수 있다(의도적 설계).
+            for process_slot in self.current_process_slots:
+                process_slot.reset()
+
             if report_id:
                 report = session.get(Report, report_id)
                 if report:
@@ -320,33 +325,20 @@ class ReportWizardView(
                 row.set_evaluations(entry.get("notes") or [])
         self.equipment_header.set_checked(report.equipment_checks_na)
 
-        self.current_process_name_input.setText(report.current_process_name)
-        for zone in (self.current_process_photo_1, self.current_process_photo_2):
-            zone.clear_photo()
-        for photo in report.current_process_photos:
-            zone = self.current_process_photo_1 if photo.slot == 1 else self.current_process_photo_2
-            zone.set_photo(photo.photo_path)
+        for process_slot in self.current_process_slots:
+            process_slot.reset()
         current_process_by_slot = {e.slot: e for e in report.current_process_entries}
-        for row in self.current_process_slots:
-            row.hazard_edit.clear()
-            row.measure_edit.clear()
-            row.risk_buttons.setExclusive(False)
-            for btn in row.risk_buttons.buttons():
-                btn.setChecked(False)
-            row.risk_buttons.setExclusive(True)
-            row.eval_buttons.setExclusive(False)
-            for btn in row.eval_buttons.buttons():
-                btn.setChecked(False)
-            row.eval_buttons.setExclusive(True)
-            entry = current_process_by_slot.get(row.slot)
-            if entry:
-                row.hazard_edit.setPlainText(entry.hazard_text)
-                row.measure_edit.setPlainText(entry.measure_text)
-                for btn in row.risk_buttons.buttons():
-                    btn.setChecked(btn.text() == entry.risk_level)
-                for btn in row.eval_buttons.buttons():
-                    btn.setChecked(btn.text() == entry.evaluation)
-            row._update_styles()
+        for process_slot in self.current_process_slots:
+            e = current_process_by_slot.get(process_slot.slot)
+            if e:
+                process_slot.load_data(
+                    {
+                        "process_name": e.process_name,
+                        "hazard_text": e.hazard_text,
+                        "prevention_text": e.prevention_text,
+                        "risk_level": e.risk_level,
+                    }
+                )
         self.current_process_header.set_checked(report.current_process_na)
 
         if report.safety_education:

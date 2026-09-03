@@ -6,9 +6,10 @@
 
 이 파일이 600줄을 넘겨 커져서, 표별 전용 처리는 별도 모듈로 분리했다 —
 `data/build_hwp_template_table6.py`(표6, 17대 기인물), `data/build_hwp_template_equipment.py`
-(표8/9/10, 건설기계장비·위험기계기구·유해위험물질), `data/hwp_template_common.py`(공통 유틸,
-순환 임포트 방지용). 이 파일은 표1/2/3/4/5/11~15에 쓰는 일반 라벨/데이터 판별 처리와
-`build_template()` 오케스트레이션만 갖는다.
+(표8/9/10, 건설기계장비·위험기계기구·유해위험물질), `data/build_hwp_template_layout_fixes.py`
+(표12/15/16 후처리 — 교육장소 필드, 행 높이, 양호/불량 체크박스 전환), `data/hwp_template_common.py`
+(공통 유틸, 순환 임포트 방지용). 이 파일은 표1/2/3/4/5/11~15에 쓰는 일반 라벨/데이터 판별
+처리와 `build_template()` 오케스트레이션만 갖는다.
 
 ## 접근 방식
 
@@ -82,11 +83,38 @@ from pathlib import Path
 from core.constants import HAND_TOOL_ITEMS, HAZMAT_ITEMS, MACHINERY_EQUIPMENT_ITEMS, MAJOR_HAZARD_WORKS
 from core.db import BASE_DIR
 from data.build_hwp_template_equipment import _EQUIPMENT_TABLES, _process_equipment_table
+from data.build_hwp_template_layout_fixes import (
+    _PROCESS_TABLE_ROW_HEIGHT_MM,
+    _add_education_location_field,
+    _convert_equipment_pass_fail_checkboxes,
+    _set_process_table_row_heights,
+)
 from data.build_hwp_template_table6 import _process_table6, _remove_table6_checkboxes
 from data.hwp_template_common import _normalize
 
+# "-1" 사본: 5번 섹션 맨 위에 있던 "위험성 평가기준" 박스(표6 안의 물리적 행 2개를 차지하고
+# 있었음)를 사용자가 한글에서 직접 잘라서 3종 장비표 뒤 · "6. 현재 진행중인 공정" 앞으로
+# 옮긴 버전이다. 이 편집으로 표6의 행 번호가 전부 2씩, 표 인덱스는 7번(장비표들)부터 전부
+# 밀렸다 — 이 파일의 `_TABLE6_CHECKBOX_MAP`/`_SAFE_TABLE_INDEXES`와
+# `build_hwp_template_equipment.py`의 `_EQUIPMENT_TABLES`, `report_builder_hwp_fields.py`의
+# 필드 접두사(t8~t15)가 전부 이 새 번호 체계(t7~t16)에 맞춰 갱신됐다.
+#
+# "-2" 사본: 표12(6번 "현재 진행중인 공정")의 기존 표(유해위험요인/현재안전보건조치/
+# 위험성수준/평가, 5줄)를 지우고 표15(8번 "향후 진행공정" 상세표, 진행공정/유해·위험요인/
+# 예방대책 열 + "위험성" 서브라벨 구조)를 통째로 복사해 그 자리에 붙여넣은 버전이다 —
+# 6번/8번 마법사·산출물을 구조적으로 완전히 동일하게 맞추기 위함(제목만 "현재"/"향후"로
+# 다름). 표12가 표15와 완전히 같은 셀 구조가 됐기 때문에(직접 대조 확인함) 표 개수 자체는
+# 안 바뀌었고, 표12보다 뒤에 있는 표(13~16)의 인덱스는 이번엔 안 밀렸다 — 표12 내부 필드
+# 채우기 로직(`core/report_builder_hwp_fields.py`의 `fill_current_process_fields`)만
+# 표15용 함수(`fill_future_process_detail_fields`)와 동일한 패턴으로 다시 짰다.
+# "-3" 사본: 표12/표15를 "이름/유해위험요인/예방대책 + '위험성' 서브라벨" 3행짜리 구조에서
+# 더 깔끔한 진행공정/유해·위험요인/예방대책/위험성수준 4열 × 5행(헤더 1 + 항목 4) 구조로
+# 다시 짰다 — 항목을 한 번에 최대 4개까지(마법사 슬롯 수와 동일) 보여줄 수 있게 됐고,
+# 위험성수준 칸(D열)에는 "상\n중\n하" 세 줄이 이미 들어있어 각 줄 앞에 체크(☑/☐)만 붙이면
+# 된다. 병합 셀이 없어(행마다 독립된 칸이라 TableRightCell() 중복 방문이 없음) 표12/15에서
+# 겪었던 "겹친 필드 중 특정 필드만 렌더링에서 빠지는" 버그도 이번 구조에서는 없다.
 _SOURCE_HWP = Path(
-    r"C:\Users\윤석현1\Documents\카카오톡 받은 파일\영중중학교 (보도블록 공사) 건설 재해예방 기술지도 결과보고서(1차)수정.hwp"
+    r"C:\Users\윤석현1\Documents\카카오톡 받은 파일\영중중학교 (보도블록 공사) 건설 재해예방 기술지도 결과보고서(1차)수정-3.hwp"
 )
 _WORK_COPY = (
     Path.home()
@@ -103,7 +131,7 @@ _OUTPUT_FIELDS_JSON = BASE_DIR / "data" / "templates" / "report_template_fields.
 # 이번 라운드는 텍스트 필드까지만 — 표0(결재란, 서명 이미지만 있고 텍스트 데이터가 없음)과
 # 표6(중첩 표 구조)은 스킵한다. 표3(기술지도 개요)은 실제 고객사 서명 이미지가 섞여있었지만
 # `_remove_controls_by_desc()`로 컨트롤을 먼저 지우는 방식으로 안전하게 처리할 수 있게 됐다.
-_SAFE_TABLE_INDEXES = [1, 2, 3, 4, 5, 11, 12, 13, 14, 15]
+_SAFE_TABLE_INDEXES = [1, 2, 3, 4, 5, 12, 13, 14, 15, 16]
 
 # 표5(대형사고위험작업 25종)의 "해당/해당없음" 칸은 텍스트가 아니라 실제 클릭 가능한
 # 체크박스 컨트롤(HWPML2X `<CHECKBUTTON>`, pyhwpx UserDesc=="선택 상자")로 되어있다.
@@ -190,6 +218,7 @@ def _build_static_label_set() -> set[str]:
             "유해 · 위험요인",
             "유해·위험요인",
             "유해위험요인을 제거하기위한 예방대책",
+            "유해위험요인을 제거하기 위한 예방대책",  # 표12/15를 4열 표로 재구성하며 띄어쓰기가 바뀐 버전
             "다음 방문시까지 발생하는주요 진행공정",
             "지원사항",
             "구체적 사항",
@@ -312,7 +341,9 @@ def _process_table(hwp, table_index: int, static_labels: set[str], records: list
             hwp.HAction.Run("MoveSelLineEnd")
             hwp.HAction.Run("Delete")
             guard += 1
-            if guard > 20:  # 정상 셀이라면 이 줄 수를 넘을 일이 없다
+            if guard > 200:  # 표12/15 재구성 때 넣은 샘플 문구(불릿 6개, 줄바꿈 포함하면
+                # 시각적으로 20줄을 훌쩍 넘김)가 20줄 한도에 걸려 일부만 지워지고 나머지가
+                # 필드 밖에 그대로 남는 사고를 실측으로 확인했다 — 여유 있게 200으로 올렸다.
                 break
 
     def _handle_current_cell() -> None:
@@ -424,6 +455,18 @@ def build_template() -> Path:
                 f"표{table_index}: 체크박스 {removed_eq}개 제거, 필드 {count_eq}개 생성 ({time.time()-t0:.1f}s)",
                 flush=True,
             )
+
+        _set_process_table_row_heights(hwp)
+        hwp.save_as(str(_work_output))
+        print(f"표12/15: 항목행 높이 {_PROCESS_TABLE_ROW_HEIGHT_MM}mm로 조정 완료 ({time.time()-t0:.1f}s)", flush=True)
+
+        _add_education_location_field(hwp)
+        hwp.save_as(str(_work_output))
+        print(f"표16: t16_edu_location 필드 추가 완료 ({time.time()-t0:.1f}s)", flush=True)
+
+        _convert_equipment_pass_fail_checkboxes(hwp)
+        hwp.save_as(str(_work_output))
+        print(f"표16: 장비사용 양호/불량 체크박스 → 필드 전환 완료 ({time.time()-t0:.1f}s)", flush=True)
 
         # ---- 최종 검증: 실제 고객사 문자열이 하나도 안 남았는지 확인 ----
         # option에 "saveblock"이 포함되면 선택 영역만 추출한다(pyhwpx 기본값) — 전체 문서를

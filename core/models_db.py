@@ -322,18 +322,27 @@ class CurrentProcessPhoto(Base):
 
 
 class CurrentProcessEntry(Base):
-    """6. 현재 진행중인 공정 유해위험요인 파악 (최대 4행). ProcessHazardEntry와 거의 동일한
-    모양이지만 "현재안전보건조치"·"평가(양호/미흡)" 열이 있다는 점이 다르다."""
+    """6. 현재 진행중인 공정 유해위험요인 파악 (최대 4행).
+
+    실제 문서(표12)가 8번 섹션(표15, `ProcessHazardEntry`)과 완전히 같은 표 구조(진행공정/
+    유해·위험요인/예방대책/위험성)로 통일되면서 이 모델도 같은 모양으로 바뀌었다 —
+    `process_name`/`prevention_text`를 새로 추가했다. `measure_text`("현재안전보건조치")·
+    `evaluation`("평가")은 옛 구조(항목당 유해위험요인만 여러 줄, 평가 열 있음)에서 쓰던
+    컬럼으로, 새 코드는 더 이상 채우지 않지만 과거 데이터 호환을 위해 컬럼 자체는 지우지
+    않는다(이 프로젝트의 다른 컬럼들과 같은 원칙 — `core/db.py` 마이그레이션은 컬럼을
+    삭제하지 않고 추가만 한다)."""
 
     __tablename__ = "current_process_entry"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~4
+    process_name: Mapped[str] = mapped_column(Text, default="")
     hazard_text: Mapped[str] = mapped_column(Text, default="")
-    measure_text: Mapped[str] = mapped_column(Text, default="")  # 현재안전보건조치
+    prevention_text: Mapped[str] = mapped_column(Text, default="")
     risk_level: Mapped[str] = mapped_column(Text, default="")  # 상/중/하
-    evaluation: Mapped[str] = mapped_column(Text, default="")  # 양호/미흡
+    measure_text: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 현재안전보건조치 — 더 이상 안 씀
+    evaluation: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 양호/미흡 — 더 이상 안 씀
 
     report: Mapped[Report] = relationship(back_populates="current_process_entries")
 

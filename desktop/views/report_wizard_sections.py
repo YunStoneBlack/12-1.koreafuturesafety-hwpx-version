@@ -35,6 +35,11 @@ from desktop.widgets.report_wizard_slots import (
 )
 from desktop.widgets.section_header import SectionHeader
 
+# 지인님 현장은 당분간 이 두 계측기만 쓴다길래 마법사에 이것만 보이게 좁혔다 — 나머지
+# (소음측정기/산소농도측정기/온도계/풍속계/접지테스터기)는 `MEASUREMENT_INSTRUMENTS`에
+# 그대로 남아있으니 나중에 필요해지면 이 목록에 이름만 추가하면 바로 다시 보인다.
+_VISIBLE_MEASUREMENT_INSTRUMENTS = ["조도계", "가스농도측정기"]
+
 
 class _SectionBuilderMixin:
     """ReportWizardView 전용 — 단독으로 인스턴스화하지 않는다."""
@@ -61,8 +66,17 @@ class _SectionBuilderMixin:
         photos_widget.setLayout(photos_row)
         return self._card(self.overview_header, photos_widget)
 
-    def _build_safety_education_section(self) -> QFrame:
-        self.education_header = SectionHeader(9, "안전교육")
+    def _build_support_section(self) -> QFrame:
+        """9번 "사업장 지원 사항 등 기타 사항" — 실제 보고서에서 TBM(안전교육)과 계측자료가
+        하나의 표(9번)로 합쳐져 있어, 마법사에서도 예전에 따로 있던 9번(안전교육)·10번
+        (계측자료) 카드를 9-1/9-2 소제목으로 한 카드에 합친다(5-3. 건설기계장비 등 안전조치
+        평가가 5번 카드 안에 번호 없는 소제목으로 들어가는 것과 같은 패턴). `education_header`/
+        `measurement_header`는 각자 독립된 "해당사항없음" 토글을 그대로 쓰므로(저장/불러오기
+        로직이 이 두 헤더를 따로 참조) 이름과 기능은 그대로 두고 번호 배지만 뗀다.
+        """
+        self.support_header = SectionHeader(9, "사업장 지원 사항 등 기타 사항")
+
+        self.education_header = SectionHeader(None, "9-1. TBM 활성화 지도 및 교육실시")
         row = QHBoxLayout()
         self.education_photo = PhotoDropZone("안전교육 사진")
         row.addWidget(self.education_photo)
@@ -97,7 +111,25 @@ class _SectionBuilderMixin:
         row.addStretch()
         row_widget = QWidget()
         row_widget.setLayout(row)
-        return self._card(self.education_header, row_widget)
+
+        self.measurement_header = SectionHeader(None, "9-2. 계측자료")
+        with SessionLocal() as session:
+            standards = {s.instrument_type: s.standard_criteria for s in session.query(MeasurementStandard).all()}
+        units_by_name = dict(MEASUREMENT_INSTRUMENTS)
+        self.measurement_rows = [
+            _MeasurementRow(name, units_by_name[name], standards.get(name, "")) for name in _VISIBLE_MEASUREMENT_INSTRUMENTS
+        ]
+        measurement_row_layout = QHBoxLayout()
+        for row in self.measurement_rows:
+            measurement_row_layout.addWidget(row, 1)
+        measurement_row_widget = QWidget()
+        measurement_row_widget.setLayout(measurement_row_layout)
+
+        return self._card(
+            self.support_header,
+            self.education_header, row_widget,
+            self.measurement_header, measurement_row_widget,
+        )
 
     def _build_findings_section(self) -> QFrame:
         self.findings_header = SectionHeader(7, "지적사항")
@@ -108,7 +140,7 @@ class _SectionBuilderMixin:
 
     def _build_special_note_section(self) -> QFrame:
         header_row = QHBoxLayout()
-        badge = QLabel("12")
+        badge = QLabel("11")
         badge.setFixedSize(24, 24)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet("background: #4f46e5; color: white; border-radius: 12px; font-weight: 600;")
@@ -154,17 +186,8 @@ class _SectionBuilderMixin:
         self.previous_add_btn.setText(f"+ 이전지적사항 추가 ({active_count}/4)")
         self.previous_add_btn.setEnabled(active_count < 4)
 
-    def _build_measurement_section(self) -> QFrame:
-        self.measurement_header = SectionHeader(10, "계측자료")
-        with SessionLocal() as session:
-            standards = {s.instrument_type: s.standard_criteria for s in session.query(MeasurementStandard).all()}
-        self.measurement_rows = [
-            _MeasurementRow(name, unit, standards.get(name, "")) for name, unit in MEASUREMENT_INSTRUMENTS
-        ]
-        return self._card(self.measurement_header, *self.measurement_rows)
-
     def _build_materials_section(self) -> QFrame:
-        self.materials_header = SectionHeader(11, "제공자료")
+        self.materials_header = SectionHeader(10, "제공자료")
         note = QLabel("✦ AI추천을 누르면 지적사항 내용을 바탕으로 관련 자료를 찾아줍니다")
         note.setStyleSheet("color: #4f46e5; font-size: 12px;")
 
@@ -311,8 +334,8 @@ class _SectionBuilderMixin:
                 line_checkbox.setChecked(f"{number}-{line_index}" in checked_ids)
 
     def _build_process_section(self) -> QFrame:
-        self.process_header = SectionHeader(8, "향후 진행공정 유해·위험 요인 파악 및 대책")
-        note = QLabel("보고서 6번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
+        self.process_header = SectionHeader(8, "향후 진행공정에 대한 유해·위험요인 파악 및 대책")
+        note = QLabel("보고서 8번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
         self.process_slots = [_ProcessSlot(i) for i in range(1, 5)]
 
@@ -337,6 +360,11 @@ class _SectionBuilderMixin:
         grid = QGridLayout()
         grid.setSpacing(0)
         grid.setContentsMargins(0, 0, 0, 0)
+        # 칸을 채우면(긴 "+ N번 칸 공정 선택" 버튼 -> 짧은 이름+배지+X) 내용물의 크기 힌트가
+        # 줄어들면서 Qt가 그 열만 좁혀버려 왼쪽/오른쪽 열 너비가 안 맞아 보이는 문제가 있었다
+        # — 두 열에 동일한 stretch를 줘서 내용물 크기와 무관하게 항상 50:50으로 고정한다.
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
         positions = {1: (0, 0), 3: (0, 1), 2: (1, 0), 4: (1, 1)}
         for process_slot in self.process_slots:
             row, col = positions[process_slot.slot]

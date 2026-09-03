@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from core.db import BASE_DIR, SessionLocal
 from core.models_db import (
     CurrentProcessEntry,
-    CurrentProcessPhoto,
     Finding,
     Measurement,
     PreviousFinding,
@@ -201,11 +200,6 @@ class _SaveGenerateMixin:
                 {"checked": row.checkbox.isChecked(), "notes": row.evaluations()} for row in self.hazmat_rows
             ]
 
-            report.current_process_name = self.current_process_name_input.text().strip()
-            session.query(CurrentProcessPhoto).filter_by(report_id=report.id).delete()
-            for slot, zone in ((1, self.current_process_photo_1), (2, self.current_process_photo_2)):
-                if zone.photo_path:
-                    session.add(CurrentProcessPhoto(report_id=report.id, slot=slot, photo_path=zone.photo_path))
             session.query(CurrentProcessEntry).filter_by(report_id=report.id).delete()
             for row in self.current_process_slots:
                 if not row.has_data():
@@ -214,10 +208,10 @@ class _SaveGenerateMixin:
                     CurrentProcessEntry(
                         report_id=report.id,
                         slot=row.slot,
+                        process_name=row.name_input.text(),
                         hazard_text=row.hazard_edit.toPlainText(),
-                        measure_text=row.measure_edit.toPlainText(),
+                        prevention_text=row.prevention_edit.toPlainText(),
                         risk_level=row.risk_level(),
-                        evaluation=row.evaluation(),
                     )
                 )
 

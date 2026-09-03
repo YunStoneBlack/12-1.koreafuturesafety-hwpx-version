@@ -1,5 +1,6 @@
-"""`build_hwp_template.py`에서 분리된 표8/9/10(건설기계장비·위험기계기구·유해위험물질)
-전용 처리.
+"""`build_hwp_template.py`에서 분리된 표7/8/9(건설기계장비·위험기계기구·유해위험물질)
+전용 처리(원래 표8/9/10이었다가 위험성평가기준 박스 이동으로 한 칸씩 당겨졌다 — 아래
+`_EQUIPMENT_TABLES` 주석 참고).
 
 600줄을 넘겨 커진 `build_hwp_template.py`를 표별 전용 로직 단위로 쪼갠 것 중 하나 —
 `build_template()`이 `_EQUIPMENT_TABLES`를 순회하며 이 모듈의 `_process_equipment_table()`을
@@ -11,12 +12,18 @@ from __future__ import annotations
 from core.constants import HAND_TOOL_ITEMS, HAZMAT_ITEMS, MACHINERY_EQUIPMENT_ITEMS
 from data.hwp_template_common import _normalize
 
-# 표8/9/10(건설기계장비/위험기계기구/유해위험물질) — 전용 처리 대상이라 `build_hwp_template.py`의
+# 표7/8/9(건설기계장비/위험기계기구/유해위험물질) — 전용 처리 대상이라 `build_hwp_template.py`의
 # `_SAFE_TABLE_INDEXES`(일반 라벨/데이터 판별 방식)에서 빼고 여기서 따로 처리한다.
+#
+# **표 번호가 원래 8/9/10이었다가 7/8/9로 한 칸씩 당겨졌다** — 5번 섹션 맨 위의 "위험성
+# 평가기준" 박스를 사용자가 한글에서 직접 잘라 이 3종 장비표 뒤로 옮기면서, 표6(17대 기인물)
+# 안에 있던 그 박스가 새 독립 표(정확히는 제목 1개 + 본문 1개, 표10/11)로 빠져나갔다 — 그
+# 결과 이 3종 장비표는 물러난 자리를 그대로 물려받아 7/8/9가 됐다(`_SOURCE_HWP`가 가리키는
+# "...수정-1.hwp" 기준, `build_hwp_template.py`의 소스 파일 주석 참고).
 _EQUIPMENT_TABLES: dict[int, list[tuple[str, list[str]]]] = {
-    8: MACHINERY_EQUIPMENT_ITEMS,
-    9: HAND_TOOL_ITEMS,
-    10: HAZMAT_ITEMS,
+    7: MACHINERY_EQUIPMENT_ITEMS,
+    8: HAND_TOOL_ITEMS,
+    9: HAZMAT_ITEMS,
 }
 
 

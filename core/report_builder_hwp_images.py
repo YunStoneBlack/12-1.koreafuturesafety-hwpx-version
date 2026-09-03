@@ -1,7 +1,7 @@
-"""한글(.hwp) 산출물에 실제 서명 이미지를 삽입한다 — 결재란(이사/대표이사), 담당요원,
-현장책임자(통보방법) 서명.
+"""한글(.hwp) 산출물에 실제 이미지를 삽입한다 — 결재란(이사/대표이사), 담당요원,
+현장책임자(통보방법) 서명 + 표16 TBM 비고 칸의 안전교육 사진.
 
-`report_builder_hwp_fields.py`는 텍스트 필드만 채운다. 서명은 이미지라 `put_field_text()`로는
+`report_builder_hwp_fields.py`는 텍스트 필드만 채운다. 이미지는 `put_field_text()`로는
 넣을 수 없어 `hwp.insert_picture()`로 커서 위치에 직접 삽입하는 별도 단계로 분리했다.
 
 - **결재란(표0, 이사/대표이사)**: B2/C2가 각각 이사/대표이사 서명 전용 빈 셀이라(표0은
@@ -115,6 +115,50 @@ def _insert_at_field_offset(hwp, field_name: str, offset: int, image_path: str) 
         height=_SIGNATURE_HEIGHT_MM,
     )
     return True
+
+
+def _delete_picture_at_cell(hwp, table_index: int, addr: str) -> None:
+    """지정된 표/셀에 앵커된 그림(gso) 컨트롤을 찾아 지운다.
+
+    셀 주소 문자열("G2")만으로 문서 전체를 훑으면 다른 표의 우연히 같은 주소를 가진 셀과
+    섞일 수 있어, 먼저 그 표·셀까지 실제로 캐럿을 이동시켜 얻은 List ID(칸마다 고유한 문단
+    리스트 식별자, `get_pos()`의 첫 번째 값)로 앵커 위치를 비교한다.
+    """
+    hwp.MoveDocBegin()
+    hwp.get_into_nth_table(table_index, select_cell=False)
+    hwp.TableColBegin()
+    hwp.TableColPageUp()
+    guard = 0
+    while hwp.get_cell_addr() != addr:
+        if not hwp.TableRightCell():
+            return
+        guard += 1
+        if guard > 200:
+            return
+    list_id = hwp.get_pos()[0]
+
+    for ctrl in hwp.ctrl_list:
+        if ctrl.UserDesc != "그림":
+            continue
+        try:
+            hwp.hwp.SetPosBySet(ctrl.GetAnchorPos(0))
+        except Exception:
+            continue
+        if hwp.get_pos()[0] == list_id:
+            hwp.delete_ctrl(ctrl)
+
+
+def fill_support_images(hwp, report: Report) -> None:
+    """표16 TBM 행의 비고 칸(G2) — 원본 문서에 남아있던 실제 샘플 사진(다른 현장의 실제
+    안전교육 사진)을 지우고, 이번 보고서에 안전교육 사진이 업로드돼 있으면 그 자리에
+    채워 넣는다. 샘플 사진을 지우는 건 업로드 사진이 없을 때도 항상 하는데, 무관한 다른
+    현장 사진이 마치 이 보고서의 실제 사진인 것처럼 남아있으면 안 되기 때문이다.
+    """
+    _delete_picture_at_cell(hwp, 16, "G2")
+
+    education = report.safety_education
+    if education and education.photo_path and Path(education.photo_path).exists():
+        _insert_in_cell(hwp, 16, "G2", education.photo_path)
 
 
 def fill_signoff_images(hwp, report: Report, site: Site) -> None:

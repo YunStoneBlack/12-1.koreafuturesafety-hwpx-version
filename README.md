@@ -30,9 +30,10 @@ python -m desktop.main
     `report_builder_common.py`(공통 헬퍼) / `report_builder_pdf.py`(PDF, 실제 표준 서식 9섹션) /
     `report_builder_docx.py`(DOCX, 아직 예전 7섹션 — 미리보기 흐름에 연결 안 돼있어 우선순위 낮음) /
     `report_builder_hwp.py` + `report_builder_hwp_fields.py`(텍스트 필드) +
-    `report_builder_hwp_images.py`(서명 이미지 삽입) — 한글(.hwp), 실제 서식 파일을 템플릿으로
-    재사용. 표0(결재란)·표1~3·표5·표6(17대 기인물)·표8~11·표13~15가 채워지고 결재란/담당요원/
-    현장책임자 서명 이미지도 삽입됨(Sub-phase 8~9) — 표4(이전지적사항)·표12는 아직 미채움
+    `report_builder_hwp_images.py`(서명 이미지 + TBM 비고 사진 삽입) — 한글(.hwp), 실제 서식
+    파일을 템플릿으로 재사용. 표0(결재란)·표1~3·표5·표6(17대 기인물)·표8~16이 채워지고
+    결재란/담당요원/현장책임자 서명 이미지, TBM 비고 사진도 삽입됨(Sub-phase 8~10) —
+    표4(이전지적사항)만 아직 미채움
   - `hangul_match.py` — 자모 단위 부분일치 검색 (조합 중인 글자도 검색 가능)
   - `config.py` — API 키/설정 관리(+ Sub-phase 8: 이사/대표이사 결재 서명 저장)
 - `desktop/` — PyQt6 UI
@@ -52,10 +53,11 @@ python -m desktop.main
   - `workers/` — AI 호출을 백그라운드 스레드로 실행하는 워커
   - `widgets/` — 재사용 UI 컴포넌트 (`report_wizard_slots.py`에 보고서 마법사 하위 "한 칸" 위젯들 포함,
     `signature_pad.py`에 마우스 그리기/이미지 첨부 서명 위젯)
-- `data/` — 로컬 DB 파일, 참조 데이터(계측기준 등), `migrate_v7_report_format.py`/
-  `migrate_v8_hwp_signatures.py`/`migrate_v9_misc_notes.py`(스키마 마이그레이션),
+- `data/` — 로컬 DB 파일, 참조 데이터(계측기준 등), `migrate_v7_report_format.py`~
+  `migrate_v10_current_process.py`(스키마 마이그레이션),
   `build_hwp_template.py`(한글 템플릿 생성 1회성 도구, 실행: `python -m data.build_hwp_template`) +
-  `build_hwp_template_table6.py`/`build_hwp_template_equipment.py`(표별 전용 처리 분리) +
+  `build_hwp_template_table6.py`/`build_hwp_template_equipment.py`/
+  `build_hwp_template_layout_fixes.py`(표별 전용 처리·후처리 분리) +
   `hwp_template_common.py`(공통 유틸), `templates/`(생성된 한글 템플릿 — git 미포함, 아래 진행 상황 참고)
 
 ## 진행 상황
@@ -81,11 +83,17 @@ python -m desktop.main
   표3(기술지도 개요)의 실제 고객사 PII 스크럽, 17대 기인물(표6) 마법사 UI를 실제 문서와 같은
   줄 단위 체크 구조로 재설계(`QTableWidget`+`setSpan`), 5-3(건설기계장비·위험기계기구·
   유해위험물질)을 5번 카드 하위로 병합하고 같은 표 구조로 재설계 + 유/무·평가(줄별 독립
-  양호/미흡) 산출물 연동까지 완료. 한글 템플릿은 표0/1/2/3/5/6/8/9/10/11/13/14/15가 채워지는
-  상태 — 표4(이전지적사항)·표12만 남음.
-  - 남은 것: 표4(이전지적사항)·표12 채우기(실 데이터 부재로 셀 의미 미확정), DOCX를 9섹션
-    구조로 맞추기(우선순위 낮음). 자세한 내용은 `작업내용.md`의 "Sub-phase 9" 절과 한글
-    COM 자동화 함정은 `핵심기술.md` 참고.
+  양호/미흡) 산출물 연동까지 완료.
+- **Sub-phase 10 (완료)**: 6번(현재진행공정) 마법사·산출물을 8번(향후진행공정)과 완전히 동일한
+  구조로 통일(표12를 표15와 같은 4열 구조로 재구성). 9번 마법사(안전교육·계측자료)를 하나의
+  카드(9-1/9-2)로 통합. 표16(사업장 지원사항) 세부 개선 — 교육장소 필드 신규 추가, TBM 비고
+  칸의 원본 잔여 사진을 실제 업로드 사진으로 교체, 장비사용(1)/(2) 중복 라벨 수정, 계측자료
+  항목 축소(조도계·가스농도측정기만), 양호/불량 체크박스를 계측값 기반 판정과 연동. 가스농도
+  측정기(4종 복합가스, EX/O2/H2S/CO) 전용 AI 판독 로직과 조도계 ×1000 배율 보정 추가. 한글
+  템플릿은 표0/1/2/3/5/6/8~16이 채워지는 상태 — 표4(이전지적사항)만 남음.
+  - 남은 것: 표4(이전지적사항) 채우기(실 데이터 부재로 셀 의미 미확정), DOCX를 9섹션 구조로
+    맞추기(우선순위 낮음). 자세한 내용은 `작업내용.md`의 "Sub-phase 10" 절과 한글 COM 자동화
+    함정은 `핵심기술.md` 참고.
 
 ### 한글(.hwp) 출력 — 실제 서식 템플릿 방식은 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwp.py`(+ `report_builder_hwp_fields.py`/
