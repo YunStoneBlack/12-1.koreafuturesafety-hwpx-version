@@ -39,13 +39,20 @@ FINDING_PROMPT = """당신은 건설재해예방 기술지도를 보조하는 �
 - 사진과 설명이 충분하면 실제 위반사항과 구체적인 개선대책을 작성하세요.
 - law_citation은 관련 있다고 판단되는 산업안전보건 관련 법령·규칙 조항명을 간단히
   적되, 확신이 없으면 빈 문자열로 두세요("산업안전보건기준에 관한 규칙 제OO조(...)" 형식 권장).
+- likelihood(가능성)와 severity(중대성)는 아래 기준으로 1~3 중 하나를 고르세요.
+  가능성(빈도): 1=발생 가능성이 거의 없음 / 2=발생 가능성 있음 / 3=일반적 또는 반복적으로 발생
+  중대성(강도): 1=아차사고·무상해·응급조치를 요하는 상해 또는 질병 초래 /
+  2=의학적인 치료를 요하는 상해 또는 장애를 일으키는 질병 /
+  3=사망·중대한 상해 또는 생명을 위협하는 직업성질병 초래 위험
 
 반드시 아래 JSON 스키마와 동일한 형식의 JSON 객체만 응답하세요. 다른 설명 텍스트는 포함하지 마세요.
 
 {{
   "title": "지적사항 제목 (30자 이내)",
   "content": "지적사항 및 개선대책 (110자 이내)",
-  "law_citation": "관련 법령 조항 (확신 없으면 빈 문자열)"
+  "law_citation": "관련 법령 조항 (확신 없으면 빈 문자열)",
+  "likelihood": "가능성 1~3 중 하나(정수)",
+  "severity": "중대성 1~3 중 하나(정수)"
 }}"""
 
 PEOPLE_COUNT_PROMPT = """첨부된 사진에서 사람이 몇 명 보이는지 세어주세요.
@@ -177,8 +184,18 @@ def _parse_json_object(raw_text: str) -> dict:
     return data
 
 
+def _clamp_1_3(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return min(3, max(1, n))
+
+
 def analyze_finding(photo_path: str | Path, description: str, model: str | None = None) -> dict:
-    """사진 + 지도자 설명으로 지적사항 제목/내용/관련법령을 추천한다."""
+    """사진 + 지도자 설명으로 지적사항 제목/내용/관련법령/위험성평가(가능성·중대성)를 추천한다."""
     image_b64, media_type = _encode_image(photo_path)
     prompt = FINDING_PROMPT.format(description=description or "(설명 없음)")
     raw_response = _call_claude(image_b64, media_type, prompt, model=model)
@@ -187,6 +204,8 @@ def analyze_finding(photo_path: str | Path, description: str, model: str | None 
         "title": (data.get("title") or "")[:30],
         "content": (data.get("content") or "")[:110],
         "law_citation": data.get("law_citation") or "",
+        "likelihood": _clamp_1_3(data.get("likelihood")),
+        "severity": _clamp_1_3(data.get("severity")),
     }
 
 

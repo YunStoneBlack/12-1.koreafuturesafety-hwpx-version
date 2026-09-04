@@ -74,9 +74,11 @@ class _SectionBuilderMixin:
         `measurement_header`는 각자 독립된 "해당사항없음" 토글을 그대로 쓰므로(저장/불러오기
         로직이 이 두 헤더를 따로 참조) 이름과 기능은 그대로 두고 번호 배지만 뗀다.
         """
-        self.support_header = SectionHeader(9, "사업장 지원 사항 등 기타 사항")
+        self.support_header = SectionHeader(9, "사업장 지원 사항 등 기타 사항", required=False, show_na_button=False)
 
-        self.education_header = SectionHeader(None, "9-1. TBM 활성화 지도 및 교육실시")
+        self.education_header = SectionHeader(
+            None, "9-1. TBM 활성화 지도 및 교육실시", required=False, show_na_button=False
+        )
         row = QHBoxLayout()
         self.education_photo = PhotoDropZone("안전교육 사진")
         row.addWidget(self.education_photo)
@@ -112,7 +114,9 @@ class _SectionBuilderMixin:
         row_widget = QWidget()
         row_widget.setLayout(row)
 
-        self.measurement_header = SectionHeader(None, "9-2. 계측자료")
+        self.measurement_header = SectionHeader(
+            None, "9-2. 계측자료", required=False, show_na_button=False
+        )
         with SessionLocal() as session:
             standards = {s.instrument_type: s.standard_criteria for s in session.query(MeasurementStandard).all()}
         units_by_name = dict(MEASUREMENT_INSTRUMENTS)
@@ -132,11 +136,27 @@ class _SectionBuilderMixin:
         )
 
     def _build_findings_section(self) -> QFrame:
-        self.findings_header = SectionHeader(7, "지적사항")
+        self.findings_header = SectionHeader(7, "지적사항", required=False, show_na_button=False)
         note = QLabel("✦ 사진 업로드 후 설명을 입력하시고 AI추천 버튼을 클릭하시면 관련 지적사항을 AI가 작성합니다")
         note.setStyleSheet("color: #4f46e5; font-size: 12px;")
         self.finding_slots = [_FindingSlot(i) for i in range(1, 5)]
-        return self._card(self.findings_header, note, *self.finding_slots)
+        self.finding_add_btn = QPushButton("+ 지적사항 추가 (0/4)")
+        self.finding_add_btn.clicked.connect(self._add_finding_slot)
+        for slot_widget in self.finding_slots:
+            slot_widget.delete_btn.clicked.connect(self._update_finding_add_btn)
+        return self._card(self.findings_header, note, *self.finding_slots, self.finding_add_btn)
+
+    def _add_finding_slot(self) -> None:
+        inactive = [s for s in self.finding_slots if not s.is_active()]
+        if not inactive:
+            return
+        inactive[0].set_active(True)
+        self._update_finding_add_btn()
+
+    def _update_finding_add_btn(self) -> None:
+        active_count = sum(1 for s in self.finding_slots if s.is_active())
+        self.finding_add_btn.setText(f"+ 지적사항 추가 ({active_count}/4)")
+        self.finding_add_btn.setEnabled(active_count < 4)
 
     def _build_special_note_section(self) -> QFrame:
         header_row = QHBoxLayout()
@@ -145,8 +165,10 @@ class _SectionBuilderMixin:
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet("background: #4f46e5; color: white; border-radius: 12px; font-weight: 600;")
         header_row.addWidget(badge)
-        title = QLabel("무제 •")
-        title.setStyleSheet("font-size: 15px; font-weight: 700; margin-left: 6px;")
+        title = QLabel("무제")
+        title.setStyleSheet(
+            "font-size: 15px; font-weight: 700; margin-left: 6px; border: none; background: transparent;"
+        )
         header_row.addWidget(title)
         header_row.addStretch()
         self.note_ai_btn = QPushButton("✨ AI추천")
@@ -164,7 +186,7 @@ class _SectionBuilderMixin:
         return self._card(header_widget, note, self.special_note_edit, self.special_note_counter)
 
     def _build_previous_findings_section(self) -> QFrame:
-        self.previous_header = SectionHeader(3, "이전지적사항", required=False)
+        self.previous_header = SectionHeader(3, "이전지적사항", required=False, show_na_button=False)
         self.previous_hint_label = QLabel("이전 회차 지적사항이 없습니다. 직접 넣으실 항목이 있으면 아래 버튼으로 추가하세요.")
         self.previous_hint_label.setStyleSheet("color: #6b7280;")
         self.previous_slots = [_PreviousFindingSlot(i) for i in range(1, 5)]
@@ -187,7 +209,7 @@ class _SectionBuilderMixin:
         self.previous_add_btn.setEnabled(active_count < 4)
 
     def _build_materials_section(self) -> QFrame:
-        self.materials_header = SectionHeader(10, "제공자료")
+        self.materials_header = SectionHeader(10, "제공자료", required=False, show_na_button=False)
         note = QLabel("✦ AI추천을 누르면 지적사항 내용을 바탕으로 관련 자료를 찾아줍니다")
         note.setStyleSheet("color: #4f46e5; font-size: 12px;")
 
@@ -298,17 +320,24 @@ class _SectionBuilderMixin:
         return frame
 
     def _build_hazard_factors_section(self) -> QFrame:
-        self.hazard_header = SectionHeader(5, "위험성평가 기준 및 12대 기인물 필수 지도사항")
+        self.hazard_header = SectionHeader(
+            5, "위험성평가 기준 및 12대 기인물 필수 지도사항", required=False, show_na_button=False
+        )
         self.hazard_checkboxes: dict[int, QCheckBox] = {}
         self.hazard_line_checkboxes: dict[int, list[QCheckBox]] = {}
         factors_by_number = {number: (name, lines) for number, name, lines in FIXED_HAZARD_FACTORS}
 
+        # 5-3 소제목(SectionHeader의 title_label)과 글자 크기를 맞춘다(사용자 요청) — 15px/700.
         sub1 = QLabel("5-1. 사망사고 다발 12대 기인물과 필수 지도사항")
-        sub1.setStyleSheet("font-size: 13px; font-weight: 600; margin-top: 4px;")
+        sub1.setStyleSheet(
+            "font-size: 15px; font-weight: 700; margin-top: 4px; border: none; background: transparent;"
+        )
         main_grid_widget = self._build_hazard_grid([1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12], factors_by_number)
 
         sub2 = QLabel("5-2. 기타사항")
-        sub2.setStyleSheet("font-size: 13px; font-weight: 600; margin-top: 8px;")
+        sub2.setStyleSheet(
+            "font-size: 15px; font-weight: 700; margin-top: 8px; border: none; background: transparent;"
+        )
         misc_grid_widget = self._build_hazard_grid([13, 15, 17], [14, 16], factors_by_number)
 
         note = QLabel("1회차에 체크하면 다음 회차부터 자동으로 동일하게 적용됩니다.")
@@ -334,7 +363,9 @@ class _SectionBuilderMixin:
                 line_checkbox.setChecked(f"{number}-{line_index}" in checked_ids)
 
     def _build_process_section(self) -> QFrame:
-        self.process_header = SectionHeader(8, "향후 진행공정에 대한 유해·위험요인 파악 및 대책")
+        self.process_header = SectionHeader(
+            8, "향후 진행공정에 대한 유해·위험요인 파악 및 대책", required=False, show_na_button=False
+        )
         note = QLabel("보고서 8번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
         self.process_slots = [_ProcessSlot(i) for i in range(1, 5)]

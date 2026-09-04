@@ -11,6 +11,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QDate, Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -86,22 +87,30 @@ class ReportWizardView(
         self.guidance_date_input.setCalendarPopup(True)
         self.guidance_date_input.setDisplayFormat("yyyy-MM-dd")
         self.guidance_date_input.setDate(QDate.currentDate())
-        self.visit_no_label = QLabel("1")
+        self.visit_no_input = QSpinBox()
+        self.visit_no_input.setRange(1, 999)
+        self.visit_no_input.setReadOnly(True)
+        self.visit_no_input.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.visit_no_input.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.progress_input = QSpinBox()
         self.progress_input.setRange(0, 100)
         self.progress_input.setSuffix("%")
-        self.prev_date_label = QLabel("-")
+        self.prev_date_input = QDateEdit()
+        self.prev_date_input.setCalendarPopup(True)
+        self.prev_date_input.setDisplayFormat("yyyy-MM-dd")
+        self.prev_date_input.setDate(QDate.currentDate())
+        self.prev_date_none_check = QCheckBox("없음")
+        self.prev_date_none_check.toggled.connect(self._on_prev_date_none_toggled)
 
-        for label, widget in (
-            ("지도일", self.guidance_date_input),
-            ("회차(자동)", self.visit_no_label),
-            ("공정률", self.progress_input),
-            ("이전지도일", self.prev_date_label),
-        ):
-            col = QVBoxLayout()
-            col.addWidget(QLabel(label))
-            col.addWidget(widget)
-            fields_row.addLayout(col)
+        fields_row.addWidget(QLabel("지도일"))
+        fields_row.addWidget(self.guidance_date_input)
+        fields_row.addWidget(self.visit_no_input)
+        fields_row.addWidget(QLabel("회차"))
+        fields_row.addWidget(QLabel("공정률"))
+        fields_row.addWidget(self.progress_input)
+        fields_row.addWidget(QLabel("이전지도일"))
+        fields_row.addWidget(self.prev_date_input)
+        fields_row.addWidget(self.prev_date_none_check)
         fields_row.addStretch()
         top_bar.addLayout(fields_row)
 
@@ -141,7 +150,11 @@ class ReportWizardView(
         content_layout.addWidget(self._build_process_section())
         content_layout.addWidget(self._build_support_section())
         content_layout.addWidget(self._build_materials_section())
-        content_layout.addWidget(self._build_special_note_section())
+
+        special_note_section = self._build_special_note_section()
+        special_note_section.setVisible(False)  # 나중에 필요하면 이 줄만 지우면 다시 보임
+        content_layout.addWidget(special_note_section)
+
         content_layout.addStretch()
 
         scroll.setWidget(content)
@@ -159,14 +172,17 @@ class ReportWizardView(
 
         bottom_row = QHBoxLayout()
         bottom_row.addStretch()
-        save_btn = QPushButton("저장")
-        save_btn.clicked.connect(self._save)
-        self.generate_btn = QPushButton("📄 미리보기")
-        self.generate_btn.setEnabled(False)
-        self.generate_btn.setStyleSheet(
+        # 저장/미리보기 버튼 디자인을 통일한다(사용자 요청) — 미리보기 쪽 스타일에 맞춘다.
+        _bottom_button_style = (
             "QPushButton { background: #4f46e5; color: white; padding: 10px 24px; border-radius: 6px; }"
             "QPushButton:disabled { background: #c7c7c7; }"
         )
+        save_btn = QPushButton("저장")
+        save_btn.setStyleSheet(_bottom_button_style)
+        save_btn.clicked.connect(self._save)
+        self.generate_btn = QPushButton("미리보기")
+        self.generate_btn.setEnabled(False)
+        self.generate_btn.setStyleSheet(_bottom_button_style)
         self.generate_btn.clicked.connect(self._open_preview)
         bottom_row.addWidget(save_btn)
         bottom_row.addWidget(self.generate_btn)
@@ -179,6 +195,7 @@ class ReportWizardView(
         self._site_id = site_id
         self._report_id = report_id
         self.confirm_checkbox.setChecked(False)
+        self._reset_report_fields()
 
         with SessionLocal() as session:
             site = session.get(Site, site_id)
@@ -197,7 +214,7 @@ class ReportWizardView(
                 session.query(Report).filter(Report.site_id == site_id).order_by(Report.visit_no).all()
             )
             next_visit_no = (existing_reports[-1].visit_no + 1) if existing_reports else 1
-            self.visit_no_label.setText(str(next_visit_no))
+            self.visit_no_input.setValue(next_visit_no)
             self._apply_management_no_editability(next_visit_no, site.management_no if site else "")
 
             self.notify_signee_input.setText(site.manager_name if site else "")
@@ -216,13 +233,22 @@ class ReportWizardView(
 
             for slot in self.previous_slots:
                 slot.set_active(False)
+            if existing_reports and existing_reports[-1].guidance_date:
+                self.prev_date_none_check.setChecked(False)
+                self.prev_date_input.setDate(QDate(existing_reports[-1].guidance_date))
+            else:
+                self.prev_date_none_check.setChecked(True)
             if existing_reports:
                 last = existing_reports[-1]
-                self.prev_date_label.setText(
-                    last.guidance_date.strftime("%Y-%m-%d") if last.guidance_date else "-"
-                )
                 for slot, finding in zip(self.previous_slots, last.findings):
                     slot.load_from_finding(finding)
+                self.previous_hint_label.setText(
+                    "이전 회차 지적사항이 없습니다. 직접 넣으실 항목이 있으면 아래 버튼으로 추가하세요."
+                )
+                self.previous_header.set_checked(False)
+            else:
+                self.previous_hint_label.setText("1회차 보고서입니다. 이전 지적사항이 없습니다.")
+                self.previous_header.set_checked(False)
             self._update_previous_add_btn()
 
             self._apply_hazard_checks(set(site.hazard_factor_checks or []) if site else set())
@@ -251,6 +277,64 @@ class ReportWizardView(
                 if report:
                     self._load_existing_report(report)
 
+    def _reset_report_fields(self) -> None:
+        """새 보고서(수정이 아닌)를 시작할 때 이전 회차/이전 현장 편집 흔적이 남지 않도록,
+        `_load_existing_report()`가 채우는 위젯들을 전부 빈 상태로 되돌린다.
+
+        마법사 위젯이 화면 전환마다 새로 만들어지지 않고 재사용되기 때문에(다른 현장의
+        새 보고서를 열어도 같은 인스턴스), 여기서 명시적으로 안 지우면 직전에 열었던
+        보고서의 체크박스·텍스트·사진이 그대로 남아있는 채로 보였다(사용자가 실측으로
+        확인한 버그) — 결재란처럼 현장 단위로 의도적으로 이어지는 값(서명, 계약 정보 등)은
+        건드리지 않는다.
+        """
+        for checkbox in self.major_hazard_checkboxes:
+            checkbox.setChecked(False)
+        self.major_hazard_header.set_checked(False)
+
+        for rows in (self.machinery_rows, self.hand_tool_rows, self.hazmat_rows):
+            for row in rows:
+                row.checkbox.setChecked(False)
+                row.set_evaluations([])
+        self.equipment_header.set_checked(False)
+
+        self.education_photo.clear_photo()
+        self.attendee_input.clear()
+        self.education_location_input.clear()
+        self.education_content_input.clear()
+        self.education_material_input.clear()
+        self.education_header.set_checked(False)
+
+        for slot_widget in self.finding_slots:
+            slot_widget.clear()
+            slot_widget.set_active(False)
+        self.findings_header.set_checked(False)
+
+        self.special_note_edit.clear()
+
+        for row in self.measurement_rows:
+            row.photo.clear_photo()
+            row.value_input.clear()
+        self.measurement_header.set_checked(False)
+
+        self._selected_materials = []
+        self._update_materials_summary()
+        self.materials_header.set_checked(False)
+
+        for slot_widget in self.previous_slots:
+            slot_widget.title_input.clear()
+            slot_widget.content_edit.clear()
+            slot_widget.action_input.setText("조치완료")
+            slot_widget.confirm_btn.setChecked(False)
+            slot_widget.set_risk_level("")
+        self.previous_header.set_checked(False)
+
+        self.hazard_header.set_checked(False)
+        self.current_process_header.set_checked(False)
+        self.process_header.set_checked(False)
+
+    def _on_prev_date_none_toggled(self, checked: bool) -> None:
+        self.prev_date_input.setEnabled(not checked)
+
     def _apply_management_no_editability(self, visit_no: int, site_management_no: str) -> None:
         """관리번호는 현장 단위로 고정 — 1회차에서만 입력/자동생성 가능, 이후 회차는 읽기전용."""
         self.management_no_input.setText(site_management_no)
@@ -277,7 +361,12 @@ class ReportWizardView(
 
     def _load_existing_report(self, report: Report) -> None:
         """기존 보고서를 수정 모드로 불러온다 — '새 회차' 기본값을 실제 저장값으로 덮어쓴다."""
-        self.visit_no_label.setText(str(report.visit_no))
+        self.visit_no_input.setValue(report.visit_no)
+        if report.prev_guidance_date:
+            self.prev_date_none_check.setChecked(False)
+            self.prev_date_input.setDate(QDate(report.prev_guidance_date))
+        else:
+            self.prev_date_none_check.setChecked(True)
         self._apply_management_no_editability(
             report.visit_no, report.site.management_no if report.site else ""
         )
@@ -354,9 +443,12 @@ class ReportWizardView(
 
         findings_by_slot = {f.slot: f for f in report.findings}
         for slot_widget in self.finding_slots:
+            slot_widget.set_active(False)
+        for slot_widget in self.finding_slots:
             f = findings_by_slot.get(slot_widget.slot)
             if not f:
                 continue
+            slot_widget.set_active(True)
             if f.photo_path:
                 slot_widget.photo.set_photo(f.photo_path)
             slot_widget.description_input.setText(f.description)
@@ -365,6 +457,7 @@ class ReportWizardView(
             slot_widget.law_input.setText(f.law_citation)
             slot_widget.likelihood_buttons.set_value(f.likelihood)
             slot_widget.severity_buttons.set_value(f.severity)
+        self._update_finding_add_btn()
         self.findings_header.set_checked(report.findings_na)
 
         self.special_note_edit.setPlainText(report.special_note)

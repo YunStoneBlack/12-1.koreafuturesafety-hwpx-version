@@ -161,6 +161,103 @@ def fill_support_images(hwp, report: Report) -> None:
         _insert_in_cell(hwp, 16, "G2", education.photo_path)
 
 
+_MATERIAL_APPENDIX_WIDTH_MM = 180
+_MATERIAL_APPENDIX_HEIGHT_MM = 250
+_MATERIAL_FIRST_APPENDIX_HEIGHT_MM = 230  # 제목 줄이 같이 들어가는 첫 장만 이미지를 살짝 줄인다
+_MATERIAL_IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
+_SECTION_TITLE_FONT = "HY견고딕"
+_SECTION_TITLE_HEIGHT_PT = 13
+
+
+def fill_material_appendix(hwp, report: Report) -> None:
+    """10번 "제공자료"에서 고른 포스터/카드뉴스를 문서 맨 끝에 한 장씩 새 페이지로 붙인다.
+
+    `report_builder_pdf._build_material_appendix()`와 같은 원칙 — 선택된 자료가 1개면 1페이지,
+    2개면 2페이지가 추가된다(없으면 아무것도 안 붙인다). 원본 이미지가 없는(직접 업로드
+    없이 라이브러리만 고른 경우 `custom_photo_path`가 비어있어 `material.file_path`로
+    대체) 경우와, 파일 형식이 이미지가 아닌 경우(PDF 등)는 건너뛴다. 첫 장 맨 위에는
+    본문의 다른 번호 제목(7·8·9번 등)과 같은 서체·크기(HY견고딕 13pt)로 "10. 제공자료"
+    제목을 붙인다 — 그래서 첫 장만 이미지 높이를 살짝 줄여 제목과 함께 한 페이지에 들어가게
+    한다. "해당사항없음"으로 체크된 보고서는 고른 자료가 있어도 전부 건너뛴다.
+    """
+    if report.materials_na:
+        return
+    is_first = True
+    for pm in report.provided_materials:
+        source_path = pm.custom_photo_path
+        if not source_path and pm.material:
+            source_path = pm.material.file_path
+        if not source_path or not Path(source_path).exists():
+            continue
+        if Path(source_path).suffix.lower() not in _MATERIAL_IMAGE_SUFFIXES:
+            continue
+        hwp.MoveDocEnd()
+        hwp.HAction.Run("BreakPage")
+        height = _MATERIAL_APPENDIX_HEIGHT_MM
+        if is_first:
+            hwp.insert_text("10. 제공자료")
+            hwp.HAction.Run("MoveLineBegin")
+            hwp.HAction.Run("MoveSelLineEnd")
+            hwp.set_font(FaceName=_SECTION_TITLE_FONT, Height=_SECTION_TITLE_HEIGHT_PT, Bold=False)
+            hwp.HAction.Run("MoveLineEnd")
+            hwp.HAction.Run("BreakPara")
+            height = _MATERIAL_FIRST_APPENDIX_HEIGHT_MM
+            is_first = False
+        hwp.insert_picture(
+            source_path,
+            treat_as_char=True,
+            sizeoption=1,
+            width=_MATERIAL_APPENDIX_WIDTH_MM,
+            height=height,
+        )
+
+
+def _delete_picture_near_field(hwp, field_name: str) -> None:
+    """`field_name` 셀의 왼쪽 칸(사진 칸)에 앵커된 그림을 지운다.
+
+    지적사항 표(7번, "현재 공정 내 현존하는 위험성 제거")는 표1~16 번호 체계 밖에 있는
+    별도 표라 `get_into_nth_table()`로 못 찾는다 — 대신 이미 만들어둔 텍스트 필드
+    (`finding{n}_hazard`)를 기준점 삼아 왼쪽 칸(사진 칸, A열)으로 한 칸 이동해 List ID로
+    특정한다(`_delete_picture_at_cell`과 같은 방식).
+    """
+    if not hwp.field_exist(field_name):
+        return
+    hwp.move_to_field(field_name, text=True, start=True, select=False)
+    hwp.HAction.Run("TableLeftCell")
+    list_id = hwp.get_pos()[0]
+    for ctrl in hwp.ctrl_list:
+        if ctrl.UserDesc != "그림":
+            continue
+        try:
+            hwp.hwp.SetPosBySet(ctrl.GetAnchorPos(0))
+        except Exception:
+            continue
+        if hwp.get_pos()[0] == list_id:
+            hwp.delete_ctrl(ctrl)
+
+
+def _insert_picture_near_field(hwp, field_name: str, image_path: str) -> bool:
+    if not hwp.field_exist(field_name):
+        return False
+    hwp.move_to_field(field_name, text=True, start=True, select=False)
+    hwp.HAction.Run("TableLeftCell")
+    hwp.insert_picture(image_path, treat_as_char=True, sizeoption=3)
+    return True
+
+
+def fill_finding_images(hwp, report: Report) -> None:
+    """지적사항 표(7번) 각 항목의 사진 칸 — 항상 기존 그림을 먼저 지우고(빈 슬롯이면 지운
+    채로 둠), 지적사항에 업로드된 사진이 있으면 채워 넣는다. `fill_support_images`와 같은
+    원칙(무관한 샘플 사진이 남지 않도록)."""
+    findings = {f.slot: f for f in report.findings}
+    for slot in (1, 2, 3, 4):
+        field_name = f"finding{slot}_hazard"
+        _delete_picture_near_field(hwp, field_name)
+        finding = findings.get(slot)
+        if finding and finding.photo_path and Path(finding.photo_path).exists():
+            _insert_picture_near_field(hwp, field_name, finding.photo_path)
+
+
 def fill_signoff_images(hwp, report: Report, site: Site) -> None:
     director_path, _ = config.get_company_signature("director")
     if director_path and Path(director_path).exists():

@@ -89,7 +89,9 @@ def _numbered_header(number: int, title: str) -> QWidget:
     badge.setStyleSheet("background: #4f46e5; color: white; border-radius: 12px; font-weight: 600;")
     row.addWidget(badge)
     title_label = QLabel(title)
-    title_label.setStyleSheet("font-size: 15px; font-weight: 700; margin-left: 6px;")
+    title_label.setStyleSheet(
+        "font-size: 15px; font-weight: 700; margin-left: 6px; border: none; background: transparent;"
+    )
     row.addWidget(title_label)
     row.addStretch()
     widget = QWidget()
@@ -114,7 +116,9 @@ class _SectionBuilderMixin3:
 
         # 통보방법
         method_row = QHBoxLayout()
-        method_row.addWidget(QLabel("현장책임자 등 통보방법"))
+        method_label = QLabel("현장책임자 통보방법")
+        method_label.setStyleSheet("border: none; background: transparent;")
+        method_row.addWidget(method_label)
         self.notification_buttons = QButtonGroup(self)
         self.notification_buttons.setExclusive(True)
         for method in NOTIFICATION_METHODS:
@@ -131,7 +135,9 @@ class _SectionBuilderMixin3:
 
         # 통보방법 성명 + 서명
         name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("현장책임자 성명"))
+        name_label = QLabel("현장책임자 성명")
+        name_label.setStyleSheet("border: none; background: transparent;")
+        name_row.addWidget(name_label)
         self.notify_signee_input = QLineEdit()
         self.notify_signee_input.setPlaceholderText("예: 현장 책임자 이름")
         name_row.addWidget(self.notify_signee_input)
@@ -139,7 +145,9 @@ class _SectionBuilderMixin3:
         name_widget.setLayout(name_row)
 
         notify_sig_col = QVBoxLayout()
-        notify_sig_col.addWidget(QLabel("현장책임자 서명"))
+        notify_sig_label = QLabel("현장책임자 서명")
+        notify_sig_label.setStyleSheet("border: none; background: transparent;")
+        notify_sig_col.addWidget(notify_sig_label)
         self.notify_signature_pad = SignaturePad()
         notify_sig_col.addWidget(self.notify_signature_pad)
         notify_sig_save_btn = QPushButton("저장")

@@ -36,7 +36,7 @@ def generate_pdf_thumbnail(pdf_path: str | Path, output_path: str | Path) -> boo
         return False
 
 
-def render_pdf_pages(pdf_path: str | Path, width: int = 760, max_pages: int = 12) -> list[bytes]:
+def render_pdf_pages(pdf_path: str | Path, width: int = 760, max_pages: int = 40) -> list[bytes]:
     """PDF 각 페이지를 PNG 바이트로 렌더링한다 (보고서 미리보기 모달용).
 
     실패해도 예외를 던지지 않고 빈 리스트를 반환한다 — 호출부가 "미리보기를 만들지

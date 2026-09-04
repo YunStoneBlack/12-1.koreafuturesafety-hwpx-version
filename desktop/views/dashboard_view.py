@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QInputMethodEvent
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -33,6 +34,24 @@ _SORT_OPTIONS = ["최근 보고서일순 (기본)", "이름순"]
 # QLabel도 내부적으로 QFrame이라, 라벨에 스타일시트를 지정하면(색상만 지정해도)
 # 부모 카드의 border/background까지 새어 들어온다. 이 파일의 모든 라벨은 이걸 덧붙인다.
 _LABEL_RESET = "border: none; background: transparent;"
+
+
+class _ImeAwareLineEdit(QLineEdit):
+    """한글 IME로 조합 중인 글자(예: "ㅋ", "코")까지 실시간으로 잡아내는 QLineEdit.
+
+    한글은 자모를 눌러도 완성된 음절이 될 때까지(또는 다음 글자로 넘어갈 때까지) IME가
+    "조합 중(preedit)" 상태로 붙들고 있는데, 이 preedit 텍스트는 `text()`에 아직 반영되지
+    않는다 — Qt가 별도의 `QInputMethodEvent`로만 알려준다. `textChanged` 신호는 물론
+    `text()`를 아무리 자주 폴링해도 이 상태를 못 잡는 이유가 이거다. `inputMethodEvent`를
+    가로채 조합 중 텍스트가 바뀔 때마다 `preedit_changed`를 쏴서, 호출부가 "확정된 글자 +
+    지금 조합 중인 글자"를 합쳐 실시간으로 검색할 수 있게 한다.
+    """
+
+    preedit_changed = pyqtSignal(str)
+
+    def inputMethodEvent(self, event: QInputMethodEvent) -> None:  # noqa: N802 (Qt override)
+        super().inputMethodEvent(event)
+        self.preedit_changed.emit(event.preeditString())
 
 
 class _StatCard(QFrame):
@@ -173,7 +192,7 @@ class DashboardView(QWidget):
         today = datetime.date.today()
         weekday = _WEEKDAYS_KO[today.weekday()]
         date_label = QLabel(f"{today.year}년 {today.month}월 {today.day}일 ({weekday})")
-        date_label.setStyleSheet(f"color: #6b7280; font-size: 12px; {_LABEL_RESET}")
+        date_label.setStyleSheet(f"color: #111827; font-size: 14px; font-weight: 700; {_LABEL_RESET}")
         self.greeting_label = QLabel("한국미래안전님, 안녕하세요")
         self.greeting_label.setStyleSheet(f"font-size: 22px; font-weight: 700; {_LABEL_RESET}")
         self.summary_label = QLabel("")
@@ -184,11 +203,20 @@ class DashboardView(QWidget):
         header_row.addLayout(header_text)
         header_row.addStretch()
 
+        # 3개 보조 버튼 크기·글자 크기·스타일을 "+ 신규현장 추가" 버튼에 맞춘다(사용자 요청) —
+        # 주요 동작(신규현장 추가)과 구분되도록 배경/글자색만 흰 바탕으로 다르게 둔다.
+        _secondary_btn_style = (
+            "QPushButton { background: white; color: #111827; border: 1px solid #d1d5db; "
+            "padding: 8px 16px; border-radius: 6px; }"
+        )
         staff_btn = QPushButton("👥 담당요원 및 서명관리")
+        staff_btn.setStyleSheet(_secondary_btn_style)
         staff_btn.clicked.connect(self.staff_requested.emit)
         settings_btn = QPushButton("⚙ AI 관리")
+        settings_btn.setStyleSheet(_secondary_btn_style)
         settings_btn.clicked.connect(self.settings_requested.emit)
         upload_btn = QPushButton("⬆ 이전 보고서 업로드")
+        upload_btn.setStyleSheet(_secondary_btn_style)
         upload_btn.clicked.connect(self.report_upload_requested.emit)
         new_site_btn = QPushButton("+ 신규현장 추가")
         new_site_btn.setStyleSheet(
@@ -215,10 +243,13 @@ class DashboardView(QWidget):
         root.addWidget(list_label)
 
         search_row = QHBoxLayout()
-        self.search_input = QLineEdit()
+        self.search_input = _ImeAwareLineEdit()
         self.search_input.setPlaceholderText("현장명, 회차, 지적사항으로 검색...")
         self.search_input.textChanged.connect(self.refresh)
+        self._search_preedit = ""
+        self.search_input.preedit_changed.connect(self._on_search_preedit_changed)
         search_row.addWidget(self.search_input, stretch=1)
+
         self.sort_combo = QComboBox()
         self.sort_combo.addItems(_SORT_OPTIONS)
         self.sort_combo.currentIndexChanged.connect(self.refresh)
@@ -229,8 +260,18 @@ class DashboardView(QWidget):
         self._tab_group = QButtonGroup(self)
         self._tab_group.setExclusive(True)
         self._tab_buttons: dict[str, QPushButton] = {}
+        # 원래 스타일시트가 없어서 OS 기본 렌더링(체크 시 강조색)에 기대고 있었는데,
+        # 크기를 키우려면 명시적으로 스타일을 줘야 해서 체크 상태 강조도 같이 정의한다
+        # (사용자 요청: 버튼 크기·글자 크기 확대).
+        _tab_btn_style = (
+            "QPushButton { background: white; color: #374151; border: 1px solid #d1d5db; "
+            "padding: 8px 16px; border-radius: 16px; font-size: 14px; }"
+            "QPushButton:checked { background: #0f766e; color: white; border: 1px solid #0f766e; "
+            "font-weight: 600; }"
+        )
         for status in _STATUS_TABS:
             btn = QPushButton(status)
+            btn.setStyleSheet(_tab_btn_style)
             btn.setCheckable(True)
             btn.setChecked(status == self._active_status)
             btn.clicked.connect(lambda _checked, s=status: self._on_tab_clicked(s))
@@ -279,6 +320,10 @@ class DashboardView(QWidget):
             session.commit()
         self.refresh()
 
+    def _on_search_preedit_changed(self, preedit: str) -> None:
+        self._search_preedit = preedit
+        self.refresh()
+
     def refresh(self) -> None:
         with SessionLocal() as session:
             all_sites = session.query(Site).all()
@@ -305,7 +350,8 @@ class DashboardView(QWidget):
                 btn.setText(f"{status}{_STATUS_PARTICLE[status]} 현장 {count}")
 
             # 현장명 + 최근 회차번호 + 지적사항 제목/내용까지 자모 단위로 검색한다.
-            keyword = self.search_input.text().strip()
+            # 조합 중인 한글(preedit)까지 포함해야 "ㅋ"/"코"만 눌린 순간에도 바로 걸린다.
+            keyword = (self.search_input.text() + self._search_preedit).strip()
             site_ids_matching_reports: set[int] = set()
             if keyword:
                 for report in session.query(Report).all():

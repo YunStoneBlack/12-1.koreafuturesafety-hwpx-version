@@ -1,10 +1,9 @@
-"""보고서 미리보기 모달 — 왼쪽에 실제 PDF 렌더링 결과, 오른쪽에 텍스트 항목 수정 폼.
+"""보고서 미리보기 모달 — 실제 PDF 렌더링 결과를 전체 화면에 보여준다.
 
 실제 사이트는 미리보기 생성 횟수에 제한(5회)이 있지만, 우리는 그런 제약을 둘 이유가
-없어 누를 때마다 새로 렌더링한다. 편집 필드는 이 다이얼로그 자체가 들고 있지 않고
-ReportWizardView의 위젯 값을 그대로 읽고 쓴다 — "이 내용으로 PDF 재생성"을 누르면
-다이얼로그의 값을 마법사 위젯에 되돌려 쓴 뒤 마법사의 저장 로직(`_save`)을 그대로
-호출하므로, 저장 경로가 두 군데로 갈라져 데이터가 어긋나는 일이 없다.
+없어 누를 때마다 새로 렌더링한다. 텍스트 수정은 마법사 화면에서 하고, 이 다이얼로그는
+"실제로 어떻게 나오는지" 확인 + 최종 산출물(.hwp/.pdf) 생성 용도다(사용자 요청으로
+텍스트 편집 폼은 제거함 — 미리보기 화면만 보이게).
 """
 
 from __future__ import annotations
@@ -16,11 +15,8 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QScrollArea,
-    QSpinBox,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -29,20 +25,12 @@ from core.thumbnail_generator import render_pdf_pages
 from desktop.workers.ai_worker import AIWorker, with_com
 
 
-def _section_title(text: str) -> QLabel:
-    label = QLabel(text)
-    label.setStyleSheet("font-weight: 700; font-size: 13px;")
-    return label
-
-
 class ReportPreviewDialog(QDialog):
     def __init__(self, wizard_view, parent=None):
         super().__init__(parent or wizard_view)
         self._wizard = wizard_view
         self.setWindowTitle("보고서 미리보기")
         self.resize(1400, 880)
-        self._finding_rows: list[dict] = []
-        self._previous_rows: list[dict] = []
         self._preview_worker: AIWorker | None = None
         self._build_ui()
         self._load_from_wizard()
@@ -55,69 +43,38 @@ class ReportPreviewDialog(QDialog):
 
         title = QLabel("보고서 미리보기")
         title.setStyleSheet("font-size: 16px; font-weight: 700;")
-        subtitle = QLabel("실제 PDF로 렌더링된 결과입니다. 우측에서 텍스트만 수정할 수 있습니다.")
+        subtitle = QLabel("실제 PDF로 렌더링된 결과입니다.")
         subtitle.setStyleSheet("color: #6b7280; font-size: 12px;")
         root.addWidget(title)
         root.addWidget(subtitle)
 
-        body = QHBoxLayout()
-        body.addWidget(self._build_left_panel(), stretch=7)
-        body.addWidget(self._build_right_panel(), stretch=4)
-        root.addLayout(body, stretch=1)
+        root.addWidget(self._build_info_bar())
+        root.addWidget(self._build_preview_panel(), stretch=1)
 
         bottom = QHBoxLayout()
         bottom.addStretch()
-        self.edit_btn = QPushButton("수정하기")
-        self.edit_btn.clicked.connect(self.reject)
-        self.hwp_btn = QPushButton("한글 파일 생성")
-        self.hwp_btn.setStyleSheet(
-            "QPushButton { background: white; color: #2563eb; border: 1px solid #2563eb; "
-            "padding: 10px 20px; border-radius: 6px; font-weight: 600; }"
-        )
-        self.hwp_btn.clicked.connect(self._regenerate_and_export_hwp)
-        self.pdf_btn = QPushButton("PDF 생성")
-        self.pdf_btn.setStyleSheet(
+        # 세 버튼 다 "PDF 생성"과 똑같은 디자인(크기·글자 크기·색)으로 통일한다(사용자 요청).
+        _button_style = (
             "QPushButton { background: #2563eb; color: white; padding: 10px 20px; "
             "border-radius: 6px; font-weight: 600; }"
         )
+        self.edit_btn = QPushButton("수정하기")
+        self.edit_btn.setStyleSheet(_button_style)
+        self.edit_btn.clicked.connect(self.reject)
+        self.hwp_btn = QPushButton("한글 파일 생성")
+        self.hwp_btn.setStyleSheet(_button_style)
+        self.hwp_btn.clicked.connect(self._regenerate_and_export_hwp)
+        self.pdf_btn = QPushButton("PDF 생성")
+        self.pdf_btn.setStyleSheet(_button_style)
         self.pdf_btn.clicked.connect(self._regenerate_and_export_pdf)
         bottom.addWidget(self.edit_btn)
         bottom.addWidget(self.hwp_btn)
         bottom.addWidget(self.pdf_btn)
         root.addLayout(bottom)
 
-    def _build_left_panel(self) -> QWidget:
-        left_widget = QWidget()
-        left_col = QVBoxLayout(left_widget)
-        left_col.setContentsMargins(0, 0, 0, 0)
-
-        header = QHBoxLayout()
-        header.addWidget(QLabel("실제 출력 미리보기"))
-        header.addStretch()
-        self.refresh_btn = QPushButton("↻ 미리보기 갱신")
-        self.refresh_btn.clicked.connect(self._regenerate)
-        header.addWidget(self.refresh_btn)
-        left_col.addLayout(header)
-
-        self.preview_scroll = QScrollArea()
-        self.preview_scroll.setWidgetResizable(True)
-        self.preview_scroll.setStyleSheet("QScrollArea { background: #f3f4f6; border: 1px solid #e5e7eb; }")
-        self.preview_container = QWidget()
-        self.preview_layout = QVBoxLayout(self.preview_container)
-        self.preview_layout.setContentsMargins(12, 12, 12, 12)
-        self.preview_layout.setSpacing(12)
-        self.preview_scroll.setWidget(self.preview_container)
-        left_col.addWidget(self.preview_scroll, stretch=1)
-
-        return left_widget
-
-    def _build_right_panel(self) -> QWidget:
-        right_scroll = QScrollArea()
-        right_scroll.setWidgetResizable(True)
-        right_content = QWidget()
-        self.right_layout = QVBoxLayout(right_content)
-        self.right_layout.setSpacing(14)
-
+    def _build_info_bar(self) -> QFrame:
+        """현장명·회차·지도일·공정률 — 예전엔 우측 편집 패널 안에 있었는데, 편집 폼을
+        없애면서(사용자 요청) 미리보기 위쪽으로 옮겨왔다."""
         info_frame = QFrame()
         info_frame.setStyleSheet("QFrame { background: #f9fafb; border-radius: 8px; }")
         info_layout = QHBoxLayout(info_frame)
@@ -132,36 +89,32 @@ class ReportPreviewDialog(QDialog):
             col.addWidget(cap)
             col.addWidget(value)
             info_layout.addLayout(col)
-        self.right_layout.addWidget(info_frame)
+        return info_frame
 
-        self.right_layout.addWidget(_section_title("무제"))
-        self.note_edit = QTextEdit()
-        self.note_edit.setFixedHeight(80)
-        self.right_layout.addWidget(self.note_edit)
+    def _build_preview_panel(self) -> QWidget:
+        panel = QWidget()
+        col = QVBoxLayout(panel)
+        col.setContentsMargins(0, 0, 0, 0)
 
-        self.right_layout.addWidget(_section_title("안전교육 — 참석인원"))
-        self.attendee_edit = QSpinBox()
-        self.attendee_edit.setRange(0, 999)
-        self.attendee_edit.setSuffix("명")
-        self.right_layout.addWidget(self.attendee_edit)
+        header = QHBoxLayout()
+        header.addWidget(QLabel("실제 출력 미리보기"))
+        header.addStretch()
+        self.refresh_btn = QPushButton("↻ 미리보기 갱신")
+        self.refresh_btn.clicked.connect(self._regenerate)
+        header.addWidget(self.refresh_btn)
+        col.addLayout(header)
 
-        self.findings_title_label = _section_title("지적사항 (0건)")
-        self.right_layout.addWidget(self.findings_title_label)
-        self.findings_container = QVBoxLayout()
-        self.right_layout.addLayout(self.findings_container)
+        self.preview_scroll = QScrollArea()
+        self.preview_scroll.setWidgetResizable(True)
+        self.preview_scroll.setStyleSheet("QScrollArea { background: #f3f4f6; border: 1px solid #e5e7eb; }")
+        self.preview_container = QWidget()
+        self.preview_layout = QVBoxLayout(self.preview_container)
+        self.preview_layout.setContentsMargins(12, 12, 12, 12)
+        self.preview_layout.setSpacing(12)
+        self.preview_scroll.setWidget(self.preview_container)
+        col.addWidget(self.preview_scroll, stretch=1)
 
-        self.previous_title_label = _section_title("이전지적사항 (0건)")
-        self.right_layout.addWidget(self.previous_title_label)
-        self.previous_container = QVBoxLayout()
-        self.right_layout.addLayout(self.previous_container)
-
-        self.right_layout.addWidget(_section_title("제공자료"))
-        self.materials_container = QVBoxLayout()
-        self.right_layout.addLayout(self.materials_container)
-
-        self.right_layout.addStretch()
-        right_scroll.setWidget(right_content)
-        return right_scroll
+        return panel
 
     # ---- 데이터 ----
 
@@ -175,91 +128,14 @@ class ReportPreviewDialog(QDialog):
     def _load_from_wizard(self) -> None:
         wiz = self._wizard
         self.info_labels["site"].setText(wiz.site_name_label.text() or "-")
-        self.info_labels["visit"].setText(f"{wiz.visit_no_label.text()}회차")
+        self.info_labels["visit"].setText(f"{wiz.visit_no_input.value()}회차")
         self.info_labels["date"].setText(wiz.guidance_date_input.date().toString("yyyy-MM-dd"))
         self.info_labels["progress"].setText(f"{wiz.progress_input.value()}%")
 
-        self.note_edit.setPlainText(wiz.special_note_edit.toPlainText())
-        attendee_text = wiz.attendee_input.text().strip()
-        self.attendee_edit.setValue(int(attendee_text) if attendee_text.isdigit() else 0)
-
-        self._finding_rows = []
-        self._clear_layout(self.findings_container)
-        active_findings = [s for s in wiz.finding_slots if s.has_data()]
-        self.findings_title_label.setText(f"지적사항 ({len(active_findings)}건)")
-        for slot_widget in active_findings:
-            row = self._build_finding_row(slot_widget)
-            self.findings_container.addWidget(row["widget"])
-            self._finding_rows.append(row)
-
-        self._previous_rows = []
-        self._clear_layout(self.previous_container)
-        active_previous = [s for s in wiz.previous_slots if s.is_active()]
-        self.previous_title_label.setText(f"이전지적사항 ({len(active_previous)}건)")
-        for slot_widget in active_previous:
-            row = self._build_previous_row(slot_widget)
-            self.previous_container.addWidget(row["widget"])
-            self._previous_rows.append(row)
-
-        self._clear_layout(self.materials_container)
-        materials = wiz._selected_materials
-        if not materials:
-            empty = QLabel("선택된 자료가 없습니다.")
-            empty.setStyleSheet("color: #9ca3af;")
-            self.materials_container.addWidget(empty)
-        for material in materials:
-            label = QLabel(f"• {material.title}")
-            self.materials_container.addWidget(label)
-
-    def _build_finding_row(self, slot_widget) -> dict:
-        card = QFrame()
-        card.setStyleSheet("QFrame { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 6px; }")
-        layout = QVBoxLayout(card)
-        title_edit = QLineEdit(slot_widget.title_input.text())
-        content_edit = QTextEdit()
-        content_edit.setPlainText(slot_widget.content_edit.toPlainText())
-        content_edit.setFixedHeight(60)
-        law_edit = QLineEdit(slot_widget.law_input.text())
-        law_edit.setPlaceholderText("관련 법령")
-        layout.addWidget(title_edit)
-        layout.addWidget(content_edit)
-        layout.addWidget(law_edit)
-        return {"widget": card, "slot": slot_widget, "title": title_edit, "content": content_edit, "law": law_edit}
-
-    def _build_previous_row(self, slot_widget) -> dict:
-        card = QFrame()
-        card.setStyleSheet("QFrame { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 6px; }")
-        layout = QVBoxLayout(card)
-        title_edit = QLineEdit(slot_widget.title_input.text())
-        content_edit = QTextEdit()
-        content_edit.setPlainText(slot_widget.content_edit.toPlainText())
-        content_edit.setFixedHeight(50)
-        action_row = QHBoxLayout()
-        action_row.addWidget(QLabel("조치 결과"))
-        action_edit = QLineEdit(slot_widget.action_input.text())
-        action_row.addWidget(action_edit)
-        layout.addWidget(title_edit)
-        layout.addWidget(content_edit)
-        layout.addLayout(action_row)
-        return {"widget": card, "slot": slot_widget, "title": title_edit, "content": content_edit, "action": action_edit}
-
     # ---- 재생성 ----
 
-    def _sync_edits_to_wizard(self) -> None:
-        for row in self._finding_rows:
-            row["slot"].title_input.setText(row["title"].text())
-            row["slot"].content_edit.setPlainText(row["content"].toPlainText())
-            row["slot"].law_input.setText(row["law"].text())
-        for row in self._previous_rows:
-            row["slot"].title_input.setText(row["title"].text())
-            row["slot"].content_edit.setPlainText(row["content"].toPlainText())
-            row["slot"].action_input.setText(row["action"].text())
-        self._wizard.special_note_edit.setPlainText(self.note_edit.toPlainText())
-        self._wizard.attendee_input.setText(str(self.attendee_edit.value()))
-
     def _regenerate(self) -> None:
-        """상단 "미리보기 갱신" — 편집 내용을 저장하고 왼쪽 렌더링만 새로 만든다."""
-        self._sync_edits_to_wizard()
+        """상단 "미리보기 갱신" — 마법사에 이미 저장된 내용 그대로 왼쪽 렌더링만 새로 만든다."""
         self._wizard._save(navigate=False)
         if not self._wizard._report_id:
             return
@@ -268,7 +144,6 @@ class ReportPreviewDialog(QDialog):
     def _regenerate_and_export_pdf(self) -> None:
         """하단 "PDF 생성" — 미리보기를 갱신한 뒤(완료되면 이어서) 사용자가 고른 위치에도
         PDF를 저장한다(파일명 기본값: "{현장명}_{회차}회차.pdf")."""
-        self._sync_edits_to_wizard()
         self._wizard._save(navigate=False)
         if not self._wizard._report_id:
             return
@@ -282,7 +157,6 @@ class ReportPreviewDialog(QDialog):
     def _regenerate_and_export_hwp(self) -> None:
         """하단 "한글 파일 생성" — 미리보기(왼쪽은 여전히 PDF 렌더링)를 갱신한 뒤(완료되면
         이어서) 사용자가 고른 위치에 실제 서식 그대로의 .hwp 파일을 저장한다."""
-        self._sync_edits_to_wizard()
         self._wizard._save(navigate=False)
         if not self._wizard._report_id:
             return
@@ -298,7 +172,7 @@ class ReportPreviewDialog(QDialog):
             btn.setEnabled(not busy)
 
     def _render_preview(self, on_done=None) -> None:
-        """PDF 산출물을 만들어 왼쪽 패널에 렌더링한다.
+        """PDF 산출물을 만들어 패널에 렌더링한다.
 
         한글 자동화를 거치는 산출물 생성이 몇 초 걸려서(실측 약 8초 — 실제 서식과 100%
         일치시키려고 reportlab 대신 한글 템플릿→PDF 변환 경로를 쓰기 때문에 생기는 지연,
@@ -330,13 +204,12 @@ class ReportPreviewDialog(QDialog):
         self._set_busy(False)
         self._clear_layout(self.preview_layout)
         try:
-            # 좌측 패널 실제 폭(전체 7:4 비율 중 좌측 몫)에 맞춰 렌더링해서 스크롤 없이
-            # 옆으로 잘리지 않게 한다. 다이얼로그가 아직 화면에 그려지기 전(생성 직후)에는
-            # 자식 위젯의 viewport 폭이 레이아웃 계산 전이라 신뢰할 수 없어서, resize()로
-            # 바로 반영되는 다이얼로그 자체 폭에서 역산한다.
+            # 패널 실제 폭에 맞춰 렌더링해서 스크롤 없이 옆으로 잘리지 않게 한다. 다이얼로그가
+            # 아직 화면에 그려지기 전(생성 직후)에는 자식 위젯의 viewport 폭이 레이아웃 계산
+            # 전이라 신뢰할 수 없어서, resize()로 바로 반영되는 다이얼로그 자체 폭에서 역산한다.
             viewport_width = self.preview_scroll.viewport().width()
             if viewport_width < 400:
-                viewport_width = int(self.width() * 7 / 11) - 60
+                viewport_width = self.width() - 60
             render_width = max(480, viewport_width - 30)
             pages = render_pdf_pages(pdf_path, width=render_width)
         except Exception as e:  # noqa: BLE001 - 사용자에게 그대로 보여줄 에러 메시지

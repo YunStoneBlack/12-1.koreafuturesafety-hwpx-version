@@ -31,7 +31,7 @@ from desktop.widgets.section_header import SectionHeader
 
 def _bold_label(text: str) -> QLabel:
     label = QLabel(text)
-    label.setStyleSheet("font-weight: 700; margin-top: 6px;")
+    label.setStyleSheet("font-weight: 700; margin-top: 6px; border: none; background: transparent;")
     return label
 
 
@@ -112,7 +112,7 @@ class _SectionBuilderMixin2:
     """ReportWizardView 전용 — 단독으로 인스턴스화하지 않는다."""
 
     def _build_major_hazard_work_section(self) -> QFrame:
-        self.major_hazard_header = SectionHeader(4, "대형사고 위험작업 사항", required=False)
+        self.major_hazard_header = SectionHeader(4, "대형사고 위험작업 사항", required=False, show_na_button=False)
         note = QLabel("해당하는 작업이 있으면 체크하세요.")
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
         self.major_hazard_checkboxes: list[QCheckBox] = []
@@ -205,7 +205,10 @@ class _SectionBuilderMixin2:
         반환한다 — `_build_hazard_factors_section()`이 이 목록을 자기 카드 안에 이어붙인다.
         """
         self.equipment_header = SectionHeader(
-            None, "5-3. 건설기계장비·위험기계기구·유해위험물질 안전조치 평가", required=False
+            None,
+            "5-3. 건설기계장비·위험기계기구·유해위험물질 안전조치 평가",
+            required=False,
+            show_na_button=False,
         )
 
         widgets: list[QWidget] = [self.equipment_header]
@@ -234,7 +237,9 @@ class _SectionBuilderMixin2:
         원래 있던 사진 2장(현장사진) 업로드는 사용자 요청으로 없앴다(8번과 완전히 동일한
         구성으로 맞춤).
         """
-        self.current_process_header = SectionHeader(6, "현재 진행공정에 대한 유해·위험요인 파악 및 대책")
+        self.current_process_header = SectionHeader(
+            6, "현재 진행공정에 대한 유해·위험요인 파악 및 대책", required=False, show_na_button=False
+        )
         note = QLabel("보고서 6번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
 

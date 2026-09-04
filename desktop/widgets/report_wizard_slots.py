@@ -28,7 +28,7 @@ from desktop.dialogs.process_picker_dialog import ProcessPickerDialog
 from desktop.widgets.photo_drop_zone import PhotoDropZone
 from desktop.workers.ai_worker import AIWorker
 
-_RISK_BANDS = [(1, 2, "하", "#16a34a"), (3, 4, "중", "#ca8a04"), (6, 9, "상", "#dc2626")]
+_RISK_BANDS = [(1, 3, "현상유지", "#374151"), (4, 5, "개선필요", "#ea580c"), (6, 9, "즉시개선", "#dc2626")]
 
 
 def _risk_band(score: int) -> tuple[str, str]:
@@ -103,6 +103,10 @@ class _FindingSlot(QFrame):
         title_row = QHBoxLayout()
         title_row.addWidget(QLabel(f"지적사항 {slot}"))
         title_row.addStretch()
+        self.delete_btn = QPushButton("🗑")
+        self.delete_btn.setFixedWidth(32)
+        self.delete_btn.clicked.connect(self._delete)
+        title_row.addWidget(self.delete_btn)
         layout.addLayout(title_row)
 
         body_row = QHBoxLayout()
@@ -155,6 +159,29 @@ class _FindingSlot(QFrame):
 
         layout.addLayout(body_row)
 
+        self._active = False
+        self.setVisible(False)
+
+    def set_active(self, active: bool) -> None:
+        self._active = active
+        self.setVisible(active)
+
+    def is_active(self) -> bool:
+        return self._active
+
+    def clear(self) -> None:
+        self.photo.clear_photo()
+        self.description_input.clear()
+        self.title_input.clear()
+        self.content_edit.clear()
+        self.law_input.clear()
+        self.likelihood_buttons.set_value(None)
+        self.severity_buttons.set_value(None)
+
+    def _delete(self) -> None:
+        self.clear()
+        self.set_active(False)
+
     def _update_risk_score(self) -> None:
         likelihood = self.likelihood_buttons.value()
         severity = self.severity_buttons.value()
@@ -190,6 +217,10 @@ class _FindingSlot(QFrame):
         self.content_edit.setPlainText(result.get("content", ""))
         if result.get("law_citation"):
             self.law_input.setText(result["law_citation"])
+        if result.get("likelihood") is not None:
+            self.likelihood_buttons.set_value(result["likelihood"])
+        if result.get("severity") is not None:
+            self.severity_buttons.set_value(result["severity"])
 
     def _on_ai_error(self, message: str) -> None:
         self.ai_button.setEnabled(True)
@@ -449,7 +480,7 @@ class _ProcessSlot(QFrame):
         name_row = QHBoxLayout(self.detail_name_widget)
         name_row.setContentsMargins(8, 8, 8, 8)
         self.seq_label = QLabel("")
-        self.seq_label.setStyleSheet("font-weight: 600;")
+        self.seq_label.setStyleSheet("font-weight: 600; border: none; background: transparent;")
         name_row.addWidget(self.seq_label)
         name_row.addWidget(self.name_input, stretch=1)
 

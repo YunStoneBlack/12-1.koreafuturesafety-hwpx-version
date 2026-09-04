@@ -29,6 +29,28 @@ from core.models_db import Site, Staff
 from desktop.workers.ai_worker import AIWorker
 
 
+class _PdfUploadRow(QFrame):
+    """계약서·공문 PDF 업로드 줄 — 클릭해서 고르는 것 외에 드래그앤드롭도 받는다(사용자 요청)."""
+
+    file_dropped = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        path = urls[0].toLocalFile()
+        if path.lower().endswith(".pdf"):
+            self.file_dropped.emit(path)
+
+
 def _date_edit() -> QDateEdit:
     widget = QDateEdit()
     widget.setCalendarPopup(True)
@@ -64,15 +86,21 @@ class SiteFormView(QWidget):
         desc.setStyleSheet("color: #6b7280;")
         root.addWidget(desc)
 
-        upload_row = QHBoxLayout()
-        self.file_label = QLabel("선택된 파일 없음")
-        self.file_label.setStyleSheet("color: #6b7280;")
+        upload_frame = _PdfUploadRow()
+        upload_frame.setStyleSheet(
+            "QFrame { border: 2px dashed #c7c7d1; border-radius: 8px; background: #fafafa; }"
+        )
+        upload_frame.file_dropped.connect(self._on_file_dropped)
+        upload_row = QHBoxLayout(upload_frame)
+        upload_row.setContentsMargins(12, 10, 12, 10)
+        self.file_label = QLabel("선택된 파일 없음 (여기로 드래그하거나 파일 선택)")
+        self.file_label.setStyleSheet("color: #6b7280; border: none; background: transparent;")
         pick_btn = QPushButton("파일 선택")
         pick_btn.clicked.connect(self._pick_file)
         upload_row.addWidget(self.file_label)
         upload_row.addStretch()
         upload_row.addWidget(pick_btn)
-        root.addLayout(upload_row)
+        root.addWidget(upload_frame)
 
         self.ai_status_label = QLabel("")
         self.ai_status_label.setStyleSheet("color: #4f46e5;")
@@ -224,6 +252,9 @@ class SiteFormView(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, "계약서·공문 PDF 선택", "", "PDF 파일 (*.pdf)")
         if not file_path:
             return
+        self._on_file_dropped(file_path)
+
+    def _on_file_dropped(self, file_path: str) -> None:
         self.file_label.setText(file_path.split("/")[-1])
         self._run_ai_extraction(file_path)
 

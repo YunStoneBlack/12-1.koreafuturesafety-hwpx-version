@@ -165,26 +165,35 @@ class SiteDetailView(QWidget):
             row = QFrame()
             row.setStyleSheet("QFrame { background: white; border: 1px solid #e5e7eb; border-radius: 8px; }")
             row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(12, 13, 12, 13)  # 기본 대비 위아래 여백 1.2배(사용자 요청)
             status_text = "확정" if report.status == "final" else "작성 중"
             text = QLabel(
                 f"{report.visit_no}회차 · {_fmt_date(report.guidance_date)} · 공정률 {report.progress_rate or 0}% · {status_text}"
             )
+            # font-weight:700 — "1회차 · ... · 확정" 텍스트만 볼드 처리(사용자 요청)
+            text.setStyleSheet("border: none; background: transparent; font-size: 15px; font-weight: 700;")
             row_layout.addWidget(text)
             row_layout.addStretch()
 
+            _btn_font_style = "QPushButton { font-size: 15px; }"  # 버튼 글자도 같은 크기로(사용자 요청)
+
             edit_btn = QPushButton("✎ 수정")
+            edit_btn.setStyleSheet(_btn_font_style)
             edit_btn.clicked.connect(
                 lambda _checked, rid=report.id: self.edit_report_requested.emit(self._site_id, rid)
             )
             row_layout.addWidget(edit_btn)
 
-            for label, path in (("한글", report.hwpx_path), ("워드", report.docx_path), ("PDF", report.pdf_path)):
+            # 워드(DOCX)는 최신 실제 서식과 안 맞는 예전 산출물이라 목록에서 숨긴다(사용자 요청).
+            for label, path in (("한글", report.hwpx_path), ("PDF", report.pdf_path)):
                 btn = QPushButton(f"↓ {label}")
+                btn.setStyleSheet(_btn_font_style)
                 btn.setEnabled(bool(path and Path(path).exists()))
                 btn.clicked.connect(lambda _checked, p=path: QDesktopServices.openUrl(QUrl.fromLocalFile(p)))
                 row_layout.addWidget(btn)
 
             delete_btn = QPushButton("🗑 삭제")
+            delete_btn.setStyleSheet(_btn_font_style)
             delete_btn.clicked.connect(lambda _checked, rid=report.id: self._delete_report(rid))
             row_layout.addWidget(delete_btn)
 

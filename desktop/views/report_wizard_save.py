@@ -45,7 +45,11 @@ def _build_pdf_for_export(report_id: int, chosen_path: Path) -> Path:
 
 
 def _build_hwp_for_export(report_id: int, chosen_path: Path) -> Path:
-    build_report_hwp(report_id, chosen_path)  # report.hwp_path/status는 이 함수가 직접 갱신
+    build_report_hwp(report_id, chosen_path)
+    with SessionLocal() as session:
+        report = session.get(Report, report_id)
+        report.hwpx_path = str(chosen_path)
+        session.commit()
     return chosen_path
 
 
@@ -60,10 +64,14 @@ class _SaveGenerateMixin:
             if self._report_id:
                 report = session.get(Report, self._report_id)
             else:
-                report = Report(site_id=self._site_id, visit_no=int(self.visit_no_label.text()))
+                report = Report(site_id=self._site_id, visit_no=self.visit_no_input.value())
                 session.add(report)
 
+            report.visit_no = self.visit_no_input.value()
             report.guidance_date = self.guidance_date_input.date().toPyDate()
+            report.prev_guidance_date = (
+                None if self.prev_date_none_check.isChecked() else self.prev_date_input.date().toPyDate()
+            )
             report.progress_rate = self.progress_input.value()
             report.assigned_staff_id = self.staff_combo.currentData()
             report.special_note = self.special_note_edit.toPlainText()
@@ -289,7 +297,7 @@ class _SaveGenerateMixin:
             if on_finished:
                 on_finished(None)
             return
-        default_name = f"{self.site_name_label.text()}_{self.visit_no_label.text()}회차.pdf"
+        default_name = f"{self.site_name_label.text()}_{self.visit_no_input.value()}회차.pdf"
         default_path = str(Path.home() / "Desktop" / default_name)
         chosen, _ = QFileDialog.getSaveFileName(self, "PDF로 저장", default_path, "PDF 파일 (*.pdf)")
         if not chosen:
@@ -324,7 +332,7 @@ class _SaveGenerateMixin:
             if on_finished:
                 on_finished(None)
             return
-        default_name = f"{self.site_name_label.text()}_{self.visit_no_label.text()}회차.hwp"
+        default_name = f"{self.site_name_label.text()}_{self.visit_no_input.value()}회차.hwp"
         default_path = str(Path.home() / "Desktop" / default_name)
         chosen, _ = QFileDialog.getSaveFileName(self, "한글 파일로 저장", default_path, "한글 파일 (*.hwp)")
         if not chosen:
