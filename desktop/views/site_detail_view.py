@@ -4,22 +4,26 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import QDate, QRegularExpression, QUrl, Qt, pyqtSignal
+from PyQt6.QtGui import QDesktopServices, QRegularExpressionValidator
 from PyQt6.QtWidgets import (
+    QComboBox,
+    QDateEdit,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from core.db import SessionLocal
-from core.models_db import Report, Site
+from core.models_db import Report, Site, Staff
 
 
 def _fmt_amount(value: int | None) -> str:
@@ -94,12 +98,34 @@ class SiteDetailView(QWidget):
     def _build_site_info_tab(self) -> QWidget:
         wrapper = QWidget()
         outer = QVBoxLayout(wrapper)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self.info_edit_btn = QPushButton("✎ 정보 수정")
+        self.info_edit_btn.clicked.connect(self._enter_site_info_edit_mode)
+        self.info_save_btn = QPushButton("💾 저장")
+        self.info_save_btn.setStyleSheet(
+            "QPushButton { background: #4f46e5; color: white; padding: 6px 14px; border-radius: 6px; }"
+        )
+        self.info_save_btn.clicked.connect(self._save_site_info)
+        self.info_save_btn.setVisible(False)
+        self.info_cancel_btn = QPushButton("취소")
+        self.info_cancel_btn.clicked.connect(self._cancel_site_info_edit)
+        self.info_cancel_btn.setVisible(False)
+        btn_row.addWidget(self.info_edit_btn)
+        btn_row.addWidget(self.info_save_btn)
+        btn_row.addWidget(self.info_cancel_btn)
+        outer.addLayout(btn_row)
+
         grid_frame = QFrame()
         self._info_grid = QGridLayout(grid_frame)
         self._info_grid.setHorizontalSpacing(24)
         self._info_grid.setVerticalSpacing(10)
         outer.addWidget(grid_frame)
         outer.addStretch()
+
+        self._editing_site_info = False
+        self._info_edit_widgets: dict[str, QWidget] = {}
         return wrapper
 
     def load_site(self, site_id: int) -> None:
@@ -117,6 +143,7 @@ class SiteDetailView(QWidget):
                 session.query(Report).filter(Report.site_id == site_id).order_by(Report.visit_no).all()
             )
             self._fill_report_history(reports)
+        self._set_info_edit_mode(False)
 
     def _fill_site_info(self, site: Site) -> None:
         while self._info_grid.count():
@@ -152,6 +179,145 @@ class SiteDetailView(QWidget):
         cell_widget = QWidget()
         cell_widget.setLayout(cell)
         self._info_grid.addWidget(cell_widget, row, col)
+
+    def _add_edit_cell(self, row: int, col: int, label: str, widget: QWidget, colspan: int = 1) -> None:
+        label_widget = QLabel(label)
+        label_widget.setStyleSheet("color: #9ca3af; font-size: 11px;")
+        cell = QVBoxLayout()
+        cell.setSpacing(2)
+        cell.addWidget(label_widget)
+        cell.addWidget(widget)
+        cell_widget = QWidget()
+        cell_widget.setLayout(cell)
+        self._info_grid.addWidget(cell_widget, row, col, 1, colspan)
+
+    def _set_info_edit_mode(self, editing: bool) -> None:
+        self._editing_site_info = editing
+        self.info_edit_btn.setVisible(not editing)
+        self.info_save_btn.setVisible(editing)
+        self.info_cancel_btn.setVisible(editing)
+
+    def _enter_site_info_edit_mode(self) -> None:
+        with SessionLocal() as session:
+            site = session.get(Site, self._site_id)
+            if site is None:
+                return
+            self._build_site_info_edit_form(site)
+        self._set_info_edit_mode(True)
+
+    def _cancel_site_info_edit(self) -> None:
+        self.load_site(self._site_id)
+
+    def _build_site_info_edit_form(self, site: Site) -> None:
+        while self._info_grid.count():
+            item = self._info_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        w: dict[str, QWidget] = {}
+
+        def line(value: str | None) -> QLineEdit:
+            return QLineEdit(value or "")
+
+        for key, value in (
+            ("name", site.name),
+            ("site_mgmt_no", site.site_mgmt_no),
+            ("biz_start_no", site.biz_start_no),
+            ("address", site.address),
+            ("manager_name", site.manager_name),
+            ("manager_phone", site.manager_phone),
+            ("manager_email", site.manager_email),
+            ("hq_company", site.hq_company),
+            ("license_no", site.license_no),
+            ("corp_reg_no", site.corp_reg_no),
+            ("biz_reg_no", site.biz_reg_no),
+            ("hq_phone", site.hq_phone),
+            ("hq_address", site.hq_address),
+        ):
+            w[key] = line(value)
+
+        w["amount"] = QLineEdit(str(site.amount) if site.amount is not None else "")
+        w["amount"].setPlaceholderText("숫자만 입력")
+        w["amount"].setValidator(QRegularExpressionValidator(QRegularExpression(r"^[0-9]*$")))
+
+        w["total_guidance_count"] = QSpinBox()
+        w["total_guidance_count"].setRange(0, 999)
+        w["total_guidance_count"].setValue(site.total_guidance_count or 0)
+
+        today = QDate.currentDate()
+        w["period_start"] = QDateEdit()
+        w["period_start"].setCalendarPopup(True)
+        w["period_start"].setDisplayFormat("yyyy-MM-dd")
+        w["period_start"].setDate(QDate(site.period_start) if site.period_start else today)
+        w["period_end"] = QDateEdit()
+        w["period_end"].setCalendarPopup(True)
+        w["period_end"].setDisplayFormat("yyyy-MM-dd")
+        w["period_end"].setDate(QDate(site.period_end) if site.period_end else today)
+        period_row = QHBoxLayout()
+        period_row.setContentsMargins(0, 0, 0, 0)
+        period_row.addWidget(w["period_start"])
+        period_row.addWidget(QLabel("~"))
+        period_row.addWidget(w["period_end"])
+        period_widget = QWidget()
+        period_widget.setLayout(period_row)
+
+        w["assigned_staff_id"] = QComboBox()
+        w["assigned_staff_id"].addItem("선택 안 함", userData=None)
+        with SessionLocal() as session:
+            for staff in session.query(Staff).filter_by(active=True).all():
+                w["assigned_staff_id"].addItem(f"{staff.name} ({staff.phone})", userData=staff.id)
+        if site.assigned_staff_id:
+            idx = w["assigned_staff_id"].findData(site.assigned_staff_id)
+            if idx >= 0:
+                w["assigned_staff_id"].setCurrentIndex(idx)
+
+        self._info_edit_widgets = w
+
+        self._add_edit_cell(0, 0, "현장명", w["name"])
+        self._add_edit_cell(0, 2, "공사기간", period_widget)
+        self._add_edit_cell(1, 0, "공사금액(원)", w["amount"])
+        self._add_edit_cell(1, 2, "사업장관리번호", w["site_mgmt_no"])
+        self._add_edit_cell(2, 0, "사업개시번호", w["biz_start_no"])
+        self._add_edit_cell(2, 2, "현장소재지", w["address"])
+        self._add_edit_cell(3, 0, "총 기술지도횟수", w["total_guidance_count"])
+        self._add_edit_cell(3, 2, "담당요원", w["assigned_staff_id"])
+        self._add_edit_cell(4, 0, "현장책임자", w["manager_name"])
+        self._add_edit_cell(4, 2, "책임자연락처", w["manager_phone"])
+        self._add_edit_cell(5, 0, "책임자이메일", w["manager_email"])
+        self._add_edit_cell(5, 2, "건설업체명", w["hq_company"])
+        self._add_edit_cell(6, 0, "건설면허번호", w["license_no"])
+        self._add_edit_cell(6, 2, "법인등록번호", w["corp_reg_no"])
+        self._add_edit_cell(7, 0, "사업자등록번호", w["biz_reg_no"])
+        self._add_edit_cell(7, 2, "본사연락처", w["hq_phone"])
+        self._add_edit_cell(8, 0, "본사주소", w["hq_address"], colspan=3)
+
+    def _save_site_info(self) -> None:
+        w = self._info_edit_widgets
+        with SessionLocal() as session:
+            site = session.get(Site, self._site_id)
+            if site is None:
+                return
+            site.name = w["name"].text().strip()
+            site.period_start = w["period_start"].date().toPyDate()
+            site.period_end = w["period_end"].date().toPyDate()
+            amount_text = w["amount"].text().strip()
+            site.amount = int(amount_text) if amount_text else None
+            site.site_mgmt_no = w["site_mgmt_no"].text().strip()
+            site.biz_start_no = w["biz_start_no"].text().strip()
+            site.address = w["address"].text().strip()
+            site.total_guidance_count = w["total_guidance_count"].value() or None
+            site.assigned_staff_id = w["assigned_staff_id"].currentData()
+            site.manager_name = w["manager_name"].text().strip()
+            site.manager_phone = w["manager_phone"].text().strip()
+            site.manager_email = w["manager_email"].text().strip()
+            site.hq_company = w["hq_company"].text().strip()
+            site.license_no = w["license_no"].text().strip()
+            site.corp_reg_no = w["corp_reg_no"].text().strip()
+            site.biz_reg_no = w["biz_reg_no"].text().strip()
+            site.hq_phone = w["hq_phone"].text().strip()
+            site.hq_address = w["hq_address"].text().strip()
+            session.commit()
+        self.load_site(self._site_id)
 
     def _fill_report_history(self, reports: list[Report]) -> None:
         while self._history_list_layout.count():

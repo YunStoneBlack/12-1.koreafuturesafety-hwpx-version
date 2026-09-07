@@ -21,12 +21,26 @@ from PyQt6.QtWidgets import (
 )
 
 from core import config
-from core.models_db import Finding
 from core.vision_analyzer import analyze_finding, read_measurement_value
 from desktop.dialogs.law_search_dialog import LawSearchDialog
 from desktop.dialogs.process_picker_dialog import ProcessPickerDialog
 from desktop.widgets.photo_drop_zone import PhotoDropZone
 from desktop.workers.ai_worker import AIWorker
+
+
+def _normalize_bullets(text: str) -> str:
+    """"- 항목1- 항목2"처럼 줄바꿈 없이 붙어있는 텍스트를 항목마다 줄바꿈으로 나눈다.
+
+    공정 카탈로그 원본(실제 사이트에서 추출한 284건)에 이 문제가 있는 항목이 있다(예:
+    "굴착공사" — "- 터파기...충돌- 덤프트럭 후진...위험"이 줄바꿈 없이 한 문자열로 저장되어
+    있었음, 실측 확인). 첫 "- "는 그대로 두고 그 뒤에 나오는 "- "마다 앞에 줄바꿈을 넣는다.
+    """
+    if not text:
+        return text
+    parts = text.split("- ")
+    if len(parts) <= 1:
+        return text
+    return parts[0] + "- " + "\n- ".join(p.rstrip() for p in parts[1:])
 
 _RISK_BANDS = [(1, 3, "현상유지", "#374151"), (4, 5, "개선필요", "#ea580c"), (6, 9, "즉시개선", "#dc2626")]
 
@@ -155,6 +169,21 @@ class _FindingSlot(QFrame):
         risk_col.addWidget(self.risk_score_label)
         self.likelihood_buttons.group.buttonToggled.connect(self._update_risk_score)
         self.severity_buttons.group.buttonToggled.connect(self._update_risk_score)
+
+        risk_col.addWidget(QLabel("이행결과"))
+        self.action_status_buttons = QButtonGroup(self)
+        self.action_status_buttons.setExclusive(True)
+        for status in ("추후확인", "즉시이행"):
+            btn = QPushButton(status)
+            btn.setCheckable(True)
+            btn.setAutoDefault(False)
+            btn.setStyleSheet(_action_status_style(False))
+            btn.toggled.connect(lambda checked, b=btn: b.setStyleSheet(_action_status_style(checked)))
+            if status == "추후확인":
+                btn.setChecked(True)
+            self.action_status_buttons.addButton(btn)
+            risk_col.addWidget(btn)
+
         body_row.addLayout(risk_col)
 
         layout.addLayout(body_row)
@@ -177,6 +206,15 @@ class _FindingSlot(QFrame):
         self.law_input.clear()
         self.likelihood_buttons.set_value(None)
         self.severity_buttons.set_value(None)
+        self.set_action_status("추후확인")
+
+    def action_status(self) -> str:
+        checked = self.action_status_buttons.checkedButton()
+        return checked.text() if checked else "추후확인"
+
+    def set_action_status(self, status: str) -> None:
+        for btn in self.action_status_buttons.buttons():
+            btn.setChecked(btn.text() == status)
 
     def _delete(self) -> None:
         self.clear()
@@ -234,105 +272,6 @@ class _FindingSlot(QFrame):
 
     def has_data(self) -> bool:
         return bool(self.photo.photo_path or self.title_input.text() or self.content_edit.toPlainText())
-
-
-class _PreviousFindingSlot(QFrame):
-    """5. 이전지적사항 한 건 — 직전 회차 지적사항을 이월받거나 수기로 추가."""
-
-    def __init__(self, slot: int):
-        super().__init__()
-        self.slot = slot
-        self.setStyleSheet("QFrame { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 8px; }")
-
-        layout = QHBoxLayout(self)
-        self.photo = PhotoDropZone(f"이전지적사항 {slot} 사진")
-        layout.addWidget(self.photo)
-
-        form_col = QVBoxLayout()
-        self.title_input = QLineEdit()
-        self.title_input.setPlaceholderText("지적사항 제목")
-        form_col.addWidget(self.title_input)
-        self.content_edit = QTextEdit()
-        self.content_edit.setFixedHeight(50)
-        form_col.addWidget(self.content_edit)
-        action_row = QHBoxLayout()
-        action_row.addWidget(QLabel("조치 결과"))
-        self.action_input = QLineEdit("조치완료")
-        action_row.addWidget(self.action_input)
-        action_row.addWidget(QLabel("위험성"))
-        self.risk_buttons = QButtonGroup(self)
-        self.risk_buttons.setExclusive(True)
-        for label in ("상", "중", "하"):
-            btn = QPushButton(label)
-            btn.setCheckable(True)
-            btn.setAutoDefault(False)
-            btn.setStyleSheet(_badge_style(""))
-            btn.toggled.connect(self._update_risk_badge_styles)
-            self.risk_buttons.addButton(btn)
-            action_row.addWidget(btn)
-        form_col.addLayout(action_row)
-        layout.addLayout(form_col, stretch=1)
-
-        button_col = QVBoxLayout()
-        self.confirm_btn = QPushButton("확인 필요")
-        self.confirm_btn.setCheckable(True)
-        self.confirm_btn.toggled.connect(self._on_confirm_toggled)
-        self.delete_btn = QPushButton("🗑")
-        self.delete_btn.setFixedWidth(32)
-        self.delete_btn.clicked.connect(self._delete)
-        button_col.addWidget(self.confirm_btn)
-        button_col.addWidget(self.delete_btn)
-        layout.addLayout(button_col)
-
-        self._active = False
-        self.setVisible(False)
-
-    def _update_risk_badge_styles(self) -> None:
-        for btn in self.risk_buttons.buttons():
-            btn.setStyleSheet(_badge_style(btn.text() if btn.isChecked() else ""))
-
-    def risk_level(self) -> str:
-        checked = self.risk_buttons.checkedButton()
-        return checked.text() if checked else ""
-
-    def set_risk_level(self, level: str) -> None:
-        for btn in self.risk_buttons.buttons():
-            btn.setChecked(btn.text() == level)
-
-    def _on_confirm_toggled(self, checked: bool) -> None:
-        if checked and not self.photo.photo_path:
-            reply = QMessageBox.question(
-                self,
-                "사진 없음",
-                "이 지적사항에는 사진이 없습니다. 사진 없이 확인 처리하시겠습니까?\n"
-                "(취소를 누르고 사진을 직접 업로드할 수도 있습니다.)",
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                self.confirm_btn.blockSignals(True)
-                self.confirm_btn.setChecked(False)
-                self.confirm_btn.blockSignals(False)
-                return
-        self.confirm_btn.setText("✓ 확인됨" if checked else "확인 필요")
-
-    def _delete(self) -> None:
-        self.set_active(False)
-
-    def set_active(self, active: bool) -> None:
-        self._active = active
-        self.setVisible(active)
-
-    def is_active(self) -> bool:
-        return self._active
-
-    def load_from_finding(self, finding: Finding) -> None:
-        self.set_active(True)
-        if finding.photo_path:
-            self.photo.set_photo(finding.photo_path)
-        self.title_input.setText(finding.title)
-        self.content_edit.setPlainText(finding.content)
-        self.action_input.setText("조치완료")
-        self.confirm_btn.setChecked(False)
-        self.set_risk_level("")
 
 
 class _MeasurementRow(QFrame):
@@ -404,6 +343,18 @@ def _badge_style(level: str) -> str:
     fg, bg, border = _RISK_BADGE_COLORS.get(level, ("#6b7280", "#f9fafb", "#e5e7eb"))
     return (
         f"QPushButton {{ color: {fg}; background: {bg}; border: 1px solid {border}; "
+        "border-radius: 10px; padding: 2px 10px; font-weight: 600; font-size: 12px; }"
+    )
+
+
+def _action_status_style(checked: bool) -> str:
+    if checked:
+        return (
+            "QPushButton { color: #4f46e5; background: #eef2ff; border: 1px solid #c7d2fe; "
+            "border-radius: 10px; padding: 2px 10px; font-weight: 600; font-size: 12px; }"
+        )
+    return (
+        "QPushButton { color: #6b7280; background: #f9fafb; border: 1px solid #e5e7eb; "
         "border-radius: 10px; padding: 2px 10px; font-weight: 600; font-size: 12px; }"
     )
 
@@ -532,8 +483,8 @@ class _ProcessSlot(QFrame):
 
     def load_data(self, data: dict) -> None:
         self.name_input.setText(data.get("process_name", ""))
-        self.hazard_edit.setPlainText(data.get("hazard_text", ""))
-        self.prevention_edit.setPlainText(data.get("prevention_text", ""))
+        self.hazard_edit.setPlainText(_normalize_bullets(data.get("hazard_text", "")))
+        self.prevention_edit.setPlainText(_normalize_bullets(data.get("prevention_text", "")))
         risk_level = data.get("risk_level", "")
         for btn in self.risk_buttons.buttons():
             btn.setChecked(btn.text() == risk_level)

@@ -234,6 +234,7 @@ class Finding(Base):
     law_citation: Mapped[str] = mapped_column(Text, default="")
     likelihood: Mapped[int | None] = mapped_column(default=None)  # 가능성 1~3
     severity: Mapped[int | None] = mapped_column(default=None)  # 중대성 1~3
+    action_status: Mapped[str] = mapped_column(Text, default="추후확인")  # "추후확인" | "즉시이행"
 
     report: Mapped[Report] = relationship(back_populates="findings")
 
@@ -256,10 +257,27 @@ class PreviousFinding(Base):
     title: Mapped[str] = mapped_column(Text, default="")
     content: Mapped[str] = mapped_column(Text, default="")
     action_result: Mapped[str] = mapped_column(Text, default="조치완료")
-    confirmed: Mapped[bool] = mapped_column(default=False)
+    result_status: Mapped[str] = mapped_column(Text, default="")  # ""(미선택)|"확인불가"|"보완필요"|"이행완료"
+    # "이행완료" 체크 시 업로드하는 조치 완료 증빙 사진 — 원본 지적사항 사진(photo_path/
+    # display_fields())과 별개다.
+    completion_photo_path: Mapped[str] = mapped_column(Text, default="")
     risk_level: Mapped[str] = mapped_column(Text, default="")  # 상/중/하 (Sub-phase 8, 표4 대응)
+    # 직전 회차 지적사항에서 이월된 경우 그 원본 Finding을 가리킨다 — 원본이 나중에 수정되면
+    # display_fields()가 그 최신 내용을 실시간으로 반영한다. 수기로 추가했거나(+ 버튼) 원본이
+    # 삭제된 경우 None이며, 이때는 title/content/photo_path에 저장된 값을 그대로 쓴다.
+    source_finding_id: Mapped[int | None] = mapped_column(ForeignKey("finding.id"), default=None)
 
     report: Mapped[Report] = relationship(back_populates="previous_findings")
+    source_finding: Mapped["Finding | None"] = relationship(foreign_keys=[source_finding_id])
+
+    def display_fields(self) -> tuple[str, str, str]:
+        """(제목, 내용, 사진경로) — 이월 원본이 살아있으면 그 최신 값을, 아니면 저장된
+        스냅샷을 반환한다. 조치결과/확인여부/위험성은 이 보고서에서 직접 기록하는 후속조치
+        정보라 원본과 무관하게 항상 `self`에 저장된 값을 그대로 쓴다(호출부에서 별도 처리)."""
+        if self.source_finding_id and self.source_finding:
+            f = self.source_finding
+            return f.title, f.content, f.photo_path
+        return self.title, self.content, self.photo_path
 
 
 class Measurement(Base):

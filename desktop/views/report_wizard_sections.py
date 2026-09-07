@@ -29,10 +29,10 @@ from desktop.widgets.photo_drop_zone import PhotoDropZone
 from desktop.widgets.report_wizard_slots import (
     _FindingSlot,
     _MeasurementRow,
-    _PreviousFindingSlot,
     _ProcessSlot,
     _limited_text_edit,
 )
+from desktop.widgets.report_wizard_slots_previous_finding import _PreviousFindingSlot
 from desktop.widgets.section_header import SectionHeader
 
 # 지인님 현장은 당분간 이 두 계측기만 쓴다길래 마법사에 이것만 보이게 좁혔다 — 나머지

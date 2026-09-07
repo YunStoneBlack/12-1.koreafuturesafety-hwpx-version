@@ -258,6 +258,128 @@ def fill_finding_images(hwp, report: Report) -> None:
             _insert_picture_near_field(hwp, field_name, finding.photo_path)
 
 
+def _delete_picture_above_field(hwp, field_name: str) -> None:
+    """`field_name` 칸의 바로 위 칸(사진 칸)에 앵커된 그림을 지운다.
+
+    이전지적사항 표(표4~7)는 표1~19 번호 체계 안의 일반 표지만,
+    `remove_unused_previous_finding_blocks()`가 빈 슬롯의 표를 통째로 지우면 뒤 슬롯의
+    순서 번호가 앞으로 밀린다 — 그래서 `get_into_nth_table()`(순서 기반) 대신 이미 만들어둔
+    텍스트 필드(제목 A3/내용 G3)를 기준점 삼아 `MoveUp`으로 한 칸 위(사진 칸, A2/G2)로
+    이동해 List ID로 특정한다(`_delete_picture_near_field`와 같은 방식, 방향만 다름).
+    """
+    if not hwp.field_exist(field_name):
+        return
+    hwp.move_to_field(field_name, text=True, start=True, select=False)
+    hwp.HAction.Run("MoveUp")
+    list_id = hwp.get_pos()[0]
+    for ctrl in hwp.ctrl_list:
+        if ctrl.UserDesc != "그림":
+            continue
+        try:
+            hwp.hwp.SetPosBySet(ctrl.GetAnchorPos(0))
+        except Exception:
+            continue
+        if hwp.get_pos()[0] == list_id:
+            hwp.delete_ctrl(ctrl)
+
+    # 원본 문서에 남아있던 "▪" 같은 빈 글머리 기호 — 사진이 없는 슬롯이어도(즉, 이 뒤에
+    # `_insert_picture_above_field`가 호출되지 않는 경우에도) 항상 지운다.
+    hwp.move_to_field(field_name, text=True, start=True, select=False)
+    hwp.HAction.Run("MoveUp")
+    _clear_cell_text(hwp)
+
+
+_PREVIOUS_FINDING_PHOTO_MAX_WIDTH_MM = 93.64  # 실측한 사진 칸(A2/G2) 너비 — 가로 상한(안전판)
+_PREVIOUS_FINDING_PHOTO_MAX_HEIGHT_MM = 45.0  # 한 페이지에 두 건이 들어오도록 맞춘 세로 상한
+
+
+def _fit_picture_size(image_path: str, max_width_mm: float, max_height_mm: float) -> tuple[float, float]:
+    """이미지의 실제 가로세로 비율을 유지하면서, 세로를 `max_height_mm`(행 높이 예산)에
+    맞춰 채우는 크기를 계산한다 — 가로는 셀 너비(`max_width_mm`)를 넘지 않는 한도 안에서
+    세로 기준으로 정해진다(사용자 요청: 좌우 폭이 아니라 상하 높이에 맞출 것 — 사진마다
+    비율이 달라 폭 기준으로 맞추면 세로 여백이 들쭉날쭉해 보인다).
+
+    `insert_picture(sizeoption=3)`("셀 크기에 맞춰 비율 유지 확대/축소")는 셀 너비에 맞춰
+    비율을 유지하다 보니 사진 한 장의 행 높이가 121.72mm까지 늘어나는 문제가 있었다(실측
+    확인) — 이전지적사항 두 건이 한 페이지에 들어와야 하는데 한 건이 거의 페이지 하나를 다
+    차지해버렸다. 그래서 셀 크기가 아니라 이 함수로 직접 계산한 크기를 `sizeoption=1`
+    (지정 크기)로 넘긴다.
+    """
+    from PIL import Image
+
+    try:
+        with Image.open(image_path) as img:
+            width, height = img.size
+    except Exception:
+        return max_width_mm, max_height_mm
+    if width <= 0 or height <= 0:
+        return max_width_mm, max_height_mm
+    ratio = min(max_width_mm / width, max_height_mm / height)
+    return width * ratio, height * ratio
+
+
+def _clear_cell_text(hwp) -> None:
+    """현재 캐럿이 있는 칸의 텍스트를 지운다(원본 문서에 남아있던 "▪" 같은 빈 글머리
+    기호 등) — 사진을 넣기 전에 호출해 사진 옆에 엉뚱한 글자가 같이 남지 않게 한다.
+    `_add_education_location_field`(build_hwp_template_layout_fixes.py)와 같은 안전한
+    한 줄씩 선택→삭제 패턴 — `TableCellBlock`으로 통째로 선택해 한 번에 지우면 앵커된
+    개체(그림 등)까지 같이 지워질 위험이 있다.
+    """
+    guard = 0
+    while guard < 200:
+        hwp.TableCellBlock()
+        text = hwp.get_selected_text(keep_select=False)
+        if not text:
+            break
+        hwp.HAction.Run("MoveSelLineBegin")
+        hwp.HAction.Run("MoveSelLineEnd")
+        hwp.HAction.Run("Delete")
+        guard += 1
+
+
+def _insert_picture_above_field(hwp, field_name: str, image_path: str) -> bool:
+    if not hwp.field_exist(field_name):
+        return False
+    hwp.move_to_field(field_name, text=True, start=True, select=False)
+    hwp.HAction.Run("MoveUp")
+    _clear_cell_text(hwp)
+    hwp.HAction.Run("ParagraphShapeAlignCenter")  # 사진이 칸 왼쪽에 붙지 않고 가운데 오도록
+    width, height = _fit_picture_size(
+        image_path, _PREVIOUS_FINDING_PHOTO_MAX_WIDTH_MM, _PREVIOUS_FINDING_PHOTO_MAX_HEIGHT_MM
+    )
+    hwp.insert_picture(image_path, treat_as_char=True, sizeoption=1, width=width, height=height)
+    return True
+
+
+_PREVIOUS_FINDING_PHOTO_FIELDS = {
+    slot: (f"previous_finding{slot}_title", f"previous_finding{slot}_content") for slot in (1, 2, 3, 4)
+}
+
+
+def fill_previous_finding_images(hwp, report: Report) -> None:
+    """3번 "이전 기술지도 사항 이행여부" — 표4~7의 A2(원본 지적사항 사진)/G2(이행완료
+    증빙 사진)를 채운다.
+
+    원본 사진은 `PreviousFinding.display_fields()`로 가져온다 — 직전 회차에서 이월된
+    경우(source_finding_id 있음) 원본이 그 사이 수정됐을 수 있어 항상 최신 값을 반영한다
+    (마법사·텍스트 필드와 동일한 실시간 동기화 원칙). 이행완료 증빙 사진은 이 보고서에서
+    직접 업로드하는 값이라 원본과 무관하다. 항상 기존 그림을 먼저 지우고(빈 슬롯이면 지운
+    채로 둠) 업로드된 사진이 있으면 채워 넣는다(`fill_finding_images`와 같은 원칙).
+    """
+    previous = {p.slot: p for p in report.previous_findings}
+    for slot, (title_field, content_field) in _PREVIOUS_FINDING_PHOTO_FIELDS.items():
+        _delete_picture_above_field(hwp, title_field)
+        _delete_picture_above_field(hwp, content_field)
+        pf = previous.get(slot)
+        if not pf:
+            continue
+        _, _, photo_path = pf.display_fields()
+        if photo_path and Path(photo_path).exists():
+            _insert_picture_above_field(hwp, title_field, photo_path)
+        if pf.completion_photo_path and Path(pf.completion_photo_path).exists():
+            _insert_picture_above_field(hwp, content_field, pf.completion_photo_path)
+
+
 def fill_signoff_images(hwp, report: Report, site: Site) -> None:
     director_path, _ = config.get_company_signature("director")
     if director_path and Path(director_path).exists():

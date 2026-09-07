@@ -1,9 +1,10 @@
 """보고서 작성 마법사 — 9단계(전경/안전교육/지적사항/특이사항/이전지적사항/계측자료/제공자료/기인물/진행공정).
 
 화면 조립(1~9번 섹션 빌더)은 report_wizard_sections._SectionBuilderMixin,
-저장/생성 로직은 report_wizard_save._SaveGenerateMixin, 각 섹션의 "한 칸" 위젯들은
-desktop/widgets/report_wizard_slots.py로 분리되어 있다. 이 파일은 그 세 조각을 엮어
-회차 불러오기/AI 액션 트리거만 담당한다.
+저장/생성 로직은 report_wizard_save._SaveGenerateMixin, 기존 보고서 불러오기는
+report_wizard_load._LoadReportMixin(691줄을 넘겨 분리, 2026-09-08), 각 섹션의 "한 칸"
+위젯들은 desktop/widgets/report_wizard_slots.py로 분리되어 있다. 이 파일은 그 조각들을
+엮어 화면 진입점(`load_for_site`)과 AI 액션 트리거만 담당한다.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from core.models_db import MaterialLibrary, Report, Site, Staff
 from core.text_generator import generate_special_note
 from core.vision_analyzer import count_people
 from desktop.dialogs.material_picker_dialog import ClickableThumb, MaterialPickerDialog, MaterialPreviewDialog
+from desktop.views.report_wizard_load import _LoadReportMixin
 from desktop.views.report_wizard_sections import _SectionBuilderMixin
 from desktop.views.report_wizard_sections2 import _SectionBuilderMixin2
 from desktop.views.report_wizard_sections3 import _SectionBuilderMixin3
@@ -43,7 +45,7 @@ from desktop.workers.ai_worker import AIWorker
 
 
 class ReportWizardView(
-    QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _SectionBuilderMixin3, _SaveGenerateMixin
+    QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _SectionBuilderMixin3, _SaveGenerateMixin, _LoadReportMixin
 ):
     back_requested = pyqtSignal()
     report_saved = pyqtSignal(int)  # site_id
@@ -231,25 +233,13 @@ class ReportWizardView(
             self.accident_no_check.setChecked(True)
             self.accident_content_input.clear()
 
-            for slot in self.previous_slots:
-                slot.set_active(False)
             if existing_reports and existing_reports[-1].guidance_date:
                 self.prev_date_none_check.setChecked(False)
                 self.prev_date_input.setDate(QDate(existing_reports[-1].guidance_date))
             else:
                 self.prev_date_none_check.setChecked(True)
-            if existing_reports:
-                last = existing_reports[-1]
-                for slot, finding in zip(self.previous_slots, last.findings):
-                    slot.load_from_finding(finding)
-                self.previous_hint_label.setText(
-                    "이전 회차 지적사항이 없습니다. 직접 넣으실 항목이 있으면 아래 버튼으로 추가하세요."
-                )
-                self.previous_header.set_checked(False)
-            else:
-                self.previous_hint_label.setText("1회차 보고서입니다. 이전 지적사항이 없습니다.")
-                self.previous_header.set_checked(False)
-            self._update_previous_add_btn()
+            self._reconcile_previous_findings(session, site_id, next_visit_no, existing_report=None)
+            self.previous_header.set_checked(False)
 
             self._apply_hazard_checks(set(site.hazard_factor_checks or []) if site else set())
 
@@ -275,7 +265,7 @@ class ReportWizardView(
             if report_id:
                 report = session.get(Report, report_id)
                 if report:
-                    self._load_existing_report(report)
+                    self._load_existing_report(report, session)
 
     def _reset_report_fields(self) -> None:
         """새 보고서(수정이 아닌)를 시작할 때 이전 회차/이전 현장 편집 흔적이 남지 않도록,
@@ -321,11 +311,7 @@ class ReportWizardView(
         self.materials_header.set_checked(False)
 
         for slot_widget in self.previous_slots:
-            slot_widget.title_input.clear()
-            slot_widget.content_edit.clear()
-            slot_widget.action_input.setText("조치완료")
-            slot_widget.confirm_btn.setChecked(False)
-            slot_widget.set_risk_level("")
+            slot_widget.clear()
         self.previous_header.set_checked(False)
 
         self.hazard_header.set_checked(False)
@@ -358,160 +344,6 @@ class ReportWizardView(
                     if suffix.isdigit():
                         max_seq = max(max_seq, int(suffix))
         self.management_no_input.setText(f"{prefix}{max_seq + 1:07d}")
-
-    def _load_existing_report(self, report: Report) -> None:
-        """기존 보고서를 수정 모드로 불러온다 — '새 회차' 기본값을 실제 저장값으로 덮어쓴다."""
-        self.visit_no_input.setValue(report.visit_no)
-        if report.prev_guidance_date:
-            self.prev_date_none_check.setChecked(False)
-            self.prev_date_input.setDate(QDate(report.prev_guidance_date))
-        else:
-            self.prev_date_none_check.setChecked(True)
-        self._apply_management_no_editability(
-            report.visit_no, report.site.management_no if report.site else ""
-        )
-
-        self.set_notification_method(report.notification_method)
-        self.notify_signee_input.setText(
-            report.notify_signee_name or (report.site.manager_name if report.site else "")
-        )
-        if report.notify_signature_path:
-            self.notify_signature_pad.load_existing(report.notify_signature_path)
-            self._set_notify_signature_status(True)
-        else:
-            self.notify_signature_pad.clear_signature()
-            self._set_notify_signature_status(False)
-        self._refresh_signoff_previews(report.assigned_staff_id)
-
-        self.misc_overwork_check.setChecked(report.misc_overwork)
-        self.misc_no_photo_check.setChecked(report.misc_no_photo)
-        self.misc_other_check.setChecked(report.misc_other)
-        self.misc_other_input.setText(report.misc_other_text)
-        self.accident_yes_check.setChecked(report.accident_status == "유")
-        self.accident_no_check.setChecked(report.accident_status == "무")
-        self.accident_content_input.setText(report.accident_content)
-
-        if report.guidance_date:
-            self.guidance_date_input.setDate(QDate(report.guidance_date.year, report.guidance_date.month, report.guidance_date.day))
-        self.progress_input.setValue(report.progress_rate or 0)
-        if report.assigned_staff_id:
-            idx = self.staff_combo.findData(report.assigned_staff_id)
-            if idx >= 0:
-                self.staff_combo.setCurrentIndex(idx)
-
-        major_hazard_checked = set(report.major_hazard_work_checks or [])
-        for idx, checkbox in enumerate(self.major_hazard_checkboxes):
-            checkbox.setChecked(idx in major_hazard_checked)
-        self.major_hazard_header.set_checked(report.major_hazard_na)
-
-        for rows, saved in (
-            (self.machinery_rows, report.machinery_checks or []),
-            (self.hand_tool_rows, report.hand_tool_checks or []),
-            (self.hazmat_rows, report.hazmat_checks or []),
-        ):
-            for row, entry in zip(rows, saved):
-                row.checkbox.setChecked(bool(entry.get("checked")))
-                row.set_evaluations(entry.get("notes") or [])
-        self.equipment_header.set_checked(report.equipment_checks_na)
-
-        for process_slot in self.current_process_slots:
-            process_slot.reset()
-        current_process_by_slot = {e.slot: e for e in report.current_process_entries}
-        for process_slot in self.current_process_slots:
-            e = current_process_by_slot.get(process_slot.slot)
-            if e:
-                process_slot.load_data(
-                    {
-                        "process_name": e.process_name,
-                        "hazard_text": e.hazard_text,
-                        "prevention_text": e.prevention_text,
-                        "risk_level": e.risk_level,
-                    }
-                )
-        self.current_process_header.set_checked(report.current_process_na)
-
-        if report.safety_education:
-            if report.safety_education.photo_path:
-                self.education_photo.set_photo(report.safety_education.photo_path)
-            self.attendee_input.setText(
-                str(report.safety_education.attendee_count) if report.safety_education.attendee_count is not None else ""
-            )
-            self.education_header.set_checked(report.safety_education.na_flag)
-            self.education_location_input.setText(report.safety_education.location)
-            self.education_content_input.setText(report.safety_education.content)
-            self.education_material_input.setText(report.safety_education.material)
-
-        findings_by_slot = {f.slot: f for f in report.findings}
-        for slot_widget in self.finding_slots:
-            slot_widget.set_active(False)
-        for slot_widget in self.finding_slots:
-            f = findings_by_slot.get(slot_widget.slot)
-            if not f:
-                continue
-            slot_widget.set_active(True)
-            if f.photo_path:
-                slot_widget.photo.set_photo(f.photo_path)
-            slot_widget.description_input.setText(f.description)
-            slot_widget.title_input.setText(f.title)
-            slot_widget.content_edit.setPlainText(f.content)
-            slot_widget.law_input.setText(f.law_citation)
-            slot_widget.likelihood_buttons.set_value(f.likelihood)
-            slot_widget.severity_buttons.set_value(f.severity)
-        self._update_finding_add_btn()
-        self.findings_header.set_checked(report.findings_na)
-
-        self.special_note_edit.setPlainText(report.special_note)
-
-        for slot in self.previous_slots:
-            slot.set_active(False)
-        previous_by_slot = {p.slot: p for p in report.previous_findings}
-        for slot_widget in self.previous_slots:
-            p = previous_by_slot.get(slot_widget.slot)
-            if p:
-                slot_widget.set_active(True)
-                if p.photo_path:
-                    slot_widget.photo.set_photo(p.photo_path)
-                slot_widget.title_input.setText(p.title)
-                slot_widget.content_edit.setPlainText(p.content)
-                slot_widget.action_input.setText(p.action_result)
-                slot_widget.confirm_btn.setChecked(p.confirmed)
-                slot_widget.set_risk_level(p.risk_level)
-        self._update_previous_add_btn()
-        self.previous_header.set_checked(report.previous_findings_na)
-
-        measurements_by_type = {m.instrument_type: m for m in report.measurements}
-        for row in self.measurement_rows:
-            m = measurements_by_type.get(row.instrument_type)
-            if m:
-                if m.photo_path:
-                    row.photo.set_photo(m.photo_path)
-                row.value_input.setText(m.value)
-        self.measurement_header.set_checked(report.measurements_na)
-
-        self._selected_materials = list(
-            [pm.material for pm in report.provided_materials if pm.material_id and pm.material]
-        )
-        self._update_materials_summary()
-        self.materials_header.set_checked(report.materials_na)
-
-        self._apply_hazard_checks(set(report.hazard_factor_checks or []))
-        self.hazard_header.set_checked(report.hazard_factors_na)
-
-        for process_slot in self.process_slots:
-            process_slot.reset()
-        process_by_slot = {e.slot: e for e in report.process_entries}
-        for process_slot in self.process_slots:
-            e = process_by_slot.get(process_slot.slot)
-            if e:
-                process_slot.load_data(
-                    {
-                        "process_name": e.process_name,
-                        "hazard_text": e.hazard_text,
-                        "prevention_text": e.prevention_text,
-                        "risk_level": e.risk_level,
-                    }
-                )
-        self.process_header.set_checked(report.process_na)
 
     # ---- AI 액션 ----
 

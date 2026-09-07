@@ -145,6 +145,7 @@ class _SaveGenerateMixin:
                         law_citation=slot_widget.law_input.text(),
                         likelihood=slot_widget.likelihood_buttons.value(),
                         severity=slot_widget.severity_buttons.value(),
+                        action_status=slot_widget.action_status(),
                     )
                 )
 
@@ -159,12 +160,14 @@ class _SaveGenerateMixin:
                         title=slot_widget.title_input.text(),
                         content=slot_widget.content_edit.toPlainText(),
                         action_result=slot_widget.action_input.text(),
-                        confirmed=slot_widget.confirm_btn.isChecked(),
+                        result_status=slot_widget.result_status(),
                         risk_level=slot_widget.risk_level(),
+                        source_finding_id=slot_widget.source_finding_id,
+                        completion_photo_path=slot_widget.completion_photo.photo_path,
                     )
                 )
             report.prev_guidance_implemented = (
-                all(s.confirm_btn.isChecked() for s in active_previous) if active_previous else None
+                all(s.result_status() == "이행완료" for s in active_previous) if active_previous else None
             )
 
             session.query(Measurement).filter_by(report_id=report.id).delete()

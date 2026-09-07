@@ -28,6 +28,7 @@ from core.report_builder_hwp_fields import fill_all
 from core.report_builder_hwp_images import (
     fill_finding_images,
     fill_material_appendix,
+    fill_previous_finding_images,
     fill_signoff_images,
     fill_support_images,
 )
@@ -80,6 +81,7 @@ def _fill_and_save(report_id: int, hwp_path: Path, pdf_path: Path | None) -> Non
             fill_signoff_images(hwp, report, site)
             fill_support_images(hwp, report)
             fill_finding_images(hwp, report)
+            fill_previous_finding_images(hwp, report)
             fill_material_appendix(hwp, report)
 
             if not hwp.save_as(str(hwp_path)):

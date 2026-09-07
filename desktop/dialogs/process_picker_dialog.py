@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -50,6 +51,14 @@ def _risk_badge_style(level: str) -> str:
     return (
         f"QLabel {{ color: {fg}; background: {bg}; border: 1px solid {border}; "
         "border-radius: 10px; padding: 2px 10px; font-weight: 600; font-size: 12px; }"
+    )
+
+
+def _risk_button_style(level: str) -> str:
+    fg, bg, border = _RISK_BADGE_COLORS.get(level, ("#6b7280", "#f9fafb", "#e5e7eb"))
+    return (
+        f"QPushButton {{ color: {fg}; background: {bg}; border: 1px solid {border}; "
+        "border-radius: 10px; padding: 2px 8px; font-weight: 600; font-size: 12px; }"
     )
 
 
@@ -119,9 +128,30 @@ class ProcessPickerDialog(QDialog):
         self.new_name_input.setPlaceholderText("카탈로그에 없으면 새 공정명을 입력...")
         add_btn = QPushButton("+ 새 공정 등록")
         add_btn.clicked.connect(self._add_new)
-        add_row.addWidget(self.new_name_input)
+        add_row.addWidget(self.new_name_input, stretch=1)
         add_row.addWidget(add_btn)
         layout.addLayout(add_row)
+
+        detail_row = QHBoxLayout()
+        self.new_hazard_input = QTextEdit()
+        self.new_hazard_input.setPlaceholderText("유해위험요인 (세부 내용) — 항목이 여러 개면 Enter로 줄바꿈")
+        self.new_hazard_input.setFixedHeight(60)
+        self.new_prevention_input = QTextEdit()
+        self.new_prevention_input.setPlaceholderText("예방대책 — 항목이 여러 개면 Enter로 줄바꿈")
+        self.new_prevention_input.setFixedHeight(60)
+        detail_row.addWidget(self.new_hazard_input, stretch=1)
+        detail_row.addWidget(self.new_prevention_input, stretch=1)
+        self.new_risk_buttons = QButtonGroup(self)
+        self.new_risk_buttons.setExclusive(True)
+        for label in ("상", "중", "하"):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setFixedWidth(36)
+            btn.setStyleSheet(_risk_button_style(""))
+            btn.toggled.connect(lambda checked, b=btn: b.setStyleSheet(_risk_button_style(b.text() if checked else "")))
+            self.new_risk_buttons.addButton(btn)
+            detail_row.addWidget(btn)
+        layout.addLayout(detail_row)
 
         bottom_row = QHBoxLayout()
         bottom_row.addStretch()
@@ -211,6 +241,17 @@ class ProcessPickerDialog(QDialog):
                 badge.setStyleSheet(_risk_badge_style(item.default_risk_level))
                 row_layout.addWidget(badge, alignment=Qt.AlignmentFlag.AlignVCenter)
 
+            # 직접 등록한 항목만 지울 수 있게 한다 — 시딩된 카탈로그(284건)는 이 화면에서
+            # 실수로 지워지면 안 되므로 대상에서 뺀다.
+            if item.category == "직접 등록":
+                del_btn = QPushButton("🗑")
+                del_btn.setFixedWidth(28)
+                del_btn.setToolTip("이 항목 삭제")
+                del_btn.clicked.connect(
+                    lambda _checked, cid=item.id, nm=item.process_name: self._delete_catalog_item(cid, nm)
+                )
+                row_layout.addWidget(del_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+
             list_item = QListWidgetItem()
             list_item.setData(
                 1000,
@@ -229,12 +270,41 @@ class ProcessPickerDialog(QDialog):
         name = self.new_name_input.text().strip()
         if not name:
             return
+        hazard_text = self.new_hazard_input.toPlainText().strip()
+        prevention_text = self.new_prevention_input.toPlainText().strip()
+        risk_btn = self.new_risk_buttons.checkedButton()
+        risk_level = risk_btn.text() if risk_btn else ""
         with SessionLocal() as session:
-            session.add(ProcessCatalog(category="직접 등록", process_name=name, reviewed=False))
+            session.add(
+                ProcessCatalog(
+                    category="직접 등록",
+                    process_name=name,
+                    hazard_text=hazard_text,
+                    prevention_text=prevention_text,
+                    default_risk_level=risk_level,
+                    reviewed=bool(hazard_text),
+                )
+            )
             session.commit()
         self.new_name_input.clear()
+        self.new_hazard_input.clear()
+        self.new_prevention_input.clear()
+        for btn in self.new_risk_buttons.buttons():
+            btn.setChecked(False)
+            btn.setStyleSheet(_risk_button_style(""))
         self._search()
         QMessageBox.information(self, "등록 완료", f"'{name}' 공정을 카탈로그에 등록했습니다.")
+
+    def _delete_catalog_item(self, catalog_id: int, name: str) -> None:
+        reply = QMessageBox.question(self, "공정 삭제", f"'{name}' 공정을 카탈로그에서 삭제하시겠습니까?")
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        with SessionLocal() as session:
+            row = session.get(ProcessCatalog, catalog_id)
+            if row:
+                session.delete(row)
+                session.commit()
+        self._search()
 
     def _apply(self) -> None:
         item = self.result_list.currentItem()

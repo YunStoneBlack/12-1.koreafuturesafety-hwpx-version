@@ -117,8 +117,9 @@ def _build_previous_findings_section(report: Report) -> list:
     for slot in range(1, 5):
         pf = previous.get(slot)
         if pf:
-            photo_cell = scaled_image(pf.photo_path, 28 * mm, 20 * mm) if pf.photo_path else p(pf.title, size=8)
-            rows.append([p(fmt_date(report.guidance_date), size=8), photo_cell, p(pf.content, size=8), p(pf.action_result, size=8), p("이행" if pf.confirmed else "-", size=8)])
+            title, content, photo_path = pf.display_fields()
+            photo_cell = scaled_image(photo_path, 28 * mm, 20 * mm) if photo_path else p(title, size=8)
+            rows.append([p(fmt_date(report.guidance_date), size=8), photo_cell, p(content, size=8), p(pf.action_result, size=8), p(pf.result_status, size=8)])
         else:
             rows.append(["", "", "", "", ""])
     table = Table(rows, colWidths=[20 * mm, 32 * mm, 60 * mm, 30 * mm, 20 * mm], rowHeights=[10 * mm] + [22 * mm] * 4)

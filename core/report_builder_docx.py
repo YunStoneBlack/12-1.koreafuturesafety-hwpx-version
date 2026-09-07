@@ -142,11 +142,12 @@ def build_report_docx(report_id: int, output_path: str | Path) -> Path:
         for r, slot in enumerate(range(1, 5), start=1):
             pf = previous.get(slot)
             if pf:
+                title, content, _photo_path = pf.display_fields()
                 _docx_set_cell(prev_table.cell(r, 0), fmt_date(report.guidance_date))
-                _docx_set_cell(prev_table.cell(r, 1), pf.title)
-                _docx_set_cell(prev_table.cell(r, 2), pf.content)
+                _docx_set_cell(prev_table.cell(r, 1), title)
+                _docx_set_cell(prev_table.cell(r, 2), content)
                 _docx_set_cell(prev_table.cell(r, 3), pf.action_result)
-                _docx_set_cell(prev_table.cell(r, 4), "이행" if pf.confirmed else "-")
+                _docx_set_cell(prev_table.cell(r, 4), pf.result_status)
 
         document.add_page_break()
 
