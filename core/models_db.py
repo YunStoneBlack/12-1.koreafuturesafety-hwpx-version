@@ -8,10 +8,12 @@
 from __future__ import annotations
 
 import datetime
+import random
 
 from sqlalchemy import JSON, Date, DateTime, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from core.constants import FINDING_LOW_RISK_MAX_SCORE
 from core.db import Base
 
 
@@ -266,6 +268,11 @@ class PreviousFinding(Base):
     # display_fields()가 그 최신 내용을 실시간으로 반영한다. 수기로 추가했거나(+ 버튼) 원본이
     # 삭제된 경우 None이며, 이때는 title/content/photo_path에 저장된 값을 그대로 쓴다.
     source_finding_id: Mapped[int | None] = mapped_column(ForeignKey("finding.id"), default=None)
+    # "이행완료"일 때 "이행 후 위험성"으로 쓸 가능성·중대성 — resolve_after_risk()가 조건에
+    # 맞는 조합 중 하나를 무작위로 골라 여기 1회 확정해 저장한다(재계산 시마다 값이 바뀌면
+    # 미리보기와 최종 산출물 숫자가 달라지므로).
+    after_likelihood: Mapped[int | None] = mapped_column(default=None)
+    after_severity: Mapped[int | None] = mapped_column(default=None)
 
     report: Mapped[Report] = relationship(back_populates="previous_findings")
     source_finding: Mapped["Finding | None"] = relationship(foreign_keys=[source_finding_id])
@@ -278,6 +285,46 @@ class PreviousFinding(Base):
             f = self.source_finding
             return f.title, f.content, f.photo_path
         return self.title, self.content, self.photo_path
+
+    def source_risk(self) -> tuple[int | None, int | None]:
+        """(가능성, 중대성) — "이행 전 위험성"은 원본(직전 회차) 지적사항의 값을 실시간으로
+        반영한다(display_fields()와 같은 원칙). 원본이 없으면(수기 추가, 원본 삭제됨) 채울
+        근거가 없어 (None, None)."""
+        if self.source_finding_id and self.source_finding:
+            return self.source_finding.likelihood, self.source_finding.severity
+        return None, None
+
+    def resolve_after_risk(self) -> tuple[int | None, int | None]:
+        """(가능성, 중대성) — "이행 후 위험성"은 조치 결과(result_status)에 따라 결정된다
+        (사용자 설명, 2026-09-08):
+
+        - "확인불가": 판단할 근거가 없어 공란(None, None).
+        - "보완필요": 아직 개선되지 않았으므로 "이행 전"과 항상 같은 값 — `source_risk()`를
+          그대로 반환해 원본이 나중에 바뀌면 같이 바뀐다(캐시하지 않음).
+        - "이행완료": 위험성이 반드시 "하" 등급(점수 1~3)으로 떨어져야 하고, 가능성·중대성
+          각각 "이행 전" 값 이하여야 한다(개선됐으니 더 나빠질 수 없음) — 이 조건을 만족하는
+          조합 중 하나를 무작위로 골라 `after_likelihood`/`after_severity`에 1회 확정해
+          저장한다(매번 다시 뽑으면 미리보기와 최종 산출물 숫자가 달라지므로, 이미 저장된
+          값이 있으면 그걸 그대로 재사용한다).
+        - 그 외(미선택 등): (None, None).
+        """
+        if self.result_status == "보완필요":
+            return self.source_risk()
+        if self.result_status != "이행완료":
+            return None, None
+        if self.after_likelihood is not None and self.after_severity is not None:
+            return self.after_likelihood, self.after_severity
+        before_likelihood, before_severity = self.source_risk()
+        if before_likelihood is None or before_severity is None:
+            return None, None
+        candidates = [
+            (likelihood, severity)
+            for likelihood in range(1, before_likelihood + 1)
+            for severity in range(1, before_severity + 1)
+            if likelihood * severity <= FINDING_LOW_RISK_MAX_SCORE
+        ]
+        self.after_likelihood, self.after_severity = random.choice(candidates)
+        return self.after_likelihood, self.after_severity
 
 
 class Measurement(Base):

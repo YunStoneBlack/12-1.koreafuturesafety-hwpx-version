@@ -154,3 +154,9 @@ HAZMAT_ITEMS = [
     ]),
     ("그 외 유해물질", ["·물질에 맞는 안전조치 확인"]),
 ]
+
+# 지적사항 위험성 점수(가능성×중대성) "하" 등급(현상유지)의 최댓값 — 이 값을 넘으면 개선필요
+# 이상 등급이 된다. `report_builder_hwp_fields_findings._FINDING_RISK_BANDS`(등급/색상 전체
+# 표)와 `models_db.PreviousFinding.resolve_after_risk()`(이행완료 시 "하" 등급으로 떨어지는
+# 조합을 고르는 조건)가 같은 경계값을 공유해야 해서 여기 하나로 뺐다.
+FINDING_LOW_RISK_MAX_SCORE = 3

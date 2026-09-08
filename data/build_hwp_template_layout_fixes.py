@@ -169,8 +169,8 @@ def _add_previous_finding_result_fields(hwp) -> None:
     표 A1="전 회차 지적사항"(사진+내용), G1="이행 결과" 라벨. A2=원본 지적사항 사진,
     A3=제목(유해위험요인), G2=이행완료 증빙 사진, G3=재해예방 대책 내용
     (`_add_previous_finding_content_fields` 참고). A4="위험성 수준"/G4="이행결과" 라벨 +
-    그 아래 값 칸들. "위험성 수준"(이행 전/이행 후 각각 가능성·중대성·위험성)은 아직
-    미정(사용자가 나중에 설명 예정이라 손대지 않음). "이행결과" 값은 마법사에서 고른
+    그 아래 값 칸들("위험성 수준"은 `_add_previous_finding_before_risk_fields`/
+    `_add_previous_finding_after_risk_fields`가 맡는다). "이행결과" 값은 마법사에서 고른
     상태(확인불가/보완필요/이행완료)를 "☑/☐" 세 줄 텍스트로 표현할 계획이라(체크박스 폼
     컨트롤은 코드로 상태를 못 바꾸는 문서 전체 공통 한계), G5에 필드를 만들어둔다.
     """
@@ -203,6 +203,52 @@ def _add_previous_finding_content_fields(hwp) -> None:
             if not _goto_table_cell(hwp, table_index, addr):
                 continue
             hwp.create_field(field_name)
+
+
+_PREVIOUS_FINDING_BEFORE_RISK_CELLS = {
+    "likelihood": "A7",
+    "severity": "B7",
+    "score": "C7",
+    "grade": "A8",
+    "action": "C8",
+}
+_PREVIOUS_FINDING_AFTER_RISK_CELLS = {
+    "likelihood": "D7",
+    "severity": "E7",
+    "score": "F7",
+    "grade": "D8",
+    "action": "F8",
+}
+
+
+def _add_previous_finding_risk_fields(hwp, prefix: str, cells: dict[str, str]) -> None:
+    """이전지적사항 표(표4~7)의 위험성 칸에 `previous_finding{slot}_{prefix}_*` 필드를
+    만든다. "이행 전"(prefix="before", `_PREVIOUS_FINDING_BEFORE_RISK_CELLS`)과 "이행 후"
+    (prefix="after", `_PREVIOUS_FINDING_AFTER_RISK_CELLS`)가 표의 왼쪽/오른쪽 절반만 다르고
+    나머지 구조는 같아서 공유한다.
+
+    "위험성 수준" 블록은 A4="위험성 수준"/G4="이행결과" 라벨 아래, A5="이행 전 위험성"/
+    D5="이행 후 위험성" 하위 라벨 → A6~F6 "가능성/중대성/위험성"(이행전 3칸 + 이행후
+    3칸) 열 헤더 → A7~F7 값 6칸 → A8/C8/D8/F8 등급·관리기준 4칸(B8/E8은 각각 A8/D8에
+    병합되어 실측 트래버설에 안 잡힘 — `finding{slot}` 표의 등급/관리기준 구조와 동일 패턴,
+    `report_builder_hwp_fields_findings._fill_finding_risk` 참고) 순서로 이어진다.
+    """
+    for slot, table_index in _PREVIOUS_FINDING_RESULT_TABLES.items():
+        for suffix, addr in cells.items():
+            field_name = f"previous_finding{slot}_{prefix}_{suffix}"
+            if hwp.field_exist(field_name):
+                continue
+            if not _goto_table_cell(hwp, table_index, addr):
+                continue
+            hwp.create_field(field_name)
+
+
+def _add_previous_finding_before_risk_fields(hwp) -> None:
+    _add_previous_finding_risk_fields(hwp, "before", _PREVIOUS_FINDING_BEFORE_RISK_CELLS)
+
+
+def _add_previous_finding_after_risk_fields(hwp) -> None:
+    _add_previous_finding_risk_fields(hwp, "after", _PREVIOUS_FINDING_AFTER_RISK_CELLS)
 
 
 def _remove_previous_finding_bullets(hwp) -> None:

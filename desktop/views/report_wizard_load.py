@@ -23,8 +23,8 @@ class _LoadReportMixin:
         맞춘다 — 제목/내용만 갱신하고 개수는 그대로 두면(과거 구현) 새로 추가된 지적사항이
         영영 안 보이는 문제가 있었다(실측 확인).
 
-        조치결과/확인여부/위험성은 이 보고서에서 직접 기록하는 후속조치 정보라 원본과
-        무관하다 — 이미 저장된 `PreviousFinding`이 있으면 같은 원본(source_finding_id)에
+        이행결과(확인불가/보완필요/이행완료)는 이 보고서에서 직접 기록하는 후속조치 정보라
+        원본과 무관하다 — 이미 저장된 `PreviousFinding`이 있으면 같은 원본(source_finding_id)에
         매칭해 그대로 이어받는다. 원본 없이 "+" 버튼으로 수기 추가한 항목은 그대로 보존한다.
         """
         prev_report = (
@@ -53,9 +53,7 @@ class _LoadReportMixin:
                     "content": finding.content,
                     "photo_path": finding.photo_path,
                     "source_finding_id": finding.id,
-                    "action_result": existing.action_result if existing else "조치완료",
                     "result_status": existing.result_status if existing else "",
-                    "risk_level": existing.risk_level if existing else "",
                     "completion_photo_path": existing.completion_photo_path if existing else "",
                 }
             )
@@ -66,9 +64,7 @@ class _LoadReportMixin:
                     "content": pf.content,
                     "photo_path": pf.photo_path,
                     "source_finding_id": None,
-                    "action_result": pf.action_result,
                     "result_status": pf.result_status,
-                    "risk_level": pf.risk_level,
                     "completion_photo_path": pf.completion_photo_path,
                 }
             )
@@ -84,9 +80,7 @@ class _LoadReportMixin:
                 slot_widget.completion_photo.set_photo(entry["completion_photo_path"])
             slot_widget.title_input.setText(entry["title"])
             slot_widget.content_edit.setPlainText(entry["content"])
-            slot_widget.action_input.setText(entry["action_result"])
             slot_widget.set_result_status(entry["result_status"])
-            slot_widget.set_risk_level(entry["risk_level"])
             slot_widget.source_finding_id = entry["source_finding_id"]
         self._update_previous_add_btn()
 

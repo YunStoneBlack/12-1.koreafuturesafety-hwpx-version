@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from desktop.widgets.photo_drop_zone import PhotoDropZone
-from desktop.widgets.report_wizard_slots import _action_status_style, _badge_style
+from desktop.widgets.report_wizard_slots import _action_status_style
 
 
 class _PreviousFindingSlot(QFrame):
@@ -28,9 +28,19 @@ class _PreviousFindingSlot(QFrame):
         self.slot = slot
         self.setStyleSheet("QFrame { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 8px; }")
 
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
+        title_row = QHBoxLayout()
+        title_row.addWidget(QLabel(f"이전지적사항 {slot}"))
+        title_row.addStretch()
+        self.delete_btn = QPushButton("🗑")
+        self.delete_btn.setFixedWidth(32)
+        self.delete_btn.clicked.connect(self._delete)
+        title_row.addWidget(self.delete_btn)
+        layout.addLayout(title_row)
+
+        body_row = QHBoxLayout()
         self.photo = PhotoDropZone(f"이전지적사항 {slot} 사진")
-        layout.addWidget(self.photo)
+        body_row.addWidget(self.photo)
 
         form_col = QVBoxLayout()
         self.title_input = QLineEdit()
@@ -40,24 +50,9 @@ class _PreviousFindingSlot(QFrame):
         self.content_edit.setFixedHeight(50)
         form_col.addWidget(self.content_edit)
         action_row = QHBoxLayout()
-        action_row.addWidget(QLabel("조치 결과"))
-        self.action_input = QLineEdit("조치완료")
-        action_row.addWidget(self.action_input)
-        action_row.addWidget(QLabel("위험성"))
-        self.risk_buttons = QButtonGroup(self)
-        self.risk_buttons.setExclusive(True)
-        for label in ("상", "중", "하"):
-            btn = QPushButton(label)
-            btn.setCheckable(True)
-            btn.setAutoDefault(False)
-            btn.setStyleSheet(_badge_style(""))
-            btn.toggled.connect(self._update_risk_badge_styles)
-            self.risk_buttons.addButton(btn)
-            action_row.addWidget(btn)
-        form_col.addLayout(action_row)
-        layout.addLayout(form_col, stretch=1)
-
-        button_col = QVBoxLayout()
+        result_label = QLabel("이행결과")
+        result_label.setStyleSheet("border: none; background: transparent;")
+        action_row.addWidget(result_label)
         self.result_status_buttons = QButtonGroup(self)
         self.result_status_buttons.setExclusive(True)
         for status in ("확인불가", "보완필요", "이행완료"):
@@ -67,31 +62,17 @@ class _PreviousFindingSlot(QFrame):
             btn.setStyleSheet(_action_status_style(False))
             btn.toggled.connect(self._on_result_status_toggled)
             self.result_status_buttons.addButton(btn)
-            button_col.addWidget(btn)
-        self.delete_btn = QPushButton("🗑")
-        self.delete_btn.setFixedWidth(32)
-        self.delete_btn.clicked.connect(self._delete)
-        button_col.addWidget(self.delete_btn)
-        layout.addLayout(button_col)
+            action_row.addWidget(btn)
+        form_col.addLayout(action_row)
+        body_row.addLayout(form_col, stretch=1)
 
         self.completion_photo = PhotoDropZone(f"이전지적사항 {slot} 이행완료 사진")
-        layout.addWidget(self.completion_photo)
+        body_row.addWidget(self.completion_photo)
+        layout.addLayout(body_row)
 
         self._active = False
         self.source_finding_id: int | None = None
         self.setVisible(False)
-
-    def _update_risk_badge_styles(self) -> None:
-        for btn in self.risk_buttons.buttons():
-            btn.setStyleSheet(_badge_style(btn.text() if btn.isChecked() else ""))
-
-    def risk_level(self) -> str:
-        checked = self.risk_buttons.checkedButton()
-        return checked.text() if checked else ""
-
-    def set_risk_level(self, level: str) -> None:
-        for btn in self.risk_buttons.buttons():
-            btn.setChecked(btn.text() == level)
 
     def _on_result_status_toggled(self, checked: bool) -> None:
         btn = self.sender()
@@ -140,7 +121,5 @@ class _PreviousFindingSlot(QFrame):
         self.completion_photo.clear_photo()
         self.title_input.clear()
         self.content_edit.clear()
-        self.action_input.setText("조치완료")
         self.set_result_status("")
-        self.set_risk_level("")
         self.source_finding_id = None

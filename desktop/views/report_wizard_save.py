@@ -159,9 +159,7 @@ class _SaveGenerateMixin:
                         photo_path=slot_widget.photo.photo_path,
                         title=slot_widget.title_input.text(),
                         content=slot_widget.content_edit.toPlainText(),
-                        action_result=slot_widget.action_input.text(),
                         result_status=slot_widget.result_status(),
-                        risk_level=slot_widget.risk_level(),
                         source_finding_id=slot_widget.source_finding_id,
                         completion_photo_path=slot_widget.completion_photo.photo_path,
                     )

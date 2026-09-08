@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 from core.db import BASE_DIR, SessionLocal
+from core.hwp_cleanup import kill_orphaned_hwp_processes
 from core.models_db import Report
 from core.report_builder_hwp_fields import fill_all
 from core.report_builder_hwp_images import (
@@ -69,6 +70,10 @@ def _fill_and_save(report_id: int, hwp_path: Path, pdf_path: Path | None) -> Non
 
         hwp = None
         try:
+            # 이전 세션이 남긴 숨은 한글 프로세스가 있으면, 지금 새로 띄우는 세션이 그걸
+            # 재사용해 창이 안 뜨는 것처럼 보이는 문제를 막기 위해 먼저 정리한다
+            # (core/hwp_cleanup.py 참고, 근본 원인은 미파악).
+            kill_orphaned_hwp_processes()
             hwp = Hwp(visible=False, register_module=True)
             # 해당사항없음 섹션의 빈 페이지를 정리할 때 표/개체 삭제 확인 팝업이 뜨면
             # 화면이 안 보이는 상태(visible=False)라 응답할 수 없어 자동화가 멈춘다

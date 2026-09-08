@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
 from core.db import init_db
+from core.hwp_cleanup import kill_orphaned_hwp_processes
 from desktop.views.dashboard_view import DashboardView
 from desktop.views.report_upload_view import ReportUploadView
 from desktop.views.report_wizard_view import ReportWizardView
@@ -116,6 +117,9 @@ class MainWindow(QMainWindow):
 
 def main() -> None:
     init_db()
+    # 이전 실행이 비정상 종료되며 숨은(visible=False) 한글 프로세스를 남겼을 수 있어, 새
+    # 세션이 그걸 재사용하지 않도록 앱 시작 시 한 번 정리한다(core/hwp_cleanup.py 참고).
+    kill_orphaned_hwp_processes()
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

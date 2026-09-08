@@ -70,8 +70,16 @@ def _fix_char_shape(hwp, field_name: str, height: int = 1100, bold: int = 0, col
     표3의 L3("담당요원") 칸은 원본 문서에서 실제 고객사 담당자 이름을 손글씨처럼 보이도록
     굵고 크고 회색인 글자 모양(Height=1300, Bold=1, TextColor=회색)을 쓰고 있었다 —
     텍스트만 갈아끼우면 그 글자 모양이 그대로 남아 다른 칸과 눈에 띄게 달라 보인다.
+
+    필드가 비어있으면 아무것도 안 하고 건너뛴다 — `move_to_field(..., select=True)`를 빈
+    필드에 쓰면 선택 범위가 못 끝나고 뒤쪽 셀까지 번져 그 칸 글자 크기를 키워버리는 문제가
+    실측으로 확인됐다(담당요원 미지정 시 표3 "등기우편/기타" 체크박스 칸까지 커져서 줄바꿈
+    되며 페이지가 밀리던 버그, 핵심기술.md 참고) — 호출부마다 가드를 걸지 않도록 여기서
+    한 번에 막는다.
     """
     if not hwp.field_exist(field_name):
+        return
+    if not hwp.get_field_text(field_name):
         return
     hwp.move_to_field(field_name, text=True, start=True, select=True)
     cs = hwp.hwp.HParameterSet.HCharShape
