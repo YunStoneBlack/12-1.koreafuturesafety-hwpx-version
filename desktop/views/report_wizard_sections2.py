@@ -299,7 +299,7 @@ class _SectionBuilderMixin2:
         detail_grid.setColumnStretch(2, 4)
         detail_grid.setColumnStretch(3, 1)
 
-        for col, text in enumerate(("진행공정", "유해·위험요인", "예방대책", "위험성")):
+        for col, text in enumerate(("현재공정", "유해·위험요인", "예방대책", "위험성")):
             header_cell = QLabel(text)
             header_cell.setAlignment(Qt.AlignmentFlag.AlignCenter)
             border = "border-right: 1px solid #d1d5db;" if col < 3 else ""

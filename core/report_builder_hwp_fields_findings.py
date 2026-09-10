@@ -125,10 +125,17 @@ def remove_unused_finding_blocks(hwp, report: Report) -> None:
     그 안의 필드도 같이 사라지므로, 남은 슬롯만 채우는 게 안전하다.
 
     템플릿에 지적사항 표 1~4번이 모두 있다(마법사가 지원하는 최대 슬롯 수와 동일).
+
+    다만 지적사항이 0건이면(1~4번 전부 미사용) 1·2번(같은 페이지에 있는 표)까지 지우면
+    "7. 현재 공정 내 현존하는 위험성 제거" 제목만 남고 아래가 완전히 빈 페이지가 되는
+    문제가 있어, 이 경우엔 1·2번은 지우지 않고 빈 칸 그대로 남긴다(내용은
+    `fill_finding_fields`가 빈 문자열로 채워 자연히 공란으로 보인다) — 3·4번(다음 페이지)은
+    그대로 지운다.
     """
     findings_by_slot = {} if report.findings_na else {f.slot: f for f in report.findings}
+    keep_blank_slots = {1, 2} if not findings_by_slot else set()
     for slot in (1, 2, 3, 4):
-        if slot in findings_by_slot:
+        if slot in findings_by_slot or slot in keep_blank_slots:
             continue
         if not hwp.field_exist(f"finding{slot}_hazard"):
             continue
