@@ -1,21 +1,20 @@
-"""제공자료 전체보기 모달 — 썸네일 그리드에서 검색해 최대 N개 선택, 새 자료 등록도 여기서."""
+"""제공자료 전체보기 모달 — 썸네일 그리드에서 검색해 자료를 선택한다.
+
+자료 추가/수정/삭제 모달은 `material_manage_dialogs.py`로 분리돼 있다(이 파일이 600줄을
+넘겨서 분리 — 자세한 사정은 그 파일 docstring 참고).
+"""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
-    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -25,6 +24,13 @@ from PyQt6.QtWidgets import (
 from core.db import SessionLocal
 from core.hangul_match import matches as hangul_matches
 from core.models_db import MaterialLibrary
+from core.thumbnail_generator import resolve_material_path
+from desktop.dialogs.material_manage_dialogs import (
+    MaterialAddDialog,
+    MaterialDeleteDialog,
+    MaterialEditListDialog,
+    _copy_into_library,
+)
 from desktop.widgets.cursors import zoom_cursor
 from desktop.widgets.debounced_search_input import DebouncedSearchInput
 
@@ -81,11 +87,11 @@ class MaterialPreviewDialog(QDialog):
         layout.addWidget(close_btn)
 
     def _load_large_pixmap(self, material: MaterialLibrary) -> QPixmap | None:
-        path = Path(material.file_path)
-        suffix = path.suffix.lower()
-        if suffix in (".jpg", ".jpeg", ".png") and path.exists():
+        path = resolve_material_path(material.file_path)
+        suffix = path.suffix.lower() if path else ""
+        if path and suffix in (".jpg", ".jpeg", ".png"):
             return QPixmap(str(path))
-        if suffix == ".pdf" and path.exists():
+        if path and suffix == ".pdf":
             try:
                 import pymupdf
 
@@ -99,8 +105,9 @@ class MaterialPreviewDialog(QDialog):
                 return image
             except Exception:
                 pass
-        if material.thumbnail_path and Path(material.thumbnail_path).exists():
-            return QPixmap(material.thumbnail_path)
+        thumb_path = resolve_material_path(material.thumbnail_path)
+        if thumb_path:
+            return QPixmap(str(thumb_path))
         return None
 
 
@@ -123,8 +130,9 @@ class _MaterialCard(QFrame):
         thumb.setStyleSheet("background: #f3f4f6; border-radius: 4px;")
         thumb.setCursor(zoom_cursor())
         thumb.clicked.connect(self._open_preview)
-        pixmap = QPixmap(material.thumbnail_path) if material.thumbnail_path else QPixmap()
-        if material.thumbnail_path and not pixmap.isNull():
+        thumb_path = resolve_material_path(material.thumbnail_path)
+        pixmap = QPixmap(str(thumb_path)) if thumb_path else QPixmap()
+        if thumb_path and not pixmap.isNull():
             thumb.setPixmap(
                 pixmap.scaled(134, 100, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             )
@@ -154,11 +162,10 @@ class _MaterialCard(QFrame):
 
 
 class MaterialPickerDialog(QDialog):
-    def __init__(self, max_select: int = 2, already_selected: list[int] | None = None, parent=None):
+    def __init__(self, already_selected: list[int] | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("제공자료 전체보기")
         self.resize(680, 640)
-        self.max_select = max_select
         self.selected_ids: set[int] = set(already_selected or [])
         self._cards: dict[int, _MaterialCard] = {}
         self._build_ui()
@@ -167,9 +174,16 @@ class MaterialPickerDialog(QDialog):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
+        top_row = QHBoxLayout()
         self.count_label = QLabel("")
         self.count_label.setStyleSheet("color: #6b7280;")
-        layout.addWidget(self.count_label)
+        top_row.addWidget(self.count_label)
+        top_row.addSpacing(20)
+        self.selection_label = QLabel("")
+        self.selection_label.setStyleSheet("color: #6b7280;")
+        top_row.addWidget(self.selection_label)
+        top_row.addStretch()
+        layout.addLayout(top_row)
 
         # 타이핑할 때마다 즉시 다시 그리면 카드 100여개를 매번 다시 렌더링하게 되어
         # 눈에 띄게 끊긴다. 입력이 잠깐 멈췄을 때만 실제로 검색하도록 디바운스한다.
@@ -187,22 +201,16 @@ class MaterialPickerDialog(QDialog):
         scroll.setWidget(self._grid_container)
         layout.addWidget(scroll, stretch=1)
 
-        register_row = QHBoxLayout()
-        self.new_title_input = QLineEdit()
-        self.new_title_input.setPlaceholderText("새 자료 제목")
-        self.new_tags_input = QLineEdit()
-        self.new_tags_input.setPlaceholderText("태그(쉼표 구분)")
-        pick_file_btn = QPushButton("파일 선택")
-        pick_file_btn.clicked.connect(self._register_material)
-        register_row.addWidget(self.new_title_input)
-        register_row.addWidget(self.new_tags_input)
-        register_row.addWidget(pick_file_btn)
-        layout.addLayout(register_row)
-
         bottom_row = QHBoxLayout()
-        self.selection_label = QLabel("")
-        self.selection_label.setStyleSheet("color: #6b7280;")
-        bottom_row.addWidget(self.selection_label)
+        add_btn = QPushButton("추가")
+        add_btn.clicked.connect(self._open_add_dialog)
+        bottom_row.addWidget(add_btn)
+        edit_btn = QPushButton("수정")
+        edit_btn.clicked.connect(self._open_edit_list_dialog)
+        bottom_row.addWidget(edit_btn)
+        delete_btn = QPushButton("삭제")
+        delete_btn.clicked.connect(self._open_delete_dialog)
+        bottom_row.addWidget(delete_btn)
         bottom_row.addStretch()
         done_btn = QPushButton("완료")
         done_btn.clicked.connect(self.accept)
@@ -231,64 +239,53 @@ class MaterialPickerDialog(QDialog):
             self._grid_layout.addWidget(card, idx // columns, idx % columns)
 
         if keyword:
-            self.count_label.setText(f"{len(items)}개 / 전체 {total}개 · 최대 {self.max_select}개 선택")
+            self.count_label.setText(f"{len(items)}개 / 전체 {total}개")
         else:
-            self.count_label.setText(f"전체 {total}개 · 최대 {self.max_select}개 선택")
+            self.count_label.setText(f"전체 {total}개")
         self._update_selection_label()
 
     def _update_selection_label(self) -> None:
-        remaining = self.max_select - len(self.selected_ids)
-        self.selection_label.setText(f"{len(self.selected_ids)}개 담김 · {remaining}개 더 담을 수 있습니다")
+        self.selection_label.setText(f"{len(self.selected_ids)}개 담김")
 
     def _toggle_material(self, material_id: int) -> None:
         if material_id in self.selected_ids:
             self.selected_ids.discard(material_id)
-        elif len(self.selected_ids) < self.max_select:
-            self.selected_ids.add(material_id)
         else:
-            QMessageBox.information(self, "선택 제한", f"최대 {self.max_select}개까지 선택할 수 있습니다.")
-            return
+            self.selected_ids.add(material_id)
         # 카드 100여개를 통째로 다시 그리지 않고, 상태가 바뀐 카드만 갱신한다.
         card = self._cards.get(material_id)
         if card:
             card.set_selected(material_id in self.selected_ids)
         self._update_selection_label()
 
-    def _register_material(self) -> None:
-        title = self.new_title_input.text().strip()
-        if not title:
-            QMessageBox.warning(self, "제목 필요", "자료 제목을 먼저 입력하세요.")
+    def _open_add_dialog(self) -> None:
+        dialog = MaterialAddDialog(self)
+        if not dialog.exec():
             return
-        file_path, _ = QFileDialog.getOpenFileName(self, "자료 파일 선택")
-        if not file_path:
-            return
-
-        from core.thumbnail_generator import generate_image_thumbnail, generate_pdf_thumbnail
-
-        thumbnail_path = ""
-        suffix = Path(file_path).suffix.lower()
-        thumbs_dir = Path(file_path).resolve().parent.parent / "materials" / "thumbnails"
-        if suffix in (".jpg", ".jpeg", ".png"):
-            thumb_dest = thumbs_dir / f"{Path(file_path).stem}_thumb.jpg"
-            if generate_image_thumbnail(file_path, thumb_dest):
-                thumbnail_path = str(thumb_dest)
-        elif suffix == ".pdf":
-            thumb_dest = thumbs_dir / f"{Path(file_path).stem}.png"
-            if generate_pdf_thumbnail(file_path, thumb_dest):
-                thumbnail_path = str(thumb_dest)
-
+        file_path, thumbnail_path = _copy_into_library(dialog.selected_file_path)
         with SessionLocal() as session:
             session.add(
                 MaterialLibrary(
-                    title=title,
+                    title=dialog.title,
                     file_path=file_path,
                     thumbnail_path=thumbnail_path,
-                    tags=self.new_tags_input.text().strip(),
+                    tags=dialog.tags,
                 )
             )
             session.commit()
-        self.new_title_input.clear()
-        self.new_tags_input.clear()
+        self._search()
+
+    def _open_edit_list_dialog(self) -> None:
+        dialog = MaterialEditListDialog(self)
+        dialog.exec()
+        self._search()
+
+    def _open_delete_dialog(self) -> None:
+        dialog = MaterialDeleteDialog(self)
+        if not dialog.exec():
+            return
+        for material_id in getattr(dialog, "deleted_ids", []):
+            self.selected_ids.discard(material_id)
         self._search()
 
     def get_selected_materials(self) -> list[MaterialLibrary]:

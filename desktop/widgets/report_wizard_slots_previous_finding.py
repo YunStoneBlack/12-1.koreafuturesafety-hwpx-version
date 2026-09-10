@@ -100,6 +100,13 @@ class _PreviousFindingSlot(QFrame):
             btn.setChecked(btn.text() == status)
 
     def _delete(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "삭제 확인",
+            "정말로 삭제하시겠습니까?\n사진과 입력한 내용이 모두 지워지며 되돌릴 수 없습니다.",
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
         self.clear()
         self.set_active(False)
 

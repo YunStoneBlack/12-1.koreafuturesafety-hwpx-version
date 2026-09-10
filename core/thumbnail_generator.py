@@ -18,6 +18,27 @@ from PIL import Image
 THUMBNAIL_WIDTH = 300
 
 
+def resolve_material_path(stored_path: str | None) -> Path | None:
+    """DB에 저장된 file_path/thumbnail_path를 실제 파일로 해석한다.
+
+    이 경로는 시딩 당시 `BASE_DIR`을 기준으로 만든 절대경로라, exe 배포 폴더를 통째로
+    복사/압축해서 다른 위치(다른 PC, 다른 폴더명)로 옮기면 그대로는 존재하지 않게 된다.
+    그대로 있으면 쓰고, 없으면 파일명(및 thumbnails 하위 여부)만 살려서 지금 이 PC의
+    `data/materials/` 밑에서 다시 찾는다.
+    """
+    if not stored_path:
+        return None
+    path = Path(stored_path)
+    if path.exists():
+        return path
+
+    from core.db import BASE_DIR
+
+    materials_dir = BASE_DIR / "data" / "materials"
+    fallback = materials_dir / "thumbnails" / path.name if path.parent.name == "thumbnails" else materials_dir / path.name
+    return fallback if fallback.exists() else None
+
+
 def generate_pdf_thumbnail(pdf_path: str | Path, output_path: str | Path) -> bool:
     """PDF 첫 페이지를 PNG로 렌더링한다. 실패하면 False를 반환한다(예외를 던지지 않음)."""
     try:

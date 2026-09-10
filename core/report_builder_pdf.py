@@ -31,6 +31,7 @@ from core.constants import (
 )
 from core.db import SessionLocal
 from core.models_db import MeasurementStandard, Report
+from core.thumbnail_generator import resolve_material_path
 from core.report_builder_common import (
     FONT_BOLD,
     GRID,
@@ -331,12 +332,16 @@ def _build_support_section(report: Report, session) -> list:
 def _build_material_appendix(report: Report) -> list:
     flowables: list = []
     for material in report.provided_materials:
-        source_path = material.custom_photo_path
-        if not source_path and material.material:
-            source_path = material.material.file_path
+        source_path: str | Path | None = material.custom_photo_path
+        if source_path and Path(source_path).exists():
+            pass
+        elif material.material:
+            source_path = resolve_material_path(material.material.file_path)
+        else:
+            source_path = None
         if source_path and Path(source_path).suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
             flowables.append(PageBreak())
-            flowables.append(scaled_image(source_path, 170 * mm, 250 * mm))
+            flowables.append(scaled_image(str(source_path), 170 * mm, 250 * mm))
     return flowables
 
 

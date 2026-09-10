@@ -64,12 +64,20 @@ def _put(hwp, field_name: str, value: str) -> None:
         hwp.put_field_text(field_name, text)
 
 
-def _fix_char_shape(hwp, field_name: str, height: int = 1100, bold: int = 0, color: int = 0) -> None:
+def _fix_char_shape(
+    hwp, field_name: str, height: int = 1100, bold: int = 0, color: int = 0, align_left: bool = False
+) -> None:
     """필드 위치의 글자 모양(크기/굵기/색)을 표의 다른 데이터 칸과 동일하게 맞춘다.
 
     표3의 L3("담당요원") 칸은 원본 문서에서 실제 고객사 담당자 이름을 손글씨처럼 보이도록
     굵고 크고 회색인 글자 모양(Height=1300, Bold=1, TextColor=회색)을 쓰고 있었다 —
     텍스트만 갈아끼우면 그 글자 모양이 그대로 남아 다른 칸과 눈에 띄게 달라 보인다.
+
+    `align_left=True`이면 문단 정렬도 왼쪽으로 바꾼다 — "담당요원" 칸은 원본 문서에서
+    오른쪽 정렬(AlignType=2)이라, 이름 뒤 여백까지 포함해 통째로 오른쪽에 붙어버려서
+    막상 눈에 보이는 이름 글자는 칸 오른쪽 끝 쪽에 몰린다(도장을 그 옆에 겹쳐 넣으려 할 때
+    이름과 자리다툼이 남). 이름을 칸 왼쪽에 고정해두고 도장을 오른쪽에 앉히는 편이
+    이름 길이가 달라져도 서로 겹치지 않아 안전하다.
 
     필드가 비어있으면 아무것도 안 하고 건너뛴다 — `move_to_field(..., select=True)`를 빈
     필드에 쓰면 선택 범위가 못 끝나고 뒤쪽 셀까지 번져 그 칸 글자 크기를 키워버리는 문제가
@@ -88,6 +96,12 @@ def _fix_char_shape(hwp, field_name: str, height: int = 1100, bold: int = 0, col
     cs.Bold = bold
     cs.TextColor = color
     hwp.hwp.HAction.Execute("CharShape", cs.HSet)
+
+    if align_left:
+        ps = hwp.hwp.HParameterSet.HParaShape
+        hwp.hwp.HAction.GetDefault("ParagraphShape", ps.HSet)
+        ps.AlignType = 1  # 0=양쪽, 1=왼쪽, 2=오른쪽, 3=가운데
+        hwp.hwp.HAction.Execute("ParagraphShape", ps.HSet)
 
 
 _MANAGEMENT_NO_PLACEHOLDER = "2026-0000056"
@@ -154,8 +168,8 @@ def fill_signoff_fields(hwp, report: Report, site: Site) -> None:
     _put(hwp, "t3_004", f"총 (  {total}  )회차 중 (  {report.visit_no}  )회")
 
     staff_name = report.assigned_staff.name if report.assigned_staff else ""
-    _put(hwp, "t3_005", f"{staff_name}     " if staff_name else "")
-    _fix_char_shape(hwp, "t3_005")
+    _put(hwp, "t3_005", f"    {staff_name}     " if staff_name else "")
+    _fix_char_shape(hwp, "t3_005", align_left=True)
     staff_phone = report.assigned_staff.phone if report.assigned_staff else ""
     _put(hwp, "t3_007", staff_phone)
 
@@ -170,12 +184,17 @@ def fill_signoff_fields(hwp, report: Report, site: Site) -> None:
 
     method = report.notification_method
     signee = report.notify_signee_name or (site.manager_name if site else "")
+    # "직접전달"은 등기우편/모바일/기타/전자우편과 같은 줄로 옮겼다 — 처음엔 t3_009 텍스트
+    # 앞에 같이 욱여넣으려다 그 칸 폭이 모자라 뒤 필드들이 줄바꿈되며 깨졌다(실측 확인).
+    # 템플릿에서 그 칸을 실제로 나눠 새 필드(t3_020)를 만들어 넣는 걸로 해결했다(사용자가
+    # 템플릿에서 셀 나누기로 직접 작업). t3_008은 이제 성명/서명/연락처만 남는다 — 성함→
+    # 성명 표기 변경, 앞뒤 괄호(성함 앞 "(", 연락처 감싸던 "(...)") 제거도 같이 적용했다.
     _put(
         hwp,
         "t3_008",
-        f"{'☑' if method == '직접전달' else '☐'}직접전달    "
-        f"(성함:   {signee}     서명:              (연락처: {site.manager_phone} )",
+        f"성명:   {signee}     서명:              연락처: {site.manager_phone} ",
     )
+    _put(hwp, "t3_020", f"{'☑' if method == '직접전달' else '☐'}직접전달")
     _put(hwp, "t3_009", f"{'☑' if method == '등기우편' else '☐'}등기우편")
     _put(hwp, "t3_010", f"{'☑' if method == '모바일' else '☐'}모바일")
     _put(hwp, "t3_011", f"{'☑' if method == '기타' else '☐'}기타")

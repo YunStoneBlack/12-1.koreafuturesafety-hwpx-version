@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from core.db import SessionLocal, init_db
+from core.db import BASE_DIR, SessionLocal, init_db
 from core.models_db import MaterialLibrary
 from core.thumbnail_generator import generate_pdf_thumbnail
 
@@ -43,7 +43,7 @@ SEARCH_KEYWORDS = [
 ]
 
 MAX_FILE_SIZE = 8 * 1024 * 1024  # 8MB — 포스터/카드뉴스 용도로 적당한 상한
-MATERIALS_DIR = Path(__file__).resolve().parent.parent / "data" / "materials"
+MATERIALS_DIR = BASE_DIR / "data" / "materials"
 THUMBNAILS_DIR = MATERIALS_DIR / "thumbnails"
 
 

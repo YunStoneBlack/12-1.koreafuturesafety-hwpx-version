@@ -192,21 +192,29 @@ class SignaturePad(QWidget):
 
 
 def move_or_reference(pad: SignaturePad, final_path: Path) -> str:
-    """pad의 서명을 최종 위치로 확정한다.
+    """pad의 서명을 최종 위치(`final_path`)로 확정한다.
 
-    source=="drawn"이면 임시 PNG를 final_path로 옮기고, "uploaded"/"existing"이면 원본 경로를
-    그대로 반환한다(파일을 복사하지 않음 — PhotoDropZone과 동일한 관례).
+    source=="drawn"이면 임시 PNG를 final_path로 옮기고, "uploaded"/"existing"이면 원본을
+    final_path로 복사해둔다. 예전에는 "uploaded"/"existing"일 때 원본 경로를 참조만 하고
+    끝냈는데, 그러면 사용자가 파일 선택으로 고른 원본(바탕화면/다운로드 등)이 나중에 옮겨지거나
+    지워지거나 이 앱이 다른 PC로 배포될 때 서명이 깨진다 — 제공자료 라이브러리와 같은 이유로
+    앱 데이터 폴더 안에 자기완결적으로 두도록 고쳤다.
 
-    미리보기 화면 등에서 `_save()`가 반복 호출될 수 있으므로, 옮긴 뒤에는 pad 내부 상태를
-    "existing"으로 갱신해 다음 호출부터는 이미 옮겨진 임시 파일을 다시 옮기려다 실패하지
-    않도록 한다.
+    미리보기 화면 등에서 `_save()`가 반복 호출될 수 있으므로, 옮기거나 복사한 뒤에는 pad
+    내부 상태를 "existing"으로 갱신해 다음 호출부터는 이미 확정된 파일을 다시 옮기거나
+    자기 자신에 복사하려다 실패하지 않도록 한다.
     """
     if not pad.has_signature():
         return ""
+
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path = Path(pad.signature_path)
+
     if pad.source == "drawn":
-        final_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(pad.signature_path, str(final_path))
-        pad._signature_path = str(final_path)  # noqa: SLF001 (같은 모듈 내부 상태 갱신)
-        pad._source = "existing"  # noqa: SLF001
-        return str(final_path)
-    return pad.signature_path
+        shutil.move(str(source_path), str(final_path))
+    elif source_path.resolve() != final_path.resolve():
+        shutil.copy2(str(source_path), str(final_path))
+
+    pad._signature_path = str(final_path)  # noqa: SLF001 (같은 모듈 내부 상태 갱신)
+    pad._source = "existing"  # noqa: SLF001
+    return str(final_path)

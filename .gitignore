@@ -17,6 +17,18 @@ data/signatures/
 # 제공자료 라이브러리 원본 파일 — 용량이 커서 제외 (81개 이미지, ~66MB)
 data/materials/
 
+# exe 배포용으로 뽑은 공정 카탈로그/제공자료 라이브러리 시딩 데이터 — data/materials/의
+# 실제 이미지 파일과 짝을 이뤄야 의미가 있는데 그 파일들 자체가 위에서 제외되므로 같이 제외.
+data/seed_reference_data.json
+
+# PyInstaller 빌드 산출물(실행 파일 자체) — 로컬에서 exe로 묶을 때 생성됨, 커밋 대상 아님.
+build/
+dist/
+# PyInstaller가 자동 생성하는 .spec — 이 PC의 절대경로(사용자 폴더, site-packages 경로)가
+# 그대로 박혀있어 다른 PC에서는 안 맞는다. 재현 가능한 빌드는 `packaging/build_exe.py`
+# (경로를 매번 새로 계산해서 넘김)가 담당하므로 이 파일은 커밋 대상이 아니다.
+packaging/*.spec
+
 # 제공자료 원본 준비용으로 받았던 임시 자료 폴더 — 코드에서 쓰지 않음, 용량이 커서 제외
 7번항목자료/
 
@@ -33,15 +45,9 @@ data/materials/
 # Claude Code 로컬 세션 상태
 .claude/
 
-# Sub-phase 8: 한글 템플릿 필드 매핑 정보 — 필드별 "원래 텍스트"(original_text)에 실제
-# 고객사 정보(현장명/전화번호/이메일 등)가 그대로 들어있어 커밋하지 않는다.
-data/templates/report_template_fields.json
-
-# Sub-phase 8: report_template.hwp — 표3(기술지도 개요) 텍스트는 Sub-phase 9에서 스크럽
-# 완료됐지만(build_template()의 자동 검증 통과), 표11/12/15에 원본 실제 현장 사진("그림"
-# 컨트롤)이 아직 그대로 남아있어(텍스트 필드화 대상이 아니라 안 건드림) 커밋하지 않는다.
-data/templates/report_template.hwp
-
-# build_hwp_template.py의 최종 스크럽 검증용 — 실제 고객사 실명/전화번호/이메일/사업자등록
-# 번호/주소가 그대로 담긴 로컬 전용 파일(커밋 금지). 없으면 검증을 건너뛴다.
-data/templates/_client_strings.json
+# Sub-phase 8~13: data/templates/ 폴더 전체 — report_template.hwp에 표11/12/15 원본 실제
+# 현장 사진("그림" 컨트롤, 텍스트 필드화 대상이 아니라 안 지워짐)이 그대로 남아있고,
+# report_template_fields.json/_client_strings.json에도 실제 고객사 정보(현장명/전화번호/
+# 이메일/사업자등록번호/주소)가 들어있다. 구조 변경마다 만든 report_template.hwp.bak-* 백업
+# 사본들도 전부 같은 문제라(개별 파일명으로는 다 못 막아 사고 위험) 폴더째 제외한다.
+data/templates/

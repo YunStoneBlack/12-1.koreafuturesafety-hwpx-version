@@ -42,6 +42,19 @@ class HwpBuildError(RuntimeError):
     pass
 
 
+class HwpNotAvailableError(HwpBuildError):
+    """pyhwpx/한글이 이 PC에 아예 없어서 애초에 시도할 수 없는 경우 — 이 경우에만
+    `report_builder.build_report()`가 예전 reportlab 방식으로 조용히 대체한다.
+
+    다른 `HwpBuildError`(템플릿 파일 못 찾음, 자동화 중 일시적 COM 오류 등)는 한글이
+    설치돼 있는데 무언가 잘못된 경우라, 조용히 다른 서식으로 대체하면 안 된다 — 그러면
+    사용자가 못 알아채는 사이에 완전히 다른(예전) 서식의 보고서가 나가버린다(실측으로
+    발견된 사고 — 아주 가끔 미리보기가 딴판으로 나왔다가 다시 누르면 정상으로 돌아오던
+    현상이 바로 이 문제였다). 그런 경우는 에러를 그대로 사용자에게 보여줘서 재시도하게
+    해야 한다.
+    """
+
+
 def _fill_and_save(report_id: int, hwp_path: Path, pdf_path: Path | None) -> None:
     """템플릿을 한 번만 열어 필드를 채우고, .hwp와(요청하면) PDF를 같은 세션에서 저장한다.
 
@@ -52,7 +65,7 @@ def _fill_and_save(report_id: int, hwp_path: Path, pdf_path: Path | None) -> Non
     try:
         from pyhwpx import Hwp
     except ImportError as e:
-        raise HwpBuildError("pyhwpx가 설치되어 있지 않습니다 (pip install pyhwpx pywin32).") from e
+        raise HwpNotAvailableError("pyhwpx가 설치되어 있지 않습니다 (pip install pyhwpx pywin32).") from e
 
     if not _TEMPLATE_PATH.exists():
         raise HwpBuildError(

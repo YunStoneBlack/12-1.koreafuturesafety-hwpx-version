@@ -1,0 +1,8 @@
+# 개발/패키징 전용 — 앱 런타임에는 필요 없음.
+-r requirements.txt
+
+# exe 빌드용(packaging/build_exe.py)
+pyinstaller>=6.0.0
+
+# 아이콘(.ico) 변환용(packaging/build_exe.py가 만드는 desktop/assets/app_icon.ico)
+Pillow>=10.0.0

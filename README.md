@@ -13,6 +13,24 @@ pip install -r requirements.txt
 python -m desktop.main
 ```
 
+## 고객 배포용 exe 빌드
+
+```bash
+pip install -r requirements-dev.txt
+python packaging/build_exe.py
+```
+
+`dist/한국미래안전_기술지도결과보고서/` 폴더가 통째로 만들어진다(exe + `data/templates/
+report_template.hwp` + `data/materials/` + `data/seed_reference_data.json`) — 이 폴더
+전체를 고객에게 전달하면 된다. 첫 실행 시 `data/app.db`가 exe 옆에 자동으로 새로
+만들어지고(현장/보고서/서명 없이 완전히 빈 상태 — 공정 카탈로그·안전자료 라이브러리 같은
+공용 참고자료만 자동 시딩됨), 그 폴더를 그대로 백업/이동하면 데이터가 유지된다. 자세한
+배경(BASE_DIR 프로즌 이슈, 검증 방법 등)은 `작업내용.md`의 packaging 항목 참고.
+
+앱 실행 시 `core/device_checkin.py`가 사용 현황 파악용 기기정보(MAC/사용자명/호스트명/
+로컬IP)를 InfiniTech 공통 디바이스등록서버로 1회 보고한다(실패해도 앱 실행에 영향 없음) —
+배경은 `작업내용.md`의 "기기 체크인" 항목 참고.
+
 ## API 키
 
 배포된 프로그램은 각 사용자가 앱 안의 **"AI 관리"** 화면에서 자기 Claude API 키를 입력해 로컬에 저장한다
@@ -26,14 +44,16 @@ python -m desktop.main
   - `contract_analyzer.py` — 계약서 PDF → 신규현장추가 폼 필드 AI 추출
   - `report_extractor.py` / `report_import.py` — 과거 보고서 PDF → 회차 데이터 AI 추출 / 현장 매칭·저장
     ("이전 보고서 업로드" 기능용)
-  - `report_builder.py` — 재수출 창구(`build_report`/`build_report_docx`/`build_report_hwp`). 실제 구현은
-    `report_builder_common.py`(공통 헬퍼) / `report_builder_pdf.py`(PDF, 실제 표준 서식 9섹션) /
+  - `report_builder.py` — 재수출 창구(`build_report`/`build_report_docx`/`build_report_hwp`).
+    `build_report()`는 한글 템플릿 경로를 우선 쓰고 `HwpNotAvailableError`(pyhwpx가 이 PC에
+    아예 없는 경우)일 때만 예전 reportlab 방식으로 대체한다 — 그 외 오류(템플릿 파일 못 찾음,
+    자동화 중 일시적 COM 오류 등)까지 같이 대체하면 고객에게 조용히 다른 서식이 나갈 수
+    있어 Sub-phase 13에서 좁혔다. 실제 구현은 `report_builder_common.py`(공통 헬퍼) /
+    `report_builder_pdf.py`(PDF, 실제 표준 서식 9섹션 — 위 예전 대체 경로) /
     `report_builder_docx.py`(DOCX, 아직 예전 7섹션 — 미리보기 흐름에 연결 안 돼있어 우선순위 낮음) /
     `report_builder_hwp.py` + `report_builder_hwp_fields.py`(텍스트 필드) +
     `report_builder_hwp_images.py`(서명 이미지 + TBM 비고 사진 삽입) — 한글(.hwp), 실제 서식
-    파일을 템플릿으로 재사용. 표0(결재란)·표1~3·표5·표6(17대 기인물)·표8~16이 채워지고
-    결재란/담당요원/현장책임자 서명 이미지, TBM 비고 사진도 삽입됨(Sub-phase 8~10) —
-    표4(이전지적사항)만 아직 미채움
+    파일을 템플릿으로 재사용, 전 표가 채워짐(표4(이전지적사항)는 Sub-phase 12에서 완료)
   - `hangul_match.py` — 자모 단위 부분일치 검색 (조합 중인 글자도 검색 가능)
   - `config.py` — API 키/설정 관리(+ Sub-phase 8: 이사/대표이사 결재 서명 저장)
 - `desktop/` — PyQt6 UI
@@ -47,7 +67,8 @@ python -m desktop.main
       유해위험물질 — 5번 카드 하위 소제목으로 병합, 표8/9/10도 QTableWidget 기반),
       `report_wizard_sections3.py`(관리번호·통보방법·서명 섹션),
       `report_wizard_save.py`(DB 저장 + PDF/한글 생성)
-  - `dialogs/` — 법령 검색 / 공정 선택 / 제공자료 선택 / 보고서 미리보기 모달(한글·PDF 2버튼) /
+  - `dialogs/` — 법령 검색 / 공정 선택 / 제공자료 선택(`material_picker_dialog.py`) + 추가·수정·삭제
+    (`material_manage_dialogs.py`) / 보고서 미리보기 모달(한글·PDF 2버튼) /
     담당요원 서명 등록(`staff_signature_dialog.py`) / 담당요원 정보 수정·선택
     (`staff_edit_dialog.py`/`staff_picker_dialog.py`)
   - `workers/` — AI 호출을 백그라운드 스레드로 실행하는 워커
@@ -108,6 +129,14 @@ python -m desktop.main
   방어 로직(`core/hwp_cleanup.py`) 추가 — 고객 인도를 앞두고 알려진 이슈를 완화. 현장 정보
   수정 기능, 공정 카탈로그 데이터 정합성 수정 3건. 600줄 넘는 파일 3개 리팩토링. 자세한
   내용은 `작업내용.md`의 "Sub-phase 12" 절, 한글 COM 자동화 함정은 `핵심기술.md` 참고.
+- **Sub-phase 13 (완료)**: exe 배포 후 첫 실사용 피드백 대응. 제공자료 썸네일/서명 파일이
+  다른 PC로 옮기면 깨지던 이식성 버그 수정(자가치유 경로 해석 + 빌드 시 `app.db` 자동
+  삭제). 도장 이미지가 검정으로 뭉개지던 버그, 찌그러지던 버그, 페이지가 밀리던 버그,
+  글자와 겹치던 버그를 순서대로 실측 해결(종이 절대좌표 기반 삽입 방식 확정). 제공자료
+  라이브러리 추가/수정/삭제 UI 신규(`material_manage_dialogs.py`). 미리보기/PDF가 아주
+  가끔 완전히 다른(예전) 서식으로 나오던 잠재 사고(한글 자동화 오류를 전부 "한글 미설치"로
+  오인해 조용히 대체 경로를 타던 버그) 발견·수정. 600줄 넘는 파일 1개 리팩토링. 자세한
+  내용은 `작업내용.md`의 "Sub-phase 13" 절, 한글 COM 자동화 함정은 `핵심기술.md` 참고.
 
 ### 한글(.hwp) 출력 — 실제 서식 템플릿 방식은 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwp.py`(+ `report_builder_hwp_fields.py`/

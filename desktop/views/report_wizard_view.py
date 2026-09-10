@@ -33,6 +33,7 @@ from core.db import SessionLocal
 from core.material_recommender import recommend_materials
 from core.models_db import MaterialLibrary, Report, Site, Staff
 from core.text_generator import generate_special_note
+from core.thumbnail_generator import resolve_material_path
 from core.vision_analyzer import count_people
 from desktop.dialogs.material_picker_dialog import ClickableThumb, MaterialPickerDialog, MaterialPreviewDialog
 from desktop.views.report_wizard_load import _LoadReportMixin
@@ -417,7 +418,7 @@ class ReportWizardView(
 
     def _open_material_picker(self) -> None:
         already = [m.id for m in self._selected_materials]
-        dialog = MaterialPickerDialog(max_select=2, already_selected=already, parent=self)
+        dialog = MaterialPickerDialog(already_selected=already, parent=self)
         if dialog.exec():
             self._selected_materials = dialog.get_selected_materials()
             self._update_materials_summary()
@@ -448,8 +449,9 @@ class ReportWizardView(
             thumb.setStyleSheet("background: white; border-radius: 4px;")
             thumb.setCursor(zoom_cursor())
             thumb.clicked.connect(lambda m=material: MaterialPreviewDialog(m, self).exec())
-            pixmap = QPixmap(material.thumbnail_path) if material.thumbnail_path else QPixmap()
-            if material.thumbnail_path and not pixmap.isNull():
+            thumb_path = resolve_material_path(material.thumbnail_path)
+            pixmap = QPixmap(str(thumb_path)) if thumb_path else QPixmap()
+            if thumb_path and not pixmap.isNull():
                 thumb.setPixmap(
                     pixmap.scaled(96, 70, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
                 )
@@ -462,5 +464,17 @@ class ReportWizardView(
             title.setStyleSheet("font-size: 10px;")
             card_layout.addWidget(title)
 
+            remove_btn = QPushButton("삭제")
+            remove_btn.setStyleSheet(
+                "QPushButton { background: #fee2e2; color: #b91c1c; border-radius: 4px; padding: 3px; font-size: 10px; }"
+                "QPushButton:hover { background: #fecaca; }"
+            )
+            remove_btn.clicked.connect(lambda _checked=False, m=material: self._remove_selected_material(m))
+            card_layout.addWidget(remove_btn)
+
             self.materials_preview_row.addWidget(card)
         self.materials_preview_row.addStretch()
+
+    def _remove_selected_material(self, material: MaterialLibrary) -> None:
+        self._selected_materials = [m for m in self._selected_materials if m.id != material.id]
+        self._update_materials_summary()

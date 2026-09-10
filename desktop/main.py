@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
 from core.db import init_db
+from core.device_checkin import send_checkin_async
 from core.hwp_cleanup import kill_orphaned_hwp_processes
 from desktop.views.dashboard_view import DashboardView
 from desktop.views.report_upload_view import ReportUploadView
@@ -120,6 +121,8 @@ def main() -> None:
     # 이전 실행이 비정상 종료되며 숨은(visible=False) 한글 프로세스를 남겼을 수 있어, 새
     # 세션이 그걸 재사용하지 않도록 앱 시작 시 한 번 정리한다(core/hwp_cleanup.py 참고).
     kill_orphaned_hwp_processes()
+    # 사용 현황 파악용 — 실패해도(오프라인 등) 앱 실행에 영향 없음(core/device_checkin.py).
+    send_checkin_async()
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
