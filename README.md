@@ -57,9 +57,13 @@ report_template.hwp` + `data/materials/` + `data/seed_reference_data.json`) — 
   - `hangul_match.py` — 자모 단위 부분일치 검색 (조합 중인 글자도 검색 가능)
   - `config.py` — API 키/설정 관리(+ Sub-phase 8: 이사/대표이사 결재 서명 저장)
 - `desktop/` — PyQt6 UI
-  - `main.py` — 앱 진입점
+  - `main.py` — 앱 진입점. 대시보드/신규현장추가/설정/담당요원/이전보고서업로드는 메인 창
+    `QStackedWidget` 안에서 화면만 바뀌지만, 현장(`site_window.py`의 `SiteWindow`)은
+    현장마다 독립된 비모달 창으로 뜬다(Sub-phase 17) — 여러 현장을 동시에 열어둘 수 있고,
+    떠 있는 동안에도 메인 대시보드 창을 계속 조작할 수 있다.
   - `views/` — 화면 (대시보드, 신규현장추가, 현장상세, 보고서 작성 마법사, 이전 보고서 업로드,
-    담당요원 및 서명관리, AI 관리)
+    담당요원 및 서명관리, AI 관리) + `site_window.py`(현장상세+보고서 마법사를 자체
+    `QStackedWidget`으로 묶어 독립 창으로 띄우는 래퍼)
     - 보고서 작성 마법사는 파일 하나가 너무 커지지 않도록 나뉘어 있음: `report_wizard_view.py`
       (메인 뷰, 회차 불러오기/AI 액션), `report_wizard_sections.py`(1~9번 섹션 — 17대 기인물
       표는 `QTableWidget`+`setSpan`으로 실제 서식과 같은 행 구조로 렌더링),
@@ -73,7 +77,8 @@ report_template.hwp` + `data/materials/` + `data/seed_reference_data.json`) — 
     (`staff_edit_dialog.py`/`staff_picker_dialog.py`)
   - `workers/` — AI 호출을 백그라운드 스레드로 실행하는 워커
   - `widgets/` — 재사용 UI 컴포넌트 (`report_wizard_slots.py`에 보고서 마법사 하위 "한 칸" 위젯들 포함,
-    `signature_pad.py`에 마우스 그리기/이미지 첨부 서명 위젯)
+    `signature_pad.py`에 마우스 그리기/이미지 첨부 서명 위젯, `fake_progress_bar.py`에 정확한
+    진행률을 모를 때 쓰는 "가짜 진행바")
 - `data/` — 로컬 DB 파일, 참조 데이터(계측기준 등), `migrate_v7_report_format.py`~
   `migrate_v10_current_process.py`(스키마 마이그레이션),
   `build_hwp_template.py`(한글 템플릿 생성 1회성 도구, 실행: `python -m data.build_hwp_template`) +
@@ -157,6 +162,14 @@ report_template.hwp` + `data/materials/` + `data/seed_reference_data.json`) — 
   끼어있던 원인불명 포스터(템플릿 자체의 정적 잔여 페이지였음, 사용자가 직접 삭제), 제공자료
   PDF 지원 추가(페이지별 렌더링 삽입) + "10."→"11." 번호 수정, 3종 장비 평가 버튼 취소 불가
   버그. 배포용 exe 재빌드. 자세한 내용은 `작업내용.md`의 "Sub-phase 16" 절 참고.
+- **Sub-phase 17 (완료)**: 실사용 피드백 대응(10-1 교육자료 기본값/교육내용 자동 연동,
+  저장·미리보기·미리보기 모달 버튼 타격감, 저장 완료 안내, 저장 후 화면 유지, 산출물 생성
+  대기화면에 "가짜 진행바" 추가) + **현장별 독립 창(멀티 윈도우) 전환** — 대시보드에서
+  현장을 클릭하면 메인 창 안에서 화면이 바뀌던 것을, 현장마다 독립된 창(`SiteWindow`)이
+  뜨고 여러 현장을 동시에 열어둘 수 있게 재구성(마법사는 그 창 안에서 화면 전환, 별도 창
+  아님). 대시보드는 비모달이라 현장 창이 떠 있어도 계속 조작 가능하고, 현장 창에서 저장하면
+  대시보드 통계도 신호로 자동 새로고침된다. 배포용 exe 재빌드. 자세한 내용은
+  `작업내용.md`의 "Sub-phase 17" 절 참고.
 
 ### 한글(.hwp) 출력 — 실제 서식 템플릿 방식은 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwp.py`(+ `report_builder_hwp_fields.py`/

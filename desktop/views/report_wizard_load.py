@@ -14,6 +14,12 @@ from PyQt6.QtCore import QDate
 
 from core.models_db import PreviousFinding, Report
 
+# 10-1 "교육자료" 기본값 — 실제로 바뀌는 일이 거의 없어 매번 타이핑하는 대신 항상 이 값으로
+# 미리 채워둔다(수정 가능, 사용자 요청 2026-09-11). 새 보고서(`report_wizard_view._reset_report_fields`)
+# 뿐 아니라 기존 보고서를 불러왔는데 이 칸이 비어있는 경우(기본값 도입 전에 저장된 보고서
+# 등)에도 같은 기본값을 보여준다 — 이미 다른 값이 저장돼 있으면 그대로 존중한다.
+_DEFAULT_EDUCATION_MATERIAL = "안전보건공단 배포자료"
+
 
 class _LoadReportMixin:
     def _reconcile_previous_findings(self, session, site_id: int, visit_no: int, existing_report: Report | None) -> None:
@@ -183,7 +189,12 @@ class _LoadReportMixin:
             self.education_header.set_checked(report.safety_education.na_flag)
             self.education_location_input.setText(report.safety_education.location)
             self.education_content_input.setText(report.safety_education.content)
-            self.education_material_input.setText(report.safety_education.material)
+            # 예전에 저장된 보고서라 이 칸이 비어있으면(기본값 도입 전) 새 보고서와 똑같이
+            # 기본값을 보여준다 — 이미 다른 값이 저장돼 있으면 그대로 존중한다(사용자 요청,
+            # 2026-09-11).
+            self.education_material_input.setText(
+                report.safety_education.material or _DEFAULT_EDUCATION_MATERIAL
+            )
 
         overview_by_slot = {p.slot: p for p in report.overview_photos}
         for slot_widget in self.overview_photo_slots:

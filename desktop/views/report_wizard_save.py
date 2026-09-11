@@ -291,6 +291,17 @@ class _SaveGenerateMixin:
         if navigate:
             self.report_saved.emit(self._site_id)
 
+    def _on_save_button_clicked(self) -> None:
+        """하단 "저장" 버튼 전용 핸들러 — 미리보기 창 안에서 자동으로 저장할 때
+        (`_regenerate` 등, `navigate=False`로 직접 `_save()`를 부름)는 조용히 저장만 하고,
+        사용자가 이 버튼을 직접 눌렀을 때만 "저장되었습니다" 안내를 띄운다(사용자 요청,
+        2026-09-11) — 그동안 눌러도 반응이 없어 보인다는 피드백이 있었다. `navigate=False`로
+        불러 저장 후에도 현장으로 돌아가지 않고 마법사 화면에 그대로 머문다(사용자 요청) —
+        `_save()` 기본값(`navigate=True`)은 `report_saved`를 emit해 현장상세로 돌아가는데,
+        저장 버튼을 직접 눌렀을 땐 계속 마법사에서 이어서 작업하고 싶어한다."""
+        self._save(navigate=False)
+        QMessageBox.information(self, "저장 완료", "저장되었습니다.")
+
     def _on_confirm_toggled(self, checked: bool) -> None:
         self.generate_btn.setEnabled(checked)
 

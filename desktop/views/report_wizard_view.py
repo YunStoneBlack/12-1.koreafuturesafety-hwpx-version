@@ -36,7 +36,7 @@ from core.text_generator import generate_special_note
 from core.thumbnail_generator import resolve_material_path
 from core.vision_analyzer import count_people
 from desktop.dialogs.material_picker_dialog import ClickableThumb, MaterialPickerDialog, MaterialPreviewDialog
-from desktop.views.report_wizard_load import _LoadReportMixin
+from desktop.views.report_wizard_load import _DEFAULT_EDUCATION_MATERIAL, _LoadReportMixin
 from desktop.views.report_wizard_sections import _SectionBuilderMixin
 from desktop.views.report_wizard_sections2 import _SectionBuilderMixin2
 from desktop.views.report_wizard_sections3 import _SectionBuilderMixin3
@@ -177,13 +177,16 @@ class ReportWizardView(
         bottom_row = QHBoxLayout()
         bottom_row.addStretch()
         # 저장/미리보기 버튼 디자인을 통일한다(사용자 요청) — 미리보기 쪽 스타일에 맞춘다.
+        # `:pressed`가 없으면 클릭해도 색이 안 바뀌어 "타격감이 없다"는 피드백을 받았다
+        # (2026-09-11) — 눌렀을 때 더 진한 색으로 바뀌게 한다.
         _bottom_button_style = (
             "QPushButton { background: #4f46e5; color: white; padding: 10px 24px; border-radius: 6px; }"
+            "QPushButton:pressed { background: #3730a3; }"
             "QPushButton:disabled { background: #c7c7c7; }"
         )
         save_btn = QPushButton("저장")
         save_btn.setStyleSheet(_bottom_button_style)
-        save_btn.clicked.connect(self._save)
+        save_btn.clicked.connect(self._on_save_button_clicked)
         self.generate_btn = QPushButton("미리보기")
         self.generate_btn.setEnabled(False)
         self.generate_btn.setStyleSheet(_bottom_button_style)
@@ -293,7 +296,9 @@ class ReportWizardView(
         self.attendee_input.clear()
         self.education_location_input.clear()
         self.education_content_input.clear()
-        self.education_material_input.clear()
+        # 매번 똑같이 입력하는 값이라 기본값으로 미리 채워둔다(수정 가능, 사용자 요청,
+        # 2026-09-11) — 실제로 바꿀 일은 거의 없지만 혹시 몰라 잠그지는 않는다.
+        self.education_material_input.setText(_DEFAULT_EDUCATION_MATERIAL)
         self.education_header.set_checked(False)
 
         for slot_widget in self.overview_photo_slots:
@@ -320,6 +325,7 @@ class ReportWizardView(
 
         self._selected_materials = []
         self._update_materials_summary()
+        self._sync_education_content_from_materials()
         self.materials_header.set_checked(False)
 
         for slot_widget in self.previous_slots:
@@ -424,6 +430,7 @@ class ReportWizardView(
             recommended = recommend_materials(findings, library_items, limit=2)
             self._selected_materials = list(recommended)
         self._update_materials_summary()
+        self._sync_education_content_from_materials()
         if not self._selected_materials:
             QMessageBox.information(self, "추천 결과 없음", "지적사항과 관련된 자료를 찾지 못했습니다. '모든자료 보기'에서 직접 선택하세요.")
 
@@ -433,6 +440,17 @@ class ReportWizardView(
         if dialog.exec():
             self._selected_materials = dialog.get_selected_materials()
             self._update_materials_summary()
+            self._sync_education_content_from_materials()
+
+    def _sync_education_content_from_materials(self) -> None:
+        """10-1 "교육내용"에 11번에서 고른 제공자료 제목을 자동으로 반영한다(쉼표로 나열,
+        사용자 요청 2026-09-11) — 마법사에서 자료를 추가/삭제/AI추천할 때마다 다시 불러
+        항상 최신 선택과 일치하게 맞춘다. 그래도 일반 입력칸이라 사용자가 직접 고쳐 쓸 수
+        있다. 기존 보고서를 불러올 때(`report_wizard_load.py`)는 이미 저장된 교육내용
+        값이 있으므로 이 함수를 부르지 않는다 — 안 그러면 사용자가 직접 다르게 써둔 내용을
+        자료 제목으로 덮어써버린다.
+        """
+        self.education_content_input.setText(", ".join(m.title for m in self._selected_materials))
 
     def _update_materials_summary(self) -> None:
         while self.materials_preview_row.count():
@@ -489,3 +507,4 @@ class ReportWizardView(
     def _remove_selected_material(self, material: MaterialLibrary) -> None:
         self._selected_materials = [m for m in self._selected_materials if m.id != material.id]
         self._update_materials_summary()
+        self._sync_education_content_from_materials()

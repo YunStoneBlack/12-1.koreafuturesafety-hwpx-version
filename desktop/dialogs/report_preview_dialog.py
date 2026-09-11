@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.thumbnail_generator import render_pdf_pages
+from desktop.widgets.fake_progress_bar import FakeProgressBar
 from desktop.workers.ai_worker import AIWorker, with_com
 
 
@@ -54,9 +55,14 @@ class ReportPreviewDialog(QDialog):
         bottom = QHBoxLayout()
         bottom.addStretch()
         # 세 버튼 다 "PDF 생성"과 똑같은 디자인(크기·글자 크기·색)으로 통일한다(사용자 요청).
+        # `:pressed`가 없으면 커스텀 스타일시트가 Qt 기본 눌림 효과까지 덮어써서 클릭해도
+        # 아무 반응이 없어 보인다("타격감이 없다", 사용자 피드백 2026-09-11) — 눌렀을 때
+        # 더 진한 색으로 바뀌게 해서 클릭이 실제로 먹혔다는 걸 바로 알 수 있게 한다.
         _button_style = (
             "QPushButton { background: #2563eb; color: white; padding: 10px 20px; "
             "border-radius: 6px; font-weight: 600; }"
+            "QPushButton:pressed { background: #1e40af; }"
+            "QPushButton:disabled { background: #93c5fd; }"
         )
         self.edit_btn = QPushButton("수정하기")
         self.edit_btn.setStyleSheet(_button_style)
@@ -104,6 +110,9 @@ class ReportPreviewDialog(QDialog):
         header.addWidget(self.refresh_btn)
         col.addLayout(header)
 
+        self.progress_bar = FakeProgressBar()
+        col.addWidget(self.progress_bar)
+
         self.preview_scroll = QScrollArea()
         self.preview_scroll.setWidgetResizable(True)
         self.preview_scroll.setStyleSheet("QScrollArea { background: #f3f4f6; border: 1px solid #e5e7eb; }")
@@ -150,7 +159,13 @@ class ReportPreviewDialog(QDialog):
 
         def _start_export():
             self._set_busy(True)  # 내보내기 단계도 계속 "작업 중"으로 표시(연속 클릭 방지)
-            self._wizard._export_pdf_as(on_finished=lambda _path: self._set_busy(False))
+            self.progress_bar.start()
+
+            def _on_finished(path):
+                self._set_busy(False)
+                self.progress_bar.finish() if path else self.progress_bar.reset_hidden()
+
+            self._wizard._export_pdf_as(on_finished=_on_finished)
 
         self._render_preview(on_done=_start_export)
 
@@ -163,7 +178,13 @@ class ReportPreviewDialog(QDialog):
 
         def _start_export():
             self._set_busy(True)
-            self._wizard._export_hwp_as(on_finished=lambda _path: self._set_busy(False))
+            self.progress_bar.start()
+
+            def _on_finished(path):
+                self._set_busy(False)
+                self.progress_bar.finish() if path else self.progress_bar.reset_hidden()
+
+            self._wizard._export_hwp_as(on_finished=_on_finished)
 
         self._render_preview(on_done=_start_export)
 
@@ -185,6 +206,7 @@ class ReportPreviewDialog(QDialog):
         loading.setStyleSheet("color: #6b7280;")
         self.preview_layout.addWidget(loading)
         self._set_busy(True)
+        self.progress_bar.start()
 
         report_id = self._wizard._report_id
         self._preview_worker = AIWorker(with_com(lambda: self._wizard._build_and_store_pdf(report_id)))
@@ -194,6 +216,7 @@ class ReportPreviewDialog(QDialog):
 
     def _on_preview_error(self, message: str) -> None:
         self._set_busy(False)
+        self.progress_bar.reset_hidden()
         self._clear_layout(self.preview_layout)
         err = QLabel(f"미리보기를 만들지 못했습니다: {message}")
         err.setStyleSheet("color: #dc2626;")
@@ -202,6 +225,7 @@ class ReportPreviewDialog(QDialog):
 
     def _on_preview_built(self, pdf_path, on_done) -> None:
         self._set_busy(False)
+        self.progress_bar.finish()
         self._clear_layout(self.preview_layout)
         try:
             # 패널 실제 폭에 맞춰 렌더링해서 스크롤 없이 옆으로 잘리지 않게 한다. 다이얼로그가
