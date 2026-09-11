@@ -54,16 +54,23 @@ from pathlib import Path
 
 from core import config
 from core.models_db import Report, Site
-from core.thumbnail_generator import resolve_material_path
+from core.thumbnail_generator import render_pdf_pages, resolve_material_path
 
 _SIGNATURE_WIDTH_MM = 14
 _SIGNATURE_HEIGHT_MM = 6
 
-# "10. 사업장 지원 사항"(TBM/장비사용) 표의 문서 내 인덱스 — 표 인덱스는 화면상 위치가
-# 아니라 문서에 삽입된 순서를 따르므로, 템플릿에서 표를 옮기거나 지우면 밀릴 수 있다.
-# 21 -> 23: 2번-3번 사이에 표4(전경사진)/표5(점검사진)가 새로 끼어들며(사용자가 한글에서
-# 직접 추가) 그 뒤 모든 표가 2칸씩 밀렸다(읽기 전용 조사로 재확인, 2026-09-11).
-_TBM_TABLE_INDEX = 23
+# "10. 사업장 지원 사항"(TBM/장비사용) 표의 TBM 비고 사진 칸(G2) — 예전엔 이 표를 고정
+# 인덱스(`get_into_nth_table`)로 찾았는데, 지적사항/이전지적사항이 4건 미만이라 빈 슬롯 표가
+# `fill_all()` 안에서 지워지면(remove_unused_finding_blocks 등) 그 시점 이후의 모든 표 인덱스가
+# 삭제된 개수만큼 밀린다는 걸 놓치고 있었다 — 표4/5(전경·점검사진) 추가로 표 개수 자체가
+# 늘어나는 변경뿐 아니라, **같은 문서 안에서 슬롯 개수에 따라 표가 지워지는 것만으로도** 인덱스가
+# 흔들린다(실측 확인: 지적사항 0건 + 이전지적사항 2건인 보고서에서 TBM 사진이 옛 샘플 그대로
+# 남아있던 버그, 2026-09-11). 그래서 인덱스 대신, 같은 행에 이미 있는 텍스트 필드(`t16_002`,
+# 참석인원 — D열)를 기준점 삼아 오른쪽으로 3칸(D→E→F→G) 이동해 G2를 찾는다(`_find_finding_table_ctrl`
+# 등과 같은 "필드 앵커" 원칙 — 표1~19 번호 체계 밖 표뿐 아니라 번호 체계 안 표도 슬롯 삭제로
+# 흔들릴 수 있으면 인덱스보다 필드 앵커가 안전하다).
+_TBM_PHOTO_ANCHOR_FIELD = "t16_002"
+_TBM_PHOTO_ANCHOR_RIGHT_STEPS = 3
 
 # 표3 "담당요원" 값 칸(t3_005)의 종이 기준 절대좌표(mm) — 실제 템플릿을 PDF로 뽑아 표
 # 테두리선 좌표를 실측해서 구한 값. 위 모듈 docstring "시행착오 기록" 5번 참고.
@@ -278,77 +285,136 @@ def _delete_picture_at_cell(hwp, table_index: int, addr: str) -> None:
             hwp.delete_ctrl(ctrl)
 
 
+def _move_to_tbm_photo_cell(hwp) -> bool:
+    if not hwp.field_exist(_TBM_PHOTO_ANCHOR_FIELD):
+        return False
+    hwp.move_to_field(_TBM_PHOTO_ANCHOR_FIELD, text=True, start=True, select=False)
+    for _ in range(_TBM_PHOTO_ANCHOR_RIGHT_STEPS):
+        if not hwp.TableRightCell():
+            return False
+    return True
+
+
 def fill_support_images(hwp, report: Report) -> None:
     """TBM 행의 비고 칸(G2) — 원본 문서에 남아있던 실제 샘플 사진(다른 현장의 실제
     안전교육 사진)을 지우고, 이번 보고서에 안전교육 사진이 업로드돼 있으면 그 자리에
     채워 넣는다. 샘플 사진을 지우는 건 업로드 사진이 없을 때도 항상 하는데, 무관한 다른
     현장 사진이 마치 이 보고서의 실제 사진인 것처럼 남아있으면 안 되기 때문이다.
 
-    표 번호는 원래 16이었는데, 템플릿에서 5~7번 사이 위험성평가기준 표를 옮기고 8번 앞
-    미니표를 지우면서 문서 내 표 순서가 밀려 21로 바뀌었다(실측으로 재확인 — 표 인덱스는
-    표의 화면상 위치가 아니라 문서에 삽입된 순서를 따른다). 템플릿을 다시 구조 변경하면
-    또 밀릴 수 있으니, 이 상수가 안 맞으면 `enumerate`류로 표 순서를 다시 확인할 것.
+    표를 문서 내 고정 인덱스가 아니라 같은 행의 텍스트 필드(`t16_002`)를 기준점 삼아
+    찾는다 — 이유는 `_TBM_PHOTO_ANCHOR_FIELD` 정의부 주석 참고.
     """
-    _delete_picture_at_cell(hwp, _TBM_TABLE_INDEX, "G2")
+    if not _move_to_tbm_photo_cell(hwp):
+        return
+    list_id = hwp.get_pos()[0]
+    for ctrl in hwp.ctrl_list:
+        if ctrl.UserDesc != "그림":
+            continue
+        try:
+            hwp.hwp.SetPosBySet(ctrl.GetAnchorPos(0))
+        except Exception:
+            continue
+        if hwp.get_pos()[0] == list_id:
+            hwp.delete_ctrl(ctrl)
 
     education = report.safety_education
     if education and education.photo_path and Path(education.photo_path).exists():
-        _insert_in_cell(hwp, _TBM_TABLE_INDEX, "G2", education.photo_path)
+        if _move_to_tbm_photo_cell(hwp):
+            hwp.insert_picture(_prepare_signature_image(education.photo_path), treat_as_char=True, sizeoption=3)
 
 
 _MATERIAL_APPENDIX_WIDTH_MM = 180
 _MATERIAL_APPENDIX_HEIGHT_MM = 250
 _MATERIAL_FIRST_APPENDIX_HEIGHT_MM = 230  # 제목 줄이 같이 들어가는 첫 장만 이미지를 살짝 줄인다
 _MATERIAL_IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
+_MATERIAL_PDF_RENDER_WIDTH_PX = 1600  # 인쇄 품질(A4 폭 기준 약 193dpi)로 렌더링
 _SECTION_TITLE_FONT = "HY견고딕"
 _SECTION_TITLE_HEIGHT_PT = 13
 
 
-def fill_material_appendix(hwp, report: Report) -> None:
-    """10번 "제공자료"에서 고른 포스터/카드뉴스를 문서 맨 끝에 한 장씩 새 페이지로 붙인다.
+def _material_appendix_pages(source_path: Path) -> list[Path]:
+    """제공자료 한 건을 부록에 넣을 이미지 파일 목록으로 바꾼다.
 
-    `report_builder_pdf._build_material_appendix()`와 같은 원칙 — 선택된 자료가 1개면 1페이지,
-    2개면 2페이지가 추가된다(없으면 아무것도 안 붙인다). 원본 이미지가 없는(직접 업로드
-    없이 라이브러리만 고른 경우 `custom_photo_path`가 비어있어 `material.file_path`로
-    대체) 경우와, 파일 형식이 이미지가 아닌 경우(PDF 등)는 건너뛴다. 첫 장 맨 위에는
-    본문의 다른 번호 제목(7·8·9번 등)과 같은 서체·크기(HY견고딕 13pt)로 "10. 제공자료"
-    제목을 붙인다 — 그래서 첫 장만 이미지 높이를 살짝 줄여 제목과 함께 한 페이지에 들어가게
-    한다. "해당사항없음"으로 체크된 보고서는 고른 자료가 있어도 전부 건너뛴다.
+    jpg/png 등은 원본 파일 그대로 1장, PDF는 `render_pdf_pages()`(pymupdf, 미리보기 모달과
+    같은 렌더러)로 페이지마다 임시 PNG로 렌더링해 여러 장이 된다 — `insert_picture()`가
+    파일 경로만 받고 PDF 자체는 못 넣으므로, 어차피 그림으로 바꿔서 넣어야 한다. 반환된
+    경로 중 원본이 아니라 새로 만든 임시 파일은 호출부가 다 쓰고 나면 지워야 한다
+    (`fill_material_appendix`의 `finally` 참고).
+    """
+    suffix = source_path.suffix.lower()
+    if suffix in _MATERIAL_IMAGE_SUFFIXES:
+        return [source_path]
+    if suffix == ".pdf":
+        tmp_dir = Path(tempfile.gettempdir()) / "claude" / "hwp_material_pdf"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        pages = render_pdf_pages(source_path, width=_MATERIAL_PDF_RENDER_WIDTH_PX)
+        paths = []
+        for page_bytes in pages:
+            out_path = tmp_dir / f"{uuid.uuid4().hex}.png"
+            out_path.write_bytes(page_bytes)
+            paths.append(out_path)
+        return paths
+    return []
+
+
+def fill_material_appendix(hwp, report: Report) -> None:
+    """11번 "제공자료"에서 고른 포스터/카드뉴스를 문서 맨 끝에 새 페이지로 붙인다.
+
+    `report_builder_pdf._build_material_appendix()`와 같은 원칙 — 선택된 자료가 1개면 최소
+    1페이지, 2개면 최소 2페이지가 추가된다(없으면 아무것도 안 붙인다. PDF는 페이지 수만큼
+    더 늘어난다 — `_material_appendix_pages` 참고). 원본 이미지가 없는(직접 업로드 없이
+    라이브러리만 고른 경우 `custom_photo_path`가 비어있어 `material.file_path`로 대체)
+    경우는 건너뛴다. 첫 장 맨 위에는 본문의 다른 번호 제목(8·9·10번 등)과 같은 서체·크기
+    (HY견고딕 13pt)로 "11. 제공자료" 제목을 붙인다 — 그래서 첫 장만 이미지 높이를 살짝
+    줄여 제목과 함께 한 페이지에 들어가게 한다. "해당사항없음"으로 체크된 보고서는 고른
+    자료가 있어도 전부 건너뛴다.
     """
     if report.materials_na:
         return
     is_first = True
-    for pm in report.provided_materials:
-        source_path: str | Path | None = pm.custom_photo_path
-        if source_path and Path(source_path).exists():
-            pass
-        elif pm.material:
-            source_path = resolve_material_path(pm.material.file_path)
-        else:
-            source_path = None
-        if not source_path:
-            continue
-        if Path(source_path).suffix.lower() not in _MATERIAL_IMAGE_SUFFIXES:
-            continue
-        hwp.MoveDocEnd()
-        hwp.HAction.Run("BreakPage")
-        height = _MATERIAL_APPENDIX_HEIGHT_MM
-        if is_first:
-            hwp.insert_text("10. 제공자료")
-            hwp.HAction.Run("MoveLineBegin")
-            hwp.HAction.Run("MoveSelLineEnd")
-            hwp.set_font(FaceName=_SECTION_TITLE_FONT, Height=_SECTION_TITLE_HEIGHT_PT, Bold=False)
-            hwp.HAction.Run("MoveLineEnd")
-            hwp.HAction.Run("BreakPara")
-            height = _MATERIAL_FIRST_APPENDIX_HEIGHT_MM
-            is_first = False
-        hwp.insert_picture(
-            str(source_path),
-            treat_as_char=True,
-            sizeoption=1,
-            width=_MATERIAL_APPENDIX_WIDTH_MM,
-            height=height,
-        )
+    temp_paths: list[Path] = []
+    try:
+        for pm in report.provided_materials:
+            source_path: str | Path | None = pm.custom_photo_path
+            if source_path and Path(source_path).exists():
+                pass
+            elif pm.material:
+                source_path = resolve_material_path(pm.material.file_path)
+            else:
+                source_path = None
+            if not source_path:
+                continue
+            source_path = Path(source_path)
+            page_paths = _material_appendix_pages(source_path)
+            if source_path.suffix.lower() == ".pdf":
+                temp_paths.extend(page_paths)
+
+            for page_path in page_paths:
+                hwp.MoveDocEnd()
+                hwp.HAction.Run("BreakPage")
+                height = _MATERIAL_APPENDIX_HEIGHT_MM
+                if is_first:
+                    hwp.insert_text("11. 제공자료")
+                    hwp.HAction.Run("MoveLineBegin")
+                    hwp.HAction.Run("MoveSelLineEnd")
+                    hwp.set_font(FaceName=_SECTION_TITLE_FONT, Height=_SECTION_TITLE_HEIGHT_PT, Bold=False)
+                    hwp.HAction.Run("MoveLineEnd")
+                    hwp.HAction.Run("BreakPara")
+                    height = _MATERIAL_FIRST_APPENDIX_HEIGHT_MM
+                    is_first = False
+                hwp.insert_picture(
+                    str(page_path),
+                    treat_as_char=True,
+                    sizeoption=1,
+                    width=_MATERIAL_APPENDIX_WIDTH_MM,
+                    height=height,
+                )
+    finally:
+        for temp_path in temp_paths:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
 
 
 def _delete_picture_near_field(hwp, field_name: str) -> None:

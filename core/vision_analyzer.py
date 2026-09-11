@@ -223,23 +223,15 @@ def count_people(photo_path: str | Path, model: str | None = None) -> int | None
         return None
 
 
-_LUX_METER_TYPE = "조도계"
-_LUX_METER_MULTIPLIER = 1000  # 지도자가 실제 쓰는 조도계는 화면 숫자에 x1000을 해야 실제 lux값이 나온다.
-
-
-def _format_number(value: float) -> str:
-    if value == int(value):
-        return str(int(value))
-    return str(value)
-
-
 def read_measurement_value(photo_path: str | Path, instrument_type: str, model: str | None = None) -> str | None:
     """계측장비 디스플레이 사진에서 측정값을 읽는다. 판단이 어려우면 None을 반환한다.
 
-    '조도계'는 화면에 표시된 숫자 그대로가 아니라 그 숫자에 1000을 곱해야 실제 lux값이다
-    (실제 장비 특성 — 지도자가 확인해줌). 이 계산은 AI에게 시키지 않고(모델이 곱셈을
-    틀릴 위험) 화면 숫자만 그대로 읽게 한 뒤 파이썬에서 정확하게 곱한다 — 이렇게 하면
-    마법사 입력칸과 보고서에 들어가는 값도 자동으로 보정된 값이 된다.
+    한때 '조도계'는 화면 숫자 그대로가 아니라 1000을 곱해야 실제 lux값이라고 보고
+    파이썬에서 별도로 ×1000을 했었다(AI에겐 화면 숫자만 읽게 하고 계산은 코드가 맡는
+    구조) — 그런데 실제 조도계 화면에 뜨는 "X1000" 표시를 AI가 이미 같이 읽어서 그 배율을
+    반영한 최종값(예: 21300)을 돌려주고 있었다는 게 실측으로 확인됐다. 그 상태에서 코드가
+    또 ×1000을 하면서 값이 100만 단위로 부풀려지는 이중 곱셈 버그가 있었다(사용자 확인,
+    2026-09-11) — 조도계도 다른 계측기와 동일하게 AI가 돌려준 값을 그대로 쓰도록 되돌렸다.
     """
     image_b64, media_type = _encode_image(photo_path)
     if instrument_type == _GAS_METER_TYPE:
@@ -250,9 +242,4 @@ def read_measurement_value(photo_path: str | Path, instrument_type: str, model: 
     value = data.get("value")
     if value in (None, "null", ""):
         return None
-    if instrument_type == _LUX_METER_TYPE:
-        try:
-            return _format_number(float(str(value).strip()) * _LUX_METER_MULTIPLIER)
-        except ValueError:
-            return str(value)
     return str(value)

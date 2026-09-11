@@ -62,16 +62,29 @@ class _EquipmentEvalCell(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(4)
+        # `setExclusive(True)`면 이미 선택된 버튼을 다시 눌러도 그대로 선택 유지된 채라
+        # 취소가 안 된다(라디오버튼과 같은 Qt 기본 동작) — 배타성은 직접 구현하고
+        # (`_on_eval_clicked`가 클릭된 버튼만 켜고 나머지를 끔), 그룹 자체는 각 버튼이
+        # 클릭마다 자유롭게 켜짐/꺼짐을 토글하도록 `setExclusive(False)`로 둬서 "같은 버튼을
+        # 다시 누르면 선택 해제"가 되게 한다(사용자 요청, 2026-09-11).
         self.eval_buttons = QButtonGroup(self)
-        self.eval_buttons.setExclusive(True)
+        self.eval_buttons.setExclusive(False)
         for label in ("양호", "미흡"):
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setAutoDefault(False)
             btn.setStyleSheet(_EQUIPMENT_EVAL_STYLE_OFF)
             btn.toggled.connect(self._update_eval_styles)
+            btn.clicked.connect(lambda _checked, b=btn: self._on_eval_clicked(b))
             self.eval_buttons.addButton(btn)
             layout.addWidget(btn)
+
+    def _on_eval_clicked(self, clicked_btn: QPushButton) -> None:
+        if not clicked_btn.isChecked():
+            return
+        for btn in self.eval_buttons.buttons():
+            if btn is not clicked_btn:
+                btn.setChecked(False)
 
     def _update_eval_styles(self) -> None:
         for btn in self.eval_buttons.buttons():
