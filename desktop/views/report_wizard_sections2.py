@@ -112,7 +112,7 @@ class _SectionBuilderMixin2:
     """ReportWizardView 전용 — 단독으로 인스턴스화하지 않는다."""
 
     def _build_major_hazard_work_section(self) -> QFrame:
-        self.major_hazard_header = SectionHeader(4, "대형사고 위험작업 사항", required=False, show_na_button=False)
+        self.major_hazard_header = SectionHeader(5, "대형사고 위험작업 사항", required=False, show_na_button=False)
         note = QLabel("해당하는 작업이 있으면 체크하세요.")
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
         self.major_hazard_checkboxes: list[QCheckBox] = []
@@ -197,16 +197,16 @@ class _SectionBuilderMixin2:
         return table
 
     def _build_equipment_check_widgets(self) -> list[QWidget]:
-        """5-3. 건설기계장비·위험기계기구·유해위험물질 안전조치 평가.
+        """6-3. 건설기계장비·위험기계기구·유해위험물질 안전조치 평가.
 
         실제 문서에서는 이 표들이 12대 기인물 표(표6) 바로 뒤에 별도 번호 없이 이어진다 —
-        마법사에서만 5번 카드 안의 소제목("5-3.")으로 구분해서 보여준다(예전엔 독립된
+        마법사에서만 6번 카드 안의 소제목("6-3.")으로 구분해서 보여준다(예전엔 독립된
         "6번" 카드였다). 그래서 독자적인 `self._card(...)`로 감싸지 않고 위젯 목록만
         반환한다 — `_build_hazard_factors_section()`이 이 목록을 자기 카드 안에 이어붙인다.
         """
         self.equipment_header = SectionHeader(
             None,
-            "5-3. 건설기계장비·위험기계기구·유해위험물질 안전조치 평가",
+            "6-3. 건설기계장비·위험기계기구·유해위험물질 안전조치 평가",
             required=False,
             show_na_button=False,
         )
@@ -228,19 +228,19 @@ class _SectionBuilderMixin2:
         return widgets
 
     def _build_current_process_section(self) -> QFrame:
-        """6. 현재 진행공정에 대한 유해위험요인 파악 및 대책.
+        """7. 현재 진행공정에 대한 유해위험요인 파악 및 대책.
 
-        실제 문서(표12)를 8번 섹션(표15, "향후 진행공정")과 완전히 같은 표 구조(진행공정/
+        실제 문서(표12)를 9번 섹션(표15, "향후 진행공정")과 완전히 같은 표 구조(진행공정/
         유해·위험요인/예방대책 열)로 통일했다 — 그래서 이 섹션의 공정 선택 UI도
-        `_build_process_section()`(8번)과 완전히 같은 방식(`_ProcessSlot` 재사용, 공정
+        `_build_process_section()`(9번)과 완전히 같은 방식(`_ProcessSlot` 재사용, 공정
         선택 다이얼로그, 2x2 요약 박스 + 상세 표)으로 만든다 — 제목만 "현재"/"향후"로 다르다.
-        원래 있던 사진 2장(현장사진) 업로드는 사용자 요청으로 없앴다(8번과 완전히 동일한
+        원래 있던 사진 2장(현장사진) 업로드는 사용자 요청으로 없앴다(9번과 완전히 동일한
         구성으로 맞춤).
         """
         self.current_process_header = SectionHeader(
-            6, "현재 진행공정에 대한 유해·위험요인 파악 및 대책", required=False, show_na_button=False
+            7, "현재 진행공정에 대한 유해·위험요인 파악 및 대책", required=False, show_na_button=False
         )
-        note = QLabel("보고서 6번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
+        note = QLabel("보고서 7번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
 
         self.current_process_slots: list[_ProcessSlot] = [_ProcessSlot(i) for i in range(1, 5)]

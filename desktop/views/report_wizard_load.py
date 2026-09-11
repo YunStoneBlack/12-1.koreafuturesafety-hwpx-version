@@ -55,6 +55,8 @@ class _LoadReportMixin:
                     "source_finding_id": finding.id,
                     "result_status": existing.result_status if existing else "",
                     "completion_photo_path": existing.completion_photo_path if existing else "",
+                    "likelihood": finding.likelihood,
+                    "severity": finding.severity,
                 }
             )
         for pf in manual_entries[: max(0, 4 - len(entries))]:
@@ -66,6 +68,8 @@ class _LoadReportMixin:
                     "source_finding_id": None,
                     "result_status": pf.result_status,
                     "completion_photo_path": pf.completion_photo_path,
+                    "likelihood": pf.manual_likelihood,
+                    "severity": pf.manual_severity,
                 }
             )
 
@@ -80,8 +84,11 @@ class _LoadReportMixin:
                 slot_widget.completion_photo.set_photo(entry["completion_photo_path"])
             slot_widget.title_input.setText(entry["title"])
             slot_widget.content_edit.setPlainText(entry["content"])
-            slot_widget.set_result_status(entry["result_status"])
             slot_widget.source_finding_id = entry["source_finding_id"]
+            slot_widget.set_before_risk(
+                entry["likelihood"], entry["severity"], editable=entry["source_finding_id"] is None
+            )
+            slot_widget.set_result_status(entry["result_status"])
         self._update_previous_add_btn()
 
         if prev_report is None:
@@ -177,6 +184,31 @@ class _LoadReportMixin:
             self.education_location_input.setText(report.safety_education.location)
             self.education_content_input.setText(report.safety_education.content)
             self.education_material_input.setText(report.safety_education.material)
+
+        overview_by_slot = {p.slot: p for p in report.overview_photos}
+        for slot_widget in self.overview_photo_slots:
+            slot_widget.set_active(False)
+        for slot_widget in self.overview_photo_slots:
+            p = overview_by_slot.get(slot_widget.slot)
+            if not p:
+                continue
+            slot_widget.set_active(True)
+            if p.photo_path:
+                slot_widget.photo.set_photo(p.photo_path)
+        self._update_overview_photo_add_btn()
+
+        inspection_by_slot = {p.slot: p for p in report.inspection_photos}
+        for slot_widget in self.inspection_photo_slots:
+            slot_widget.set_active(False)
+        for slot_widget in self.inspection_photo_slots:
+            p = inspection_by_slot.get(slot_widget.slot)
+            if not p:
+                continue
+            slot_widget.set_active(True)
+            if p.photo_path:
+                slot_widget.photo.set_photo(p.photo_path)
+        self._update_inspection_photo_add_btn()
+        self.overview_header.set_checked(report.overview_na)
 
         findings_by_slot = {f.slot: f for f in report.findings}
         for slot_widget in self.finding_slots:

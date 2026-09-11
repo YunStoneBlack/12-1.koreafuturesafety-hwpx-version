@@ -19,7 +19,9 @@ from core.db import BASE_DIR, SessionLocal
 from core.models_db import (
     CurrentProcessEntry,
     Finding,
+    InspectionPhoto,
     Measurement,
+    OverviewPhoto,
     PreviousFinding,
     ProcessHazardEntry,
     ProvidedMaterial,
@@ -75,6 +77,7 @@ class _SaveGenerateMixin:
             report.progress_rate = self.progress_input.value()
             report.assigned_staff_id = self.staff_combo.currentData()
             report.special_note = self.special_note_edit.toPlainText()
+            report.overview_na = self.overview_header.na_button.isChecked()
             report.findings_na = self.findings_header.na_button.isChecked()
             report.previous_findings_na = self.previous_header.na_button.isChecked()
             report.measurements_na = self.measurement_header.na_button.isChecked()
@@ -130,6 +133,24 @@ class _SaveGenerateMixin:
                     )
                 )
 
+            session.query(OverviewPhoto).filter_by(report_id=report.id).delete()
+            for slot_widget in self.overview_photo_slots:
+                if not slot_widget.is_active() or not slot_widget.photo.photo_path:
+                    continue
+                session.add(
+                    OverviewPhoto(report_id=report.id, slot=slot_widget.slot, photo_path=slot_widget.photo.photo_path)
+                )
+
+            session.query(InspectionPhoto).filter_by(report_id=report.id).delete()
+            for slot_widget in self.inspection_photo_slots:
+                if not slot_widget.is_active() or not slot_widget.photo.photo_path:
+                    continue
+                session.add(
+                    InspectionPhoto(
+                        report_id=report.id, slot=slot_widget.slot, photo_path=slot_widget.photo.photo_path
+                    )
+                )
+
             session.query(Finding).filter_by(report_id=report.id).delete()
             for slot_widget in self.finding_slots:
                 if not slot_widget.has_data():
@@ -152,6 +173,7 @@ class _SaveGenerateMixin:
             session.query(PreviousFinding).filter_by(report_id=report.id).delete()
             active_previous = [s for s in self.previous_slots if s.is_active()]
             for slot_widget in active_previous:
+                manual_likelihood, manual_severity = slot_widget.before_risk()
                 session.add(
                     PreviousFinding(
                         report_id=report.id,
@@ -162,6 +184,8 @@ class _SaveGenerateMixin:
                         result_status=slot_widget.result_status(),
                         source_finding_id=slot_widget.source_finding_id,
                         completion_photo_path=slot_widget.completion_photo.photo_path,
+                        manual_likelihood=manual_likelihood,
+                        manual_severity=manual_severity,
                     )
                 )
             report.prev_guidance_implemented = (

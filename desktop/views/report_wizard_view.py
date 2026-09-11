@@ -145,6 +145,7 @@ class ReportWizardView(
 
         content_layout.addWidget(self._build_signoff_section())
         content_layout.addWidget(self._build_misc_note_section())
+        content_layout.addWidget(self._build_overview_section())
         content_layout.addWidget(self._build_previous_findings_section())
         content_layout.addWidget(self._build_major_hazard_work_section())
         content_layout.addWidget(self._build_hazard_factors_section())
@@ -294,6 +295,16 @@ class ReportWizardView(
         self.education_content_input.clear()
         self.education_material_input.clear()
         self.education_header.set_checked(False)
+
+        for slot_widget in self.overview_photo_slots:
+            slot_widget.clear()
+            slot_widget.set_active(False)
+        self._update_overview_photo_add_btn()
+        for slot_widget in self.inspection_photo_slots:
+            slot_widget.clear()
+            slot_widget.set_active(False)
+        self._update_inspection_photo_add_btn()
+        self.overview_header.set_checked(False)
 
         for slot_widget in self.finding_slots:
             slot_widget.clear()

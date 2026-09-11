@@ -26,9 +26,11 @@ from core.db import BASE_DIR, SessionLocal
 from core.hwp_cleanup import kill_orphaned_hwp_processes
 from core.models_db import Report
 from core.report_builder_hwp_fields import fill_all
+from core.report_builder_hwp_fields_cleanup import _remove_blank_pages
 from core.report_builder_hwp_images import (
     fill_finding_images,
     fill_material_appendix,
+    fill_overview_inspection_images,
     fill_previous_finding_images,
     fill_signoff_images,
     fill_support_images,
@@ -96,10 +98,18 @@ def _fill_and_save(report_id: int, hwp_path: Path, pdf_path: Path | None) -> Non
                 raise HwpBuildError("한글 템플릿 파일을 여는 데 실패했습니다.")
 
             fill_all(hwp, report, site)
+            fill_overview_inspection_images(hwp, report)
             fill_signoff_images(hwp, report, site)
             fill_support_images(hwp, report)
             fill_finding_images(hwp, report)
             fill_previous_finding_images(hwp, report)
+            # `fill_all()` 안에서 이미 한 차례 빈 페이지를 정리하지만(지적사항 3·4번 표
+            # 삭제 등), 그 시점 이후 여기서 사진들을 넣으면서(특히 이전지적사항 이행완료
+            # 증빙 사진) 칸 높이가 달라져 페이지 경계가 다시 밀리는 경우가 실측으로
+            # 확인됐다 — 표4/5(전경·점검사진) 추가로 문서 전체 분량이 늘어난 뒤 이 문제가
+            # 더 잘 드러났다. 본문 사진을 전부 넣은 뒤, 부록(10. 제공자료, 맨 끝에 새 페이지로
+            # 추가됨)을 붙이기 전에 한 번 더 정리한다.
+            _remove_blank_pages(hwp)
             fill_material_appendix(hwp, report)
 
             if not hwp.save_as(str(hwp_path)):

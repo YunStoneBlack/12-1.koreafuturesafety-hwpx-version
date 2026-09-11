@@ -59,9 +59,11 @@ from core.thumbnail_generator import resolve_material_path
 _SIGNATURE_WIDTH_MM = 14
 _SIGNATURE_HEIGHT_MM = 6
 
-# "9. 사업장 지원 사항"(TBM/장비사용) 표의 문서 내 인덱스 — 표 인덱스는 화면상 위치가
+# "10. 사업장 지원 사항"(TBM/장비사용) 표의 문서 내 인덱스 — 표 인덱스는 화면상 위치가
 # 아니라 문서에 삽입된 순서를 따르므로, 템플릿에서 표를 옮기거나 지우면 밀릴 수 있다.
-_TBM_TABLE_INDEX = 21
+# 21 -> 23: 2번-3번 사이에 표4(전경사진)/표5(점검사진)가 새로 끼어들며(사용자가 한글에서
+# 직접 추가) 그 뒤 모든 표가 2칸씩 밀렸다(읽기 전용 조사로 재확인, 2026-09-11).
+_TBM_TABLE_INDEX = 23
 
 # 표3 "담당요원" 값 칸(t3_005)의 종이 기준 절대좌표(mm) — 실제 템플릿을 PDF로 뽑아 표
 # 테두리선 좌표를 실측해서 구한 값. 위 모듈 docstring "시행착오 기록" 5번 참고.
@@ -352,7 +354,7 @@ def fill_material_appendix(hwp, report: Report) -> None:
 def _delete_picture_near_field(hwp, field_name: str) -> None:
     """`field_name` 셀의 왼쪽 칸(사진 칸)에 앵커된 그림을 지운다.
 
-    지적사항 표(7번, "현재 공정 내 현존하는 위험성 제거")는 표1~16 번호 체계 밖에 있는
+    지적사항 표(8번, "현재 공정 내 현존하는 위험성 제거")는 표1~16 번호 체계 밖에 있는
     별도 표라 `get_into_nth_table()`로 못 찾는다 — 대신 이미 만들어둔 텍스트 필드
     (`finding{n}_hazard`)를 기준점 삼아 왼쪽 칸(사진 칸, A열)으로 한 칸 이동해 List ID로
     특정한다(`_delete_picture_at_cell`과 같은 방식).
@@ -382,8 +384,34 @@ def _insert_picture_near_field(hwp, field_name: str, image_path: str) -> bool:
     return True
 
 
+_OVERVIEW_PHOTO_TABLE_INDEX = 4
+_INSPECTION_PHOTO_TABLE_INDEX = 5
+_SITE_PHOTO_CELLS = {1: "B1", 2: "C1", 3: "B2", 4: "C2"}
+
+
+def fill_overview_inspection_images(hwp, report: Report) -> None:
+    """3. 전경사진 및 점검사진 — 표4(전경사진)/표5(점검사진)의 2x2 사진 칸(B1/C1/B2/C2,
+    순서대로 1~4번, 사용자가 한글에서 직접 짠 표)을 채운다. A열은 "전경 사진"/"점검 사진"
+    라벨 칸(세로 병합)이라 필드 없이 표 인덱스+셀 주소로 바로 찾아간다(`_insert_in_cell`).
+    항상 기존 그림을 먼저 지우고(빈 슬롯이면 지운 채로 둠) 업로드된 사진이 있으면 채워
+    넣는다(`fill_finding_images`와 같은 원칙)."""
+    overview = {p.slot: p for p in report.overview_photos}
+    for slot, addr in _SITE_PHOTO_CELLS.items():
+        _delete_picture_at_cell(hwp, _OVERVIEW_PHOTO_TABLE_INDEX, addr)
+        photo = overview.get(slot)
+        if photo and photo.photo_path and Path(photo.photo_path).exists():
+            _insert_in_cell(hwp, _OVERVIEW_PHOTO_TABLE_INDEX, addr, photo.photo_path)
+
+    inspection = {p.slot: p for p in report.inspection_photos}
+    for slot, addr in _SITE_PHOTO_CELLS.items():
+        _delete_picture_at_cell(hwp, _INSPECTION_PHOTO_TABLE_INDEX, addr)
+        photo = inspection.get(slot)
+        if photo and photo.photo_path and Path(photo.photo_path).exists():
+            _insert_in_cell(hwp, _INSPECTION_PHOTO_TABLE_INDEX, addr, photo.photo_path)
+
+
 def fill_finding_images(hwp, report: Report) -> None:
-    """지적사항 표(7번) 각 항목의 사진 칸 — 항상 기존 그림을 먼저 지우고(빈 슬롯이면 지운
+    """지적사항 표(8번) 각 항목의 사진 칸 — 항상 기존 그림을 먼저 지우고(빈 슬롯이면 지운
     채로 둠), 지적사항에 업로드된 사진이 있으면 채워 넣는다. `fill_support_images`와 같은
     원칙(무관한 샘플 사진이 남지 않도록)."""
     findings = {f.slot: f for f in report.findings}
@@ -494,7 +522,7 @@ _PREVIOUS_FINDING_PHOTO_FIELDS = {
 
 
 def fill_previous_finding_images(hwp, report: Report) -> None:
-    """3번 "이전 기술지도 사항 이행여부" — 표4~7의 A2(원본 지적사항 사진)/G2(이행완료
+    """4번 "이전 기술지도 사항 이행여부" — 표4~7의 A2(원본 지적사항 사진)/G2(이행완료
     증빙 사진)를 채운다.
 
     원본 사진은 `PreviousFinding.display_fields()`로 가져온다 — 직전 회차에서 이월된

@@ -1,11 +1,11 @@
-"""7번(지적사항)/3번(이전지적사항) 표 채우기 — `report_builder_hwp_fields.py`에서 분리됨
+"""8번(지적사항)/4번(이전지적사항) 표 채우기 — `report_builder_hwp_fields.py`에서 분리됨
 (875줄을 넘겨 이 프로젝트 관례상 600줄 기준으로 나눴다, 2026-09-08).
 
-**7번 지적사항(finding{slot}_*)**: 표1~16 번호 체계 밖의 독립된(문서 흐름에 얹힌) 표라
+**8번 지적사항(finding{slot}_*)**: 표1~16 번호 체계 밖의 독립된(문서 흐름에 얹힌) 표라
 `get_into_nth_table()`로 못 찾는다 — `_find_finding_table_ctrl()`이 앵커 위치 기준으로
 직접 찾는다. 데이터 없는 슬롯의 표는 `remove_unused_finding_blocks()`가 미리 지운다.
 
-**3번 이전지적사항(previous_finding{slot}_*)**: 2026-09-07에 슬롯당 독립된 번호표 4개
+**4번 이전지적사항(previous_finding{slot}_*)**: 2026-09-07에 슬롯당 독립된 번호표 4개
 (표4~7)로 재구성됐다 — 표1~19 번호 체계 안의 일반 표라 `_find_table_ctrl_by_field()`
 (`report_builder_hwp_fields.py`)로 찾는다. 제목(A3)/내용(G3)은
 `PreviousFinding.display_fields()`로 가져온다 — 직전 회차에서 이월된 경우(source_finding_id
@@ -15,7 +15,7 @@
 전/후 각각 가능성·중대성·위험성)은 `fill_previous_finding_fields()` 참고.
 
 두 섹션 다 "이행결과" 칸은 실제 체크박스 폼 컨트롤을 코드로 못 바꾸는 문서 전체 공통
-한계 때문에 "☑/☐" 텍스트로 표현한다(7번은 추후확인/즉시이행 두 줄, 3번은
+한계 때문에 "☑/☐" 텍스트로 표현한다(8번은 추후확인/즉시이행 두 줄, 4번은
 확인불가/보완필요/이행완료 세 줄).
 """
 
@@ -47,7 +47,7 @@ def _apply_risk_fields(
     severity: int | None,
 ) -> None:
     """가능성/중대성/위험성 값 + 등급/관리기준 5칸짜리 위험성 블록 공통 채우기 로직 —
-    `finding{slot}_*`(7번)와 `previous_finding{slot}_{before,after}_*`(3번)가 전부 같은
+    `finding{slot}_*`(8번)와 `previous_finding{slot}_{before,after}_*`(4번)가 전부 같은
     5칸 구조라 공유한다. 관리기준 칸에만 등급별 배경색(즉시개선=빨강/개선필요=주황/
     현상유지=연두)을 `hwp.cell_fill()`로 입힌다.
     """
@@ -127,7 +127,7 @@ def remove_unused_finding_blocks(hwp, report: Report) -> None:
     템플릿에 지적사항 표 1~4번이 모두 있다(마법사가 지원하는 최대 슬롯 수와 동일).
 
     다만 지적사항이 0건이면(1~4번 전부 미사용) 1·2번(같은 페이지에 있는 표)까지 지우면
-    "7. 현재 공정 내 현존하는 위험성 제거" 제목만 남고 아래가 완전히 빈 페이지가 되는
+    "8. 현재 공정 내 현존하는 위험성 제거" 제목만 남고 아래가 완전히 빈 페이지가 되는
     문제가 있어, 이 경우엔 1·2번은 지우지 않고 빈 칸 그대로 남긴다(내용은
     `fill_finding_fields`가 빈 문자열로 채워 자연히 공란으로 보인다) — 3·4번(다음 페이지)은
     그대로 지운다.
@@ -150,10 +150,17 @@ def remove_unused_previous_finding_blocks(hwp, report: Report) -> None:
     `_find_table_ctrl_by_field()`로 찾는다). `previous_findings_na` 체크 시 4개 전부,
     아니면 실제 데이터 없는 슬롯만 지운다. 반드시 `fill_previous_finding_fields`보다 먼저
     호출해야 한다.
+
+    다만 이전지적사항이 0건이면(1~4번 전부 미사용) 슬롯1·2(표4·5, "4. 이전 기술지도 사항
+    이행여부" 제목과 같은 페이지)까지 지우면 제목만 남고 아래가 완전히 빈 페이지가 되는
+    문제가 있어(8번 지적사항과 동일한 구조·문제, `remove_unused_finding_blocks` 참고), 이
+    경우엔 1·2번은 지우지 않고 빈 칸 그대로 남긴다(내용은 `fill_previous_finding_fields`가
+    빈 문자열로 채워 자연히 공란으로 보인다) — 3·4번(표6·7, 다음 페이지)은 그대로 지운다.
     """
     previous_by_slot = {} if report.previous_findings_na else {p.slot: p for p in report.previous_findings}
+    keep_blank_slots = {1, 2} if not previous_by_slot else set()
     for slot in (1, 2, 3, 4):
-        if slot in previous_by_slot:
+        if slot in previous_by_slot or slot in keep_blank_slots:
             continue
         if not hwp.field_exist(f"previous_finding{slot}_result"):
             continue
@@ -163,7 +170,7 @@ def remove_unused_previous_finding_blocks(hwp, report: Report) -> None:
 
 
 def fill_finding_fields(hwp, report: Report) -> None:
-    """7번 "현재 공정 내 현존하는 위험성 제거" — 지적사항 1~4 항목의 유해위험요인/재해예방
+    """8번 "현재 공정 내 현존하는 위험성 제거" — 지적사항 1~4 항목의 유해위험요인/재해예방
     대책/위험성 수준(가능성·중대성·위험도+등급 배경색)/이행결과(추후확인·즉시이행)를 채운다.
     사진은 `report_builder_hwp_images.fill_finding_images()`가 맡는다.
 
@@ -195,7 +202,7 @@ def _fill_finding_result(hwp, slot: int, finding) -> None:
 
 
 def fill_previous_finding_fields(hwp, report: Report) -> None:
-    """3번 "이전 기술지도 사항 이행여부" — 슬롯당 독립된 표(표4~7, 2026-09-07 재구성)의
+    """4번 "이전 기술지도 사항 이행여부" — 슬롯당 독립된 표(표4~7, 2026-09-07 재구성)의
     제목(A3)/내용(G3)/이행결과(G5)/이행 전 위험성(A7~C8)/이행 후 위험성(D7~F8)을 채운다.
     사진(A2 원본/G2 이행완료 증빙)은 텍스트 필드가 아니라
     `report_builder_hwp_images.fill_previous_finding_images()`가 맡는다.

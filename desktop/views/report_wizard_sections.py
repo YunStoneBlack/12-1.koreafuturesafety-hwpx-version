@@ -30,6 +30,7 @@ from desktop.widgets.report_wizard_slots import (
     _FindingSlot,
     _MeasurementRow,
     _ProcessSlot,
+    _SitePhotoSlot,
     _limited_text_edit,
 )
 from desktop.widgets.report_wizard_slots_previous_finding import _PreviousFindingSlot
@@ -55,29 +56,94 @@ class _SectionBuilderMixin:
         return card
 
     def _build_overview_section(self) -> QFrame:
-        self.overview_header = SectionHeader(1, "전경사진")
-        photos_row = QHBoxLayout()
-        self.overview_photo_1 = PhotoDropZone("전경사진1 (필수)")
-        self.overview_photo_2 = PhotoDropZone("전경사진2")
-        photos_row.addWidget(self.overview_photo_1)
-        photos_row.addWidget(self.overview_photo_2)
-        photos_row.addStretch()
-        photos_widget = QWidget()
-        photos_widget.setLayout(photos_row)
-        return self._card(self.overview_header, photos_widget)
+        """3. 전경사진 및 점검사진 — 표4(전경사진)/표5(점검사진), 각 최대 4건.
+
+        2번(본사정보)과 3번(이전지적사항, 옛 번호로는 그대로 3번이었다가 이 섹션이 새로
+        끼어들며 4번으로 밀려남) 사이에 사용자가 한글 템플릿에 직접 새로 짠 표 — 표4/5가
+        각각 라벨 칸(A열, 세로 병합) + 2x2 사진 칸(B1/C1/B2/C2, 순서대로 1~4번) 구조라
+        `core/report_builder_hwp_images.fill_overview_inspection_images()`가 그 주소로 바로
+        찾아간다. 전경사진/점검사진은 완전히 같은 구조라 `_SitePhotoSlot`을 공유하고 좌우로
+        나란히 배치한다.
+        """
+        self.overview_header = SectionHeader(3, "전경사진 및 점검사진", required=False, show_na_button=False)
+
+        self.overview_photo_slots = [_SitePhotoSlot("전경사진", i) for i in range(1, 5)]
+        self.overview_photo_add_btn = QPushButton("+ 전경사진 추가 (0/4)")
+        self.overview_photo_add_btn.clicked.connect(self._add_overview_photo_slot)
+        for slot_widget in self.overview_photo_slots:
+            slot_widget.delete_btn.clicked.connect(self._update_overview_photo_add_btn)
+
+        self.inspection_photo_slots = [_SitePhotoSlot("점검사진", i) for i in range(1, 5)]
+        self.inspection_photo_add_btn = QPushButton("+ 점검사진 추가 (0/4)")
+        self.inspection_photo_add_btn.clicked.connect(self._add_inspection_photo_slot)
+        for slot_widget in self.inspection_photo_slots:
+            slot_widget.delete_btn.clicked.connect(self._update_inspection_photo_add_btn)
+
+        # 좌우 두 QVBoxLayout을 나란히 두면(예전 방식) 한쪽만 슬롯이 활성화됐을 때 그
+        # 쪽만 높이가 늘어나 반대쪽 칸(라벨만 남음)이 세로 가운데로 밀려 보이는 비대칭
+        # 문제가 있었다(실측 확인) — 슬롯 번호별로 같은 행(QGridLayout row)에 나란히 둬서
+        # 한쪽만 활성화돼도 그 슬롯 자리만 채워지고 나머지 행은 양쪽 다 비어 보이도록
+        # (둘 다 추가/둘 다 안 추가한 경우와 똑같이 대칭으로) 맞춘다.
+        columns_widget = QWidget()
+        grid = QGridLayout(columns_widget)
+        grid.addWidget(QLabel("전경사진"), 0, 0)
+        grid.addWidget(QLabel("점검사진"), 0, 1)
+        for row, (overview_slot, inspection_slot) in enumerate(
+            zip(self.overview_photo_slots, self.inspection_photo_slots), start=1
+        ):
+            grid.addWidget(overview_slot, row, 0)
+            grid.addWidget(inspection_slot, row, 1)
+        grid.addWidget(self.overview_photo_add_btn, 5, 0)
+        grid.addWidget(self.inspection_photo_add_btn, 5, 1)
+        return self._card(self.overview_header, columns_widget)
+
+    def _add_overview_photo_slot(self) -> None:
+        inactive = [s for s in self.overview_photo_slots if not s.is_active()]
+        if not inactive:
+            return
+        inactive[0].set_active(True)
+        self._update_overview_photo_add_btn()
+
+    def _update_overview_photo_add_btn(self) -> None:
+        active_count = sum(1 for s in self.overview_photo_slots if s.is_active())
+        self.overview_photo_add_btn.setText(f"+ 전경사진 추가 ({active_count}/4)")
+        self.overview_photo_add_btn.setEnabled(active_count < 4)
+        self._sync_photo_row_symmetry()
+
+    def _add_inspection_photo_slot(self) -> None:
+        inactive = [s for s in self.inspection_photo_slots if not s.is_active()]
+        if not inactive:
+            return
+        inactive[0].set_active(True)
+        self._update_inspection_photo_add_btn()
+
+    def _update_inspection_photo_add_btn(self) -> None:
+        active_count = sum(1 for s in self.inspection_photo_slots if s.is_active())
+        self.inspection_photo_add_btn.setText(f"+ 점검사진 추가 ({active_count}/4)")
+        self.inspection_photo_add_btn.setEnabled(active_count < 4)
+        self._sync_photo_row_symmetry()
+
+    def _sync_photo_row_symmetry(self) -> None:
+        """슬롯 번호별로 전경사진·점검사진 둘 중 하나라도 활성화된 행은 반대쪽도 같은
+        높이를 차지하도록 맞춘다(`_SitePhotoSlot.set_retain_size` 참고) — 추가/삭제할
+        때마다(마법사 조작 시, 기존 보고서 불러올 때 전부) 다시 불러야 한다."""
+        for overview_slot, inspection_slot in zip(self.overview_photo_slots, self.inspection_photo_slots):
+            pair_active = overview_slot.is_active() or inspection_slot.is_active()
+            overview_slot.set_retain_size(pair_active)
+            inspection_slot.set_retain_size(pair_active)
 
     def _build_support_section(self) -> QFrame:
-        """9번 "사업장 지원 사항 등 기타 사항" — 실제 보고서에서 TBM(안전교육)과 계측자료가
-        하나의 표(9번)로 합쳐져 있어, 마법사에서도 예전에 따로 있던 9번(안전교육)·10번
-        (계측자료) 카드를 9-1/9-2 소제목으로 한 카드에 합친다(5-3. 건설기계장비 등 안전조치
-        평가가 5번 카드 안에 번호 없는 소제목으로 들어가는 것과 같은 패턴). `education_header`/
+        """10번 "사업장 지원 사항 등 기타 사항" — 실제 보고서에서 TBM(안전교육)과 계측자료가
+        하나의 표로 합쳐져 있어, 마법사에서도 예전에 따로 있던 안전교육·계측자료 카드를
+        10-1/10-2 소제목으로 한 카드에 합친다(6-3. 건설기계장비 등 안전조치 평가가 6번
+        카드 안에 번호 없는 소제목으로 들어가는 것과 같은 패턴). `education_header`/
         `measurement_header`는 각자 독립된 "해당사항없음" 토글을 그대로 쓰므로(저장/불러오기
         로직이 이 두 헤더를 따로 참조) 이름과 기능은 그대로 두고 번호 배지만 뗀다.
         """
-        self.support_header = SectionHeader(9, "사업장 지원 사항 등 기타 사항", required=False, show_na_button=False)
+        self.support_header = SectionHeader(10, "사업장 지원 사항 등 기타 사항", required=False, show_na_button=False)
 
         self.education_header = SectionHeader(
-            None, "9-1. TBM 활성화 지도 및 교육실시", required=False, show_na_button=False
+            None, "10-1. TBM 활성화 지도 및 교육실시", required=False, show_na_button=False
         )
         row = QHBoxLayout()
         self.education_photo = PhotoDropZone("안전교육 사진")
@@ -115,7 +181,7 @@ class _SectionBuilderMixin:
         row_widget.setLayout(row)
 
         self.measurement_header = SectionHeader(
-            None, "9-2. 계측자료", required=False, show_na_button=False
+            None, "10-2. 계측자료", required=False, show_na_button=False
         )
         with SessionLocal() as session:
             standards = {s.instrument_type: s.standard_criteria for s in session.query(MeasurementStandard).all()}
@@ -136,7 +202,7 @@ class _SectionBuilderMixin:
         )
 
     def _build_findings_section(self) -> QFrame:
-        self.findings_header = SectionHeader(7, "지적사항", required=False, show_na_button=False)
+        self.findings_header = SectionHeader(8, "지적사항", required=False, show_na_button=False)
         note = QLabel("✦ 사진 업로드 후 설명을 입력하시고 AI추천 버튼을 클릭하시면 관련 지적사항을 AI가 작성합니다")
         note.setStyleSheet("color: #4f46e5; font-size: 12px;")
         self.finding_slots = [_FindingSlot(i) for i in range(1, 5)]
@@ -160,7 +226,7 @@ class _SectionBuilderMixin:
 
     def _build_special_note_section(self) -> QFrame:
         header_row = QHBoxLayout()
-        badge = QLabel("11")
+        badge = QLabel("12")
         badge.setFixedSize(24, 24)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet("background: #4f46e5; color: white; border-radius: 12px; font-weight: 600;")
@@ -186,7 +252,7 @@ class _SectionBuilderMixin:
         return self._card(header_widget, note, self.special_note_edit, self.special_note_counter)
 
     def _build_previous_findings_section(self) -> QFrame:
-        self.previous_header = SectionHeader(3, "이전지적사항", required=False, show_na_button=False)
+        self.previous_header = SectionHeader(4, "이전지적사항", required=False, show_na_button=False)
         self.previous_hint_label = QLabel("이전 회차 지적사항이 없습니다. 직접 넣으실 항목이 있으면 아래 버튼으로 추가하세요.")
         self.previous_hint_label.setStyleSheet("color: #6b7280;")
         self.previous_slots = [_PreviousFindingSlot(i) for i in range(1, 5)]
@@ -209,7 +275,7 @@ class _SectionBuilderMixin:
         self.previous_add_btn.setEnabled(active_count < 4)
 
     def _build_materials_section(self) -> QFrame:
-        self.materials_header = SectionHeader(10, "제공자료", required=False, show_na_button=False)
+        self.materials_header = SectionHeader(11, "제공자료", required=False, show_na_button=False)
         note = QLabel("✦ AI추천을 누르면 지적사항 내용을 바탕으로 관련 자료를 찾아줍니다")
         note.setStyleSheet("color: #4f46e5; font-size: 12px;")
 
@@ -321,20 +387,20 @@ class _SectionBuilderMixin:
 
     def _build_hazard_factors_section(self) -> QFrame:
         self.hazard_header = SectionHeader(
-            5, "위험성평가 기준 및 12대 기인물 필수 지도사항", required=False, show_na_button=False
+            6, "위험성평가 기준 및 12대 기인물 필수 지도사항", required=False, show_na_button=False
         )
         self.hazard_checkboxes: dict[int, QCheckBox] = {}
         self.hazard_line_checkboxes: dict[int, list[QCheckBox]] = {}
         factors_by_number = {number: (name, lines) for number, name, lines in FIXED_HAZARD_FACTORS}
 
-        # 5-3 소제목(SectionHeader의 title_label)과 글자 크기를 맞춘다(사용자 요청) — 15px/700.
-        sub1 = QLabel("5-1. 사망사고 다발 12대 기인물과 필수 지도사항")
+        # 6-3 소제목(SectionHeader의 title_label)과 글자 크기를 맞춘다(사용자 요청) — 15px/700.
+        sub1 = QLabel("6-1. 사망사고 다발 12대 기인물과 필수 지도사항")
         sub1.setStyleSheet(
             "font-size: 15px; font-weight: 700; margin-top: 4px; border: none; background: transparent;"
         )
         main_grid_widget = self._build_hazard_grid([1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12], factors_by_number)
 
-        sub2 = QLabel("5-2. 기타사항")
+        sub2 = QLabel("6-2. 기타사항")
         sub2.setStyleSheet(
             "font-size: 15px; font-weight: 700; margin-top: 8px; border: none; background: transparent;"
         )
@@ -343,7 +409,7 @@ class _SectionBuilderMixin:
         note = QLabel("1회차에 체크하면 다음 회차부터 자동으로 동일하게 적용됩니다.")
         note.setStyleSheet("color: #9ca3af; font-size: 11px;")
 
-        # 5-3. 건설기계장비·위험기계기구·유해위험물질 안전조치 평가 — 실제 문서에서 12대
+        # 6-3. 건설기계장비·위험기계기구·유해위험물질 안전조치 평가 — 실제 문서에서 12대
         # 기인물 표 바로 뒤에 번호 없이 이어지는 구조라 별도 카드로 안 만들고 여기 이어붙인다
         # (_SectionBuilderMixin2에 정의됨, ReportWizardView가 두 mixin을 함께 상속하므로
         # self로 바로 접근된다).
@@ -364,9 +430,9 @@ class _SectionBuilderMixin:
 
     def _build_process_section(self) -> QFrame:
         self.process_header = SectionHeader(
-            8, "향후 진행공정에 대한 유해·위험요인 파악 및 대책", required=False, show_na_button=False
+            9, "향후 진행공정에 대한 유해·위험요인 파악 및 대책", required=False, show_na_button=False
         )
-        note = QLabel("보고서 8번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
+        note = QLabel("보고서 9번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
         self.process_slots = [_ProcessSlot(i) for i in range(1, 5)]
 

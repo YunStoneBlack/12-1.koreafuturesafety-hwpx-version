@@ -140,6 +140,9 @@ class Report(Base):
     overview_photos: Mapped[list["OverviewPhoto"]] = relationship(
         back_populates="report", order_by="OverviewPhoto.slot", cascade="all, delete-orphan"
     )
+    inspection_photos: Mapped[list["InspectionPhoto"]] = relationship(
+        back_populates="report", order_by="InspectionPhoto.slot", cascade="all, delete-orphan"
+    )
     safety_education: Mapped["SafetyEducation | None"] = relationship(
         back_populates="report", uselist=False, cascade="all, delete-orphan"
     )
@@ -177,7 +180,7 @@ class Report(Base):
     current_process_name: Mapped[str] = mapped_column(Text, default="")  # 6번 섹션 상단 공정명
 
     # "해당사항없음"은 화면상 항목 단위가 아니라 섹션 단위 토글이라 Report에 둔다.
-    overview_na: Mapped[bool] = mapped_column(default=False)
+    overview_na: Mapped[bool] = mapped_column(default=False)  # 3번 "전경사진 및 점검사진" 전체
     findings_na: Mapped[bool] = mapped_column(default=False)
     previous_findings_na: Mapped[bool] = mapped_column(default=False)
     measurements_na: Mapped[bool] = mapped_column(default=False)
@@ -190,16 +193,31 @@ class Report(Base):
 
 
 class OverviewPhoto(Base):
-    """1. 전경사진."""
+    """3. 전경사진 및 점검사진 — 전경사진 절반(표4, 최대 4건)."""
 
     __tablename__ = "overview_photo"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
-    slot: Mapped[int] = mapped_column()  # 1~2
+    slot: Mapped[int] = mapped_column()  # 1~4
     photo_path: Mapped[str] = mapped_column(Text, default="")
 
     report: Mapped[Report] = relationship(back_populates="overview_photos")
+
+
+class InspectionPhoto(Base):
+    """3. 전경사진 및 점검사진 — 점검사진 절반(표5, 최대 4건). `OverviewPhoto`와 완전히 같은
+    구조라 별도 모델로 분리했다(같은 표에 있지 않고 표4/5로 독립된 별개 표라 한 모델에
+    category 컬럼을 두는 것보다 이쪽이 기존 모델들의 패턴과 일관적)."""
+
+    __tablename__ = "inspection_photo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
+    slot: Mapped[int] = mapped_column()  # 1~4
+    photo_path: Mapped[str] = mapped_column(Text, default="")
+
+    report: Mapped[Report] = relationship(back_populates="inspection_photos")
 
 
 class SafetyEducation(Base):
@@ -273,6 +291,12 @@ class PreviousFinding(Base):
     # 미리보기와 최종 산출물 숫자가 달라지므로).
     after_likelihood: Mapped[int | None] = mapped_column(default=None)
     after_severity: Mapped[int | None] = mapped_column(default=None)
+    # 원본(source_finding)이 없는 항목(+ 버튼으로 수기 추가, 옛 보고서 양식이라 AI가 지적사항으로
+    # 인식 못 해 이월이 안 된 경우 등)의 "이행 전 위험성" — 3번 마법사에서 사용자가 직접
+    # 클릭해 입력한다(source_risk() 참고). 원본이 있는 항목은 원본 값이 우선이라 이 값은
+    # 무시된다.
+    manual_likelihood: Mapped[int | None] = mapped_column(default=None)
+    manual_severity: Mapped[int | None] = mapped_column(default=None)
 
     report: Mapped[Report] = relationship(back_populates="previous_findings")
     source_finding: Mapped["Finding | None"] = relationship(foreign_keys=[source_finding_id])
@@ -288,43 +312,63 @@ class PreviousFinding(Base):
 
     def source_risk(self) -> tuple[int | None, int | None]:
         """(가능성, 중대성) — "이행 전 위험성"은 원본(직전 회차) 지적사항의 값을 실시간으로
-        반영한다(display_fields()와 같은 원칙). 원본이 없으면(수기 추가, 원본 삭제됨) 채울
-        근거가 없어 (None, None)."""
+        반영한다(display_fields()와 같은 원칙). 원본이 없으면(수기 추가, 원본 삭제됨, 또는 옛
+        보고서 양식이라 AI가 지적사항으로 인식 못 해 이월이 안 된 경우) 3번 마법사에서 직접
+        입력한 `manual_likelihood`/`manual_severity`를 대신 쓴다(둘 다 없으면 (None, None))."""
         if self.source_finding_id and self.source_finding:
             return self.source_finding.likelihood, self.source_finding.severity
-        return None, None
+        return self.manual_likelihood, self.manual_severity
 
     def resolve_after_risk(self) -> tuple[int | None, int | None]:
         """(가능성, 중대성) — "이행 후 위험성"은 조치 결과(result_status)에 따라 결정된다
-        (사용자 설명, 2026-09-08):
-
-        - "확인불가": 판단할 근거가 없어 공란(None, None).
-        - "보완필요": 아직 개선되지 않았으므로 "이행 전"과 항상 같은 값 — `source_risk()`를
-          그대로 반환해 원본이 나중에 바뀌면 같이 바뀐다(캐시하지 않음).
-        - "이행완료": 위험성이 반드시 "하" 등급(점수 1~3)으로 떨어져야 하고, 가능성·중대성
-          각각 "이행 전" 값 이하여야 한다(개선됐으니 더 나빠질 수 없음) — 이 조건을 만족하는
-          조합 중 하나를 무작위로 골라 `after_likelihood`/`after_severity`에 1회 확정해
-          저장한다(매번 다시 뽑으면 미리보기와 최종 산출물 숫자가 달라지므로, 이미 저장된
-          값이 있으면 그걸 그대로 재사용한다).
-        - 그 외(미선택 등): (None, None).
+        (사용자 설명, 2026-09-08). 실제 계산은 `compute_after_risk()`(3번 마법사 미리보기 UI와
+        공유)에 위임하고, "이행완료"로 확정된 값만 여기서 캐시한다(매번 다시 뽑으면 미리보기와
+        최종 산출물 숫자가 달라지므로, 이미 저장된 값이 있으면 그걸 그대로 재사용).
         """
-        if self.result_status == "보완필요":
-            return self.source_risk()
-        if self.result_status != "이행완료":
-            return None, None
-        if self.after_likelihood is not None and self.after_severity is not None:
-            return self.after_likelihood, self.after_severity
         before_likelihood, before_severity = self.source_risk()
-        if before_likelihood is None or before_severity is None:
-            return None, None
-        candidates = [
-            (likelihood, severity)
-            for likelihood in range(1, before_likelihood + 1)
-            for severity in range(1, before_severity + 1)
-            if likelihood * severity <= FINDING_LOW_RISK_MAX_SCORE
-        ]
-        self.after_likelihood, self.after_severity = random.choice(candidates)
-        return self.after_likelihood, self.after_severity
+        likelihood, severity = compute_after_risk(
+            before_likelihood, before_severity, self.result_status, self.after_likelihood, self.after_severity
+        )
+        if self.result_status == "이행완료" and likelihood is not None:
+            self.after_likelihood, self.after_severity = likelihood, severity
+        return likelihood, severity
+
+
+def compute_after_risk(
+    before_likelihood: int | None,
+    before_severity: int | None,
+    result_status: str,
+    cached_likelihood: int | None = None,
+    cached_severity: int | None = None,
+) -> tuple[int | None, int | None]:
+    """(가능성, 중대성) — "이행 전" 위험성과 조치 결과로부터 "이행 후" 위험성을 계산하는 순수
+    함수. `PreviousFinding.resolve_after_risk()`와 3번 마법사의 "이행 후 위험성" 미리보기
+    UI(클릭 불가, `_PreviousFindingSlot`)가 이 로직을 공유한다 — 마법사에서 보여주는 값과
+    실제 문서에 들어가는 값이 같은 알고리즘으로 나오게 하기 위함.
+
+    - "확인불가": 판단할 근거가 없어 공란(None, None).
+    - "보완필요": 아직 개선되지 않았으므로 "이행 전"과 항상 같은 값.
+    - "이행완료": 위험성이 반드시 "하" 등급(점수 1~3)으로 떨어져야 하고, 가능성·중대성 각각
+      "이행 전" 값 이하여야 한다(개선됐으니 더 나빠질 수 없음) — 이 조건을 만족하는 조합 중
+      하나를 무작위로 고른다. `cached_likelihood`/`cached_severity`가 있으면(이미 한 번 확정된
+      값) 재추첨하지 않고 그대로 재사용한다.
+    - 그 외(미선택 등): (None, None).
+    """
+    if result_status == "보완필요":
+        return before_likelihood, before_severity
+    if result_status != "이행완료":
+        return None, None
+    if cached_likelihood is not None and cached_severity is not None:
+        return cached_likelihood, cached_severity
+    if before_likelihood is None or before_severity is None:
+        return None, None
+    candidates = [
+        (likelihood, severity)
+        for likelihood in range(1, before_likelihood + 1)
+        for severity in range(1, before_severity + 1)
+        if likelihood * severity <= FINDING_LOW_RISK_MAX_SCORE
+    ]
+    return random.choice(candidates)
 
 
 class Measurement(Base):

@@ -510,3 +510,62 @@ class _ProcessSlot(QFrame):
         self._update_badge()
         self._set_fields_visible(False)
         self.changed.emit()
+
+
+class _SitePhotoSlot(QFrame):
+    """3번 "전경사진 및 점검사항"의 사진 한 칸 — 사진 업로드/삭제 외에 다른 입력이 없는
+    가장 단순한 슬롯(제목/내용/위험성 없음). `label`은 "전경사진"/"점검사진" 중 하나."""
+
+    def __init__(self, label: str, slot: int):
+        super().__init__()
+        self.slot = slot
+        self.setStyleSheet("QFrame { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 8px; }")
+
+        layout = QVBoxLayout(self)
+        title_row = QHBoxLayout()
+        title_row.addWidget(QLabel(f"{label} {slot}"))
+        title_row.addStretch()
+        self.delete_btn = QPushButton("🗑")
+        self.delete_btn.setFixedWidth(32)
+        self.delete_btn.clicked.connect(self._delete)
+        title_row.addWidget(self.delete_btn)
+        layout.addLayout(title_row)
+
+        self.photo = PhotoDropZone(f"{label} {slot}")
+        layout.addWidget(self.photo, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        self._active = False
+        self.setVisible(False)
+
+    def set_retain_size(self, retain: bool) -> None:
+        """비활성 상태(setVisible(False))에서도 이 칸이 차지하던 자리를 그대로 남겨둘지
+        정한다. 전경사진/점검사진을 같은 행(QGridLayout)에 나란히 두는데, 한쪽만
+        활성화되면 반대쪽 칸이 레이아웃 크기 계산에서 완전히 빠져 그 행 높이가 활성화된
+        쪽에 안 맞고 반대쪽만 눌려 보이는 비대칭 문제가 있었다(실측 확인) — 그래서 "같은
+        행의 둘 중 하나라도 활성화"일 때만 켜서, 그 행에서만 반대쪽도 같은 높이를
+        차지하게 한다(항상 켜두면 둘 다 비어있을 때도 4칸 분량 높이가 통째로 남아 불필요한
+        빈 공간이 생긴다 — `_build_overview_section`의 `_sync_photo_row_symmetry` 참고)."""
+        size_policy = self.sizePolicy()
+        size_policy.setRetainSizeWhenHidden(retain)
+        self.setSizePolicy(size_policy)
+
+    def _delete(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "삭제 확인",
+            "정말로 삭제하시겠습니까?\n사진이 지워지며 되돌릴 수 없습니다.",
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self.clear()
+        self.set_active(False)
+
+    def set_active(self, active: bool) -> None:
+        self._active = active
+        self.setVisible(active)
+
+    def is_active(self) -> bool:
+        return self._active
+
+    def clear(self) -> None:
+        self.photo.clear_photo()
