@@ -45,15 +45,21 @@ report_template.hwp` + `data/materials/` + `data/seed_reference_data.json`) — 
   - `report_extractor.py` / `report_import.py` — 과거 보고서 PDF → 회차 데이터 AI 추출 / 현장 매칭·저장
     ("이전 보고서 업로드" 기능용)
   - `report_builder.py` — 재수출 창구(`build_report`/`build_report_docx`/`build_report_hwp`).
-    `build_report()`는 한글 템플릿 경로를 우선 쓰고 `HwpNotAvailableError`(pyhwpx가 이 PC에
-    아예 없는 경우)일 때만 예전 reportlab 방식으로 대체한다 — 그 외 오류(템플릿 파일 못 찾음,
-    자동화 중 일시적 COM 오류 등)까지 같이 대체하면 고객에게 조용히 다른 서식이 나갈 수
-    있어 Sub-phase 13에서 좁혔다. 실제 구현은 `report_builder_common.py`(공통 헬퍼) /
-    `report_builder_pdf.py`(PDF, 실제 표준 서식 9섹션 — 위 예전 대체 경로) /
-    `report_builder_docx.py`(DOCX, 아직 예전 7섹션 — 미리보기 흐름에 연결 안 돼있어 우선순위 낮음) /
-    `report_builder_hwp.py` + `report_builder_hwp_fields.py`(텍스트 필드) +
-    `report_builder_hwp_images.py`(서명 이미지 + TBM 비고 사진 삽입) — 한글(.hwp), 실제 서식
-    파일을 템플릿으로 재사용, 전 표가 채워짐(표4(이전지적사항)는 Sub-phase 12에서 완료)
+    `build_report()`(미리보기·PDF 생성 버튼의 공통 진입점)는 **hwpx 엔진 경로
+    (`build_report_pdf_via_hwpx`, Sub-phase 19)를 우선 쓰고** `HwpNotAvailableError`(pyhwpx가
+    이 PC에 아예 없는 경우)일 때만 예전 reportlab 방식으로 대체한다 — 그 외 오류(템플릿
+    파일 못 찾음, 자동화 중 일시적 COM 오류 등)까지 같이 대체하면 고객에게 조용히 다른
+    서식이 나갈 수 있어 Sub-phase 13에서 좁혔다. 실제 구현은 `report_builder_common.py`
+    (공통 헬퍼) / `report_builder_pdf.py`(PDF, reportlab — 한글/COM이 아예 없을 때만 쓰는
+    폴백) / `report_builder_docx.py`(DOCX, 아직 예전 7섹션 — 미리보기 흐름에 연결 안 돼있어
+    우선순위 낮음) / **`report_builder_hwpx.py`**(+ `_fields.py`/`_fields_findings.py`/
+    `_fields_cleanup.py`/`_images.py`) — python-hwpx 기반 신규 엔진(COM 불필요), 전 표
+    채워짐. `build_report_hwpx()`가 필드를 채우고, `build_report_pdf_via_hwpx()`가 그
+    결과물(.hwpx)을 COM으로 열어 PDF로 "변환만" 한다 — 미리보기·"PDF 생성"·"한글 파일 생성"
+    버튼 셋 다 같은 소스에서 나온다. `report_builder_hwp.py`(+`_hwp_fields.py`/
+    `_hwp_images.py`)는 COM이 직접 필드를 채우던 옛 엔진으로, 이제 `HwpBuildError`/
+    `HwpNotAvailableError` 예외 타입과 `kill_orphaned_hwp_processes` 연계용으로만 남아있다
+    (PDF 변환 실패 시 폴백 판단에 재사용).
   - `hangul_match.py` — 자모 단위 부분일치 검색 (조합 중인 글자도 검색 가능)
   - `config.py` — API 키/설정 관리(+ Sub-phase 8: 이사/대표이사 결재 서명 저장)
 - `desktop/` — PyQt6 UI
@@ -170,11 +176,25 @@ report_template.hwp` + `data/materials/` + `data/seed_reference_data.json`) — 
   아님). 대시보드는 비모달이라 현장 창이 떠 있어도 계속 조작 가능하고, 현장 창에서 저장하면
   대시보드 통계도 신호로 자동 새로고침된다. 배포용 exe 재빌드. 자세한 내용은
   `작업내용.md`의 "Sub-phase 17" 절 참고.
+- **Sub-phase 18~19 (완료)**: pyhwpx(COM) → python-hwpx 마이그레이션. `report_builder_hwpx.py`
+  (+ `_fields.py`/`_fields_findings.py`/`_fields_cleanup.py`/`_images.py`)로 COM 없이
+  `.hwpx`를 생성하는 신규 엔진을 새로 구축(리눅스/AWS 이식이 목표) — 텍스트 필드·지적사항/
+  이전지적사항(빈 슬롯 삭제 포함)·이미지(사진·도장·절대좌표 서명·제공자료 PDF 부록)·해당사항
+  없음 삭제·3종 장비 데이터까지 전 기능 포팅 및 실데이터 검증 완료. 그 과정에서 "향후
+  진행공정"(표14/15) 필드가 템플릿에 아예 없어 COM 앱에서도 조용히 죽어있던 버그를 발견해
+  템플릿(`report_template.hwp`/`.hwpx`) 자체를 수정(기존 COM 경로도 같이 고쳐짐). 앱 연결은
+  "한글 파일 생성" 버튼부터 시작해, 최종적으로 **미리보기·"PDF 생성"·"한글 파일 생성" 세
+  버튼 전부 hwpx 엔진(`build_report_hwpx`)을 공통 소스로 쓰도록 통일**(`build_report_pdf_via_hwpx`
+  가 그 결과물을 COM으로 열어 PDF 변환만 함) — 이전엔 미리보기가 옛 COM 엔진을 따로 써서
+  실제 산출물과 사진 크기·서명 위치가 미묘하게 달랐던 문제까지 해결. 리눅스 검증은 아직
+  미완료. 자세한 내용은 `작업내용.md`의 "Sub-phase 18"/"Sub-phase 19" 절 참고.
 
-### 한글(.hwp) 출력 — 실제 서식 템플릿 방식은 정상 동작함
-현재 쓰는 한글 출력 경로는 `report_builder_hwp.py`(+ `report_builder_hwp_fields.py`/
-`report_builder_hwp_images.py`)로, **실제 서식 `.hwp` 파일 자체를 템플릿으로 재사용**해
-누름틀(필드)만 채우는 방식 — 정상 동작하며 미리보기 "한글 파일 생성" 버튼으로 실제 사용한다.
+### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
+현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/
+`_fields_cleanup.py`/`_images.py`)로, **실제 서식을 변환한 `.hwpx` 템플릿 자체를 재사용**해
+누름틀(필드)만 채우는 방식 — 정상 동작하며 미리보기·"PDF 생성"·"한글 파일 생성" 버튼 전부
+이 엔진의 결과물을 쓴다(PDF 변환 단계만 COM을 빌려 쓴다 — python-hwpx엔 PDF 변환 기능이
+없다). 옛 COM 전용 엔진(`report_builder_hwp.py`)은 예외 타입 재사용 용도로만 남아있다.
 
 아래는 그 이전에 시도했다가 막혀서 보류한 **별개의 옛 경로**(DOCX를 한글에서 열어 HWPX로
 저장, `core/hwpx_exporter.py`, pyhwpx)에 대한 기록 — **이 PC의 한글에서 DOCX(OOXML) 파일

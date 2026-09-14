@@ -5,8 +5,9 @@ ReportWizardView가 이 믹스인을 상속해 self.xxx 위젯들의 값을 읽�
 파일로 내보낸다.
 
 워드(DOCX) 생성은 당분간 보고서 미리보기 흐름에서 빠져있다 — 필요해지면
-core/report_builder.build_report_docx를 다시 연결하면 된다(그대로 남아있음). 한글(.hwp)은
-Sub-phase 8부터 `build_report_hwp`(실제 서식 파일을 템플릿으로 재사용)로 지원한다.
+core/report_builder.build_report_docx를 다시 연결하면 된다(그대로 남아있음). 한글(.hwpx)
+내보내기는 Sub-phase 19부터 COM 없는 `build_report_hwpx`(python-hwpx)를 쓴다 — PDF
+생성/미리보기는 python-hwpx에 PDF 변환 기능이 없어 여전히 `build_report_hwp`(COM)를 거친다.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from core.models_db import (
     SiteProcessDefault,
 )
 from core.report_builder import build_report
-from core.report_builder_hwp import build_report_hwp
+from core.report_builder_hwpx import build_report_hwpx
 from desktop.dialogs.report_preview_dialog import ReportPreviewDialog
 from desktop.widgets.signature_pad import move_or_reference
 from desktop.workers.ai_worker import AIWorker, with_com
@@ -47,7 +48,10 @@ def _build_pdf_for_export(report_id: int, chosen_path: Path) -> Path:
 
 
 def _build_hwp_for_export(report_id: int, chosen_path: Path) -> Path:
-    build_report_hwp(report_id, chosen_path)
+    """COM(pyhwpx) 없이 순수 파이썬으로 .hwpx를 만드는 신규 엔진(Sub-phase 18)으로 생성한다
+    — `build_report_hwp`(한글 프로그램 COM 자동화, .hwp)는 더 이상 이 버튼에서 쓰지 않는다.
+    PDF 생성/미리보기는 python-hwpx에 PDF 변환 기능이 없어 여전히 COM 경로를 쓴다."""
+    build_report_hwpx(report_id, chosen_path)
     with SessionLocal() as session:
         report = session.get(Report, report_id)
         report.hwpx_path = str(chosen_path)
@@ -362,25 +366,27 @@ class _SaveGenerateMixin:
         self._export_worker.start()
 
     def _export_hwp_as(self, on_finished=None) -> None:
-        """사용자가 고른 위치에 한글(.hwp) 파일을 저장한다. `_export_pdf_as`와 동일한
-        기본 파일명 규칙 + 백그라운드 실행 + `on_finished` 규칙을 쓴다."""
+        """사용자가 고른 위치에 한글(.hwpx) 파일을 저장한다. `_export_pdf_as`와 동일한
+        기본 파일명 규칙 + 백그라운드 실행 + `on_finished` 규칙을 쓴다.
+
+        COM 없는 신규 엔진(`build_report_hwpx`)을 쓰므로 `with_com` 래핑이 필요 없다."""
         if not self._report_id:
             if on_finished:
                 on_finished(None)
             return
-        default_name = f"{self.site_name_label.text()}_{self.visit_no_input.value()}회차.hwp"
+        default_name = f"{self.site_name_label.text()}_{self.visit_no_input.value()}회차.hwpx"
         default_path = str(Path.home() / "Desktop" / default_name)
-        chosen, _ = QFileDialog.getSaveFileName(self, "한글 파일로 저장", default_path, "한글 파일 (*.hwp)")
+        chosen, _ = QFileDialog.getSaveFileName(self, "한글 파일로 저장", default_path, "한글 hwpx 파일 (*.hwpx)")
         if not chosen:
             if on_finished:
                 on_finished(None)
             return
         chosen_path = Path(chosen)
-        if chosen_path.suffix.lower() != ".hwp":
-            chosen_path = chosen_path.with_suffix(".hwp")
+        if chosen_path.suffix.lower() != ".hwpx":
+            chosen_path = chosen_path.with_suffix(".hwpx")
 
         report_id = self._report_id
-        self._export_worker = AIWorker(with_com(lambda: _build_hwp_for_export(report_id, chosen_path)))
+        self._export_worker = AIWorker(lambda: _build_hwp_for_export(report_id, chosen_path))
 
         def _ok(path):
             QMessageBox.information(self, "저장 완료", f"한글 파일을 저장했습니다:\n{path}")

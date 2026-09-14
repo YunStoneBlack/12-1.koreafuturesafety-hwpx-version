@@ -2,7 +2,7 @@
 
 실제 사이트는 미리보기 생성 횟수에 제한(5회)이 있지만, 우리는 그런 제약을 둘 이유가
 없어 누를 때마다 새로 렌더링한다. 텍스트 수정은 마법사 화면에서 하고, 이 다이얼로그는
-"실제로 어떻게 나오는지" 확인 + 최종 산출물(.hwp/.pdf) 생성 용도다(사용자 요청으로
+"실제로 어떻게 나오는지" 확인 + 최종 산출물(.hwpx/.pdf) 생성 용도다(사용자 요청으로
 텍스트 편집 폼은 제거함 — 미리보기 화면만 보이게).
 """
 
@@ -171,7 +171,8 @@ class ReportPreviewDialog(QDialog):
 
     def _regenerate_and_export_hwp(self) -> None:
         """하단 "한글 파일 생성" — 미리보기(왼쪽은 여전히 PDF 렌더링)를 갱신한 뒤(완료되면
-        이어서) 사용자가 고른 위치에 실제 서식 그대로의 .hwp 파일을 저장한다."""
+        이어서) 사용자가 고른 위치에 실제 서식 그대로의 .hwpx 파일을 저장한다(COM 없는
+        신규 엔진, Sub-phase 19)."""
         self._wizard._save(navigate=False)
         if not self._wizard._report_id:
             return
