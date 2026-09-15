@@ -27,13 +27,12 @@ from core.hwp_cleanup import kill_orphaned_hwp_processes
 from core.models_db import Report
 from core.report_builder_hwp_fields import fill_all
 from core.report_builder_hwp_fields_cleanup import _remove_blank_pages
-from core.report_builder_hwp_images import (
+from core.report_builder_hwp_images import fill_signoff_images, fill_support_images
+from core.report_builder_hwp_images_findings import (
     fill_finding_images,
     fill_material_appendix,
     fill_overview_inspection_images,
     fill_previous_finding_images,
-    fill_signoff_images,
-    fill_support_images,
 )
 
 _TEMPLATE_PATH = BASE_DIR / "data" / "templates" / "report_template.hwp"

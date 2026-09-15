@@ -25,8 +25,17 @@ report_template.hwp`/`report_template.hwpx`(실제 산출물 생성 엔진이 �
 이 파일이 안 복사되던 배포 버그를 발견·수정) + `data/materials/` + `data/seed_reference_data.json`) — 이 폴더
 전체를 고객에게 전달하면 된다. 첫 실행 시 `data/app.db`가 exe 옆에 자동으로 새로
 만들어지고(현장/보고서/서명 없이 완전히 빈 상태 — 공정 카탈로그·안전자료 라이브러리 같은
-공용 참고자료만 자동 시딩됨), 그 폴더를 그대로 백업/이동하면 데이터가 유지된다. 자세한
-배경(BASE_DIR 프로즌 이슈, 검증 방법 등)은 `작업내용.md`의 packaging 항목 참고.
+공용 참고자료만 자동 시딩됨), 그 폴더를 그대로 백업/이동하면 데이터가 유지된다.
+
+PyInstaller는 `.py`가 아닌 리소스(DLL, XSD 스키마 등)는 정적 분석으로 못 찾아 자동으로 안
+담는다 — pyhwpx의 `FilePathCheckerModule.dll`과 python-hwpx의 문서 검증용 스키마
+(`hwpx/tools/_schemas/*.xsd`, 미리보기 생성 시 항상 호출됨)가 여기 해당해서 `build_exe.py`가
+`--add-data`로 명시적으로 같이 담는다(후자는 실제 배포판 exe로 미리보기를 생성해보다가
+"Schema directory does not exist" 오류로 발견— Sub-phase 20). 이런 성격의 새 의존성을
+추가할 때는 같은 문제가 없는지(그 패키지가 자기 폴더 안의 비-`.py` 파일을 런타임에
+상대경로로 읽는지) 확인할 것 — "exe가 뜨는지"만으로는 못 잡고, 그 기능(미리보기 등)을
+실제로 실행해봐야 드러난다. 자세한 배경(BASE_DIR 프로즌 이슈, 검증 방법 등)은
+`작업내용.md`의 packaging 항목 참고.
 
 앱 실행 시 `core/device_checkin.py`가 사용 현황 파악용 기기정보(MAC/사용자명/호스트명/
 로컬IP)를 InfiniTech 공통 디바이스등록서버로 1회 보고한다(실패해도 앱 실행에 영향 없음) —
@@ -59,9 +68,10 @@ report_template.hwp`/`report_template.hwpx`(실제 산출물 생성 엔진이 �
     채워짐. `build_report_hwpx()`가 필드를 채우고, `build_report_pdf_via_hwpx()`가 그
     결과물(.hwpx)을 COM으로 열어 PDF로 "변환만" 한다 — 미리보기·"PDF 생성"·"한글 파일 생성"
     버튼 셋 다 같은 소스에서 나온다. `report_builder_hwp.py`(+`_hwp_fields.py`/
-    `_hwp_images.py`)는 COM이 직접 필드를 채우던 옛 엔진으로, 이제 `HwpBuildError`/
-    `HwpNotAvailableError` 예외 타입과 `kill_orphaned_hwp_processes` 연계용으로만 남아있다
-    (PDF 변환 실패 시 폴백 판단에 재사용).
+    `_hwp_images.py`/`_hwp_images_findings.py`(전경·점검·지적사항·이전지적사항·제공자료
+    부록 사진 — `_hwp_images.py`에서 분리, 600줄 초과))는 COM이 직접 필드를 채우던 옛
+    엔진으로, 이제 `HwpBuildError`/`HwpNotAvailableError` 예외 타입과
+    `kill_orphaned_hwp_processes` 연계용으로만 남아있다(PDF 변환 실패 시 폴백 판단에 재사용).
   - `hangul_match.py` — 자모 단위 부분일치 검색 (조합 중인 글자도 검색 가능)
   - `config.py` — API 키/설정 관리(+ Sub-phase 8: 이사/대표이사 결재 서명 저장)
 - `desktop/` — PyQt6 UI
@@ -199,12 +209,15 @@ report_template.hwp`/`report_template.hwpx`(실제 산출물 생성 엔진이 �
   병합**하는 구조로 재작성해 정렬 문제를 원천 해결(경계선 숨김·항목 간 여백·헤더 폭 조정
   포함). 장비사용 수동판정/조치사항 수기입력, 관리번호 상시 수정, 미리보기 비모달 전환 +
   저장 연동 갱신, 파일저장 진행모달 추가. 배포 스크립트가 `.hwpx` 템플릿을 안 담던 버그
-  발견·수정 후 exe 재빌드·배포. 600줄 넘는 파일 2개 리팩토링. 자세한 내용은
-  `작업내용.md`의 "Sub-phase 20" 절, 표 행 동적 생성 기법은 `핵심기술.md` 참고.
+  발견·수정 후 exe 재빌드·배포. 600줄 넘는 파일 2개 리팩토링. 이후 실제 배포판 exe를 직접
+  실행해보다가 python-hwpx의 XSD 스키마가 PyInstaller에 안 담겨 미리보기 생성이 전부
+  실패하는 2차 배포 버그를 발견·수정(위 "고객 배포용 exe 빌드" 절 참고), 배포 폴더 재생성.
+  `report_builder_hwp_images.py`도 600줄을 넘겨 `_images_findings.py`로 추가 분리. 자세한
+  내용은 `작업내용.md`의 "Sub-phase 20" 절, 표 행 동적 생성 기법은 `핵심기술.md` 참고.
 
 ### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/
-`_fields_cleanup.py`/`_images.py`)로, **실제 서식을 변환한 `.hwpx` 템플릿 자체를 재사용**해
+`_fields_cleanup.py`/`_fields_process.py`/`_images.py`)로, **실제 서식을 변환한 `.hwpx` 템플릿 자체를 재사용**해
 누름틀(필드)만 채우는 방식 — 정상 동작하며 미리보기·"PDF 생성"·"한글 파일 생성" 버튼 전부
 이 엔진의 결과물을 쓴다(PDF 변환 단계만 COM을 빌려 쓴다 — python-hwpx엔 PDF 변환 기능이
 없다). 옛 COM 전용 엔진(`report_builder_hwp.py`)은 예외 타입 재사용 용도로만 남아있다.
