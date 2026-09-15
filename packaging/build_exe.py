@@ -77,6 +77,15 @@ def _copy_runtime_data(dist_dir: Path) -> None:
         PROJECT_ROOT / "data" / "templates" / "report_template.hwp",
         data_dir / "templates" / "report_template.hwp",
     )
+    # Sub-phase 19부터 미리보기·PDF·"한글 파일 생성" 세 경로 전부 report_builder_hwpx.py
+    # (COM 불필요 엔진)가 이 파일을 읽는다 — .hwp만 복사하던 이전 빌드 스크립트로는 배포판이
+    # 켜지자마자 "템플릿을 찾을 수 없음"으로 깨진다(실측 확인, 이번에 고침). .hwp는 옛 COM
+    # 엔진의 예외 타입 재사용 목적으로만 남아있지만(core/report_builder.py 참고) 혹시 몰라
+    # 그대로 같이 둔다.
+    shutil.copy2(
+        PROJECT_ROOT / "data" / "templates" / "report_template.hwpx",
+        data_dir / "templates" / "report_template.hwpx",
+    )
 
     materials_src = PROJECT_ROOT / "data" / "materials"
     if materials_src.exists():

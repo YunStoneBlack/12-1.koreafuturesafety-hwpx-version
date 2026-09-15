@@ -117,9 +117,7 @@ class _LoadReportMixin:
             self.prev_date_input.setDate(QDate(report.prev_guidance_date))
         else:
             self.prev_date_none_check.setChecked(True)
-        self._apply_management_no_editability(
-            report.visit_no, report.site.management_no if report.site else ""
-        )
+        self._apply_management_no_editability(report.site.management_no if report.site else "")
 
         self.set_notification_method(report.notification_method)
         self.notify_signee_input.setText(
@@ -170,13 +168,11 @@ class _LoadReportMixin:
         for process_slot in self.current_process_slots:
             e = current_process_by_slot.get(process_slot.slot)
             if e:
-                process_slot.load_data(
-                    {
-                        "process_name": e.process_name,
-                        "hazard_text": e.hazard_text,
-                        "prevention_text": e.prevention_text,
-                        "risk_level": e.risk_level,
-                    }
+                process_slot.name_input.setText(e.process_name)
+                if e.photo_path:
+                    process_slot.photo.set_photo(e.photo_path)
+                process_slot.load_items(
+                    [{"hazard": item.hazard, "prevention": item.prevention, "risk_level": item.risk_level} for item in e.items]
                 )
         self.current_process_header.set_checked(report.current_process_na)
 
@@ -253,6 +249,8 @@ class _LoadReportMixin:
                 if m.photo_path:
                     row.photo.set_photo(m.photo_path)
                 row.value_input.setText(m.value)
+                row.set_verdict(m.manual_verdict)
+                row.action_input.setText(m.manual_action)
         self.measurement_header.set_checked(report.measurements_na)
 
         self._selected_materials = list(
@@ -270,12 +268,10 @@ class _LoadReportMixin:
         for process_slot in self.process_slots:
             e = process_by_slot.get(process_slot.slot)
             if e:
-                process_slot.load_data(
-                    {
-                        "process_name": e.process_name,
-                        "hazard_text": e.hazard_text,
-                        "prevention_text": e.prevention_text,
-                        "risk_level": e.risk_level,
-                    }
+                process_slot.name_input.setText(e.process_name)
+                if e.photo_path:
+                    process_slot.photo.set_photo(e.photo_path)
+                process_slot.load_items(
+                    [{"hazard": item.hazard, "prevention": item.prevention, "risk_level": item.risk_level} for item in e.items]
                 )
         self.process_header.set_checked(report.process_na)

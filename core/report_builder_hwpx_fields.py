@@ -11,6 +11,8 @@ COM 전용 처리(`_fix_char_shape`)도 포팅 완료 — 표3 담당요원 칸/
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from core.constants import FIXED_HAZARD_FACTORS, MAJOR_HAZARD_WORKS, MEASUREMENT_INSTRUMENTS
 from core.db import SessionLocal
 from core.models_db import MeasurementStandard, Report, Site
@@ -61,6 +63,8 @@ def _fix_para_shape(doc, field_name: str, para_pr_id_ref: str) -> None:
         para.para_pr_id_ref = para_pr_id_ref
 
 
+
+
 _MANAGEMENT_NO_PLACEHOLDER = "2026-0000056"
 
 
@@ -69,6 +73,8 @@ def fill_management_no(doc, site: Site) -> None:
     if not site.management_no:
         return
     doc.replace_text_in_runs(_MANAGEMENT_NO_PLACEHOLDER, site.management_no)
+
+
 
 
 def fill_site_fields(doc, site: Site) -> None:
@@ -201,51 +207,6 @@ def fill_hazard_factor_fields(doc, report: Report) -> None:
             _put(doc, f"t6_{number}_l{line_index}", mark)
 
 
-def _risk_checklist(risk_level: str) -> str:
-    """위험성수준 칸의 "상\\n중\\n하" 세 줄 각각의 앞에 체크(☑/☐)를 붙인다 — 실제 risk_level과
-    일치하는 한 줄만 ☑, 나머지는 ☐. python-hwpx는 순수 "\\n"을 줄바꿈으로 정상 처리하므로
-    (pyhwpx와 달리) "\\r\\n" 우회가 필요 없다.
-    """
-    return "\n".join(f"{'☑' if risk_level == label else '☐'}{label}" for label in ("상", "중", "하"))
-
-
-def fill_current_process_fields(doc, report: Report) -> None:
-    """표12: 현재 진행공정에 대한 유해·위험요인 파악 및 대책."""
-    entries = sorted(
-        (e for e in report.current_process_entries if e.process_name), key=lambda e: e.slot
-    )
-    for i, entry in enumerate(entries[:4]):
-        base = i * 4 + 1
-        _put(doc, f"t12_{base:03d}", entry.process_name)
-        _put(doc, f"t12_{base + 1:03d}", entry.hazard_text)
-        _put(doc, f"t12_{base + 2:03d}", entry.prevention_text)
-        _fix_char_shape(doc, f"t12_{base + 2:03d}", doc.ensure_run_style(size=10))
-        _put(doc, f"t12_{base + 3:03d}", _risk_checklist(entry.risk_level))
-
-
-def fill_future_process_summary_fields(doc, report: Report) -> None:
-    """표14: "다음 방문시까지 발생하는 주요 진행공정 1~9" 요약 박스."""
-    _put(doc, "t14_002", "2")
-    _put(doc, "t14_006", "5")
-
-    value_fields = ["t14_001", "t14_003", "t14_004", "t14_005", "t14_007", "t14_008", "t14_009", "t14_010", "t14_011"]
-    names = [e.process_name for e in sorted(report.process_entries, key=lambda e: e.slot) if e.process_name]
-    for i, field in enumerate(value_fields):
-        _put(doc, field, names[i] if i < len(names) else "")
-
-
-def fill_future_process_detail_fields(doc, report: Report) -> None:
-    """표15: 향후 진행공정에 대한 유해·위험요인 파악 및 대책 — 표12와 동일 구조."""
-    entries = sorted(
-        (e for e in report.process_entries if e.process_name), key=lambda e: e.slot
-    )
-    for i, entry in enumerate(entries[:4]):
-        base = i * 4 + 1
-        _put(doc, f"t15_{base:03d}", entry.process_name)
-        _put(doc, f"t15_{base + 1:03d}", entry.hazard_text)
-        _put(doc, f"t15_{base + 2:03d}", entry.prevention_text)
-        _fix_char_shape(doc, f"t15_{base + 2:03d}", doc.ensure_run_style(size=10))
-        _put(doc, f"t15_{base + 3:03d}", _risk_checklist(entry.risk_level))
 
 
 _TBM_LABEL_RESTORE = {
@@ -283,8 +244,8 @@ _EQUIPMENT_LABEL_TEXT = {
     "place_label": "○ 측정장소 :",
     "value_label": "○ 측정치 :",
     "std_label": "○ 안전기준 :",
-    "action": "○ 조치사항 :                       -",
 }
+_ACTION_LABEL_PREFIX = "○ 조치사항 :                       "
 
 
 def _put_all(doc, field_names: list[str], value: str) -> None:
@@ -301,6 +262,9 @@ _EQUIPMENT_PASS_FAIL_FIELDS = {
 def _equipment_verdict(measurement) -> str | None:
     if measurement is None:
         return None
+    manual = getattr(measurement, "manual_verdict", "") or ""
+    if manual in ("양호", "불량"):
+        return manual
     if measurement.instrument_type == "가스농도측정기":
         if measurement.value == "정상범위":
             return "양호"
@@ -332,10 +296,15 @@ def fill_support_fields(doc, report: Report) -> None:
     used = [m for m in report.measurements if m.value]
 
     for slot_no, fields in _EQUIPMENT_SLOTS.items():
-        for key in ("name_label", "place_label", "value_label", "std_label", "action"):
+        for key in ("name_label", "place_label", "value_label", "std_label"):
             _put_all(doc, fields[key], _EQUIPMENT_LABEL_TEXT[key])
 
         measurement = used[slot_no - 1] if slot_no - 1 < len(used) else None
+
+        # 조치사항은 예전엔 항상 "-"로 고정돼 있었다 — 사용자 요청으로 마법사에서 직접
+        # 입력한 내용(manual_action)이 있으면 그걸 쓰고, 없으면 그대로 "-"를 보여준다.
+        action_text = (getattr(measurement, "manual_action", "") or "").strip() if measurement else ""
+        _put_all(doc, fields["action"], _ACTION_LABEL_PREFIX + (action_text or "-"))
 
         pass_field, fail_field = _EQUIPMENT_PASS_FAIL_FIELDS[slot_no]
         verdict = _equipment_verdict(measurement)
@@ -364,6 +333,11 @@ def fill_all(doc, report: Report, site: Site) -> None:
         fill_previous_finding_fields,
         remove_unused_finding_blocks,
         remove_unused_previous_finding_blocks,
+    )
+    from core.report_builder_hwpx_fields_process import (
+        fill_current_process_fields,
+        fill_future_process_detail_fields,
+        fill_future_process_summary_fields,
     )
 
     fill_management_no(doc, site)

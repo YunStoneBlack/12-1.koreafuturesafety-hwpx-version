@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.constants import HAND_TOOL_ITEMS, HAZMAT_ITEMS, MACHINERY_EQUIPMENT_ITEMS, MAJOR_HAZARD_WORKS
-from desktop.widgets.report_wizard_slots import _ProcessSlot
+from desktop.widgets.report_wizard_slots_process import _ProcessSlot
 from desktop.widgets.section_header import SectionHeader
 
 
@@ -253,7 +253,9 @@ class _SectionBuilderMixin2:
         self.current_process_header = SectionHeader(
             7, "현재 진행공정에 대한 유해·위험요인 파악 및 대책", required=False, show_na_button=False
         )
-        note = QLabel("보고서 7번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
+        note = QLabel(
+            "보고서 7번 표에 인쇄되는 모습 그대로입니다 — 공정 사진과 이름을 넣고 'AI로 작성'을 누르세요."
+        )
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
 
         self.current_process_slots: list[_ProcessSlot] = [_ProcessSlot(i) for i in range(1, 5)]
@@ -310,7 +312,7 @@ class _SectionBuilderMixin2:
         detail_grid.setColumnStretch(0, 2)
         detail_grid.setColumnStretch(1, 4)
         detail_grid.setColumnStretch(2, 4)
-        detail_grid.setColumnStretch(3, 1)
+        detail_grid.setColumnStretch(3, 2)
 
         for col, text in enumerate(("현재공정", "유해·위험요인", "예방대책", "위험성")):
             header_cell = QLabel(text)
@@ -335,8 +337,9 @@ class _SectionBuilderMixin2:
                 detail_grid.addWidget(cell, row, col)
 
         help_note = QLabel(
-            "칸 순서 그대로 보고서 표에 인쇄됩니다. 진행공정 이름·유해위험요인·예방대책은 칸을 클릭해 직접 "
-            "수정할 수 있고, 위험성 등급은 상·중·하로 눌러 바꿀 수 있습니다."
+            "공정 사진을 넣고 이름을 적은 뒤 'AI로 작성'을 누르면 유해·위험요인/예방대책/위험성을 "
+            "항목별로 여러 건 자동으로 작성합니다. 작성된 내용은 항목마다 직접 고쳐 쓸 수 있고, "
+            "'+ 항목 추가'로 수동으로 항목을 늘리거나 ✕로 지울 수도 있습니다."
         )
         help_note.setWordWrap(True)
         help_note.setStyleSheet("color: #4f46e5; font-size: 12px;")

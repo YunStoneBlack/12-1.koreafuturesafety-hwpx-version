@@ -21,7 +21,8 @@ python packaging/build_exe.py
 ```
 
 `dist/한국미래안전_기술지도결과보고서/` 폴더가 통째로 만들어진다(exe + `data/templates/
-report_template.hwp` + `data/materials/` + `data/seed_reference_data.json`) — 이 폴더
+report_template.hwp`/`report_template.hwpx`(실제 산출물 생성 엔진이 읽는 파일 — Sub-phase 20에서
+이 파일이 안 복사되던 배포 버그를 발견·수정) + `data/materials/` + `data/seed_reference_data.json`) — 이 폴더
 전체를 고객에게 전달하면 된다. 첫 실행 시 `data/app.db`가 exe 옆에 자동으로 새로
 만들어지고(현장/보고서/서명 없이 완전히 빈 상태 — 공정 카탈로그·안전자료 라이브러리 같은
 공용 참고자료만 자동 시딩됨), 그 폴더를 그대로 백업/이동하면 데이터가 유지된다. 자세한
@@ -53,7 +54,8 @@ report_template.hwp` + `data/materials/` + `data/seed_reference_data.json`) — 
     (공통 헬퍼) / `report_builder_pdf.py`(PDF, reportlab — 한글/COM이 아예 없을 때만 쓰는
     폴백) / `report_builder_docx.py`(DOCX, 아직 예전 7섹션 — 미리보기 흐름에 연결 안 돼있어
     우선순위 낮음) / **`report_builder_hwpx.py`**(+ `_fields.py`/`_fields_findings.py`/
-    `_fields_cleanup.py`/`_images.py`) — python-hwpx 기반 신규 엔진(COM 불필요), 전 표
+    `_fields_cleanup.py`/`_fields_process.py`(7번/9번 진행공정 — 유해요인마다 실제 표 행을
+    만드는 방식, Sub-phase 20)/`_images.py`) — python-hwpx 기반 신규 엔진(COM 불필요), 전 표
     채워짐. `build_report_hwpx()`가 필드를 채우고, `build_report_pdf_via_hwpx()`가 그
     결과물(.hwpx)을 COM으로 열어 PDF로 "변환만" 한다 — 미리보기·"PDF 생성"·"한글 파일 생성"
     버튼 셋 다 같은 소스에서 나온다. `report_builder_hwp.py`(+`_hwp_fields.py`/
@@ -82,9 +84,12 @@ report_template.hwp` + `data/materials/` + `data/seed_reference_data.json`) — 
     담당요원 서명 등록(`staff_signature_dialog.py`) / 담당요원 정보 수정·선택
     (`staff_edit_dialog.py`/`staff_picker_dialog.py`)
   - `workers/` — AI 호출을 백그라운드 스레드로 실행하는 워커
-  - `widgets/` — 재사용 UI 컴포넌트 (`report_wizard_slots.py`에 보고서 마법사 하위 "한 칸" 위젯들 포함,
-    `signature_pad.py`에 마우스 그리기/이미지 첨부 서명 위젯, `fake_progress_bar.py`에 정확한
-    진행률을 모를 때 쓰는 "가짜 진행바")
+  - `widgets/` — 재사용 UI 컴포넌트 (`report_wizard_slots.py`에 보고서 마법사 하위 "한 칸" 위젯들,
+    `report_wizard_slots_process.py`에 7번/9번 진행공정 전용 슬롯(`_ProcessSlot`, 공정 사진+AI
+    작성, Sub-phase 20), `signature_pad.py`에 마우스 그리기/이미지 첨부 서명 위젯,
+    `fake_progress_bar.py`에 정확한 진행률을 모를 때 쓰는 "가짜 진행바")
+  - `dialogs/saving_progress_dialog.py` — 파일 저장(한글/PDF 내보내기) 중 뜨는 짧은 모달
+    (Sub-phase 20, 저장 지연이 오류로 오인되던 피드백 대응)
 - `data/` — 로컬 DB 파일, 참조 데이터(계측기준 등), `migrate_v7_report_format.py`~
   `migrate_v10_current_process.py`(스키마 마이그레이션),
   `build_hwp_template.py`(한글 템플릿 생성 1회성 도구, 실행: `python -m data.build_hwp_template`) +
@@ -188,6 +193,14 @@ report_template.hwp` + `data/materials/` + `data/seed_reference_data.json`) — 
   가 그 결과물을 COM으로 열어 PDF 변환만 함) — 이전엔 미리보기가 옛 COM 엔진을 따로 써서
   실제 산출물과 사진 크기·서명 위치가 미묘하게 달랐던 문제까지 해결. 리눅스 검증은 아직
   미완료. 자세한 내용은 `작업내용.md`의 "Sub-phase 18"/"Sub-phase 19" 절 참고.
+- **Sub-phase 20 (완료)**: 7번/9번 진행공정을 공정 카탈로그 방식에서 "공정 사진+AI 작성"
+  방식으로 전면 개편(항목별 유해요인/예방대책 여러 건 + 위험성) — 표12/15 렌더링을
+  텍스트 기반 줄맞춤(폐기)에서 **유해요인마다 실제 표 행을 만들고 공정명 칸을 rowspan
+  병합**하는 구조로 재작성해 정렬 문제를 원천 해결(경계선 숨김·항목 간 여백·헤더 폭 조정
+  포함). 장비사용 수동판정/조치사항 수기입력, 관리번호 상시 수정, 미리보기 비모달 전환 +
+  저장 연동 갱신, 파일저장 진행모달 추가. 배포 스크립트가 `.hwpx` 템플릿을 안 담던 버그
+  발견·수정 후 exe 재빌드·배포. 600줄 넘는 파일 2개 리팩토링. 자세한 내용은
+  `작업내용.md`의 "Sub-phase 20" 절, 표 행 동적 생성 기법은 `핵심기술.md` 참고.
 
 ### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/

@@ -29,10 +29,10 @@ from desktop.widgets.photo_drop_zone import PhotoDropZone
 from desktop.widgets.report_wizard_slots import (
     _FindingSlot,
     _MeasurementRow,
-    _ProcessSlot,
     _SitePhotoSlot,
     _limited_text_edit,
 )
+from desktop.widgets.report_wizard_slots_process import _ProcessSlot
 from desktop.widgets.report_wizard_slots_previous_finding import _PreviousFindingSlot
 from desktop.widgets.section_header import SectionHeader
 
@@ -432,7 +432,9 @@ class _SectionBuilderMixin:
         self.process_header = SectionHeader(
             9, "향후 진행공정에 대한 유해·위험요인 파악 및 대책", required=False, show_na_button=False
         )
-        note = QLabel("보고서 9번 표에 인쇄되는 모습 그대로입니다 — 칸을 눌러 공정을 고르세요.")
+        note = QLabel(
+            "보고서 9번 표에 인쇄되는 모습 그대로입니다 — 공정 사진과 이름을 넣고 'AI로 작성'을 누르세요."
+        )
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
         self.process_slots = [_ProcessSlot(i) for i in range(1, 5)]
 
@@ -489,7 +491,7 @@ class _SectionBuilderMixin:
         detail_grid.setColumnStretch(0, 2)
         detail_grid.setColumnStretch(1, 4)
         detail_grid.setColumnStretch(2, 4)
-        detail_grid.setColumnStretch(3, 1)
+        detail_grid.setColumnStretch(3, 2)
 
         for col, text in enumerate(("향후공정", "유해·위험요인", "예방대책", "위험성")):
             header_cell = QLabel(text)
@@ -514,10 +516,11 @@ class _SectionBuilderMixin:
                 detail_grid.addWidget(cell, row, col)
 
         help_note = QLabel(
-            "칸 순서 그대로 보고서 표에 인쇄됩니다. 진행공정 이름·유해위험요인·예방대책은 칸을 클릭해 직접 "
-            "수정할 수 있고, 위험성 등급은 상·중·하로 눌러 바꿀 수 있습니다.\n"
-            "여기서 선택·수정한 내용은 이 현장에 저장되어, 다음 회차 보고서 작성 시 자동으로 채워집니다 "
-            "(매 회차 다시 고를 필요 없이 바뀐 공정만 교체하면 됩니다)."
+            "공정 사진을 넣고 이름을 적은 뒤 'AI로 작성'을 누르면 유해·위험요인/예방대책/위험성을 "
+            "항목별로 여러 건 자동으로 작성합니다. 작성된 내용은 항목마다 직접 고쳐 쓸 수 있고, "
+            "'+ 항목 추가'로 수동으로 항목을 늘리거나 ✕로 지울 수도 있습니다.\n"
+            "공정 이름은 이 현장에 저장되어 다음 회차 보고서 작성 시 자동으로 채워집니다(사진·유해위험요인은 "
+            "매 회차 현장 상태에 맞춰 새로 작성해야 하므로 승계되지 않습니다)."
         )
         help_note.setWordWrap(True)
         help_note.setStyleSheet("color: #4f46e5; font-size: 12px;")

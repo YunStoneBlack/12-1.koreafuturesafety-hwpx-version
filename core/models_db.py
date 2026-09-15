@@ -381,6 +381,8 @@ class Measurement(Base):
     instrument_type: Mapped[str] = mapped_column(Text)  # 소음측정기/산소농도측정기/... (7종)
     photo_path: Mapped[str] = mapped_column(Text, default="")
     value: Mapped[str] = mapped_column(Text, default="")
+    manual_verdict: Mapped[str] = mapped_column(Text, default="")  # "" | "양호" | "불량" — 수동 지정 시 자동판정보다 우선
+    manual_action: Mapped[str] = mapped_column(Text, default="")  # 표16 "조치사항" 수기 입력 — 비어있으면 "-"로 표시
 
     report: Mapped[Report] = relationship(back_populates="measurements")
 
@@ -402,7 +404,13 @@ class ProvidedMaterial(Base):
 
 
 class ProcessHazardEntry(Base):
-    """9. 진행공정 유해·위험요인 파악 및 대책 (최대 4공정, 회차 데이터)."""
+    """9. 진행공정 유해·위험요인 파악 및 대책 (최대 4공정, 회차 데이터).
+
+    `hazard_text`/`prevention_text`/`risk_level`은 예전 방식(카탈로그에서 고른 텍스트 통짜
+    저장)의 유산이다 — AI 사진분석 기반으로 개편하면서 항목별(유해요인-예방대책-위험성이
+    한 벌) 다건 데이터는 `items`(`ProcessHazardItem`)로 옮겼다. 이 세 컬럼은 옛 보고서를
+    다시 열었을 때 깨지지 않도록 지우지 않았을 뿐, 새 코드는 더 이상 쓰지 않는다
+    (`core/report_builder_hwpx_fields.py`가 `items`가 있으면 그쪽을 우선한다)."""
 
     __tablename__ = "process_hazard_entry"
 
@@ -410,11 +418,34 @@ class ProcessHazardEntry(Base):
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~4
     process_name: Mapped[str] = mapped_column(Text, default="")
-    hazard_text: Mapped[str] = mapped_column(Text, default="")
-    prevention_text: Mapped[str] = mapped_column(Text, default="")
-    risk_level: Mapped[str] = mapped_column(Text, default="")  # 상/중/하
+    photo_path: Mapped[str] = mapped_column(Text, default="")  # AI 분석에 쓴 공정 사진
+    hazard_text: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
+    prevention_text: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
+    risk_level: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
 
     report: Mapped[Report] = relationship(back_populates="process_entries")
+    items: Mapped[list["ProcessHazardItem"]] = relationship(
+        back_populates="entry", order_by="ProcessHazardItem.order", cascade="all, delete-orphan"
+    )
+
+
+class ProcessHazardItem(Base):
+    """9번 진행공정 한 항목 — 유해·위험요인/예방대책/위험성이 한 벌로 묶인 데이터.
+
+    공정 하나(`ProcessHazardEntry`)에 여러 건 달릴 수 있다(AI가 사진 한 장에서 여러 위험요인을
+    찾아내므로) — `order`로 화면에 보이는 순서(1부터)와 문서에 인쇄되는 순서를 그대로 유지한다.
+    """
+
+    __tablename__ = "process_hazard_item"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("process_hazard_entry.id"))
+    order: Mapped[int] = mapped_column()  # 1부터
+    hazard: Mapped[str] = mapped_column(Text, default="")
+    prevention: Mapped[str] = mapped_column(Text, default="")
+    risk_level: Mapped[str] = mapped_column(Text, default="")  # 상/중/하
+
+    entry: Mapped[ProcessHazardEntry] = relationship(back_populates="items")
 
 
 class CurrentProcessPhoto(Base):
@@ -447,13 +478,32 @@ class CurrentProcessEntry(Base):
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~4
     process_name: Mapped[str] = mapped_column(Text, default="")
-    hazard_text: Mapped[str] = mapped_column(Text, default="")
-    prevention_text: Mapped[str] = mapped_column(Text, default="")
-    risk_level: Mapped[str] = mapped_column(Text, default="")  # 상/중/하
+    photo_path: Mapped[str] = mapped_column(Text, default="")  # AI 분석에 쓴 공정 사진
+    hazard_text: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
+    prevention_text: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
+    risk_level: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
     measure_text: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 현재안전보건조치 — 더 이상 안 씀
     evaluation: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 양호/미흡 — 더 이상 안 씀
 
     report: Mapped[Report] = relationship(back_populates="current_process_entries")
+    items: Mapped[list["CurrentProcessHazardItem"]] = relationship(
+        back_populates="entry", order_by="CurrentProcessHazardItem.order", cascade="all, delete-orphan"
+    )
+
+
+class CurrentProcessHazardItem(Base):
+    """7번 현재진행공정 한 항목 — `ProcessHazardItem`과 완전히 같은 모양(9번 공용 AI 분석 결과)."""
+
+    __tablename__ = "current_process_hazard_item"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("current_process_entry.id"))
+    order: Mapped[int] = mapped_column()  # 1부터
+    hazard: Mapped[str] = mapped_column(Text, default="")
+    prevention: Mapped[str] = mapped_column(Text, default="")
+    risk_level: Mapped[str] = mapped_column(Text, default="")  # 상/중/하
+
+    entry: Mapped[CurrentProcessEntry] = relationship(back_populates="items")
 
 
 class LawArticleCache(Base):

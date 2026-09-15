@@ -71,6 +71,38 @@ MEASUREMENT_READ_PROMPT = """첨부된 사진은 '{instrument_type}'의 측정 �
 
 {{"value": "읽은 값(단위 제외, 숫자/문자 그대로) 또는 null"}}"""
 
+PROCESS_HAZARD_PROMPT = """당신은 건설재해예방 기술지도를 보조하는 전문가입니다.
+첨부된 사진은 "{process_name}" 공정 현장 사진입니다. 이 공정에서 실제로 확인되거나 이
+공정에서 통상적으로 발생하는 유해·위험요인과 그에 대한 예방대책을 분석하세요.
+
+중요한 규칙:
+- 사진에서 실제로 확인되는 위험요인, 또는 이 공정에서 산업안전보건 기준상 통상적으로
+  요구되는 위험요인만 작성하세요. 근거 없이 지어내지 마세요.
+- 사진 화질이 나쁘거나 공정명이 모호해 판단이 아예 불가능하면 items를 빈 배열로 응답하세요.
+- 유해·위험요인(hazard)은 사진과 공정에서 실제로 확인되는 만큼만 작성하세요 — 개수를
+  채우려고 억지로 늘리지 마세요. 2~3개만 확인되면 2~3개만 적는 게 맞습니다. 너무 많이
+  찾아지더라도 중요도 순으로 최대 5개까지만 추리세요. 같거나 거의 같은 내용을 표현만
+  바꿔 반복하지 마세요 — 각 hazard는 반드시 서로 구별되는 내용이어야 합니다. 서로 다른
+  위험 상황을 접속사("및", "그리고" 등)로 이어붙여 한 hazard 안에 여러 상황을 욱여넣지
+  마세요 — 그런 경우 별도의 hazard 항목으로 나누세요.
+- preventions는 반드시 JSON 배열이며, 그 위험요인에 필요한 조치가 여러 개면 배열
+  원소도 여러 개여야 합니다 — "부품 정리, 점검 실시, 표지판 설치"처럼 쉼표나 접속사로
+  이어붙여 배열 원소 1개에 다 몰아넣지 마세요. 서로 다른 조치는 각각 별도의 배열
+  원소(preventions[0], preventions[1], ...)로 나누세요. 위험성 수준(risk)은 그
+  위험요인 전체에 대해 1개만 고르세요.
+- hazard 문장과 각 prevention 배열 원소는 각각 하나의 완결된 조치만 담아 50자
+  이내로 간결하게 작성하세요.
+- risk(위험성 수준)는 아래 기준으로 "상"/"중"/"하" 중 하나만 고르세요.
+  상=중대재해로 이어질 수 있는 고위험 / 중=상해를 유발할 수 있는 위험 / 하=경미한 위험
+
+반드시 아래 JSON 스키마와 동일한 형식의 JSON 객체만 응답하세요. 다른 설명 텍스트는 포함하지 마세요.
+
+{{
+  "items": [
+    {{"hazard": "유해·위험요인 (50자 이내)", "preventions": ["예방대책1 (50자 이내)", "예방대책2 (50자 이내)"], "risk": "상|중|하"}}
+  ]
+}}"""
+
 _GAS_METER_TYPE = "가스농도측정기"
 
 GAS_METER_READ_PROMPT = """첨부된 사진은 4종 복합가스측정기의 디스플레이 사진입니다.
@@ -142,12 +174,14 @@ def _encode_image(photo_path: str | Path) -> tuple[str, str]:
     return image_b64, media_type
 
 
-def _call_claude(image_b64: str, media_type: str, prompt: str, model: str | None = None) -> str:
+def _call_claude(
+    image_b64: str, media_type: str, prompt: str, model: str | None = None, max_tokens: int = 1024
+) -> str:
     """실제 Claude API 호출. 분리해두면 테스트할 때 이 함수만 mocking하면 된다."""
     client = Anthropic(api_key=get_api_key())
     response = client.messages.create(
         model=model or get_model_name(),
-        max_tokens=1024,
+        max_tokens=max_tokens,
         messages=[
             {
                 "role": "user",
@@ -221,6 +255,74 @@ def count_people(photo_path: str | Path, model: str | None = None) -> int | None
         return int(count)
     except (TypeError, ValueError):
         return None
+
+
+def analyze_process_hazards(photo_path: str | Path, process_name: str, model: str | None = None) -> list[dict]:
+    """공정 사진 + 공정명으로 유해·위험요인(항목)마다 예방대책 여러 건 + 위험성 1개를
+    추천한다(7번 현재진행공정/9번 향후진행공정 공용 — 두 섹션 모두 같은 표 구조라
+    프롬프트도 공용). 반환값의 각 항목은 `{"hazard": str, "prevention": str, "risk_level": str}`
+    — `prevention`은 그 유해요인에 딸린 예방대책 여러 줄을 "\\n"으로 이어붙인 문자열이다
+    (표 렌더링 시 줄 단위로 다시 쪼갠다, `core/report_builder_hwpx_fields.py` 참고).
+
+    최대 5개까지만 반환한다(실사용 중 AI가 같은 위험요인을 문구만 바꿔 반복해서 15개까지
+    내놓은 사례가 있어, 사용자 요청으로 상한을 뒀다) — hazard 텍스트가 동일하거나 거의
+    같은 항목은 먼저 하나로 합쳐 버린 뒤에 5개로 자른다. 순서를 반대로 하면(자르고 나서
+    중복 제거) 반복된 항목 때문에 정작 서로 다른 위험요인이 잘려나갈 수 있다.
+
+    항목 개수가 많다 보니(최대 5개, 각 여러 예방대책) Claude가 드물게 JSON 문법을 살짝
+    틀리는 경우가 있었다(실사용 중 콤마 하나 빠뜨림 확인) — 사람이 매번 "AI로 작성"을
+    다시 눌러야 하는 번거로움 없이, 파싱에 실패하면 같은 사진으로 최대 2번까지 조용히
+    다시 요청한다(사용자 요청). 재시도까지 다 실패하면 그제서야 예외를 올려 위쪽
+    (`_ProcessSlot._on_ai_error`)에서 실패 안내를 띄운다.
+    """
+    image_b64, media_type = _encode_image(photo_path)
+    prompt = PROCESS_HAZARD_PROMPT.format(process_name=process_name or "(공정명 미입력)")
+
+    data = None
+    last_error: ValueError | None = None
+    for _attempt in range(3):
+        # 유해요인 최대 5개 × 예방대책 여러 건이라 다른 analyze_* 함수보다 응답이 훨씬
+        # 길다 — 기본값(1024)으로는 답변이 중간에 잘려 JSON 자체가 깨지는 경우가 실사용
+        # 중 확인됐다(재시도로도 안 고쳐짐 — 같은 프롬프트면 매번 비슷한 길이에서 잘리므로).
+        raw_response = _call_claude(image_b64, media_type, prompt, model=model, max_tokens=4096)
+        try:
+            data = _parse_json_object(raw_response)
+            break
+        except ValueError as e:
+            last_error = e
+    if data is None:
+        raise last_error
+    raw_items = data.get("items")
+    if not isinstance(raw_items, list):
+        return []
+
+    items: list[dict] = []
+    seen_hazards: set[str] = set()
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+        hazard = str(raw_item.get("hazard") or "").strip()
+        if not hazard:
+            continue
+        dedup_key = re.sub(r"\s+", "", hazard)
+        if dedup_key in seen_hazards:
+            continue
+
+        raw_preventions = raw_item.get("preventions")
+        if not isinstance(raw_preventions, list):
+            single = raw_item.get("prevention")
+            raw_preventions = [single] if single else []
+        preventions = [str(p).strip()[:80] for p in raw_preventions if str(p or "").strip()]
+
+        risk = raw_item.get("risk") or ""
+        if risk not in ("상", "중", "하"):
+            risk = ""
+        if not preventions and not risk:
+            continue
+
+        seen_hazards.add(dedup_key)
+        items.append({"hazard": hazard[:80], "prevention": "\n".join(preventions), "risk_level": risk})
+    return items[:5]
 
 
 def read_measurement_value(photo_path: str | Path, instrument_type: str, model: str | None = None) -> str | None:

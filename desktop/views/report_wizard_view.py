@@ -58,6 +58,7 @@ class ReportWizardView(
         self._people_worker: AIWorker | None = None
         self._note_worker: AIWorker | None = None
         self._export_worker: AIWorker | None = None
+        self._preview_dialog = None  # ReportPreviewDialog | None — 비모달로 띄운 미리보기 창
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -222,7 +223,7 @@ class ReportWizardView(
             )
             next_visit_no = (existing_reports[-1].visit_no + 1) if existing_reports else 1
             self.visit_no_input.setValue(next_visit_no)
-            self._apply_management_no_editability(next_visit_no, site.management_no if site else "")
+            self._apply_management_no_editability(site.management_no if site else "")
 
             self.notify_signee_input.setText(site.manager_name if site else "")
             self.notify_signature_pad.clear_signature()
@@ -248,18 +249,14 @@ class ReportWizardView(
 
             self._apply_hazard_checks(set(site.hazard_factor_checks or []) if site else set())
 
+            # 공정명만 승계한다 — 사진·유해위험요인·예방대책은 매 회차 현장 상태를 새로
+            # 찍은 사진으로 AI가 다시 작성해야 하는 값이라 지난 회차 것을 그대로 승계하지
+            # 않는다(save 쪽 SiteProcessDefault 기록도 이름만 담음, Sub-phase 20).
             process_defaults = site.process_defaults if site else []
             for process_slot in self.process_slots:
                 process_slot.reset()
             for process_slot, default in zip(self.process_slots, process_defaults):
-                process_slot.load_data(
-                    {
-                        "process_name": default.process_name,
-                        "hazard_text": default.hazard_text,
-                        "prevention_text": default.prevention_text,
-                        "risk_level": default.risk_level,
-                    }
-                )
+                process_slot.name_input.setText(default.process_name)
 
             # 8번(향후 진행공정)과 달리 현장 단위 기본값 승계는 없다 — "현재 진행중인 공정"은
             # 회차마다 실제로 바뀌는 게 자연스러워서, 지난 회차 값을 자동으로 다시 채우면
@@ -321,6 +318,8 @@ class ReportWizardView(
         for row in self.measurement_rows:
             row.photo.clear_photo()
             row.value_input.clear()
+            row.set_verdict("")
+            row.action_input.clear()
         self.measurement_header.set_checked(False)
 
         self._selected_materials = []
@@ -339,17 +338,16 @@ class ReportWizardView(
     def _on_prev_date_none_toggled(self, checked: bool) -> None:
         self.prev_date_input.setEnabled(not checked)
 
-    def _apply_management_no_editability(self, visit_no: int, site_management_no: str) -> None:
-        """관리번호는 현장 단위로 고정 — 1회차에서만 입력/자동생성 가능, 이후 회차는 읽기전용."""
+    def _apply_management_no_editability(self, site_management_no: str) -> None:
+        """관리번호는 현장 단위로 공유되는 값이지만(모든 회차에 같은 값) 어느 회차에서든
+        수정할 수 있다(사용자 요청) — 이전엔 1회차에서만 입력 가능하고 이후 회차는
+        읽기전용이었는데, 잘못 입력했거나 나중에 바뀌어도 고칠 방법이 없었다. 여기서
+        수정하면 저장 시(`report_wizard_save.py`) site.management_no가 갱신되어 이
+        현장의 모든 회차에 반영된다."""
         self.management_no_input.setText(site_management_no)
-        if visit_no <= 1:
-            self.management_no_input.setReadOnly(False)
-            self.management_no_auto_btn.setVisible(True)
-            self.management_no_hint.setText("1회차 관리번호는 이 현장의 모든 회차에 계속 쓰입니다.")
-        else:
-            self.management_no_input.setReadOnly(True)
-            self.management_no_auto_btn.setVisible(False)
-            self.management_no_hint.setText("이 현장의 관리번호(1회차에 등록됨)")
+        self.management_no_input.setReadOnly(False)
+        self.management_no_auto_btn.setVisible(True)
+        self.management_no_hint.setText("이 현장의 관리번호 — 모든 회차에 공통으로 쓰이며 언제든 수정할 수 있습니다.")
 
     def _auto_generate_management_no(self) -> None:
         year = self.guidance_date_input.date().year()

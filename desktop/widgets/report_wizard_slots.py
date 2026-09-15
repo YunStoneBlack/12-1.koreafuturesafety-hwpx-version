@@ -21,26 +21,11 @@ from PyQt6.QtWidgets import (
 )
 
 from core import config
-from core.vision_analyzer import analyze_finding, read_measurement_value
+from core.vision_analyzer import analyze_finding, analyze_process_hazards, read_measurement_value
 from desktop.dialogs.law_search_dialog import LawSearchDialog
-from desktop.dialogs.process_picker_dialog import ProcessPickerDialog
 from desktop.widgets.photo_drop_zone import PhotoDropZone
 from desktop.workers.ai_worker import AIWorker
 
-
-def _normalize_bullets(text: str) -> str:
-    """"- 항목1- 항목2"처럼 줄바꿈 없이 붙어있는 텍스트를 항목마다 줄바꿈으로 나눈다.
-
-    공정 카탈로그 원본(실제 사이트에서 추출한 284건)에 이 문제가 있는 항목이 있다(예:
-    "굴착공사" — "- 터파기...충돌- 덤프트럭 후진...위험"이 줄바꿈 없이 한 문자열로 저장되어
-    있었음, 실측 확인). 첫 "- "는 그대로 두고 그 뒤에 나오는 "- "마다 앞에 줄바꿈을 넣는다.
-    """
-    if not text:
-        return text
-    parts = text.split("- ")
-    if len(parts) <= 1:
-        return text
-    return parts[0] + "- " + "\n- ".join(p.rstrip() for p in parts[1:])
 
 _RISK_BANDS = [(1, 3, "현상유지", "#374151"), (4, 5, "개선필요", "#ea580c"), (6, 9, "즉시개선", "#dc2626")]
 
@@ -274,6 +259,16 @@ class _FindingSlot(QFrame):
         return bool(self.photo.photo_path or self.title_input.text() or self.content_edit.toPlainText())
 
 
+_VERDICT_STYLE_OFF = (
+    "QPushButton { background: white; color: #6b7280; border: 1px solid #d1d5db; "
+    "border-radius: 10px; padding: 2px 10px; font-size: 12px; }"
+)
+_VERDICT_STYLE_ON = (
+    "QPushButton { background: #4f46e5; color: white; border: 1px solid #4f46e5; "
+    "border-radius: 10px; padding: 2px 10px; font-weight: 600; font-size: 12px; }"
+)
+
+
 class _MeasurementRow(QFrame):
     """6. 계측자료 한 항목 (7종 고정)."""
 
@@ -301,6 +296,54 @@ class _MeasurementRow(QFrame):
         row.addWidget(self.value_input)
         row.addWidget(self.read_btn)
         layout.addLayout(row)
+
+        verdict_row = QHBoxLayout()
+        verdict_row.addWidget(QLabel("장비사용 판정:"))
+        # 조도계/가스농도측정기는 측정값으로 자동판정되지만(core.report_builder_hwpx_fields
+        # ._equipment_verdict), 그 외 장비는 자동판정 근거가 없어 표16 양호/불량 칸이 항상
+        # 빈칸이었다 — 여기서 수동으로 고르면 자동판정보다 우선한다. 같은 버튼을 다시 누르면
+        # 선택 해제(다시 자동판정/빈칸으로) — _EquipmentEvalCell(report_wizard_sections2.py)과
+        # 같은 패턴.
+        self.verdict_buttons = QButtonGroup(self)
+        self.verdict_buttons.setExclusive(False)
+        for label in ("양호", "불량"):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setAutoDefault(False)
+            btn.setStyleSheet(_VERDICT_STYLE_OFF)
+            btn.toggled.connect(self._update_verdict_styles)
+            btn.clicked.connect(lambda _checked, b=btn: self._on_verdict_clicked(b))
+            self.verdict_buttons.addButton(btn)
+            verdict_row.addWidget(btn)
+        verdict_row.addWidget(QLabel("(미선택 시 자동판정)"))
+        verdict_row.addStretch()
+        layout.addLayout(verdict_row)
+
+        # 표16 "조치사항" 칸이 항상 "-"로만 나가던 것을 수기로 입력할 수 있게 한다(사용자
+        # 요청, 장비사용 판정 바로 아래 배치).
+        layout.addWidget(QLabel("조치사항:"))
+        self.action_input = QLineEdit()
+        self.action_input.setPlaceholderText("예: 이상 없음 확인, 관리자 통보 후 조치 등 (미입력 시 '-')")
+        layout.addWidget(self.action_input)
+
+    def _on_verdict_clicked(self, clicked_btn: QPushButton) -> None:
+        if not clicked_btn.isChecked():
+            return
+        for btn in self.verdict_buttons.buttons():
+            if btn is not clicked_btn:
+                btn.setChecked(False)
+
+    def _update_verdict_styles(self) -> None:
+        for btn in self.verdict_buttons.buttons():
+            btn.setStyleSheet(_VERDICT_STYLE_ON if btn.isChecked() else _VERDICT_STYLE_OFF)
+
+    def verdict(self) -> str:
+        checked = next((b for b in self.verdict_buttons.buttons() if b.isChecked()), None)
+        return checked.text() if checked else ""
+
+    def set_verdict(self, value: str) -> None:
+        for btn in self.verdict_buttons.buttons():
+            btn.setChecked(btn.text() == value)
 
     def _run_read(self) -> None:
         if not self.photo.photo_path:
@@ -358,158 +401,6 @@ def _action_status_style(checked: bool) -> str:
         "border-radius: 10px; padding: 2px 10px; font-weight: 600; font-size: 12px; }"
     )
 
-
-class _ProcessSlot(QFrame):
-    """9. 진행공정 한 칸 (최대 4칸).
-
-    실제 사이트는 위쪽에 "몇 번 칸에 뭘 골랐는지"만 보여주는 압축된 2x2 표와, 그 아래에
-    선택된 공정만 번호를 새로 매겨 나열하는 "진행공정/유해·위험요인/예방대책/위험성"
-    4열 표, 이렇게 두 영역으로 나뉘어 있다. 이 위젯은 두 영역에 쓰이는 위젯을 모두
-    들고 있고, 실제 배치(어느 그리드/표에 넣을지)는 부모(ReportWizardView)가 한다.
-    """
-
-    changed = pyqtSignal()
-
-    def __init__(self, slot: int):
-        super().__init__()
-        self.slot = slot
-        self.setStyleSheet("QFrame { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 8px; }")
-
-        self.layout_ = QVBoxLayout(self)
-
-        # ---- 위쪽 2x2 압축 표 칸 ----
-        # 비어있을 때: 연보라색 "+ 추가" 버튼 (기본 버튼 크롬을 쓰면 아무것도 안 골랐는데도
-        # 이미 선택된 것처럼 강조되어 보이는 문제가 있어 스타일/기본버튼 여부를 명시적으로 정한다)
-        self.pick_btn = QPushButton(f"+ {slot}번 칸 공정 선택")
-        self.pick_btn.setAutoDefault(False)
-        self.pick_btn.setDefault(False)
-        self.pick_btn.setStyleSheet(
-            "QPushButton { background: #f5f3ff; color: #7c3aed; border: 1px dashed #c4b5fd; "
-            "border-radius: 6px; padding: 8px; font-weight: 600; }"
-            "QPushButton:hover { background: #ede9fe; }"
-        )
-        self.pick_btn.clicked.connect(self._open_picker)
-        self.layout_.addWidget(self.pick_btn)
-
-        # 채워졌을 때: 공정명 + 위험도 배지 + 빼기 버튼 한 줄 (교체는 아래 상세 표에서
-        # 이름·내용을 직접 고쳐 쓰면 되므로 여기서는 빼기만 남긴다 — 실제 사이트와 동일)
-        self.header_widget = QWidget()
-        header_row = QHBoxLayout(self.header_widget)
-        header_row.setContentsMargins(0, 0, 0, 0)
-        self.name_label = QLabel("")
-        self.name_label.setStyleSheet("font-weight: 600;")
-        self.risk_badge = QPushButton("")
-        self.risk_badge.setEnabled(False)
-        self.risk_badge.setFlat(True)
-        remove_btn = QPushButton("✕")
-        remove_btn.setAutoDefault(False)
-        remove_btn.setFixedWidth(24)
-        remove_btn.setStyleSheet("QPushButton { color: #ef4444; }")
-        remove_btn.clicked.connect(self.reset)
-        header_row.addWidget(self.name_label, stretch=1)
-        header_row.addWidget(self.risk_badge)
-        header_row.addWidget(remove_btn)
-        self.layout_.addWidget(self.header_widget)
-
-        self._set_fields_visible(False)
-
-        # ---- 아래쪽 상세 표(진행공정/유해·위험요인/예방대책/위험성)에 쓰일 위젯들 ----
-        # 이 위젯들은 self.layout_에 넣지 않는다 — ReportWizardView가 공통 표의
-        # 해당 칸(cell)에 직접 addWidget 한다.
-        self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("진행공정 이름")
-        self.name_input.setStyleSheet(
-            "QLineEdit { border: none; background: transparent; font-weight: 600; padding: 0; }"
-        )
-        self.hazard_edit, self.hazard_counter = _limited_text_edit(200)
-        self.hazard_edit.setPlaceholderText("유해·위험요인")
-        self.prevention_edit, self.prevention_counter = _limited_text_edit(200)
-        self.prevention_edit.setPlaceholderText("예방대책")
-        self.name_input.textChanged.connect(lambda text: self.name_label.setText(text))
-
-        self.detail_name_widget = QWidget()
-        name_row = QHBoxLayout(self.detail_name_widget)
-        name_row.setContentsMargins(8, 8, 8, 8)
-        self.seq_label = QLabel("")
-        self.seq_label.setStyleSheet("font-weight: 600; border: none; background: transparent;")
-        name_row.addWidget(self.seq_label)
-        name_row.addWidget(self.name_input, stretch=1)
-
-        self.hazard_cell = QWidget()
-        hazard_col = QVBoxLayout(self.hazard_cell)
-        hazard_col.setContentsMargins(8, 8, 8, 8)
-        hazard_col.setSpacing(2)
-        hazard_col.addWidget(self.hazard_edit)
-        hazard_col.addWidget(self.hazard_counter)
-
-        self.prevention_cell = QWidget()
-        prevention_col = QVBoxLayout(self.prevention_cell)
-        prevention_col.setContentsMargins(8, 8, 8, 8)
-        prevention_col.setSpacing(2)
-        prevention_col.addWidget(self.prevention_edit)
-        prevention_col.addWidget(self.prevention_counter)
-
-        self.risk_buttons = QButtonGroup(self)
-        self.risk_buttons.setExclusive(True)
-        self.risk_column = QWidget()
-        risk_col_layout = QVBoxLayout(self.risk_column)
-        risk_col_layout.setContentsMargins(8, 8, 8, 8)
-        risk_col_layout.setSpacing(4)
-        for label in ("상", "중", "하"):
-            btn = QPushButton(label)
-            btn.setAutoDefault(False)
-            btn.setCheckable(True)
-            btn.setFixedWidth(44)
-            btn.setStyleSheet(_badge_style(""))
-            btn.toggled.connect(self._update_badge)
-            self.risk_buttons.addButton(btn)
-            risk_col_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-    def _set_fields_visible(self, visible: bool) -> None:
-        self.header_widget.setVisible(visible)
-        self.pick_btn.setVisible(not visible)
-
-    def _update_badge(self) -> None:
-        level = self.risk_level()
-        self.risk_badge.setText(level or "-")
-        self.risk_badge.setStyleSheet(_badge_style(level))
-        for btn in self.risk_buttons.buttons():
-            btn.setStyleSheet(_badge_style(btn.text() if btn.isChecked() else ""))
-
-    def _open_picker(self) -> None:
-        dialog = ProcessPickerDialog(self)
-        if dialog.exec() and dialog.selected:
-            self.load_data(dialog.selected)
-
-    def load_data(self, data: dict) -> None:
-        self.name_input.setText(data.get("process_name", ""))
-        self.hazard_edit.setPlainText(_normalize_bullets(data.get("hazard_text", "")))
-        self.prevention_edit.setPlainText(_normalize_bullets(data.get("prevention_text", "")))
-        risk_level = data.get("risk_level", "")
-        for btn in self.risk_buttons.buttons():
-            btn.setChecked(btn.text() == risk_level)
-        self._update_badge()
-        self._set_fields_visible(True)
-        self.changed.emit()
-
-    def risk_level(self) -> str:
-        checked = self.risk_buttons.checkedButton()
-        return checked.text() if checked else ""
-
-    def has_data(self) -> bool:
-        return bool(self.name_input.text())
-
-    def reset(self) -> None:
-        self.name_input.clear()
-        self.hazard_edit.clear()
-        self.prevention_edit.clear()
-        self.risk_buttons.setExclusive(False)
-        for btn in self.risk_buttons.buttons():
-            btn.setChecked(False)
-        self.risk_buttons.setExclusive(True)
-        self._update_badge()
-        self._set_fields_visible(False)
-        self.changed.emit()
 
 
 class _SitePhotoSlot(QFrame):

@@ -150,6 +150,16 @@ class ReportPreviewDialog(QDialog):
             return
         self._render_preview()
 
+    def refresh_from_wizard(self) -> None:
+        """마법사의 "저장" 버튼에서 호출 — 비모달 미리보기를 열어둔 채로 마법사 내용을
+        고치고 저장하면, 이 창도 다시 "미리보기 갱신"을 누를 필요 없이 최신 내용으로
+        같이 갱신되게 한다(사용자 요청). 호출 시점에 마법사가 이미 저장을 마친 상태이므로
+        `_regenerate()`처럼 다시 저장하지 않고 정보 표시줄 + 렌더링만 새로고침한다."""
+        if not self._wizard._report_id:
+            return
+        self._load_from_wizard()
+        self._render_preview()
+
     def _regenerate_and_export_pdf(self) -> None:
         """하단 "PDF 생성" — 미리보기를 갱신한 뒤(완료되면 이어서) 사용자가 고른 위치에도
         PDF를 저장한다(파일명 기본값: "{현장명}_{회차}회차.pdf")."""

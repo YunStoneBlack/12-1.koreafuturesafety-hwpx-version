@@ -14,17 +14,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from core.db import BASE_DIR, SessionLocal
 from core.models_db import (
     CurrentProcessEntry,
+    CurrentProcessHazardItem,
     Finding,
     InspectionPhoto,
     Measurement,
     OverviewPhoto,
     PreviousFinding,
     ProcessHazardEntry,
+    ProcessHazardItem,
     ProvidedMaterial,
     Report,
     SafetyEducation,
@@ -34,6 +37,7 @@ from core.models_db import (
 from core.report_builder import build_report
 from core.report_builder_hwpx import build_report_hwpx
 from desktop.dialogs.report_preview_dialog import ReportPreviewDialog
+from desktop.dialogs.saving_progress_dialog import SavingProgressDialog
 from desktop.widgets.signature_pad import move_or_reference
 from desktop.workers.ai_worker import AIWorker, with_com
 
@@ -205,6 +209,8 @@ class _SaveGenerateMixin:
                             instrument_type=row.instrument_type,
                             photo_path=row.photo.photo_path,
                             value=row.value_input.text().strip(),
+                            manual_verdict=row.verdict(),
+                            manual_action=row.action_input.text().strip(),
                         )
                     )
 
@@ -237,42 +243,57 @@ class _SaveGenerateMixin:
                 {"checked": row.checkbox.isChecked(), "notes": row.evaluations()} for row in self.hazmat_rows
             ]
 
-            session.query(CurrentProcessEntry).filter_by(report_id=report.id).delete()
+            # 벌크 delete()는 ORM cascade를 안 타서 이 엔트리에 딸린 항목(items) 자식 행이
+            # 고아로 남는다 — 인스턴스를 하나씩 지워야 relationship의
+            # cascade="all, delete-orphan"이 실제로 작동해 자식 행까지 같이 지워진다.
+            for old_entry in session.query(CurrentProcessEntry).filter_by(report_id=report.id).all():
+                session.delete(old_entry)
             for row in self.current_process_slots:
                 if not row.has_data():
                     continue
-                session.add(
-                    CurrentProcessEntry(
-                        report_id=report.id,
-                        slot=row.slot,
-                        process_name=row.name_input.text(),
-                        hazard_text=row.hazard_edit.toPlainText(),
-                        prevention_text=row.prevention_edit.toPlainText(),
-                        risk_level=row.risk_level(),
-                    )
+                entry = CurrentProcessEntry(
+                    report_id=report.id,
+                    slot=row.slot,
+                    process_name=row.name_input.text(),
+                    photo_path=row.photo.photo_path,
                 )
+                entry.items = [
+                    CurrentProcessHazardItem(
+                        order=i, hazard=item["hazard"], prevention=item["prevention"], risk_level=item["risk_level"]
+                    )
+                    for i, item in enumerate(row.items_data(), start=1)
+                ]
+                session.add(entry)
 
-            session.query(ProcessHazardEntry).filter_by(report_id=report.id).delete()
+            for old_entry in session.query(ProcessHazardEntry).filter_by(report_id=report.id).all():
+                session.delete(old_entry)
             for process_slot in self.process_slots:
                 if not process_slot.has_data():
                     continue
-                session.add(
-                    ProcessHazardEntry(
-                        report_id=report.id,
-                        slot=process_slot.slot,
-                        process_name=process_slot.name_input.text(),
-                        hazard_text=process_slot.hazard_edit.toPlainText(),
-                        prevention_text=process_slot.prevention_edit.toPlainText(),
-                        risk_level=process_slot.risk_level(),
-                    )
+                entry = ProcessHazardEntry(
+                    report_id=report.id,
+                    slot=process_slot.slot,
+                    process_name=process_slot.name_input.text(),
+                    photo_path=process_slot.photo.photo_path,
                 )
+                entry.items = [
+                    ProcessHazardItem(
+                        order=i, hazard=item["hazard"], prevention=item["prevention"], risk_level=item["risk_level"]
+                    )
+                    for i, item in enumerate(process_slot.items_data(), start=1)
+                ]
+                session.add(entry)
 
             # 12대 기인물 체크 상태와 진행공정은 현장에 저장해서 다음 회차에 자동 승계한다.
             site = session.get(Site, self._site_id)
             site.hazard_factor_checks = checked_factor_ids
-            # 관리번호는 현장 단위로 고정 — 1회차에서만 입력값을 site에 반영, 이후 회차는 손대지 않는다.
-            if report.visit_no <= 1:
-                site.management_no = self.management_no_input.text().strip()
+            # 관리번호는 현장 단위로 공유되는 값이지만 어느 회차에서 수정해도 이 현장
+            # 전체에 반영된다(사용자 요청 — 이전엔 1회차에서만 반영되고 이후 회차는
+            # 수정해도 무시됐다).
+            site.management_no = self.management_no_input.text().strip()
+            # 공정명만 승계한다 — 사진·유해위험요인·예방대책은 AI가 그때그때 사진을 보고
+            # 새로 작성하는 값이라, 지난 회차 것을 그대로 승계하면 현장 상태가 바뀌었는데도
+            # 옛 위험요인이 남아있는 오해를 살 수 있다(사용자 요청, Sub-phase 20).
             session.query(SiteProcessDefault).filter_by(site_id=self._site_id).delete()
             for process_slot in self.process_slots:
                 if not process_slot.has_data():
@@ -282,9 +303,6 @@ class _SaveGenerateMixin:
                         site_id=self._site_id,
                         slot=process_slot.slot,
                         process_name=process_slot.name_input.text(),
-                        hazard_text=process_slot.hazard_edit.toPlainText(),
-                        prevention_text=process_slot.prevention_edit.toPlainText(),
-                        risk_level=process_slot.risk_level(),
                     )
                 )
 
@@ -302,8 +320,15 @@ class _SaveGenerateMixin:
         2026-09-11) — 그동안 눌러도 반응이 없어 보인다는 피드백이 있었다. `navigate=False`로
         불러 저장 후에도 현장으로 돌아가지 않고 마법사 화면에 그대로 머문다(사용자 요청) —
         `_save()` 기본값(`navigate=True`)은 `report_saved`를 emit해 현장상세로 돌아가는데,
-        저장 버튼을 직접 눌렀을 땐 계속 마법사에서 이어서 작업하고 싶어한다."""
+        저장 버튼을 직접 눌렀을 땐 계속 마법사에서 이어서 작업하고 싶어한다.
+
+        미리보기가 비모달로 바뀌면서(`_open_preview`) 미리보기 창을 띄운 채로 마법사에서
+        계속 내용을 고칠 수 있게 됐다 — 그 상태에서 이 저장 버튼을 누르면 열려 있는
+        미리보기도 최신 내용으로 같이 갱신한다(사용자 요청, 미리보기 자체의 "미리보기
+        갱신" 버튼을 또 누를 필요 없이)."""
         self._save(navigate=False)
+        if self._preview_dialog is not None:
+            self._preview_dialog.refresh_from_wizard()
         QMessageBox.information(self, "저장 완료", "저장되었습니다.")
 
     def _on_confirm_toggled(self, checked: bool) -> None:
@@ -351,12 +376,20 @@ class _SaveGenerateMixin:
         report_id = self._report_id
         self._export_worker = AIWorker(with_com(lambda: _build_pdf_for_export(report_id, chosen_path)))
 
+        # 저장 위치를 고르고 나서 실제 파일이 만들어지기까지 몇 초 걸리는데, 그동안 아무
+        # 표시가 없어 "오류가 난 줄 알았다"는 피드백이 있었다(사용자, 2026-09-15) — 이
+        # 모달이 그 사이를 명확히 채운다(백그라운드 작업이 끝나면 `finish()`/`fail()`로
+        # 알아서 닫힌다).
+        progress_dialog = SavingProgressDialog("PDF 파일을 저장하는 중입니다...", parent=self)
+
         def _ok(path):
+            progress_dialog.finish()
             QMessageBox.information(self, "저장 완료", f"PDF를 저장했습니다:\n{path}")
             if on_finished:
                 on_finished(path)
 
         def _err(msg):
+            progress_dialog.fail()
             QMessageBox.warning(self, "PDF 생성 실패", msg)
             if on_finished:
                 on_finished(None)
@@ -364,6 +397,7 @@ class _SaveGenerateMixin:
         self._export_worker.finished_ok.connect(_ok)
         self._export_worker.finished_error.connect(_err)
         self._export_worker.start()
+        progress_dialog.exec()
 
     def _export_hwp_as(self, on_finished=None) -> None:
         """사용자가 고른 위치에 한글(.hwpx) 파일을 저장한다. `_export_pdf_as`와 동일한
@@ -388,12 +422,16 @@ class _SaveGenerateMixin:
         report_id = self._report_id
         self._export_worker = AIWorker(lambda: _build_hwp_for_export(report_id, chosen_path))
 
+        progress_dialog = SavingProgressDialog("한글 파일을 저장하는 중입니다...", parent=self)
+
         def _ok(path):
+            progress_dialog.finish()
             QMessageBox.information(self, "저장 완료", f"한글 파일을 저장했습니다:\n{path}")
             if on_finished:
                 on_finished(path)
 
         def _err(msg):
+            progress_dialog.fail()
             QMessageBox.warning(self, "한글 파일 생성 실패", msg)
             if on_finished:
                 on_finished(None)
@@ -401,6 +439,7 @@ class _SaveGenerateMixin:
         self._export_worker.finished_ok.connect(_ok)
         self._export_worker.finished_error.connect(_err)
         self._export_worker.start()
+        progress_dialog.exec()
 
     def _open_preview(self) -> None:
         # 미리보기는 마법사를 떠나지 않고 반복해서 열어볼 수 있어야 하므로(수정하기 →
@@ -408,5 +447,24 @@ class _SaveGenerateMixin:
         self._save(navigate=False)
         if not self._report_id:
             return
+
+        if self._preview_dialog is not None:
+            # 이미 열려 있으면 새로 안 만들고 그 창을 앞으로 가져오기만 한다 — 안 그러면
+            # "미리보기" 버튼을 여러 번 눌렀을 때 창이 계속 쌓인다.
+            self._preview_dialog.raise_()
+            self._preview_dialog.activateWindow()
+            return
+
         dialog = ReportPreviewDialog(self)
-        dialog.exec()
+        # 비모달로 띄운다 — 미리보기를 열어둔 채로 마법사 창을 옮기거나 스크롤하거나 내용을
+        # 계속 수정할 수 있어야 한다는 사용자 요청(이전엔 exec()라 마법사가 완전히 막혔다).
+        # 내용을 고치면 마법사 "저장" 버튼(`_on_save_button_clicked`)이나 미리보기 자체의
+        # "미리보기 갱신" 버튼으로 다시 반영하면 된다.
+        dialog.setModal(False)
+        dialog.setWindowModality(Qt.WindowModality.NonModal)
+        dialog.finished.connect(self._on_preview_dialog_closed)
+        self._preview_dialog = dialog
+        dialog.show()
+
+    def _on_preview_dialog_closed(self, _result: int) -> None:
+        self._preview_dialog = None
