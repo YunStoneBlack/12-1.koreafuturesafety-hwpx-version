@@ -23,12 +23,14 @@ import shutil
 import sys
 from pathlib import Path
 
+import hwpx
 import pyhwpx
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 APP_NAME = "한국미래안전_기술지도결과보고서"
 
 PYHWPX_DIR = Path(pyhwpx.__file__).resolve().parent
+HWPX_DIR = Path(hwpx.__file__).resolve().parent
 ICON_PATH = PROJECT_ROOT / "desktop" / "assets" / "app_icon.ico"
 
 
@@ -47,6 +49,14 @@ def _run_pyinstaller() -> None:
         # 찾는데(한글 보안모듈 등록용), PyInstaller가 .py가 아닌 이 파일은 자동으로 안 담아서
         # 명시적으로 같은 상대 위치(pyhwpx/)에 넣어준다.
         "--add-data", f"{PYHWPX_DIR / 'FilePathCheckerModule.dll'};pyhwpx",
+        # python-hwpx의 문서 구조 검증(`validate_editor_open_safety()` 등, 미리보기 생성 시
+        # 항상 호출됨)이 자기 패키지 안의 XSD 스키마 파일을 상대 경로로 찾는데, PyInstaller가
+        # .py가 아닌 이 폴더는 자동으로 안 담아서 배포판에서 "Schema directory does not
+        # exist"로 미리보기 생성이 전부 실패하는 버그가 있었다(실사용 중 발견, Sub-phase 20) —
+        # pyhwpx DLL과 같은 이유로 명시적으로 같은 상대 위치에 넣어준다. `hwpx/data`(빈 문서
+        # 스켈레톤 등)도 혹시 몰라 같이 넣는다.
+        "--add-data", f"{HWPX_DIR / 'tools' / '_schemas'};hwpx/tools/_schemas",
+        "--add-data", f"{HWPX_DIR / 'data'};hwpx/data",
         # 이 파이썬 환경에 PyQt5도 같이 깔려있어(다른 프로젝트용으로 추정) PyInstaller가
         # "Qt 바인딩 두 개를 동시에 못 묶는다"며 중단시킨다 — 이 앱은 PyQt6만 쓰므로 명시적으로
         # 제외한다.
