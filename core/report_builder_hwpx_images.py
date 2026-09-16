@@ -387,19 +387,25 @@ def fill_previous_finding_images(doc, report: Report) -> None:
 
 
 _TBM_PHOTO_ANCHOR_FIELD = "t16_002"
-_TBM_PHOTO_ANCHOR_RIGHT_STEPS = 3
 
 
 def fill_support_images(doc, report: Report) -> None:
-    """10. 사업장 지원 사항 — TBM 행의 비고 칸(참석인원 필드 t16_002에서 오른쪽 3칸)."""
+    """10. 사업장 지원 사항 — TBM 행의 비고 칸(그 행의 맨 오른쪽 칸).
+
+    예전엔 "참석인원 칸(t16_002)에서 오른쪽으로 3칸"이라는 고정 칸 수로 비고 칸을
+    찾았는데, 사용자가 한글에서 그 행의 칸 경계선을 직접 드래그해 폭을 조정하자 한글이
+    폭만 바꾼 게 아니라 그 행 자체를 8칸에서 11칸으로 더 잘게 쪼개버려서(실측 확인)
+    "오른쪽 3칸"이 더 이상 비고 칸을 안 가리키게 됐다 — 그 결과 새로 올린 TBM 사진이
+    "교육장소" 밑 엉뚱한 칸에 들어가고, 원래 지워야 할 원본 샘플 사진은 진짜 비고 칸에
+    그대로 남아있는 버그로 나타났다(실사용 확인, 2026-09-16). 표 칸 개수가 바뀌어도
+    깨지지 않도록, "그 행의 마지막 칸"(비고는 항상 맨 오른쪽 — 표 설계상 고정)으로
+    찾는 방식으로 바꿨다.
+    """
     located = _locate_field_cell(doc, _TBM_PHOTO_ANCHOR_FIELD)
     if located is None:
         return
-    table, row, col = located
-    target_col = col + _TBM_PHOTO_ANCHOR_RIGHT_STEPS
-    if target_col >= table.column_count:
-        return
-    cell = table.cell(row, target_col)
+    table, row, _col = located
+    cell = table.cell(row, table.column_count - 1)
     _clear_cell_pictures(cell)
 
     education = report.safety_education

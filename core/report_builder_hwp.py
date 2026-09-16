@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 from core.db import BASE_DIR, SessionLocal
-from core.hwp_cleanup import kill_orphaned_hwp_processes
+from core.hwp_cleanup import ensure_hwp_security_module_registered, kill_orphaned_hwp_processes
 from core.models_db import Report
 from core.report_builder_hwp_fields import fill_all
 from core.report_builder_hwp_fields_cleanup import _remove_blank_pages
@@ -88,6 +88,10 @@ def _fill_and_save(report_id: int, hwp_path: Path, pdf_path: Path | None) -> Non
             # 재사용해 창이 안 뜨는 것처럼 보이는 문제를 막기 위해 먼저 정리한다
             # (core/hwp_cleanup.py 참고, 근본 원인은 미파악).
             kill_orphaned_hwp_processes()
+            # register_module=True가 내부적으로 의존하는 pyhwpx 자체 버그(파이썬/pip이 없는
+            # 배포 환경에서 보안모듈 자동등록이 조용히 실패)를 미리 막는다 — 실사용 배포판에서
+            # "한글 보안 확인창"이 그대로 뜨는 문제로 발견(core/hwp_cleanup.py 참고).
+            ensure_hwp_security_module_registered()
             hwp = Hwp(visible=False, register_module=True)
             # 해당사항없음 섹션의 빈 페이지를 정리할 때 표/개체 삭제 확인 팝업이 뜨면
             # 화면이 안 보이는 상태(visible=False)라 응답할 수 없어 자동화가 멈춘다

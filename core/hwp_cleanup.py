@@ -23,11 +23,64 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import win32gui
 import win32process
 
 _PROCESS_NAME = "Hwp.exe"
+
+_SECURITY_MODULE_KEY_PATHS = (
+    r"Software\HNC\HwpAutomation\Modules",
+    r"Software\Hnc\HwpUserAction\Modules",
+)
+_SECURITY_MODULE_VALUE_NAME = "FilePathCheckerModule"
+
+
+def ensure_hwp_security_module_registered() -> None:
+    """`Hwp(register_module=True)`가 pyhwpx 자체 버그로 등록에 실패하는 걸 미리 막는다.
+
+    pyhwpx의 `register_module()`은 레지스트리에 보안모듈이 없으면(`check_registry_key()`가
+    False) 자동으로 `register_regedit()`를 부르는데, 그 함수는 `subprocess.check_output(
+    ["pip", "show", "pyhwpx"])`로 자기 설치 위치를 찾으려 한다 — 파이썬/pip이 아예 없는
+    고객 PC(패키징된 exe만 있는 환경)에서는 이 호출이 실패하고, `location` 변수가 끝내
+    할당되지 않은 채 바로 다음 줄에서 쓰여 `UnboundLocalError`가 난다. 이 예외는
+    `Hwp.__init__`의 `except Exception as e: print(e, ...)`에 잡히긴 하지만, 이 앱은
+    `--windowed`(콘솔 없음) exe라 그 print가 아무 데도 안 보이고 조용히 사라진다 — 결과적으로
+    보안모듈 등록이 완전히 실패했는데도 아무 오류 없이 넘어가고, 나중에 실제 파일을 열 때
+    한글의 "외부 프로그램이 이 파일에 접근하려 합니다" 보안 확인창이 그대로 뜬다
+    (`visible=False`라 자동으로 못 눌러서 자동화가 실패/대기한다 — 실사용 배포판에서 발견).
+
+    해결: `Hwp()`를 생성하기 *전에* 우리가 직접 레지스트리 키를 정확한(파이썬/pip 유무와
+    무관하게 항상 맞는) DLL 경로로 써둔다 — `Path(pyhwpx.__file__).resolve().parent`는
+    `packaging/build_exe.py`가 `--add-data`로 번들해둔 바로 그 상대 위치와 항상 일치한다
+    (python-hwpx 스키마 번들 버그를 고칠 때 쓴 것과 같은 경로 해석 방식). 그러면 pyhwpx의
+    `check_registry_key()`가 "이미 등록됨(파일도 실제로 존재함)"으로 판단해 문제의
+    `register_regedit()`를 아예 안 부르고, 실제 보안승인 COM 호출(`hwp.RegisterModule(...)`)
+    만 정상 실행된다. 개발 환경(파이썬/pip 있음)에서도 부작용 없이 그냥 같은 값을 다시 쓸
+    뿐이라 안전하다.
+    """
+    import winreg
+
+    try:
+        import pyhwpx
+
+        dll_path = Path(pyhwpx.__file__).resolve().parent / "FilePathCheckerModule.dll"
+        if not dll_path.exists():
+            return
+    except Exception:
+        return
+
+    for key_path in _SECURITY_MODULE_KEY_PATHS:
+        try:
+            key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_WRITE)
+            try:
+                winreg.SetValueEx(key, _SECURITY_MODULE_VALUE_NAME, 0, winreg.REG_SZ, str(dll_path))
+            finally:
+                winreg.CloseKey(key)
+            return
+        except OSError:
+            continue
 
 
 def _hwp_pids() -> set[int]:

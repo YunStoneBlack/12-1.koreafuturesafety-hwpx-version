@@ -138,3 +138,22 @@ def apply_heading_keep_with_next(doc) -> None:
             if list(nxt.tables) or _HEADING_RE.match((nxt.text or "").strip()):
                 break
             i += 1
+
+
+def force_future_process_heading_page_break(doc) -> None:
+    """"9. 향후 진행공정..." 제목 문단에 `page_break_before`를 강제로 걸어 항상 새 페이지
+    맨 위에서 시작하게 한다.
+
+    지적사항(8번, `remove_unused_finding_blocks`가 이제 슬롯을 안 지우게 되면서 — 데이터
+    소실 버그 수정 참고 — 빈 슬롯도 항상 표에 남는다)이 몇 건이냐에 따라 8번 표 길이가
+    들쭉날쭉해지고, 그 결과 "9." 제목이 8번 표 페이지 맨 아래에 겨우 낑겨 들어가는 경우가
+    생겼다(실사용 확인, 2026-09-16). `apply_heading_keep_with_next`의 연쇄 keep_with_next
+    (제목→빈 문단→표)만으로는 이 경계 케이스를 못 잡아서, "9." 제목만은 아예 무조건 새
+    페이지에서 시작하도록 명시적으로 강제한다 — 8번 표가 몇 줄이든 결과가 항상 같아
+    keep_with_next 연쇄의 신뢰성 문제에 기대지 않아도 된다.
+    """
+    for index, paragraph in enumerate(doc.paragraphs):
+        text = (paragraph.text or "").strip()
+        if _HEADING_RE.match(text) and text.split(".", 1)[0] == "9":
+            doc.set_paragraph_format(paragraph_index=index, page_break_before=True)
+            break

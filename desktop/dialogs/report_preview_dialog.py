@@ -180,24 +180,29 @@ class ReportPreviewDialog(QDialog):
         self._render_preview(on_done=_start_export)
 
     def _regenerate_and_export_hwp(self) -> None:
-        """하단 "한글 파일 생성" — 미리보기(왼쪽은 여전히 PDF 렌더링)를 갱신한 뒤(완료되면
-        이어서) 사용자가 고른 위치에 실제 서식 그대로의 .hwpx 파일을 저장한다(COM 없는
-        신규 엔진, Sub-phase 19)."""
+        """하단 "한글 파일 생성" — 사용자가 고른 위치에 실제 서식 그대로의 .hwpx 파일을
+        저장한다(COM 없는 신규 엔진, Sub-phase 19).
+
+        예전엔 `_regenerate_and_export_pdf`와 똑같이 왼쪽 미리보기(PDF 렌더링, 한글 COM
+        자동화 필요)부터 갱신한 뒤 그게 성공해야만 저장 단계로 넘어갔다 — 그런데 실제
+        파일 저장(`_export_hwp_as` → `build_report_hwpx`)은 COM이 전혀 필요 없는 순수
+        파이썬 엔진이라, 이렇게 묶어두면 그 PC의 한글 COM 자동화(`hwp.open()`)가 실패할
+        때 "한글 파일 생성"까지 덩달아 막혀버린다 — 실사용 배포판에서 미리보기와 한글파일
+        생성이 완전히 똑같은 에러로 동시에 실패하는 걸로 발견(Sub-phase 20 후속). COM
+        문제와 무관하게 최소한 .hwpx 파일은 받을 수 있도록 미리보기 갱신 없이 바로
+        저장을 시도한다."""
         self._wizard._save(navigate=False)
         if not self._wizard._report_id:
             return
 
-        def _start_export():
-            self._set_busy(True)
-            self.progress_bar.start()
+        self._set_busy(True)
+        self.progress_bar.start()
 
-            def _on_finished(path):
-                self._set_busy(False)
-                self.progress_bar.finish() if path else self.progress_bar.reset_hidden()
+        def _on_finished(path):
+            self._set_busy(False)
+            self.progress_bar.finish() if path else self.progress_bar.reset_hidden()
 
-            self._wizard._export_hwp_as(on_finished=_on_finished)
-
-        self._render_preview(on_done=_start_export)
+        self._wizard._export_hwp_as(on_finished=_on_finished)
 
     def _set_busy(self, busy: bool) -> None:
         for btn in (self.refresh_btn, self.hwp_btn, self.pdf_btn):

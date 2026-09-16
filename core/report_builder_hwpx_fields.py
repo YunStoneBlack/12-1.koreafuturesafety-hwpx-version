@@ -281,7 +281,18 @@ def _equipment_verdict(measurement) -> str | None:
 
 
 def fill_support_fields(doc, report: Report) -> None:
-    """표16: 사업장 지원 사항 — TBM(참석인원/장소/내용/자료) + 장비사용(최대 2건)."""
+    """표16: 사업장 지원 사항 — TBM(참석인원/장소/내용/자료) + 장비사용(최대 2건).
+
+    "○ 참석인원 : [값]"/"○ 교육장소 : [값]" 칸 폭은 한때 여기서 코드로 재조정했었다 —
+    참석인원 값 칸(원래 8653 hwpunit)이 "1 명"류 짧은 값엔 너무 넓어서, 그만큼 교육장소
+    값 칸(원래 3276)이 좁아 "현장사무실" 같은 흔한 값도 한 글자씩 줄바꿈됐다(실사용 확인,
+    2026-09-16). 그런데 코드로 이 칸(교육장소 값 칸, 사진 병합칸 바로 앞)을 넓히면 폭
+    합계는 정확히 똑같이 맞아떨어지는데도 늘어난 만큼 표 전체가 페이지 밖으로 밀려나는
+    한글 자체의 렌더링 문제가 있어서(원인 불명, 실측으로 재현·확인만 함), 코드 수정을
+    포기하고 **템플릿 파일(`report_template.hwpx`) 자체를 한글에서 직접 열어 표 칸
+    경계선을 손으로 드래그해 재조정**했다 — 한글 자신의 편집기로 조정하면 이 문제가
+    안 생긴다. 그래서 이 함수는 이제 폭을 안 건드리고 텍스트만 채운다.
+    """
     for field, text in _TBM_LABEL_RESTORE.items():
         _put(doc, field, text)
 
@@ -327,7 +338,11 @@ def fill_all(doc, report: Report, site: Site) -> None:
     """3단계 포팅 범위 — 빈 슬롯 표 삭제까지 추가됨. 일부 칸 글자스타일(굵게/가운데정렬/
     배경색)은 아직 없다(다음 단계).
     """
-    from core.report_builder_hwpx_fields_cleanup import apply_heading_keep_with_next, remove_na_sections
+    from core.report_builder_hwpx_fields_cleanup import (
+        apply_heading_keep_with_next,
+        force_future_process_heading_page_break,
+        remove_na_sections,
+    )
     from core.report_builder_hwpx_fields_findings import (
         fill_finding_fields,
         fill_previous_finding_fields,
@@ -358,3 +373,4 @@ def fill_all(doc, report: Report, site: Site) -> None:
     fill_finding_fields(doc, report)
     fill_support_fields(doc, report)
     apply_heading_keep_with_next(doc)
+    force_future_process_heading_page_break(doc)
