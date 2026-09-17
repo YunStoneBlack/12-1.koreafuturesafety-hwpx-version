@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QFileDialog, QLabel, QPushButton, QVBoxLayout, QWidget
@@ -84,3 +87,24 @@ class PhotoDropZone(QWidget):
     @property
     def photo_path(self) -> str:
         return self._photo_path
+
+
+def copy_photo_to_storage(source_path: str, final_path: Path) -> str:
+    """업로드한 사진 원본을 앱 데이터 폴더(`final_path`)로 복사해, 이 앱이 원본 경로를
+    영원히 신뢰할 수 있다고 가정하지 않게 한다(`signature_pad.move_or_reference`와 같은
+    이유·같은 패턴). 실사용 중 드롭박스/네이버박스 같은 동기화 폴더에서 고른 사진이
+    보고서 생성 시점엔 전부 안 들어가는 버그로 발견됐다(2026-09-18) — 동기화 폴더는
+    탐색기에 파일이 있는 것처럼 보여도 일반 파일 접근과 다르게 동작할 수 있어, 원본
+    경로를 계속 참조하는 대신 저장 시점에 한 번 앱 폴더 안으로 복사해 자기완결적으로
+    만든다. 서명과 달리 사진은 항상 사용자의 원본 파일이므로 옮기지 않고 복사만 한다.
+    실패하면 예외를 그대로 올린다 — 호출부가 사용자에게 어떤 사진인지 콕 집어 알려줄 수
+    있도록 여기서 조용히 삼키지 않는다.
+    """
+    if not source_path:
+        return ""
+    source = Path(source_path)
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() == final_path.resolve():
+        return str(final_path)
+    shutil.copy2(str(source), str(final_path))
+    return str(final_path)

@@ -1,10 +1,14 @@
 """8번(지적사항)/4번(이전지적사항) 표 채우기 — `report_builder_hwp_fields_findings.py`
 (pyhwpx/COM 버전)를 python-hwpx로 옮긴 버전.
 
-`remove_unused_finding_blocks()`/`remove_unused_previous_finding_blocks()`(원래 의도는
-빈 슬롯 표 삭제)는 지적사항 1~4번 슬롯이 표 하나를 공유하는 실제 구조 때문에(실측 확인)
-슬롯 단위 삭제가 다른 슬롯의 데이터까지 지워버려서, 지금은 아무것도 안 지우는
-안전한 no-op이다 — 각 함수 docstring 참고.
+`remove_unused_finding_blocks()`/`remove_unused_previous_finding_blocks()`(빈 슬롯 표
+삭제)는 한때(Sub-phase 21) 지적사항 1~4번 슬롯이 표 하나를 공유하는 구조라 슬롯 단위
+삭제가 다른 슬롯의 데이터까지 지워버려서 아무것도 안 지우는 no-op이었다. 2026-09-18에
+현재 템플릿을 다시 실측해보니 각 슬롯이 이제 서로 다른 `<hp:tbl>`(표 자체가 슬롯별로
+분리됨 — 각 표의 `id` 속성이 전부 다름)이라 슬롯별 삭제를 되살렸다. 다만 표 2개(예:
+슬롯1/슬롯2)가 문단 하나를 같이 쓰고 있어서(각각 다른 run) 문단째 지우는
+`_remove_table_by_field`는 여전히 위험하다 — 대신 그 표가 든 run 하나만 지우는
+`_remove_table_run_by_field`(신규)를 쓴다.
 
 값 조립 규칙 자체는 원본과 동일 — 자세한 배경 설명은 `report_builder_hwp_fields_findings.py`
 docstring을 그대로 참고할 것.
@@ -15,6 +19,7 @@ from __future__ import annotations
 from core.constants import FINDING_LOW_RISK_MAX_SCORE
 from core.models_db import PreviousFinding, Report
 from core.report_builder_hwpx_fields import _put
+from core.report_builder_hwpx_fields_cleanup import _remove_table_run_by_field
 from core.report_builder_hwpx_images import _locate_field_cell
 
 _FINDING_RISK_BANDS = [
@@ -101,29 +106,36 @@ def _fill_finding_risk(doc, slot: int, finding) -> None:
 
 
 def remove_unused_finding_blocks(doc, report: Report) -> None:
-    """의도는 "데이터가 없는 지적사항 슬롯의 표만 지운다"였지만, 실제로는 아무것도
-    지우지 않는다 — **아무 슬롯도 지우면 안 된다는 걸 실측으로 확인했다.**
+    """데이터가 없는 지적사항(8번) 슬롯의 표를 지운다 — 내용이 1건이라도 있으면 그
+    슬롯만 표시되고 나머지 빈 슬롯은 아예 안 보여야 한다(사용자 요청, 2026-09-18).
 
-    지적사항 1~4번 슬롯은 서로 다른 표가 아니라 **표8 하나를 공유**한다(실측 확인:
-    `finding1_hazard`~`finding4_hazard` 필드가 전부 같은 `<hp:tbl>` 요소를 가리킴).
-    `_remove_table_by_field()`는 그 필드가 든 표를 감싸는 문단 전체를 지우는데, 표가
-    공유되므로 "슬롯 2가 비었다고 슬롯 2만 지우려는" 호출이 슬롯 1의 실제 데이터까지
-    통째로 날려버린다 — 지적사항이 1건만 있어도 미리보기에서 "8." 제목 다음에 아무
-    내용도 없이 바로 "9."로 넘어가는 버그로 발견(2026-09-16, 실사용 배포판). 표12/15
-    (7·9번 진행공정)처럼 슬롯별로 행만 지우는 진짜 수술이 필요하지만, 그때까지는
-    안전하게 "아무것도 안 지우고 빈 슬롯은 빈 칸으로 남긴다"(내용은 `fill_finding_fields`가
-    빈 문자열로 채워 자연히 공란으로 보인다) 쪽을 택한다 — 칸이 좀 남는 건 손해지만
-    데이터가 사라지는 것보단 훨씬 낫다.
+    한때(Sub-phase 21) 1~4번 슬롯이 표 하나를 공유해 슬롯 단위 삭제가 다른 슬롯 데이터까지
+    지워버리는 버그가 있었지만, 지금 템플릿은 슬롯마다 서로 다른 `<hp:tbl>`이다(실측
+    확인 — `finding1_hazard`~`finding4_hazard`가 가리키는 표의 `id` 속성이 전부 다름).
+    다만 표 2개(슬롯1&2, 슬롯3&4)가 문단 하나를 같이 쓰고 있어서 `_remove_table_by_field`
+    (문단째 삭제)를 쓰면 여전히 옆 슬롯까지 같이 지워진다 — 그 표의 run 하나만 지우는
+    `_remove_table_run_by_field`를 쓴다. `fill_finding_fields`보다 먼저 호출해야 한다
+    (`fill_all` 참고) — 채우기 전에 지워야 아직 빈 슬롯인 채로 삭제 대상을 판단할 수
+    있다. 저장 시(`report_wizard_save.py`) 데이터가 없는 슬롯은 애초에 `Finding` 행
+    자체를 안 만들므로, `report.findings`에 없는 slot 번호가 곧 "빈 슬롯"이다.
     """
-    return
+    findings_by_slot = {f.slot: f for f in report.findings}
+    for slot in (1, 2, 3, 4):
+        if slot not in findings_by_slot:
+            _remove_table_run_by_field(doc, f"finding{slot}_hazard")
 
 
 def remove_unused_previous_finding_blocks(doc, report: Report) -> None:
-    """`remove_unused_finding_blocks`와 완전히 같은 이유로 아무것도 지우지 않는다 —
-    이전지적사항 1~4번 슬롯도 표4~7이 슬롯당 독립된 표라는 문서화된 설계와 달리 실제로는
-    표 하나를 공유하고 있어(실측 확인: `previous_finding1_title`~`previous_finding4_title`
-    전부 같은 `<hp:tbl>`), 슬롯 단위 표 삭제가 다른 슬롯의 실제 데이터까지 지워버린다."""
-    return
+    """`remove_unused_finding_blocks`와 같은 이유·같은 방식으로 이전지적사항(4번) 빈
+    슬롯의 표를 지운다 — 표4~7도 슬롯마다 서로 다른 표지만 2개씩 문단을 같이 써서
+    `_remove_table_run_by_field`가 필요하다(실측 확인). `previous_findings_na` 체크
+    시에도 저장 시 슬롯이 전부 비어있으므로(활성 슬롯이 없으면 `PreviousFinding` 행
+    자체가 없음) 이 함수 하나로 자연히 표 4개가 다 지워진다 — `remove_na_sections`는
+    그래서 이 섹션 제목만 지우고 표 삭제는 여기에 맡긴다."""
+    previous_by_slot = {p.slot: p for p in report.previous_findings}
+    for slot in (1, 2, 3, 4):
+        if slot not in previous_by_slot:
+            _remove_table_run_by_field(doc, f"previous_finding{slot}_title")
 
 
 def fill_finding_fields(doc, report: Report) -> None:

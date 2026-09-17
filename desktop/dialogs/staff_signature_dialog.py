@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
 
 from core.db import BASE_DIR, SessionLocal
 from core.models_db import Staff
@@ -52,7 +52,19 @@ class StaffSignatureDialog(QDialog):
 
     def _save(self) -> None:
         final_path = BASE_DIR / "data" / "signatures" / f"staff_{self._staff_id}.png"
-        path = move_or_reference(self.pad, final_path)
+        try:
+            path = move_or_reference(self.pad, final_path)
+        except OSError as e:
+            # 예전엔 이 실패가 --windowed exe에서 콘솔 없이 조용히 사라져 "서명을 분명
+            # 등록했는데 보고서엔 안 나온다"는 원인불명 증상으로만 보였다(2026-09-18,
+            # 동기화 폴더에서 고른 서명 파일로 실사용 중 발견) — 반드시 화면에 알린다.
+            QMessageBox.warning(
+                self,
+                "서명 저장 실패",
+                f"서명 파일을 저장하지 못했습니다: {e}\n\n드롭박스·네이버박스 등 동기화 폴더에"
+                " 있는 파일이면, 완전히 다운로드된 상태인지 확인한 뒤 다시 시도해주세요.",
+            )
+            return
         with SessionLocal() as session:
             staff = session.get(Staff, self._staff_id)
             if staff:

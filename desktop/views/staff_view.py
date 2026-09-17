@@ -198,7 +198,20 @@ class StaffView(QWidget):
             session.flush()
             if self.new_staff_pad.has_signature():
                 final_path = BASE_DIR / "data" / "signatures" / f"staff_{staff.id}.png"
-                path = move_or_reference(self.new_staff_pad, final_path)
+                try:
+                    path = move_or_reference(self.new_staff_pad, final_path)
+                except OSError as e:
+                    # --windowed exe에선 여기서 그냥 return하면 예외가 콘솔 없이 조용히
+                    # 사라진다(2026-09-18, 동기화 폴더 서명 파일로 실사용 중 발견) — 담당요원
+                    # 등록 자체는 계속 진행하되 서명 실패는 화면에 알린다.
+                    QMessageBox.warning(
+                        self,
+                        "서명 저장 실패",
+                        f"서명 파일을 저장하지 못했습니다: {e}\n\n드롭박스·네이버박스 등 동기화"
+                        " 폴더에 있는 파일이면, 완전히 다운로드된 상태인지 확인한 뒤 서명을"
+                        " 다시 등록해주세요.",
+                    )
+                    path = ""
                 staff.signature_path = path
                 staff.signature_source = self.new_staff_pad.source if path else ""
             session.commit()
@@ -242,7 +255,19 @@ class StaffView(QWidget):
         pad = self.director_pad if role == "director" else self.ceo_pad
         status_label = self.director_status_label if role == "director" else self.ceo_status_label
         final_path = BASE_DIR / "data" / "signatures" / f"company_{role}.png"
-        path = move_or_reference(pad, final_path)
+        try:
+            path = move_or_reference(pad, final_path)
+        except OSError as e:
+            # 결재란 도장이 등록했는데도 보고서에 안 나온다는 증상의 원인 중 하나 —
+            # --windowed exe에선 여기서 조용히 실패하면 화면엔 아무 변화도 없어 보인다
+            # (2026-09-18, 동기화 폴더 도장 파일로 실사용 중 발견).
+            QMessageBox.warning(
+                self,
+                "도장 저장 실패",
+                f"도장 파일을 저장하지 못했습니다: {e}\n\n드롭박스·네이버박스 등 동기화 폴더에"
+                " 있는 파일이면, 완전히 다운로드된 상태인지 확인한 뒤 다시 시도해주세요.",
+            )
+            return
         config.set_company_signature(role, path, pad.source if path else "")
         self._set_signature_status(status_label, bool(path))
 

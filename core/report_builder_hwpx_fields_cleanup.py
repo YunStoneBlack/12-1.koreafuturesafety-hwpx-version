@@ -71,6 +71,30 @@ def _remove_table_by_field(doc, field_name: str) -> bool:
     return True
 
 
+def _remove_table_run_by_field(doc, field_name: str) -> bool:
+    """`_remove_table_by_field`와 달리 표를 담은 문단 전체가 아니라, 그 표(`<hp:tbl>`)
+    노드 하나만 지운다 — 지적사항(8번)/이전지적사항(4번) 표는 슬롯 2개(1&2, 3&4)가
+    문단 하나는 물론 **run 하나까지** 같이 쓴다(실측 확인: 한 run의 자식이
+    `[tbl, tbl, t]` — 표 2개가 같은 run 안에 나란히 들어있고 뒤에 빈 텍스트 노드가
+    붙음). `_remove_table_by_field`(문단째 삭제)는 물론, run 단위로 지워도 옆 슬롯
+    표까지 같이 사라진다(2026-09-18, 실사용 전 검증 중 발견 — 슬롯 2에 데이터가 있어도
+    슬롯 1을 지우려다 같이 지워짐) — 그래서 run이 아니라 표 노드 자체만 그 run에서
+    떼어낸다. 표를 지우고 나서 그 문단에 표가 하나도 안 남으면(두 슬롯 다 빈 경우)
+    문단 자체도 마저 지운다 — 빈 문단이 차지하는 줄바꿈 한 칸이 남는 걸 막는다.
+    """
+    table = _find_table_by_field(doc, field_name)
+    if table is None:
+        return False
+    paragraph = _find_anchor_paragraph(doc, table)
+    if paragraph is None:
+        return False
+    tbl_element = table.element
+    tbl_element.getparent().remove(tbl_element)
+    if not list(paragraph.tables):
+        doc.remove_paragraph(paragraph)
+    return True
+
+
 def _remove_paragraph_containing(doc, text: str) -> bool:
     """`text`가 들어있는(표가 아닌, 표 밖) 문단을 지운다 — 독립된 섹션 제목 문단을 지울 때
     쓴다. 표 안 문단은 `doc.paragraphs`(최상위 문단만 순회)에 안 잡히므로 안전하다."""
@@ -144,10 +168,11 @@ def force_future_process_heading_page_break(doc) -> None:
     """"9. 향후 진행공정..." 제목 문단에 `page_break_before`를 강제로 걸어 항상 새 페이지
     맨 위에서 시작하게 한다.
 
-    지적사항(8번, `remove_unused_finding_blocks`가 이제 슬롯을 안 지우게 되면서 — 데이터
-    소실 버그 수정 참고 — 빈 슬롯도 항상 표에 남는다)이 몇 건이냐에 따라 8번 표 길이가
-    들쭉날쭉해지고, 그 결과 "9." 제목이 8번 표 페이지 맨 아래에 겨우 낑겨 들어가는 경우가
-    생겼다(실사용 확인, 2026-09-16). `apply_heading_keep_with_next`의 연쇄 keep_with_next
+    지적사항(8번)이 몇 건이냐에 따라 8번 표 길이가 들쭉날쭉해지고(빈 슬롯을 표에 남기던
+    시절도, 지금처럼 `remove_unused_finding_blocks`가 빈 슬롯 표를 지우는 지금도 마찬가지
+    — 오히려 지금은 슬롯 개수만큼 표 자체가 사라지므로 길이 편차가 더 크다), 그 결과
+    "9." 제목이 8번 표 페이지 맨 아래에 겨우 낑겨 들어가는 경우가 생겼다(실사용 확인,
+    2026-09-16). `apply_heading_keep_with_next`의 연쇄 keep_with_next
     (제목→빈 문단→표)만으로는 이 경계 케이스를 못 잡아서, "9." 제목만은 아예 무조건 새
     페이지에서 시작하도록 명시적으로 강제한다 — 8번 표가 몇 줄이든 결과가 항상 같아
     keep_with_next 연쇄의 신뢰성 문제에 기대지 않아도 된다.

@@ -13,10 +13,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from hwpx.form_fit import DEFAULT_SAFETY, estimate_text_width
+
 from core.constants import FIXED_HAZARD_FACTORS, MAJOR_HAZARD_WORKS, MEASUREMENT_INSTRUMENTS
 from core.db import SessionLocal
 from core.models_db import MeasurementStandard, Report, Site
-from core.report_builder_hwpx_images import _locate_field_cell
+from core.report_builder_hwpx_images import _cell_inner_box, _locate_field_cell
 
 
 def _put(doc, field_name: str, value: str) -> None:
@@ -77,64 +79,54 @@ def fill_management_no(doc, site: Site) -> None:
 
 
 
-# 이메일이 길수록 셀이 줄바꿈되며 표가 다음 페이지로 밀리는 문제를 막기 위해, 길이 구간별로
-# 폰트를 단계적으로 줄인다(사용자 요청, 2026-09-17). 고정폭 1단계(8pt)로는 표3 통보방법
-# 칸처럼 실제 가용 폭이 좁은 자리에서 여전히 줄바꿈되는 경우가 실측으로 확인돼, 아주 길면
-# 더 작게 줄이는 계단식으로 바꿨다. (하한, 크기) 순으로 정렬 — 길이가 하한을 넘는 마지막
-# 구간의 크기를 쓴다.
-_EMAIL_FONT_TIERS: list[tuple[int, int]] = [
-    (20, 9),  # 21자부터
-    (25, 8),  # 26자부터
-    (29, 7),  # 30자부터
-]
+_EMAIL_MIN_FONT_PT = 6.0  # 이보다 작게는 안 줄인다 — 너무 작으면 읽기 힘들어짐
+_EMAIL_BASE_FONT_PT = 10.0  # 템플릿 기본 크기
+_EMAIL_SHRINK_STEP_PT = 0.5
 
 
-def _email_font_size_for(value: str) -> int | None:
-    """길이에 맞는 폰트 크기(pt)를 고른다 — 기본 크기(10pt)로 충분하면 None."""
-    length = len(value or "")
-    size = None
-    for min_len, tier_size in _EMAIL_FONT_TIERS:
-        if length > min_len:
-            size = tier_size
-    return size
+def _fit_font_size(value: str, available_width: float) -> float:
+    """`available_width`(HWPUNIT) 안에 한 줄로 들어가는 가장 큰 폰트 크기(pt)를 찾는다
+    (0.5pt 단위로 내려가며 시도, `_EMAIL_MIN_FONT_PT`가 하한)."""
+    pt = _EMAIL_BASE_FONT_PT
+    while pt > _EMAIL_MIN_FONT_PT:
+        if estimate_text_width(value, pt) <= available_width:
+            return pt
+        pt = round(pt - _EMAIL_SHRINK_STEP_PT, 2)
+    return _EMAIL_MIN_FONT_PT
 
 
-def _shrink_cell_font_if_long(doc, field_name: str, value: str) -> None:
+def _put_shrink_to_fit(doc, field_name: str, value: str) -> None:
     """긴 텍스트(예: 이메일)가 셀 안에서 줄바꿈되며 표 전체가 다음 페이지로 밀리는 문제를
-    막기 위해, 길이 구간에 맞는 크기로 그 칸 전체 폰트를 줄인다(사용자 요청, 2026-09-17).
-    표 폭 자체를 코드로 늘리는 방법은 시도했다가 python-hwpx로 `cellSz.width`를 건드리면
-    폭 합이 맞는데도 표가 페이지 밖으로 밀리는 원인불명 렌더링 버그를 만난 적이 있어
-    (TBM 표, Sub-phase 21) 폭 조정 대신 폰트 축소로 우회한다.
+    막기 위해, 그 필드가 실제로 들어있는 칸의 폭을 측정해 한 줄에 들어가도록 폰트를 정확히
+    줄인다 — python-hwpx의 FormFit 엔진이 쓰는, 한글 렌더링 기준으로 보정된 텍스트 폭
+    측정 함수(`hwpx.form_fit.estimate_text_width`)로 실제 필요한 크기를 직접 계산한다.
+
+    글자수 구간표로 추측하던 이전 방식은 표1 연락처 칸(폭이 넉넉함)에선 맞았지만 표3
+    통보방법 칸(실제 가용 폭이 훨씬 좁음)에선 같은 글자수에도 여전히 줄바꿈돼(실사용 중
+    발견, 2026-09-17→18) 정확한 폭 측정 방식으로 교체했다.
+
+    `fill_form_field(fit_policy=...)` 고수준 API도 시도해봤지만, 그 엔진은 렌더링으로
+    검증하는 "오라클" 없이는 여유폭(band, 실측 약 18.5%)을 못 넘는 크기만 "고신뢰"로
+    인정해 그보다 조금만 더 큰(그래도 실제로는 한 줄에 들어가는) 크기를 계속 "저신뢰"로
+    보고 거부했다(실측 확인: 30자 이메일이 7pt에서 실제로 들어가는데도 고신뢰 판정이
+    안 나 결국 아무 것도 안 줄이고 포기함) — 우리는 그 오라클이 없으므로 대신
+    `estimate_text_width`만 직접 써서 필요한 크기를 계산하고 곧장 적용한다.
+
+    칸 전체가 아니라 방금 채운 값과 텍스트가 일치하는 run만 골라 적용한다 — 표3처럼 같은
+    칸에 체크박스 라벨이 같이 있어도 라벨은 안 건드린다(표1처럼 칸에 이 필드 하나뿐이면
+    자연히 그 필드만 걸린다).
     """
-    size = _email_font_size_for(value)
-    if size is None:
-        return
+    _put(doc, field_name, value)
     located = _locate_field_cell(doc, field_name)
     if located is None:
         return
     table, row, col = located
     cell = table.cell(row, col)
-    style_id = doc.ensure_run_style(size=size)
-    for para in cell.paragraphs:
-        for run in para.runs:
-            run.char_pr_id_ref = style_id
-
-
-def _shrink_field_run_if_long(doc, field_name: str, value: str) -> None:
-    """`_shrink_cell_font_if_long`과 달리 칸(cell) 전체가 아니라 그 필드 자신의 run만
-    골라 길이 구간에 맞는 크기로 줄인다 — 표3 통보방법 칸(t3_013 이메일)처럼 같은 칸에
-    체크박스 라벨("☑전자우편" 등, t3_012)이 함께 들어있어 그 라벨까지 같이 작아지면 안
-    되는 경우에 쓴다(사용자 요청, 2026-09-17). 방금 채운 값과 텍스트가 일치하는 run만
-    골라서 적용하는 방식이라, 값 자체가 그 칸 안에서 유일한 문자열이어야 한다(이메일처럼).
-    """
-    size = _email_font_size_for(value)
-    if size is None:
+    box_width, _height = _cell_inner_box(cell)
+    available_width = box_width * DEFAULT_SAFETY
+    if not value or estimate_text_width(value, _EMAIL_BASE_FONT_PT) <= available_width:
         return
-    located = _locate_field_cell(doc, field_name)
-    if located is None:
-        return
-    table, row, col = located
-    cell = table.cell(row, col)
+    size = _fit_font_size(value, available_width)
     style_id = doc.ensure_run_style(size=size)
     for para in cell.paragraphs:
         for run in para.runs:
@@ -157,8 +149,7 @@ def fill_site_fields(doc, site: Site) -> None:
     _put(doc, "t1_006", f"{site.amount:,}원" if site.amount is not None else "")
     _put(doc, "t1_007", site.manager_name)
     _put(doc, "t1_008", site.manager_phone)
-    _put(doc, "t1_010", site.manager_email)
-    _shrink_cell_font_if_long(doc, "t1_010", site.manager_email)
+    _put_shrink_to_fit(doc, "t1_010", site.manager_email)
     _put(doc, "t1_011", site.address)
 
 
@@ -201,10 +192,7 @@ def fill_signoff_fields(doc, report: Report, site: Site) -> None:
     _put(doc, "t3_011", f"{'☑' if method == '기타' else '☐'}기타")
     _put(doc, "t3_012", f"{'☑' if method == '전자우편' else '☐'}전자우편")
     email_paren = f"( {site.manager_email} )"
-    _put(doc, "t3_013", email_paren)
-    # 체크박스 라벨(t3_012 등)과 같은 칸에 있어 칸 전체를 줄이면 라벨까지 작아진다 —
-    # 이메일 run만 콕 집어 줄인다.
-    _shrink_field_run_if_long(doc, "t3_013", email_paren)
+    _put_shrink_to_fit(doc, "t3_013", email_paren)
 
     _put(doc, "t3_014", f"{'☑' if report.misc_overwork else '☐'}공사기간 편중, 조기준공 등")
     _put(doc, "t3_015", f"{'☑' if report.misc_no_photo else '☐'}사진촬영 불가 (보안 등)")

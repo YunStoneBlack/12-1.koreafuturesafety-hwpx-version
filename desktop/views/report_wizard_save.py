@@ -38,6 +38,7 @@ from core.report_builder import build_report
 from core.report_builder_hwpx import build_report_hwpx
 from desktop.dialogs.report_preview_dialog import ReportPreviewDialog
 from desktop.dialogs.saving_progress_dialog import SavingProgressDialog
+from desktop.widgets.photo_drop_zone import copy_photo_to_storage
 from desktop.widgets.signature_pad import move_or_reference
 from desktop.workers.ai_worker import AIWorker, with_com
 
@@ -112,6 +113,26 @@ class _SaveGenerateMixin:
 
             session.flush()
 
+            # 사진 원본이 드롭박스/네이버박스 같은 동기화 폴더에 있으면 나중에 이 경로로
+            # 다시 읽으려 할 때 실패할 수 있어(2026-09-18, 실사용 중 발견 — 모든 사진이
+            # 안 들어가는 버그의 원인), 저장 시점에 앱 데이터 폴더로 한 번 복사해둔다
+            # (서명에 이미 쓰던 `move_or_reference`와 같은 이유). 복사가 실패해도 저장
+            # 자체는 계속 진행하되(사용자가 입력한 다른 내용까지 날리면 안 되므로), 실패한
+            # 사진 목록을 모아 저장이 끝난 뒤 사용자에게 콕 집어 알려준다 — 예전처럼
+            # 조용히 실패해서 원인을 못 찾는 일이 없도록.
+            photo_copy_failures: list[str] = []
+            photo_dir = BASE_DIR / "data" / "photos" / f"report_{report.id}"
+
+            def _stored_photo(source_path: str, slug: str, label: str) -> str:
+                if not source_path:
+                    return ""
+                filename = f"{slug}{Path(source_path).suffix.lower()}"
+                try:
+                    return copy_photo_to_storage(source_path, photo_dir / filename)
+                except OSError as e:
+                    photo_copy_failures.append(f"{label}: {e}")
+                    return source_path
+
             notify_sig_final = BASE_DIR / "data" / "signatures" / f"report_{report.id}_notify.png"
             moved = move_or_reference(self.notify_signature_pad, notify_sig_final)
             if moved:
@@ -121,8 +142,9 @@ class _SaveGenerateMixin:
             existing_education = session.query(SafetyEducation).filter_by(report_id=report.id).first()
             attendee_text = self.attendee_input.text().strip()
             attendee_count = int(attendee_text) if attendee_text.isdigit() else None
+            education_photo_path = _stored_photo(self.education_photo.photo_path, "education", "안전교육 사진")
             if existing_education:
-                existing_education.photo_path = self.education_photo.photo_path
+                existing_education.photo_path = education_photo_path
                 existing_education.attendee_count = attendee_count
                 existing_education.na_flag = self.education_header.na_button.isChecked()
                 existing_education.location = self.education_location_input.text().strip()
@@ -132,7 +154,7 @@ class _SaveGenerateMixin:
                 session.add(
                     SafetyEducation(
                         report_id=report.id,
-                        photo_path=self.education_photo.photo_path,
+                        photo_path=education_photo_path,
                         attendee_count=attendee_count,
                         na_flag=self.education_header.na_button.isChecked(),
                         location=self.education_location_input.text().strip(),
@@ -145,29 +167,32 @@ class _SaveGenerateMixin:
             for slot_widget in self.overview_photo_slots:
                 if not slot_widget.is_active() or not slot_widget.photo.photo_path:
                     continue
-                session.add(
-                    OverviewPhoto(report_id=report.id, slot=slot_widget.slot, photo_path=slot_widget.photo.photo_path)
+                photo_path = _stored_photo(
+                    slot_widget.photo.photo_path, f"overview_{slot_widget.slot}", f"전경사진 {slot_widget.slot}번"
                 )
+                session.add(OverviewPhoto(report_id=report.id, slot=slot_widget.slot, photo_path=photo_path))
 
             session.query(InspectionPhoto).filter_by(report_id=report.id).delete()
             for slot_widget in self.inspection_photo_slots:
                 if not slot_widget.is_active() or not slot_widget.photo.photo_path:
                     continue
-                session.add(
-                    InspectionPhoto(
-                        report_id=report.id, slot=slot_widget.slot, photo_path=slot_widget.photo.photo_path
-                    )
+                photo_path = _stored_photo(
+                    slot_widget.photo.photo_path, f"inspection_{slot_widget.slot}", f"점검사진 {slot_widget.slot}번"
                 )
+                session.add(InspectionPhoto(report_id=report.id, slot=slot_widget.slot, photo_path=photo_path))
 
             session.query(Finding).filter_by(report_id=report.id).delete()
             for slot_widget in self.finding_slots:
                 if not slot_widget.has_data():
                     continue
+                finding_photo_path = _stored_photo(
+                    slot_widget.photo.photo_path, f"finding_{slot_widget.slot}", f"지적사항 사진 {slot_widget.slot}번"
+                )
                 session.add(
                     Finding(
                         report_id=report.id,
                         slot=slot_widget.slot,
-                        photo_path=slot_widget.photo.photo_path,
+                        photo_path=finding_photo_path,
                         description=slot_widget.description_input.text(),
                         title=slot_widget.title_input.text(),
                         content=slot_widget.content_edit.toPlainText(),
@@ -182,16 +207,24 @@ class _SaveGenerateMixin:
             active_previous = [s for s in self.previous_slots if s.is_active()]
             for slot_widget in active_previous:
                 manual_likelihood, manual_severity = slot_widget.before_risk()
+                previous_photo_path = _stored_photo(
+                    slot_widget.photo.photo_path, f"previous_{slot_widget.slot}", f"이전지적사항 사진 {slot_widget.slot}번"
+                )
+                completion_photo_path = _stored_photo(
+                    slot_widget.completion_photo.photo_path,
+                    f"previous_{slot_widget.slot}_completion",
+                    f"이전지적사항 {slot_widget.slot}번 이행완료 사진",
+                )
                 session.add(
                     PreviousFinding(
                         report_id=report.id,
                         slot=slot_widget.slot,
-                        photo_path=slot_widget.photo.photo_path,
+                        photo_path=previous_photo_path,
                         title=slot_widget.title_input.text(),
                         content=slot_widget.content_edit.toPlainText(),
                         result_status=slot_widget.result_status(),
                         source_finding_id=slot_widget.source_finding_id,
-                        completion_photo_path=slot_widget.completion_photo.photo_path,
+                        completion_photo_path=completion_photo_path,
                         manual_likelihood=manual_likelihood,
                         manual_severity=manual_severity,
                     )
@@ -203,11 +236,14 @@ class _SaveGenerateMixin:
             session.query(Measurement).filter_by(report_id=report.id).delete()
             for row in self.measurement_rows:
                 if row.photo.photo_path or row.value_input.text().strip():
+                    measurement_photo_path = _stored_photo(
+                        row.photo.photo_path, f"measurement_{row.instrument_type}", f"{row.instrument_type} 사진"
+                    )
                     session.add(
                         Measurement(
                             report_id=report.id,
                             instrument_type=row.instrument_type,
-                            photo_path=row.photo.photo_path,
+                            photo_path=measurement_photo_path,
                             value=row.value_input.text().strip(),
                             manual_verdict=row.verdict(),
                             manual_action=row.action_input.text().strip(),
@@ -251,11 +287,14 @@ class _SaveGenerateMixin:
             for row in self.current_process_slots:
                 if not row.has_data():
                     continue
+                current_process_photo_path = _stored_photo(
+                    row.photo.photo_path, f"current_process_{row.slot}", f"현재 진행공정 사진 {row.slot}번"
+                )
                 entry = CurrentProcessEntry(
                     report_id=report.id,
                     slot=row.slot,
                     process_name=row.name_input.text(),
-                    photo_path=row.photo.photo_path,
+                    photo_path=current_process_photo_path,
                 )
                 entry.items = [
                     CurrentProcessHazardItem(
@@ -270,11 +309,14 @@ class _SaveGenerateMixin:
             for process_slot in self.process_slots:
                 if not process_slot.has_data():
                     continue
+                process_photo_path = _stored_photo(
+                    process_slot.photo.photo_path, f"process_{process_slot.slot}", f"향후 진행공정 사진 {process_slot.slot}번"
+                )
                 entry = ProcessHazardEntry(
                     report_id=report.id,
                     slot=process_slot.slot,
                     process_name=process_slot.name_input.text(),
-                    photo_path=process_slot.photo.photo_path,
+                    photo_path=process_photo_path,
                 )
                 entry.items = [
                     ProcessHazardItem(
@@ -310,6 +352,18 @@ class _SaveGenerateMixin:
             report_id = report.id
 
         self._report_id = report_id
+        if photo_copy_failures:
+            # 예전엔 이 복사가 아예 없어서 실패가 조용히 사라지고 사진만 안 보였다
+            # (2026-09-18, 실사용 배포판에서 발견) — 저장 자체는 그대로 성공시키되, 어떤
+            # 사진이 왜 실패했는지 반드시 화면에 알린다.
+            QMessageBox.warning(
+                self,
+                "사진 저장 실패",
+                "다음 사진을 앱 폴더로 복사하지 못해 보고서에 반영되지 않았습니다:\n\n"
+                + "\n".join(photo_copy_failures)
+                + "\n\n드롭박스·네이버박스 등 동기화 폴더에 있는 사진이면, 완전히 다운로드된"
+                " 상태인지 확인한 뒤 사진을 다시 선택해 저장해주세요.",
+            )
         if navigate:
             self.report_saved.emit(self._site_id)
 
