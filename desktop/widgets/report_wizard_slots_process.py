@@ -255,7 +255,9 @@ class _ProcessSlot(QFrame):
         return [row.data() for row in self._item_rows if not row.is_empty()]
 
     def has_data(self) -> bool:
-        return bool(self.name_input.text().strip())
+        # 현장 정책상 사진을 못 올리는 현장이 있어(사용자 요청, 2026-09-17) 사진만 있고
+        # 공정명이 비어있는 슬롯도 "채워짐"으로 봐야 저장 시 무시되지 않는다.
+        return bool(self.name_input.text().strip()) or bool(self.photo.photo_path)
 
     def reset(self) -> None:
         self.photo.clear_photo()
@@ -265,19 +267,18 @@ class _ProcessSlot(QFrame):
         self.changed.emit()
 
     def _run_ai(self) -> None:
-        if not self.photo.photo_path:
-            QMessageBox.warning(self, "사진 필요", "먼저 공정 사진을 업로드해주세요.")
-            return
-        if not self.name_input.text().strip():
-            QMessageBox.warning(self, "공정명 필요", "공정 이름을 먼저 입력해주세요.")
+        # 사진 + 공정명 둘 다 필수였지만, 현장 정책상 사진을 못 올리는 현장을 위해 사진만/
+        # 공정명만/둘 다 중 하나만 있어도 작성할 수 있게 한다(사용자 요청, 2026-09-17).
+        photo_path = self.photo.photo_path or None
+        process_name = self.name_input.text().strip()
+        if not photo_path and not process_name:
+            QMessageBox.warning(self, "입력 필요", "공정 사진 또는 공정 이름 중 하나 이상을 입력해주세요.")
             return
         if not config.has_api_key():
             QMessageBox.warning(self, "API 키 필요", "'AI 관리' 화면에서 Claude API 키를 먼저 등록하세요.")
             return
         self.ai_btn.setEnabled(False)
         self.ai_btn.setText("분석 중...")
-        photo_path = self.photo.photo_path
-        process_name = self.name_input.text().strip()
         self._worker = AIWorker(lambda: analyze_process_hazards(photo_path, process_name))
         self._worker.finished_ok.connect(self._on_ai_done)
         self._worker.finished_error.connect(self._on_ai_error)

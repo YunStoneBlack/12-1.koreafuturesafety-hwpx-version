@@ -215,9 +215,13 @@ class DashboardView(QWidget):
         settings_btn = QPushButton("⚙ AI 관리")
         settings_btn.setStyleSheet(_secondary_btn_style)
         settings_btn.clicked.connect(self.settings_requested.emit)
+        # "이전 보고서 업로드" 버튼은 화면에서 숨긴다(사용자가 헷갈려해서, 2026-09-17 요청) —
+        # 기능/시그널은 그대로 남겨두고 header_row에 추가하지만 않는다. 나중에 다시 필요하면
+        # `header_row.addWidget(upload_btn)` 줄만 되살리면 된다.
         upload_btn = QPushButton("⬆ 이전 보고서 업로드")
         upload_btn.setStyleSheet(_secondary_btn_style)
         upload_btn.clicked.connect(self.report_upload_requested.emit)
+        upload_btn.setVisible(False)
         new_site_btn = QPushButton("+ 신규현장 추가")
         new_site_btn.setStyleSheet(
             "QPushButton { background: #111827; color: white; padding: 8px 16px; border-radius: 6px; }"
@@ -225,7 +229,6 @@ class DashboardView(QWidget):
         new_site_btn.clicked.connect(self.new_site_requested.emit)
         header_row.addWidget(staff_btn)
         header_row.addWidget(settings_btn)
-        header_row.addWidget(upload_btn)
         header_row.addWidget(new_site_btn)
         root.addLayout(header_row)
 

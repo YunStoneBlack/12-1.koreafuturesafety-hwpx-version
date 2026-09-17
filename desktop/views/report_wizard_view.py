@@ -12,7 +12,6 @@ from __future__ import annotations
 from PyQt6.QtCore import QDate, Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
-    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -91,11 +90,12 @@ class ReportWizardView(
         self.guidance_date_input.setCalendarPopup(True)
         self.guidance_date_input.setDisplayFormat("yyyy-MM-dd")
         self.guidance_date_input.setDate(QDate.currentDate())
+        # 회차는 자동 계산된 값을 기본으로 보여주되, 실제로는 수정 가능해야 한다(사용자 요청,
+        # 2026-09-17) — 예전엔 자동생성 값을 못 믿을 이유가 없다고 보고 읽기전용으로 잠갔지만,
+        # 회차가 꼬인 현장(예: 다른 플랫폼에서 이미 진행하던 현장을 이 앱으로 옮겨온 경우)을
+        # 직접 고칠 방법이 없었다.
         self.visit_no_input = QSpinBox()
         self.visit_no_input.setRange(1, 999)
-        self.visit_no_input.setReadOnly(True)
-        self.visit_no_input.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        self.visit_no_input.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.progress_input = QSpinBox()
         self.progress_input.setRange(0, 100)
         self.progress_input.setSuffix("%")
@@ -108,8 +108,8 @@ class ReportWizardView(
 
         fields_row.addWidget(QLabel("지도일"))
         fields_row.addWidget(self.guidance_date_input)
-        fields_row.addWidget(self.visit_no_input)
         fields_row.addWidget(QLabel("회차"))
+        fields_row.addWidget(self.visit_no_input)
         fields_row.addWidget(QLabel("공정률"))
         fields_row.addWidget(self.progress_input)
         fields_row.addWidget(QLabel("이전지도일"))
@@ -225,10 +225,23 @@ class ReportWizardView(
             self.visit_no_input.setValue(next_visit_no)
             self._apply_management_no_editability(site.management_no if site else "")
 
-            self.notify_signee_input.setText(site.manager_name if site else "")
-            self.notify_signature_pad.clear_signature()
-            self._set_notify_signature_status(False)
-            self.set_notification_method("")
+            # 현장책임자 성명/통보방법/서명은 회차마다 새로 입력할 이유가 없는 값이라,
+            # 이 현장의 마지막 보고서에 저장된 값을 신규 보고서 기본값으로 그대로 승계한다
+            # (수정은 그대로 가능, 사용자 요청 2026-09-17) — 아직 이 현장의 첫 보고서라면
+            # (이 앱에 다른 플랫폼에서 이미 진행하던 현장을 새로 등록하는 경우도 포함) 승계할
+            # 이전 회차가 없으므로 예전처럼 현장 정보의 관리자명만 기본값으로 보여준다.
+            last_report = existing_reports[-1] if existing_reports else None
+            self.notify_signee_input.setText(
+                (last_report.notify_signee_name if last_report and last_report.notify_signee_name else None)
+                or (site.manager_name if site else "")
+            )
+            if last_report and last_report.notify_signature_path:
+                self.notify_signature_pad.load_existing(last_report.notify_signature_path)
+                self._set_notify_signature_status(True)
+            else:
+                self.notify_signature_pad.clear_signature()
+                self._set_notify_signature_status(False)
+            self.set_notification_method(last_report.notification_method if last_report else "")
             self._refresh_signoff_previews(site.assigned_staff_id if site else None)
 
             self.misc_overwork_check.setChecked(False)

@@ -77,6 +77,71 @@ def fill_management_no(doc, site: Site) -> None:
 
 
 
+# 이메일이 길수록 셀이 줄바꿈되며 표가 다음 페이지로 밀리는 문제를 막기 위해, 길이 구간별로
+# 폰트를 단계적으로 줄인다(사용자 요청, 2026-09-17). 고정폭 1단계(8pt)로는 표3 통보방법
+# 칸처럼 실제 가용 폭이 좁은 자리에서 여전히 줄바꿈되는 경우가 실측으로 확인돼, 아주 길면
+# 더 작게 줄이는 계단식으로 바꿨다. (하한, 크기) 순으로 정렬 — 길이가 하한을 넘는 마지막
+# 구간의 크기를 쓴다.
+_EMAIL_FONT_TIERS: list[tuple[int, int]] = [
+    (20, 9),  # 21자부터
+    (25, 8),  # 26자부터
+    (29, 7),  # 30자부터
+]
+
+
+def _email_font_size_for(value: str) -> int | None:
+    """길이에 맞는 폰트 크기(pt)를 고른다 — 기본 크기(10pt)로 충분하면 None."""
+    length = len(value or "")
+    size = None
+    for min_len, tier_size in _EMAIL_FONT_TIERS:
+        if length > min_len:
+            size = tier_size
+    return size
+
+
+def _shrink_cell_font_if_long(doc, field_name: str, value: str) -> None:
+    """긴 텍스트(예: 이메일)가 셀 안에서 줄바꿈되며 표 전체가 다음 페이지로 밀리는 문제를
+    막기 위해, 길이 구간에 맞는 크기로 그 칸 전체 폰트를 줄인다(사용자 요청, 2026-09-17).
+    표 폭 자체를 코드로 늘리는 방법은 시도했다가 python-hwpx로 `cellSz.width`를 건드리면
+    폭 합이 맞는데도 표가 페이지 밖으로 밀리는 원인불명 렌더링 버그를 만난 적이 있어
+    (TBM 표, Sub-phase 21) 폭 조정 대신 폰트 축소로 우회한다.
+    """
+    size = _email_font_size_for(value)
+    if size is None:
+        return
+    located = _locate_field_cell(doc, field_name)
+    if located is None:
+        return
+    table, row, col = located
+    cell = table.cell(row, col)
+    style_id = doc.ensure_run_style(size=size)
+    for para in cell.paragraphs:
+        for run in para.runs:
+            run.char_pr_id_ref = style_id
+
+
+def _shrink_field_run_if_long(doc, field_name: str, value: str) -> None:
+    """`_shrink_cell_font_if_long`과 달리 칸(cell) 전체가 아니라 그 필드 자신의 run만
+    골라 길이 구간에 맞는 크기로 줄인다 — 표3 통보방법 칸(t3_013 이메일)처럼 같은 칸에
+    체크박스 라벨("☑전자우편" 등, t3_012)이 함께 들어있어 그 라벨까지 같이 작아지면 안
+    되는 경우에 쓴다(사용자 요청, 2026-09-17). 방금 채운 값과 텍스트가 일치하는 run만
+    골라서 적용하는 방식이라, 값 자체가 그 칸 안에서 유일한 문자열이어야 한다(이메일처럼).
+    """
+    size = _email_font_size_for(value)
+    if size is None:
+        return
+    located = _locate_field_cell(doc, field_name)
+    if located is None:
+        return
+    table, row, col = located
+    cell = table.cell(row, col)
+    style_id = doc.ensure_run_style(size=size)
+    for para in cell.paragraphs:
+        for run in para.runs:
+            if run.text and value.strip() in run.text:
+                run.char_pr_id_ref = style_id
+
+
 def fill_site_fields(doc, site: Site) -> None:
     """표1: 기술지도 대상사업장(현장 정보)."""
     period = ""
@@ -93,6 +158,7 @@ def fill_site_fields(doc, site: Site) -> None:
     _put(doc, "t1_007", site.manager_name)
     _put(doc, "t1_008", site.manager_phone)
     _put(doc, "t1_010", site.manager_email)
+    _shrink_cell_font_if_long(doc, "t1_010", site.manager_email)
     _put(doc, "t1_011", site.address)
 
 
@@ -134,7 +200,11 @@ def fill_signoff_fields(doc, report: Report, site: Site) -> None:
     _put(doc, "t3_010", f"{'☑' if method == '모바일' else '☐'}모바일")
     _put(doc, "t3_011", f"{'☑' if method == '기타' else '☐'}기타")
     _put(doc, "t3_012", f"{'☑' if method == '전자우편' else '☐'}전자우편")
-    _put(doc, "t3_013", f"( {site.manager_email} )")
+    email_paren = f"( {site.manager_email} )"
+    _put(doc, "t3_013", email_paren)
+    # 체크박스 라벨(t3_012 등)과 같은 칸에 있어 칸 전체를 줄이면 라벨까지 작아진다 —
+    # 이메일 run만 콕 집어 줄인다.
+    _shrink_field_run_if_long(doc, "t3_013", email_paren)
 
     _put(doc, "t3_014", f"{'☑' if report.misc_overwork else '☐'}공사기간 편중, 조기준공 등")
     _put(doc, "t3_015", f"{'☑' if report.misc_no_photo else '☐'}사진촬영 불가 (보안 등)")
