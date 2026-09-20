@@ -23,6 +23,7 @@ from hwpx.document import HwpxDocument
 from core.db import BASE_DIR, SessionLocal
 from core.models_db import Report
 from core.report_builder_hwpx_fields import fill_all
+from core.report_builder_hwpx_package import normalize_image_packaging
 from core.report_builder_hwpx_images import (
     fill_finding_images,
     fill_material_appendix,
@@ -122,6 +123,8 @@ def build_report_hwpx(report_id: int, output_path: str | Path) -> Path:
             doc.save_to_path(output_path)
         finally:
             doc.close()
+
+        normalize_image_packaging(output_path)
 
         report.hwp_path = str(output_path)
         session.commit()

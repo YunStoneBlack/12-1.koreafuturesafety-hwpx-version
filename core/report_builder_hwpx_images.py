@@ -146,9 +146,9 @@ def _fix_img_dim(paragraph, image_path: str) -> None:
     4032×3024 사진을 한글이 직접 넣었을 때 imgClip이 정확히 302400×226800 = 4032×75,
     3024×75였다). python-hwpx는 이 값을 화면 표시 크기와 같게 채워버리는데, 그러면 한글이
     "원본 중 이만큼만(대개 왼쪽 위 한 귀퉁이) 보여줘"로 오해해서 사진이 잘려 보인다 —
-    도장·이전지적사항 사진·TBM 사진이 전부 이 문제였다. `imgDim`도 참고 삼아 실제 픽셀
-    크기로 맞춰둔다(한글이 직접 만든 파일엔 아예 없는 요소라 필수는 아니지만, 있어도 값이
-    맞아야 안전하다)."""
+    도장·이전지적사항 사진·TBM 사진이 전부 이 문제였다. `imgDim`은 한글 정품 파일(빌드
+    10.x/12.x 실측)에서 항상 `imgClip`의 right/bottom과 같은 값이라 똑같이 맞춘다 — 예전엔
+    픽셀 수를 그대로 넣어 `imgClip`과 어긋나 있었다."""
     from PIL import Image
 
     try:
@@ -171,8 +171,8 @@ def _fix_img_dim(paragraph, image_path: str) -> None:
                     sub.set("right", str(clip_right))
                     sub.set("bottom", str(clip_bottom))
                 elif tag.endswith("}imgDim"):
-                    sub.set("dimwidth", str(iw))
-                    sub.set("dimheight", str(ih))
+                    sub.set("dimwidth", str(clip_right))
+                    sub.set("dimheight", str(clip_bottom))
 
 
 def _insert_fit_picture_in_cell(doc, cell, image_path: str) -> None:
