@@ -272,6 +272,11 @@ PyInstaller는 `.py`가 아닌 리소스(DLL, XSD 스키마 등)는 정적 분�
   배치로 변경. 한글 2020 회귀 없음, 형 PC(2018/2024) 미리보기에서 화질 개선 확인됨. 자세한 내용은
   `작업내용.md`의 "Sub-phase 26" 절 참고.
 
+- **Sub-phase 27 (완료)**: 통보방법 기본값 전자우편(이전 회차 승계 우선), 4번 이전지적사항 "이행 결과" 사진 칸을 이행결과별로
+  (확인불가·보완필요는 점선 X 틀+글자, 이행완료는 사진/없으면 "-"), 저장 경고를 마법사 순서대로 첫 종류 1개만 띄우는 구조
+  (`desktop/views/report_wizard_validation.py` — 이전지적사항 빈 슬롯·이행결과 미선택·장비 평가 미선택), 5번 표 체크박스 크기
+  통일, 장비 평가 칸 가운데 정렬. 자세한 내용은 `작업내용.md`의 "Sub-phase 27" 절 참고.
+
 ### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/
 `_fields_cleanup.py`/`_fields_process.py`/`_images.py`)로, **실제 서식을 변환한 `.hwpx` 템플릿 자체를 재사용**해

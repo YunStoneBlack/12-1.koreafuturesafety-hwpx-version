@@ -179,8 +179,13 @@ class _PreviousFindingSlot(QFrame):
         return checked.text() if checked else ""
 
     def set_result_status(self, status: str) -> None:
-        for btn in self.result_status_buttons.buttons():
+        # Qt 배타 그룹은 선택된 버튼을 코드로 해제할 수 없어(`setChecked(False)`가 무시됨) `""`로
+        # 비우려 해도 이전 이행결과가 그대로 남았다 — 잠깐 배타를 풀고 바꾼다.
+        group = self.result_status_buttons
+        group.setExclusive(False)
+        for btn in group.buttons():
             btn.setChecked(btn.text() == status)
+        group.setExclusive(True)
 
     def before_risk(self) -> tuple[int | None, int | None]:
         return self.before_likelihood_buttons.value(), self.before_severity_buttons.value()
@@ -213,6 +218,16 @@ class _PreviousFindingSlot(QFrame):
 
     def is_active(self) -> bool:
         return self._active
+
+    def is_blank(self) -> bool:
+        """"+ 이전지적사항 추가"로 칸만 열어 두고 제목·내용·사진(전 회차/이행결과)을 하나도 안 채웠는지 —
+        위험성이나 이행결과 버튼만 눌려 있어도 보고서에 넣을 내용이 없으므로 빈 슬롯으로 본다."""
+        return not (
+            self.title_input.text().strip()
+            or self.content_edit.toPlainText().strip()
+            or self.photo.photo_path
+            or self.completion_photo.photo_path
+        )
 
     def clear(self) -> None:
         """슬롯 위젯을 재사용하기 전(비활성화·리셋 시) 이전 사진/입력값을 지운다.

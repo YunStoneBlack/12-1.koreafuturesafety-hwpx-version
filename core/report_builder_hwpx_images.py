@@ -389,9 +389,10 @@ def fill_previous_finding_images(doc, report: Report) -> None:
         content_loc = _locate_field_cell(doc, content_field)
         pf = previous.get(slot)
 
-        for location, photo_path in (
-            (title_loc, pf.display_fields()[2] if pf else None),
-            (content_loc, pf.completion_photo_path if pf else None),
+        result_status = pf.result_status if pf else ""
+        for location, photo_path, is_result_cell in (
+            (title_loc, pf.display_fields()[2] if pf else None, False),
+            (content_loc, pf.completion_photo_path if pf else None, True),
         ):
             if location is None:
                 continue
@@ -400,12 +401,18 @@ def fill_previous_finding_images(doc, report: Report) -> None:
                 continue
             cell = table.cell(row - 1, col)
             _clear_cell_pictures(cell)
+            # 우선순위: 이전지적사항 없음 > 사진촬영 불가 > (이행결과 칸만) 확인불가/보완필요 틀 >
+            # 실제 사진 > (이행결과 칸만) "-". 이행완료는 이행결과 사진을 넣고 없으면 "-".
             if not previous:
                 _put_frame_placeholder(doc, cell, NO_PREVIOUS_FINDING_TEXT)
             elif report.misc_no_photo:
                 _put_frame_placeholder(doc, cell, NO_PHOTO_TEXT)
+            elif is_result_cell and result_status in ("확인불가", "보완필요"):
+                _put_frame_placeholder(doc, cell, result_status)
             elif photo_path and Path(photo_path).exists():
                 _insert_fit_picture_in_cell(doc, cell, photo_path)
+            elif is_result_cell:
+                put_dash(doc, cell)
 
 
 _TBM_PHOTO_ANCHOR_FIELD = "t16_002"

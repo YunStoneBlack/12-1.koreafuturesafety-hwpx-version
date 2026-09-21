@@ -227,8 +227,27 @@ def fill_major_hazard_work_fields(doc, report: Report) -> None:
     for idx in range(len(MAJOR_HAZARD_WORKS)):
         is_checked = idx in checked
         base = 2 + idx * 2
-        _put(doc, f"t5_{base:03d}", "☑" if is_checked else "☐")
-        _put(doc, f"t5_{base + 1:03d}", "☐" if is_checked else "☑")
+        yes_field, no_field = f"t5_{base:03d}", f"t5_{base + 1:03d}"
+        _put(doc, yes_field, "☑" if is_checked else "☐")
+        _put(doc, no_field, "☐" if is_checked else "☑")
+        # 템플릿에서 "해당" 칸은 10pt, "해당없음" 칸은 11pt라 체크박스 크기가 달랐다 — 사용자가
+        # 11pt로 통일하기로 해서(2026-09-21) "해당" 칸에 "해당없음" 칸과 같은 글자 모양을 준다.
+        no_shape = _first_run_char_shape(doc, no_field)
+        if no_shape:
+            _fix_char_shape(doc, yes_field, no_shape)
+
+
+def _first_run_char_shape(doc, field_name: str) -> str | None:
+    """필드가 들어있는 칸의 첫 글자 모양 id — 다른 칸에 그대로 복사해 쓸 때."""
+    located = _locate_field_cell(doc, field_name)
+    if located is None:
+        return None
+    table, row, col = located
+    for para in table.cell(row, col).paragraphs:
+        for run in para.runs:
+            if run.char_pr_id_ref:
+                return str(run.char_pr_id_ref)
+    return None
 
 
 def fill_equipment_section_titles(doc) -> None:
@@ -242,6 +261,9 @@ def fill_equipment_section_titles(doc) -> None:
     _put(doc, "t9_category", "유해위험물질")
 
 
+_EVAL_CENTER_PARA_PR_ID = "0"  # 위험기계기구·유해위험물질 평가 칸이 이미 쓰는 가운데 정렬 문단 모양
+
+
 def fill_equipment_data_fields(doc, report: Report) -> None:
     """표7/8/9 데이터 행 — 항목별 유/무(t{표}_eq{i}_flag) + 지도사항 줄별 평가(t{표}_eq{i}_eval{줄번호})."""
     for table_index, checks in (
@@ -252,7 +274,11 @@ def fill_equipment_data_fields(doc, report: Report) -> None:
         for i, entry in enumerate(checks or []):
             _put(doc, f"t{table_index}_eq{i}_flag", "☑" if entry.get("checked") else "☐")
             for j, note in enumerate(entry.get("notes") or []):
-                _put(doc, f"t{table_index}_eq{i}_eval{j}", note or "")
+                field = f"t{table_index}_eq{i}_eval{j}"
+                _put(doc, field, note or "")
+                # 건설기계장비 표의 평가 칸 일부가 양쪽 정렬(JUSTIFY)이라 "양호/미흡"이 칸마다 다른
+                # 위치로 보였다 — 가운데 정렬로 통일한다(사용자 요청, 2026-09-21).
+                _fix_para_shape(doc, field, _EVAL_CENTER_PARA_PR_ID)
 
 
 def fill_hazard_factor_fields(doc, report: Report) -> None:

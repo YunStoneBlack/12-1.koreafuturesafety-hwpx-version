@@ -44,12 +44,19 @@ from desktop.views.report_wizard_sections import _SectionBuilderMixin
 from desktop.views.report_wizard_sections2 import _SectionBuilderMixin2
 from desktop.views.report_wizard_sections3 import _SectionBuilderMixin3
 from desktop.views.report_wizard_save import _SaveGenerateMixin
+from desktop.views.report_wizard_validation import _ValidationMixin
 from desktop.widgets.cursors import zoom_cursor
 from desktop.workers.ai_worker import AIWorker
 
 
 class ReportWizardView(
-    QWidget, _SectionBuilderMixin, _SectionBuilderMixin2, _SectionBuilderMixin3, _SaveGenerateMixin, _LoadReportMixin
+    QWidget,
+    _SectionBuilderMixin,
+    _SectionBuilderMixin2,
+    _SectionBuilderMixin3,
+    _SaveGenerateMixin,
+    _ValidationMixin,
+    _LoadReportMixin,
 ):
     back_requested = pyqtSignal()
     report_saved = pyqtSignal(int)  # site_id
@@ -142,6 +149,7 @@ class ReportWizardView(
         root.addWidget(top_bar_widget)
 
         scroll = QScrollArea()
+        self.scroll_area = scroll  # 저장 검증 경고 후 문제 칸으로 화면을 옮길 때 쓴다
         scroll.setWidgetResizable(True)
         content = QWidget()
         content_layout = QVBoxLayout(content)
@@ -245,7 +253,11 @@ class ReportWizardView(
             else:
                 self.notify_signature_pad.clear_signature()
                 self._set_notify_signature_status(False)
-            self.set_notification_method(last_report.notification_method if last_report else "")
+            # 거의 모든 현장이 전자우편이라(사용자, 2026-09-21) 이전 회차에 다른 방식이 골라져 있으면
+            # 그걸 승계하고, 이전 회차가 없거나 비어 있으면 전자우편을 기본으로 고른다.
+            self.set_notification_method(
+                (last_report.notification_method if last_report else "") or "전자우편"
+            )
             self._refresh_signoff_previews(site.assigned_staff_id if site else None)
 
             self.misc_overwork_check.setChecked(False)

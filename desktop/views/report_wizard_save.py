@@ -67,37 +67,18 @@ def _build_hwp_for_export(report_id: int, chosen_path: Path) -> Path:
 class _SaveGenerateMixin:
     """ReportWizardView 전용 — 단독으로 인스턴스화하지 않는다."""
 
-    def _equipment_evaluation_problems(self) -> list[str]:
-        """유로 체크돼 있는데 지도사항 평가(양호/미흡)를 안 고른 장비/기구/물질 목록."""
-        problems = []
-        for group, rows in (
-            ("건설기계장비", self.machinery_rows),
-            ("위험기계기구", self.hand_tool_rows),
-            ("유해위험물질", self.hazmat_rows),
-        ):
-            problems.extend(f"{group} - {row.item_name}" for row in rows if row.missing_evaluation())
-        return problems
-
     def _save(self, navigate: bool = True, validate: bool = True) -> bool:
         """마법사 내용을 DB에 저장한다. 저장했으면 True, 검증에 걸려 막았거나 저장할 게 없으면 False
         — 호출부는 False면 미리보기/내보내기 등 뒤따르는 동작을 이어가면 안 된다.
 
-        `validate`(기본 켜짐)일 때 유로 체크된 장비의 평가가 비어 있으면 경고창을 띄우고 저장을
-        막는다(사용자 요청, 2026-09-21). 서명 단독 저장처럼 도중 저장에는 끈다."""
+        `validate`(기본 켜짐)일 때 저장을 막는 경고(`report_wizard_validation._ValidationMixin`)가 있으면
+        마법사 순서상 첫 번째 한 종류만 띄우고 저장하지 않는다(사용자 요청, 2026-09-21). 서명 단독
+        저장처럼 도중 저장에는 끈다."""
         if self._site_id is None:
             return False
 
-        if validate:
-            problems = self._equipment_evaluation_problems()
-            if problems:
-                QMessageBox.warning(
-                    self,
-                    "평가 미선택",
-                    "유로 체크된 항목 중 평가(양호/미흡)를 고르지 않은 지도사항이 있습니다.\n"
-                    "모든 지도사항의 평가를 선택한 뒤 저장해주세요.\n\n"
-                    + "\n".join(f"· {problem}" for problem in problems),
-                )
-                return False
+        if validate and self._show_validation_warning():
+            return False
 
         with SessionLocal() as session:
             if self._report_id:
