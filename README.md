@@ -282,6 +282,10 @@ PyInstaller는 `.py`가 아닌 리소스(DLL, XSD 스키마 등)는 정적 분�
   새 배포판으로 확인 필요). 현장 상세 보고서 이력의 "↓ 한글"·"↓ PDF" 버튼은 항상 활성으로 하고, 누를 때마다 저장 위치를 묻고 저장된
   최신 내용으로 새로 만들어 저장(`desktop/views/report_export.py`). 자세한 내용은 `작업내용.md`의 "Sub-phase 28" 절 참고.
 
+- **Sub-phase 29 (완료)**: 10번 표 아래 "복합농도측정기 가스 기준치" 그림(BMP)을 지우고 그 자리에 작업면의 조도기준(안전보건규칙 제8조) 표 +
+  건설현장 5대 가스 적정공기 기준치 표를 넣음(`core/report_builder_hwpx_standards.py` — 중첩 표, 11쪽 안에 들어감). 자세한 내용은
+  `작업내용.md`의 "Sub-phase 29" 절 참고.
+
 ### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/
 `_fields_cleanup.py`/`_fields_process.py`/`_images.py`)로, **실제 서식을 변환한 `.hwpx` 템플릿 자체를 재사용**해

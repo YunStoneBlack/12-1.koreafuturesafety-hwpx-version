@@ -24,6 +24,7 @@ from core.db import BASE_DIR, SessionLocal
 from core.models_db import Report
 from core.report_builder_hwpx_fields import fill_all
 from core.report_builder_hwpx_package import normalize_image_packaging
+from core.report_builder_hwpx_standards import fill_reference_standard_tables
 from core.report_builder_hwpx_images import (
     fill_finding_images,
     fill_material_appendix,
@@ -115,6 +116,7 @@ def build_report_hwpx(report_id: int, output_path: str | Path) -> Path:
             fill_overview_inspection_images(doc, report)
             fill_signoff_images(doc, report, site)
             fill_support_images(doc, report)
+            fill_reference_standard_tables(doc)
             fill_finding_images(doc, report)
             fill_previous_finding_images(doc, report)
             fill_material_appendix(doc, report)
