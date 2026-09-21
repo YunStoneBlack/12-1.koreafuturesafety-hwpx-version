@@ -118,8 +118,26 @@ class _ProcessHazardItemRow:
         return not self.hazard_edit.toPlainText().strip() and not self.prevention_edit.toPlainText().strip()
 
 
+class _NoPhotoZone:
+    """사진 업로드가 없는 슬롯(9번 향후 진행공정)이 `PhotoDropZone` 대신 들고 있는 자리표시 —
+    `photo_path`는 항상 비어있고 나머지 메서드는 아무 일도 안 한다(예전에 저장된 사진이 있어도
+    화면에 안 보이는 사진이 AI 입력으로 몰래 쓰이지 않도록)."""
+
+    photo_path = ""
+
+    def set_photo(self, _path: str) -> None:
+        pass
+
+    def clear_photo(self) -> None:
+        pass
+
+
 class _ProcessSlot(QFrame):
     """7번(현재 진행공정)/9번(향후 진행공정) 공용 "한 칸" (최대 4칸).
+
+    `allow_photo=False`(9번)면 사진 업로드 칸을 아예 안 만든다 — 향후 진행공정은 다음
+    회차에 할 일이라 사진이 있을 수가 없어 헷갈리지 않게 뺐다(사용자 요청, 2026-09-21).
+    이 경우 공정 이름 글자만으로 AI가 작성한다.
 
     Sub-phase 20: 공정 카탈로그에서 골라 쓰던 방식(내용이 부실하다는 실사용 피드백)을
     버리고, 공정 사진 + 공정명을 넣으면 AI가 유해·위험요인/예방대책/위험성을 항목별로
@@ -139,7 +157,7 @@ class _ProcessSlot(QFrame):
 
     changed = pyqtSignal()
 
-    def __init__(self, slot: int):
+    def __init__(self, slot: int, allow_photo: bool = True):
         super().__init__()
         self.slot = slot
         self._worker: AIWorker | None = None
@@ -149,8 +167,11 @@ class _ProcessSlot(QFrame):
         self.layout_ = QVBoxLayout(self)
 
         # ---- 위쪽 2x2 압축 표 칸: 사진 + 공정명 + AI로 작성 + 초기화 ----
-        self.photo = PhotoDropZone(f"{slot}번 공정 사진")
-        self.layout_.addWidget(self.photo)
+        if allow_photo:
+            self.photo = PhotoDropZone(f"{slot}번 공정 사진")
+            self.layout_.addWidget(self.photo)
+        else:
+            self.photo = _NoPhotoZone()
 
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText(f"{slot}번 공정 이름")
@@ -272,7 +293,12 @@ class _ProcessSlot(QFrame):
         photo_path = self.photo.photo_path or None
         process_name = self.name_input.text().strip()
         if not photo_path and not process_name:
-            QMessageBox.warning(self, "입력 필요", "공정 사진 또는 공정 이름 중 하나 이상을 입력해주세요.")
+            message = (
+                "공정 사진 또는 공정 이름 중 하나 이상을 입력해주세요."
+                if isinstance(self.photo, PhotoDropZone)
+                else "공정 이름을 입력해주세요."
+            )
+            QMessageBox.warning(self, "입력 필요", message)
             return
         if not config.has_api_key():
             QMessageBox.warning(self, "API 키 필요", "'AI 관리' 화면에서 Claude API 키를 먼저 등록하세요.")

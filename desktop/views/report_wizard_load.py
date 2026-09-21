@@ -19,6 +19,7 @@ from core.models_db import PreviousFinding, Report
 # 뿐 아니라 기존 보고서를 불러왔는데 이 칸이 비어있는 경우(기본값 도입 전에 저장된 보고서
 # 등)에도 같은 기본값을 보여준다 — 이미 다른 값이 저장돼 있으면 그대로 존중한다.
 _DEFAULT_EDUCATION_MATERIAL = "안전보건공단 배포자료"
+_DEFAULT_EDUCATION_LOCATION = "현장 내"
 
 
 class _LoadReportMixin:
@@ -235,12 +236,12 @@ class _LoadReportMixin:
             slot_widget.severity_buttons.set_value(f.severity)
             slot_widget.set_action_status(f.action_status)
         self._update_finding_add_btn()
-        self.findings_header.set_checked(report.findings_na)
+        self.findings_header.set_checked(False)  # "해당사항없음" 버튼은 숨겼다(2026-09-21)
 
         self.special_note_edit.setPlainText(report.special_note)
 
         self._reconcile_previous_findings(session, report.site_id, report.visit_no, existing_report=report)
-        self.previous_header.set_checked(report.previous_findings_na)
+        self.previous_header.set_checked(False)  # 위와 같은 이유
 
         measurements_by_type = {m.instrument_type: m for m in report.measurements}
         for row in self.measurement_rows:
@@ -251,6 +252,10 @@ class _LoadReportMixin:
                 row.value_input.setText(m.value)
                 row.set_verdict(m.manual_verdict)
                 row.action_input.setText(m.manual_action)
+            else:
+                # 저장된 계측 기록이 없는 기존 보고서는 새 보고서용 기본값 대신 저장된 그대로
+                # (빈칸)로 보여준다.
+                row.clear_fields()
         self.measurement_header.set_checked(report.measurements_na)
 
         self._selected_materials = list(

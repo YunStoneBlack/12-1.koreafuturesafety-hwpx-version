@@ -145,8 +145,7 @@ class ReportPreviewDialog(QDialog):
 
     def _regenerate(self) -> None:
         """상단 "미리보기 갱신" — 마법사에 이미 저장된 내용 그대로 왼쪽 렌더링만 새로 만든다."""
-        self._wizard._save(navigate=False)
-        if not self._wizard._report_id:
+        if not self._wizard._save(navigate=False) or not self._wizard._report_id:
             return
         self._render_preview()
 
@@ -163,8 +162,7 @@ class ReportPreviewDialog(QDialog):
     def _regenerate_and_export_pdf(self) -> None:
         """하단 "PDF 생성" — 미리보기를 갱신한 뒤(완료되면 이어서) 사용자가 고른 위치에도
         PDF를 저장한다(파일명 기본값: "{현장명}_{회차}회차.pdf")."""
-        self._wizard._save(navigate=False)
-        if not self._wizard._report_id:
+        if not self._wizard._save(navigate=False) or not self._wizard._report_id:
             return
 
         def _start_export():
@@ -191,8 +189,7 @@ class ReportPreviewDialog(QDialog):
         생성이 완전히 똑같은 에러로 동시에 실패하는 걸로 발견(Sub-phase 20 후속). COM
         문제와 무관하게 최소한 .hwpx 파일은 받을 수 있도록 미리보기 갱신 없이 바로
         저장을 시도한다."""
-        self._wizard._save(navigate=False)
-        if not self._wizard._report_id:
+        if not self._wizard._save(navigate=False) or not self._wizard._report_id:
             return
 
         self._set_busy(True)

@@ -260,6 +260,12 @@ PyInstaller는 `.py`가 아닌 리소스(DLL, XSD 스키마 등)는 정적 분�
   2018/2024 실검증은 아직 — 새 배포판 `0920수정버전`으로 확인 필요. 자세한 내용은
   `작업내용.md`의 "Sub-phase 24" 절과 `핵심기술.md` 4번 "HWPX 생성 엔진" 참고.
 
+- **Sub-phase 25 (완료)**: PPT로 받은 9건 — 출력: 사진촬영 불가 체크 시 사진 칸을 점선 X 틀+"사진촬영
+  불가(보안 등)"로(3·4·8·10번), 빈 사진 칸 "-", 이전지적사항/지적사항이 하나도 없으면 "없음" 안내 표
+  출력(`core/report_builder_hwpx_placeholder.py`). 마법사: 12대 기인물 자동 체크, 장비 평가↔유/무
+  연동 + 유인데 평가 빈 항목이 있으면 저장 차단(`_save()`가 bool 반환), 9번 사진 업로드 삭제, 교육장소
+  "현장 내"/계측자료 기본값. 자세한 내용은 `작업내용.md`의 "Sub-phase 25" 절 참고.
+
 ### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/
 `_fields_cleanup.py`/`_fields_process.py`/`_images.py`)로, **실제 서식을 변환한 `.hwpx` 템플릿 자체를 재사용**해

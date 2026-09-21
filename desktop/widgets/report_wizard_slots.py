@@ -269,6 +269,10 @@ _VERDICT_STYLE_ON = (
 )
 
 
+_DEFAULT_MEASUREMENT_VALUES = {"조도계": "기준치 이내", "가스농도측정기": "적정 범위 내"}
+_DEFAULT_MEASUREMENT_ACTION = "이상 없음 확인"
+
+
 class _MeasurementRow(QFrame):
     """6. 계측자료 한 항목 (7종 고정)."""
 
@@ -345,6 +349,18 @@ class _MeasurementRow(QFrame):
         for btn in self.verdict_buttons.buttons():
             btn.setChecked(btn.text() == value)
 
+    def apply_defaults(self) -> None:
+        """새 보고서의 기본값 — 측정치 문구, 판정 "양호", 조치사항 "이상 없음 확인"(사용자 요청,
+        2026-09-21). 전부 고칠 수 있고, "AI로 읽기"를 누르면 측정치가 AI 결과로 바뀐다."""
+        self.value_input.setText(_DEFAULT_MEASUREMENT_VALUES.get(self.instrument_type, ""))
+        self.set_verdict("양호")
+        self.action_input.setText(_DEFAULT_MEASUREMENT_ACTION)
+
+    def clear_fields(self) -> None:
+        self.value_input.clear()
+        self.set_verdict("")
+        self.action_input.clear()
+
     def _run_read(self) -> None:
         if not self.photo.photo_path:
             QMessageBox.warning(self, "사진 필요", "먼저 계측장비 사진을 업로드해주세요.")
@@ -368,6 +384,9 @@ class _MeasurementRow(QFrame):
             QMessageBox.information(self, "인식 실패", "사진에서 측정값을 읽지 못했습니다. 직접 입력해주세요.")
         else:
             self.value_input.setText(value)
+            # 기본값 "양호"를 그대로 두면 실제 측정값과 상관없이 양호로 나가므로, AI가 읽은 값으로
+            # 다시 자동판정되게 수동 판정을 푼다(사용자 확인, 2026-09-21).
+            self.set_verdict("")
 
     def _on_read_error(self, message: str) -> None:
         self.read_btn.setEnabled(True)

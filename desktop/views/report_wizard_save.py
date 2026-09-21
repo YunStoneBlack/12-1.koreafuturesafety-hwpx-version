@@ -67,9 +67,37 @@ def _build_hwp_for_export(report_id: int, chosen_path: Path) -> Path:
 class _SaveGenerateMixin:
     """ReportWizardView 전용 — 단독으로 인스턴스화하지 않는다."""
 
-    def _save(self, navigate: bool = True) -> None:
+    def _equipment_evaluation_problems(self) -> list[str]:
+        """유로 체크돼 있는데 지도사항 평가(양호/미흡)를 안 고른 장비/기구/물질 목록."""
+        problems = []
+        for group, rows in (
+            ("건설기계장비", self.machinery_rows),
+            ("위험기계기구", self.hand_tool_rows),
+            ("유해위험물질", self.hazmat_rows),
+        ):
+            problems.extend(f"{group} - {row.item_name}" for row in rows if row.missing_evaluation())
+        return problems
+
+    def _save(self, navigate: bool = True, validate: bool = True) -> bool:
+        """마법사 내용을 DB에 저장한다. 저장했으면 True, 검증에 걸려 막았거나 저장할 게 없으면 False
+        — 호출부는 False면 미리보기/내보내기 등 뒤따르는 동작을 이어가면 안 된다.
+
+        `validate`(기본 켜짐)일 때 유로 체크된 장비의 평가가 비어 있으면 경고창을 띄우고 저장을
+        막는다(사용자 요청, 2026-09-21). 서명 단독 저장처럼 도중 저장에는 끈다."""
         if self._site_id is None:
-            return
+            return False
+
+        if validate:
+            problems = self._equipment_evaluation_problems()
+            if problems:
+                QMessageBox.warning(
+                    self,
+                    "평가 미선택",
+                    "유로 체크된 항목 중 평가(양호/미흡)를 고르지 않은 지도사항이 있습니다.\n"
+                    "모든 지도사항의 평가를 선택한 뒤 저장해주세요.\n\n"
+                    + "\n".join(f"· {problem}" for problem in problems),
+                )
+                return False
 
         with SessionLocal() as session:
             if self._report_id:
@@ -366,6 +394,7 @@ class _SaveGenerateMixin:
             )
         if navigate:
             self.report_saved.emit(self._site_id)
+        return True
 
     def _on_save_button_clicked(self) -> None:
         """하단 "저장" 버튼 전용 핸들러 — 미리보기 창 안에서 자동으로 저장할 때
@@ -380,7 +409,8 @@ class _SaveGenerateMixin:
         계속 내용을 고칠 수 있게 됐다 — 그 상태에서 이 저장 버튼을 누르면 열려 있는
         미리보기도 최신 내용으로 같이 갱신한다(사용자 요청, 미리보기 자체의 "미리보기
         갱신" 버튼을 또 누를 필요 없이)."""
-        self._save(navigate=False)
+        if not self._save(navigate=False):
+            return
         if self._preview_dialog is not None:
             self._preview_dialog.refresh_from_wizard()
         QMessageBox.information(self, "저장 완료", "저장되었습니다.")
@@ -498,8 +528,7 @@ class _SaveGenerateMixin:
     def _open_preview(self) -> None:
         # 미리보기는 마법사를 떠나지 않고 반복해서 열어볼 수 있어야 하므로(수정하기 →
         # 다시 미리보기), 여기서는 site_detail로 되돌아가는 report_saved를 emit하지 않는다.
-        self._save(navigate=False)
-        if not self._report_id:
+        if not self._save(navigate=False) or not self._report_id:
             return
 
         if self._preview_dialog is not None:

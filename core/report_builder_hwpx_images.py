@@ -31,7 +31,12 @@ from pathlib import Path
 
 from core import config
 from core.models_db import Report, Site
+from core.report_builder_hwpx_placeholder import put_dash, render_frame_placeholder
 from core.thumbnail_generator import render_pdf_pages, resolve_material_path
+
+NO_PHOTO_TEXT = "사진촬영 불가(보안 등)"
+NO_PREVIOUS_FINDING_TEXT = "이전회차 기술지도 사항 없음"
+NO_FINDING_TEXT = "개선 필요 이상의 위험성 없음"
 
 _BOLD_TMP_DIR = Path(tempfile.gettempdir()) / "claude" / "hwp_signature_bold"
 
@@ -312,31 +317,47 @@ _OVERVIEW_PHOTO_TABLE_INDEX = 4
 _INSPECTION_PHOTO_TABLE_INDEX = 5
 
 
+def _put_frame_placeholder(doc, cell, text: str) -> None:
+    """칸 크기에 딱 맞는 점선 X자 틀 + 가운데 문구 그림을 사진처럼 넣는다."""
+    width, height = _cell_inner_box(cell)
+    path = render_frame_placeholder(text, width, height)
+    try:
+        _insert_fit_picture_in_cell(doc, cell, str(path))
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def _fill_photo_cell(doc, cell, photo_path: str | None, *, no_photo: bool) -> None:
+    """사진 칸 하나를 채운다 — `사진촬영 불가`가 체크돼 있으면 사진이 있어도 안내 그림, 아니면
+    사진이 있을 때만 사진, 없으면 "-"."""
+    _clear_cell_pictures(cell)
+    if no_photo:
+        _put_frame_placeholder(doc, cell, NO_PHOTO_TEXT)
+    elif photo_path and Path(photo_path).exists():
+        _insert_fit_picture_in_cell(doc, cell, photo_path)
+    else:
+        put_dash(doc, cell)
+
+
 def fill_overview_inspection_images(doc, report: Report) -> None:
     """3. 전경사진 및 점검사진 — 표4(전경사진)/표5(점검사진)의 2x2 사진 칸."""
-    overview = {p.slot: p for p in report.overview_photos}
-    table = doc.tables.all[_OVERVIEW_PHOTO_TABLE_INDEX]
-    for slot, addr in _SITE_PHOTO_CELLS.items():
-        row, col = _parse_cell_addr(addr)
-        cell = table.cell(row, col)
-        _clear_cell_pictures(cell)
-        photo = overview.get(slot)
-        if photo and photo.photo_path and Path(photo.photo_path).exists():
-            _insert_fit_picture_in_cell(doc, cell, photo.photo_path)
-
-    inspection = {p.slot: p for p in report.inspection_photos}
-    table = doc.tables.all[_INSPECTION_PHOTO_TABLE_INDEX]
-    for slot, addr in _SITE_PHOTO_CELLS.items():
-        row, col = _parse_cell_addr(addr)
-        cell = table.cell(row, col)
-        _clear_cell_pictures(cell)
-        photo = inspection.get(slot)
-        if photo and photo.photo_path and Path(photo.photo_path).exists():
-            _insert_fit_picture_in_cell(doc, cell, photo.photo_path)
+    for table_index, photos in (
+        (_OVERVIEW_PHOTO_TABLE_INDEX, report.overview_photos),
+        (_INSPECTION_PHOTO_TABLE_INDEX, report.inspection_photos),
+    ):
+        by_slot = {p.slot: p for p in photos}
+        table = doc.tables.all[table_index]
+        for slot, addr in _SITE_PHOTO_CELLS.items():
+            row, col = _parse_cell_addr(addr)
+            photo = by_slot.get(slot)
+            _fill_photo_cell(
+                doc, table.cell(row, col), photo.photo_path if photo else None, no_photo=report.misc_no_photo
+            )
 
 
 def fill_finding_images(doc, report: Report) -> None:
-    """지적사항 표(8번) 각 항목의 사진 칸(유해위험요인 칸 왼쪽)."""
+    """지적사항 표(8번) 각 항목의 사진 칸(유해위험요인 칸 왼쪽). 지적사항이 하나도 없으면
+    남겨둔 1번 표의 사진 칸에 "개선 필요 이상의 위험성 없음"을 넣는다."""
     findings = {f.slot: f for f in report.findings}
     for slot in (1, 2, 3, 4):
         located = _locate_field_cell(doc, f"finding{slot}_hazard")
@@ -346,10 +367,12 @@ def fill_finding_images(doc, report: Report) -> None:
         if col == 0:
             continue
         cell = table.cell(row, col - 1)
-        _clear_cell_pictures(cell)
+        if not findings:
+            _clear_cell_pictures(cell)
+            _put_frame_placeholder(doc, cell, NO_FINDING_TEXT)
+            continue
         finding = findings.get(slot)
-        if finding and finding.photo_path and Path(finding.photo_path).exists():
-            _insert_fit_picture_in_cell(doc, cell, finding.photo_path)
+        _fill_photo_cell(doc, cell, finding.photo_path if finding else None, no_photo=report.misc_no_photo)
 
 
 _PREVIOUS_FINDING_PHOTO_FIELDS = {slot: (f"previous_finding{slot}_title", f"previous_finding{slot}_content") for slot in (1, 2, 3, 4)}
@@ -367,23 +390,23 @@ def fill_previous_finding_images(doc, report: Report) -> None:
         content_loc = _locate_field_cell(doc, content_field)
         pf = previous.get(slot)
 
-        if title_loc is not None:
-            table, row, col = title_loc
-            if row > 0:
-                cell = table.cell(row - 1, col)
-                _clear_cell_pictures(cell)
-                if pf:
-                    _, _, photo_path = pf.display_fields()
-                    if photo_path and Path(photo_path).exists():
-                        _insert_fit_picture_in_cell(doc, cell, photo_path)
-
-        if content_loc is not None:
-            table, row, col = content_loc
-            if row > 0:
-                cell = table.cell(row - 1, col)
-                _clear_cell_pictures(cell)
-                if pf and pf.completion_photo_path and Path(pf.completion_photo_path).exists():
-                    _insert_fit_picture_in_cell(doc, cell, pf.completion_photo_path)
+        for location, photo_path in (
+            (title_loc, pf.display_fields()[2] if pf else None),
+            (content_loc, pf.completion_photo_path if pf else None),
+        ):
+            if location is None:
+                continue
+            table, row, col = location
+            if row == 0:
+                continue
+            cell = table.cell(row - 1, col)
+            _clear_cell_pictures(cell)
+            if not previous:
+                _put_frame_placeholder(doc, cell, NO_PREVIOUS_FINDING_TEXT)
+            elif report.misc_no_photo:
+                _put_frame_placeholder(doc, cell, NO_PHOTO_TEXT)
+            elif photo_path and Path(photo_path).exists():
+                _insert_fit_picture_in_cell(doc, cell, photo_path)
 
 
 _TBM_PHOTO_ANCHOR_FIELD = "t16_002"
@@ -406,11 +429,11 @@ def fill_support_images(doc, report: Report) -> None:
         return
     table, row, _col = located
     cell = table.cell(row, table.column_count - 1)
-    _clear_cell_pictures(cell)
 
     education = report.safety_education
-    if education and education.photo_path and Path(education.photo_path).exists():
-        _insert_fit_picture_in_cell(doc, cell, education.photo_path)
+    _fill_photo_cell(
+        doc, cell, education.photo_path if education else None, no_photo=report.misc_no_photo
+    )
 
 
 def fill_signoff_images(doc, report: Report, site: Site) -> None:

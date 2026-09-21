@@ -108,10 +108,9 @@ def _remove_paragraph_containing(doc, text: str) -> bool:
 def remove_na_sections(doc, report: Report) -> None:
     """마법사에서 "해당사항없음"으로 체크한 섹션은 표(+표 밖 제목이 있는 경우 그것도)를
     통째로 지운다. 반드시 각 표를 채우는 `fill_*` 함수보다 먼저 호출해야 한다."""
-    if report.previous_findings_na:
-        # 표 삭제는 remove_unused_previous_finding_blocks()가 맡는다 — 여기선 제목만.
-        _remove_paragraph_containing(doc, "이전 기술지도 사항 이행여부")
-
+    # 이전지적사항(4번)/지적사항(8번)의 "해당사항없음"은 마법사에서 버튼을 숨겼고(2026-09-21),
+    # 하나도 없을 땐 제목만 남기지 않고 "없음" 안내 표를 그대로 보여준다 — 그래서 예전에 저장된
+    # 보고서에 `previous_findings_na`가 켜져 있어도 제목을 지우지 않는다.
     if report.major_hazard_na:
         _remove_table_by_field(doc, "t5_001")
         _remove_paragraph_containing(doc, "대형사고 위험작업 사항")

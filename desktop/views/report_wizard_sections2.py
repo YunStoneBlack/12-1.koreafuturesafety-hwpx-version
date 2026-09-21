@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -55,7 +55,13 @@ def _centered_widget(inner: QWidget) -> QWidget:
 
 
 class _EquipmentEvalCell(QWidget):
-    """평가(양호/미흡) 버튼 쌍 — 표 셀에 끼워 넣는 위젯."""
+    """평가(양호/미흡) 버튼 쌍 — 표 셀에 끼워 넣는 위젯.
+
+    사용자가 버튼을 직접 눌렀을 때만 `user_changed(selected)`를 emit한다(`selected`=방금 어떤
+    평가를 골랐는지, False면 선택을 해제) — 저장된 값을 불러오는 `set_evaluation`은 emit하지
+    않아 유/무 체크박스를 건드리지 않는다."""
+
+    user_changed = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
@@ -80,11 +86,12 @@ class _EquipmentEvalCell(QWidget):
             layout.addWidget(btn)
 
     def _on_eval_clicked(self, clicked_btn: QPushButton) -> None:
-        if not clicked_btn.isChecked():
-            return
-        for btn in self.eval_buttons.buttons():
-            if btn is not clicked_btn:
-                btn.setChecked(False)
+        selected = clicked_btn.isChecked()
+        if selected:
+            for btn in self.eval_buttons.buttons():
+                if btn is not clicked_btn:
+                    btn.setChecked(False)
+        self.user_changed.emit(selected)
 
     def _update_eval_styles(self) -> None:
         for btn in self.eval_buttons.buttons():
@@ -112,13 +119,27 @@ class _EquipmentItemControls:
         self.item_name = item_name
         self.checkbox = checkbox
         self._eval_cells = eval_cells
+        for cell in eval_cells:
+            cell.user_changed.connect(self._on_eval_changed)
+
+    def _on_eval_changed(self, selected: bool) -> None:
+        """평가를 하나라도 고르면 유/무가 자동으로 "유"가 되고, 평가를 전부 지우면 "무"로 돌아간다
+        (사용자 요청, 2026-09-21) — 그 뒤에 유/무를 직접 바꾸는 건 자유롭다(예외 상황 대비)."""
+        if selected:
+            self.checkbox.setChecked(True)
+        elif not any(self.evaluations()):
+            self.checkbox.setChecked(False)
 
     def evaluations(self) -> list[str]:
         return [cell.evaluation() for cell in self._eval_cells]
 
     def set_evaluations(self, values: list[str]) -> None:
-        for cell, value in zip(self._eval_cells, values):
-            cell.set_evaluation(value)
+        for index, cell in enumerate(self._eval_cells):
+            cell.set_evaluation(values[index] if index < len(values) else "")
+
+    def missing_evaluation(self) -> bool:
+        """유로 체크돼 있는데 평가를 안 고른 지도사항 줄이 있는지."""
+        return self.checkbox.isChecked() and not all(self.evaluations())
 
 
 class _SectionBuilderMixin2:

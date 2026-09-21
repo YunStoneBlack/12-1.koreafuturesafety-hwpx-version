@@ -35,7 +35,11 @@ from core.text_generator import generate_special_note
 from core.thumbnail_generator import resolve_material_path
 from core.vision_analyzer import count_people
 from desktop.dialogs.material_picker_dialog import ClickableThumb, MaterialPickerDialog, MaterialPreviewDialog
-from desktop.views.report_wizard_load import _DEFAULT_EDUCATION_MATERIAL, _LoadReportMixin
+from desktop.views.report_wizard_load import (
+    _DEFAULT_EDUCATION_LOCATION,
+    _DEFAULT_EDUCATION_MATERIAL,
+    _LoadReportMixin,
+)
 from desktop.views.report_wizard_sections import _SectionBuilderMixin
 from desktop.views.report_wizard_sections2 import _SectionBuilderMixin2
 from desktop.views.report_wizard_sections3 import _SectionBuilderMixin3
@@ -304,7 +308,8 @@ class ReportWizardView(
 
         self.education_photo.clear_photo()
         self.attendee_input.clear()
-        self.education_location_input.clear()
+        # 거의 항상 "현장 내"라 기본값으로 미리 채워둔다(수정 가능, 사용자 요청, 2026-09-21).
+        self.education_location_input.setText(_DEFAULT_EDUCATION_LOCATION)
         self.education_content_input.clear()
         # 매번 똑같이 입력하는 값이라 기본값으로 미리 채워둔다(수정 가능, 사용자 요청,
         # 2026-09-11) — 실제로 바꿀 일은 거의 없지만 혹시 몰라 잠그지는 않는다.
@@ -330,9 +335,7 @@ class ReportWizardView(
 
         for row in self.measurement_rows:
             row.photo.clear_photo()
-            row.value_input.clear()
-            row.set_verdict("")
-            row.action_input.clear()
+            row.apply_defaults()
         self.measurement_header.set_checked(False)
 
         self._selected_materials = []

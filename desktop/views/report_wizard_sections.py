@@ -355,6 +355,12 @@ class _SectionBuilderMixin:
                 table.setCellWidget(row_cursor + len(line_checkboxes), 1, line_checkbox)
                 line_checkboxes.append(line_checkbox)
             self.hazard_line_checkboxes[number] = line_checkboxes
+            # 기인물을 체크하면 그 필수 지도사항 줄이 전부 같이 체크되고, 해제하면 같이 해제된다
+            # (사용자 요청, 2026-09-21) — 이후 줄 단위로 따로 고칠 수 있다. `toggled`가 아니라
+            # `clicked`라서 저장된 값을 불러올 때(`_apply_hazard_checks`)는 발동하지 않는다.
+            checkbox.clicked.connect(
+                lambda checked, boxes=line_checkboxes: [box.setChecked(checked) for box in boxes]
+            )
 
             row_cursor += row_span
 
@@ -433,10 +439,11 @@ class _SectionBuilderMixin:
             9, "향후 진행공정에 대한 유해·위험요인 파악 및 대책", required=False, show_na_button=False
         )
         note = QLabel(
-            "보고서 9번 표에 인쇄되는 모습 그대로입니다 — 공정 사진과 이름을 넣고 'AI로 작성'을 누르세요."
+            "보고서 9번 표에 인쇄되는 모습 그대로입니다 — 다음 회차에 할 공정이라 사진 없이 "
+            "공정 이름만 넣고 'AI로 작성'을 누르세요."
         )
         note.setStyleSheet("color: #6b7280; font-size: 12px;")
-        self.process_slots = [_ProcessSlot(i) for i in range(1, 5)]
+        self.process_slots = [_ProcessSlot(i, allow_photo=False) for i in range(1, 5)]
 
         # 실제 사이트처럼 하나의 표(좌측 "주요 진행공정" 라벨 열 + 2x2 칸)로 배치한다.
         # 순서는 1번칸(좌상)-3번칸(우상)-2번칸(좌하)-4번칸(우하) — 보고서 6번 표의
@@ -516,10 +523,10 @@ class _SectionBuilderMixin:
                 detail_grid.addWidget(cell, row, col)
 
         help_note = QLabel(
-            "공정 사진을 넣고 이름을 적은 뒤 'AI로 작성'을 누르면 유해·위험요인/예방대책/위험성을 "
+            "공정 이름을 적고 'AI로 작성'을 누르면 유해·위험요인/예방대책/위험성을 "
             "항목별로 여러 건 자동으로 작성합니다. 작성된 내용은 항목마다 직접 고쳐 쓸 수 있고, "
             "'+ 항목 추가'로 수동으로 항목을 늘리거나 ✕로 지울 수도 있습니다.\n"
-            "공정 이름은 이 현장에 저장되어 다음 회차 보고서 작성 시 자동으로 채워집니다(사진·유해위험요인은 "
+            "공정 이름은 이 현장에 저장되어 다음 회차 보고서 작성 시 자동으로 채워집니다(유해위험요인은 "
             "매 회차 현장 상태에 맞춰 새로 작성해야 하므로 승계되지 않습니다)."
         )
         help_note.setWordWrap(True)

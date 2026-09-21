@@ -226,7 +226,7 @@ class _SectionBuilderMixin3:
         return self._card(header, grid)
 
     def _save_notify_signature(self) -> None:
-        self._save(navigate=False)
+        self._save(navigate=False, validate=False)
         self._set_notify_signature_status(self.notify_signature_pad.has_signature())
 
     def _on_notify_signature_changed(self, path: str) -> None:

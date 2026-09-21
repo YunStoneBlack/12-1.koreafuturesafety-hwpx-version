@@ -71,14 +71,16 @@ def _apply_risk_fields(
     fields: tuple[str, str, str, str, str],
     likelihood: int | None,
     severity: int | None,
+    empty_text: str = "",
 ) -> None:
     """가능성/중대성/위험성 값 + 등급/관리기준 5칸짜리 위험성 블록 공통 채우기 로직. 관리기준
-    칸에만 등급별 배경색(즉시개선=빨강/개선필요=주황/현상유지=연두)을 입힌다."""
+    칸에만 등급별 배경색(즉시개선=빨강/개선필요=주황/현상유지=연두)을 입힌다. 값이 없으면
+    `empty_text`로 채운다(지적사항/이전지적사항이 하나도 없어 남겨둔 안내용 표는 "-")."""
     likelihood_field, severity_field, score_field, grade_field, action_field = fields
 
     if likelihood is None or severity is None:
         for field in fields:
-            _put(doc, field, "")
+            _put(doc, field, empty_text)
         return
 
     score = likelihood * severity
@@ -92,7 +94,7 @@ def _apply_risk_fields(
         _fill_cell_color(doc, action_field, color)
 
 
-def _fill_finding_risk(doc, slot: int, finding) -> None:
+def _fill_finding_risk(doc, slot: int, finding, empty_text: str = "") -> None:
     fields = (
         f"finding{slot}_likelihood",
         f"finding{slot}_severity",
@@ -102,7 +104,7 @@ def _fill_finding_risk(doc, slot: int, finding) -> None:
     )
     likelihood = finding.likelihood if finding else None
     severity = finding.severity if finding else None
-    _apply_risk_fields(doc, fields, likelihood, severity)
+    _apply_risk_fields(doc, fields, likelihood, severity, empty_text)
 
 
 def remove_unused_finding_blocks(doc, report: Report) -> None:
@@ -121,7 +123,9 @@ def remove_unused_finding_blocks(doc, report: Report) -> None:
     """
     findings_by_slot = {f.slot: f for f in report.findings}
     for slot in (1, 2, 3, 4):
-        if slot not in findings_by_slot:
+        # 지적사항이 하나도 없으면 1번 표만 남겨 "개선 필요 이상의 위험성 없음" 안내용으로 쓴다
+        # (2026-09-21) — 예전엔 표가 전부 지워져 8번 제목만 덩그러니 남았다.
+        if slot not in findings_by_slot and not (slot == 1 and not findings_by_slot):
             _remove_table_run_by_field(doc, f"finding{slot}_hazard")
 
 
@@ -134,7 +138,9 @@ def remove_unused_previous_finding_blocks(doc, report: Report) -> None:
     그래서 이 섹션 제목만 지우고 표 삭제는 여기에 맡긴다."""
     previous_by_slot = {p.slot: p for p in report.previous_findings}
     for slot in (1, 2, 3, 4):
-        if slot not in previous_by_slot:
+        # 이전지적사항이 하나도 없으면 1번 표만 남겨 "이전회차 기술지도 사항 없음" 안내용으로
+        # 쓴다(2026-09-21) — 예전엔 표가 전부 지워져 4번 제목만 덩그러니 남았다.
+        if slot not in previous_by_slot and not (slot == 1 and not previous_by_slot):
             _remove_table_run_by_field(doc, f"previous_finding{slot}_title")
 
 
@@ -143,17 +149,24 @@ def fill_finding_fields(doc, report: Report) -> None:
     findings = {f.slot: f for f in report.findings}
     for slot in (1, 2, 3, 4):
         finding = findings.get(slot)
+        # 지적사항이 하나도 없으면 1번 표가 "없음" 안내용으로 남아있다 — 위험성 칸은 "-",
+        # 이행결과 체크박스는 둘 다 빈 채로.
+        placeholder = slot == 1 and not findings
         _put(doc, f"finding{slot}_hazard", finding.title if finding else "")
         _put(doc, f"finding{slot}_countermeasure", finding.content if finding else "")
-        _fill_finding_risk(doc, slot, finding)
-        _fill_finding_result(doc, slot, finding)
+        _fill_finding_risk(doc, slot, finding, "-" if placeholder else "")
+        _fill_finding_result(doc, slot, finding, placeholder)
 
 
-def _fill_finding_result(doc, slot: int, finding) -> None:
+def _fill_finding_result(doc, slot: int, finding, placeholder: bool = False) -> None:
     status = finding.action_status if finding else ""
     later_mark = "☑" if status == "추후확인" else "☐"
     now_mark = "☑" if status == "즉시이행" else "☐"
-    _put(doc, f"finding{slot}_result", f"{later_mark} 추후확인\n{now_mark} 즉시이행" if finding else "")
+    _put(
+        doc,
+        f"finding{slot}_result",
+        f"{later_mark} 추후확인\n{now_mark} 즉시이행" if finding or placeholder else "",
+    )
 
 
 _TITLE_NORMAL_PARA_PR_ID = "40"  # 슬롯1 제목 칸의 문단 모양 — 슬롯2~4는 번호매기기(41)가 섞여있어 통일한다
@@ -181,28 +194,34 @@ def fill_previous_finding_fields(doc, report: Report) -> None:
     previous = {p.slot: p for p in report.previous_findings}
     for slot in (1, 2, 3, 4):
         pf = previous.get(slot)
+        # 이전지적사항이 하나도 없으면 1번 표가 "없음" 안내용으로 남아있다 — 위험성 칸은 "-",
+        # 이행결과 체크박스는 셋 다 빈 채로.
+        placeholder = slot == 1 and not previous
         title, content, _photo_path = pf.display_fields() if pf else ("", "", "")
         _put(doc, f"previous_finding{slot}_title", title)
         _normalize_previous_finding_title_style(doc, f"previous_finding{slot}_title")
         _put(doc, f"previous_finding{slot}_content", content)
-        _fill_previous_finding_result(doc, slot, pf)
-        _fill_previous_finding_risk(doc, slot, pf, "before", PreviousFinding.source_risk)
-        _fill_previous_finding_risk(doc, slot, pf, "after", PreviousFinding.resolve_after_risk)
+        _fill_previous_finding_result(doc, slot, pf, placeholder)
+        empty_text = "-" if placeholder else ""
+        _fill_previous_finding_risk(doc, slot, pf, "before", PreviousFinding.source_risk, empty_text)
+        _fill_previous_finding_risk(doc, slot, pf, "after", PreviousFinding.resolve_after_risk, empty_text)
 
 
-def _fill_previous_finding_risk(doc, slot: int, previous_finding, prefix: str, risk_fn) -> None:
+def _fill_previous_finding_risk(
+    doc, slot: int, previous_finding, prefix: str, risk_fn, empty_text: str = ""
+) -> None:
     fields = tuple(
         f"previous_finding{slot}_{prefix}_{suffix}"
         for suffix in ("likelihood", "severity", "score", "grade", "action")
     )
     likelihood, severity = risk_fn(previous_finding) if previous_finding else (None, None)
-    _apply_risk_fields(doc, fields, likelihood, severity)
+    _apply_risk_fields(doc, fields, likelihood, severity, empty_text)
     for field in fields:
         _center_bold_field(doc, field)
 
 
-def _fill_previous_finding_result(doc, slot: int, previous_finding) -> None:
+def _fill_previous_finding_result(doc, slot: int, previous_finding, placeholder: bool = False) -> None:
     status = previous_finding.result_status if previous_finding else ""
     marks = {label: ("☑" if status == label else "☐") for label in ("확인불가", "보완필요", "이행완료")}
     text = "\n".join(f"{marks[label]} {label}" for label in ("확인불가", "보완필요", "이행완료"))
-    _put(doc, f"previous_finding{slot}_result", text if previous_finding else "")
+    _put(doc, f"previous_finding{slot}_result", text if previous_finding or placeholder else "")
