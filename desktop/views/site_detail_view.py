@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from PyQt6.QtCore import QDate, QRegularExpression, QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QDesktopServices, QRegularExpressionValidator
+from PyQt6.QtCore import QDate, QRegularExpression, Qt, pyqtSignal
+from PyQt6.QtGui import QRegularExpressionValidator
 from PyQt6.QtWidgets import (
     QComboBox,
     QDateEdit,
@@ -24,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from core.db import SessionLocal
 from core.models_db import Report, Site, Staff
+from desktop.views.report_export import export_report_file
 
 
 def _fmt_amount(value: int | None) -> str:
@@ -351,11 +350,13 @@ class SiteDetailView(QWidget):
             row_layout.addWidget(edit_btn)
 
             # 워드(DOCX)는 최신 실제 서식과 안 맞는 예전 산출물이라 목록에서 숨긴다(사용자 요청).
-            for label, path in (("한글", report.hwpx_path), ("PDF", report.pdf_path)):
+            # 마지막 미리보기 때 만든 파일을 여는 대신, 누를 때마다 저장 위치를 묻고 저장된 최신 내용으로
+            # 새로 만든다(2026-09-21) — 수정 후 저장만 하고 미리보기를 안 눌러도 최신이 내려받아진다.
+            for label, kind in (("한글", "hwpx"), ("PDF", "pdf")):
                 btn = QPushButton(f"↓ {label}")
                 btn.setStyleSheet(_btn_font_style)
-                btn.setEnabled(bool(path and Path(path).exists()))
-                btn.clicked.connect(lambda _checked, p=path: QDesktopServices.openUrl(QUrl.fromLocalFile(p)))
+                btn.setToolTip("저장된 최신 내용으로 새로 만들어 원하는 위치에 저장합니다")
+                btn.clicked.connect(lambda _checked, rid=report.id, k=kind: self._export_report(rid, k))
                 row_layout.addWidget(btn)
 
             delete_btn = QPushButton("🗑 삭제")
@@ -364,6 +365,17 @@ class SiteDetailView(QWidget):
             row_layout.addWidget(delete_btn)
 
             self._history_list_layout.addWidget(row)
+
+    def _export_report(self, report_id: int, kind: str) -> None:
+        with SessionLocal() as session:
+            report = session.get(Report, report_id)
+            if report is None:
+                return
+            stem = f"{report.site.name}_{report.visit_no}회차"
+        # 끝나면(성공 시) 이력을 다시 그려 "확정" 같은 상태 표시를 갱신한다.
+        export_report_file(
+            self, report_id, kind, stem, on_finished=lambda path: self.load_site(self._site_id) if path else None
+        )
 
     def _delete_report(self, report_id: int) -> None:
         reply = QMessageBox.question(self, "보고서 삭제", "이 보고서를 삭제하시겠습니까?")

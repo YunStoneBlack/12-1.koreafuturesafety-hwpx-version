@@ -277,6 +277,11 @@ PyInstaller는 `.py`가 아닌 리소스(DLL, XSD 스키마 등)는 정적 분�
   (`desktop/views/report_wizard_validation.py` — 이전지적사항 빈 슬롯·이행결과 미선택·장비 평가 미선택), 5번 표 체크박스 크기
   통일, 장비 평가 칸 가운데 정렬. 자세한 내용은 `작업내용.md`의 "Sub-phase 27" 절 참고.
 
+- **Sub-phase 28 (완료)**: 사진 대신 들어가는 안내(사진촬영 불가·없음·확인불가·보완필요)의 X 틀을 이미지에서 **표 칸 대각선
+  테두리 + 가운데 글자**로 교체(`core/report_builder_hwpx_placeholder.py::put_frame_text` — 벡터라 PDF에서도 선명, 2018/2024는
+  새 배포판으로 확인 필요). 현장 상세 보고서 이력의 "↓ 한글"·"↓ PDF" 버튼은 항상 활성으로 하고, 누를 때마다 저장 위치를 묻고 저장된
+  최신 내용으로 새로 만들어 저장(`desktop/views/report_export.py`). 자세한 내용은 `작업내용.md`의 "Sub-phase 28" 절 참고.
+
 ### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/
 `_fields_cleanup.py`/`_fields_process.py`/`_images.py`)로, **실제 서식을 변환한 `.hwpx` 템플릿 자체를 재사용**해

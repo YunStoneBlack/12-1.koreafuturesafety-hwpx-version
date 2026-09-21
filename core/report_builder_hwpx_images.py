@@ -32,7 +32,7 @@ from pathlib import Path
 from core import config
 from core.models_db import Report, Site
 from core.report_builder_hwpx_jpeg import image_bytes_for_hwpx
-from core.report_builder_hwpx_placeholder import put_dash, render_frame_placeholder
+from core.report_builder_hwpx_placeholder import put_dash, put_frame_text
 from core.thumbnail_generator import render_pdf_pages, resolve_material_path
 
 NO_PHOTO_TEXT = "사진촬영 불가(보안 등)"
@@ -317,13 +317,9 @@ _INSPECTION_PHOTO_TABLE_INDEX = 5
 
 
 def _put_frame_placeholder(doc, cell, text: str) -> None:
-    """칸 크기에 딱 맞는 점선 X자 틀 + 가운데 문구 그림을 사진처럼 넣는다."""
-    width, height = _cell_inner_box(cell)
-    path = render_frame_placeholder(text, width, height)
-    try:
-        _insert_fit_picture_in_cell(doc, cell, str(path))
-    finally:
-        path.unlink(missing_ok=True)
+    """사진 칸을 X자 대각선 테두리 + 가운데 문구로 바꾼다(그림이 아니라 칸 테두리 — `put_frame_text`)."""
+    _clear_cell_pictures(cell)
+    put_frame_text(doc, cell, text)
 
 
 def _fill_photo_cell(doc, cell, photo_path: str | None, *, no_photo: bool) -> None:

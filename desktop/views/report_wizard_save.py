@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QMessageBox
 
 from core.db import BASE_DIR, SessionLocal
 from core.models_db import (
@@ -35,33 +35,10 @@ from core.models_db import (
     SiteProcessDefault,
 )
 from core.report_builder import build_report
-from core.report_builder_hwpx import build_report_hwpx
 from desktop.dialogs.report_preview_dialog import ReportPreviewDialog
-from desktop.dialogs.saving_progress_dialog import SavingProgressDialog
+from desktop.views.report_export import export_report_file
 from desktop.widgets.photo_drop_zone import copy_photo_to_storage
 from desktop.widgets.signature_pad import move_or_reference
-from desktop.workers.ai_worker import AIWorker, with_com
-
-
-def _build_pdf_for_export(report_id: int, chosen_path: Path) -> Path:
-    build_report(report_id, chosen_path)
-    with SessionLocal() as session:
-        report = session.get(Report, report_id)
-        report.pdf_path = str(chosen_path)
-        session.commit()
-    return chosen_path
-
-
-def _build_hwp_for_export(report_id: int, chosen_path: Path) -> Path:
-    """COM(pyhwpx) 없이 순수 파이썬으로 .hwpx를 만드는 신규 엔진(Sub-phase 18)으로 생성한다
-    — `build_report_hwp`(한글 프로그램 COM 자동화, .hwp)는 더 이상 이 버튼에서 쓰지 않는다.
-    PDF 생성/미리보기는 python-hwpx에 PDF 변환 기능이 없어 여전히 COM 경로를 쓴다."""
-    build_report_hwpx(report_id, chosen_path)
-    with SessionLocal() as session:
-        report = session.get(Report, report_id)
-        report.hwpx_path = str(chosen_path)
-        session.commit()
-    return chosen_path
 
 
 class _SaveGenerateMixin:
@@ -416,95 +393,27 @@ class _SaveGenerateMixin:
         return output_path
 
     def _export_pdf_as(self, on_finished=None) -> None:
-        """사용자가 고른 위치에 PDF를 저장한다. 파일명은 "{현장명}_{회차}회차.pdf"를 기본값으로
-        제안한다 (예: "코하이젠 군포부곡 수소충전소 구축공사_1회차.pdf").
-
-        PDF 생성이 한글 자동화를 거치면서 몇 초 걸리므로(체감 지연 원인) 백그라운드에서
-        돌린다 — 완료/실패는 메시지박스로 알린다. `on_finished`가 있으면 성공/실패/취소
-        **어느 경우에도** 정확히 한 번 불러준다(호출자가 "작업 중" 상태를 안전하게 풀 수
-        있도록 — 미리보기 창의 "PDF 생성"/"한글 파일 생성" 버튼이 이걸로 바쁨 표시를 관리한다)."""
+        """사용자가 고른 위치에 PDF를 저장한다. 파일명 기본값은 "{현장명}_{회차}회차.pdf"
+        (예: "코하이젠 군포부곡 수소충전소 구축공사_1회차.pdf"). 실제 흐름(저장 위치 묻기 → 백그라운드 생성 +
+        진행 창 → 완료 안내, `on_finished` 정확히 한 번 호출)은 `report_export.export_report_file` 공통."""
         if not self._report_id:
             if on_finished:
                 on_finished(None)
             return
-        default_name = f"{self.site_name_label.text()}_{self.visit_no_input.value()}회차.pdf"
-        default_path = str(Path.home() / "Desktop" / default_name)
-        chosen, _ = QFileDialog.getSaveFileName(self, "PDF로 저장", default_path, "PDF 파일 (*.pdf)")
-        if not chosen:
-            if on_finished:
-                on_finished(None)
-            return
-        chosen_path = Path(chosen)
-        if chosen_path.suffix.lower() != ".pdf":
-            chosen_path = chosen_path.with_suffix(".pdf")
-
-        report_id = self._report_id
-        self._export_worker = AIWorker(with_com(lambda: _build_pdf_for_export(report_id, chosen_path)))
-
-        # 저장 위치를 고르고 나서 실제 파일이 만들어지기까지 몇 초 걸리는데, 그동안 아무
-        # 표시가 없어 "오류가 난 줄 알았다"는 피드백이 있었다(사용자, 2026-09-15) — 이
-        # 모달이 그 사이를 명확히 채운다(백그라운드 작업이 끝나면 `finish()`/`fail()`로
-        # 알아서 닫힌다).
-        progress_dialog = SavingProgressDialog("PDF 파일을 저장하는 중입니다...", parent=self)
-
-        def _ok(path):
-            progress_dialog.finish()
-            QMessageBox.information(self, "저장 완료", f"PDF를 저장했습니다:\n{path}")
-            if on_finished:
-                on_finished(path)
-
-        def _err(msg):
-            progress_dialog.fail()
-            QMessageBox.warning(self, "PDF 생성 실패", msg)
-            if on_finished:
-                on_finished(None)
-
-        self._export_worker.finished_ok.connect(_ok)
-        self._export_worker.finished_error.connect(_err)
-        self._export_worker.start()
-        progress_dialog.exec()
+        export_report_file(
+            self, self._report_id, "pdf", f"{self.site_name_label.text()}_{self.visit_no_input.value()}회차", on_finished
+        )
 
     def _export_hwp_as(self, on_finished=None) -> None:
-        """사용자가 고른 위치에 한글(.hwpx) 파일을 저장한다. `_export_pdf_as`와 동일한
-        기본 파일명 규칙 + 백그라운드 실행 + `on_finished` 규칙을 쓴다.
-
-        COM 없는 신규 엔진(`build_report_hwpx`)을 쓰므로 `with_com` 래핑이 필요 없다."""
+        """사용자가 고른 위치에 한글(.hwpx) 파일을 저장한다. `_export_pdf_as`와 같은 규칙 — COM 없는 신규
+        엔진(`build_report_hwpx`)을 쓰므로 `with_com` 래핑이 필요 없다."""
         if not self._report_id:
             if on_finished:
                 on_finished(None)
             return
-        default_name = f"{self.site_name_label.text()}_{self.visit_no_input.value()}회차.hwpx"
-        default_path = str(Path.home() / "Desktop" / default_name)
-        chosen, _ = QFileDialog.getSaveFileName(self, "한글 파일로 저장", default_path, "한글 hwpx 파일 (*.hwpx)")
-        if not chosen:
-            if on_finished:
-                on_finished(None)
-            return
-        chosen_path = Path(chosen)
-        if chosen_path.suffix.lower() != ".hwpx":
-            chosen_path = chosen_path.with_suffix(".hwpx")
-
-        report_id = self._report_id
-        self._export_worker = AIWorker(lambda: _build_hwp_for_export(report_id, chosen_path))
-
-        progress_dialog = SavingProgressDialog("한글 파일을 저장하는 중입니다...", parent=self)
-
-        def _ok(path):
-            progress_dialog.finish()
-            QMessageBox.information(self, "저장 완료", f"한글 파일을 저장했습니다:\n{path}")
-            if on_finished:
-                on_finished(path)
-
-        def _err(msg):
-            progress_dialog.fail()
-            QMessageBox.warning(self, "한글 파일 생성 실패", msg)
-            if on_finished:
-                on_finished(None)
-
-        self._export_worker.finished_ok.connect(_ok)
-        self._export_worker.finished_error.connect(_err)
-        self._export_worker.start()
-        progress_dialog.exec()
+        export_report_file(
+            self, self._report_id, "hwpx", f"{self.site_name_label.text()}_{self.visit_no_input.value()}회차", on_finished
+        )
 
     def _open_preview(self) -> None:
         # 미리보기는 마법사를 떠나지 않고 반복해서 열어볼 수 있어야 하므로(수정하기 →
