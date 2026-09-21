@@ -31,6 +31,7 @@ from pathlib import Path
 
 from core import config
 from core.models_db import Report, Site
+from core.report_builder_hwpx_jpeg import image_bytes_for_hwpx
 from core.report_builder_hwpx_placeholder import put_dash, render_frame_placeholder
 from core.thumbnail_generator import render_pdf_pages, resolve_material_path
 
@@ -84,16 +85,12 @@ def _prepare_signature_image(image_path: str) -> str:
     return str(out_path)
 
 
-def _image_format(path: Path) -> str:
-    suffix = path.suffix.lower().lstrip(".")
-    return "jpg" if suffix == "jpeg" else suffix
-
-
 def _register_image(doc, path: Path) -> str:
     """이미지를 문서에 등록한다 — 손그림 서명이면 `_prepare_signature_image`가 먼저
-    굵게 다듬는다(사진/도장은 그 함수 자체의 안전장치로 원본 그대로 통과한다)."""
+    굵게 다듬는다(사진/도장은 그 함수 자체의 안전장치로 원본 그대로 통과한다). 등록되는 건
+    항상 JPG다(`image_bytes_for_hwpx` — PNG는 한글 2018/2024 PDF 저장에서 96dpi로 뭉개진다)."""
     prepared = Path(_prepare_signature_image(str(path)))
-    return doc.add_image(prepared.read_bytes(), _image_format(prepared))
+    return doc.add_image(image_bytes_for_hwpx(prepared), "jpg")
 
 
 def _fit_size(image_path: str, box_w: int, box_h: int) -> tuple[int, int]:
@@ -258,7 +255,9 @@ def _insert_floating_signature(
             "horzOffset": horz_offset,
             "vertOffset": vert_offset,
         },
-        text_wrap="IN_FRONT_OF_TEXT",
+        # 서명은 흰 배경 JPG로 들어가므로(투명 PNG는 한글 2018/2024 PDF에서 96dpi로 뭉개진다)
+        # "글 앞으로"면 흰 상자가 옆 글자를 가린다 — "글 뒤로"로 두면 글자·표 테두리가 위에 그려진다.
+        text_wrap="BEHIND_TEXT",
     )
     _fix_img_dim(paragraph, image_path)
 
