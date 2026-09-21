@@ -296,7 +296,7 @@ PyInstaller는 `.py`가 아닌 리소스(DLL, XSD 스키마 등)는 정적 분�
 
 - **Sub-phase 32 (완료)**: 국가기관 PDF 제출 용량(10MB) 대응으로 보고서에 넣는 사진을 긴 변 1400px·JPEG 85로 줄임(`core/report_builder_hwpx_jpeg.py::prepare_photo_for_report`, 폰 사진의 회전 표시 반영, 폰 원본 기준
   PDF 10.8MB→2.2MB), 담당요원 **같은 지도일 최대 4현장** 한도(`core/staff_load.py` + `desktop/views/report_wizard_staff_limit.py`, 목록에 "3/4·4/4 마감" 표시), 현장 카드 상태바를
-  **공기(시간) 경과율 vs 기술지도 횟수** 두 바 + [N회 부족/여유/정상] 상태로 교체(`core/site_pace.py`), 메인 화면 "↻ 새로고침" 버튼과 창 닫기·돌아가기 시 자동 새로고침. 자세한 내용은 `작업내용.md`의 "Sub-phase 32" 절 참고.
+  **공기(시간) 경과율 vs 기술지도 횟수** 두 바 + [N회 부족/여유/정상] 상태로 교체(`core/site_pace.py`), 메인 화면 "↻ 새로고침" 버튼과 창 닫기·돌아가기 시 자동 새로고침. 4번 이전지적사항 오른쪽 사진 가운데 정렬·위아래 여백도 반영(배포 0921-8). 자세한 내용은 `작업내용.md`의 "Sub-phase 32" 절 참고.
 
 ### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/

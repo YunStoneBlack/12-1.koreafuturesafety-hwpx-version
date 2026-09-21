@@ -378,6 +378,10 @@ def fill_previous_finding_images(doc, report: Report) -> None:
         pf = previous.get(slot)
 
         result_status = pf.result_status if pf else ""
+        # 오른쪽(이행 결과) 사진 칸의 문단 정렬이 템플릿에서 "양쪽 정렬"이라 사진이 왼쪽으로 붙어 있었다 — 왼쪽 칸(가운데 정렬)과 같게 맞춘다.
+        center_para_pr = None
+        if title_loc is not None and title_loc[1] > 0:
+            center_para_pr = title_loc[0].cell(title_loc[1] - 1, title_loc[2]).paragraphs[0].para_pr_id_ref
         for location, photo_path, is_result_cell in (
             (title_loc, pf.display_fields()[2] if pf else None, False),
             (content_loc, pf.completion_photo_path if pf else None, True),
@@ -389,6 +393,8 @@ def fill_previous_finding_images(doc, report: Report) -> None:
                 continue
             cell = table.cell(row - 1, col)
             _clear_cell_pictures(cell)
+            if center_para_pr:
+                cell.paragraphs[0].para_pr_id_ref = center_para_pr
             # 우선순위: 이전지적사항 없음 > 사진촬영 불가 > (이행결과 칸만) 확인불가/보완필요 틀 >
             # 실제 사진 > (이행결과 칸만) "-". 이행완료는 이행결과 사진을 넣고 없으면 "-".
             if not previous:
@@ -398,7 +404,7 @@ def fill_previous_finding_images(doc, report: Report) -> None:
             elif is_result_cell and result_status in ("확인불가", "보완필요"):
                 _put_frame_placeholder(doc, cell, result_status)
             elif photo_path and Path(photo_path).exists():
-                _insert_fit_picture_in_cell(doc, cell, photo_path)
+                _insert_fit_picture_in_cell(doc, cell, photo_path, v_margin_mm=_PHOTO_V_MARGIN_MM)
             elif is_result_cell:
                 put_dash(doc, cell)
 
