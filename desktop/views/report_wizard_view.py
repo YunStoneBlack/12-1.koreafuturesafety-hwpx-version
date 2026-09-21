@@ -258,6 +258,8 @@ class ReportWizardView(
             self.set_notification_method(
                 (last_report.notification_method if last_report else "") or "전자우편"
             )
+            # 공정률도 직전 회차 값을 기본으로 이어받는다(사용자 요청 2026-09-21) — 수정은 그대로 가능.
+            self.progress_input.setValue((last_report.progress_rate if last_report else 0) or 0)
             self._refresh_signoff_previews(site.assigned_staff_id if site else None)
 
             self.misc_overwork_check.setChecked(False)

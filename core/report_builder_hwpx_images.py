@@ -177,10 +177,12 @@ def _fix_img_dim(paragraph, image_path: str) -> None:
                     sub.set("dimheight", str(clip_bottom))
 
 
-def _insert_fit_picture_in_cell(doc, cell, image_path: str) -> None:
+def _insert_fit_picture_in_cell(doc, cell, image_path: str, *, v_margin_mm: float = 0.0) -> None:
+    """`v_margin_mm`: 사진 위·아래에 각각 남길 여백(mm). 사진이 칸 높이에 딱 맞아 테두리에 붙어 보이는 걸 막는다."""
     para = cell.paragraphs[0]
     _clear_pictures(para)
     box_w, box_h = _cell_inner_box(cell)
+    box_h = max(box_h - 2 * _mm(v_margin_mm), 1)
     width, height = _fit_size(image_path, box_w, box_h)
     item_id = _register_image(doc, Path(image_path))
     para.add_picture(item_id, width=width, height=height)
@@ -312,6 +314,7 @@ def _locate_field_cell(doc, field_name: str):
 
 
 _SITE_PHOTO_CELLS = {1: "B1", 2: "C1", 3: "B2", 4: "C2"}
+_PHOTO_V_MARGIN_MM = 2.0  # 3번 전경/점검 사진·8번 지적사항 사진의 위아래 여백(사용자 요청 2026-09-21)
 _OVERVIEW_PHOTO_TABLE_INDEX = 4
 _INSPECTION_PHOTO_TABLE_INDEX = 5
 
@@ -322,20 +325,39 @@ def _put_frame_placeholder(doc, cell, text: str) -> None:
     put_frame_text(doc, cell, text)
 
 
-def _fill_photo_cell(doc, cell, photo_path: str | None, *, no_photo: bool) -> None:
+def _fill_photo_cell(doc, cell, photo_path: str | None, *, no_photo: bool, v_margin_mm: float = 0.0) -> None:
     """사진 칸 하나를 채운다 — `사진촬영 불가`가 체크돼 있으면 사진이 있어도 안내 그림, 아니면
     사진이 있을 때만 사진, 없으면 "-"."""
     _clear_cell_pictures(cell)
     if no_photo:
         _put_frame_placeholder(doc, cell, NO_PHOTO_TEXT)
     elif photo_path and Path(photo_path).exists():
-        _insert_fit_picture_in_cell(doc, cell, photo_path)
+        _insert_fit_picture_in_cell(doc, cell, photo_path, v_margin_mm=v_margin_mm)
     else:
         put_dash(doc, cell)
 
 
+def _align_overview_inspection_tables(doc) -> None:
+    """3번 전경/점검 표의 사진 두 열 폭을 같게 맞춘다(사용자 피드백 2026-09-21).
+
+    템플릿에서 두 열의 폭이 22660/23793(약 4mm 차이)이라 오른쪽 사진의 좌우 여백이 더 컸다. 표 전체 폭은 그대로 두고 반반으로
+    나눈다. (두 표의 좌우 위치 어긋남은 `report_builder_hwpx_borders.normalize_table_styles`가 맞춘다.)
+    """
+    tables = [doc.tables.all[_OVERVIEW_PHOTO_TABLE_INDEX], doc.tables.all[_INSPECTION_PHOTO_TABLE_INDEX]]
+    for table in tables:
+        first = [table.cell(r, 1) for r in range(table.row_count)]
+        second = [table.cell(r, 2) for r in range(table.row_count)]
+        total = first[0].width + second[0].width
+        half = total // 2
+        for cell in first:
+            cell.set_size(width=half, height=cell.height)
+        for cell in second:
+            cell.set_size(width=total - half, height=cell.height)
+
+
 def fill_overview_inspection_images(doc, report: Report) -> None:
     """3. 전경사진 및 점검사진 — 표4(전경사진)/표5(점검사진)의 2x2 사진 칸."""
+    _align_overview_inspection_tables(doc)
     for table_index, photos in (
         (_OVERVIEW_PHOTO_TABLE_INDEX, report.overview_photos),
         (_INSPECTION_PHOTO_TABLE_INDEX, report.inspection_photos),
@@ -346,7 +368,11 @@ def fill_overview_inspection_images(doc, report: Report) -> None:
             row, col = _parse_cell_addr(addr)
             photo = by_slot.get(slot)
             _fill_photo_cell(
-                doc, table.cell(row, col), photo.photo_path if photo else None, no_photo=report.misc_no_photo
+                doc,
+                table.cell(row, col),
+                photo.photo_path if photo else None,
+                no_photo=report.misc_no_photo,
+                v_margin_mm=_PHOTO_V_MARGIN_MM,
             )
 
 
@@ -367,7 +393,13 @@ def fill_finding_images(doc, report: Report) -> None:
             _put_frame_placeholder(doc, cell, NO_FINDING_TEXT)
             continue
         finding = findings.get(slot)
-        _fill_photo_cell(doc, cell, finding.photo_path if finding else None, no_photo=report.misc_no_photo)
+        _fill_photo_cell(
+            doc,
+            cell,
+            finding.photo_path if finding else None,
+            no_photo=report.misc_no_photo,
+            v_margin_mm=_PHOTO_V_MARGIN_MM,
+        )
 
 
 _PREVIOUS_FINDING_PHOTO_FIELDS = {slot: (f"previous_finding{slot}_title", f"previous_finding{slot}_content") for slot in (1, 2, 3, 4)}

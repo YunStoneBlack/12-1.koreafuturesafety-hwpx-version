@@ -290,6 +290,10 @@ PyInstaller는 `.py`가 아닌 리소스(DLL, XSD 스키마 등)는 정적 분�
   display_measurement_standard`), 조도계 측정치가 "기준치 이내" 같은 문구일 때는 단위(Lux)를 안 붙임. 자세한 내용은 `작업내용.md`의
   "Sub-phase 30" 절 참고.
 
+- **Sub-phase 31 (완료)**: 보고서 미리보기에 확대·축소(`−`/`100%`/`+`, 20~300%, Ctrl+휠은 화면 중앙 기준)와 마우스 드래그 이동 추가, 10번 기준표 2개 위아래
+  간격 확대(페이지 안 넘는 범위), 3번·8번 사진 위아래 2mm 여백 + 3번 표 열 폭 통일, **모든 표를 "바깥 테두리만 굵게·안쪽 얇게"로 통일하고 좌우 위치 맞춤**
+  (`core/report_builder_hwpx_borders.py`), 새 회차 공정률 기본값을 직전 회차 값으로. 자세한 내용은 `작업내용.md`의 "Sub-phase 31" 절 참고.
+
 ### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/
 `_fields_cleanup.py`/`_fields_process.py`/`_images.py`)로, **실제 서식을 변환한 `.hwpx` 템플릿 자체를 재사용**해

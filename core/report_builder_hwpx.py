@@ -22,6 +22,7 @@ from hwpx.document import HwpxDocument
 
 from core.db import BASE_DIR, SessionLocal
 from core.models_db import Report
+from core.report_builder_hwpx_borders import normalize_table_styles
 from core.report_builder_hwpx_fields import fill_all
 from core.report_builder_hwpx_package import normalize_image_packaging
 from core.report_builder_hwpx_standards import fill_reference_standard_tables
@@ -120,6 +121,7 @@ def build_report_hwpx(report_id: int, output_path: str | Path) -> Path:
             fill_finding_images(doc, report)
             fill_previous_finding_images(doc, report)
             fill_material_appendix(doc, report)
+            normalize_table_styles(doc)  # 모든 채우기가 끝난 뒤: 표 바깥만 굵게·안쪽 얇게, 좌우 위치 통일
             _remove_stale_preview_cache(doc)
             _strip_line_seg_arrays(doc)
             doc.save_to_path(output_path)

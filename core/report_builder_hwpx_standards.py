@@ -24,6 +24,13 @@ _TITLE_PT = 9
 _ROW_HEIGHT_MM = 5.6
 _LINE_HEIGHT_MM = 4.4            # 한 칸에 두 줄 이상 들어갈 때 줄마다 더해주는 높이
 
+# 제목·표 사이 여백(mm) — "여유 간격이 너무 없다"는 피드백(2026-09-21)으로 빈 문단으로 띄운다. 10번 표가 페이지를 거의 채우도록 넓혔다(2026-09-21, 사용자 요청) — 페이지 아래 약 20~25mm는 교육내용·조치사항 줄이 늘어도 안 넘치게 남겨둔 안전 여유이니 더 키우지 말 것.
+_GAP_BEFORE_ILLUMINANCE_MM = 9.0  # 조치사항 줄 ↔ 조도기준 제목
+_GAP_TITLE_TO_TABLE_MM = 4.0      # 제목 ↔ 바로 아래 표
+_GAP_BETWEEN_TABLES_MM = 14.0     # 조도기준 표 ↔ 5대 가스 제목
+_GAP_AFTER_LAST_MM = 10.0         # 5대 가스 표 ↔ 큰 표 아래 테두리
+_SPACER_LINE_FACTOR = 1.5         # 한글 100% 줄 높이 ≈ 글자 크기의 이 배수(실측 보정용)
+
 _ILLUMINANCE_TITLE = "● 작업면의 조도기준(안전보건규칙 제8조)"
 _ILLUMINANCE_HEADER = ("작업 구분", "조도 기준", "해당 작업 예시")
 _ILLUMINANCE_ROWS = [
@@ -61,6 +68,13 @@ def _write_cell(doc, cell, lines: list[str], *, center: bool, bold: bool, size: 
     cell.set_text("\n".join(lines), split_paragraphs=True)
     for paragraph in cell.paragraphs:
         _style_paragraph(doc, paragraph, _CENTER_PARA_PR if center else _BODY_LEFT_PARA_PR, bold=bold, size=size)
+
+
+def _make_spacer(doc, paragraph, height_mm: float) -> None:
+    """빈 문단의 글자 크기로 높이를 맞춰 여백으로 쓴다."""
+    paragraph.text = ""
+    size_pt = height_mm * 72 / 25.4 / _SPACER_LINE_FACTOR
+    _style_paragraph(doc, paragraph, _CENTER_PARA_PR, bold=False, size=size_pt)
 
 
 def _add_table(doc, outer_cell, header, rows, widths_mm) -> None:
@@ -103,14 +117,19 @@ def fill_reference_standard_tables(doc) -> None:
     _clear_cell_pictures(cell)
     _remove_orphan_gas_image(doc)
 
-    title = cell.paragraphs[0]
-    title.text = _ILLUMINANCE_TITLE
+    # 표 칸의 첫 문단(그림이 있던 자리)을 여백으로 쓰고, 그 뒤로 제목·표를 차례로 붙인다.
+    _make_spacer(doc, cell.paragraphs[0], _GAP_BEFORE_ILLUMINANCE_MM)
+    title = cell.add_paragraph(_ILLUMINANCE_TITLE)
     _style_paragraph(doc, title, _LEFT_PARA_PR, bold=True, size=_TITLE_PT)
+    _make_spacer(doc, cell.add_paragraph(""), _GAP_TITLE_TO_TABLE_MM)
     _add_table(doc, cell, _ILLUMINANCE_HEADER, _ILLUMINANCE_ROWS, _ILLUMINANCE_WIDTHS_MM)
 
+    _make_spacer(doc, cell.add_paragraph(""), _GAP_BETWEEN_TABLES_MM)
     gas_title = cell.add_paragraph(_GAS_TITLE)
     _style_paragraph(doc, gas_title, _LEFT_PARA_PR, bold=True, size=_TITLE_PT)
+    _make_spacer(doc, cell.add_paragraph(""), _GAP_TITLE_TO_TABLE_MM)
     _add_table(doc, cell, _GAS_HEADER, _GAS_ROWS, _GAS_WIDTHS_MM)
+    _make_spacer(doc, cell.add_paragraph(""), _GAP_AFTER_LAST_MM)
 
 
 def _remove_orphan_gas_image(doc) -> None:

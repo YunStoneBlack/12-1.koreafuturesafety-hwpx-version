@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
@@ -27,9 +27,14 @@ from desktop.workers.ai_worker import AIWorker, with_com
 
 
 class ReportPreviewDialog(QDialog):
+    ZOOM_MIN, ZOOM_MAX, ZOOM_STEP = 20, 300, 10
+
     def __init__(self, wizard_view, parent=None):
         super().__init__(parent or wizard_view)
         self._wizard = wizard_view
+        self._zoom = 100
+        self._drag_pos = None
+        self._page_labels: list[tuple[QLabel, int, int]] = []
         self.setWindowTitle("보고서 미리보기")
         self.resize(1400, 880)
         self._preview_worker: AIWorker | None = None
@@ -105,6 +110,25 @@ class ReportPreviewDialog(QDialog):
         header = QHBoxLayout()
         header.addWidget(QLabel("실제 출력 미리보기"))
         header.addStretch()
+        # 확대/축소 — 이미 렌더링된 페이지 이미지를 즉시 늘이고 줄인다(재렌더링 없음).
+        self.zoom_out_btn = QPushButton("−")
+        self.zoom_reset_btn = QPushButton("100%")
+        self.zoom_in_btn = QPushButton("+")
+        for btn, tip in (
+            (self.zoom_out_btn, "축소 (Ctrl + 마우스 휠 아래로)"),
+            (self.zoom_reset_btn, "원래 크기(창 폭에 맞춤)로"),
+            (self.zoom_in_btn, "확대 (Ctrl + 마우스 휠 위로)"),
+        ):
+            btn.setToolTip(tip)
+        self.zoom_out_btn.setFixedWidth(34)
+        self.zoom_in_btn.setFixedWidth(34)
+        self.zoom_reset_btn.setFixedWidth(60)
+        self.zoom_out_btn.clicked.connect(lambda: self._step_zoom(-self.ZOOM_STEP))
+        self.zoom_in_btn.clicked.connect(lambda: self._step_zoom(self.ZOOM_STEP))
+        self.zoom_reset_btn.clicked.connect(lambda: self._set_zoom(100))
+        header.addWidget(self.zoom_out_btn)
+        header.addWidget(self.zoom_reset_btn)
+        header.addWidget(self.zoom_in_btn)
         self.refresh_btn = QPushButton("↻ 미리보기 갱신")
         self.refresh_btn.clicked.connect(self._regenerate)
         header.addWidget(self.refresh_btn)
@@ -121,6 +145,9 @@ class ReportPreviewDialog(QDialog):
         self.preview_layout.setContentsMargins(12, 12, 12, 12)
         self.preview_layout.setSpacing(12)
         self.preview_scroll.setWidget(self.preview_container)
+        # Ctrl+휠 확대/축소용 — 일반 휠은 그대로 스크롤로 넘긴다.
+        self.preview_scroll.viewport().installEventFilter(self)
+        self.preview_scroll.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
         col.addWidget(self.preview_scroll, stretch=1)
 
         return panel
@@ -227,6 +254,66 @@ class ReportPreviewDialog(QDialog):
         self._preview_worker.finished_error.connect(self._on_preview_error)
         self._preview_worker.start()
 
+    # ---- 확대/축소 ----
+
+    def eventFilter(self, obj, event):  # noqa: N802 - Qt 시그니처
+        if obj is not self.preview_scroll.viewport():
+            return super().eventFilter(obj, event)
+        etype = event.type()
+        if etype == QEvent.Type.Wheel and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta:
+                self._step_zoom(self.ZOOM_STEP if delta > 0 else -self.ZOOM_STEP)
+            return True
+        # 마우스 왼쪽 버튼을 누른 채 끌어서 화면 이동(손바닥 드래그)
+        if etype == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint()
+            self.preview_scroll.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            return True
+        if etype == QEvent.Type.MouseMove and self._drag_pos is not None:
+            pos = event.globalPosition().toPoint()
+            dx, dy = pos.x() - self._drag_pos.x(), pos.y() - self._drag_pos.y()
+            self._drag_pos = pos
+            hbar, vbar = self.preview_scroll.horizontalScrollBar(), self.preview_scroll.verticalScrollBar()
+            hbar.setValue(hbar.value() - dx)
+            vbar.setValue(vbar.value() - dy)
+            return True
+        if etype == QEvent.Type.MouseButtonRelease and self._drag_pos is not None:
+            self._drag_pos = None
+            self.preview_scroll.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+            return True
+        return super().eventFilter(obj, event)
+
+    def _step_zoom(self, step: int) -> None:
+        self._set_zoom(self._zoom + step)
+
+    def _set_zoom(self, percent: int) -> None:
+        percent = max(self.ZOOM_MIN, min(self.ZOOM_MAX, int(percent)))
+        if percent == self._zoom:
+            return
+        self._zoom = percent
+        self._apply_zoom(keep_center=True)
+
+    def _apply_zoom(self, keep_center: bool = False) -> None:
+        """페이지 라벨 크기를 현재 배율로 바꾼다. keep_center면 화면 중앙에 보이던 지점을 유지."""
+        bars = (self.preview_scroll.horizontalScrollBar(), self.preview_scroll.verticalScrollBar())
+        ratios = []
+        if keep_center:
+            for bar in bars:
+                total = bar.maximum() + bar.pageStep()
+                ratios.append((bar.value() + bar.pageStep() / 2) / total if total else 0.0)
+        for label, w, h in self._page_labels:
+            label.setFixedSize(round(w * self._zoom / 100), round(h * self._zoom / 100))
+        self.zoom_reset_btn.setText(f"{self._zoom}%")
+        self.zoom_out_btn.setEnabled(self._zoom > self.ZOOM_MIN)
+        self.zoom_in_btn.setEnabled(self._zoom < self.ZOOM_MAX)
+        if keep_center:
+            self.preview_layout.activate()
+            self.preview_container.adjustSize()
+            for bar, ratio in zip(bars, ratios):
+                total = bar.maximum() + bar.pageStep()
+                bar.setValue(round(ratio * total - bar.pageStep() / 2))
+
     def _on_preview_error(self, message: str) -> None:
         self._set_busy(False)
         self.progress_bar.reset_hidden()
@@ -257,14 +344,18 @@ class ReportPreviewDialog(QDialog):
             self.preview_layout.addWidget(QLabel("미리보기를 표시할 수 없습니다."))
             return
 
+        self._page_labels = []
         for png_bytes in pages:
             pixmap = QPixmap()
             pixmap.loadFromData(png_bytes)
             page_label = QLabel()
             page_label.setPixmap(pixmap)
+            page_label.setScaledContents(True)
             page_label.setStyleSheet("background: white; border: 1px solid #d1d5db;")
+            self._page_labels.append((page_label, pixmap.width(), pixmap.height()))
             self.preview_layout.addWidget(page_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.preview_layout.addStretch()
+        self._apply_zoom()  # 갱신해도 지금 배율 유지
 
         if on_done:
             on_done()
