@@ -49,7 +49,7 @@ class SiteWindow(QMainWindow):
         self.site_detail_view.new_report_requested.connect(self._show_wizard_new)
         self.site_detail_view.edit_report_requested.connect(self._show_wizard_edit)
 
-        self.report_wizard_view.back_requested.connect(self.show_detail)
+        self.report_wizard_view.back_requested.connect(self._on_wizard_back)
         self.report_wizard_view.report_saved.connect(self._on_report_saved)
 
         self.show_detail()
@@ -80,6 +80,17 @@ class SiteWindow(QMainWindow):
         """대시보드 "이어서 작성"(이미 시작한 보고서를 이어쓰기)에서 이 창을 열자마자
         곧바로 마법사부터 보여줄 때 쓴다."""
         self._show_wizard_edit(self.site_id, report_id)
+
+    def _on_wizard_back(self) -> None:
+        """마법사 "← 현장으로" — 미리보기 갱신·PDF/한글 생성처럼 마법사가 내부에서 저장한 뒤 돌아온 경우에도
+        메인 화면(회차·공정률·통계)이 최신이 되도록 알린다(사용자 요청 2026-09-21)."""
+        self.show_detail()
+        self.data_changed.emit()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt 시그니처
+        """현장 창을 닫을 때도 메인 화면을 한 번 새로고침한다."""
+        self.data_changed.emit()
+        super().closeEvent(event)
 
     def _on_report_saved(self, site_id: int) -> None:
         self.show_detail(site_id)

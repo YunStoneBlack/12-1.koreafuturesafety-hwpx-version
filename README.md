@@ -294,6 +294,10 @@ PyInstaller는 `.py`가 아닌 리소스(DLL, XSD 스키마 등)는 정적 분�
   간격 확대(페이지 안 넘는 범위), 3번·8번 사진 위아래 2mm 여백 + 3번 표 열 폭 통일, **모든 표를 "바깥 테두리만 굵게·안쪽 얇게"로 통일하고 좌우 위치 맞춤**
   (`core/report_builder_hwpx_borders.py`), 새 회차 공정률 기본값을 직전 회차 값으로. 자세한 내용은 `작업내용.md`의 "Sub-phase 31" 절 참고.
 
+- **Sub-phase 32 (완료)**: 국가기관 PDF 제출 용량(10MB) 대응으로 보고서에 넣는 사진을 긴 변 1400px·JPEG 85로 줄임(`core/report_builder_hwpx_jpeg.py::prepare_photo_for_report`, 폰 사진의 회전 표시 반영, 폰 원본 기준
+  PDF 10.8MB→2.2MB), 담당요원 **같은 지도일 최대 4현장** 한도(`core/staff_load.py` + `desktop/views/report_wizard_staff_limit.py`, 목록에 "3/4·4/4 마감" 표시), 현장 카드 상태바를
+  **공기(시간) 경과율 vs 기술지도 횟수** 두 바 + [N회 부족/여유/정상] 상태로 교체(`core/site_pace.py`), 메인 화면 "↻ 새로고침" 버튼과 창 닫기·돌아가기 시 자동 새로고침. 자세한 내용은 `작업내용.md`의 "Sub-phase 32" 절 참고.
+
 ### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/
 `_fields_cleanup.py`/`_fields_process.py`/`_images.py`)로, **실제 서식을 변환한 `.hwpx` 템플릿 자체를 재사용**해

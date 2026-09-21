@@ -44,6 +44,7 @@ from desktop.views.report_wizard_sections import _SectionBuilderMixin
 from desktop.views.report_wizard_sections2 import _SectionBuilderMixin2
 from desktop.views.report_wizard_sections3 import _SectionBuilderMixin3
 from desktop.views.report_wizard_save import _SaveGenerateMixin
+from desktop.views.report_wizard_staff_limit import _StaffLimitMixin
 from desktop.views.report_wizard_validation import _ValidationMixin
 from desktop.widgets.cursors import zoom_cursor
 from desktop.workers.ai_worker import AIWorker
@@ -55,6 +56,7 @@ class ReportWizardView(
     _SectionBuilderMixin2,
     _SectionBuilderMixin3,
     _SaveGenerateMixin,
+    _StaffLimitMixin,
     _ValidationMixin,
     _LoadReportMixin,
 ):
@@ -90,9 +92,7 @@ class ReportWizardView(
         header_row.addStretch()
         header_row.addWidget(QLabel("담당요원"))
         self.staff_combo = QComboBox()
-        self.staff_combo.currentIndexChanged.connect(
-            lambda: self._refresh_signoff_previews(self.staff_combo.currentData())
-        )
+        self.staff_combo.currentIndexChanged.connect(self._on_staff_changed)
         header_row.addWidget(self.staff_combo)
         top_bar.addLayout(header_row)
 
@@ -101,6 +101,7 @@ class ReportWizardView(
         self.guidance_date_input.setCalendarPopup(True)
         self.guidance_date_input.setDisplayFormat("yyyy-MM-dd")
         self.guidance_date_input.setDate(QDate.currentDate())
+        self.guidance_date_input.dateChanged.connect(self._on_guidance_date_changed)
         # 회차는 자동 계산된 값을 기본으로 보여주되, 실제로는 수정 가능해야 한다(사용자 요청,
         # 2026-09-17) — 예전엔 자동생성 값을 못 믿을 이유가 없다고 보고 읽기전용으로 잠갔지만,
         # 회차가 꼬인 현장(예: 다른 플랫폼에서 이미 진행하던 현장을 이 앱으로 옮겨온 경우)을
@@ -212,6 +213,14 @@ class ReportWizardView(
     # ---- 데이터 로딩 ----
 
     def load_for_site(self, site_id: int, report_id: int | None = None) -> None:
+        # 불러오는 동안 채워지는 값(담당요원·지도일)은 "담당요원 4개 한도" 검사 대상이 아니다 — 다 채운 뒤 검사를 켠다.
+        self._staff_limit_active = False
+        try:
+            self._load_for_site_impl(site_id, report_id)
+        finally:
+            self._activate_staff_limit(check_current=report_id is None)
+
+    def _load_for_site_impl(self, site_id: int, report_id: int | None = None) -> None:
         self._site_id = site_id
         self._report_id = report_id
         self.confirm_checkbox.setChecked(False)

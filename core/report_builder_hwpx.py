@@ -25,11 +25,11 @@ from core.models_db import Report
 from core.report_builder_hwpx_borders import normalize_table_styles
 from core.report_builder_hwpx_fields import fill_all
 from core.report_builder_hwpx_package import normalize_image_packaging
+from core.report_builder_hwpx_images_overview import fill_overview_inspection_images
 from core.report_builder_hwpx_standards import fill_reference_standard_tables
 from core.report_builder_hwpx_images import (
     fill_finding_images,
     fill_material_appendix,
-    fill_overview_inspection_images,
     fill_previous_finding_images,
     fill_signoff_images,
     fill_support_images,

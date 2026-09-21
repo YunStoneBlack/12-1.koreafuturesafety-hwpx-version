@@ -24,6 +24,7 @@ from sqlalchemy import func
 
 from core.db import SessionLocal
 from core.hangul_match import matches as hangul_matches
+from core.site_pace import DONE, NORMAL, SHORTAGE, SURPLUS, UNKNOWN, compute_site_pace
 from core.models_db import Finding, Report, Site, SiteProcessDefault
 
 _WEEKDAYS_KO = ["월", "화", "수", "목", "금", "토", "일"]
@@ -73,6 +74,62 @@ class _StatCard(QFrame):
         layout.addWidget(label_widget)
         layout.addWidget(self.value_label)
         layout.addWidget(self.sub_label)
+
+
+_VALUE_COL_WIDTH = 240  # 바 오른쪽 값 칸(38% (3개월 경과) 등)과 그 위 상태 문구 칸의 폭 — 같아야 왼쪽 끝이 맞는다
+
+_PACE_COLORS = {  # 상태 → (글자색, 횟수 바 색)
+    SHORTAGE: ("#dc2626", "#dc2626"),
+    SURPLUS: ("#2563eb", "#2563eb"),
+    NORMAL: ("#111827", "#4f46e5"),
+    DONE: ("#2563eb", "#2563eb"),
+    UNKNOWN: ("#9ca3af", "#4f46e5"),
+}
+
+
+def _pace_status_html(pace) -> str:
+    """카드 오른쪽 상태 요약 — [N회 부족](빨강 굵게)·[N회 여유](파랑 굵게)·[정상](검정 굵게) + 월 필요 횟수."""
+    color = _PACE_COLORS[pace.status][0]
+    if pace.status == UNKNOWN:
+        return ""
+    if pace.status == DONE:
+        return f'<span style="color:{color}; font-weight:700;">🏁 [완료]</span>'
+    label = {
+        SHORTAGE: f"🚨 [{pace.diff}회 부족]",
+        SURPLUS: f"✅ [{pace.diff}회 여유]",
+        NORMAL: "✅ [정상]",
+    }[pace.status]
+    html = f'<span style="color:{color}; font-weight:700;">{label}</span>'
+    if pace.period_over:
+        return html + ' <span style="color:#6b7280;">| 기간 종료</span>'
+    if pace.monthly_needed is not None:
+        html += f' <span style="color:#6b7280;">| 🎯 월 {pace.monthly_needed:.1f}회 필요</span>'
+    return html
+
+
+def _bar_row(caption: str, ratio: float | None, text: str, color: str) -> QHBoxLayout:
+    row = QHBoxLayout()
+    cap = QLabel(caption)
+    cap.setFixedWidth(136)
+    cap.setStyleSheet(f"color: #374151; font-size: 12px; font-weight: 600; {_LABEL_RESET}")
+    bar = QProgressBar()
+    bar.setRange(0, 1000)
+    bar.setValue(round((ratio or 0) * 1000))
+    bar.setTextVisible(False)
+    bar.setFixedHeight(8)
+    bar.setStyleSheet(
+        "QProgressBar { background: #e5e7eb; border: none; border-radius: 4px; }"
+        f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}"
+    )
+    value = QLabel(text)
+    value.setTextFormat(Qt.TextFormat.RichText)
+    value.setFixedWidth(_VALUE_COL_WIDTH)
+    value.setStyleSheet(f"color: #6b7280; font-size: 12px; {_LABEL_RESET}")
+    row.setSpacing(12)
+    row.addWidget(cap)
+    row.addWidget(bar, stretch=1)
+    row.addWidget(value)
+    return row
 
 
 class _SiteCard(QFrame):
@@ -132,26 +189,34 @@ class _SiteCard(QFrame):
             if latest_report and latest_report.guidance_date
             else "-"
         )
-        sub = QLabel(f"{visit_no}/{total}회차 · {date_text}")
-        sub.setStyleSheet(f"color: #9ca3af; font-size: 12px; {_LABEL_RESET}")
-        outer.addWidget(sub)
+        pace = compute_site_pace(site.period_start, site.period_end, site.total_guidance_count, visit_no)
 
-        progress = (latest_report.progress_rate if latest_report else 0) or 0
-        progress_row = QHBoxLayout()
-        bar = QProgressBar()
-        bar.setRange(0, 100)
-        bar.setValue(progress)
-        bar.setTextVisible(False)
-        bar.setFixedHeight(6)
-        bar.setStyleSheet(
-            "QProgressBar { background: #e5e7eb; border: none; border-radius: 3px; }"
-            "QProgressBar::chunk { background: #4f46e5; border-radius: 3px; }"
+        sub_row = QHBoxLayout()
+        sub = QLabel(f"{visit_no}/{total}회차 · 지도일 {date_text}")
+        sub.setStyleSheet(f"color: #111827; font-size: 12px; {_LABEL_RESET}")
+        sub_row.addWidget(sub)
+        sub_row.addStretch()
+        status_label = QLabel(_pace_status_html(pace))
+        status_label.setTextFormat(Qt.TextFormat.RichText)
+        status_label.setStyleSheet(f"font-size: 12px; {_LABEL_RESET}")
+        # 아래 바 값 글자(38% 등)가 시작하는 세로 위치에 상태 문구의 왼쪽 끝을 맞춘다(사용자 요청 2026-09-21).
+        status_label.setFixedWidth(_VALUE_COL_WIDTH)
+        sub_row.addWidget(status_label)
+        outer.addLayout(sub_row)
+
+        # 공정률 대신 "공기(시간) 경과율"과 "기술지도 수행(횟수)"을 나란히 보여준다(사용자 요청 2026-09-21).
+        time_text = (
+            "-"
+            if pace.time_ratio is None
+            else f"<b style='color:#111827'>{pace.time_ratio * 100:.0f}%</b> ({pace.elapsed_text})"
         )
-        pct_label = QLabel(f"{progress}%")
-        pct_label.setStyleSheet(f"color: #6b7280; font-size: 11px; {_LABEL_RESET}")
-        progress_row.addWidget(bar, stretch=1)
-        progress_row.addWidget(pct_label)
-        outer.addLayout(progress_row)
+        count_text = (
+            "-"
+            if pace.count_ratio is None
+            else f"<b style='color:#111827'>{pace.count_ratio * 100:.1f}%</b> ({pace.performed}회 / 총 {pace.total}회)"
+        )
+        outer.addLayout(_bar_row("공기 경과율 (시간)", pace.time_ratio, time_text, "#94a3b8"))
+        outer.addLayout(_bar_row("기술지도 수행 (횟수)", pace.count_ratio, count_text, _PACE_COLORS[pace.status][1]))
 
     def enterEvent(self, event) -> None:  # noqa: N802 (Qt override)
         self.continue_btn.setVisible(True)
@@ -284,9 +349,17 @@ class DashboardView(QWidget):
         tabs_row.addStretch()
         root.addLayout(tabs_row)
 
+        section_row = QHBoxLayout()
         self.section_label = QLabel("")
         self.section_label.setStyleSheet(f"color: #374151; font-size: 13px; font-weight: 600; {_LABEL_RESET}")
-        root.addWidget(self.section_label)
+        section_row.addWidget(self.section_label)
+        section_row.addStretch()
+        # 다른 창에서 저장·수정한 내용이 안 보일 때 직접 새로 읽어오는 버튼(사용자 요청 2026-09-21).
+        self.refresh_btn = QPushButton("↻ 새로고침")
+        self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refresh_btn.clicked.connect(self.refresh)
+        section_row.addWidget(self.refresh_btn)
+        root.addLayout(section_row)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

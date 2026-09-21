@@ -31,7 +31,7 @@ from pathlib import Path
 
 from core import config
 from core.models_db import Report, Site
-from core.report_builder_hwpx_jpeg import image_bytes_for_hwpx
+from core.report_builder_hwpx_jpeg import image_bytes_for_hwpx, prepare_photo_for_report
 from core.report_builder_hwpx_placeholder import put_dash, put_frame_text
 from core.thumbnail_generator import render_pdf_pages, resolve_material_path
 
@@ -179,6 +179,8 @@ def _fix_img_dim(paragraph, image_path: str) -> None:
 
 def _insert_fit_picture_in_cell(doc, cell, image_path: str, *, v_margin_mm: float = 0.0) -> None:
     """`v_margin_mm`: 사진 위·아래에 각각 남길 여백(mm). 사진이 칸 높이에 딱 맞아 테두리에 붙어 보이는 걸 막는다."""
+    # 폰 사진은 긴 변 1400px로 줄이고 회전 표시를 픽셀에 반영한 사본을 쓴다(용량↓, 비율 계산·imgClip 모두 이 사본 기준).
+    image_path = str(prepare_photo_for_report(Path(image_path)))
     para = cell.paragraphs[0]
     _clear_pictures(para)
     box_w, box_h = _cell_inner_box(cell)
@@ -313,10 +315,7 @@ def _locate_field_cell(doc, field_name: str):
     return None
 
 
-_SITE_PHOTO_CELLS = {1: "B1", 2: "C1", 3: "B2", 4: "C2"}
 _PHOTO_V_MARGIN_MM = 2.0  # 3번 전경/점검 사진·8번 지적사항 사진의 위아래 여백(사용자 요청 2026-09-21)
-_OVERVIEW_PHOTO_TABLE_INDEX = 4
-_INSPECTION_PHOTO_TABLE_INDEX = 5
 
 
 def _put_frame_placeholder(doc, cell, text: str) -> None:
@@ -335,45 +334,6 @@ def _fill_photo_cell(doc, cell, photo_path: str | None, *, no_photo: bool, v_mar
         _insert_fit_picture_in_cell(doc, cell, photo_path, v_margin_mm=v_margin_mm)
     else:
         put_dash(doc, cell)
-
-
-def _align_overview_inspection_tables(doc) -> None:
-    """3번 전경/점검 표의 사진 두 열 폭을 같게 맞춘다(사용자 피드백 2026-09-21).
-
-    템플릿에서 두 열의 폭이 22660/23793(약 4mm 차이)이라 오른쪽 사진의 좌우 여백이 더 컸다. 표 전체 폭은 그대로 두고 반반으로
-    나눈다. (두 표의 좌우 위치 어긋남은 `report_builder_hwpx_borders.normalize_table_styles`가 맞춘다.)
-    """
-    tables = [doc.tables.all[_OVERVIEW_PHOTO_TABLE_INDEX], doc.tables.all[_INSPECTION_PHOTO_TABLE_INDEX]]
-    for table in tables:
-        first = [table.cell(r, 1) for r in range(table.row_count)]
-        second = [table.cell(r, 2) for r in range(table.row_count)]
-        total = first[0].width + second[0].width
-        half = total // 2
-        for cell in first:
-            cell.set_size(width=half, height=cell.height)
-        for cell in second:
-            cell.set_size(width=total - half, height=cell.height)
-
-
-def fill_overview_inspection_images(doc, report: Report) -> None:
-    """3. 전경사진 및 점검사진 — 표4(전경사진)/표5(점검사진)의 2x2 사진 칸."""
-    _align_overview_inspection_tables(doc)
-    for table_index, photos in (
-        (_OVERVIEW_PHOTO_TABLE_INDEX, report.overview_photos),
-        (_INSPECTION_PHOTO_TABLE_INDEX, report.inspection_photos),
-    ):
-        by_slot = {p.slot: p for p in photos}
-        table = doc.tables.all[table_index]
-        for slot, addr in _SITE_PHOTO_CELLS.items():
-            row, col = _parse_cell_addr(addr)
-            photo = by_slot.get(slot)
-            _fill_photo_cell(
-                doc,
-                table.cell(row, col),
-                photo.photo_path if photo else None,
-                no_photo=report.misc_no_photo,
-                v_margin_mm=_PHOTO_V_MARGIN_MM,
-            )
 
 
 def fill_finding_images(doc, report: Report) -> None:
