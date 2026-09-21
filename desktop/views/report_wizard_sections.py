@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from core.constants import FIXED_HAZARD_FACTORS, MEASUREMENT_INSTRUMENTS
+from core.constants import FIXED_HAZARD_FACTORS, MEASUREMENT_INSTRUMENTS, display_measurement_standard
 from core.db import SessionLocal
 from core.models_db import MeasurementStandard
 from desktop.widgets.photo_drop_zone import PhotoDropZone
@@ -187,7 +187,8 @@ class _SectionBuilderMixin:
             standards = {s.instrument_type: s.standard_criteria for s in session.query(MeasurementStandard).all()}
         units_by_name = dict(MEASUREMENT_INSTRUMENTS)
         self.measurement_rows = [
-            _MeasurementRow(name, units_by_name[name], standards.get(name, "")) for name in _VISIBLE_MEASUREMENT_INSTRUMENTS
+            _MeasurementRow(name, units_by_name[name], display_measurement_standard(name, standards.get(name, "")))
+            for name in _VISIBLE_MEASUREMENT_INSTRUMENTS
         ]
         measurement_row_layout = QHBoxLayout()
         for row in self.measurement_rows:

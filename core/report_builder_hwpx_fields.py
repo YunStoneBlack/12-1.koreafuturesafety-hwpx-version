@@ -15,7 +15,12 @@ from copy import deepcopy
 
 from hwpx.form_fit import DEFAULT_SAFETY, estimate_text_width
 
-from core.constants import FIXED_HAZARD_FACTORS, MAJOR_HAZARD_WORKS, MEASUREMENT_INSTRUMENTS
+from core.constants import (
+    FIXED_HAZARD_FACTORS,
+    MAJOR_HAZARD_WORKS,
+    MEASUREMENT_INSTRUMENTS,
+    display_measurement_standard,
+)
 from core.db import SessionLocal
 from core.models_db import MeasurementStandard, Report, Site
 from core.report_builder_hwpx_images import _cell_inner_box, _locate_field_cell
@@ -343,6 +348,14 @@ _EQUIPMENT_PASS_FAIL_FIELDS = {
 }
 
 
+def _is_number(value) -> bool:
+    try:
+        float(str(value).strip())
+    except ValueError:
+        return False
+    return True
+
+
 def _equipment_verdict(measurement) -> str | None:
     if measurement is None:
         return None
@@ -414,8 +427,15 @@ def fill_support_fields(doc, report: Report) -> None:
             _put_all(doc, fields["value_value"], measurement.value)
         else:
             unit = next((u for name, u in MEASUREMENT_INSTRUMENTS if name == measurement.instrument_type), "")
+            # 측정치가 "기준치 이내" 같은 문구일 땐 "기준치 이내 Lux"처럼 어색하게 단위를 붙이지 않는다(2026-09-21).
+            if not _is_number(measurement.value):
+                unit = ""
             _put_all(doc, fields["value_value"], f"{measurement.value} {unit}".strip())
-        _put_all(doc, fields["std_value"], standards.get(measurement.instrument_type, "-"))
+        _put_all(
+            doc,
+            fields["std_value"],
+            display_measurement_standard(measurement.instrument_type, standards.get(measurement.instrument_type, "-")),
+        )
 
 
 def fill_all(doc, report: Report, site: Site) -> None:

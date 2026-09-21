@@ -37,6 +37,17 @@ MEASUREMENT_INSTRUMENTS = [
     ("접지테스터기", "Ω"),
 ]
 
+# 보고서(10번)에 조도기준 표를 넣으면서(2026-09-21) 조도계의 "측정기준"은 숫자 한 개(DB에 저장된 "75Lux 이상") 대신
+# 아래 표를 참조하게 한다 — 보고서 출력과 마법사 계측자료 카드가 같은 문구를 쓰도록 여기 한 곳에서 정한다.
+# 양호/불량 자동판정은 이 문구와 무관하게 코드의 숫자(75Lux)로 한다(`_equipment_verdict`).
+MEASUREMENT_STANDARD_DISPLAY_OVERRIDES = {"조도계": "아래 표 참조"}
+
+
+def display_measurement_standard(instrument_type: str, stored_criteria: str) -> str:
+    """DB에 저장된 측정기준 문구 대신 보여줄 문구(재정의가 없으면 저장된 그대로)."""
+    return MEASUREMENT_STANDARD_DISPLAY_OVERRIDES.get(instrument_type, stored_criteria)
+
+
 NOTIFICATION_METHODS = ["직접전달", "등기우편", "전자우편", "모바일", "기타"]
 
 # 4. 대형사고 위험작업 사항 — 실제 서식에서 그대로 옮긴 25개 항목 (해당/해당없음 체크리스트).

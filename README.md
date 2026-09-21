@@ -286,6 +286,10 @@ PyInstaller는 `.py`가 아닌 리소스(DLL, XSD 스키마 등)는 정적 분�
   건설현장 5대 가스 적정공기 기준치 표를 넣음(`core/report_builder_hwpx_standards.py` — 중첩 표, 11쪽 안에 들어감). 자세한 내용은
   `작업내용.md`의 "Sub-phase 29" 절 참고.
 
+- **Sub-phase 30 (완료)**: 조도계 "안전기준"을 보고서와 마법사 계측자료 카드 모두 "아래 표 참조"로(`core/constants.py::
+  display_measurement_standard`), 조도계 측정치가 "기준치 이내" 같은 문구일 때는 단위(Lux)를 안 붙임. 자세한 내용은 `작업내용.md`의
+  "Sub-phase 30" 절 참고.
+
 ### 한글(.hwpx) 출력 — 신규 엔진(python-hwpx, COM 불필요)이 정상 동작함
 현재 쓰는 한글 출력 경로는 `report_builder_hwpx.py`(+ `_fields.py`/`_fields_findings.py`/
 `_fields_cleanup.py`/`_fields_process.py`/`_images.py`)로, **실제 서식을 변환한 `.hwpx` 템플릿 자체를 재사용**해
