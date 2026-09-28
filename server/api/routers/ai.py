@@ -20,10 +20,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core import config
-from core.models_db import Finding
+from core.models_db import Finding, Measurement, SafetyEducation
 from core.models_web import User
 from core.report_builder_hwpx_jpeg import prepare_photo_for_report
-from core.vision_analyzer import analyze_finding, analyze_process_hazards
+from core.vision_analyzer import analyze_finding, analyze_process_hazards, count_people, read_measurement_value
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 
@@ -40,6 +40,14 @@ class ProcessHazardItemOut(BaseModel):
 
 class ProcessHazardsOut(BaseModel):
     items: list[ProcessHazardItemOut]
+
+
+class PeopleCountOut(BaseModel):
+    count: int | None  # None = 사진에서 못 셈(지어내지 않음 — vision_analyzer 원칙)
+
+
+class MeasurementReadOut(BaseModel):
+    value: str | None  # None = 못 읽음
 
 
 class FindingSuggestionOut(BaseModel):
@@ -119,3 +127,40 @@ def ai_finding(
     except Exception as err:  # noqa: BLE001
         raise _ai_failed(err) from err
     return FindingSuggestionOut(**result)
+
+
+def _stored_photo(path: str | None, missing_message: str) -> Path:
+    if not path or not Path(path).exists():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, missing_message)
+    return prepare_photo_for_report(Path(path))
+
+
+@router.post("/tbm-people", response_model=PeopleCountOut)
+def ai_tbm_people(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """10-1 "✨ AI로 인원 세기" — 저장된 TBM(안전교육) 사진의 인원수(데스크톱 `_run_count_people`)."""
+    _require_ready(db, user, report_id)
+    row = db.query(SafetyEducation).filter(SafetyEducation.report_id == report_id).first()
+    photo = _stored_photo(row.photo_path if row else None, "먼저 TBM 사진을 올려주세요.")
+    try:
+        return PeopleCountOut(count=count_people(photo, company_id=user.company_id))
+    except Exception as err:  # noqa: BLE001
+        raise _ai_failed(err) from err
+
+
+@router.post("/measurement/{instrument_type}", response_model=MeasurementReadOut)
+def ai_measurement(
+    report_id: int, instrument_type: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """10-2 "✨ AI로 읽기" — 저장된 계측장비 사진에서 측정값을 읽는다(가스측정기는 4종 값을 읽어
+    정상범위 판정, 데스크톱 `_MeasurementRow._run_read`와 같은 함수)."""
+    _require_ready(db, user, report_id)
+    row = (
+        db.query(Measurement)
+        .filter(Measurement.report_id == report_id, Measurement.instrument_type == instrument_type)
+        .first()
+    )
+    photo = _stored_photo(row.photo_path if row else None, "먼저 계측장비 사진을 올려주세요.")
+    try:
+        return MeasurementReadOut(value=read_measurement_value(photo, instrument_type, company_id=user.company_id))
+    except Exception as err:  # noqa: BLE001
+        raise _ai_failed(err) from err

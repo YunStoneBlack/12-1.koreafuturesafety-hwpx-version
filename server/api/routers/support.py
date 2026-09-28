@@ -45,6 +45,16 @@ async def _save_photo(file: UploadFile, report_id: int, slug: str) -> str:
     return str(dest)
 
 
+def _clear_file(db: Session, row, field: str) -> None:
+    """사진 필드 비우기 + 파일 삭제. 예전엔 이 삭제 API 자체가 없어서 화면의 "삭제"가 405로 조용히
+    실패하고(응답 확인을 안 했음) 사진이 그대로 보고서에 나갔다 — Sub-phase 40에서 발견."""
+    path = getattr(row, field, "") if row is not None else ""
+    if path:
+        Path(path).unlink(missing_ok=True)
+        setattr(row, field, "")
+        db.commit()
+
+
 # ---------- 10-1. TBM 교육 (SafetyEducation, 회차당 1건) ----------
 
 
@@ -107,6 +117,19 @@ def get_tbm_photo(report_id: int, user: User = Depends(get_current_user), db: Se
     if row is None or not row.photo_path or not Path(row.photo_path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
     return FileResponse(row.photo_path)
+
+
+@router.delete("/tbm/photo", response_model=TbmOut)
+def delete_tbm_photo(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _require_report(db, user.company_id, report_id)
+    row = db.query(SafetyEducation).filter(SafetyEducation.report_id == report_id).first()
+    _clear_file(db, row, "photo_path")
+    if row is None:
+        return TbmOut()
+    return TbmOut(
+        attendee_count=row.attendee_count, location=row.location, content=row.content,
+        material=row.material, has_photo=False,
+    )
 
 
 # ---------- 10-2. 계측자료 (Measurement, instrument_type별 최대 1건씩) ----------
@@ -204,6 +227,27 @@ def get_measurement_photo(
     return FileResponse(row.photo_path)
 
 
+@router.delete("/measurements/{instrument_type}/photo", response_model=MeasurementOut)
+def delete_measurement_photo(
+    report_id: int, instrument_type: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    _require_report(db, user.company_id, report_id)
+    _require_instrument(instrument_type)
+    row = (
+        db.query(Measurement)
+        .filter(Measurement.report_id == report_id, Measurement.instrument_type == instrument_type)
+        .first()
+    )
+    _clear_file(db, row, "photo_path")
+    unit = _INSTRUMENT_UNITS[instrument_type]
+    if row is None:
+        return MeasurementOut(instrument_type=instrument_type, unit=unit)
+    return MeasurementOut(
+        instrument_type=instrument_type, unit=unit, value=row.value,
+        manual_verdict=row.manual_verdict, manual_action=row.manual_action, has_photo=False,
+    )
+
+
 # ---------- 11. 제공자료 (직접 업로드만 — 라이브러리 선택은 다음 단계) ----------
 
 
@@ -248,3 +292,13 @@ def get_material_photo(report_id: int, slot: int, user: User = Depends(get_curre
     if row is None or not row.custom_photo_path or not Path(row.custom_photo_path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "자료가 없습니다.")
     return FileResponse(row.custom_photo_path)
+
+
+@router.delete("/materials/{slot}/photo", response_model=MaterialOut)
+def delete_material_photo(
+    report_id: int, slot: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    _require_report(db, user.company_id, report_id)
+    row = repo.get_slot_row(db, ProvidedMaterial, report_id, slot)
+    _clear_file(db, row, "custom_photo_path")
+    return MaterialOut(slot=slot, title=row.title if row else "", has_photo=False)

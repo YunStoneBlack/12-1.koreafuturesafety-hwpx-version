@@ -170,7 +170,10 @@
   <div class="panel-body">
   <h3>TBM 활성화 지도 및 교육</h3>
   <label>참석인원</label>
-  <input id="tbm-attendee" type="number" min="0" />
+  <div style="display:flex; gap:8px; align-items:center;">
+    <input id="tbm-attendee" type="number" min="0" />
+    <button type="button" id="tbm-ai-people" class="secondary" style="margin-top:0; flex:none;">✨ AI로 인원 세기</button>
+  </div>
   <label>교육장소</label>
   <input id="tbm-location" />
   <label>교육내용</label>
@@ -364,19 +367,14 @@ document.getElementById("section2-save").addEventListener("click", async () => {
   errorEl.style.display = "none";
   const statusEl = document.getElementById("section2-status");
   try {
-    await fetch(`/api/reports/${reportId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    await apiPatch(`/api/reports/${reportId}`, {
         misc_overwork: document.getElementById("misc-overwork").checked,
         misc_no_photo: document.getElementById("misc-no-photo").checked,
         misc_other: document.getElementById("misc-other").checked,
         misc_other_text: document.getElementById("misc-other-text").value,
         accident_status: currentAccidentStatus,
         accident_content: document.getElementById("accident-content").value,
-      }),
-    });
+      });
     statusEl.textContent = "저장되었습니다.";
   } catch (err) {
     showError(errorEl, err);
@@ -402,12 +400,7 @@ document.getElementById("section5-save").addEventListener("click", async () => {
     (el) => Number(el.dataset.idx)
   );
   try {
-    await fetch(`/api/reports/${reportId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ major_hazard_work_checks: checked }),
-    });
+    await apiPatch(`/api/reports/${reportId}`, { major_hazard_work_checks: checked });
     statusEl.textContent = "저장되었습니다.";
   } catch (err) {
     showError(errorEl, err);
@@ -438,12 +431,7 @@ document.getElementById("section6-save").addEventListener("click", async () => {
     document.querySelectorAll("#hazard-factor-list input[type=checkbox]:checked")
   ).map((el) => el.dataset.value);
   try {
-    await fetch(`/api/reports/${reportId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hazard_factor_checks: checked }),
-    });
+    await apiPatch(`/api/reports/${reportId}`, { hazard_factor_checks: checked });
     statusEl.textContent = "저장되었습니다.";
   } catch (err) {
     showError(errorEl, err);
@@ -508,16 +496,11 @@ document.getElementById("section6-3-save").addEventListener("click", async () =>
   errorEl.style.display = "none";
   const statusEl = document.getElementById("section6-3-status");
   try {
-    await fetch(`/api/reports/${reportId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    await apiPatch(`/api/reports/${reportId}`, {
         machinery_checks: collectEquipmentTable("equip-machinery"),
         hand_tool_checks: collectEquipmentTable("equip-handtool"),
         hazmat_checks: collectEquipmentTable("equip-hazmat"),
-      }),
-    });
+      });
     statusEl.textContent = "저장되었습니다.";
   } catch (err) {
     showError(errorEl, err);
@@ -559,12 +542,7 @@ function setStatusCard(id, ok, badText) {
 
 document.getElementById("staff-select").addEventListener("change", async (e) => {
   try {
-    await fetch(`/api/reports/${reportId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assigned_staff_id: e.target.value ? Number(e.target.value) : null }),
-    });
+    await apiPatch(`/api/reports/${reportId}`, { assigned_staff_id: e.target.value ? Number(e.target.value) : null });
     await loadSignoffStatus();
   } catch (err) {
     showError(errorEl, err);
@@ -576,16 +554,11 @@ document.getElementById("section1-save").addEventListener("click", async () => {
   const statusEl = document.getElementById("section1-status");
   try {
     const staffVal = document.getElementById("staff-select").value;
-    await fetch(`/api/reports/${reportId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    await apiPatch(`/api/reports/${reportId}`, {
         assigned_staff_id: staffVal ? Number(staffVal) : null,
         notification_method: currentMethod,
         notify_signee_name: document.getElementById("notify-signee").value,
-      }),
-    });
+      });
     statusEl.textContent = "저장되었습니다.";
   } catch (err) {
     showError(errorEl, err);
@@ -629,7 +602,7 @@ document.getElementById("sig-clear").addEventListener("click", async () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   hasInk = false;
   try {
-    await fetch(`/api/reports/${reportId}/notify-signature`, { method: "DELETE", credentials: "include" });
+    await api(`/api/reports/${reportId}/notify-signature`, { method: "DELETE" });
     setSigStatus(false);
   } catch (err) {
     showError(errorEl, err);
@@ -733,7 +706,7 @@ function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
     slotEls[slot].del.addEventListener("click", async () => {
       errorEl.style.display = "none";
       try {
-        await fetch(`${apiPrefix}/${slot}`, { method: "DELETE", credentials: "include" });
+        await api(`${apiPrefix}/${slot}`, { method: "DELETE" });
         hideThumb(slot);
         slotEls[slot].file.value = "";
       } catch (err) {
@@ -928,7 +901,7 @@ function setupSinglePhotoUpload(url, fileInputId, thumbId, delBtnId) {
   delBtn.addEventListener("click", async () => {
     errorEl.style.display = "none";
     try {
-      await fetch(url, { method: "DELETE", credentials: "include" });
+      await api(url, { method: "DELETE" });
       thumb.style.display = "none";
       delBtn.style.display = "none";
       fileInput.value = "";
@@ -1226,22 +1199,46 @@ async function setupTbm() {
   }
   setupSinglePhotoUpload(`${base}/photo`, "tbm-file", "tbm-thumb", "tbm-del");
 
+  // "✨ AI로 인원 세기" — 저장된 TBM 사진의 인원수(POST .../ai/tbm-people). 못 세면 지어내지 않고 안내만.
+  const peopleBtn = document.getElementById("tbm-ai-people");
+  peopleBtn.addEventListener("click", async () => {
+    errorEl.style.display = "none";
+    const statusEl = document.getElementById("tbm-status");
+    if (document.getElementById("tbm-thumb").style.display === "none") {
+      showError(errorEl, new Error("먼저 TBM 사진을 올려주세요."));
+      return;
+    }
+    peopleBtn.disabled = true;
+    peopleBtn.textContent = "세는 중...";
+    try {
+      const out = await apiPost(`/api/reports/${reportId}/ai/tbm-people`, {});
+      if (out.count == null) {
+        statusEl.className = "status";
+        statusEl.textContent = "사진에서 인원을 읽지 못했습니다. 참석인원을 직접 입력해주세요.";
+      } else {
+        document.getElementById("tbm-attendee").value = out.count;
+        statusEl.className = "status ok";
+        statusEl.textContent = `AI가 ${out.count}명으로 셌습니다. 확인 후 "TBM 저장"을 누르세요.`;
+      }
+    } catch (err) {
+      showError(errorEl, err);
+    } finally {
+      peopleBtn.disabled = false;
+      peopleBtn.textContent = "✨ AI로 인원 세기";
+    }
+  });
+
   document.getElementById("tbm-save").addEventListener("click", async () => {
     errorEl.style.display = "none";
     const statusEl = document.getElementById("tbm-status");
     const attendeeVal = document.getElementById("tbm-attendee").value;
     try {
-      await fetch(base, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await apiPatch(base, {
           attendee_count: attendeeVal ? Number(attendeeVal) : null,
           location: document.getElementById("tbm-location").value,
           content: document.getElementById("tbm-content").value,
           material: document.getElementById("tbm-material").value,
-        }),
-      });
+        });
       statusEl.textContent = "저장되었습니다.";
     } catch (err) {
       showError(errorEl, err);
@@ -1278,10 +1275,11 @@ async function setupMeasurements() {
         <img class="thumb" id="ms-thumb-${type}" style="display:${data.has_photo ? "block" : "none"};"
              ${data.has_photo ? `src="${base}/${encodeURIComponent(type)}/photo?ts=${Date.now()}"` : ""} />
         <div class="slot-controls">
-          <div class="slot-label">측정 사진</div>
-          <input type="file" accept="image/*" id="ms-file-${type}" />
+          <div class="slot-label">측정 사진 (선택하면 바로 저장)</div>
+          <input type="file" accept="image/*" capture="environment" id="ms-file-${type}" />
           <button type="button" class="secondary" id="ms-del-${type}" style="display:${data.has_photo ? "inline-block" : "none"};">삭제</button>
         </div>
+        <button type="button" id="ms-ai-${type}" style="margin-top:0;">✨ AI로 읽기</button>
       </div>
       <button type="button" id="ms-save-${type}">저장</button>
       <div id="ms-status-${type}" class="status"></div>
@@ -1293,16 +1291,11 @@ async function setupMeasurements() {
       errorEl.style.display = "none";
       const statusEl = document.getElementById(`ms-status-${type}`);
       try {
-        await fetch(`${base}/${encodeURIComponent(type)}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        await apiPatch(`${base}/${encodeURIComponent(type)}`, {
             value: document.getElementById(`ms-value-${type}`).value,
             manual_verdict: document.getElementById(`ms-verdict-${type}`).value,
             manual_action: document.getElementById(`ms-action-${type}`).value,
-          }),
-        });
+          });
         statusEl.textContent = "저장되었습니다.";
       } catch (err) {
         showError(errorEl, err);
@@ -1310,6 +1303,37 @@ async function setupMeasurements() {
     });
 
     setupSinglePhotoUpload(`${base}/${encodeURIComponent(type)}/photo`, `ms-file-${type}`, `ms-thumb-${type}`, `ms-del-${type}`);
+
+    // "✨ AI로 읽기" — 저장된 계측장비 사진에서 측정값(POST .../ai/measurement/{종류}). 읽은 값으로
+    // 다시 자동판정되게 판정은 "자동판정"으로 되돌린다(데스크톱과 동일, 2026-09-21 사용자 확인).
+    const readBtn = document.getElementById(`ms-ai-${type}`);
+    readBtn.addEventListener("click", async () => {
+      errorEl.style.display = "none";
+      const statusEl = document.getElementById(`ms-status-${type}`);
+      if (document.getElementById(`ms-thumb-${type}`).style.display === "none") {
+        showError(errorEl, new Error(`${type}: 먼저 계측장비 사진을 올려주세요.`));
+        return;
+      }
+      readBtn.disabled = true;
+      readBtn.textContent = "읽는 중...";
+      try {
+        const out = await apiPost(`/api/reports/${reportId}/ai/measurement/${encodeURIComponent(type)}`, {});
+        if (out.value == null) {
+          statusEl.className = "status";
+          statusEl.textContent = "사진에서 측정값을 읽지 못했습니다. 직접 입력해주세요.";
+        } else {
+          document.getElementById(`ms-value-${type}`).value = out.value;
+          document.getElementById(`ms-verdict-${type}`).value = "";
+          statusEl.className = "status ok";
+          statusEl.textContent = `AI가 "${out.value}"로 읽었습니다. 확인 후 "저장"을 누르세요.`;
+        }
+      } catch (err) {
+        showError(errorEl, err);
+      } finally {
+        readBtn.disabled = false;
+        readBtn.textContent = "✨ AI로 읽기";
+      }
+    });
   }
 }
 
@@ -1350,12 +1374,7 @@ async function setupMaterials() {
       errorEl.style.display = "none";
       const statusEl = document.getElementById(`mat-status-${slot}`);
       try {
-        await fetch(`${base}/${slot}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: document.getElementById(`mat-title-${slot}`).value }),
-        });
+        await apiPatch(`${base}/${slot}`, { title: document.getElementById(`mat-title-${slot}`).value });
         statusEl.textContent = "저장되었습니다.";
       } catch (err) {
         showError(errorEl, err);
