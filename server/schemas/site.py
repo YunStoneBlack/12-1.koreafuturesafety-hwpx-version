@@ -11,6 +11,8 @@ class SiteIn(BaseModel):
     Milestone 1 초안(이름/주소만)보다 넓혔다."""
 
     name: str
+    # 표지 "관리번호" — 현장 단위(모든 회차 공통), 직접 입력 또는 GET /sites/next-management-no로 자동생성
+    management_no: str = ""
     address: str = ""
     period_start: datetime.date | None = None
     period_end: datetime.date | None = None

@@ -76,10 +76,11 @@ _MANAGEMENT_NO_PLACEHOLDER = "2026-0000056"
 
 
 def fill_management_no(doc, site: Site) -> None:
-    """표 밖 제목 문단의 관리번호를 전체 문서 찾아바꾸기로 채운다."""
-    if not site.management_no:
-        return
-    doc.replace_text_in_runs(_MANAGEMENT_NO_PLACEHOLDER, site.management_no)
+    """표 밖 제목 문단의 관리번호를 전체 문서 찾아바꾸기로 채운다.
+
+    관리번호가 비어 있으면 견본 번호를 지워 빈칸으로 둔다 — 예전엔 그냥 넘어가서 템플릿의 견본 번호
+    "2026-0000056"이 제출 문서에 그대로 찍혔다(Sub-phase 41에서 발견, 데스크톱도 같은 문제였음)."""
+    doc.replace_text_in_runs(_MANAGEMENT_NO_PLACEHOLDER, (site.management_no or "").strip())
 
 
 

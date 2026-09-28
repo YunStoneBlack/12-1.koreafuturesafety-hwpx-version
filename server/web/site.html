@@ -31,6 +31,23 @@
 
 <div id="error" class="error"></div>
 
+<section class="panel">
+  <div class="panel-head">
+    <h2>현장 정보</h2>
+    <button type="button" class="secondary" id="site-edit-toggle" style="margin-top:0;">수정</button>
+  </div>
+  <div class="panel-body">
+    <div id="mgmt-warning" class="status bad" style="display:none; margin:0 0 10px;">관리번호가 비어 있습니다 — 보고서 표지의 관리번호가 빈칸으로 나갑니다. "수정"에서 입력하거나 자동생성하세요.</div>
+    <div id="site-summary" class="field-grid"></div>
+    <form id="site-edit-form" style="display:none;">
+      <div id="site-edit-fields" class="field-grid"></div>
+      <button type="submit">저장</button>
+      <button type="button" class="secondary" id="site-edit-cancel">취소</button>
+      <div id="site-edit-status" class="status"></div>
+    </form>
+  </div>
+</section>
+
 <div class="panel">
   <div class="panel-head"><h2>보고서 목록</h2></div>
   <div class="rows" id="report-list">불러오는 중...</div>
@@ -45,11 +62,125 @@
 const errorEl = document.getElementById("error");
 const siteId = new URLSearchParams(window.location.search).get("id");
 
+// 현장 정보 — 데스크톱 현장 수정 폼과 같은 항목(대시보드 "새 현장 등록" 폼과 같은 필드) + 관리번호·기본 담당요원.
+// PATCH /sites/{id}는 전체 필드를 받으므로 폼의 모든 값을 보낸다.
+const SITE_FIELDS = [
+  ["management_no", "관리번호 (표지)", "text"], ["name", "현장명", "text"], ["address", "주소", "text"],
+  ["site_mgmt_no", "사업장관리번호", "text"], ["biz_start_no", "사업개시번호", "text"],
+  ["period_start", "공사기간 시작일", "date"], ["period_end", "공사기간 종료일", "date"],
+  ["amount", "공사금액(원)", "number"], ["total_guidance_count", "기술지도 총 횟수", "number"],
+  ["manager_name", "현장책임자 이름", "text"], ["manager_phone", "현장책임자 연락처", "text"],
+  ["manager_email", "현장책임자 이메일", "email"], ["hq_company", "시공사 회사명", "text"],
+  ["corp_reg_no", "시공사 법인등록번호", "text"], ["biz_reg_no", "시공사 사업자등록번호", "text"],
+  ["license_no", "시공사 건설면허번호", "text"], ["hq_phone", "시공사 연락처", "text"], ["hq_address", "시공사 주소", "text"],
+];
+let currentSite = null;
+
+function renderSiteSummary(site) {
+  const box = document.getElementById("site-summary");
+  box.innerHTML = "";
+  const shown = [["management_no", "관리번호"], ["period_start", "공사 시작"], ["period_end", "공사 종료"],
+    ["amount", "공사금액"], ["total_guidance_count", "기술지도 총 횟수"], ["manager_name", "현장책임자"], ["hq_company", "시공사"]];
+  for (const [key, label] of shown) {
+    const div = document.createElement("div");
+    div.style.marginBottom = "8px";
+    let value = site[key];
+    if (key === "amount" && value != null) value = Number(value).toLocaleString("ko-KR") + "원";
+    div.innerHTML = `<div class="slot-label"></div><div style="font-weight:500;"></div>`;
+    div.children[0].textContent = label;
+    div.children[1].textContent = value == null || value === "" ? "-" : value;
+    box.appendChild(div);
+  }
+  document.getElementById("mgmt-warning").style.display = site.management_no ? "none" : "block";
+}
+
+async function openSiteEdit() {
+  const box = document.getElementById("site-edit-fields");
+  box.innerHTML = "";
+  for (const [key, label, type] of SITE_FIELDS) {
+    const div = document.createElement("div");
+    div.innerHTML = `<label for="sf-${key}"></label><input id="sf-${key}" type="${type}" ${type === "number" ? 'min="0"' : ""} />`;
+    div.querySelector("label").textContent = label;
+    div.querySelector("input").value = currentSite[key] ?? "";
+    if (key === "management_no") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "secondary";
+      btn.style.marginTop = "6px";
+      btn.textContent = "자동생성";
+      btn.addEventListener("click", async () => {
+        try {
+          const out = await api("/sites/next-management-no");
+          document.getElementById("sf-management_no").value = out.management_no;
+        } catch (err) {
+          showError(errorEl, err);
+        }
+      });
+      div.appendChild(btn);
+    }
+    box.appendChild(div);
+  }
+  const staffDiv = document.createElement("div");
+  staffDiv.innerHTML = '<label for="sf-assigned_staff_id">기본 담당요원 (새 보고서에 자동 배정)</label><select id="sf-assigned_staff_id"><option value="">선택 안 함</option></select>';
+  box.appendChild(staffDiv);
+  try {
+    for (const st of await api("/staff")) {
+      const opt = document.createElement("option");
+      opt.value = st.id;
+      opt.textContent = `${st.name} (${st.phone})`;
+      staffDiv.querySelector("select").appendChild(opt);
+    }
+  } catch (err) {
+    showError(errorEl, err);
+  }
+  staffDiv.querySelector("select").value = currentSite.assigned_staff_id ?? "";
+  document.getElementById("site-edit-form").style.display = "block";
+  document.getElementById("site-summary").style.display = "none";
+}
+
+function closeSiteEdit() {
+  document.getElementById("site-edit-form").style.display = "none";
+  document.getElementById("site-summary").style.display = "grid";
+}
+
+document.getElementById("site-edit-toggle").addEventListener("click", () => {
+  if (document.getElementById("site-edit-form").style.display === "none") openSiteEdit();
+  else closeSiteEdit();
+});
+document.getElementById("site-edit-cancel").addEventListener("click", closeSiteEdit);
+document.getElementById("site-edit-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorEl.style.display = "none";
+  const body = {};
+  for (const [key, , type] of SITE_FIELDS) {
+    const v = document.getElementById(`sf-${key}`).value.trim();
+    body[key] = type === "number" ? (v === "" ? null : Number(v)) : type === "date" ? (v || null) : v;
+  }
+  const staffVal = document.getElementById("sf-assigned_staff_id").value;
+  body.assigned_staff_id = staffVal ? Number(staffVal) : null;
+  if (!body.name) {
+    showError(errorEl, new Error("현장명을 입력하세요."));
+    return;
+  }
+  try {
+    currentSite = await apiPatch(`/sites/${siteId}`, body);
+    applySite(currentSite);
+    closeSiteEdit();
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
+
+function applySite(site) {
+  document.getElementById("site-name").textContent = site.name;
+  document.getElementById("site-name-h1").textContent = site.name;
+  renderSiteSummary(site);
+}
+
 async function loadSite() {
   try {
-    const site = await api(`/sites/${siteId}`);
-    document.getElementById("site-name").textContent = site.name;
-    document.getElementById("site-name-h1").textContent = site.name;
+    currentSite = await api(`/sites/${siteId}`);
+    applySite(currentSite);
   } catch (err) {
     showError(errorEl, err);
   }

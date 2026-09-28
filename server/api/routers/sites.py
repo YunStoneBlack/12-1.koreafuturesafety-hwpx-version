@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import tempfile
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from core import config
 from core.contract_analyzer import extract_site_info
+from core.models_db import Site
 from core.models_web import User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
@@ -49,6 +51,19 @@ async def extract_from_contract(file: UploadFile, user: User = Depends(get_curre
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"계약서 분석에 실패했습니다: {e}") from e
 
     return data
+
+
+@router.get("/next-management-no")
+def next_management_no(year: int | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """관리번호 "자동생성" — "{연도}-{7자리 일련번호}"로 이 회사 현장 중 그 연도의 가장 큰 번호 + 1
+    (데스크톱 `_auto_generate_management_no`와 같은 규칙, 웹판은 회사별로 센다). 저장은 안 한다."""
+    prefix = f"{year or datetime.date.today().year}-"
+    max_seq = 0
+    for (management_no,) in db.query(Site.management_no).filter(Site.company_id == user.company_id):
+        suffix = (management_no or "")[len(prefix):] if (management_no or "").startswith(prefix) else ""
+        if suffix.isdigit():
+            max_seq = max(max_seq, int(suffix))
+    return {"management_no": f"{prefix}{max_seq + 1:07d}"}
 
 
 @router.post("", response_model=SiteOut)
