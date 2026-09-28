@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -10,8 +11,9 @@ from sqlalchemy.orm import Session
 
 from core import config
 from core.contract_analyzer import extract_site_info
-from core.models_db import Report, Site, Staff
-from core.models_web import User
+from core.db import BASE_DIR
+from core.models_db import Finding, PreviousFinding, Report, Site, SiteProcessDefault, Staff
+from core.models_web import ReportJob, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.schemas.site import SiteIn, SiteListItem, SiteOut
@@ -108,3 +110,35 @@ def update_site(
     if site is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
     return site
+
+
+@router.delete("/{site_id}")
+def delete_site(site_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """현장 삭제 — 이 현장의 보고서 전부(사진·PDF·서명 파일 포함)와 공정 기본값까지 함께 지운다(되돌릴 수 없음).
+    데스크톱 `dashboard_view._delete_site`와 같은 범위. PostgreSQL은 외래키를 실제로 검사하므로
+    보고서 삭제(`report_manage.delete_report`)처럼 이월 연결(이전지적사항 → 지적사항)과 PDF 렌더 작업 기록을 먼저 정리한다.
+    같은 현장 보고서끼리만 이월되므로 사진 폴더(data/photos/report_{id})는 통째로 지워도 다른 현장에 영향 없다."""
+    site = repo.get_site(db, user.company_id, site_id)
+    if site is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
+    reports = db.query(Report).filter(Report.site_id == site_id).all()
+    report_ids = [r.id for r in reports]
+    files = [p for r in reports for p in (r.pdf_path, r.notify_signature_path) if p]
+    if report_ids:
+        finding_ids = [f.id for f in db.query(Finding.id).filter(Finding.report_id.in_(report_ids))]
+        if finding_ids:
+            db.query(PreviousFinding).filter(PreviousFinding.source_finding_id.in_(finding_ids)).update(
+                {PreviousFinding.source_finding_id: None}, synchronize_session=False
+            )
+        db.query(ReportJob).filter(ReportJob.report_id.in_(report_ids)).delete(synchronize_session=False)
+    for report in reports:
+        db.delete(report)
+    db.query(SiteProcessDefault).filter(SiteProcessDefault.site_id == site_id).delete(synchronize_session=False)
+    db.delete(site)
+    db.commit()
+    # 파일은 DB 삭제가 확정된 뒤에 지운다(중간에 실패해도 DB가 가리키는 파일이 먼저 사라지지 않게)
+    for path in files:
+        Path(path).unlink(missing_ok=True)
+    for report_id in report_ids:
+        shutil.rmtree(BASE_DIR / "data" / "photos" / f"report_{report_id}", ignore_errors=True)
+    return {"ok": True, "deleted_reports": len(report_ids)}

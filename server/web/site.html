@@ -40,6 +40,14 @@
 </div>
 <button type="button" id="new-report-btn">+ 새 보고서 작성</button>
 
+<section class="panel danger-zone">
+  <div class="panel-head"><h2>현장 삭제</h2></div>
+  <div class="panel-body">
+    <p class="page-sub" style="margin:0 0 4px;">이 현장과 <b id="del-report-count">모든 보고서</b>(사진·PDF·서명 포함)가 함께 삭제되며 되돌릴 수 없습니다.</p>
+    <button type="button" class="danger" id="site-delete-btn">현장 삭제</button>
+  </div>
+</section>
+
   </main>
 </div>
 
@@ -177,6 +185,8 @@ async function loadReports() {
   const listEl = document.getElementById("report-list");
   try {
     const reports = await api(`/sites/${siteId}/reports`);
+    reportCount = reports.length;
+    document.getElementById("del-report-count").textContent = `보고서 ${reports.length}건`;
     if (reports.length === 0) {
       listEl.innerHTML = '<div class="empty-note">아직 작성된 보고서가 없습니다.</div>';
       return;
@@ -221,6 +231,28 @@ document.getElementById("new-report-btn").addEventListener("click", async () => 
   }
 });
 
+// 현장 삭제 — 되돌릴 수 없어서 현장명을 직접 입력해야 지운다(보고서까지 통째로 사라지므로 확인창 한 번으론 부족)
+let reportCount = 0;
+document.getElementById("site-delete-btn").addEventListener("click", async () => {
+  if (!currentSite) return;
+  const typed = prompt(
+    `"${currentSite.name}" 현장과 보고서 ${reportCount}건이 모두 삭제되며 되돌릴 수 없습니다.
+` +
+    `삭제하려면 현장명을 그대로 입력하세요.`
+  );
+  if (typed === null) return;
+  if (typed.trim() !== currentSite.name.trim()) {
+    alert("현장명이 일치하지 않아 삭제하지 않았습니다.");
+    return;
+  }
+  errorEl.style.display = "none";
+  try {
+    await api(`/sites/${siteId}`, { method: "DELETE" });
+    window.location.href = "dashboard.html";
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
 
 loadSite();
 loadReports();
