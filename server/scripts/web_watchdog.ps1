@@ -6,11 +6,19 @@
 #  - 서비스 등록은 관리자 권한이 필요하지만, 이 방식은 필요 없다(시작프로그램 바로가기로 로그인 시 자동 실행).
 #  재부팅 후 아무도 로그인 안 해도 켜지게 하려면 Windows 자동 로그인을 따로 켜야 한다.
 #
-# 실행: powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File web_watchdog.ps1 [-Tunnel]
+# 실행: powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File web_watchdog.ps1 [-Relay] [-Tunnel]
+#   -Relay  : 그룹웨어 서버(AWS)로 SSH 역방향 통로를 연다 → https://groupware.kfsc21c.com/report/ 로 접속(고정 주소).
+#             서버에서 127.0.0.1:18000 → 이 PC 127.0.0.1:8000. 키·호스트 정보는 C:\kfsc-relay\ (한글 경로 문제 회피).
+#             서버 쪽 설정(nginx /report 규칙, 통로 전용 키 등록)은 server/deploy/ 와 README_DEPLOY 6번 참고.
 #   -Tunnel : Cloudflare 임시 주소(https://xxxx.trycloudflare.com)로 외부 접속을 연다. 주소는 재시작할 때마다
 #             바뀌고, 현재 주소는 data\logs\tunnel_url.txt에 적힌다(도메인을 정하면 고정 주소 방식으로 교체).
 # 로그: data\logs\{api,worker,tunnel}.log (+ .err.log), 감시 기록 data\logs\watchdog.log
-param([switch]$Tunnel)
+param(
+    [switch]$Tunnel,
+    [switch]$Relay,
+    [string]$RelayHost = "ec2-user@15.164.246.22",
+    [string]$RelayDir = "C:\kfsc-relay"
+)
 
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -33,6 +41,19 @@ $env:PYTHONUNBUFFERED = "1"
 $Targets = [ordered]@{
     api    = @{ File = $Python; Args = "-m uvicorn server.api.main:app --host 0.0.0.0 --port 8000" }
     worker = @{ File = $Python; Args = "-m server.worker.supervisor_entry" }
+}
+if ($Relay) {
+    $Ssh = Join-Path $env:SystemRoot "System32\OpenSSH\ssh.exe"
+    $RelayKey = Join-Path $RelayDir "relay_key"
+    if ((Test-Path $Ssh) -and (Test-Path $RelayKey)) {
+        # ExitOnForwardFailure: 서버 포트를 못 열면(예: 끊긴 옛 연결이 아직 붙잡고 있음) 바로 종료 → 20초 뒤 재시도.
+        # ServerAlive*: 인터넷이 끊기면 90초 안에 알아채고 종료 → 재연결.
+        $Targets.relay = @{ File = $Ssh; Args = ("-N -T -i `"$RelayKey`" -o UserKnownHostsFile=`"$RelayDir\known_hosts`" " +
+            "-o StrictHostKeyChecking=yes -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 " +
+            "-o ServerAliveCountMax=3 -o ConnectTimeout=15 -R 127.0.0.1:18000:127.0.0.1:8000 $RelayHost") }
+    } else {
+        Write-Log "통로 키/ssh가 없어 그룹웨어 통로는 건너뜀: $RelayKey"
+    }
 }
 if ($Tunnel) {
     if (Test-Path $Cloudflared) {
@@ -68,7 +89,7 @@ function Update-TunnelUrl {
     }
 }
 
-Write-Log "감시 시작 (Tunnel=$Tunnel, python=$Python)"
+Write-Log "감시 시작 (Relay=$Relay, Tunnel=$Tunnel, python=$Python)"
 while ($true) {
     foreach ($name in @($Targets.Keys)) {
         $p = $Procs[$name]

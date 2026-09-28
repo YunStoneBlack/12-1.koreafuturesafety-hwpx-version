@@ -1,0 +1,1 @@
+restrict,port-forwarding,permitlisten="127.0.0.1:18000",command="/bin/false" ssh-ed25519 <relay_key.pub의 키 값> kfsc-report-relay
