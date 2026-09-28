@@ -328,11 +328,12 @@ def fill_support_images(hwp, report: Report) -> None:
 
 
 def fill_signoff_images(hwp, report: Report, site: Site) -> None:
-    director_path, _ = config.get_company_signature("director")
+    company_id = site.company_id if site else None  # 웹판 회사별 도장(데스크톱은 항상 None)
+    director_path, _ = config.get_company_signature("director", company_id)
     if director_path and Path(director_path).exists():
         _insert_in_cell(hwp, 0, "B2", director_path)
 
-    ceo_path, _ = config.get_company_signature("ceo")
+    ceo_path, _ = config.get_company_signature("ceo", company_id)
     if ceo_path and Path(ceo_path).exists():
         _insert_in_cell(hwp, 0, "C2", ceo_path)
 

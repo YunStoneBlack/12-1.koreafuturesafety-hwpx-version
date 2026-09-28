@@ -198,3 +198,11 @@ button.secondary:hover { background: var(--paper); }
 /* 기본 정보 등 2열 입력 격자(폰에선 1열) */
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
 @media (max-width: 600px) { .field-grid { grid-template-columns: 1fr; } }
+
+/* 서명/도장 칸(signature.js) */
+.sig-pad { display: block; width: 100%; max-width: 360px; height: 140px; border: 1px solid var(--line); border-radius: 8px; touch-action: none; background: #fff; }
+.sig-upload-btn {
+  display: inline-flex; align-items: center; padding: 9px 18px; border-radius: 8px; font-size: 13.5px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.sig-upload-btn:hover { background: var(--paper); }

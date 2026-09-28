@@ -12,6 +12,7 @@
     <div class="brand"><img src="/img/logo-white.png" alt="한국미래안전" /></div>
     <nav class="nav">
       <a class="nav-item" href="/dashboard.html">현장 목록</a>
+      <a class="nav-item" href="/staff.html">담당요원</a>
       <a class="nav-item active" href="/settings.html">설정</a>
     </nav>
     <div class="sidebar-foot">
@@ -51,10 +52,22 @@
   </div>
 </div>
 
+<section class="panel">
+  <div class="panel-head"><h2>결재란 도장 (이사 · 대표이사)</h2></div>
+  <div class="panel-body">
+  <p class="page-sub" style="margin:0 0 12px;">한 번 등록하면 이 회사의 모든 보고서 결재란에 자동으로 들어갑니다. 도장 스캔 이미지를 올리거나 직접 그릴 수 있습니다.</p>
+  <div class="field-grid">
+    <div><label>이사</label><div id="sig-director"></div></div>
+    <div><label>대표이사</label><div id="sig-ceo"></div></div>
+  </div>
+  </div>
+</section>
+
   </main>
 </div>
 
 <script src="/app.js"></script>
+<script src="/signature.js"></script>
 <script>
 const errorEl = document.getElementById("error");
 
@@ -93,6 +106,17 @@ api("/auth/me").then((me) => {
 }).catch(() => {});
 
 loadStatus();
+
+api("/settings/signatures").then((st) => {
+  for (const role of ["director", "ceo"]) {
+    createSignatureField(document.getElementById(`sig-${role}`), {
+      imageUrl: `/api/settings/signatures/${role}`,
+      uploadUrl: `/api/settings/signatures/${role}`,
+      deleteUrl: `/api/settings/signatures/${role}`,
+      registered: st[role],
+    });
+  }
+}).catch((err) => showError(errorEl, err));
 </script>
 </body>
 </html>

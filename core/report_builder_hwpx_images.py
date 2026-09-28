@@ -439,13 +439,15 @@ def fill_support_images(doc, report: Report) -> None:
 def fill_signoff_images(doc, report: Report, site: Site) -> None:
     """결재란(표0) 이사/대표이사 도장 + 담당요원/현장책임자 서명(글자 위 겹침 배치)."""
     table = doc.tables.all[0]
+    # 웹판은 회사별 결재란 도장(company_id), 데스크톱 exe는 site.company_id가 항상 None이라 예전과 같은 값.
+    company_id = site.company_id if site else None
 
-    director_path, _ = config.get_company_signature("director")
+    director_path, _ = config.get_company_signature("director", company_id)
     if director_path and Path(director_path).exists():
         row, col = _parse_cell_addr("B2")
         _insert_fit_picture_in_cell(doc, table.cell(row, col), director_path)
 
-    ceo_path, _ = config.get_company_signature("ceo")
+    ceo_path, _ = config.get_company_signature("ceo", company_id)
     if ceo_path and Path(ceo_path).exists():
         row, col = _parse_cell_addr("C2")
         _insert_fit_picture_in_cell(doc, table.cell(row, col), ceo_path)

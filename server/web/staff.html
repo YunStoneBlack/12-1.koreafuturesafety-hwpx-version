@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>담당요원 - 기술지도 보고서</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><img src="/img/logo-white.png" alt="한국미래안전" /></div>
+    <nav class="nav">
+      <a class="nav-item" href="/dashboard.html">현장 목록</a>
+      <a class="nav-item active" href="/staff.html">담당요원</a>
+      <a class="nav-item" href="/settings.html">설정</a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="avatar" id="sidebar-avatar">-</div>
+      <div>
+        <div class="who" id="sidebar-name">-</div>
+        <div class="role">직원</div>
+      </div>
+      <button id="logout-btn">로그아웃</button>
+    </div>
+  </aside>
+  <main class="main">
+
+<div class="topline">
+  <div>
+    <h1>담당요원</h1>
+    <p class="page-sub">등록한 서명은 그 요원이 담당하는 모든 보고서에 자동으로 들어갑니다.</p>
+  </div>
+</div>
+
+<div id="error" class="error"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>새 담당요원 추가</h2></div>
+  <div class="panel-body">
+    <div class="field-grid">
+      <div><label for="new-name">이름</label><input id="new-name" placeholder="예: 홍길동" /></div>
+      <div><label for="new-phone">연락처</label><input id="new-phone" placeholder="예: 010-1234-5678" /></div>
+    </div>
+    <button type="button" id="add-btn">+ 추가</button>
+    <p class="page-sub" style="margin:8px 0 0;">추가한 뒤 목록에서 "서명"을 눌러 서명을 등록하세요.</p>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>담당요원 목록</h2></div>
+  <div class="rows" id="staff-list"><div class="empty-note">불러오는 중...</div></div>
+</section>
+
+  </main>
+</div>
+
+<script src="/app.js"></script>
+<script src="/signature.js"></script>
+<script>
+const errorEl = document.getElementById("error");
+
+function staffRow(s) {
+  const wrap = document.createElement("div");
+  wrap.style.borderBottom = "1px solid var(--line)";
+  wrap.innerHTML = `
+    <div class="row" style="border-bottom:none; flex-wrap:wrap;">
+      <span class="title"></span>
+      <span class="status-pill ${s.has_signature ? "approved" : "pending"}">${s.has_signature ? "서명 등록됨" : "서명 미등록"}</span>
+      ${s.active ? "" : '<span class="status-pill rejected">비활성</span>'}
+      <span style="display:flex; gap:6px; flex-wrap:wrap;">
+        <button type="button" class="secondary st-edit" style="margin-top:0;">수정</button>
+        <button type="button" class="secondary st-sig" style="margin-top:0;">서명</button>
+        <button type="button" class="secondary st-toggle" style="margin-top:0;">${s.active ? "비활성화" : "활성화"}</button>
+        <button type="button" class="secondary st-del" style="margin-top:0; color:var(--crit);">삭제</button>
+      </span>
+    </div>
+    <div class="st-panel" style="display:none; padding:0 18px 16px;"></div>
+  `;
+  wrap.querySelector(".title").textContent = s.phone ? `${s.name} (${s.phone})` : s.name;
+  const panel = wrap.querySelector(".st-panel");
+  const openPanel = (render) => {
+    const same = panel.dataset.kind === render.name && panel.style.display !== "none";
+    panel.style.display = same ? "none" : "block";
+    panel.dataset.kind = render.name;
+    if (!same) render();
+  };
+
+  function edit() {
+    panel.innerHTML = `
+      <div class="field-grid">
+        <div><label>이름</label><input class="e-name" /></div>
+        <div><label>연락처</label><input class="e-phone" /></div>
+      </div>
+      <button type="button" class="e-save">저장</button>`;
+    panel.querySelector(".e-name").value = s.name;
+    panel.querySelector(".e-phone").value = s.phone;
+    panel.querySelector(".e-save").addEventListener("click", async () => {
+      errorEl.style.display = "none";
+      try {
+        await apiPatch(`/staff/${s.id}`, { name: panel.querySelector(".e-name").value, phone: panel.querySelector(".e-phone").value });
+        loadStaff();
+      } catch (err) {
+        showError(errorEl, err);
+      }
+    });
+  }
+  function signature() {
+    panel.innerHTML = "";
+    createSignatureField(panel, {
+      imageUrl: `/api/staff/${s.id}/signature`,
+      uploadUrl: `/api/staff/${s.id}/signature`,
+      deleteUrl: `/api/staff/${s.id}/signature`,
+      registered: s.has_signature,
+      onChange: (out) => {
+        s.has_signature = out.has_signature;
+        const pill = wrap.querySelector(".status-pill");
+        pill.className = `status-pill ${out.has_signature ? "approved" : "pending"}`;
+        pill.textContent = out.has_signature ? "서명 등록됨" : "서명 미등록";
+      },
+    });
+  }
+  wrap.querySelector(".st-edit").addEventListener("click", () => openPanel(edit));
+  wrap.querySelector(".st-sig").addEventListener("click", () => openPanel(signature));
+  wrap.querySelector(".st-toggle").addEventListener("click", async () => {
+    errorEl.style.display = "none";
+    try {
+      await apiPatch(`/staff/${s.id}`, { active: !s.active });
+      loadStaff();
+    } catch (err) {
+      showError(errorEl, err);
+    }
+  });
+  wrap.querySelector(".st-del").addEventListener("click", async () => {
+    if (!confirm(`${s.name} 요원을 삭제할까요? 이미 배정된 현장/보고서에서는 담당요원이 빈 값이 됩니다.`)) return;
+    errorEl.style.display = "none";
+    try {
+      await api(`/staff/${s.id}`, { method: "DELETE" });
+      loadStaff();
+    } catch (err) {
+      showError(errorEl, err);
+    }
+  });
+  return wrap;
+}
+
+async function loadStaff() {
+  const list = document.getElementById("staff-list");
+  try {
+    const rows = await api("/staff/all");
+    list.innerHTML = rows.length ? "" : '<div class="empty-note">아직 등록된 담당요원이 없습니다.</div>';
+    for (const s of rows) list.appendChild(staffRow(s));
+  } catch (err) {
+    showError(errorEl, err);
+  }
+}
+
+document.getElementById("add-btn").addEventListener("click", async () => {
+  errorEl.style.display = "none";
+  const name = document.getElementById("new-name");
+  const phone = document.getElementById("new-phone");
+  try {
+    await apiPost("/staff", { name: name.value, phone: phone.value });
+    name.value = "";
+    phone.value = "";
+    loadStaff();
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
+
+document.getElementById("logout-btn").addEventListener("click", async () => {
+  await apiPost("/auth/logout");
+  window.location.href = "/index.html";
+});
+api("/auth/me").then((me) => {
+  document.getElementById("sidebar-name").textContent = me.display_name || me.email;
+  document.getElementById("sidebar-avatar").textContent = (me.display_name || me.email || "?")[0];
+}).catch(() => {});
+
+loadStaff();
+</script>
+</body>
+</html>
