@@ -37,3 +37,12 @@ class SiteOut(SiteIn):
 
     id: int
     status: str
+
+
+class SiteListItem(SiteOut):
+    """현장 목록 화면용 — 현장 정보 + 보고서 진행 요약(목록에서 바로 보이게)."""
+
+    report_count: int = 0
+    last_visit_no: int | None = None
+    last_guidance_date: datetime.date | None = None
+    staff_name: str = ""

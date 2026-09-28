@@ -15,8 +15,10 @@ document.getElementById("render-btn").addEventListener("click", async () => {
   const statusEl = document.getElementById("job-status");
   const btn = document.getElementById("render-btn");
   btn.disabled = true;
-  statusEl.textContent = "대기열에 등록 중...";
+  statusEl.textContent = "입력 내용 저장 확인 중...";
   try {
+    await autosaveFlush(); // 방금 입력하고 바로 누른 경우 — 자동 저장이 끝난 뒤에 생성해야 PDF에 반영된다
+    statusEl.textContent = "대기열에 등록 중...";
     const job = await apiPost(`/reports/${reportId}/render`);
     pollJob(job.id);
   } catch (err) {
@@ -55,6 +57,7 @@ function pollJob(jobId) {
 
 
 // --- 페이지 시작: 각 섹션 불러오기(원래 인라인 스크립트의 실행 순서 그대로) ---
+setupReportToc();
 setupPhotoSlots("overview-slots", `${BASE}/api/reports/${reportId}/overview-photos`, "전경사진");
 setupPhotoSlots("inspection-slots", `${BASE}/api/reports/${reportId}/inspection-photos`, "점검사진");
 setupPreviousFindings();

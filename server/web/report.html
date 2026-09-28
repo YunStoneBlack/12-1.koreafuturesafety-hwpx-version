@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/css/app.css" />
 <link rel="stylesheet" href="style.css" />
 </head>
-<body data-report-tab="sites">
+<body class="has-toc">
 <div class="app">
   <aside class="sidebar" id="gw-sidebar"></aside>
   <main class="main">
@@ -21,7 +21,7 @@
   <div class="panel-head"><h2>기본 정보</h2></div>
   <div class="panel-body">
   <label for="staff-select">담당요원</label>
-  <select id="staff-select">
+  <select id="staff-select" data-no-autosave>
     <option value="">선택 안 함</option>
   </select>
   <div class="field-grid">
@@ -34,7 +34,7 @@
       <label style="font-weight:400; margin-top:6px;"><input type="checkbox" id="prev-guidance-none" /> 없음(첫 지도 등)</label>
     </div>
   </div>
-  <button type="button" id="basic-save">기본 정보 저장</button>
+  <button type="button" class="autosave" id="basic-save">기본 정보 저장</button>
   <div id="basic-status" class="status"></div>
   </div>
 </section>
@@ -52,10 +52,10 @@
   <label>현장책임자 서명</label>
   <canvas id="sig-canvas" width="360" height="140"></canvas>
   <button type="button" id="sig-clear" class="secondary">지우기</button>
-  <button type="button" id="sig-save">서명 저장</button>
+  <button type="button" class="autosave-manual" id="sig-save">서명 저장</button>
   <div id="sig-status" class="status"></div>
 
-  <button type="button" id="section1-save">1번 섹션 저장</button>
+  <button type="button" class="autosave" id="section1-save">1번 섹션 저장</button>
   <div id="section1-status" class="status"></div>
 
   <div class="status-cards">
@@ -82,7 +82,7 @@
   </div>
   <input id="accident-content" placeholder="내용 입력" />
 
-  <button type="button" id="section2-save">2번 섹션 저장</button>
+  <button type="button" class="autosave" id="section2-save">2번 섹션 저장</button>
   <div id="section2-status" class="status"></div>
   </div>
 </section>
@@ -90,7 +90,7 @@
 <section class="panel">
   <div class="panel-head"><h2>3. 전경사진 및 점검사진</h2></div>
   <div class="panel-body">
-  <p class="page-sub" style="margin:0 0 12px;">사진은 선택하는 즉시 바로 저장됩니다(별도 저장 버튼 없음).</p>
+  <p class="page-sub" style="margin:0 0 12px;">사진은 선택하는 즉시 저장됩니다.</p>
   <div style="display:flex; gap:16px; flex-wrap:wrap;">
     <div style="flex:1; min-width:220px;">
       <h3>전경사진 (최대 4장)</h3>
@@ -116,7 +116,7 @@
   <div class="panel-head"><h2>5. 대형사고 위험작업 사항</h2></div>
   <div class="panel-body">
   <div id="major-hazard-list" style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; padding:8px;"></div>
-  <button type="button" id="section5-save">5번 섹션 저장</button>
+  <button type="button" class="autosave" id="section5-save">5번 섹션 저장</button>
   <div id="section5-status" class="status"></div>
   </div>
 </section>
@@ -125,7 +125,7 @@
   <div class="panel-head"><h2>6. 위험성평가 기준 및 사망사고 다발 기인물 필수 지도사항</h2></div>
   <div class="panel-body">
   <div id="hazard-factor-list" style="max-height:360px; overflow-y:auto;"></div>
-  <button type="button" id="section6-save">6번 섹션 저장</button>
+  <button type="button" class="autosave" id="section6-save">6번 섹션 저장</button>
   <div id="section6-status" class="status"></div>
   </div>
 </section>
@@ -139,7 +139,7 @@
   <div id="equip-handtool"></div>
   <h3>유해위험물질</h3>
   <div id="equip-hazmat"></div>
-  <button type="button" id="section6-3-save">6-3 섹션 저장</button>
+  <button type="button" class="autosave" id="section6-3-save">6-3 섹션 저장</button>
   <div id="section6-3-status" class="status"></div>
   </div>
 </section>
@@ -188,7 +188,7 @@
       <button type="button" class="secondary" id="tbm-del" style="display:none;">삭제</button>
     </div>
   </div>
-  <button type="button" id="tbm-save">TBM 저장</button>
+  <button type="button" class="autosave" id="tbm-save">TBM 저장</button>
   <div id="tbm-status" class="status"></div>
 
   <h3>계측자료</h3>
@@ -221,7 +221,7 @@
     <input type="checkbox" id="confirm-check" style="margin-top:4px;" />
     <span>위 내용에 대한 모든 사항을 확인했습니다. AI가 생성한 자료는 틀린 내용을 포함할 수 있으므로, 보고서 생성 전 반드시 직접 다시 한 번 확인해야 합니다.</span>
   </label>
-  <p class="page-sub" style="margin:0 0 4px;">각 섹션을 저장한 뒤 누르세요. 아직 안 채운 섹션은 빈 칸으로 나옵니다.</p>
+  <p class="page-sub" style="margin:0 0 4px;">입력한 내용은 자동으로 저장됩니다. 아직 안 채운 섹션은 빈 칸으로 나옵니다.</p>
   <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
     <button id="render-btn" disabled>PDF 생성</button>
     <a class="secondary-link" id="hwpx-link" href="#" style="margin-top:14px;">↓ 한글(hwpx)로 받기</a>
@@ -239,6 +239,8 @@
 <script src="js/report-photos.js"></script>
 <script src="js/report-work.js"></script>
 <script src="js/report-support.js"></script>
+<script src="js/report-autosave.js"></script>
+<script src="js/report-nav.js"></script>
 <script src="js/report-main.js"></script>
 </body>
 </html>

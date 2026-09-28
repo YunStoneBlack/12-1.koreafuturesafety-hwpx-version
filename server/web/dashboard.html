@@ -12,65 +12,65 @@
   <aside class="sidebar" id="gw-sidebar"></aside>
   <main class="main">
 
-<div class="topline"><h1>현장 목록</h1></div>
-
 <div id="error" class="error"></div>
 
-<div class="panel">
-  <div class="panel-head"><h2>현장 목록</h2></div>
-  <div class="rows" id="site-list">불러오는 중...</div>
+<div class="list-toolbar">
+  <input id="site-search" type="search" placeholder="현장명·주소·시공사·담당요원으로 검색" autocomplete="off" />
+  <button type="button" id="new-site-toggle">+ 새 현장 등록</button>
 </div>
 
-<div class="form-card">
-  <h2 style="margin-bottom:14px;">새 현장 등록</h2>
-
+<section class="panel" id="new-site-panel" hidden>
+  <div class="panel-head">
+    <h2>새 현장 등록</h2>
+    <button type="button" class="secondary btn-sm" id="new-site-close">닫기</button>
+  </div>
+  <div class="panel-body">
   <label for="contract-file">계약서·공문 PDF로 자동 채우기 (선택)</label>
-  <input id="contract-file" type="file" accept="application/pdf" />
-  <button type="button" id="extract-btn" class="secondary">AI로 자동 채우기</button>
+  <div class="inline-row">
+    <input id="contract-file" type="file" accept="application/pdf" />
+    <button type="button" id="extract-btn" class="secondary">AI로 자동 채우기</button>
+  </div>
   <div id="extract-status" class="status"></div>
 
   <form id="site-form">
-    <label for="name">현장명</label>
-    <input id="name" required />
-    <label for="address">주소</label>
-    <input id="address" />
+    <h3 class="form-group-title">현장</h3>
+    <div class="field-grid">
+      <div><label for="name">현장명</label><input id="name" required /></div>
+      <div><label for="address">주소</label><input id="address" /></div>
+      <div><label for="site_mgmt_no">사업장관리번호</label><input id="site_mgmt_no" /></div>
+      <div><label for="biz_start_no">사업개시번호</label><input id="biz_start_no" /></div>
+      <div><label for="period_start">공사기간 시작일</label><input id="period_start" type="date" /></div>
+      <div><label for="period_end">공사기간 종료일</label><input id="period_end" type="date" /></div>
+      <div><label for="amount">공사금액</label><input id="amount" type="number" min="0" /></div>
+      <div><label for="total_guidance_count">기술지도 총 횟수</label><input id="total_guidance_count" type="number" min="0" /></div>
+    </div>
 
-    <label for="site_mgmt_no">사업장관리번호</label>
-    <input id="site_mgmt_no" />
-    <label for="biz_start_no">사업개시번호</label>
-    <input id="biz_start_no" />
+    <h3 class="form-group-title">현장책임자</h3>
+    <div class="field-grid">
+      <div><label for="manager_name">이름</label><input id="manager_name" /></div>
+      <div><label for="manager_phone">연락처</label><input id="manager_phone" /></div>
+      <div><label for="manager_email">이메일</label><input id="manager_email" type="email" /></div>
+    </div>
 
-    <label for="period_start">공사기간 시작일</label>
-    <input id="period_start" type="date" />
-    <label for="period_end">공사기간 종료일</label>
-    <input id="period_end" type="date" />
-    <label for="amount">공사금액</label>
-    <input id="amount" type="number" min="0" />
-    <label for="total_guidance_count">기술지도 총 횟수</label>
-    <input id="total_guidance_count" type="number" min="0" />
-
-    <label for="manager_name">현장책임자 이름</label>
-    <input id="manager_name" />
-    <label for="manager_phone">현장책임자 연락처</label>
-    <input id="manager_phone" />
-    <label for="manager_email">현장책임자 이메일</label>
-    <input id="manager_email" type="email" />
-
-    <label for="hq_company">시공사(건설업체) 회사명</label>
-    <input id="hq_company" />
-    <label for="corp_reg_no">시공사 법인등록번호</label>
-    <input id="corp_reg_no" />
-    <label for="biz_reg_no">시공사 사업자등록번호</label>
-    <input id="biz_reg_no" />
-    <label for="license_no">시공사 건설면허번호</label>
-    <input id="license_no" />
-    <label for="hq_phone">시공사 연락처</label>
-    <input id="hq_phone" />
-    <label for="hq_address">시공사 주소</label>
-    <input id="hq_address" />
+    <h3 class="form-group-title">시공사(건설업체)</h3>
+    <div class="field-grid">
+      <div><label for="hq_company">회사명</label><input id="hq_company" /></div>
+      <div><label for="hq_phone">연락처</label><input id="hq_phone" /></div>
+      <div><label for="corp_reg_no">법인등록번호</label><input id="corp_reg_no" /></div>
+      <div><label for="biz_reg_no">사업자등록번호</label><input id="biz_reg_no" /></div>
+      <div><label for="license_no">건설면허번호</label><input id="license_no" /></div>
+      <div><label for="hq_address">주소</label><input id="hq_address" /></div>
+    </div>
 
     <button type="submit">등록</button>
+    <button type="button" class="secondary" id="new-site-cancel">취소</button>
   </form>
+  </div>
+</section>
+
+<div class="panel">
+  <div class="panel-head"><h2>현장 목록</h2><span class="panel-count" id="site-count"></span></div>
+  <div class="rows" id="site-list"><div class="empty-note">불러오는 중...</div></div>
 </div>
 
   </main>
@@ -112,26 +112,83 @@ function fillSiteForm(data) {
   }
 }
 
-async function loadSites() {
+let allSites = [];
+
+// "2026-09-20" → "09.20"(올해) / "25.09.20"(다른 해)
+function shortDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return y === String(new Date().getFullYear()) ? `${m}.${d}` : `${y.slice(2)}.${m}.${d}`;
+}
+
+function renderSites() {
   const listEl = document.getElementById("site-list");
+  const q = document.getElementById("site-search").value.trim().replace(/\s+/g, "").toLowerCase();
+  const shown = allSites.filter((s) => !q || [s.name, s.address, s.hq_company, s.staff_name, s.manager_name, s.management_no]
+    .some((v) => (v || "").replace(/\s+/g, "").toLowerCase().includes(q)));
+  document.getElementById("site-count").textContent = q ? `${shown.length} / ${allSites.length}곳` : `${allSites.length}곳`;
+  if (!allSites.length) {
+    listEl.innerHTML = '<div class="empty-note">아직 등록된 현장이 없습니다. 위의 "+ 새 현장 등록"을 눌러 추가하세요.</div>';
+    return;
+  }
+  if (!shown.length) {
+    listEl.innerHTML = '<div class="empty-note">검색 결과가 없습니다.</div>';
+    return;
+  }
+  listEl.innerHTML = "";
+  for (const site of shown) {
+    const row = document.createElement("a");
+    row.className = "row site-row";
+    row.href = `site.html?id=${site.id}`;
+    const pillClass = site.status === "완료" ? "approved" : site.status === "보류" ? "rejected" : "pending";
+    const progress = site.last_visit_no
+      ? `${site.last_visit_no}${site.total_guidance_count ? ` / ${site.total_guidance_count}` : ""}회차`
+      : "보고서 없음";
+    row.innerHTML = `
+      <span class="title"><span class="site-name"></span><span class="site-sub"></span></span>
+      <span class="site-metas">
+        <span class="meta" data-k="staff"></span>
+        <span class="meta" data-k="progress"></span>
+        <span class="meta" data-k="date"></span>
+      </span>
+      <span class="status-pill ${pillClass}"></span>`;
+    // 사용자 입력 값은 textContent로(따옴표·꺾쇠가 들어간 현장명도 안전하게)
+    row.querySelector(".site-name").textContent = site.name;
+    row.querySelector(".site-sub").textContent = [site.address, site.hq_company].filter(Boolean).join(" · ");
+    // 진행 요약(report_count 등)은 API 서버를 재시작해야 내려온다 — 없으면 "보고서 없음"처럼 틀리게 보이지 않게 비워 둔다
+    const hasSummary = site.report_count !== undefined;
+    row.querySelector('[data-k="staff"]').textContent = !hasSummary ? "" : site.staff_name ? `담당 ${site.staff_name}` : "담당 미지정";
+    row.querySelector('[data-k="progress"]').textContent = hasSummary ? progress : "";
+    row.querySelector('[data-k="date"]').textContent = site.last_guidance_date ? `최근 지도 ${shortDate(site.last_guidance_date)}` : "";
+    row.querySelector(".status-pill").textContent = site.status;
+    listEl.appendChild(row);
+  }
+}
+
+async function loadSites() {
   try {
-    const sites = await api("/sites");
-    if (sites.length === 0) {
-      listEl.innerHTML = '<div class="empty-note">아직 등록된 현장이 없습니다.</div>';
-      return;
-    }
-    listEl.innerHTML = "";
-    for (const site of sites) {
-      const row = document.createElement("div");
-      row.className = "row";
-      const pillClass = site.status === "완료" ? "approved" : site.status === "보류" ? "rejected" : "pending";
-      row.innerHTML = `<span class="title"><a href="site.html?id=${site.id}">${site.name}</a></span><span class="status-pill ${pillClass}">${site.status}</span>`;
-      listEl.appendChild(row);
-    }
+    allSites = await api("/sites");
+    renderSites();
   } catch (err) {
     showError(errorEl, err);
   }
 }
+
+document.getElementById("site-search").addEventListener("input", renderSites);
+
+// 새 현장 등록 폼은 평소엔 접어 두고 버튼으로 연다(항상 펼쳐 두면 현장 목록보다 폼이 더 커 보였다)
+function setNewSiteOpen(open) {
+  const panel = document.getElementById("new-site-panel");
+  panel.hidden = !open;
+  document.getElementById("new-site-toggle").hidden = open;
+  if (open) {
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    document.getElementById("name").focus({ preventScroll: true });
+  }
+}
+document.getElementById("new-site-toggle").addEventListener("click", () => setNewSiteOpen(true));
+document.getElementById("new-site-close").addEventListener("click", () => setNewSiteOpen(false));
+document.getElementById("new-site-cancel").addEventListener("click", () => setNewSiteOpen(false));
 
 document.getElementById("extract-btn").addEventListener("click", async () => {
   errorEl.style.display = "none";
@@ -171,10 +228,9 @@ document.getElementById("site-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   errorEl.style.display = "none";
   try {
-    await apiPost("/sites", readSiteForm());
-    document.getElementById("site-form").reset();
-    document.getElementById("extract-status").textContent = "";
-    await loadSites();
+    const created = await apiPost("/sites", readSiteForm());
+    // 등록하면 바로 그 현장 화면으로(다음 할 일이 거기서 보고서 작성이라)
+    window.location.href = `site.html?id=${created.id}`;
   } catch (err) {
     showError(errorEl, err);
   }

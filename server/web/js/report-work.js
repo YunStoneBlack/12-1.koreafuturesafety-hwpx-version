@@ -21,6 +21,7 @@ async function setupProcessSlots(containerId, apiPrefix) {
     const slot = entry.slot;
     const card = document.createElement("div");
     card.className = "sub-card";
+    if (!entry.process_name && !entry.items.length) card.dataset.empty = "1";
     card.innerHTML = `
       <h3>공정 ${slot}</h3>
       <label>진행공정명</label>
@@ -34,7 +35,7 @@ async function setupProcessSlots(containerId, apiPrefix) {
       </div>
       <div id="${containerId}-items-${slot}"></div>
       <button type="button" class="secondary" id="${containerId}-add-${slot}">+ 항목 추가</button>
-      <button type="button" id="${containerId}-save-${slot}">저장</button>
+      <button type="button" class="autosave" id="${containerId}-save-${slot}">저장</button>
       <div id="${containerId}-status-${slot}" class="status"></div>
     `;
     container.appendChild(card);
@@ -52,8 +53,8 @@ async function setupProcessSlots(containerId, apiPrefix) {
           <input class="pi-hazard" />
           <label>예방대책 <span style="font-weight:400; color:var(--muted);">(한 줄에 하나씩)</span></label>
           <textarea class="pi-prevention" rows="3"></textarea>
-          <label>위험성수준</label>
-          <select class="pi-risk">
+          <label>위험성수준 (상·중·하)</label>
+          <select class="pi-risk" aria-label="위험성수준">
             <option value="">선택 안 함</option>
             <option value="상">상</option>
             <option value="중">중</option>
@@ -99,7 +100,8 @@ async function setupProcessSlots(containerId, apiPrefix) {
           itemsEl.innerHTML = "";
           for (const item of out.items) addItemRow(item);
           statusEl.className = "status ok";
-          statusEl.textContent = `AI가 ${out.items.length}개 항목을 작성했습니다. 확인·수정 후 "저장"을 누르세요.`;
+          statusEl.textContent = `AI가 ${out.items.length}개 항목을 작성했습니다. 확인하고 필요하면 고치세요(자동 저장됩니다).`;
+          autosaveTouch(nameInput);
         }
       } catch (err) {
         showError(errorEl, err);
@@ -126,6 +128,7 @@ async function setupProcessSlots(containerId, apiPrefix) {
       }
     });
   }
+  collapseEmptySlots(container, (card) => card.dataset.empty === "1", "공정");
 }
 
 
@@ -147,6 +150,7 @@ async function setupFindings() {
     const slot = data.slot;
     const card = document.createElement("div");
     card.className = "sub-card";
+    if (!data.has_photo && !data.title && !data.content && !data.description && !data.law_citation) card.dataset.empty = "1";
     card.innerHTML = `
       <h3>지적사항 ${slot}</h3>
       <div class="photo-slot">
@@ -170,11 +174,11 @@ async function setupFindings() {
       <label>관련 법령</label>
       <input id="fd-law-${slot}" />
       <div style="display:flex; gap:8px;">
-        <div style="flex:1;"><label>가능성 (1~3)</label>
+        <div style="flex:1;"><label for="fd-likelihood-${slot}">가능성 (1~3)</label>
           <select id="fd-likelihood-${slot}">
             <option value="">선택 안 함</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
           </select></div>
-        <div style="flex:1;"><label>중대성 (1~3)</label>
+        <div style="flex:1;"><label for="fd-severity-${slot}">중대성 (1~3)</label>
           <select id="fd-severity-${slot}">
             <option value="">선택 안 함</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
           </select></div>
@@ -185,7 +189,7 @@ async function setupFindings() {
         <option value="추후확인">추후확인</option>
         <option value="즉시이행">즉시이행</option>
       </select>
-      <button type="button" id="fd-save-${slot}">저장</button>
+      <button type="button" class="autosave" id="fd-save-${slot}">저장</button>
       <div id="fd-status-msg-${slot}" class="status"></div>
     `;
     container.appendChild(card);
@@ -229,7 +233,8 @@ async function setupFindings() {
         if (out.severity != null) $("severity").value = out.severity;
         updateRisk();
         msgEl.className = "status ok";
-        msgEl.textContent = 'AI 추천을 채웠습니다. 확인·수정 후 "저장"을 누르세요.';
+        msgEl.textContent = 'AI 추천을 채웠습니다. 확인하고 필요하면 고치세요(자동 저장됩니다).';
+        autosaveTouch($("title"));
       } catch (err) {
         showError(errorEl, err);
       } finally {
@@ -261,4 +266,5 @@ async function setupFindings() {
 
     setupSinglePhotoUpload(`${base}/${slot}/photo`, `fd-file-${slot}`, `fd-thumb-${slot}`, `fd-del-${slot}`);
   }
+  collapseEmptySlots(container, (card) => card.dataset.empty === "1", "지적사항");
 }

@@ -5,22 +5,43 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core import config
 from core.contract_analyzer import extract_site_info
-from core.models_db import Site
+from core.models_db import Report, Site, Staff
 from core.models_web import User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
-from server.schemas.site import SiteIn, SiteOut
+from server.schemas.site import SiteIn, SiteListItem, SiteOut
 
 router = APIRouter(prefix="/sites", tags=["sites"])
 
 
-@router.get("", response_model=list[SiteOut])
+@router.get("", response_model=list[SiteListItem])
 def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return repo.list_sites(db, user.company_id)
+    """현장 목록 + 현장별 보고서 요약(작성 수·최근 회차·최근 지도일)과 담당요원 이름 — 목록 화면에서 바로 보이게."""
+    sites = repo.list_sites(db, user.company_id)
+    ids = [s.id for s in sites]
+    stats = {
+        site_id: (count, last_no, last_date)
+        for site_id, count, last_no, last_date in db.query(
+            Report.site_id, func.count(Report.id), func.max(Report.visit_no), func.max(Report.guidance_date)
+        ).filter(Report.site_id.in_(ids)).group_by(Report.site_id)
+    } if ids else {}
+    staff_ids = {s.assigned_staff_id for s in sites if s.assigned_staff_id}
+    staff_names = dict(db.query(Staff.id, Staff.name).filter(Staff.id.in_(staff_ids))) if staff_ids else {}
+    out = []
+    for site in sites:
+        count, last_no, last_date = stats.get(site.id, (0, None, None))
+        item = SiteListItem.model_validate(site)
+        item.report_count = count
+        item.last_visit_no = last_no
+        item.last_guidance_date = last_date
+        item.staff_name = staff_names.get(site.assigned_staff_id, "")
+        out.append(item)
+    return out
 
 
 @router.post("/extract-from-contract", response_model=SiteIn)

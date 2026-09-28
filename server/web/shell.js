@@ -1,8 +1,11 @@
 // 화면 틀 — 보고서 자동화는 그룹웨어(groupware.kfsc21c.com)의 "보고서 자동화" 하위 메뉴다.
 // 1) 왼쪽 사이드바: 그룹웨어가 렌더링해주는 진짜 사이드바 조각(/report-shell/sidebar — 로고·메뉴·관리자 메뉴·프로필·로그아웃)을
 //    그대로 끼워 넣는다. 메뉴가 바뀌어도 자동으로 따라가고, 로그아웃도 그룹웨어 것이 그대로 동작한다.
+//    한 번 받은 조각은 이 탭(sessionStorage)에 기억해 두고 다음 화면부터는 즉시 그린 뒤 뒤에서 새로 받아 바뀐 경우만 교체한다
+//    — 매 화면마다 빈 사이드바가 잠깐 보였다가 채워지면 그룹웨어의 다른 메뉴와 달리 "다른 사이트로 넘어가는" 느낌이 났다.
 //    그룹웨어를 거치지 않은 접속(사무실 LAN 직접 접속 등)이면 로고+보고서 메뉴만 있는 대체 사이드바를 그린다.
-// 2) 본문 위 탭: 보고서 안의 하위 메뉴(현장 목록/담당요원/설정). 각 페이지 <body data-report-tab="sites|staff|settings">.
+// 2) 본문 머리: 목록 화면(<body data-report-tab="sites|staff|settings">)은 그룹웨어 화면처럼 "큰 제목 + 회색 설명" 아래
+//    하위 메뉴 탭(현장 목록/담당요원/설정)을 두고, 상세 화면(data-report-tab 없음)은 각 페이지의 경로 표시(crumb)를 쓴다.
 // 페이지마다 <aside class="sidebar" id="gw-sidebar"></aside> 빈 자리와 <main class="main">이 있어야 한다.
 
 const REPORT_TABS = [
@@ -10,11 +13,17 @@ const REPORT_TABS = [
   ["staff", "담당요원", "staff.html"],
   ["settings", "설정", "settings.html"],
 ];
+const SIDEBAR_CACHE_KEY = "kfsc-report:gw-sidebar";
 
-function renderReportTabs() {
+function renderReportHeader() {
   const main = document.querySelector("main.main");
-  if (!main) return;
-  const active = document.body.dataset.reportTab || "sites";
+  const active = document.body.dataset.reportTab;
+  if (!main || !active) return;
+  const head = document.createElement("div");
+  head.className = "report-head";
+  head.innerHTML = `
+    <h1>보고서 자동화</h1>
+    <p class="page-sub">현장별 기술지도 결과보고서를 작성하고 PDF로 만듭니다.</p>`;
   const nav = document.createElement("nav");
   nav.className = "report-tabs";
   for (const [key, label, href] of REPORT_TABS) {
@@ -24,7 +33,8 @@ function renderReportTabs() {
     if (key === active) a.className = "active";
     nav.appendChild(a);
   }
-  main.prepend(nav);
+  head.appendChild(nav);
+  main.prepend(head);
 }
 
 function renderFallbackSidebar(aside) {
@@ -42,26 +52,76 @@ function renderFallbackSidebar(aside) {
   }).catch(() => {});
 }
 
+function readSidebarCache() {
+  try { return sessionStorage.getItem(SIDEBAR_CACHE_KEY); } catch { return null; }
+}
+
+function writeSidebarCache(html) {
+  try { sessionStorage.setItem(SIDEBAR_CACHE_KEY, html); } catch { /* 저장 못 해도 매번 받아오면 그만 */ }
+}
+
+// 받아온 조각 HTML에서 <aside class="sidebar">를 꺼내 지금 자리(#gw-sidebar)와 바꾼다. 성공하면 true.
+function mountSidebar(html) {
+  const current = document.getElementById("gw-sidebar");
+  if (!current || !html) return false;
+  const fetched = new DOMParser().parseFromString(html, "text/html").querySelector("aside.sidebar");
+  if (!fetched) return false;
+  fetched.id = "gw-sidebar";
+  current.replaceWith(fetched);
+  // 폰에선 사이드바가 가로 메뉴 줄로 접히는데(style.css), "보고서 자동화"가 오른쪽 끝이라 화면 밖에 숨는다 → 보이게 스크롤
+  const active = fetched.querySelector(".nav-item.active");
+  if (active && fetched.scrollWidth > fetched.clientWidth) {
+    fetched.scrollLeft = active.offsetLeft - (fetched.clientWidth - active.offsetWidth) / 2;
+  }
+  return true;
+}
+
 async function loadGroupwareSidebar() {
-  const aside = document.getElementById("gw-sidebar");
-  if (!aside) return;
+  if (!document.getElementById("gw-sidebar")) return;
+  const cached = readSidebarCache();
+  const shownFromCache = cached ? mountSidebar(cached) : false;
   try {
     const res = await fetch("/report-shell/sidebar", { credentials: "include", redirect: "manual" });
     const html = res.ok ? await res.text() : "";
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    const fetched = doc.querySelector("aside.sidebar");
-    if (!fetched) throw new Error("그룹웨어 사이드바를 받지 못함");
-    fetched.id = "gw-sidebar";
-    aside.replaceWith(fetched);
-    // 폰에선 사이드바가 가로 메뉴 줄로 접히는데(style.css), "보고서 자동화"가 오른쪽 끝이라 화면 밖에 숨는다 → 보이게 스크롤
-    const active = fetched.querySelector(".nav-item.active");
-    if (active && fetched.scrollWidth > fetched.clientWidth) {
-      fetched.scrollLeft = active.offsetLeft - (fetched.clientWidth - active.offsetWidth) / 2;
+    if (!html.includes("sidebar")) throw new Error("그룹웨어 사이드바를 받지 못함");
+    if (html !== cached) {
+      if (!mountSidebar(html)) throw new Error("그룹웨어 사이드바 형식이 다름");
+      writeSidebarCache(html);
     }
   } catch (err) {
-    renderFallbackSidebar(aside);
+    if (!shownFromCache) renderFallbackSidebar(document.getElementById("gw-sidebar"));
   }
 }
 
-renderReportTabs();
+// 파일 선택칸 — 브라우저 기본 버튼은 브라우저 언어를 따라 "Choose File / No file chosen"(영어)로 나오기도 하고 모양도 제각각이라,
+// 원래 칸은 안 보이게 두고(동작·이벤트는 그대로) 그룹웨어 보조 버튼 모양의 "사진 선택/파일 선택" 버튼을 옆에 붙인다.
+// 섹션이 나중에 그려지는 칸(보고서 슬롯 등)도 있어서 문서 변화를 지켜보며 새로 생긴 칸에도 붙인다.
+// 사진 칸(미리보기 썸네일이 있는 곳)은 고르는 즉시 올라가고 썸네일이 보이므로 파일 이름은 안 띄운다.
+function enhanceFileInputs(root) {
+  root.querySelectorAll('.main input[type="file"]:not([data-kr-file])').forEach((input) => {
+    input.dataset.krFile = "1";
+    if (input.style.display === "none") return; // 자체 버튼이 있는 칸(서명 이미지 올리기 등)
+    const showName = !input.closest(".photo-slot")?.querySelector(".thumb");
+    const wrap = document.createElement("span");
+    wrap.className = "file-pick";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "secondary file-pick-btn";
+    btn.textContent = (input.accept || "").startsWith("image") ? "사진 선택" : "파일 선택";
+    const name = document.createElement("span");
+    name.className = "file-pick-name";
+    name.textContent = showName ? "선택된 파일 없음" : "";
+    wrap.append(btn, name);
+    input.classList.add("file-pick-input");
+    input.after(wrap);
+    btn.addEventListener("click", () => input.click());
+    input.addEventListener("change", () => {
+      if (showName) name.textContent = input.files[0]?.name || "선택된 파일 없음";
+    });
+  });
+}
+
+renderReportHeader();
 loadGroupwareSidebar();
+enhanceFileInputs(document);
+new MutationObserver(() => enhanceFileInputs(document)).observe(document.querySelector("main.main") || document.body, { childList: true, subtree: true });

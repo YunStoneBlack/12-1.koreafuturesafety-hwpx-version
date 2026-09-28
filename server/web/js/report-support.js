@@ -44,7 +44,8 @@ async function setupTbm() {
       } else {
         document.getElementById("tbm-attendee").value = out.count;
         statusEl.className = "status ok";
-        statusEl.textContent = `AI가 ${out.count}명으로 셌습니다. 확인 후 "TBM 저장"을 누르세요.`;
+        statusEl.textContent = `AI가 ${out.count}명으로 셌습니다. 확인하고 필요하면 고치세요(자동 저장됩니다).`;
+        autosaveTouch(document.getElementById("tbm-attendee"));
       }
     } catch (err) {
       showError(errorEl, err);
@@ -107,7 +108,7 @@ async function setupMeasurements() {
         </div>
         <button type="button" id="ms-ai-${type}" style="margin-top:0;">✨ AI로 읽기</button>
       </div>
-      <button type="button" id="ms-save-${type}">저장</button>
+      <button type="button" class="autosave" id="ms-save-${type}">저장</button>
       <div id="ms-status-${type}" class="status"></div>
     `;
     container.appendChild(row);
@@ -151,7 +152,8 @@ async function setupMeasurements() {
           document.getElementById(`ms-value-${type}`).value = out.value;
           document.getElementById(`ms-verdict-${type}`).value = "";
           statusEl.className = "status ok";
-          statusEl.textContent = `AI가 "${out.value}"로 읽었습니다. 확인 후 "저장"을 누르세요.`;
+          statusEl.textContent = `AI가 "${out.value}"로 읽었습니다. 확인하고 필요하면 고치세요(자동 저장됩니다).`;
+          autosaveTouch(document.getElementById(`ms-value-${type}`));
         }
       } catch (err) {
         showError(errorEl, err);
@@ -183,6 +185,7 @@ function renderMaterials(items) {
     const card = document.createElement("div");
     card.className = "sub-card";
     const kind = data.material_id ? "라이브러리 자료" : data.has_photo ? "직접 올린 이미지" : "비어 있음";
+    if (!data.material_id && !data.has_photo && !data.title) card.dataset.empty = "1";
     card.innerHTML = `
       <h3>제공자료 ${slot} <span style="font-weight:400; color:var(--muted); font-size:12px;">· ${kind}</span></h3>
       <div class="photo-slot">
@@ -200,7 +203,7 @@ function renderMaterials(items) {
       <label>제목</label>
       <div style="display:flex; gap:8px; align-items:center;">
         <input id="mat-title-${slot}" />
-        <button type="button" class="secondary" id="mat-save-${slot}" style="margin-top:0; flex:none;">제목 저장</button>
+        <button type="button" class="autosave" id="mat-save-${slot}">제목 저장</button>
       </div>
       <div id="mat-status-${slot}" class="status"></div>
     `;
@@ -234,7 +237,9 @@ function renderMaterials(items) {
     document.getElementById(`mat-save-${slot}`).addEventListener("click", async () => {
       errorEl.style.display = "none";
       try {
-        applyMaterialsChange(await apiPatch(`${matBase}/${slot}`, { title: document.getElementById(`mat-title-${slot}`).value }));
+        const out = await apiPatch(`${matBase}/${slot}`, { title: document.getElementById(`mat-title-${slot}`).value });
+        // 제목만 바뀐 것 — 자동 저장 중에 슬롯을 다시 그리면 입력하던 칸의 커서가 사라지므로 10-1 교육내용만 맞춘다
+        document.getElementById("tbm-content").value = out.education_content;
         const st = document.getElementById(`mat-status-${slot}`);
         st.className = "status ok";
         st.textContent = "저장되었습니다.";
@@ -243,6 +248,7 @@ function renderMaterials(items) {
       }
     });
   }
+  collapseEmptySlots(container, (card) => card.dataset.empty === "1", "제공자료");
 }
 
 function renderMaterialPickerGrid() {

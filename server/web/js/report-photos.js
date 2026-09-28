@@ -74,6 +74,7 @@ function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
       slotEls[row.slot].thumb.style.display = "block";
       slotEls[row.slot].del.style.display = "inline-block";
     }
+    collapseEmptySlots(container, (el) => el.querySelector(".thumb").style.display === "none", labelPrefix);
   }).catch((err) => showError(errorEl, err));
 }
 
@@ -121,6 +122,9 @@ async function setupPreviousFindings() {
     const carried = item.carried;
     const card = document.createElement("div");
     card.className = "sub-card";
+    if (!carried && !item.title && !item.content && !item.has_photo && !item.has_completion_photo && !item.result_status) {
+      card.dataset.empty = "1";
+    }
     card.innerHTML = `
       <h3>이전지적사항 ${slot} ${carried ? `<span class="status-pill approved" style="margin-left:6px;">${data.prev_visit_no}회차에서 이월</span>` : ""}</h3>
       <label>제목</label>
@@ -130,9 +134,11 @@ async function setupPreviousFindings() {
       <label>이행 전 위험성</label>
       ${carried
         ? `<div class="status" id="pf-before-${slot}"></div>`
-        : `<div style="display:flex; gap:8px;">
-             <select id="pf-blike-${slot}" aria-label="가능성">${RISK_OPTIONS}</select>
-             <select id="pf-bsev-${slot}" aria-label="중대성">${RISK_OPTIONS}</select>
+        : `<div class="field-grid">
+             <div><label for="pf-blike-${slot}" class="sub-label">가능성 (1~3)</label>
+               <select id="pf-blike-${slot}">${RISK_OPTIONS}</select></div>
+             <div><label for="pf-bsev-${slot}" class="sub-label">중대성 (1~3)</label>
+               <select id="pf-bsev-${slot}">${RISK_OPTIONS}</select></div>
            </div>
            <div class="status" id="pf-before-${slot}"></div>`}
       <label>조치결과</label>
@@ -162,7 +168,7 @@ async function setupPreviousFindings() {
           <button type="button" class="secondary" id="pf-cdel-${slot}" style="display:${item.has_completion_photo ? "inline-block" : "none"};">삭제</button>
         </div>
       </div>
-      <button type="button" id="pf-save-${slot}">저장</button>
+      <button type="button" class="autosave" id="pf-save-${slot}">저장</button>
       <div id="pf-status-msg-${slot}" class="status"></div>
     `;
     container.appendChild(card);
@@ -180,6 +186,7 @@ async function setupPreviousFindings() {
       document.getElementById(`pf-after-${slot}`).textContent = riskText(out.after_likelihood, out.after_severity);
     };
     showRisk(item);
+    let savedStatus = item.result_status; // 사진 없이 이행완료 확인에서 "취소"하면 이 값으로 되돌린다(자동 저장이라 안 되돌리면 칸마다 다시 물음)
 
     document.getElementById(`pf-save-${slot}`).addEventListener("click", async () => {
       errorEl.style.display = "none";
@@ -188,6 +195,7 @@ async function setupPreviousFindings() {
       const hasPhoto = document.getElementById(`pf-thumb-${slot}`).style.display !== "none";
       if (statusVal === "이행완료" && !hasPhoto &&
           !confirm("이 지적사항에는 사진이 없습니다. 사진 없이 이행완료로 처리하시겠습니까?")) {
+        document.getElementById(`pf-status-${slot}`).value = savedStatus;
         return;
       }
       const payload = { result_status: statusVal };
@@ -203,6 +211,7 @@ async function setupPreviousFindings() {
       }
       try {
         const out = await apiPatch(`${base}/${slot}`, payload);
+        savedStatus = statusVal;
         showRisk(out);
         msgEl.className = "status ok";
         msgEl.textContent = "저장되었습니다.";
@@ -219,6 +228,7 @@ async function setupPreviousFindings() {
       `${base}/${slot}/completion-photo`, `pf-cfile-${slot}`, `pf-cthumb-${slot}`, `pf-cdel-${slot}`
     );
   }
+  collapseEmptySlots(container, (card) => card.dataset.empty === "1", "이전지적사항");
 }
 
 // overview/inspection과 달리 슬롯 하나짜리 단일 사진(이전지적사항의 사진 2종, 앞으로 나올
