@@ -9,7 +9,10 @@
 <body>
 <div class="topbar">
   <h1>현장 목록</h1>
-  <button class="secondary" id="logout-btn">로그아웃</button>
+  <div>
+    <a href="/settings.html">⚙ 설정</a>
+    <button class="secondary" id="logout-btn">로그아웃</button>
+  </div>
 </div>
 
 <div id="error" class="error"></div>
@@ -21,11 +24,52 @@
 
 <div class="card">
   <h2>새 현장 등록</h2>
+
+  <label for="contract-file">계약서·공문 PDF로 자동 채우기 (선택)</label>
+  <input id="contract-file" type="file" accept="application/pdf" />
+  <button type="button" id="extract-btn" class="secondary">AI로 자동 채우기</button>
+  <div id="extract-status" class="status"></div>
+
   <form id="site-form">
     <label for="name">현장명</label>
     <input id="name" required />
     <label for="address">주소</label>
     <input id="address" />
+
+    <label for="site_mgmt_no">사업장관리번호</label>
+    <input id="site_mgmt_no" />
+    <label for="biz_start_no">사업개시번호</label>
+    <input id="biz_start_no" />
+
+    <label for="period_start">공사기간 시작일</label>
+    <input id="period_start" type="date" />
+    <label for="period_end">공사기간 종료일</label>
+    <input id="period_end" type="date" />
+    <label for="amount">공사금액</label>
+    <input id="amount" type="number" min="0" />
+    <label for="total_guidance_count">기술지도 총 횟수</label>
+    <input id="total_guidance_count" type="number" min="0" />
+
+    <label for="manager_name">현장책임자 이름</label>
+    <input id="manager_name" />
+    <label for="manager_phone">현장책임자 연락처</label>
+    <input id="manager_phone" />
+    <label for="manager_email">현장책임자 이메일</label>
+    <input id="manager_email" type="email" />
+
+    <label for="hq_company">시공사(건설업체) 회사명</label>
+    <input id="hq_company" />
+    <label for="corp_reg_no">시공사 법인등록번호</label>
+    <input id="corp_reg_no" />
+    <label for="biz_reg_no">시공사 사업자등록번호</label>
+    <input id="biz_reg_no" />
+    <label for="license_no">시공사 건설면허번호</label>
+    <input id="license_no" />
+    <label for="hq_phone">시공사 연락처</label>
+    <input id="hq_phone" />
+    <label for="hq_address">시공사 주소</label>
+    <input id="hq_address" />
+
     <button type="submit">등록</button>
   </form>
 </div>
@@ -33,6 +77,37 @@
 <script src="/app.js"></script>
 <script>
 const errorEl = document.getElementById("error");
+
+// site-form의 모든 입력칸 id 목록 — 자동채우기/등록/초기화에서 반복 사용.
+const SITE_FIELD_IDS = [
+  "name", "address", "site_mgmt_no", "biz_start_no",
+  "period_start", "period_end", "amount", "total_guidance_count",
+  "manager_name", "manager_phone", "manager_email",
+  "hq_company", "corp_reg_no", "biz_reg_no", "license_no", "hq_phone", "hq_address",
+];
+
+function readSiteForm() {
+  const body = {};
+  for (const id of SITE_FIELD_IDS) {
+    const el = document.getElementById(id);
+    const raw = el.value;
+    if (el.type === "number") {
+      body[id] = raw === "" ? null : Number(raw);
+    } else if (el.type === "date") {
+      body[id] = raw || null;
+    } else {
+      body[id] = raw;
+    }
+  }
+  return body;
+}
+
+function fillSiteForm(data) {
+  for (const id of SITE_FIELD_IDS) {
+    if (!(id in data) || data[id] === null || data[id] === undefined) continue;
+    document.getElementById(id).value = data[id];
+  }
+}
 
 async function loadSites() {
   const listEl = document.getElementById("site-list");
@@ -54,15 +129,47 @@ async function loadSites() {
   }
 }
 
+document.getElementById("extract-btn").addEventListener("click", async () => {
+  errorEl.style.display = "none";
+  const statusEl = document.getElementById("extract-status");
+  const fileInput = document.getElementById("contract-file");
+  const file = fileInput.files[0];
+  if (!file) {
+    statusEl.textContent = "먼저 PDF 파일을 선택하세요.";
+    return;
+  }
+  statusEl.textContent = "AI가 문서를 분석하고 있습니다... (약 20초 소요)";
+
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    // 파일 업로드는 app.js의 api()(JSON 전용)를 안 쓰고 직접 호출한다 — Content-Type을
+    // 브라우저가 자동으로 multipart/form-data(boundary 포함)로 잡아줘야 하기 때문.
+    const res = await fetch("/api/sites/extract-from-contract", {
+      method: "POST",
+      credentials: "include",
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `분석 실패 (${res.status})`);
+    }
+    const data = await res.json();
+    fillSiteForm(data);
+    statusEl.textContent = "자동 인식이 완료되었습니다. 내용을 확인·수정한 뒤 등록하세요.";
+  } catch (err) {
+    statusEl.textContent = "";
+    showError(errorEl, err);
+  }
+});
+
 document.getElementById("site-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   errorEl.style.display = "none";
   try {
-    await apiPost("/sites", {
-      name: document.getElementById("name").value,
-      address: document.getElementById("address").value,
-    });
+    await apiPost("/sites", readSiteForm());
     document.getElementById("site-form").reset();
+    document.getElementById("extract-status").textContent = "";
     await loadSites();
   } catch (err) {
     showError(errorEl, err);

@@ -3,6 +3,12 @@
 배포된 프로그램은 사용자마다 각자의 Claude API 키를 앱의 "AI 관리" 화면에서 입력해
 로컬 DB(app_setting 테이블)에 저장한다. 개발 중에는 .env의 ANTHROPIC_API_KEY를
 기본값(fallback)으로 사용할 수 있다.
+
+Sub-phase 33(웹판): `app_setting`이 (company_id, key) 복합 유니크로 바뀌면서, 이 모듈의
+읽기/쓰기 함수들도 선택적 `company_id` 인자를 받는다. 데스크톱 exe는 항상 호출부에서
+company_id를 안 넘기므로 기본값 None(=company_id가 NULL인 그 행)으로 예전과 동일하게
+동작 — 하위호환이 깨지지 않는다. 웹판(server/)만 로그인한 사용자의 company_id를 넘겨서
+회사별로 다른 API 키를 쓸 수 있게 한다.
 """
 
 from __future__ import annotations
@@ -20,30 +26,30 @@ _KEY_AI_ENABLED = "ai_enabled"
 _KEY_LAW_API_OC = "law_api_oc"
 
 
-def _get_setting(key: str) -> str | None:
+def _get_setting(key: str, company_id: int | None = None) -> str | None:
     from core.db import SessionLocal
     from core.models_db import AppSetting
 
     with SessionLocal() as session:
-        row = session.query(AppSetting).filter_by(key=key).first()
+        row = session.query(AppSetting).filter_by(key=key, company_id=company_id).first()
         return row.value if row else None
 
 
-def _set_setting(key: str, value: str) -> None:
+def _set_setting(key: str, value: str, company_id: int | None = None) -> None:
     from core.db import SessionLocal
     from core.models_db import AppSetting
 
     with SessionLocal() as session:
-        row = session.query(AppSetting).filter_by(key=key).first()
+        row = session.query(AppSetting).filter_by(key=key, company_id=company_id).first()
         if row:
             row.value = value
         else:
-            session.add(AppSetting(key=key, value=value))
+            session.add(AppSetting(key=key, value=value, company_id=company_id))
         session.commit()
 
 
-def get_api_key() -> str:
-    stored = (_get_setting(_KEY_API_KEY) or "").strip()
+def get_api_key(company_id: int | None = None) -> str:
+    stored = (_get_setting(_KEY_API_KEY, company_id) or "").strip()
     if stored:
         return stored
 
@@ -55,18 +61,18 @@ def get_api_key() -> str:
     return env_key
 
 
-def set_api_key(value: str) -> None:
-    _set_setting(_KEY_API_KEY, value.strip())
+def set_api_key(value: str, company_id: int | None = None) -> None:
+    _set_setting(_KEY_API_KEY, value.strip(), company_id)
 
 
-def get_raw_api_key() -> str:
+def get_raw_api_key(company_id: int | None = None) -> str:
     """설정 화면에 미리 채워 넣기용. 없으면 예외 없이 빈 문자열을 반환한다."""
-    return (_get_setting(_KEY_API_KEY) or "").strip()
+    return (_get_setting(_KEY_API_KEY, company_id) or "").strip()
 
 
-def has_api_key() -> bool:
+def has_api_key(company_id: int | None = None) -> bool:
     try:
-        return bool(get_api_key())
+        return bool(get_api_key(company_id))
     except RuntimeError:
         return False
 

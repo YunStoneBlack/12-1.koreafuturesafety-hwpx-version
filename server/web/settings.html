@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>설정 - 기술지도 보고서</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="topbar">
+  <h1>설정</h1>
+  <a href="/dashboard.html">← 목록</a>
+</div>
+
+<div id="error" class="error"></div>
+
+<div class="card">
+  <h2>Claude API 키</h2>
+  <p style="color:#666; font-size:14px;">
+    계약서 PDF로 현장 정보를 자동 인식하는 기능에 필요합니다.
+    <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>에서
+    발급받은 키를 입력하세요. 회사 전체가 공유하는 키입니다.
+  </p>
+  <div id="current-status" class="status"></div>
+  <form id="key-form">
+    <label for="api-key">API 키</label>
+    <input id="api-key" type="password" placeholder="sk-ant-..." autocomplete="off" />
+    <button type="submit">저장</button>
+  </form>
+</div>
+
+<script src="/app.js"></script>
+<script>
+const errorEl = document.getElementById("error");
+
+async function loadStatus() {
+  const statusEl = document.getElementById("current-status");
+  try {
+    const status = await api("/settings/api-key");
+    statusEl.textContent = status.has_key
+      ? `현재 등록된 키: ${status.masked} (새 키를 입력하면 교체됩니다)`
+      : "아직 등록된 키가 없습니다.";
+  } catch (err) {
+    showError(errorEl, err);
+  }
+}
+
+document.getElementById("key-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorEl.style.display = "none";
+  const input = document.getElementById("api-key");
+  try {
+    await apiPost("/settings/api-key", { api_key: input.value });
+    input.value = "";
+    await loadStatus();
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
+
+loadStatus();
+</script>
+</body>
+</html>

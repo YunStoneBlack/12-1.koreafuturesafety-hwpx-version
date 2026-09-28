@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from server.api.routers import auth, jobs, reports, sites
+from server.api.routers import auth, jobs, reports, settings, sites
 from server.settings import CORS_ORIGINS
 
 app = FastAPI(title="한국미래안전 보고서 자동화 - 웹판 API")
@@ -34,6 +34,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(sites.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
+app.include_router(settings.router, prefix="/api")
 
 
 @app.get("/api/health")

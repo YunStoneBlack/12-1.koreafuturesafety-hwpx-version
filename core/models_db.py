@@ -14,7 +14,7 @@ from __future__ import annotations
 import datetime
 import random
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Date, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.constants import FINDING_LOW_RISK_MAX_SCORE
@@ -53,7 +53,11 @@ class Site(Base):
     address: Mapped[str] = mapped_column(Text, default="")
     period_start: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     period_end: Mapped[datetime.date | None] = mapped_column(Date, default=None)
-    amount: Mapped[int | None] = mapped_column(default=None)
+    # BigInteger 명시 — 기본(Integer, 32비트)는 21억(2^31) 한도라 대형 공사금액(수십억 원)이
+    # 넘칠 수 있다. SQLite는 이 제한을 안 지켜서 데스크톱에서는 여태 안 걸렸는데, 웹판
+    # PostgreSQL에서 실제 계약서(34억 원)로 시험하다가 `NumericValueOutOfRange`로 발견함
+    # (Sub-phase 33, 2026-09-28).
+    amount: Mapped[int | None] = mapped_column(BigInteger, default=None)
     site_mgmt_no: Mapped[str] = mapped_column(Text, default="")
     biz_start_no: Mapped[str] = mapped_column(Text, default="")
     manager_name: Mapped[str] = mapped_column(Text, default="")

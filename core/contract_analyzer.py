@@ -82,9 +82,15 @@ def _encode_pdf(file_path: str | Path) -> str:
     return base64.standard_b64encode(path.read_bytes()).decode("utf-8")
 
 
-def _call_claude(pdf_b64: str, prompt: str, model: str | None = None, max_tokens: int = 1024) -> str:
+def _call_claude(
+    pdf_b64: str,
+    prompt: str,
+    model: str | None = None,
+    max_tokens: int = 1024,
+    company_id: int | None = None,
+) -> str:
     """실제 Claude API 호출. 분리해두면 테스트할 때 이 함수만 mocking하면 된다."""
-    client = Anthropic(api_key=get_api_key())
+    client = Anthropic(api_key=get_api_key(company_id))
     response = client.messages.create(
         model=model or get_model_name(),
         max_tokens=max_tokens,
@@ -133,14 +139,17 @@ def _normalize_int(value) -> int | None:
     return int(digits) if digits else None
 
 
-def extract_site_info(file_path: str | Path, model: str | None = None) -> dict:
+def extract_site_info(file_path: str | Path, model: str | None = None, company_id: int | None = None) -> dict:
     """계약서 PDF에서 '신규현장추가' 폼 필드를 추출해 dict로 반환한다.
 
     반환값의 키는 core.models_db.Site 컬럼명과 동일하며, 값을 찾지 못한 항목은
     빈 문자열/None으로 채워진다(억지 추측 금지).
+
+    `company_id`: 웹판(server/)에서 로그인한 사용자의 회사별 API 키를 쓸 때만 넘긴다
+    (Sub-phase 33) — 데스크톱 exe는 안 넘기므로 예전과 동일하게 동작.
     """
     pdf_b64 = _encode_pdf(file_path)
-    raw_response = _call_claude(pdf_b64, SITE_EXTRACTION_PROMPT, model=model)
+    raw_response = _call_claude(pdf_b64, SITE_EXTRACTION_PROMPT, model=model, company_id=company_id)
     data = _parse_json_object(raw_response)
 
     result = {key: (data.get(key) or "") for key in SITE_FIELD_KEYS}
