@@ -26,6 +26,19 @@ class ReportIn(BaseModel):
     accident_status: str = ""  # "" | "유" | "무"
     accident_content: str = ""
 
+    # 5. 대형사고 위험작업 사항 — core.constants.MAJOR_HAZARD_WORKS의 체크된 인덱스 목록
+    major_hazard_work_checks: list[int] = []
+
+    # 6. 위험성평가 기준 및 12대 기인물 — 문자열 목록. "{번호}"는 기인물 자체 체크,
+    # "{번호}-{줄번호}"는 그 기인물의 특정 지도사항 줄 체크(core/report_builder_hwpx_fields.py::
+    # fill_hazard_factor_fields가 이 정확한 형식을 그대로 읽는다 — 임의로 바꾸면 렌더링 안 됨).
+    hazard_factor_checks: list[str] = []
+    # 6-3. 건설기계장비/위험기계기구/유해위험물질 평가 — 각각 core.constants의 해당 목록과
+    # 같은 순서로 [{"checked": bool, "notes": ["양호"|"미흡"|"", ...]}, ...]
+    machinery_checks: list[dict] = []
+    hand_tool_checks: list[dict] = []
+    hazmat_checks: list[dict] = []
+
 
 class ReportOut(ReportIn):
     model_config = ConfigDict(from_attributes=True)

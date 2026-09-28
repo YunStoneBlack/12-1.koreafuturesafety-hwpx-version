@@ -1,0 +1,37 @@
+"""10. 사업장 지원 사항 (TBM 교육 + 계측자료) / 11. 제공자료."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel
+
+
+class TbmIn(BaseModel):
+    attendee_count: int | None = None
+    location: str = ""
+    content: str = ""
+    material: str = ""
+
+
+class TbmOut(TbmIn):
+    has_photo: bool = False
+
+
+class MeasurementIn(BaseModel):
+    value: str = ""
+    manual_verdict: str = ""  # "" | "양호" | "불량"
+    manual_action: str = ""
+
+
+class MeasurementOut(MeasurementIn):
+    instrument_type: str
+    unit: str = ""
+    has_photo: bool = False
+
+
+class MaterialIn(BaseModel):
+    title: str = ""
+
+
+class MaterialOut(MaterialIn):
+    slot: int
+    has_photo: bool = False

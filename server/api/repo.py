@@ -152,6 +152,33 @@ def delete_photo_slot(db: Session, model_cls, report_id: int, slot: int) -> None
         db.commit()
 
 
+def get_process_entry(db: Session, entry_model, report_id: int, slot: int):
+    """7번(현재 진행공정)/9번(향후 진행공정) 공용 — CurrentProcessEntry/ProcessHazardEntry는
+    완전히 같은 모양(process_name + items 관계)이라 모델 클래스만 바꿔서 재사용한다."""
+    return db.query(entry_model).filter(entry_model.report_id == report_id, entry_model.slot == slot).first()
+
+
+def upsert_process_entry(
+    db: Session, entry_model, item_model, report_id: int, slot: int, process_name: str, items: list[dict]
+):
+    entry = get_process_entry(db, entry_model, report_id, slot)
+    if entry is None:
+        entry = entry_model(report_id=report_id, slot=slot, process_name=process_name)
+        db.add(entry)
+        db.flush()
+    else:
+        entry.process_name = process_name
+    # items는 매번 전체 교체 — cascade="all, delete-orphan"이 이전 항목을 정리해준다
+    # (데스크톱도 저장할 때마다 항목을 지우고 다시 만드는 같은 방식).
+    entry.items = [
+        item_model(order=i + 1, hazard=it.get("hazard", ""), prevention=it.get("prevention", ""), risk_level=it.get("risk_level", ""))
+        for i, it in enumerate(items)
+    ]
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
 def get_job(db: Session, company_id: int, job_id: int) -> ReportJob | None:
     job = db.get(ReportJob, job_id)
     if job is None:
