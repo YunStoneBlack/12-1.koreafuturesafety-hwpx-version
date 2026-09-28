@@ -34,3 +34,11 @@ SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").strip().
 # 콤마로 구분된 허용 origin 목록. 프론트엔드를 API와 다른 도메인/포트에서 서빙할 때만
 # 필요하다 — 비워두면 CORS 미들웨어 자체를 안 붙인다(같은 오리진에서 서빙하면 필요 없음).
 CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+
+# 그룹웨어 자동 로그인 — 값이 있으면 "그룹웨어 모드": 그룹웨어 nginx가 로그인 확인(auth_request) 후 붙여주는
+# X-Relay-Secret(이 값과 같아야 함) + X-Gw-User/X-Gw-Name/X-Gw-Role 헤더로 사용자를 알아보고, 보고서 자체 로그인은 막는다.
+# 비밀값은 nginx 설정(서버)과 여기 두 곳에만 둔다 — 사무실 LAN·임시 주소 등 nginx를 안 거친 요청은 헤더를 흉내 내도 통과 못 함.
+GROUPWARE_RELAY_SECRET = os.environ.get("GROUPWARE_RELAY_SECRET", "").strip()
+# 그룹웨어 직원이 처음 들어오면 자동으로 만들어지는 보고서 사용자가 속할 회사(company.id) — 한국미래안전
+GROUPWARE_COMPANY_ID = int(os.environ.get("GROUPWARE_COMPANY_ID", "1") or 1)
+

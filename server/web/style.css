@@ -1,137 +1,73 @@
-/* 한국미래안전 그룹웨어(groupware.kfsc21c.com)의 실제 디자인 토큰/컴포넌트를 그대로 가져왔다
-   ("13. (주)한국미래안전 홈페이지/groupware/src/main/resources/static/css/app.css") — 그
-   그룹웨어 사이드바에 "보고서 자동화 [준비중]" 메뉴가 이미 있어서, 이 웹판이 나중에 같은
-   그룹웨어 안의 한 메뉴로 보여도 위화감 없도록 색상·컴포넌트를 동일하게 맞췄다. */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+/* 보고서 자동화 전용 스타일 — 그룹웨어(groupware.kfsc21c.com)의 하위 메뉴로 보이도록, 기본 틀(글꼴·색상 토큰·사이드바·
+   본문 폭·패널·목록·상태 표시 등)은 그룹웨어의 실제 CSS(/css/app.css, 같은 도메인)를 먼저 불러와 그대로 쓰고, 이 파일에는
+   그룹웨어에 없는 보고서 화면 전용 규칙만 둔다(겹치는 규칙을 여기 또 적으면 그룹웨어 디자인이 바뀌어도 안 따라가서 뺐다).
+   사이드바 자체도 그룹웨어가 렌더링해준 조각을 끼워 넣는다(shell.js).
 
+   주의: 입력칸·버튼 같은 태그 전체 규칙은 본문(.main)과 로그인 대체 화면(.center-page) 안으로만 한정한다 — 전역으로 두면
+   그룹웨어 사이드바의 로그아웃 버튼까지 파란 버튼으로 바뀐다. */
+
+/* 그룹웨어 CSS를 못 불러온 경우(사무실 LAN 직접 접속 등)에도 최소한 색이 깨지지 않게 토큰만 같은 값으로 둔다 */
 :root {
-  color-scheme: light;
-  --paper: #F4F6FB;
-  --surface: #FFFFFF;
-  --ink: #1B1E2E;
-  --muted: #6B7089;
-  --faint: #9498AE;
-  --line: #E3E6F0;
-  --blue: #2A7DE1;
-  --blue-soft: #EAF2FD;
-  --green: #2E9E5B;
-  --green-soft: #E9F7EF;
-  --warn: #B8720F;
-  --warn-soft: #FBF1E1;
-  --crit: #C63C3C;
-  --crit-soft: #FBEAEA;
-
-  --sidebar-bg: #1D2150;
-  --sidebar-text: #EDEFFA;
-  --sidebar-muted: #9EA3D6;
-  --sidebar-active-bg: #2A7DE1;
-  --sidebar-active-text: #FFFFFF;
-
+  --paper: #F4F6FB; --surface: #FFFFFF; --ink: #1B1E2E; --muted: #6B7089; --faint: #9498AE; --line: #E3E6F0;
+  --blue: #2A7DE1; --blue-soft: #EAF2FD; --green: #2E9E5B; --green-soft: #E9F7EF; --warn: #B8720F; --warn-soft: #FBF1E1;
+  --crit: #C63C3C; --crit-soft: #FBEAEA;
+  --sidebar-bg: #1D2150; --sidebar-text: #EDEFFA; --sidebar-muted: #9EA3D6;
   --shadow-card: 0 1px 2px rgba(27, 30, 46, 0.04), 0 1px 8px rgba(27, 30, 46, 0.05);
 }
 
-* { box-sizing: border-box; }
+.main h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.main h3 { font-size: 13.5px; font-weight: 600; margin: 0 0 8px; color: var(--muted); }
+.crumb a { color: var(--blue); font-weight: 500; }
 
-html, body {
-  margin: 0; background: var(--paper); color: var(--ink);
-  font-family: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-  font-size: 14.5px; line-height: 1.55;
-}
-a { color: var(--blue); text-decoration: none; }
-h1 { font-size: 21px; font-weight: 700; margin: 0 0 4px; }
-h2 { font-size: 15px; font-weight: 600; margin: 0; }
-h3 { font-size: 13.5px; font-weight: 600; margin: 0 0 8px; color: var(--muted); }
+/* 보고서는 섹션 11개로 화면이 매우 길다 — 스크롤해도 그룹웨어 메뉴·로그아웃이 보이게 사이드바 고정 */
+.sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.main { width: 100%; }
 
-/* ---------- 앱 셸(사이드바 + 본문) ---------- */
-.app { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+/* 보고서 안의 하위 메뉴(현장 목록/담당요원/설정) — 그룹웨어 사이드바엔 "보고서 자동화" 한 칸뿐이라 본문 위 탭으로 둔다 */
+.report-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: -8px 0 22px; overflow-x: auto; }
+.report-tabs a { padding: 9px 14px; font-size: 13.5px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.report-tabs a:hover { color: var(--ink); }
+.report-tabs a.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
 
-.sidebar { background: var(--sidebar-bg); color: var(--sidebar-text); display: flex; flex-direction: column; padding: 22px 14px 20px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
-/* ↑ 보고서 화면이 매우 길어서(섹션 11개) 스크롤해도 메뉴·로그아웃이 항상 보이게 고정 */
-.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px; border-bottom: 1px solid rgba(237,239,250,.12); margin-bottom: 18px; }
-.brand img { height: 32px; width: auto; display: block; }
-
-.nav { display: flex; flex-direction: column; gap: 2px; margin-bottom: 22px; }
-.nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--sidebar-text); cursor: pointer; }
-.nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-text); }
-.nav-item:not(.active):hover { background: rgba(237,239,250,.08); }
-
-.sidebar-foot { margin-top: auto; padding: 12px; border-top: 1px solid rgba(237,239,250,.12); display: flex; align-items: center; gap: 10px; }
-.avatar { width: 30px; height: 30px; border-radius: 999px; background: linear-gradient(135deg, var(--blue), var(--green)); display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 600; color: #fff; flex: none; }
-.sidebar-foot .who { font-size: 13px; font-weight: 500; }
-.sidebar-foot .role { font-size: 11.5px; color: var(--sidebar-muted); }
-.sidebar-foot button { margin-left: auto; background: none; border: none; color: var(--sidebar-muted); font-size: 12px; cursor: pointer; font-family: inherit; padding: 4px; }
-.sidebar-foot button:hover { color: var(--sidebar-text); }
-
-.main { padding: 24px 20px 48px; max-width: 900px; width: 100%; }
-
-/* 폰/현장 태블릿: 사이드바를 숨기면 메뉴·로그아웃이 사라지므로 상단 가로바로 접는다 */
+/* 폰/현장 태블릿: 그룹웨어 사이드바(232px)를 그대로 두면 본문이 너무 좁아서 상단 가로바로 접는다 */
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; }
-  .sidebar { flex-direction: row; align-items: center; gap: 10px; padding: 10px 14px; height: auto; overflow: visible; z-index: 10; }
-  .brand { padding: 0; margin: 0; border: none; }
-  .brand img { height: 22px; }
-  .nav { flex-direction: row; margin: 0; }
-  .nav-item { padding: 6px 10px; font-size: 13px; }
-  .sidebar-foot { margin-left: auto; padding: 0; border: none; }
-  .sidebar-foot .avatar, .sidebar-foot > div:not(.avatar) { display: none; }
+  .sidebar { flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; height: auto; z-index: 10; overflow-x: auto; overflow-y: hidden; }
+  .sidebar .brand { padding: 0; margin: 0; border: none; flex: none; }
+  .sidebar .brand img { height: 24px; }
+  .sidebar .nav-label { display: none; }
+  .sidebar > div:not(.sidebar-foot):not(.nav-label) { display: contents; }
+  .sidebar .nav { flex-direction: row; margin: 0; flex: none; }
+  .sidebar .nav-item { padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+  .sidebar .nav-item svg { display: none; }
+  .sidebar-foot { margin-left: auto; padding: 0; border: none; flex: none; }
+  .sidebar-foot .avatar, .sidebar-foot > div { display: none; }
   .main { padding: 16px 16px 40px; }
 }
 
-.topline { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 8px; }
-.page-sub { color: var(--muted); font-size: 13.5px; margin: 2px 0 0; }
-.crumb { margin-bottom: 14px; font-size: 13px; }
-.crumb a { font-weight: 500; }
-.crumb .sep { color: var(--faint); margin: 0 6px; }
-
-/* 사이드바가 없는 로그인 화면 전용 중앙 정렬 */
+/* 사이드바가 없는 대체 화면(그룹웨어를 거치지 않은 접속 안내 등) 전용 중앙 정렬 */
 .center-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
 
-/* ---------- 통계 타일 ---------- */
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
-.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow-card); }
-.stat .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-.stat .value { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
-@media (max-width: 600px) { .stats { grid-template-columns: repeat(2,1fr); } }
-
-/* ---------- 패널(카드) ---------- */
-.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; margin-bottom: 16px; }
-.panel-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 12px; border-bottom: 1px solid var(--line); }
-.panel-body { padding: 18px; }
-
-.rows { display: flex; flex-direction: column; }
-.row { display: flex; align-items: center; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--line); }
-.rows .row:last-child { border-bottom: none; }
-.row .title { flex: 1; font-size: 13.5px; font-weight: 500; }
-.row .meta { flex: none; font-size: 12px; color: var(--faint); }
-
-.status-pill { flex: none; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
-.status-pill.pending, .status-pill.draft { background: var(--warn-soft); color: var(--warn); }
-.status-pill.approved, .status-pill.final, .status-pill.ok { background: var(--green-soft); color: var(--green); }
-.status-pill.rejected { background: var(--crit-soft); color: var(--crit); }
-
-.empty-note { padding: 24px 18px; text-align: center; color: var(--faint); font-size: 13px; }
-
-/* ---------- 폼 ---------- */
-.form-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-card); padding: 22px 22px 20px; margin-bottom: 16px; }
-label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; color: var(--ink); }
-label:first-child { margin-top: 0; }
-input, select, textarea {
+/* ---------- 폼(본문 안에서만) ---------- */
+:is(.main, .center-page) label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; color: var(--ink); }
+:is(.main, .center-page) label:first-child { margin-top: 0; }
+:is(.main, .center-page) :is(input, select, textarea) {
   width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--paper); color: var(--ink); font: inherit; font-size: 13.5px;
 }
-input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: var(--blue); }
-input[type="file"] { padding: 6px; background: var(--surface); }
-input[type="checkbox"] { width: auto; margin-right: 6px; vertical-align: middle; }
+:is(.main, .center-page) :is(input, select, textarea):focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: var(--blue); }
+.main input[type="file"] { padding: 6px; background: var(--surface); }
+.main input[type="checkbox"] { width: auto; margin-right: 6px; vertical-align: middle; }
 
-button {
+:is(.main, .center-page) button {
   display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px; margin-top: 14px;
   border-radius: 8px; font-size: 13.5px; font-weight: 600; border: 1px solid transparent;
   cursor: pointer; font-family: inherit; background: var(--blue); color: #fff;
 }
-button:hover { filter: brightness(0.95); }
-button:disabled { background: var(--faint); cursor: default; filter: none; }
-button.secondary { background: var(--surface); color: var(--ink); border-color: var(--line); }
-button.secondary:hover { background: var(--paper); }
+:is(.main, .center-page) button:hover { filter: brightness(0.95); }
+:is(.main, .center-page) button:disabled { background: var(--faint); cursor: default; filter: none; }
+.main button.secondary { background: var(--surface); color: var(--ink); border-color: var(--line); }
+.main button.secondary:hover { background: var(--paper); }
 
 .status { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
 .status.ok { color: var(--green); font-weight: 600; }
@@ -153,46 +89,49 @@ button.secondary:hover { background: var(--paper); }
 .photo-slot .thumb { width: 64px; height: 48px; object-fit: cover; border-radius: 4px; background: var(--line); flex-shrink: 0; }
 .photo-slot .slot-controls { flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .photo-slot .slot-label { font-size: 12px; color: var(--muted); }
-.photo-slot .slot-controls button { align-self: flex-start; margin-top: 4px; padding: 6px 14px; }
+.main .photo-slot .slot-controls button { align-self: flex-start; margin-top: 4px; padding: 6px 14px; }
 
 #sig-canvas { width: 100%; max-width: 360px; height: 140px; border: 1px solid var(--line); border-radius: 8px; touch-action: none; background: #fff; }
 
 /* ---------- 토글 버튼(통보방법/양호·미흡 등) ---------- */
 .method-row, .hazard-row .line-check, .equip-line { display: flex; }
 .method-row { gap: 6px; flex-wrap: wrap; margin: 6px 0 12px; }
-.method-btn, .eval-btn {
+.main :is(.method-btn, .eval-btn) {
   margin-top: 0; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
-  background: var(--surface); color: var(--muted); font-size: 12.5px; cursor: pointer;
+  background: var(--surface); color: var(--muted); font-size: 12.5px; font-weight: 500; cursor: pointer;
 }
-.method-btn.on, .eval-btn.on { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 600; }
+.main :is(.method-btn, .eval-btn).on { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 600; }
 
 .hazard-row { border-bottom: 1px solid var(--line); padding: 8px 0; }
-.hazard-row .line-check { display: block; margin-left: 22px; font-size: 13px; color: var(--muted); font-weight: 400; margin-top: 4px; }
-.hazard-row > label { display: block; margin: 0; font-weight: 600; }
+.main .hazard-row .line-check { display: block; margin-left: 22px; font-size: 13px; color: var(--muted); font-weight: 400; margin-top: 4px; }
+.main .hazard-row > label { display: block; margin: 0; font-weight: 600; }
 
 .equip-row { border-bottom: 1px solid var(--line); padding: 10px 0; }
 .equip-row .equip-name { font-weight: 600; font-size: 13.5px; margin-bottom: 6px; }
-.equip-row .equip-name label { display: inline; margin: 0; font-weight: 600; }
+.main .equip-row .equip-name label { display: inline; margin: 0; font-weight: 600; }
 .equip-line { justify-content: space-between; align-items: center; gap: 8px; margin: 5px 0; font-size: 12.5px; color: var(--muted); }
 .equip-line .eval-btns { display: flex; gap: 4px; flex-shrink: 0; }
 
 /* 섹션 안 서브 카드(반복되는 슬롯형 항목 — 지적사항/이전지적사항/진행공정 등) */
 .sub-card { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
-.sub-card h3 { color: var(--ink); }
+.main .sub-card h3 { color: var(--ink); }
 
 /* 담당요원/결재란 서명 상태 카드(report.html 섹션 1) */
 .status-cards { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .status-card { flex: 1; min-width: 110px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; }
 .status-card .label { font-weight: 600; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
 
+/* 목록에서 제목 링크 — 그룹웨어 목록처럼 기본은 글자색, 올리면 파란색 */
+.row .title a:hover { color: var(--blue); }
+
 /* 11번 제공자료 라이브러리 선택 격자 */
 .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-top: 12px; max-height: 480px; overflow-y: auto; padding: 2px; }
-.lib-tile {
+.main .lib-tile {
   display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 0; padding: 6px;
   background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
   font-size: 12px; font-weight: 500; text-align: left; line-height: 1.35;
 }
-.lib-tile:hover { border-color: var(--blue); filter: none; background: var(--blue-soft); }
+.main .lib-tile:hover { border-color: var(--blue); filter: none; background: var(--blue-soft); }
 .lib-tile img { width: 100%; height: 90px; object-fit: contain; background: var(--paper); border-radius: 4px; }
 
 /* 기본 정보 등 2열 입력 격자(폰에선 1열) */

@@ -94,11 +94,24 @@ AWS는 **전달만** 하고 hwpx 생성·PDF 변환(한글)·사진/DB 저장은
 
 되돌리기: 백업 폴더의 `groupware.conf`를 복원하고 nginx reload, `authorized_keys`에서 `kfsc-report-relay` 줄 삭제, `60-report-relay.conf` 삭제 후 sshd reload.
 
-**Cloudflare 임시 주소(`-Tunnel`)**: 이식 확인용으로 아직 같이 켜 둠(`data/logs/tunnel_url.txt`) — 그룹웨어 자동 로그인(SSO)까지 끝나면
-바로가기에서 `-Tunnel`을 빼서 끌 것(외부 입구를 하나로).
+**그룹웨어 자동 로그인(2026-09-28 적용)** — 보고서 자체 로그인 없음, 그룹웨어의 하위 메뉴:
+- nginx가 `/report/` 요청마다 `auth_request`로 그룹웨어 `/internal/report-auth`(13번 `ReportController`)에 로그인 여부를 묻고,
+  로그인돼 있으면 `X-Gw-User/Name/Role` + `X-Relay-Secret`을 붙여 이 PC로 넘긴다. 안 돼 있으면 화면은 그룹웨어 `/login`, API는 401.
+  그룹웨어 `/internal/` 은 외부에서 404. 설정 원본 `server/deploy/nginx_report_locations.conf`(`__RELAY_SECRET__`는 적용 시
+  `server/.env.server`의 `GROUPWARE_RELAY_SECRET` 값으로 치환 — 서버 설정 파일은 root만 읽기 가능).
+- 보고서 서버: `GROUPWARE_RELAY_SECRET`이 있으면 그룹웨어 모드(`server/api/deps.py`) — 비밀값이 맞는 요청의 헤더로 사용자를 알아보고
+  처음 온 직원은 자동 등록(`user.email = "gw:<그룹웨어 아이디>"`, 회사 `GROUPWARE_COMPANY_ID`=1 한국미래안전), 자체 로그인은 403.
+  사무실 LAN 직접 접속·헤더 위조는 401(실측).
+- 화면 틀: 그룹웨어의 `/css/app.css` + 사이드바 조각(`/report-shell/sidebar`)을 그대로 끼워 넣음(`server/web/shell.js`) — 로고·메뉴·
+  관리자 메뉴·프로필·로그아웃이 그룹웨어와 동일. 보고서 하위 메뉴(현장 목록/담당요원/설정)는 본문 위 탭.
+- 그룹웨어 배포(13번): 로컬 커밋 → GitHub push → 서버 `~/groupware-src`에서 `git pull` → `JAVA_HOME=/usr/lib/jvm/java-22-amazon-corretto.x86_64
+  mvn -q clean package -DskipTests`(비대화형 ssh엔 JAVA_HOME이 없어 지정 필요) → `~/groupware/groupware.jar` 교체 → `sudo systemctl restart groupware`(실측 15초).
+  이번 교체 전 jar 백업: `~/backup-report-integration-20260928/groupware.jar.before`.
 
-⚠️ 그룹웨어 자동 로그인(SSO) 전까지는 `/report/`가 웹판 자체 로그인 화면 — 시험용 계정(`employee1~5@example.com`)이 회사 주소로 열려 있으니
-직원들에게 주소를 알리는 건 SSO 이후로. 외부 주소로만 쓰게 되면 `server/.env.server`의 `SESSION_COOKIE_SECURE=true`.
+**Cloudflare 임시 주소**: 그룹웨어 자동 로그인 적용과 함께 껐다(바로가기에서 `-Tunnel` 제거). 감시 스크립트 기능은 남아 있어 필요하면 `-Tunnel`로 다시 켤 수 있으나,
+그룹웨어 모드에선 nginx를 안 거친 요청이 전부 401이라 쓸모가 없다.
+
+외부 주소로만 쓰므로 `server/.env.server`의 `SESSION_COOKIE_SECURE`는 이제 의미가 적다(그룹웨어 모드는 보고서 쿠키를 안 씀).
 
 ## 7. 백업 (매일 1회, Windows 작업 스케줄러)
 

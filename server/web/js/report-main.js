@@ -53,14 +53,6 @@ function pollJob(jobId) {
   }, 1500);
 }
 
-document.getElementById("logout-btn").addEventListener("click", async () => {
-  await apiPost("/auth/logout");
-  window.location.href = "index.html";
-});
-api("/auth/me").then((me) => {
-  document.getElementById("sidebar-name").textContent = me.display_name || me.email;
-  document.getElementById("sidebar-avatar").textContent = (me.display_name || me.email || "?")[0];
-}).catch(() => {});
 
 // --- 페이지 시작: 각 섹션 불러오기(원래 인라인 스크립트의 실행 순서 그대로) ---
 setupPhotoSlots("overview-slots", `${BASE}/api/reports/${reportId}/overview-photos`, "전경사진");

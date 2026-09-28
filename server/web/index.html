@@ -4,9 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>로그인 - 기술지도 보고서</title>
+<link rel="stylesheet" href="/css/app.css" />
 <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body style="visibility:hidden;">
 <div class="center-page">
   <div style="width:100%; max-width:360px;">
     <div style="display:flex; flex-direction:column; align-items:center; margin-bottom:20px;">
@@ -27,6 +28,16 @@
 </div>
 <script src="app.js"></script>
 <script>
+// 입구 — 이미 로그인된 상태(그룹웨어 모드에선 그룹웨어 로그인 = 보고서 로그인)면 바로 현장 목록으로.
+// 아닐 때만 이 화면을 보여준다(그룹웨어를 거치면 로그인 안 된 사람은 nginx가 그룹웨어 로그인으로 먼저 보내서 여기 안 옴).
+// api()는 401이면 이 페이지로 되돌아오게 돼 있어 무한 반복이 되므로 여기선 fetch를 직접 쓴다.
+fetch(apiUrl("/auth/me"), { credentials: "include" })
+  .then((res) => {
+    if (res.ok) window.location.replace("dashboard.html");
+    else document.body.style.visibility = "visible";
+  })
+  .catch(() => { document.body.style.visibility = "visible"; });
+
 document.getElementById("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const errorEl = document.getElementById("error");
