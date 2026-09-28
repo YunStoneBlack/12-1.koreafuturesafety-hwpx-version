@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>보고서 작성 - 기술지도 보고서</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  #sig-canvas {
+    width: 100%;
+    max-width: 360px;
+    height: 140px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    touch-action: none; /* 태블릿/폰에서 그릴 때 화면이 같이 스크롤되지 않게 */
+    background: #fff;
+  }
+  .status-cards { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .status-card {
+    flex: 1; min-width: 110px; background: #fafafa; border: 1px solid #e5e7eb;
+    border-radius: 8px; padding: 8px 10px; font-size: 12px;
+  }
+  .status-card .label { font-weight: 600; margin-bottom: 4px; }
+  .ok { color: #16a34a; }
+  .bad { color: #ef4444; }
+  .method-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+  .method-btn {
+    padding: 6px 12px; border-radius: 10px; border: 1px solid #d1d5db;
+    background: #fff; color: #6b7280; font-size: 13px; cursor: pointer;
+  }
+  .method-btn.on { background: #4f46e5; color: #fff; border-color: #4f46e5; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1 id="report-title">보고서</h1>
+  <a href="#" id="back-link">← 현장으로</a>
+</div>
+
+<div id="error" class="error"></div>
+
+<div class="card">
+  <h2>담당요원</h2>
+  <select id="staff-select">
+    <option value="">선택 안 함</option>
+  </select>
+</div>
+
+<div class="card">
+  <h2>1. 결재 · 통보 정보</h2>
+
+  <label>현장책임자 통보방법</label>
+  <div class="method-row" id="method-row"></div>
+
+  <label for="notify-signee">현장책임자 성명</label>
+  <input id="notify-signee" placeholder="예: 현장 책임자 이름" />
+
+  <label>현장책임자 서명</label>
+  <canvas id="sig-canvas" width="360" height="140"></canvas>
+  <button type="button" id="sig-clear" class="secondary">지우기</button>
+  <button type="button" id="sig-save">서명 저장</button>
+  <div id="sig-status" class="status"></div>
+
+  <button type="button" id="section1-save">1번 섹션 저장</button>
+  <div id="section1-status" class="status"></div>
+
+  <div class="status-cards">
+    <div class="status-card"><div class="label">담당요원 서명</div><div id="staff-sig-status">-</div></div>
+    <div class="status-card"><div class="label">결재란 — 이사</div><div id="director-sig-status">-</div></div>
+    <div class="status-card"><div class="label">결재란 — 대표이사</div><div id="ceo-sig-status">-</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>PDF 생성</h2>
+  <p style="color:#666; font-size:14px;">
+    아직 안 채운 섹션은 빈 칸으로 나옵니다 — 나머지 섹션은 다음 단계에서 이어서 추가됩니다.
+  </p>
+  <button id="render-btn">PDF 생성</button>
+  <div id="job-status" class="status"></div>
+</div>
+
+<script src="/app.js"></script>
+<script>
+const errorEl = document.getElementById("error");
+const reportId = new URLSearchParams(window.location.search).get("id");
+const NOTIFICATION_METHODS = ["직접전달", "등기우편", "전자우편", "모바일", "기타"];
+let currentMethod = "";
+let siteId = null;
+let pollTimer = null;
+
+async function loadReport() {
+  try {
+    const report = await api(`/reports/${reportId}`);
+    siteId = report.site_id;
+    document.getElementById("back-link").href = `/site.html?id=${siteId}`;
+    document.getElementById("report-title").textContent = `${report.visit_no}회차 보고서`;
+    document.getElementById("notify-signee").value = report.notify_signee_name || "";
+    currentMethod = report.notification_method || "";
+    renderMethodButtons();
+    if (report.notify_signature_path) {
+      loadSignaturePreview();
+      setSigStatus(true);
+    }
+    await loadStaff(report.assigned_staff_id);
+    await loadSignoffStatus();
+  } catch (err) {
+    showError(errorEl, err);
+  }
+}
+
+function renderMethodButtons() {
+  const row = document.getElementById("method-row");
+  row.innerHTML = "";
+  for (const method of NOTIFICATION_METHODS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "method-btn" + (method === currentMethod ? " on" : "");
+    btn.textContent = method;
+    btn.addEventListener("click", () => {
+      currentMethod = method;
+      renderMethodButtons();
+    });
+    row.appendChild(btn);
+  }
+}
+
+async function loadStaff(selectedId) {
+  const select = document.getElementById("staff-select");
+  try {
+    const staffList = await api("/staff");
+    for (const s of staffList) {
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = `${s.name} (${s.phone})`;
+      if (selectedId && s.id === selectedId) opt.selected = true;
+      select.appendChild(opt);
+    }
+  } catch (err) {
+    showError(errorEl, err);
+  }
+}
+
+async function loadSignoffStatus() {
+  try {
+    const status = await api(`/reports/${reportId}/signoff-status`);
+    setStatusCard("staff-sig-status", status.staff_signed, "미등록 — 담당요원 관리에서 등록");
+    setStatusCard("director-sig-status", status.director_signed, "미등록 — 설정에서 등록");
+    setStatusCard("ceo-sig-status", status.ceo_signed, "미등록 — 설정에서 등록");
+  } catch (err) {
+    showError(errorEl, err);
+  }
+}
+
+function setStatusCard(id, ok, badText) {
+  const el = document.getElementById(id);
+  el.textContent = ok ? "✓ 등록됨" : badText;
+  el.className = ok ? "ok" : "bad";
+}
+
+document.getElementById("staff-select").addEventListener("change", async (e) => {
+  try {
+    await fetch(`/api/reports/${reportId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assigned_staff_id: e.target.value ? Number(e.target.value) : null }),
+    });
+    await loadSignoffStatus();
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
+
+document.getElementById("section1-save").addEventListener("click", async () => {
+  errorEl.style.display = "none";
+  const statusEl = document.getElementById("section1-status");
+  try {
+    const staffVal = document.getElementById("staff-select").value;
+    await fetch(`/api/reports/${reportId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        assigned_staff_id: staffVal ? Number(staffVal) : null,
+        notification_method: currentMethod,
+        notify_signee_name: document.getElementById("notify-signee").value,
+      }),
+    });
+    statusEl.textContent = "저장되었습니다.";
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
+
+// --- 서명패드 (마우스/터치/펜 공용 Pointer Events) ---
+const canvas = document.getElementById("sig-canvas");
+const ctx = canvas.getContext("2d");
+ctx.lineWidth = 2;
+ctx.lineCap = "round";
+ctx.lineJoin = "round";
+let drawing = false;
+let hasInk = false;
+
+function canvasPoint(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return [(e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY];
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  drawing = true;
+  canvas.setPointerCapture(e.pointerId);
+  const [x, y] = canvasPoint(e);
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (!drawing) return;
+  const [x, y] = canvasPoint(e);
+  ctx.lineTo(x, y);
+  ctx.stroke();
+  hasInk = true;
+});
+canvas.addEventListener("pointerup", () => { drawing = false; });
+canvas.addEventListener("pointerleave", () => { drawing = false; });
+
+document.getElementById("sig-clear").addEventListener("click", async () => {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  hasInk = false;
+  try {
+    await fetch(`/api/reports/${reportId}/notify-signature`, { method: "DELETE", credentials: "include" });
+    setSigStatus(false);
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
+
+document.getElementById("sig-save").addEventListener("click", () => {
+  errorEl.style.display = "none";
+  if (!hasInk) {
+    document.getElementById("sig-status").textContent = "먼저 서명을 그려주세요.";
+    return;
+  }
+  canvas.toBlob(async (blob) => {
+    const formData = new FormData();
+    formData.append("file", blob, "signature.png");
+    try {
+      const res = await fetch(`/api/reports/${reportId}/notify-signature`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `저장 실패 (${res.status})`);
+      }
+      setSigStatus(true);
+    } catch (err) {
+      showError(errorEl, err);
+    }
+  }, "image/png");
+});
+
+function setSigStatus(saved) {
+  const el = document.getElementById("sig-status");
+  el.textContent = saved ? "서명이 저장되었습니다." : "서명을 등록해주세요.";
+  el.className = saved ? "ok" : "bad";
+}
+
+async function loadSignaturePreview() {
+  // 저장된 서명 PNG를 캔버스에 미리 그려 보여준다(투명 배경 PNG를 흰 배경 위에 그림).
+  const img = new Image();
+  img.onload = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+  img.src = `/api/reports/${reportId}/notify-signature-image?ts=${Date.now()}`;
+}
+
+// --- PDF 생성 ---
+document.getElementById("render-btn").addEventListener("click", async () => {
+  errorEl.style.display = "none";
+  const statusEl = document.getElementById("job-status");
+  const btn = document.getElementById("render-btn");
+  btn.disabled = true;
+  statusEl.textContent = "대기열에 등록 중...";
+  try {
+    const job = await apiPost(`/reports/${reportId}/render`);
+    pollJob(job.id);
+  } catch (err) {
+    btn.disabled = false;
+    showError(errorEl, err);
+  }
+});
+
+function pollJob(jobId) {
+  const statusEl = document.getElementById("job-status");
+  const btn = document.getElementById("render-btn");
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    try {
+      const job = await api(`/jobs/${jobId}`);
+      if (job.status === "queued") {
+        statusEl.textContent = "대기 중 (다른 작업 처리 중)...";
+      } else if (job.status === "rendering") {
+        statusEl.textContent = "한글 프로그램으로 PDF 생성 중... (몇 초~십몇 초 걸릴 수 있어요)";
+      } else if (job.status === "done") {
+        clearInterval(pollTimer);
+        btn.disabled = false;
+        statusEl.innerHTML = `완료! <a href="/api/jobs/${jobId}/download">PDF 다운로드</a>`;
+      } else if (job.status === "failed") {
+        clearInterval(pollTimer);
+        btn.disabled = false;
+        statusEl.textContent = `생성 실패: ${job.error_message.split("\n")[0]} (다시 시도해보세요)`;
+      }
+    } catch (err) {
+      clearInterval(pollTimer);
+      btn.disabled = false;
+      showError(errorEl, err);
+    }
+  }, 1500);
+}
+
+loadReport();
+</script>
+</body>
+</html>

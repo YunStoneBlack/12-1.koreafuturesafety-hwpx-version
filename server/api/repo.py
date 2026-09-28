@@ -46,6 +46,17 @@ def list_staff(db: Session, company_id: int) -> list[Staff]:
     return db.query(Staff).filter(Staff.company_id == company_id, Staff.active.is_(True)).all()
 
 
+def get_staff(db: Session, company_id: int, staff_id: int) -> Staff | None:
+    return db.query(Staff).filter(Staff.company_id == company_id, Staff.id == staff_id).first()
+
+
+def list_reports_for_site(db: Session, company_id: int, site_id: int) -> list[Report]:
+    site = get_site(db, company_id, site_id)
+    if site is None:
+        return []
+    return db.query(Report).filter(Report.site_id == site_id).order_by(Report.visit_no).all()
+
+
 def get_report(db: Session, company_id: int, report_id: int) -> Report | None:
     return (
         db.query(Report)
@@ -53,6 +64,17 @@ def get_report(db: Session, company_id: int, report_id: int) -> Report | None:
         .filter(Site.company_id == company_id, Report.id == report_id)
         .first()
     )
+
+
+def update_report(db: Session, company_id: int, report_id: int, **fields) -> Report | None:
+    report = get_report(db, company_id, report_id)
+    if report is None:
+        return None
+    for key, value in fields.items():
+        setattr(report, key, value)
+    db.commit()
+    db.refresh(report)
+    return report
 
 
 def create_report(db: Session, company_id: int, site_id: int, **fields) -> Report | None:
