@@ -7,17 +7,36 @@
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-<div class="topbar">
-  <h1 id="site-name">현장</h1>
-  <a href="/dashboard.html">← 목록</a>
-</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><img src="/img/logo-white.png" alt="한국미래안전" /></div>
+    <nav class="nav">
+      <a class="nav-item active" href="/dashboard.html">현장 목록</a>
+      <a class="nav-item" href="/settings.html">설정</a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="avatar" id="sidebar-avatar">-</div>
+      <div>
+        <div class="who" id="sidebar-name">-</div>
+        <div class="role">직원</div>
+      </div>
+      <button id="logout-btn">로그아웃</button>
+    </div>
+  </aside>
+  <main class="main">
+
+<div class="crumb"><a href="/dashboard.html">현장 목록</a><span class="sep">/</span><span id="site-name">현장</span></div>
+<div class="topline"><h1 id="site-name-h1">현장</h1></div>
 
 <div id="error" class="error"></div>
 
-<div class="card">
-  <h2>보고서 목록</h2>
-  <div id="report-list">불러오는 중...</div>
-  <button type="button" id="new-report-btn">+ 새 보고서 작성</button>
+<div class="panel">
+  <div class="panel-head"><h2>보고서 목록</h2></div>
+  <div class="rows" id="report-list">불러오는 중...</div>
+</div>
+<button type="button" id="new-report-btn">+ 새 보고서 작성</button>
+
+  </main>
 </div>
 
 <script src="/app.js"></script>
@@ -29,6 +48,7 @@ async function loadSite() {
   try {
     const site = await api(`/sites/${siteId}`);
     document.getElementById("site-name").textContent = site.name;
+    document.getElementById("site-name-h1").textContent = site.name;
   } catch (err) {
     showError(errorEl, err);
   }
@@ -39,16 +59,17 @@ async function loadReports() {
   try {
     const reports = await api(`/sites/${siteId}/reports`);
     if (reports.length === 0) {
-      listEl.textContent = "아직 작성된 보고서가 없습니다.";
+      listEl.innerHTML = '<div class="empty-note">아직 작성된 보고서가 없습니다.</div>';
       return;
     }
     listEl.innerHTML = "";
     for (const report of reports) {
       const row = document.createElement("div");
-      row.className = "site-row";
+      row.className = "row";
+      const isFinal = report.status === "final";
       row.innerHTML =
-        `<a href="/report.html?id=${report.id}">${report.visit_no}회차</a>` +
-        `<span>${report.status === "final" ? "완료" : "작성중"}</span>`;
+        `<span class="title"><a href="/report.html?id=${report.id}">${report.visit_no}회차</a></span>` +
+        `<span class="status-pill ${isFinal ? "approved" : "pending"}">${isFinal ? "완료" : "작성중"}</span>`;
       listEl.appendChild(row);
     }
   } catch (err) {
@@ -65,6 +86,15 @@ document.getElementById("new-report-btn").addEventListener("click", async () => 
     showError(errorEl, err);
   }
 });
+
+document.getElementById("logout-btn").addEventListener("click", async () => {
+  await apiPost("/auth/logout");
+  window.location.href = "/index.html";
+});
+api("/auth/me").then((me) => {
+  document.getElementById("sidebar-name").textContent = me.display_name || me.email;
+  document.getElementById("sidebar-avatar").textContent = (me.display_name || me.email || "?")[0];
+}).catch(() => {});
 
 loadSite();
 loadReports();

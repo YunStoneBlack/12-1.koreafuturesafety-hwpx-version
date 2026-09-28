@@ -1,59 +1,181 @@
-/* Milestone 1 최소 스타일 — 예쁘게 다듬는 건 다음 단계, 지금은 폰/태블릿에서도 최소한
-   눌리고 읽히는 정도만 맞춘다. */
+/* 한국미래안전 그룹웨어(groupware.kfsc21c.com)의 실제 디자인 토큰/컴포넌트를 그대로 가져왔다
+   ("13. (주)한국미래안전 홈페이지/groupware/src/main/resources/static/css/app.css") — 그
+   그룹웨어 사이드바에 "보고서 자동화 [준비중]" 메뉴가 이미 있어서, 이 웹판이 나중에 같은
+   그룹웨어 안의 한 메뉴로 보여도 위화감 없도록 색상·컴포넌트를 동일하게 맞췄다. */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+:root {
+  color-scheme: light;
+  --paper: #F4F6FB;
+  --surface: #FFFFFF;
+  --ink: #1B1E2E;
+  --muted: #6B7089;
+  --faint: #9498AE;
+  --line: #E3E6F0;
+  --blue: #2A7DE1;
+  --blue-soft: #EAF2FD;
+  --green: #2E9E5B;
+  --green-soft: #E9F7EF;
+  --warn: #B8720F;
+  --warn-soft: #FBF1E1;
+  --crit: #C63C3C;
+  --crit-soft: #FBEAEA;
+
+  --sidebar-bg: #1D2150;
+  --sidebar-text: #EDEFFA;
+  --sidebar-muted: #9EA3D6;
+  --sidebar-active-bg: #2A7DE1;
+  --sidebar-active-text: #FFFFFF;
+
+  --shadow-card: 0 1px 2px rgba(27, 30, 46, 0.04), 0 1px 8px rgba(27, 30, 46, 0.05);
+}
+
 * { box-sizing: border-box; }
-body {
-  font-family: -apple-system, "Malgun Gothic", sans-serif;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 16px;
-  background: #f7f7f8;
-  color: #222;
+
+html, body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font-family: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
+  font-size: 14.5px; line-height: 1.55;
 }
-h1, h2 { margin-top: 0; }
-.card {
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
+a { color: var(--blue); text-decoration: none; }
+h1 { font-size: 21px; font-weight: 700; margin: 0 0 4px; }
+h2 { font-size: 15px; font-weight: 600; margin: 0; }
+h3 { font-size: 13.5px; font-weight: 600; margin: 0 0 8px; color: var(--muted); }
+
+/* ---------- 앱 셸(사이드바 + 본문) ---------- */
+.app { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { display: none; } /* 폰/현장에서는 사이드바 대신 상단바만(아래 topbar) */
 }
-label { display: block; margin: 10px 0 4px; font-size: 14px; color: #444; }
-input, select {
-  width: 100%;
-  padding: 10px;
-  font-size: 16px; /* 16px 미만이면 모바일 사파리가 자동 확대함 */
-  border: 1px solid #ccc;
-  border-radius: 6px;
+
+.sidebar { background: var(--sidebar-bg); color: var(--sidebar-text); display: flex; flex-direction: column; padding: 22px 14px 20px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px; border-bottom: 1px solid rgba(237,239,250,.12); margin-bottom: 18px; }
+.brand img { height: 32px; width: auto; display: block; }
+
+.nav { display: flex; flex-direction: column; gap: 2px; margin-bottom: 22px; }
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--sidebar-text); cursor: pointer; }
+.nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-text); }
+.nav-item:not(.active):hover { background: rgba(237,239,250,.08); }
+
+.sidebar-foot { margin-top: auto; padding: 12px; border-top: 1px solid rgba(237,239,250,.12); display: flex; align-items: center; gap: 10px; }
+.avatar { width: 30px; height: 30px; border-radius: 999px; background: linear-gradient(135deg, var(--blue), var(--green)); display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 600; color: #fff; flex: none; }
+.sidebar-foot .who { font-size: 13px; font-weight: 500; }
+.sidebar-foot .role { font-size: 11.5px; color: var(--sidebar-muted); }
+.sidebar-foot button { margin-left: auto; background: none; border: none; color: var(--sidebar-muted); font-size: 12px; cursor: pointer; font-family: inherit; padding: 4px; }
+.sidebar-foot button:hover { color: var(--sidebar-text); }
+
+.main { padding: 24px 20px 48px; max-width: 900px; width: 100%; }
+
+.topline { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 8px; }
+.page-sub { color: var(--muted); font-size: 13.5px; margin: 2px 0 0; }
+.crumb { margin-bottom: 14px; font-size: 13px; }
+.crumb a { font-weight: 500; }
+.crumb .sep { color: var(--faint); margin: 0 6px; }
+
+/* 사이드바가 없는 로그인 화면 전용 중앙 정렬 */
+.center-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+
+/* ---------- 통계 타일 ---------- */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow-card); }
+.stat .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.stat .value { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+@media (max-width: 600px) { .stats { grid-template-columns: repeat(2,1fr); } }
+
+/* ---------- 패널(카드) ---------- */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; margin-bottom: 16px; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 12px; border-bottom: 1px solid var(--line); }
+.panel-body { padding: 18px; }
+
+.rows { display: flex; flex-direction: column; }
+.row { display: flex; align-items: center; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--line); }
+.rows .row:last-child { border-bottom: none; }
+.row .title { flex: 1; font-size: 13.5px; font-weight: 500; }
+.row .meta { flex: none; font-size: 12px; color: var(--faint); }
+
+.status-pill { flex: none; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+.status-pill.pending, .status-pill.draft { background: var(--warn-soft); color: var(--warn); }
+.status-pill.approved, .status-pill.final, .status-pill.ok { background: var(--green-soft); color: var(--green); }
+.status-pill.rejected { background: var(--crit-soft); color: var(--crit); }
+
+.empty-note { padding: 24px 18px; text-align: center; color: var(--faint); font-size: 13px; }
+
+/* ---------- 폼 ---------- */
+.form-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-card); padding: 22px 22px 20px; margin-bottom: 16px; }
+label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; color: var(--ink); }
+label:first-child { margin-top: 0; }
+input, select, textarea {
+  width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--paper); color: var(--ink); font: inherit; font-size: 13.5px;
 }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: var(--blue); }
+input[type="file"] { padding: 6px; background: var(--surface); }
+input[type="checkbox"] { width: auto; margin-right: 6px; vertical-align: middle; }
+
 button {
-  margin-top: 14px;
-  padding: 12px 16px;
-  font-size: 16px;
-  border: none;
-  border-radius: 6px;
-  background: #2563eb;
-  color: #fff;
-  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px; margin-top: 14px;
+  border-radius: 8px; font-size: 13.5px; font-weight: 600; border: 1px solid transparent;
+  cursor: pointer; font-family: inherit; background: var(--blue); color: #fff;
 }
-button.secondary { background: #6b7280; }
-button:disabled { background: #aaa; cursor: default; }
+button:hover { filter: brightness(0.95); }
+button:disabled { background: var(--faint); cursor: default; filter: none; }
+button.secondary { background: var(--surface); color: var(--ink); border-color: var(--line); }
+button.secondary:hover { background: var(--paper); }
+
+.status { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.status.ok { color: var(--green); font-weight: 600; }
+.status.bad { color: var(--crit); font-weight: 600; }
+
 .error {
-  display: none;
-  color: #b00020;
-  background: #fdecea;
-  border: 1px solid #f5c2c0;
-  border-radius: 6px;
-  padding: 10px;
-  margin-bottom: 12px;
-  font-size: 14px;
+  display: none; color: var(--crit); background: var(--crit-soft); border: 1px solid #F3C9C9;
+  border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px;
 }
-.site-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid #eee;
+
+/* ---------- 사진/서명 슬롯 ---------- */
+.photo-slot {
+  border: 1px dashed var(--line); border-radius: 8px; padding: 10px; margin-bottom: 10px;
+  display: flex; align-items: center; gap: 12px; background: var(--paper);
 }
-.site-row a { color: #2563eb; text-decoration: none; font-weight: 600; }
-.status { font-size: 14px; color: #555; margin-top: 8px; }
-.topbar { display: flex; justify-content: space-between; align-items: center; }
+.photo-slot .thumb { width: 64px; height: 48px; object-fit: cover; border-radius: 4px; background: var(--line); flex-shrink: 0; }
+.photo-slot .slot-controls { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.photo-slot .slot-label { font-size: 12px; color: var(--muted); }
+
+#sig-canvas { width: 100%; max-width: 360px; height: 140px; border: 1px solid var(--line); border-radius: 8px; touch-action: none; background: #fff; }
+
+/* ---------- 토글 버튼(통보방법/양호·미흡 등) ---------- */
+.method-row, .hazard-row .line-check, .equip-line { display: flex; }
+.method-row { gap: 6px; flex-wrap: wrap; margin: 6px 0 12px; }
+.method-btn, .eval-btn {
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--muted); font-size: 12.5px; cursor: pointer;
+}
+.method-btn.on, .eval-btn.on { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 600; }
+
+.hazard-row { border-bottom: 1px solid var(--line); padding: 8px 0; }
+.hazard-row .line-check { display: block; margin-left: 22px; font-size: 13px; color: var(--muted); font-weight: 400; margin-top: 4px; }
+.hazard-row > label { display: block; margin: 0; font-weight: 600; }
+
+.equip-row { border-bottom: 1px solid var(--line); padding: 10px 0; }
+.equip-row .equip-name { font-weight: 600; font-size: 13.5px; margin-bottom: 6px; }
+.equip-row .equip-name label { display: inline; margin: 0; font-weight: 600; }
+.equip-line { justify-content: space-between; align-items: center; gap: 8px; margin: 5px 0; font-size: 12.5px; color: var(--muted); }
+.equip-line .eval-btns { display: flex; gap: 4px; flex-shrink: 0; }
+
+/* 섹션 안 서브 카드(반복되는 슬롯형 항목 — 지적사항/이전지적사항/진행공정 등) */
+.sub-card { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+.sub-card h3 { color: var(--ink); }
+
+/* ---------- .card — report.html 등에서 쓰는 범용 카드(= form-card와 같은 스타일) ---------- */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-card); padding: 20px; margin-bottom: 16px; }
+.card h2 { margin-bottom: 4px; }
+.card[style*="background: #fafafa"], .card[style*="background:#fafafa"] { background: var(--paper) !important; border-color: var(--line); box-shadow: none; }
+
+/* 사이드바 셸을 아직 안 씌운 화면(예전 topbar 패턴) — 최소한의 통일감만 준다 */
+.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.topbar > div { display: flex; align-items: center; gap: 14px; }
+
+/* 담당요원/결재란 서명 상태 카드(report.html 섹션 1) */
+.status-cards { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.status-card { flex: 1; min-width: 110px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; }
+.status-card .label { font-weight: 600; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
