@@ -34,6 +34,23 @@
 </div>
 
 <section class="panel">
+  <div class="panel-head"><h2>현장 삭제 비밀번호</h2></div>
+  <div class="panel-body">
+  <p class="page-sub" style="margin:0 0 12px;">현장을 삭제할 때 입력하는 회사 공용 비밀번호입니다. 이 비밀번호를 아는 사람만 현장을 지울 수 있습니다.</p>
+  <div id="delpw-status" class="status" style="margin:0 0 4px;"></div>
+  <form id="delpw-form">
+    <div class="field-grid">
+      <div id="delpw-current-wrap" hidden><label for="delpw-current">지금 비밀번호</label><input id="delpw-current" type="password" autocomplete="current-password" /></div>
+      <div style="grid-column-start:1;"><label for="delpw-new">새 비밀번호 (4자 이상)</label><input id="delpw-new" type="password" autocomplete="new-password" /></div>
+      <div><label for="delpw-new2">새 비밀번호 확인</label><input id="delpw-new2" type="password" autocomplete="new-password" /></div>
+    </div>
+    <button type="submit">저장</button>
+    <div id="delpw-msg" class="status"></div>
+  </form>
+  </div>
+</section>
+
+<section class="panel">
   <div class="panel-head"><h2>결재란 도장 (이사 · 대표이사)</h2></div>
   <div class="panel-body">
   <p class="page-sub" style="margin:0 0 12px;">한 번 등록하면 이 회사의 모든 보고서 결재란에 자동으로 들어갑니다. 도장 스캔 이미지를 올리거나 직접 그릴 수 있습니다.</p>
@@ -78,8 +95,50 @@ document.getElementById("key-form").addEventListener("submit", async (e) => {
   }
 });
 
+// --- 현장 삭제 비밀번호 — 이미 정해져 있으면 바꿀 때 지금 비밀번호가 필요 ---
+async function loadDeletePasswordStatus() {
+  try {
+    const st = await api("/settings/delete-password");
+    const statusEl = document.getElementById("delpw-status");
+    statusEl.className = st.is_set ? "status ok" : "status bad";
+    statusEl.textContent = st.is_set
+      ? "✓ 설정되어 있습니다. 바꾸려면 지금 비밀번호와 새 비밀번호를 입력하세요."
+      : "아직 없습니다. 정해야 현장을 삭제할 수 있습니다.";
+    document.getElementById("delpw-current-wrap").hidden = !st.is_set;
+  } catch (err) {
+    showError(errorEl, err);
+  }
+}
+
+document.getElementById("delpw-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorEl.style.display = "none";
+  const msg = document.getElementById("delpw-msg");
+  const next = document.getElementById("delpw-new").value;
+  msg.className = "status";
+  msg.textContent = "";
+  if (next !== document.getElementById("delpw-new2").value) {
+    msg.className = "status bad";
+    msg.textContent = "새 비밀번호와 확인이 서로 다릅니다.";
+    return;
+  }
+  try {
+    await apiPost("/settings/delete-password", {
+      current_password: document.getElementById("delpw-current").value,
+      new_password: next,
+    });
+    for (const id of ["delpw-current", "delpw-new", "delpw-new2"]) document.getElementById(id).value = "";
+    msg.className = "status ok";
+    msg.textContent = "저장되었습니다.";
+    await loadDeletePasswordStatus();
+  } catch (err) {
+    msg.className = "status bad";
+    msg.textContent = err.message;
+  }
+});
 
 loadStatus();
+loadDeletePasswordStatus();
 
 api("/settings/signatures").then((st) => {
   for (const role of ["director", "ceo"]) {

@@ -43,8 +43,12 @@
 <section class="panel danger-zone">
   <div class="panel-head"><h2>현장 삭제</h2></div>
   <div class="panel-body">
-    <p class="page-sub" style="margin:0 0 4px;">이 현장과 <b id="del-report-count">모든 보고서</b>(사진·PDF·서명 포함)가 함께 삭제되며 되돌릴 수 없습니다.</p>
-    <button type="button" class="danger" id="site-delete-btn">현장 삭제</button>
+    <p class="page-sub" style="margin:0 0 12px;">이 현장과 <b id="del-report-count">모든 보고서</b>(사진·PDF·서명 포함)가 함께 삭제되며 되돌릴 수 없습니다.
+      <span id="del-pw-hint">'설정' 탭에서 정한 삭제 비밀번호를 입력하세요.</span></p>
+    <div class="inline-row">
+      <input id="site-delete-pw" type="password" placeholder="삭제 비밀번호" autocomplete="off" style="max-width:260px;" />
+      <button type="button" class="danger" id="site-delete-btn">현장 삭제</button>
+    </div>
   </div>
 </section>
 
@@ -231,28 +235,36 @@ document.getElementById("new-report-btn").addEventListener("click", async () => 
   }
 });
 
-// 현장 삭제 — 되돌릴 수 없어서 현장명을 직접 입력해야 지운다(보고서까지 통째로 사라지므로 확인창 한 번으론 부족)
+// 현장 삭제 — 되돌릴 수 없어서 '설정' 탭에서 정한 회사 공용 삭제 비밀번호를 알아야 지운다(서버가 확인)
 let reportCount = 0;
-document.getElementById("site-delete-btn").addEventListener("click", async () => {
+async function deleteSite() {
   if (!currentSite) return;
-  const typed = prompt(
-    `"${currentSite.name}" 현장과 보고서 ${reportCount}건이 모두 삭제되며 되돌릴 수 없습니다.
-` +
-    `삭제하려면 현장명을 그대로 입력하세요.`
-  );
-  if (typed === null) return;
-  if (typed.trim() !== currentSite.name.trim()) {
-    alert("현장명이 일치하지 않아 삭제하지 않았습니다.");
+  const pwInput = document.getElementById("site-delete-pw");
+  if (!pwInput.value) {
+    showError(errorEl, new Error("삭제 비밀번호를 입력하세요."));
+    pwInput.focus();
     return;
   }
+  if (!confirm(`"${currentSite.name}" 현장과 보고서 ${reportCount}건을 모두 삭제할까요? 되돌릴 수 없습니다.`)) return;
   errorEl.style.display = "none";
   try {
-    await api(`/sites/${siteId}`, { method: "DELETE" });
+    await api(`/sites/${siteId}`, { method: "DELETE", body: JSON.stringify({ password: pwInput.value }) });
     window.location.href = "dashboard.html";
   } catch (err) {
+    pwInput.value = "";
     showError(errorEl, err);
+    errorEl.scrollIntoView({ behavior: "smooth", block: "center" });
   }
+}
+document.getElementById("site-delete-btn").addEventListener("click", deleteSite);
+document.getElementById("site-delete-pw").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") deleteSite();
 });
+// 삭제 비밀번호를 아직 안 정했으면 미리 안내(설정 탭으로 가는 링크)
+api("/settings/delete-password").then((st) => {
+  if (st.is_set) return;
+  document.getElementById("del-pw-hint").innerHTML = '삭제 비밀번호가 아직 없습니다 — <a href="settings.html">설정 탭</a>에서 먼저 정하세요.';
+}).catch(() => {});
 
 loadSite();
 loadReports();

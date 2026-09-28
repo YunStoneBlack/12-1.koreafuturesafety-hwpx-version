@@ -77,6 +77,18 @@ def has_api_key(company_id: int | None = None) -> bool:
         return False
 
 
+# 웹판 현장 삭제 비밀번호(회사별, bcrypt 해시만 저장 — server/api/security.py). 데스크톱 exe는 안 씀.
+_KEY_SITE_DELETE_PASSWORD = "site_delete_password_hash"
+
+
+def get_site_delete_password_hash(company_id: int | None = None) -> str:
+    return (_get_setting(_KEY_SITE_DELETE_PASSWORD, company_id) or "").strip()
+
+
+def set_site_delete_password_hash(value: str, company_id: int | None = None) -> None:
+    _set_setting(_KEY_SITE_DELETE_PASSWORD, value, company_id)
+
+
 def get_ai_enabled() -> bool:
     stored = _get_setting(_KEY_AI_ENABLED)
     if stored is None:

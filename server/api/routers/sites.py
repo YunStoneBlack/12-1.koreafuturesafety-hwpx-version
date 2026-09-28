@@ -5,7 +5,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from core.models_db import Finding, PreviousFinding, Report, Site, SiteProcessDe
 from core.models_web import ReportJob, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
+from server.api.security import verify_password
 from server.schemas.site import SiteIn, SiteListItem, SiteOut
 
 router = APIRouter(prefix="/sites", tags=["sites"])
@@ -113,11 +114,22 @@ def update_site(
 
 
 @router.delete("/{site_id}")
-def delete_site(site_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_site(
+    site_id: int,
+    password: str = Body("", embed=True),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """현장 삭제 — 이 현장의 보고서 전부(사진·PDF·서명 파일 포함)와 공정 기본값까지 함께 지운다(되돌릴 수 없음).
     데스크톱 `dashboard_view._delete_site`와 같은 범위. PostgreSQL은 외래키를 실제로 검사하므로
     보고서 삭제(`report_manage.delete_report`)처럼 이월 연결(이전지적사항 → 지적사항)과 PDF 렌더 작업 기록을 먼저 정리한다.
     같은 현장 보고서끼리만 이월되므로 사진 폴더(data/photos/report_{id})는 통째로 지워도 다른 현장에 영향 없다."""
+    # 회사 공용 삭제 비밀번호(설정 화면에서 정함)를 알아야 지울 수 있다 — 아직 안 정했으면 삭제 자체를 막는다
+    password_hash = config.get_site_delete_password_hash(user.company_id)
+    if not password_hash:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "삭제 비밀번호가 아직 없습니다. '설정' 탭에서 먼저 정하세요.")
+    if not verify_password(password, password_hash):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "삭제 비밀번호가 맞지 않습니다.")
     site = repo.get_site(db, user.company_id, site_id)
     if site is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")

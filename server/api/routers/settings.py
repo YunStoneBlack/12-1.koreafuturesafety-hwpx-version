@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from core import config
 from core.models_web import User
 from server.api.deps import get_current_user
+from server.api.security import hash_password, verify_password
 from server.api.signature_files import normalize_source, save_signature_upload
 from server.schemas.settings import ApiKeyIn, ApiKeyStatus
 
@@ -33,6 +34,36 @@ def get_api_key_status(user: User = Depends(get_current_user)):
 def set_api_key(body: ApiKeyIn, user: User = Depends(get_current_user)):
     config.set_api_key(body.api_key, user.company_id)
     return get_api_key_status(user)
+
+
+# ---------- 현장 삭제 비밀번호 — 현장 삭제(DELETE /sites/{id}) 때 입력해야 하는 회사 공용 비밀번호 ----------
+# 보고서 화면은 그룹웨어 로그인을 그대로 쓰고 자체 비밀번호가 없어서, 아는 사람만 현장을 지울 수 있게 따로 둔다.
+# 이미 정해져 있으면 바꿀 때 지금 비밀번호가 필요하다(누구나 설정 화면에서 덮어써 버리면 의미가 없으므로).
+# 잊어버리면 DB app_setting의 site_delete_password_hash(해당 회사) 값을 지우면 다시 정할 수 있다.
+
+class DeletePasswordStatus(BaseModel):
+    is_set: bool
+
+
+class DeletePasswordIn(BaseModel):
+    current_password: str = ""
+    new_password: str
+
+
+@router.get("/delete-password", response_model=DeletePasswordStatus)
+def get_delete_password_status(user: User = Depends(get_current_user)):
+    return DeletePasswordStatus(is_set=bool(config.get_site_delete_password_hash(user.company_id)))
+
+
+@router.post("/delete-password", response_model=DeletePasswordStatus)
+def set_delete_password(body: DeletePasswordIn, user: User = Depends(get_current_user)):
+    current_hash = config.get_site_delete_password_hash(user.company_id)
+    if current_hash and not verify_password(body.current_password, current_hash):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "지금 비밀번호가 맞지 않습니다.")
+    if len(body.new_password) < 4:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "새 비밀번호는 4자 이상으로 정하세요.")
+    config.set_site_delete_password_hash(hash_password(body.new_password), user.company_id)
+    return DeletePasswordStatus(is_set=True)
 
 
 # ---------- 결재란(이사/대표이사) 도장 — 한 번 등록하면 이 회사 모든 보고서에 자동 반영 ----------
