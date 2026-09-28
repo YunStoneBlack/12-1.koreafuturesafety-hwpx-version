@@ -537,15 +537,22 @@ document.getElementById("section6-3-save").addEventListener("click", async () =>
   }
 });
 
+// 담당요원 드롭다운 — 이 보고서 지도일 기준 "이미 맡은 다른 현장 수/4"를 이름 옆에 붙인다(하루 4현장 한도,
+// 데스크톱 report_wizard_staff_limit.py와 같은 표시). 실제 막는 건 서버(PATCH가 400으로 거부).
+let staffSelectedId = null;
 async function loadStaff(selectedId) {
   const select = document.getElementById("staff-select");
+  if (selectedId !== undefined) staffSelectedId = selectedId;
   try {
-    const staffList = await api("/staff");
+    const [staffList, load] = await Promise.all([api("/staff"), api(`/reports/${reportId}/staff-load`)]);
+    const byId = Object.fromEntries(load.items.map((it) => [it.staff_id, it]));
+    select.innerHTML = '<option value="">선택 안 함</option>';
     for (const s of staffList) {
       const opt = document.createElement("option");
+      const l = byId[s.id];
       opt.value = s.id;
-      opt.textContent = `${s.name} (${s.phone})`;
-      if (selectedId && s.id === selectedId) opt.selected = true;
+      opt.textContent = `${s.name} (${s.phone})` + (l ? (l.full ? ` · ${load.max}/${load.max} 마감` : ` · ${l.count}/${load.max}`) : "");
+      if (staffSelectedId && s.id === staffSelectedId) opt.selected = true;
       select.appendChild(opt);
     }
   } catch (err) {
@@ -590,6 +597,7 @@ document.getElementById("basic-save").addEventListener("click", async () => {
       progress_rate: progress === "" ? null : Number(progress),
     });
     document.getElementById("report-title").textContent = `${out.visit_no}회차 보고서`;
+    await loadStaff(); // 지도일이 바뀌면 요원별 "n/4" 표시도 다시 계산
     st.className = "status ok";
     st.textContent = "저장되었습니다.";
   } catch (err) {
@@ -599,10 +607,14 @@ document.getElementById("basic-save").addEventListener("click", async () => {
 });
 
 document.getElementById("staff-select").addEventListener("change", async (e) => {
+  errorEl.style.display = "none";
+  const value = e.target.value ? Number(e.target.value) : null;
   try {
-    await apiPatch(`/api/reports/${reportId}`, { assigned_staff_id: e.target.value ? Number(e.target.value) : null });
+    await apiPatch(`/api/reports/${reportId}`, { assigned_staff_id: value });
+    staffSelectedId = value;
     await loadSignoffStatus();
   } catch (err) {
+    e.target.value = staffSelectedId ?? ""; // 하루 4현장 마감 등으로 거부되면 직전 선택으로 되돌림
     showError(errorEl, err);
   }
 });

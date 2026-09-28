@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from core.db import BASE_DIR
 from core.models_db import Measurement, ProcessHazardEntry, Report, SafetyEducation, Site, SiteProcessDefault
+from core.staff_load import is_full, other_site_names
 
 DEFAULT_NOTIFICATION_METHOD = "전자우편"
 DEFAULT_EDUCATION_LOCATION = "현장 내"
@@ -68,8 +69,13 @@ def apply_new_report_defaults(db: Session, report: Report, explicit: set[str]) -
     setdefault("prev_guidance_date", last.guidance_date if last else None)
     setdefault("guidance_date", datetime.date.today())
     setdefault("accident_status", "무")
-    # 현장에 배정된 요원 우선(데스크톱과 동일), 배정이 없으면 직전 회차 요원(웹판 보완 — 대부분 한 요원이 계속 맡음)
-    setdefault("assigned_staff_id", (site.assigned_staff_id if site else None) or (last.assigned_staff_id if last else None))
+    # 현장에 배정된 요원 우선(데스크톱과 동일), 배정이 없으면 직전 회차 요원(웹판 보완 — 대부분 한 요원이 계속 맡음).
+    # 그 요원이 이 지도일에 이미 4곳을 맡았으면 배정하지 않는다(데스크톱: 새 보고서 기본 요원이 마감이면 되돌림).
+    default_staff = (site.assigned_staff_id if site else None) or (last.assigned_staff_id if last else None)
+    date = report.guidance_date or datetime.date.today()
+    if default_staff and is_full(other_site_names(db, default_staff, date, report.site_id)):
+        default_staff = None
+    setdefault("assigned_staff_id", default_staff)
     if "hazard_factor_checks" not in explicit and site and site.hazard_factor_checks:
         report.hazard_factor_checks = list(site.hazard_factor_checks)
     if last and last.notify_signature_path and "notify_signature_path" not in explicit:

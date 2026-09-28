@@ -4,11 +4,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core import config
 from core.db import BASE_DIR
+from core.models_db import Staff
 from core.models_web import User
+from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY, is_full, other_site_names
 from server.api import repo
 from server.api.report_defaults import apply_new_report_defaults, record_site_hazard_checks
 from server.api.deps import get_current_user, get_db
@@ -58,12 +61,61 @@ def update_report(
         fields.pop("visit_no", None)  # 회차는 비울 수 없음(NOT NULL)
     elif fields["visit_no"] < 1:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회차는 1 이상이어야 합니다.")
+    current = repo.get_report(db, user.company_id, report_id)
+    if current is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
+    _check_staff_limit(db, current, fields)
     report = repo.update_report(db, user.company_id, report_id, **fields)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
     if "hazard_factor_checks" in fields:
         record_site_hazard_checks(db, report)  # 다음 회차 기본값(데스크톱 저장 로직과 동일)
     return report
+
+
+def _check_staff_limit(db: Session, report, fields: dict) -> None:
+    """담당요원 하루 4현장 한도(core/staff_load.py, 데스크톱 report_wizard_staff_limit.py와 같은 규칙).
+    요원이나 지도일을 **바꿀 때만** 검사한다 — 예전 데이터가 이미 4곳을 넘어도 열고 저장할 수 있어야 해서
+    (데스크톱도 저장된 보고서를 다시 열 땐 검사 안 함)."""
+    if "assigned_staff_id" not in fields and "guidance_date" not in fields:
+        return
+    staff_id = fields.get("assigned_staff_id", report.assigned_staff_id)
+    date = fields.get("guidance_date", report.guidance_date)
+    if not staff_id or not date or (staff_id, date) == (report.assigned_staff_id, report.guidance_date):
+        return
+    names = other_site_names(db, staff_id, date, report.site_id)
+    if is_full(names):
+        staff = db.get(Staff, staff_id)
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{staff.name if staff else '이'} 담당요원은 {date:%Y-%m-%d}에 이미 {MAX_SITES_PER_STAFF_PER_DAY}개 현장"
+            f"({', '.join(names)})을 맡고 있어 더 맡을 수 없습니다. 다른 담당요원을 고르거나 지도일을 바꿔 주세요.",
+        )
+
+
+class StaffLoadItem(BaseModel):
+    staff_id: int
+    count: int
+    full: bool
+    sites: list[str]
+
+
+class StaffLoadOut(BaseModel):
+    max: int
+    items: list[StaffLoadItem]
+
+
+@router.get("/reports/{report_id}/staff-load", response_model=StaffLoadOut)
+def get_staff_load(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """이 보고서 지도일 기준 요원별 "이미 맡은 다른 현장 수" — 드롭다운에 "2/4", "4/4 마감" 표시용."""
+    report = repo.get_report(db, user.company_id, report_id)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
+    items = []
+    for staff in repo.list_staff(db, user.company_id):
+        names = other_site_names(db, staff.id, report.guidance_date, report.site_id)
+        items.append(StaffLoadItem(staff_id=staff.id, count=len(names), full=is_full(names), sites=names))
+    return StaffLoadOut(max=MAX_SITES_PER_STAFF_PER_DAY, items=items)
 
 
 @router.get("/reports/{report_id}/signoff-status", response_model=SignoffStatus)
