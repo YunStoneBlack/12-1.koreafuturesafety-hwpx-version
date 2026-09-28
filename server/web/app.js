@@ -31,6 +31,21 @@ function apiPatch(path, data) {
   return api(path, { method: "PATCH", body: JSON.stringify(data ?? {}) });
 }
 
+// 파일 업로드(multipart) — Content-Type은 브라우저가 boundary까지 붙여 정하게 비워둔다.
+async function apiUpload(path, formData) {
+  const url = path.startsWith("/api/") ? path : `/api${path}`;
+  const res = await fetch(url, { method: "POST", credentials: "include", body: formData });
+  if (res.status === 401) {
+    window.location.href = "/index.html";
+    throw new Error("로그인이 필요합니다.");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `요청 실패 (${res.status})`);
+  }
+  return res.json();
+}
+
 function showError(el, err) {
   el.textContent = err.message || String(err);
   el.style.display = "block";

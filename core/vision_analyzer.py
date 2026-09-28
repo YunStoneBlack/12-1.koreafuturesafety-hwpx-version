@@ -162,14 +162,16 @@ _GAS_METER_RANGES: dict[str, tuple[float | None, float | None]] = {
 }
 
 
-def _read_gas_meter_value(image_b64: str, media_type: str, model: str | None) -> str | None:
+def _read_gas_meter_value(
+    image_b64: str, media_type: str, model: str | None, company_id: int | None = None
+) -> str | None:
     """4종 복합가스측정기는 화면 하나에 EX/O2/H2S/CO 네 값이 동시에 표시돼 일반
     단일값 프롬프트로는 인식이 잘 안 됐다(실측 확인). 네 값을 각각 읽어 전부 정상범위
     안이면 "정상범위", 하나라도 벗어나면 "정상범위 초과"를 반환한다 — 네 값 중 하나라도
     못 읽으면(화면 일부가 안 보이는 등) 안전 판단을 잘못 내릴 수 있으므로 절대 추측하지
     않고 None을 반환한다(다른 계측기와 동일하게 "직접 입력해주세요" 안내로 이어짐).
     """
-    raw_response = _call_claude(image_b64, media_type, GAS_METER_READ_PROMPT, model=model)
+    raw_response = _call_claude(image_b64, media_type, GAS_METER_READ_PROMPT, model=model, company_id=company_id)
     data = _parse_json_object(raw_response)
 
     readings: dict[str, float] = {}
@@ -209,10 +211,19 @@ def _encode_image(photo_path: str | Path) -> tuple[str, str]:
 
 
 def _call_claude(
-    image_b64: str, media_type: str, prompt: str, model: str | None = None, max_tokens: int = 1024
+    image_b64: str,
+    media_type: str,
+    prompt: str,
+    model: str | None = None,
+    max_tokens: int = 1024,
+    company_id: int | None = None,
 ) -> str:
-    """실제 Claude API 호출. 분리해두면 테스트할 때 이 함수만 mocking하면 된다."""
-    client = Anthropic(api_key=get_api_key())
+    """실제 Claude API 호출. 분리해두면 테스트할 때 이 함수만 mocking하면 된다.
+
+    `company_id`: 웹판(server/)에서 로그인한 사용자의 회사별 API 키를 쓸 때만 넘긴다 —
+    데스크톱 exe는 안 넘겨서 예전과 같은 키를 쓴다(core/contract_analyzer.py와 같은 원칙).
+    이 모듈의 공개 함수들도 전부 같은 이름의 선택 인자를 받아 여기까지 그대로 전달한다."""
+    client = Anthropic(api_key=get_api_key(company_id))
     response = client.messages.create(
         model=model or get_model_name(),
         max_tokens=max_tokens,
@@ -232,10 +243,12 @@ def _call_claude(
     return "".join(block.text for block in response.content if block.type == "text")
 
 
-def _call_claude_text(prompt: str, model: str | None = None, max_tokens: int = 1024) -> str:
+def _call_claude_text(
+    prompt: str, model: str | None = None, max_tokens: int = 1024, company_id: int | None = None
+) -> str:
     """사진 없이 텍스트만으로 Claude를 호출한다(공정명만 입력된 경우 등, `_call_claude`와
     동일하되 image 블록이 없다)."""
-    client = Anthropic(api_key=get_api_key())
+    client = Anthropic(api_key=get_api_key(company_id))
     response = client.messages.create(
         model=model or get_model_name(),
         max_tokens=max_tokens,
@@ -274,11 +287,13 @@ def _clamp_1_3(value) -> int | None:
     return min(3, max(1, n))
 
 
-def analyze_finding(photo_path: str | Path, description: str, model: str | None = None) -> dict:
+def analyze_finding(
+    photo_path: str | Path, description: str, model: str | None = None, company_id: int | None = None
+) -> dict:
     """사진 + 지도자 설명으로 지적사항 제목/내용/관련법령/위험성평가(가능성·중대성)를 추천한다."""
     image_b64, media_type = _encode_image(photo_path)
     prompt = FINDING_PROMPT.format(description=description or "(설명 없음)")
-    raw_response = _call_claude(image_b64, media_type, prompt, model=model)
+    raw_response = _call_claude(image_b64, media_type, prompt, model=model, company_id=company_id)
     data = _parse_json_object(raw_response)
     return {
         "title": (data.get("title") or "")[:30],
@@ -289,10 +304,10 @@ def analyze_finding(photo_path: str | Path, description: str, model: str | None 
     }
 
 
-def count_people(photo_path: str | Path, model: str | None = None) -> int | None:
+def count_people(photo_path: str | Path, model: str | None = None, company_id: int | None = None) -> int | None:
     """사진 속 인원 수를 센다. 판단이 어려우면 None(=UI에서 '읽지 못함' 표시)을 반환한다."""
     image_b64, media_type = _encode_image(photo_path)
-    raw_response = _call_claude(image_b64, media_type, PEOPLE_COUNT_PROMPT, model=model)
+    raw_response = _call_claude(image_b64, media_type, PEOPLE_COUNT_PROMPT, model=model, company_id=company_id)
     data = _parse_json_object(raw_response)
     count = data.get("count")
     if count in (None, "null", ""):
@@ -304,7 +319,7 @@ def count_people(photo_path: str | Path, model: str | None = None) -> int | None
 
 
 def analyze_process_hazards(
-    photo_path: str | Path | None, process_name: str, model: str | None = None
+    photo_path: str | Path | None, process_name: str, model: str | None = None, company_id: int | None = None
 ) -> list[dict]:
     """공정 사진 + 공정명으로 유해·위험요인(항목)마다 예방대책 여러 건 + 위험성 1개를
     추천한다(7번 현재진행공정/9번 향후진행공정 공용 — 두 섹션 모두 같은 표 구조라
@@ -338,12 +353,12 @@ def analyze_process_hazards(
             # 훨씬 길다 — 기본값(1024)으로는 답변이 중간에 잘려 JSON 자체가 깨지는 경우가
             # 실사용 중 확인됐다(재시도로도 안 고쳐짐 — 같은 프롬프트면 매번 비슷한
             # 길이에서 잘리므로).
-            return _call_claude(image_b64, media_type, prompt, model=model, max_tokens=4096)
+            return _call_claude(image_b64, media_type, prompt, model=model, max_tokens=4096, company_id=company_id)
     else:
         prompt = PROCESS_HAZARD_PROMPT_TEXT_ONLY.format(process_name=process_name)
 
         def _call() -> str:
-            return _call_claude_text(prompt, model=model, max_tokens=4096)
+            return _call_claude_text(prompt, model=model, max_tokens=4096, company_id=company_id)
 
     data = None
     last_error: ValueError | None = None
@@ -389,7 +404,9 @@ def analyze_process_hazards(
     return items[:5]
 
 
-def read_measurement_value(photo_path: str | Path, instrument_type: str, model: str | None = None) -> str | None:
+def read_measurement_value(
+    photo_path: str | Path, instrument_type: str, model: str | None = None, company_id: int | None = None
+) -> str | None:
     """계측장비 디스플레이 사진에서 측정값을 읽는다. 판단이 어려우면 None을 반환한다.
 
     한때 '조도계'는 화면 숫자 그대로가 아니라 1000을 곱해야 실제 lux값이라고 보고
@@ -401,9 +418,9 @@ def read_measurement_value(photo_path: str | Path, instrument_type: str, model: 
     """
     image_b64, media_type = _encode_image(photo_path)
     if instrument_type == _GAS_METER_TYPE:
-        return _read_gas_meter_value(image_b64, media_type, model)
+        return _read_gas_meter_value(image_b64, media_type, model, company_id)
     prompt = MEASUREMENT_READ_PROMPT.format(instrument_type=instrument_type)
-    raw_response = _call_claude(image_b64, media_type, prompt, model=model)
+    raw_response = _call_claude(image_b64, media_type, prompt, model=model, company_id=company_id)
     data = _parse_json_object(raw_response)
     value = data.get("value")
     if value in (None, "null", ""):

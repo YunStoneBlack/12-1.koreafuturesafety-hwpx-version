@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from server.api.routers import (
+    ai,
     auth,
     findings,
     jobs,
@@ -55,6 +56,7 @@ app.include_router(process_entries.current_process_router, prefix="/api")
 app.include_router(process_entries.future_process_router, prefix="/api")
 app.include_router(findings.router, prefix="/api")
 app.include_router(support.router, prefix="/api")
+app.include_router(ai.router, prefix="/api")
 
 
 @app.get("/api/health")

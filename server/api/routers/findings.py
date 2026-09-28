@@ -1,8 +1,7 @@
 """8. 지적사항 (최대 4건).
 
-**이번 1차 포팅 범위 밖(의도적으로 미룸)**: 데스크톱은 사진을 Claude Vision에 보내 제목/
-내용/법령 인용/위험성을 자동 채우는 "AI추천" 버튼이 있다(`description` 필드가 그 입력).
-지금은 전부 수동 입력만 지원 — `description`은 안 씀(AI 붙일 때 추가)."""
+"✨ AI추천"(사진 + 간단 설명 → 제목/내용/법령/위험성)은 `server/api/routers/ai.py`의
+`POST /reports/{id}/ai/finding/{slot}` — 이 슬롯에 저장된 사진과 `description`을 쓴다."""
 
 from __future__ import annotations
 
@@ -48,6 +47,7 @@ def _to_out(slot: int, row: Finding | None) -> FindingOut:
         likelihood=row.likelihood,
         severity=row.severity,
         action_status=row.action_status,
+        description=row.description or "",
         has_photo=bool(row.photo_path),
     )
 
