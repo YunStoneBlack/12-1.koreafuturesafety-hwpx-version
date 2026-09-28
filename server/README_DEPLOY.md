@@ -7,7 +7,7 @@
 
 - PostgreSQL 설치 (로컬 설치 또는 Docker Desktop)
 - 한글(한컴오피스) 설치 + 정품 인증
-- 도메인 1개 (고정 주소용, 연 1~2만 원) — 없으면 Cloudflare 임시 주소로 시험 가능(6번)
+- 외부 주소는 그룹웨어 도메인 아래(`/report`)를 쓰므로 도메인 추가 구매 불필요(6번)
 - Python 패키지: `pip install -r requirements.txt` (server/ 관련 패키지 포함되어 있음)
 
 ## 1. 한글 프로그램 1회 수동 설정 (필수, 자동화 불가)
@@ -68,26 +68,37 @@ python -m server.seed_pilot
 수동 재시작: 작업 관리자에서 `powershell`(web_watchdog)·`python`(uvicorn/supervisor_entry)·`cloudflared`를 끝낸 뒤 바로가기 실행.
 ⚠️ `core/` 렌더러 코드를 고치면 워커도 재시작해야 반영된다.
 
-## 6. Cloudflare Tunnel로 외부 접속 열기 (비용: 터널 무료, 고정 주소엔 도메인 연 1~2만 원)
-
-**지금(시험 단계) — 임시 주소, 도메인 불필요**: `cloudflared.exe`(설치 불필요, 공식 배포본을 `%LOCALAPPDATA%\cloudflared\`에
-둠)를 감시 스크립트가 `-Tunnel`로 띄운다. `https://<무작위>.trycloudflare.com` 주소가 생기고 **재시작할 때마다 바뀐다** —
-현재 주소는 `data/logs/tunnel_url.txt`. 가동률 보장이 없는 시험용이다.
-
-**도메인을 정한 뒤 — 고정 주소**(Cloudflare 무료 계정 필요):
+## 6. 외부 접속 — 그룹웨어 주소 `https://groupware.kfsc21c.com/report/` (2026-09-28 적용, 비용 0원)
 
 ```
-cloudflared tunnel login
-cloudflared tunnel create report-tunnel
-cloudflared tunnel route dns report-tunnel <원하는 하위주소>.<도메인>
+직원 브라우저 → groupware.kfsc21c.com(AWS, nginx) ──SSH 역방향 통로──→ 이 PC 127.0.0.1:8000(웹판, /report 아래)
 ```
 
-터널 설정(`config.yml`)에서 그 주소 → `http://127.0.0.1:8000`으로 연결하고, 감시 스크립트의 터널 실행 인수를
-`tunnel run report-tunnel`로 바꾼다. HTTPS 인증서는 Cloudflare가 자동 처리. 회사 기존 도메인(그룹웨어)의 하위 주소를 쓰려면
-그 도메인의 네임서버를 Cloudflare로 옮겨야 해서(무료 요금제 기준) 기존 그룹웨어·홈페이지 주소 설정에 영향 — 도메인 관리자와 상의.
+AWS는 **전달만** 하고 hwpx 생성·PDF 변환(한글)·사진/DB 저장은 전부 이 PC에서 한다(리눅스에선 한글 PDF 변환 불가 — 13번 프로젝트
+기록 참고). 이 PC가 꺼져 있으면 `/report/`는 "잠시 연결할 수 없습니다" 안내 화면(502), 그룹웨어의 다른 메뉴는 정상. 주소는 고정.
 
-⚠️ 외부에 여는 순간 누구나 로그인 화면에 접근할 수 있다 — 시험용 계정(`employee1~5@example.com` / 동일 비밀번호)은
-실사용 전에 반드시 실제 계정·각자 다른 비밀번호로 바꿀 것(4번 재시딩). 외부 주소로만 쓰게 되면 `SESSION_COOKIE_SECURE=true`.
+**이 PC 쪽**
+- 감시 스크립트 `-Relay`가 `ssh -N -R 127.0.0.1:18000:127.0.0.1:8000 ec2-user@15.164.246.22`를 유지(끊기면 20초 내 재연결, 실측 15초).
+- 키·호스트 정보는 영문 경로 `C:\kfsc-relay\`(한글 사용자 경로에서 ssh가 known_hosts를 못 만드는 문제 회피, 폴더 권한은 이 사용자만):
+  `relay_key`(통로 전용), `known_hosts`, `admin_key`(13번 폴더 `new_kfs_key.ppk`를 변환한 **서버 관리자 키** — 서버 설정을 바꿀 때만 사용).
+- 웹판은 `WEB_BASE_PATH`(기본 `/report`) 아래에서 동작 — 사무실 LAN에서는 `http://<이 PC IP>:8000/report/`.
+
+**AWS 서버 쪽** (설정 원본은 `server/deploy/`, 적용 전 백업은 서버 `~/backup-report-integration-20260928/`)
+1. `/etc/nginx/conf.d/groupware.conf`의 443 블록, `location /` 위에 `nginx_report_locations.conf` 내용 삽입
+   (업로드 30MB, 응답 대기 180초, 통로 없으면 `/usr/share/nginx/kfsc-report/report_offline.html` 안내 화면 — 상태 코드는 502 유지)
+   → `sudo nginx -t && sudo systemctl reload nginx`(무중단).
+2. `~/.ssh/authorized_keys`에 통로 전용 키 1줄: `restrict,port-forwarding,permitlisten="127.0.0.1:18000",command="/bin/false" <relay_key.pub>`
+   — 이 키로는 18000 포트 통로만 열 수 있고 명령 실행·다른 포트는 불가(실측 확인).
+3. `/etc/ssh/sshd_config.d/60-report-relay.conf`(`ClientAliveInterval 30`, `ClientAliveCountMax 3`) — PC 전원이 갑자기 꺼졌을 때 끊긴 연결이
+   18000 포트를 계속 붙잡는 걸 90초 안에 정리 → `sudo sshd -t && sudo systemctl reload sshd`.
+
+되돌리기: 백업 폴더의 `groupware.conf`를 복원하고 nginx reload, `authorized_keys`에서 `kfsc-report-relay` 줄 삭제, `60-report-relay.conf` 삭제 후 sshd reload.
+
+**Cloudflare 임시 주소(`-Tunnel`)**: 이식 확인용으로 아직 같이 켜 둠(`data/logs/tunnel_url.txt`) — 그룹웨어 자동 로그인(SSO)까지 끝나면
+바로가기에서 `-Tunnel`을 빼서 끌 것(외부 입구를 하나로).
+
+⚠️ 그룹웨어 자동 로그인(SSO) 전까지는 `/report/`가 웹판 자체 로그인 화면 — 시험용 계정(`employee1~5@example.com`)이 회사 주소로 열려 있으니
+직원들에게 주소를 알리는 건 SSO 이후로. 외부 주소로만 쓰게 되면 `server/.env.server`의 `SESSION_COOKIE_SECURE=true`.
 
 ## 7. 백업 (매일 1회, Windows 작업 스케줄러)
 
