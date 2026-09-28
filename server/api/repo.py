@@ -14,6 +14,10 @@ from sqlalchemy.orm import Session
 from core.models_db import Report, Site, Staff
 from core.models_web import ReportJob
 
+# 전경사진(OverviewPhoto)/점검사진(InspectionPhoto)은 (report_id, slot, photo_path) 뿐인
+# 완전히 같은 모양이라, 슬롯 사진 공용 헬퍼 하나로 둘 다 처리한다 — 데스크톱(models_db.py)도
+# "표4/5로 독립된 별개 표"라서 모델은 둘로 나눴지만, 다루는 로직 자체는 항상 같이 다닌다.
+
 
 def list_sites(db: Session, company_id: int) -> list[Site]:
     return db.query(Site).filter(Site.company_id == company_id).order_by(Site.created_at.desc()).all()
@@ -103,6 +107,49 @@ def create_render_job(db: Session, company_id: int, report_id: int) -> ReportJob
     db.commit()
     db.refresh(job)
     return job
+
+
+def get_slot_row(db: Session, model_cls, report_id: int, slot: int):
+    """(report_id, slot) 모양의 슬롯형 테이블 공용 조회 — PreviousFinding처럼 사진 외에
+    텍스트 필드도 같이 갖는 모델에 쓴다(순수 사진뿐인 Overview/InspectionPhoto는 아래
+    get_photo_slot 계열을 계속 쓴다, 이미 검증된 걸 안 건드리려고)."""
+    return db.query(model_cls).filter(model_cls.report_id == report_id, model_cls.slot == slot).first()
+
+
+def upsert_slot_row(db: Session, model_cls, report_id: int, slot: int, **fields):
+    row = get_slot_row(db, model_cls, report_id, slot)
+    if row is None:
+        row = model_cls(report_id=report_id, slot=slot, **fields)
+        db.add(row)
+    else:
+        for key, value in fields.items():
+            setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def get_photo_slot(db: Session, model_cls, report_id: int, slot: int):
+    return db.query(model_cls).filter(model_cls.report_id == report_id, model_cls.slot == slot).first()
+
+
+def upsert_photo_slot(db: Session, model_cls, report_id: int, slot: int, photo_path: str):
+    row = get_photo_slot(db, model_cls, report_id, slot)
+    if row is None:
+        row = model_cls(report_id=report_id, slot=slot, photo_path=photo_path)
+        db.add(row)
+    else:
+        row.photo_path = photo_path
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_photo_slot(db: Session, model_cls, report_id: int, slot: int) -> None:
+    row = get_photo_slot(db, model_cls, report_id, slot)
+    if row is not None:
+        db.delete(row)
+        db.commit()
 
 
 def get_job(db: Session, company_id: int, job_id: int) -> ReportJob | None:

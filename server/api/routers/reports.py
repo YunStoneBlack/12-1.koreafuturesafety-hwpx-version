@@ -43,10 +43,13 @@ def get_report(report_id: int, user: User = Depends(get_current_user), db: Sessi
 def update_report(
     report_id: int, body: ReportIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    """섹션을 하나씩 채워나갈 때마다(1번 결재·통보 정보부터) 이 엔드포인트로 저장한다 —
-    데스크톱 마법사가 매 섹션 변경 시 `_save(navigate=False)`로 전체를 다시 저장하는 것과
-    같은 방식으로, 프론트도 섹션 저장 버튼마다 이 PATCH를 호출하면 된다."""
-    report = repo.update_report(db, user.company_id, report_id, **body.model_dump())
+    """섹션을 하나씩 채워나갈 때마다(1번 결재·통보 정보부터) 이 엔드포인트로 저장한다.
+
+    `exclude_unset=True`가 핵심 — JSON 바디에 실제로 들어있던 필드만 갱신하고, 프론트가
+    안 보낸 필드는 건드리지 않는다. 이게 없으면 예를 들어 "2번 섹션 저장" 버튼이 2번
+    필드만 보내는 순간 1번(통보방법·서명 성명 등)이 ReportIn의 기본값(""/False)으로
+    전부 리셋되어버린다 — 섹션별로 나눠 저장하는 이 화면 구조에서는 반드시 필요하다."""
+    report = repo.update_report(db, user.company_id, report_id, **body.model_dump(exclude_unset=True))
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
     return report

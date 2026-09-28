@@ -29,6 +29,16 @@
     background: #fff; color: #6b7280; font-size: 13px; cursor: pointer;
   }
   .method-btn.on { background: #4f46e5; color: #fff; border-color: #4f46e5; font-weight: 600; }
+  .photo-slot {
+    border: 1px dashed #d1d5db; border-radius: 8px; padding: 8px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .photo-slot .thumb {
+    width: 64px; height: 48px; object-fit: cover; border-radius: 4px; background: #f3f4f6;
+    flex-shrink: 0;
+  }
+  .photo-slot .slot-controls { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .photo-slot .slot-label { font-size: 12px; color: #6b7280; }
 </style>
 </head>
 <body>
@@ -72,6 +82,48 @@
 </div>
 
 <div class="card">
+  <h2>2. 기타 특이사항</h2>
+
+  <label><input type="checkbox" id="misc-overwork" /> 공사기간 편중, 조기준공 등</label>
+  <label><input type="checkbox" id="misc-no-photo" /> 사진촬영 불가 (보안 등)</label>
+  <label><input type="checkbox" id="misc-other" /> 기타</label>
+  <input id="misc-other-text" placeholder="기타 내용" />
+
+  <label>재해발생현황</label>
+  <div class="method-row">
+    <button type="button" class="method-btn" id="accident-yes-btn">유</button>
+    <button type="button" class="method-btn" id="accident-no-btn">무</button>
+  </div>
+  <input id="accident-content" placeholder="내용 입력" />
+
+  <button type="button" id="section2-save">2번 섹션 저장</button>
+  <div id="section2-status" class="status"></div>
+</div>
+
+<div class="card">
+  <h2>3. 전경사진 및 점검사진</h2>
+  <p style="color:#666; font-size:14px;">사진은 선택하는 즉시 바로 저장됩니다(별도 저장 버튼 없음).</p>
+  <div style="display:flex; gap:16px; flex-wrap:wrap;">
+    <div style="flex:1; min-width:220px;">
+      <h3 style="font-size:14px; margin-bottom:6px;">전경사진 (최대 4장)</h3>
+      <div id="overview-slots"></div>
+    </div>
+    <div style="flex:1; min-width:220px;">
+      <h3 style="font-size:14px; margin-bottom:6px;">점검사진 (최대 4장)</h3>
+      <div id="inspection-slots"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>4. 이전지적사항</h2>
+  <p style="color:#666; font-size:14px;">
+    직전 회차 지적사항 자동 이월은 8번(지적사항) 섹션이 만들어진 뒤 추가됩니다 — 지금은 직접 입력합니다.
+  </p>
+  <div id="previous-findings-slots"></div>
+</div>
+
+<div class="card">
   <h2>PDF 생성</h2>
   <p style="color:#666; font-size:14px;">
     아직 안 채운 섹션은 빈 칸으로 나옵니다 — 나머지 섹션은 다음 단계에서 이어서 추가됩니다.
@@ -86,6 +138,7 @@ const errorEl = document.getElementById("error");
 const reportId = new URLSearchParams(window.location.search).get("id");
 const NOTIFICATION_METHODS = ["직접전달", "등기우편", "전자우편", "모바일", "기타"];
 let currentMethod = "";
+let currentAccidentStatus = "";
 let siteId = null;
 let pollTimer = null;
 
@@ -98,6 +151,14 @@ async function loadReport() {
     document.getElementById("notify-signee").value = report.notify_signee_name || "";
     currentMethod = report.notification_method || "";
     renderMethodButtons();
+
+    document.getElementById("misc-overwork").checked = !!report.misc_overwork;
+    document.getElementById("misc-no-photo").checked = !!report.misc_no_photo;
+    document.getElementById("misc-other").checked = !!report.misc_other;
+    document.getElementById("misc-other-text").value = report.misc_other_text || "";
+    currentAccidentStatus = report.accident_status || "";
+    renderAccidentButtons();
+    document.getElementById("accident-content").value = report.accident_content || "";
     if (report.notify_signature_path) {
       loadSignaturePreview();
       setSigStatus(true);
@@ -124,6 +185,42 @@ function renderMethodButtons() {
     row.appendChild(btn);
   }
 }
+
+function renderAccidentButtons() {
+  document.getElementById("accident-yes-btn").className = "method-btn" + (currentAccidentStatus === "유" ? " on" : "");
+  document.getElementById("accident-no-btn").className = "method-btn" + (currentAccidentStatus === "무" ? " on" : "");
+}
+document.getElementById("accident-yes-btn").addEventListener("click", () => {
+  currentAccidentStatus = "유";
+  renderAccidentButtons();
+});
+document.getElementById("accident-no-btn").addEventListener("click", () => {
+  currentAccidentStatus = "무";
+  renderAccidentButtons();
+});
+
+document.getElementById("section2-save").addEventListener("click", async () => {
+  errorEl.style.display = "none";
+  const statusEl = document.getElementById("section2-status");
+  try {
+    await fetch(`/api/reports/${reportId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        misc_overwork: document.getElementById("misc-overwork").checked,
+        misc_no_photo: document.getElementById("misc-no-photo").checked,
+        misc_other: document.getElementById("misc-other").checked,
+        misc_other_text: document.getElementById("misc-other-text").value,
+        accident_status: currentAccidentStatus,
+        accident_content: document.getElementById("accident-content").value,
+      }),
+    });
+    statusEl.textContent = "저장되었습니다.";
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
 
 async function loadStaff(selectedId) {
   const select = document.getElementById("staff-select");
@@ -278,6 +375,206 @@ async function loadSignaturePreview() {
   };
   img.src = `/api/reports/${reportId}/notify-signature-image?ts=${Date.now()}`;
 }
+
+// --- 전경/점검 사진 슬롯 (완전히 같은 모양이라 함수 하나로 둘 다 처리) ---
+function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
+  const container = document.getElementById(containerId);
+  const slotEls = {};
+
+  for (let slot = 1; slot <= 4; slot++) {
+    const row = document.createElement("div");
+    row.className = "photo-slot";
+    row.innerHTML = `
+      <img class="thumb" id="${containerId}-thumb-${slot}" style="display:none;" />
+      <div class="slot-controls">
+        <div class="slot-label">${labelPrefix} ${slot}</div>
+        <input type="file" accept="image/*" id="${containerId}-file-${slot}" />
+        <button type="button" class="secondary" id="${containerId}-del-${slot}" style="display:none;">삭제</button>
+      </div>
+    `;
+    container.appendChild(row);
+    slotEls[slot] = {
+      thumb: row.querySelector(`#${containerId}-thumb-${slot}`),
+      file: row.querySelector(`#${containerId}-file-${slot}`),
+      del: row.querySelector(`#${containerId}-del-${slot}`),
+    };
+
+    const showThumb = (slotNum) => {
+      const t = slotEls[slotNum].thumb;
+      t.src = `${apiPrefix}/${slotNum}/image?ts=${Date.now()}`;
+      t.style.display = "block";
+      slotEls[slotNum].del.style.display = "inline-block";
+    };
+    const hideThumb = (slotNum) => {
+      slotEls[slotNum].thumb.style.display = "none";
+      slotEls[slotNum].del.style.display = "none";
+    };
+
+    slotEls[slot].file.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      errorEl.style.display = "none";
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const res = await fetch(`${apiPrefix}/${slot}`, { method: "POST", credentials: "include", body: formData });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || `업로드 실패 (${res.status})`);
+        }
+        showThumb(slot);
+      } catch (err) {
+        showError(errorEl, err);
+      }
+    });
+
+    slotEls[slot].del.addEventListener("click", async () => {
+      errorEl.style.display = "none";
+      try {
+        await fetch(`${apiPrefix}/${slot}`, { method: "DELETE", credentials: "include" });
+        hideThumb(slot);
+        slotEls[slot].file.value = "";
+      } catch (err) {
+        showError(errorEl, err);
+      }
+    });
+  }
+
+  // 이미 저장된 사진이 있으면 미리보기 채우기 (페이지 새로고침 후에도 보이게).
+  api(apiPrefix).then((rows) => {
+    for (const row of rows) {
+      slotEls[row.slot].thumb.src = `${apiPrefix}/${row.slot}/image?ts=${Date.now()}`;
+      slotEls[row.slot].thumb.style.display = "block";
+      slotEls[row.slot].del.style.display = "inline-block";
+    }
+  }).catch((err) => showError(errorEl, err));
+}
+
+setupPhotoSlots("overview-slots", `/api/reports/${reportId}/overview-photos`, "전경사진");
+setupPhotoSlots("inspection-slots", `/api/reports/${reportId}/inspection-photos`, "점검사진");
+
+// --- 4. 이전지적사항 (제목/내용/조치결과 + 사진 2종) ---
+async function setupPreviousFindings() {
+  const container = document.getElementById("previous-findings-slots");
+  const base = `/api/reports/${reportId}/previous-findings`;
+  let rows;
+  try {
+    rows = await api(base);
+  } catch (err) {
+    showError(errorEl, err);
+    return;
+  }
+
+  for (const data of rows) {
+    const slot = data.slot;
+    const card = document.createElement("div");
+    card.className = "card";
+    card.style.background = "#fafafa";
+    card.innerHTML = `
+      <h3 style="font-size:14px;">이전지적사항 ${slot}</h3>
+      <label>제목</label>
+      <input id="pf-title-${slot}" value="${data.title.replace(/"/g, "&quot;")}" />
+      <label>내용</label>
+      <input id="pf-content-${slot}" value="${data.content.replace(/"/g, "&quot;")}" />
+      <label>조치결과</label>
+      <select id="pf-status-${slot}">
+        <option value="">선택 안 함</option>
+        <option value="확인불가">확인불가</option>
+        <option value="보완필요">보완필요</option>
+        <option value="이행완료">이행완료</option>
+      </select>
+      <div class="photo-slot">
+        <img class="thumb" id="pf-thumb-${slot}" style="display:${data.has_photo ? "block" : "none"};"
+             src="${base}/${slot}/photo?ts=${Date.now()}" />
+        <div class="slot-controls">
+          <div class="slot-label">지적사항 사진</div>
+          <input type="file" accept="image/*" id="pf-file-${slot}" />
+          <button type="button" class="secondary" id="pf-del-${slot}" style="display:${data.has_photo ? "inline-block" : "none"};">삭제</button>
+        </div>
+      </div>
+      <div class="photo-slot">
+        <img class="thumb" id="pf-cthumb-${slot}" style="display:${data.has_completion_photo ? "block" : "none"};"
+             src="${base}/${slot}/completion-photo?ts=${Date.now()}" />
+        <div class="slot-controls">
+          <div class="slot-label">이행완료 증빙사진</div>
+          <input type="file" accept="image/*" id="pf-cfile-${slot}" />
+          <button type="button" class="secondary" id="pf-cdel-${slot}" style="display:${data.has_completion_photo ? "inline-block" : "none"};">삭제</button>
+        </div>
+      </div>
+      <button type="button" id="pf-save-${slot}">저장</button>
+      <div id="pf-status-msg-${slot}" class="status"></div>
+    `;
+    container.appendChild(card);
+    document.getElementById(`pf-status-${slot}`).value = data.result_status;
+
+    document.getElementById(`pf-save-${slot}`).addEventListener("click", async () => {
+      errorEl.style.display = "none";
+      const msgEl = document.getElementById(`pf-status-msg-${slot}`);
+      try {
+        await fetch(`${base}/${slot}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: document.getElementById(`pf-title-${slot}`).value,
+            content: document.getElementById(`pf-content-${slot}`).value,
+            result_status: document.getElementById(`pf-status-${slot}`).value,
+          }),
+        });
+        msgEl.textContent = "저장되었습니다.";
+      } catch (err) {
+        showError(errorEl, err);
+      }
+    });
+
+    setupSinglePhotoUpload(`${base}/${slot}/photo`, `pf-file-${slot}`, `pf-thumb-${slot}`, `pf-del-${slot}`);
+    setupSinglePhotoUpload(
+      `${base}/${slot}/completion-photo`, `pf-cfile-${slot}`, `pf-cthumb-${slot}`, `pf-cdel-${slot}`
+    );
+  }
+}
+
+// overview/inspection과 달리 슬롯 하나짜리 단일 사진(이전지적사항의 사진 2종, 앞으로 나올
+// 지적사항 등에서도 재사용할 수 있는 공용 헬퍼).
+function setupSinglePhotoUpload(url, fileInputId, thumbId, delBtnId) {
+  const fileInput = document.getElementById(fileInputId);
+  const thumb = document.getElementById(thumbId);
+  const delBtn = document.getElementById(delBtnId);
+
+  fileInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    errorEl.style.display = "none";
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch(url, { method: "POST", credentials: "include", body: formData });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `업로드 실패 (${res.status})`);
+      }
+      thumb.src = `${url}?ts=${Date.now()}`;
+      thumb.style.display = "block";
+      delBtn.style.display = "inline-block";
+    } catch (err) {
+      showError(errorEl, err);
+    }
+  });
+
+  delBtn.addEventListener("click", async () => {
+    errorEl.style.display = "none";
+    try {
+      await fetch(url, { method: "DELETE", credentials: "include" });
+      thumb.style.display = "none";
+      delBtn.style.display = "none";
+      fileInput.value = "";
+    } catch (err) {
+      showError(errorEl, err);
+    }
+  });
+}
+
+setupPreviousFindings();
 
 // --- PDF 생성 ---
 document.getElementById("render-btn").addEventListener("click", async () => {

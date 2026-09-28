@@ -18,6 +18,14 @@ class ReportIn(BaseModel):
     notify_signee_name: str = ""
     special_note: str = ""
 
+    # 2. 기타 특이사항
+    misc_overwork: bool = False
+    misc_no_photo: bool = False
+    misc_other: bool = False
+    misc_other_text: str = ""
+    accident_status: str = ""  # "" | "유" | "무"
+    accident_content: str = ""
+
 
 class ReportOut(ReportIn):
     model_config = ConfigDict(from_attributes=True)
