@@ -92,7 +92,7 @@ async function setupProcessSlots(containerId, apiPrefix) {
       statusEl.className = "status";
       statusEl.textContent = "";
       try {
-        const out = await apiUpload(`/api/reports/${reportId}/ai/process-hazards`, form);
+        const out = await apiUpload(`${BASE}/api/reports/${reportId}/ai/process-hazards`, form);
         if (!out.items.length) {
           statusEl.textContent = "유해·위험요인을 찾지 못했습니다. 직접 입력해주세요.";
         } else {
@@ -134,7 +134,7 @@ async function setupProcessSlots(containerId, apiPrefix) {
 // 데스크톱과 같은 vision_analyzer.analyze_finding). 입력칸에만 채우고 저장은 사용자가 확인 후.
 async function setupFindings() {
   const container = document.getElementById("findings-slots");
-  const base = `/api/reports/${reportId}/findings`;
+  const base = `${BASE}/api/reports/${reportId}/findings`;
   let rows;
   try {
     rows = await api(base);
@@ -221,7 +221,7 @@ async function setupFindings() {
       msgEl.className = "status";
       msgEl.textContent = "";
       try {
-        const out = await apiUpload(`/api/reports/${reportId}/ai/finding/${slot}`, form);
+        const out = await apiUpload(`${BASE}/api/reports/${reportId}/ai/finding/${slot}`, form);
         $("title").value = out.title;
         $("content").value = out.content;
         if (out.law_citation) $("law").value = out.law_citation;

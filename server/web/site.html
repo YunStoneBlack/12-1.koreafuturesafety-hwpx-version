@@ -4,16 +4,16 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>현장 상세 - 기술지도 보고서</title>
-<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="style.css" />
 </head>
 <body>
 <div class="app">
   <aside class="sidebar">
-    <div class="brand"><img src="/img/logo-white.png" alt="한국미래안전" /></div>
+    <div class="brand"><img src="img/logo-white.png" alt="한국미래안전" /></div>
     <nav class="nav">
-      <a class="nav-item active" href="/dashboard.html">현장 목록</a>
-      <a class="nav-item" href="/staff.html">담당요원</a>
-      <a class="nav-item" href="/settings.html">설정</a>
+      <a class="nav-item active" href="dashboard.html">현장 목록</a>
+      <a class="nav-item" href="staff.html">담당요원</a>
+      <a class="nav-item" href="settings.html">설정</a>
     </nav>
     <div class="sidebar-foot">
       <div class="avatar" id="sidebar-avatar">-</div>
@@ -26,7 +26,7 @@
   </aside>
   <main class="main">
 
-<div class="crumb"><a href="/dashboard.html">현장 목록</a><span class="sep">/</span><span id="site-name">현장</span></div>
+<div class="crumb"><a href="dashboard.html">현장 목록</a><span class="sep">/</span><span id="site-name">현장</span></div>
 <div class="topline"><h1 id="site-name-h1">현장</h1></div>
 
 <div id="error" class="error"></div>
@@ -57,7 +57,7 @@
   </main>
 </div>
 
-<script src="/app.js"></script>
+<script src="app.js"></script>
 <script>
 const errorEl = document.getElementById("error");
 const siteId = new URLSearchParams(window.location.search).get("id");
@@ -202,10 +202,10 @@ async function loadReports() {
       row.style.flexWrap = "wrap";
       const isFinal = report.status === "final";
       row.innerHTML =
-        `<span class="title"><a href="/report.html?id=${report.id}">${report.visit_no}회차</a>` +
+        `<span class="title"><a href="report.html?id=${report.id}">${report.visit_no}회차</a>` +
         `<span class="meta" style="margin-left:10px;">${report.guidance_date || "지도일 미입력"} · 공정률 ${report.progress_rate ?? 0}%</span></span>` +
         `<span class="status-pill ${isFinal ? "approved" : "pending"}">${isFinal ? "PDF 생성됨" : "작성중"}</span>` +
-        `<a class="secondary-link" href="/api/reports/${report.id}/hwpx">↓ 한글</a>` +
+        `<a class="secondary-link" href="${BASE}/api/reports/${report.id}/hwpx">↓ 한글</a>` +
         `<button type="button" class="secondary rp-del" style="margin-top:0; color:var(--crit);">삭제</button>`;
       row.querySelector(".rp-del").addEventListener("click", async () => {
         if (!confirm(`${report.visit_no}회차 보고서를 삭제할까요? 되돌릴 수 없습니다.`)) return;
@@ -228,7 +228,7 @@ document.getElementById("new-report-btn").addEventListener("click", async () => 
   errorEl.style.display = "none";
   try {
     const report = await apiPost(`/sites/${siteId}/reports`, {});
-    window.location.href = `/report.html?id=${report.id}`;
+    window.location.href = `report.html?id=${report.id}`;
   } catch (err) {
     showError(errorEl, err);
   }
@@ -236,7 +236,7 @@ document.getElementById("new-report-btn").addEventListener("click", async () => 
 
 document.getElementById("logout-btn").addEventListener("click", async () => {
   await apiPost("/auth/logout");
-  window.location.href = "/index.html";
+  window.location.href = "index.html";
 });
 api("/auth/me").then((me) => {
   document.getElementById("sidebar-name").textContent = me.display_name || me.email;

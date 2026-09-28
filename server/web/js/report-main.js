@@ -7,7 +7,7 @@
 document.getElementById("confirm-check").addEventListener("change", (e) => {
   document.getElementById("render-btn").disabled = !e.target.checked;
 });
-document.getElementById("hwpx-link").href = `/api/reports/${reportId}/hwpx`;
+document.getElementById("hwpx-link").href = `${BASE}/api/reports/${reportId}/hwpx`;
 
 // --- PDF 생성 ---
 document.getElementById("render-btn").addEventListener("click", async () => {
@@ -39,7 +39,7 @@ function pollJob(jobId) {
       } else if (job.status === "done") {
         clearInterval(pollTimer);
         btn.disabled = false;
-        statusEl.innerHTML = `완료! <a href="/api/jobs/${jobId}/download">PDF 다운로드</a>`;
+        statusEl.innerHTML = `완료! <a href="${BASE}/api/jobs/${jobId}/download">PDF 다운로드</a>`;
       } else if (job.status === "failed") {
         clearInterval(pollTimer);
         btn.disabled = false;
@@ -55,7 +55,7 @@ function pollJob(jobId) {
 
 document.getElementById("logout-btn").addEventListener("click", async () => {
   await apiPost("/auth/logout");
-  window.location.href = "/index.html";
+  window.location.href = "index.html";
 });
 api("/auth/me").then((me) => {
   document.getElementById("sidebar-name").textContent = me.display_name || me.email;
@@ -63,11 +63,11 @@ api("/auth/me").then((me) => {
 }).catch(() => {});
 
 // --- 페이지 시작: 각 섹션 불러오기(원래 인라인 스크립트의 실행 순서 그대로) ---
-setupPhotoSlots("overview-slots", `/api/reports/${reportId}/overview-photos`, "전경사진");
-setupPhotoSlots("inspection-slots", `/api/reports/${reportId}/inspection-photos`, "점검사진");
+setupPhotoSlots("overview-slots", `${BASE}/api/reports/${reportId}/overview-photos`, "전경사진");
+setupPhotoSlots("inspection-slots", `${BASE}/api/reports/${reportId}/inspection-photos`, "점검사진");
 setupPreviousFindings();
-setupProcessSlots("current-process-slots", `/api/reports/${reportId}/current-process`);
-setupProcessSlots("future-process-slots", `/api/reports/${reportId}/future-process`);
+setupProcessSlots("current-process-slots", `${BASE}/api/reports/${reportId}/current-process`);
+setupProcessSlots("future-process-slots", `${BASE}/api/reports/${reportId}/future-process`);
 setupFindings();
 setupTbm();
 setupMeasurements();

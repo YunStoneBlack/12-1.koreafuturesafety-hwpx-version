@@ -83,7 +83,7 @@ async function loadReport() {
   try {
     const report = await api(`/reports/${reportId}`);
     siteId = report.site_id;
-    document.getElementById("back-link").href = `/site.html?id=${siteId}`;
+    document.getElementById("back-link").href = `site.html?id=${siteId}`;
     document.getElementById("report-title").textContent = `${report.visit_no}회차 보고서`;
     // 경로 표시(현장 목록 / 현장명) — 실패해도 보고서 편집엔 지장 없으니 조용히 넘김
     api(`/sites/${siteId}`).then((site) => {
@@ -156,7 +156,7 @@ document.getElementById("section2-save").addEventListener("click", async () => {
   errorEl.style.display = "none";
   const statusEl = document.getElementById("section2-status");
   try {
-    await apiPatch(`/api/reports/${reportId}`, {
+    await apiPatch(`${BASE}/api/reports/${reportId}`, {
         misc_overwork: document.getElementById("misc-overwork").checked,
         misc_no_photo: document.getElementById("misc-no-photo").checked,
         misc_other: document.getElementById("misc-other").checked,
@@ -189,7 +189,7 @@ document.getElementById("section5-save").addEventListener("click", async () => {
     (el) => Number(el.dataset.idx)
   );
   try {
-    await apiPatch(`/api/reports/${reportId}`, { major_hazard_work_checks: checked });
+    await apiPatch(`${BASE}/api/reports/${reportId}`, { major_hazard_work_checks: checked });
     statusEl.textContent = "저장되었습니다.";
   } catch (err) {
     showError(errorEl, err);
@@ -220,7 +220,7 @@ document.getElementById("section6-save").addEventListener("click", async () => {
     document.querySelectorAll("#hazard-factor-list input[type=checkbox]:checked")
   ).map((el) => el.dataset.value);
   try {
-    await apiPatch(`/api/reports/${reportId}`, { hazard_factor_checks: checked });
+    await apiPatch(`${BASE}/api/reports/${reportId}`, { hazard_factor_checks: checked });
     statusEl.textContent = "저장되었습니다.";
   } catch (err) {
     showError(errorEl, err);
@@ -285,7 +285,7 @@ document.getElementById("section6-3-save").addEventListener("click", async () =>
   errorEl.style.display = "none";
   const statusEl = document.getElementById("section6-3-status");
   try {
-    await apiPatch(`/api/reports/${reportId}`, {
+    await apiPatch(`${BASE}/api/reports/${reportId}`, {
         machinery_checks: collectEquipmentTable("equip-machinery"),
         hand_tool_checks: collectEquipmentTable("equip-handtool"),
         hazmat_checks: collectEquipmentTable("equip-hazmat"),
@@ -349,7 +349,7 @@ document.getElementById("basic-save").addEventListener("click", async () => {
   const progress = document.getElementById("progress-rate").value;
   const prevNone = document.getElementById("prev-guidance-none").checked;
   try {
-    const out = await apiPatch(`/api/reports/${reportId}`, {
+    const out = await apiPatch(`${BASE}/api/reports/${reportId}`, {
       visit_no: visitNo ? Number(visitNo) : undefined,
       guidance_date: document.getElementById("guidance-date").value || null,
       prev_guidance_date: prevNone ? null : (document.getElementById("prev-guidance-date").value || null),
@@ -369,7 +369,7 @@ document.getElementById("staff-select").addEventListener("change", async (e) => 
   errorEl.style.display = "none";
   const value = e.target.value ? Number(e.target.value) : null;
   try {
-    await apiPatch(`/api/reports/${reportId}`, { assigned_staff_id: value });
+    await apiPatch(`${BASE}/api/reports/${reportId}`, { assigned_staff_id: value });
     staffSelectedId = value;
     await loadSignoffStatus();
   } catch (err) {
@@ -383,7 +383,7 @@ document.getElementById("section1-save").addEventListener("click", async () => {
   const statusEl = document.getElementById("section1-status");
   try {
     const staffVal = document.getElementById("staff-select").value;
-    await apiPatch(`/api/reports/${reportId}`, {
+    await apiPatch(`${BASE}/api/reports/${reportId}`, {
         assigned_staff_id: staffVal ? Number(staffVal) : null,
         notification_method: currentMethod,
         notify_signee_name: document.getElementById("notify-signee").value,
@@ -431,7 +431,7 @@ document.getElementById("sig-clear").addEventListener("click", async () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   hasInk = false;
   try {
-    await api(`/api/reports/${reportId}/notify-signature`, { method: "DELETE" });
+    await api(`${BASE}/api/reports/${reportId}/notify-signature`, { method: "DELETE" });
     setSigStatus(false);
   } catch (err) {
     showError(errorEl, err);
@@ -448,7 +448,7 @@ document.getElementById("sig-save").addEventListener("click", () => {
     const formData = new FormData();
     formData.append("file", blob, "signature.png");
     try {
-      const res = await fetch(`/api/reports/${reportId}/notify-signature`, {
+      const res = await fetch(`${BASE}/api/reports/${reportId}/notify-signature`, {
         method: "POST",
         credentials: "include",
         body: formData,
@@ -477,5 +477,5 @@ async function loadSignaturePreview() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   };
-  img.src = `/api/reports/${reportId}/notify-signature-image?ts=${Date.now()}`;
+  img.src = `${BASE}/api/reports/${reportId}/notify-signature-image?ts=${Date.now()}`;
 }

@@ -4,16 +4,16 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>담당요원 - 기술지도 보고서</title>
-<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="style.css" />
 </head>
 <body>
 <div class="app">
   <aside class="sidebar">
-    <div class="brand"><img src="/img/logo-white.png" alt="한국미래안전" /></div>
+    <div class="brand"><img src="img/logo-white.png" alt="한국미래안전" /></div>
     <nav class="nav">
-      <a class="nav-item" href="/dashboard.html">현장 목록</a>
-      <a class="nav-item active" href="/staff.html">담당요원</a>
-      <a class="nav-item" href="/settings.html">설정</a>
+      <a class="nav-item" href="dashboard.html">현장 목록</a>
+      <a class="nav-item active" href="staff.html">담당요원</a>
+      <a class="nav-item" href="settings.html">설정</a>
     </nav>
     <div class="sidebar-foot">
       <div class="avatar" id="sidebar-avatar">-</div>
@@ -55,8 +55,8 @@
   </main>
 </div>
 
-<script src="/app.js"></script>
-<script src="/signature.js"></script>
+<script src="app.js"></script>
+<script src="signature.js"></script>
 <script>
 const errorEl = document.getElementById("error");
 
@@ -108,9 +108,9 @@ function staffRow(s) {
   function signature() {
     panel.innerHTML = "";
     createSignatureField(panel, {
-      imageUrl: `/api/staff/${s.id}/signature`,
-      uploadUrl: `/api/staff/${s.id}/signature`,
-      deleteUrl: `/api/staff/${s.id}/signature`,
+      imageUrl: `${BASE}/api/staff/${s.id}/signature`,
+      uploadUrl: `${BASE}/api/staff/${s.id}/signature`,
+      deleteUrl: `${BASE}/api/staff/${s.id}/signature`,
       registered: s.has_signature,
       onChange: (out) => {
         s.has_signature = out.has_signature;
@@ -171,7 +171,7 @@ document.getElementById("add-btn").addEventListener("click", async () => {
 
 document.getElementById("logout-btn").addEventListener("click", async () => {
   await apiPost("/auth/logout");
-  window.location.href = "/index.html";
+  window.location.href = "index.html";
 });
 api("/auth/me").then((me) => {
   document.getElementById("sidebar-name").textContent = me.display_name || me.email;

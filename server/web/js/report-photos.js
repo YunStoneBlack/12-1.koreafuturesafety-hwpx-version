@@ -96,7 +96,7 @@ const RISK_OPTIONS = '<option value="">선택 안 함</option><option value="1">
 async function setupPreviousFindings() {
   const container = document.getElementById("previous-findings-slots");
   const hintEl = document.getElementById("pf-hint");
-  const base = `/api/reports/${reportId}/previous-findings`;
+  const base = `${BASE}/api/reports/${reportId}/previous-findings`;
   let data;
   try {
     data = await api(base);

@@ -10,7 +10,7 @@ from core.models_web import User, UserSession
 from server.api.deps import get_current_user, get_db
 from server.api.security import verify_password
 from server.schemas.auth import LoginRequest, UserOut
-from server.settings import SESSION_COOKIE_NAME, SESSION_COOKIE_SECURE, SESSION_TTL_HOURS
+from server.settings import SESSION_COOKIE_NAME, SESSION_COOKIE_SECURE, SESSION_TTL_HOURS, WEB_BASE_PATH
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -33,6 +33,7 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
         secure=SESSION_COOKIE_SECURE,
         samesite="lax",
         max_age=SESSION_TTL_HOURS * 3600,
+        path=WEB_BASE_PATH or "/",  # 그룹웨어 쪽 경로로는 이 쿠키를 보내지 않음
     )
     return user
 
@@ -43,7 +44,7 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     if session_id:
         db.query(UserSession).filter(UserSession.id == session_id).delete()
         db.commit()
-    response.delete_cookie(SESSION_COOKIE_NAME)
+    response.delete_cookie(SESSION_COOKIE_NAME, path=WEB_BASE_PATH or "/")
     return {"ok": True}
 
 

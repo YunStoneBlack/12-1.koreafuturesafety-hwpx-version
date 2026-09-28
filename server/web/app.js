@@ -1,18 +1,28 @@
-// 공통 fetch 헬퍼 — 모든 API 호출은 /api 아래이고, 세션 쿠키를 항상 같이 보낸다
+// 공통 fetch 헬퍼 — 모든 API 호출은 {BASE}/api 아래이고, 세션 쿠키를 항상 같이 보낸다
 // (같은 오리진에서 서빙하므로 CORS 없이도 credentials: 'include'만으로 충분하다).
+
+// 웹판이 올라가 있는 경로(예: "/report") — 그룹웨어 https://groupware.kfsc21c.com/report/... 아래든, 사무실 LAN
+// http://<IP>:8000/report/... 든 같은 코드로 동작하도록 현재 페이지 주소에서 계산한다(서버 WEB_BASE_PATH와 같은 값).
+// 모든 페이지가 같은 폴더에 있으므로 화면 간 이동·css·이미지는 상대 주소, API·사진 주소는 `${BASE}/api/...`로 쓴다.
+const BASE = window.location.pathname.replace(/\/[^/]*$/, "");
+
+// "/sites"처럼 /api 없이 넘기든, "/api/..." 또는 `${BASE}/api/...`로 완성된 경로를 넘기든 한 번만 붙인다
+// (예전에 /api가 두 번 붙어 /api/api/...로 조용히 404가 난 적이 있다).
+function apiUrl(path) {
+  if (BASE && path.startsWith(`${BASE}/api/`)) return path;
+  if (path.startsWith("/api/")) return BASE + path;
+  return `${BASE}/api${path}`;
+}
+
 async function api(path, options = {}) {
-  // report.html의 여러 섹션이 "/api/reports/{id}/..." 형태의 완성된 경로를 그대로 넘기는
-  // 경우와, 이 파일의 다른 곳처럼 "/sites"처럼 /api 없이 넘기는 경우가 섞여있다 — 앞에
-  // /api가 이미 붙어있으면 또 붙이지 않는다(중복되면 /api/api/...가 되어 404가 난다,
-  // 실제로 report.html 여러 섹션에서 이 버그로 목록 조회가 전부 실패하고 있었다).
-  const url = path.startsWith("/api/") ? path : `/api${path}`;
+  const url = apiUrl(path);
   const res = await fetch(url, {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     ...options,
   });
   if (res.status === 401) {
-    window.location.href = "/index.html";
+    window.location.href = "index.html";
     throw new Error("로그인이 필요합니다.");
   }
   if (!res.ok) {
@@ -33,10 +43,10 @@ function apiPatch(path, data) {
 
 // 파일 업로드(multipart) — Content-Type은 브라우저가 boundary까지 붙여 정하게 비워둔다.
 async function apiUpload(path, formData) {
-  const url = path.startsWith("/api/") ? path : `/api${path}`;
+  const url = apiUrl(path);
   const res = await fetch(url, { method: "POST", credentials: "include", body: formData });
   if (res.status === 401) {
-    window.location.href = "/index.html";
+    window.location.href = "index.html";
     throw new Error("로그인이 필요합니다.");
   }
   if (!res.ok) {

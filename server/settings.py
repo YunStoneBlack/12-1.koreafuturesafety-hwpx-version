@@ -13,7 +13,15 @@ if not SESSION_SECRET:
         "설정해야 합니다. 예: 아무 긴 랜덤 문자열."
     )
 
-SESSION_COOKIE_NAME = "session_id"
+# 그룹웨어(groupware.kfsc21c.com)와 같은 도메인의 /report 아래에서 서비스하므로, 그룹웨어 쿠키와
+# 헷갈리지 않게 이름을 구분하고(예전 "session_id") 쿠키 경로도 WEB_BASE_PATH로 좁힌다.
+SESSION_COOKIE_NAME = "kfsc_report_session"
+
+# 웹판 전체(화면+API)를 올리는 경로 — 그룹웨어 nginx가 https://groupware.kfsc21c.com/report/... 를 그대로
+# 이 PC로 넘기므로 기본값 "/report". 로컬/사무실 LAN에서도 http://<IP>:8000/report/ 로 접속한다.
+WEB_BASE_PATH = "/" + os.environ.get("WEB_BASE_PATH", "/report").strip().strip("/")
+if WEB_BASE_PATH == "/":
+    WEB_BASE_PATH = ""
 SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "24") or 24)
 
 # Cloudflare Tunnel(HTTPS)로 배포하면 True가 맞다(기본값). 다만 "Secure" 쿠키는 HTTPS가

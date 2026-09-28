@@ -5,7 +5,7 @@
 
 // --- 10-1. TBM 교육 ---
 async function setupTbm() {
-  const base = `/api/reports/${reportId}/tbm`;
+  const base = `${BASE}/api/reports/${reportId}/tbm`;
   let data;
   try {
     data = await api(base);
@@ -37,7 +37,7 @@ async function setupTbm() {
     peopleBtn.disabled = true;
     peopleBtn.textContent = "세는 중...";
     try {
-      const out = await apiPost(`/api/reports/${reportId}/ai/tbm-people`, {});
+      const out = await apiPost(`${BASE}/api/reports/${reportId}/ai/tbm-people`, {});
       if (out.count == null) {
         statusEl.className = "status";
         statusEl.textContent = "사진에서 인원을 읽지 못했습니다. 참석인원을 직접 입력해주세요.";
@@ -75,7 +75,7 @@ async function setupTbm() {
 // --- 10-2. 계측자료 (7종 고정) ---
 async function setupMeasurements() {
   const container = document.getElementById("measurement-list");
-  const base = `/api/reports/${reportId}/measurements`;
+  const base = `${BASE}/api/reports/${reportId}/measurements`;
   let rows;
   try {
     rows = await api(base);
@@ -143,7 +143,7 @@ async function setupMeasurements() {
       readBtn.disabled = true;
       readBtn.textContent = "읽는 중...";
       try {
-        const out = await apiPost(`/api/reports/${reportId}/ai/measurement/${encodeURIComponent(type)}`, {});
+        const out = await apiPost(`${BASE}/api/reports/${reportId}/ai/measurement/${encodeURIComponent(type)}`, {});
         if (out.value == null) {
           statusEl.className = "status";
           statusEl.textContent = "사진에서 측정값을 읽지 못했습니다. 직접 입력해주세요.";
@@ -166,7 +166,7 @@ async function setupMeasurements() {
 // --- 11. 제공자료 — 라이브러리 선택 / 직접 업로드 / 지적사항 기반 추천 (server/api/routers/materials.py) ---
 // 선택이 바뀌는 API는 전부 {items, education_content}를 돌려준다 — 슬롯을 다시 그리고 10-1 교육내용
 // 칸도 같이 맞춘다(서버가 이미 저장함, 데스크톱 _sync_education_content_from_materials와 같은 동작).
-const matBase = `/api/reports/${reportId}/materials`;
+const matBase = `${BASE}/api/reports/${reportId}/materials`;
 let matLibrary = null;
 let matPickerSlot = null;
 
@@ -208,7 +208,7 @@ function renderMaterials(items) {
     document.getElementById(`mat-title-${slot}`).value = data.title;
 
     document.getElementById(`mat-thumb-${slot}`).addEventListener("click", () => {
-      window.open(data.material_id ? `/api/material-library/${data.material_id}/file` : `${matBase}/${slot}/photo`, "_blank");
+      window.open(data.material_id ? `${BASE}/api/material-library/${data.material_id}/file` : `${matBase}/${slot}/photo`, "_blank");
     });
     document.getElementById(`mat-pick-${slot}`).addEventListener("click", () => openMaterialPicker(slot));
     document.getElementById(`mat-clear-${slot}`).addEventListener("click", async () => {
@@ -258,7 +258,7 @@ function renderMaterialPickerGrid() {
     const tile = document.createElement("button");
     tile.type = "button";
     tile.className = "lib-tile";
-    tile.innerHTML = `<img loading="lazy" src="/api/material-library/${m.id}/thumbnail" alt="" /><span></span>`;
+    tile.innerHTML = `<img loading="lazy" src="${BASE}/api/material-library/${m.id}/thumbnail" alt="" /><span></span>`;
     tile.querySelector("span").textContent = m.title;
     tile.addEventListener("click", async () => {
       errorEl.style.display = "none";
