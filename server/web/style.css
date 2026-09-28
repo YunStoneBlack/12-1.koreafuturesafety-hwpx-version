@@ -44,12 +44,9 @@ h3 { font-size: 13.5px; font-weight: 600; margin: 0 0 8px; color: var(--muted); 
 
 /* ---------- 앱 셸(사이드바 + 본문) ---------- */
 .app { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
-@media (max-width: 760px) {
-  .app { grid-template-columns: 1fr; }
-  .sidebar { display: none; } /* 폰/현장에서는 사이드바 대신 상단바만(아래 topbar) */
-}
 
-.sidebar { background: var(--sidebar-bg); color: var(--sidebar-text); display: flex; flex-direction: column; padding: 22px 14px 20px; }
+.sidebar { background: var(--sidebar-bg); color: var(--sidebar-text); display: flex; flex-direction: column; padding: 22px 14px 20px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+/* ↑ 보고서 화면이 매우 길어서(섹션 11개) 스크롤해도 메뉴·로그아웃이 항상 보이게 고정 */
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px; border-bottom: 1px solid rgba(237,239,250,.12); margin-bottom: 18px; }
 .brand img { height: 32px; width: auto; display: block; }
 
@@ -66,6 +63,19 @@ h3 { font-size: 13.5px; font-weight: 600; margin: 0 0 8px; color: var(--muted); 
 .sidebar-foot button:hover { color: var(--sidebar-text); }
 
 .main { padding: 24px 20px 48px; max-width: 900px; width: 100%; }
+
+/* 폰/현장 태블릿: 사이드바를 숨기면 메뉴·로그아웃이 사라지므로 상단 가로바로 접는다 */
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { flex-direction: row; align-items: center; gap: 10px; padding: 10px 14px; height: auto; overflow: visible; z-index: 10; }
+  .brand { padding: 0; margin: 0; border: none; }
+  .brand img { height: 22px; }
+  .nav { flex-direction: row; margin: 0; }
+  .nav-item { padding: 6px 10px; font-size: 13px; }
+  .sidebar-foot { margin-left: auto; padding: 0; border: none; }
+  .sidebar-foot .avatar, .sidebar-foot > div:not(.avatar) { display: none; }
+  .main { padding: 16px 16px 40px; }
+}
 
 .topline { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 8px; }
 .page-sub { color: var(--muted); font-size: 13.5px; margin: 2px 0 0; }
@@ -126,6 +136,9 @@ button.secondary:hover { background: var(--paper); }
 .status { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
 .status.ok { color: var(--green); font-weight: 600; }
 .status.bad { color: var(--crit); font-weight: 600; }
+/* 서명 상태 카드 등에서 단독으로 쓰는 등록/미등록 표시 */
+.ok { color: var(--green); font-weight: 600; }
+.bad { color: var(--crit); font-weight: 600; }
 
 .error {
   display: none; color: var(--crit); background: var(--crit-soft); border: 1px solid #F3C9C9;
@@ -147,7 +160,7 @@ button.secondary:hover { background: var(--paper); }
 .method-row, .hazard-row .line-check, .equip-line { display: flex; }
 .method-row { gap: 6px; flex-wrap: wrap; margin: 6px 0 12px; }
 .method-btn, .eval-btn {
-  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
+  margin-top: 0; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
   background: var(--surface); color: var(--muted); font-size: 12.5px; cursor: pointer;
 }
 .method-btn.on, .eval-btn.on { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 600; }
@@ -165,15 +178,6 @@ button.secondary:hover { background: var(--paper); }
 /* 섹션 안 서브 카드(반복되는 슬롯형 항목 — 지적사항/이전지적사항/진행공정 등) */
 .sub-card { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
 .sub-card h3 { color: var(--ink); }
-
-/* ---------- .card — report.html 등에서 쓰는 범용 카드(= form-card와 같은 스타일) ---------- */
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-card); padding: 20px; margin-bottom: 16px; }
-.card h2 { margin-bottom: 4px; }
-.card[style*="background: #fafafa"], .card[style*="background:#fafafa"] { background: var(--paper) !important; border-color: var(--line); box-shadow: none; }
-
-/* 사이드바 셸을 아직 안 씌운 화면(예전 topbar 패턴) — 최소한의 통일감만 준다 */
-.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
-.topbar > div { display: flex; align-items: center; gap: 14px; }
 
 /* 담당요원/결재란 서명 상태 카드(report.html 섹션 1) */
 .status-cards { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
