@@ -6,19 +6,27 @@
 자세한 설계는 `C:\Users\윤석현1\.claude\plans\magical-puzzling-corbato.md`, 진행상황은 `작업내용.md`,
 핵심 기술 요소는 `핵심기술.md` 참고.
 
-## 웹판(여러 직원이 함께 쓰는 버전, `server/`)
+## 웹판(그룹웨어의 "보고서 자동화" 메뉴, `server/`)
 
-데스크톱과 같은 `core/`(보고서 생성 엔진·DB 모델)를 공유하는 웹 버전 — FastAPI + PostgreSQL, 회사(테넌트)별 데이터 분리,
-PDF는 별도 렌더 워커가 한글 COM으로 만든다(Windows + 한글 설치 PC 필요). 설치·실행·백업·외부 접속 절차는
-`server/README_DEPLOY.md`. 구성:
+**접속 주소: `https://groupware.kfsc21c.com/report/`** — 회사 그룹웨어(13번 프로젝트, AWS)의 하위 메뉴. 그룹웨어에 로그인돼 있으면 바로
+보고서 화면(보고서 자체 로그인 없음), 화면 틀(사이드바·CSS)도 그룹웨어 것을 그대로 쓴다.
 
-- `server/api/` — API(`routers/`: 인증·현장·보고서·섹션별·AI·제공자료·담당요원·설정), `repo.py`(모든 조회의 회사 격리 단일 지점),
-  `carryover.py`(4번 이전지적사항 자동이월), `report_defaults.py`(새 보고서 기본값·이전 회차 승계)
+```
+직원 브라우저 → groupware.kfsc21c.com(AWS nginx: 그룹웨어 로그인 확인 후 전달만) ──SSH 역방향 통로──→ 이 PC(윈도우 + 한글)
+```
+
+데스크톱과 같은 `core/`(보고서 생성 엔진·DB 모델)를 공유한다. hwpx 생성·PDF 변환(한글 COM)·사진/DB(PostgreSQL) 저장은 전부 **이 PC**에서 —
+리눅스(AWS)에선 한글 PDF 변환이 안 되기 때문. 이 PC만 켜져 있으면 되고(자동 로그인 + 시작프로그램 감시 스크립트로 재부팅 후 자동 복구),
+꺼져 있으면 `/report/`만 "잠시 연결할 수 없습니다" 안내가 뜬다. 설치·운영·서버 설정·되돌리기 전체 절차는 `server/README_DEPLOY.md`.
+
+- `server/api/` — API(`routers/`: 현장·보고서·섹션별·AI·제공자료·담당요원·설정·보고서 관리), `repo.py`(모든 조회의 회사 격리 단일 지점),
+  `deps.py`(그룹웨어 모드 로그인 — nginx가 붙인 사용자 헤더 + 비밀값 확인), `carryover.py`(4번 이전지적사항 자동이월),
+  `report_defaults.py`(새 보고서 기본값·이전 회차 승계), `main.py`(전체를 `WEB_BASE_PATH`=`/report` 아래에 올림)
 - `server/worker/render_worker.py` — PDF 렌더 큐 처리(한글 COM)
-- `server/web/` — 화면(로그인/현장 목록/현장/보고서/담당요원/설정). 보고서 화면 스크립트는 `server/web/js/report-*.js`로 나뉨
-  (core → photos → work → support → main 순서, 시작 호출은 main 맨 아래)
-
-API 서버를 시작하면 공용 참조 데이터(계측기준·제공자료 라이브러리 등)가 없을 때 자동으로 채운다.
+- `server/web/` — 화면(현장 목록/현장/보고서/담당요원/설정). `shell.js`가 그룹웨어 사이드바를 끼워 넣고, 보고서 화면 스크립트는
+  `js/report-*.js`로 나뉨(core → photos → work → support → main, 시작 호출은 main 맨 아래). 주소는 `app.js`의 `BASE` + 상대 경로
+- `server/scripts/web_watchdog.ps1` — API·워커·그룹웨어 통로 자동 실행/재시작(시작프로그램 바로가기), `server/deploy/` — AWS 서버 설정 원본
+- 서버 전용 비밀값은 `server/.env.server`(git 제외, 예시 `.env.server.example`)
 
 ## 설치 및 실행
 
