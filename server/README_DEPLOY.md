@@ -119,7 +119,7 @@ AWS는 **전달만** 하고 hwpx 생성·PDF 변환(한글)·사진/DB 저장은
 python -m server.scripts.backup
 ```
 
-`data/backups/` 아래 DB 덤프가 쌓인다. **DB 덤프에는 안 담기는 파일**(사진/PDF/서명)도
+저장소 루트 `backups/` 아래 DB 덤프가 쌓인다(git 무시 — API 키 등 실데이터 포함). pg_dump가 PATH에 없으면 `C:/Program Files/PostgreSQL/16/bin`을 쓴다. **DB 덤프에는 안 담기는 파일**(사진/PDF/서명)도
 같이 챙겨야 한다 — 스크립트 실행 시 그 폴더 목록을 출력해준다:
 `data/photos`, `data/reports`, `data/signatures`, `data/templates`
 

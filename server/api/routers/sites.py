@@ -133,6 +133,14 @@ def delete_site(
     site = repo.get_site(db, user.company_id, site_id)
     if site is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
+    deleted_reports = delete_site_cascade(db, site)
+    return {"ok": True, "deleted_reports": deleted_reports}
+
+
+def delete_site_cascade(db: Session, site: Site) -> int:
+    """현장 하나를 보고서·공정 기본값·파일까지 통째로 지운다(비밀번호 확인은 호출하는 쪽 몫). 지운 보고서 수를 돌려준다.
+    PostgreSQL 외래키 때문에 이월 연결과 PDF 렌더 작업 기록을 먼저 정리하고, 파일은 DB 삭제가 확정된 뒤에 지운다."""
+    site_id = site.id
     reports = db.query(Report).filter(Report.site_id == site_id).all()
     report_ids = [r.id for r in reports]
     files = [p for r in reports for p in (r.pdf_path, r.notify_signature_path) if p]
@@ -148,9 +156,8 @@ def delete_site(
     db.query(SiteProcessDefault).filter(SiteProcessDefault.site_id == site_id).delete(synchronize_session=False)
     db.delete(site)
     db.commit()
-    # 파일은 DB 삭제가 확정된 뒤에 지운다(중간에 실패해도 DB가 가리키는 파일이 먼저 사라지지 않게)
     for path in files:
         Path(path).unlink(missing_ok=True)
     for report_id in report_ids:
         shutil.rmtree(BASE_DIR / "data" / "photos" / f"report_{report_id}", ignore_errors=True)
-    return {"ok": True, "deleted_reports": len(report_ids)}
+    return len(report_ids)

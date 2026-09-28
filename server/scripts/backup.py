@@ -11,6 +11,8 @@ DB는 pg_dump로 실제 파일을 만들고, 사진/PDF/서명처럼 DB에 안 �
 from __future__ import annotations
 
 import datetime
+import shutil
+import re
 import subprocess
 import sys
 
@@ -34,7 +36,12 @@ def main() -> None:
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     dump_path = BACKUP_DIR / f"db_{stamp}.dump"
 
-    subprocess.run(["pg_dump", DATABASE_URL, "-Fc", "-f", str(dump_path)], check=True)
+    # DATABASE_URL은 SQLAlchemy 형식("postgresql+psycopg://...")이라 pg_dump가 못 알아본다 → 드라이버 표기를 떼고 넘긴다
+    # (2026-09-29 실제로 이 때문에 백업이 실패했음). pg_dump가 PATH에 없으면 기본 설치 위치(PostgreSQL 16)를 쓴다.
+    libpq_url = re.sub(r"^postgresql\+\w+://", "postgresql://", DATABASE_URL)
+    pg_dump = shutil.which("pg_dump") or "C:/Program Files/PostgreSQL/16/bin/pg_dump.exe"
+    # 윈도우판 pg_dump는 주소를 맨 앞 위치 인자로 주면 뒤 옵션을 "인자가 너무 많다"며 거부한다 → -d로 넘긴다
+    subprocess.run([pg_dump, "-Fc", "-f", str(dump_path), "-d", libpq_url], check=True)
     print(f"DB 백업 완료: {dump_path}")
 
     print("아래 폴더도 같이 백업(복사)해야 합니다 — pg_dump에는 안 포함됨:")

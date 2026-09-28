@@ -59,3 +59,6 @@ packaging/*.spec
 # 이메일/사업자등록번호/주소)가 들어있다. 구조 변경마다 만든 report_template.hwp.bak-* 백업
 # 사본들도 전부 같은 문제라(개별 파일명으로는 다 못 막아 사고 위험) 폴더째 제외한다.
 data/templates/
+
+# DB 덤프·파일 백업(server/scripts/backup.py) — API 키 등 실데이터가 들어 있으므로 절대 커밋 금지
+backups/
