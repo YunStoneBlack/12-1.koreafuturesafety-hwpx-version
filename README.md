@@ -1,10 +1,24 @@
-# 한국미래안전 기술지도 결과보고서 자동화 (데스크톱 앱)
+# 한국미래안전 기술지도 결과보고서 자동화 (데스크톱 앱 + 웹판)
 
 건설재해예방전문지도기관 기술지도 결과보고서를 회차별로 작성하는 데스크톱 프로그램(PyQt6).
 회사가 기존에 쓰던 웹 시스템의 화면/흐름을 그대로 재현하고, AI 초안 생성 + 사람 최종 검토 원칙을 유지한다.
 
 자세한 설계는 `C:\Users\윤석현1\.claude\plans\magical-puzzling-corbato.md`, 진행상황은 `작업내용.md`,
 핵심 기술 요소는 `핵심기술.md` 참고.
+
+## 웹판(여러 직원이 함께 쓰는 버전, `server/`)
+
+데스크톱과 같은 `core/`(보고서 생성 엔진·DB 모델)를 공유하는 웹 버전 — FastAPI + PostgreSQL, 회사(테넌트)별 데이터 분리,
+PDF는 별도 렌더 워커가 한글 COM으로 만든다(Windows + 한글 설치 PC 필요). 설치·실행·백업·외부 접속 절차는
+`server/README_DEPLOY.md`. 구성:
+
+- `server/api/` — API(`routers/`: 인증·현장·보고서·섹션별·AI·제공자료·담당요원·설정), `repo.py`(모든 조회의 회사 격리 단일 지점),
+  `carryover.py`(4번 이전지적사항 자동이월), `report_defaults.py`(새 보고서 기본값·이전 회차 승계)
+- `server/worker/render_worker.py` — PDF 렌더 큐 처리(한글 COM)
+- `server/web/` — 화면(로그인/현장 목록/현장/보고서/담당요원/설정). 보고서 화면 스크립트는 `server/web/js/report-*.js`로 나뉨
+  (core → photos → work → support → main 순서, 시작 호출은 main 맨 아래)
+
+API 서버를 시작하면 공용 참조 데이터(계측기준·제공자료 라이브러리 등)가 없을 때 자동으로 채운다.
 
 ## 설치 및 실행
 
