@@ -1,4 +1,8 @@
 .env
+# 웹판 서버 전용 비밀값(DB 비밀번호·세션 비밀값) — server/__init__.py가 읽음
+server/.env.server
+# 감시 스크립트 로그
+data/logs/
 __pycache__/
 *.pyc
 .venv/
