@@ -51,6 +51,14 @@ def init_db() -> None:
     from core import models_web  # noqa: F401  (Sub-phase 33: 웹판 전용 테이블도 같이 등록)
 
     Base.metadata.create_all(engine)
+    seed_shared_reference_data()
+
+
+def seed_shared_reference_data() -> None:
+    """회사와 무관한 공용 참조 데이터(계측기준/공정 카탈로그/제공자료 라이브러리) 시딩 — 이미 있으면
+    건너뛰어 몇 번 불러도 안전하다. 데스크톱은 `init_db()`로, 웹판은 스키마를 alembic이 만들어서
+    `init_db()`를 안 거치므로 API 서버 시작 시(server/api/main.py) 이걸 직접 부른다 — 예전엔 웹 DB에
+    이 데이터가 하나도 없어 10번 계측자료 "안전기준" 칸이 비어 나갔다(Sub-phase 40에서 발견)."""
     _seed_measurement_standards()
     _seed_reference_data()
 

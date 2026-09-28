@@ -10,6 +10,7 @@ from core import config
 from core.db import BASE_DIR
 from core.models_web import User
 from server.api import repo
+from server.api.report_defaults import apply_new_report_defaults, record_site_hazard_checks
 from server.api.deps import get_current_user, get_db
 from server.schemas.report import JobOut, ReportIn, ReportOut, SignoffStatus
 
@@ -25,9 +26,12 @@ def list_reports(site_id: int, user: User = Depends(get_current_user), db: Sessi
 def create_report(
     site_id: int, body: ReportIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    report = repo.create_report(db, user.company_id, site_id, **body.model_dump())
+    fields = body.model_dump(exclude_unset=True)
+    report = repo.create_report(db, user.company_id, site_id, **fields)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
+    # 이전 회차·현장 기본값 승계(데스크톱 새 보고서와 동일, server/api/report_defaults.py)
+    apply_new_report_defaults(db, report, explicit=set(fields))
     return report
 
 
@@ -49,9 +53,16 @@ def update_report(
     안 보낸 필드는 건드리지 않는다. 이게 없으면 예를 들어 "2번 섹션 저장" 버튼이 2번
     필드만 보내는 순간 1번(통보방법·서명 성명 등)이 ReportIn의 기본값(""/False)으로
     전부 리셋되어버린다 — 섹션별로 나눠 저장하는 이 화면 구조에서는 반드시 필요하다."""
-    report = repo.update_report(db, user.company_id, report_id, **body.model_dump(exclude_unset=True))
+    fields = body.model_dump(exclude_unset=True)
+    if fields.get("visit_no") is None:
+        fields.pop("visit_no", None)  # 회차는 비울 수 없음(NOT NULL)
+    elif fields["visit_no"] < 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "회차는 1 이상이어야 합니다.")
+    report = repo.update_report(db, user.company_id, report_id, **fields)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
+    if "hazard_factor_checks" in fields:
+        record_site_hazard_checks(db, report)  # 다음 회차 기본값(데스크톱 저장 로직과 동일)
     return report
 
 

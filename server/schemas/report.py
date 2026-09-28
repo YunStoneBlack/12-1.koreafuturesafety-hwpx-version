@@ -12,7 +12,9 @@ class ReportIn(BaseModel):
     필드들 외엔 전부 기본값(빈 문자열/None/False)이라도 실제 렌더링 가능한 PDF가 나온다."""
 
     assigned_staff_id: int | None = None
+    visit_no: int | None = None  # 회차 — 수정 가능(데스크톱 Sub-phase 22와 동일), 생성 시 비우면 자동 증가
     guidance_date: datetime.date | None = None
+    prev_guidance_date: datetime.date | None = None  # 이전 지도일(None = 없음, 1회차 등)
     progress_rate: int | None = None
     notification_method: str = ""
     notify_signee_name: str = ""

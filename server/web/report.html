@@ -31,11 +31,24 @@
 <div id="error" class="error"></div>
 
 <section class="panel">
-  <div class="panel-head"><h2>담당요원</h2></div>
+  <div class="panel-head"><h2>기본 정보</h2></div>
   <div class="panel-body">
+  <label for="staff-select">담당요원</label>
   <select id="staff-select">
     <option value="">선택 안 함</option>
   </select>
+  <div class="field-grid">
+    <div><label for="visit-no">회차</label><input id="visit-no" type="number" min="1" /></div>
+    <div><label for="guidance-date">지도일</label><input id="guidance-date" type="date" /></div>
+    <div><label for="progress-rate">공정률 (%)</label><input id="progress-rate" type="number" min="0" max="100" /></div>
+    <div>
+      <label for="prev-guidance-date">이전 지도일</label>
+      <input id="prev-guidance-date" type="date" />
+      <label style="font-weight:400; margin-top:6px;"><input type="checkbox" id="prev-guidance-none" /> 없음(첫 지도 등)</label>
+    </div>
+  </div>
+  <button type="button" id="basic-save">기본 정보 저장</button>
+  <div id="basic-status" class="status"></div>
   </div>
 </section>
 
@@ -199,8 +212,18 @@
 <section class="panel">
   <div class="panel-head"><h2>11. 제공자료</h2></div>
   <div class="panel-body">
-  <p class="page-sub" style="margin:0 0 12px;">지금은 직접 업로드만 지원합니다(자료 라이브러리 선택은 다음 단계).</p>
-  <div id="materials-slots"></div>
+  <p class="page-sub" style="margin:0 0 12px;">자료 라이브러리에서 고르거나 직접 이미지를 올립니다(최대 2개). 고른 자료 제목은 10번 "교육내용"에 자동으로 들어갑니다.</p>
+  <button type="button" class="secondary" id="mat-recommend" style="margin-top:0;">✨ 지적사항 기반 추천</button>
+  <div id="mat-recommend-status" class="status"></div>
+  <div id="materials-slots" style="margin-top:12px;"></div>
+  <div id="mat-picker" class="sub-card" style="display:none;">
+    <div style="display:flex; gap:8px; align-items:center;">
+      <h3 id="mat-picker-title" style="margin:0; flex:1;">자료 선택</h3>
+      <button type="button" class="secondary" id="mat-picker-close" style="margin-top:0;">닫기</button>
+    </div>
+    <input id="mat-picker-search" placeholder="자료명 검색 (예: 추락, 굴착기, 사다리)" style="margin-top:10px;" />
+    <div id="mat-picker-grid" class="lib-grid"></div>
+  </div>
   </div>
 </section>
 
@@ -327,6 +350,12 @@ async function loadReport() {
       loadSignaturePreview();
       setSigStatus(true);
     }
+    document.getElementById("visit-no").value = report.visit_no ?? "";
+    document.getElementById("guidance-date").value = report.guidance_date || "";
+    document.getElementById("progress-rate").value = report.progress_rate ?? "";
+    document.getElementById("prev-guidance-date").value = report.prev_guidance_date || "";
+    document.getElementById("prev-guidance-none").checked = !report.prev_guidance_date;
+    document.getElementById("prev-guidance-date").disabled = !report.prev_guidance_date;
     await loadStaff(report.assigned_staff_id);
     await loadSignoffStatus();
   } catch (err) {
@@ -539,6 +568,34 @@ function setStatusCard(id, ok, badText) {
   el.textContent = ok ? "✓ 등록됨" : badText;
   el.className = ok ? "ok" : "bad";
 }
+
+// --- 기본 정보(회차/지도일/이전 지도일/공정률) ---
+document.getElementById("prev-guidance-none").addEventListener("change", (e) => {
+  const input = document.getElementById("prev-guidance-date");
+  input.disabled = e.target.checked;
+  if (e.target.checked) input.value = "";
+});
+document.getElementById("basic-save").addEventListener("click", async () => {
+  errorEl.style.display = "none";
+  const st = document.getElementById("basic-status");
+  const visitNo = document.getElementById("visit-no").value;
+  const progress = document.getElementById("progress-rate").value;
+  const prevNone = document.getElementById("prev-guidance-none").checked;
+  try {
+    const out = await apiPatch(`/api/reports/${reportId}`, {
+      visit_no: visitNo ? Number(visitNo) : undefined,
+      guidance_date: document.getElementById("guidance-date").value || null,
+      prev_guidance_date: prevNone ? null : (document.getElementById("prev-guidance-date").value || null),
+      progress_rate: progress === "" ? null : Number(progress),
+    });
+    document.getElementById("report-title").textContent = `${out.visit_no}회차 보고서`;
+    st.className = "status ok";
+    st.textContent = "저장되었습니다.";
+  } catch (err) {
+    st.textContent = "";
+    showError(errorEl, err);
+  }
+});
 
 document.getElementById("staff-select").addEventListener("change", async (e) => {
   try {
@@ -1337,51 +1394,161 @@ async function setupMeasurements() {
   }
 }
 
-// --- 11. 제공자료 (직접 업로드) ---
-async function setupMaterials() {
+// --- 11. 제공자료 — 라이브러리 선택 / 직접 업로드 / 지적사항 기반 추천 (server/api/routers/materials.py) ---
+// 선택이 바뀌는 API는 전부 {items, education_content}를 돌려준다 — 슬롯을 다시 그리고 10-1 교육내용
+// 칸도 같이 맞춘다(서버가 이미 저장함, 데스크톱 _sync_education_content_from_materials와 같은 동작).
+const matBase = `/api/reports/${reportId}/materials`;
+let matLibrary = null;
+let matPickerSlot = null;
+
+function applyMaterialsChange(out) {
+  renderMaterials(out.items);
+  document.getElementById("tbm-content").value = out.education_content;
+}
+
+function renderMaterials(items) {
   const container = document.getElementById("materials-slots");
-  const base = `/api/reports/${reportId}/materials`;
-  let rows;
-  try {
-    rows = await api(base);
-  } catch (err) {
-    showError(errorEl, err);
-    return;
-  }
-  for (const data of rows) {
+  container.innerHTML = "";
+  for (const data of items) {
     const slot = data.slot;
     const card = document.createElement("div");
     card.className = "sub-card";
+    const kind = data.material_id ? "라이브러리 자료" : data.has_photo ? "직접 올린 이미지" : "비어 있음";
     card.innerHTML = `
-      <h3>제공자료 ${slot}</h3>
-      <label>제목</label>
-      <input id="mat-title-${slot}" value="${data.title.replace(/"/g, "&quot;")}" />
+      <h3>제공자료 ${slot} <span style="font-weight:400; color:var(--muted); font-size:12px;">· ${kind}</span></h3>
       <div class="photo-slot">
-        <img class="thumb" id="mat-thumb-${slot}" style="display:${data.has_photo ? "block" : "none"};"
-             ${data.has_photo ? `src="${base}/${slot}/photo?ts=${Date.now()}"` : ""} />
+        <img class="thumb" id="mat-thumb-${slot}" style="display:${data.has_photo ? "block" : "none"}; cursor:zoom-in;"
+             ${data.has_photo ? `src="${matBase}/${slot}/photo?ts=${Date.now()}"` : ""} />
         <div class="slot-controls">
-          <div class="slot-label">자료 이미지</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button type="button" id="mat-pick-${slot}" style="margin-top:0;">라이브러리에서 선택</button>
+            <button type="button" class="secondary" id="mat-clear-${slot}" style="margin-top:0; display:${data.has_photo || data.title ? "inline-flex" : "none"};">비우기</button>
+          </div>
+          <div class="slot-label">또는 직접 이미지 올리기</div>
           <input type="file" accept="image/*" id="mat-file-${slot}" />
-          <button type="button" class="secondary" id="mat-del-${slot}" style="display:${data.has_photo ? "inline-block" : "none"};">삭제</button>
         </div>
       </div>
-      <button type="button" id="mat-save-${slot}">저장</button>
+      <label>제목</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input id="mat-title-${slot}" />
+        <button type="button" class="secondary" id="mat-save-${slot}" style="margin-top:0; flex:none;">제목 저장</button>
+      </div>
       <div id="mat-status-${slot}" class="status"></div>
     `;
     container.appendChild(card);
+    document.getElementById(`mat-title-${slot}`).value = data.title;
 
-    document.getElementById(`mat-save-${slot}`).addEventListener("click", async () => {
+    document.getElementById(`mat-thumb-${slot}`).addEventListener("click", () => {
+      window.open(data.material_id ? `/api/material-library/${data.material_id}/file` : `${matBase}/${slot}/photo`, "_blank");
+    });
+    document.getElementById(`mat-pick-${slot}`).addEventListener("click", () => openMaterialPicker(slot));
+    document.getElementById(`mat-clear-${slot}`).addEventListener("click", async () => {
       errorEl.style.display = "none";
-      const statusEl = document.getElementById(`mat-status-${slot}`);
       try {
-        await apiPatch(`${base}/${slot}`, { title: document.getElementById(`mat-title-${slot}`).value });
-        statusEl.textContent = "저장되었습니다.";
+        applyMaterialsChange(await api(`${matBase}/${slot}`, { method: "DELETE" }));
       } catch (err) {
         showError(errorEl, err);
       }
     });
+    document.getElementById(`mat-file-${slot}`).addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      errorEl.style.display = "none";
+      const form = new FormData();
+      form.append("file", file);
+      try {
+        applyMaterialsChange(await apiUpload(`${matBase}/${slot}/photo`, form));
+      } catch (err) {
+        showError(errorEl, err);
+      }
+    });
+    document.getElementById(`mat-save-${slot}`).addEventListener("click", async () => {
+      errorEl.style.display = "none";
+      try {
+        applyMaterialsChange(await apiPatch(`${matBase}/${slot}`, { title: document.getElementById(`mat-title-${slot}`).value }));
+        const st = document.getElementById(`mat-status-${slot}`);
+        st.className = "status ok";
+        st.textContent = "저장되었습니다.";
+      } catch (err) {
+        showError(errorEl, err);
+      }
+    });
+  }
+}
 
-    setupSinglePhotoUpload(`${base}/${slot}/photo`, `mat-file-${slot}`, `mat-thumb-${slot}`, `mat-del-${slot}`);
+function renderMaterialPickerGrid() {
+  const grid = document.getElementById("mat-picker-grid");
+  const q = document.getElementById("mat-picker-search").value.trim().replace(/\s+/g, "");
+  grid.innerHTML = "";
+  const shown = matLibrary.filter((m) => !q || m.title.replace(/\s+/g, "").includes(q));
+  if (!shown.length) {
+    grid.innerHTML = '<div class="empty-note">검색 결과가 없습니다.</div>';
+    return;
+  }
+  for (const m of shown) {
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "lib-tile";
+    tile.innerHTML = `<img loading="lazy" src="/api/material-library/${m.id}/thumbnail" alt="" /><span></span>`;
+    tile.querySelector("span").textContent = m.title;
+    tile.addEventListener("click", async () => {
+      errorEl.style.display = "none";
+      try {
+        applyMaterialsChange(await apiPatch(`${matBase}/${matPickerSlot}`, { material_id: m.id }));
+        document.getElementById("mat-picker").style.display = "none";
+      } catch (err) {
+        showError(errorEl, err);
+      }
+    });
+    grid.appendChild(tile);
+  }
+}
+
+async function openMaterialPicker(slot) {
+  errorEl.style.display = "none";
+  try {
+    if (!matLibrary) matLibrary = await api("/material-library");
+  } catch (err) {
+    showError(errorEl, err);
+    return;
+  }
+  matPickerSlot = slot;
+  document.getElementById("mat-picker-title").textContent = `제공자료 ${slot}에 넣을 자료 선택 (${matLibrary.length}개)`;
+  const picker = document.getElementById("mat-picker");
+  picker.style.display = "block";
+  renderMaterialPickerGrid();
+  picker.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+document.getElementById("mat-picker-search").addEventListener("input", renderMaterialPickerGrid);
+document.getElementById("mat-picker-close").addEventListener("click", () => {
+  document.getElementById("mat-picker").style.display = "none";
+});
+
+document.getElementById("mat-recommend").addEventListener("click", async () => {
+  errorEl.style.display = "none";
+  const st = document.getElementById("mat-recommend-status");
+  st.className = "status";
+  st.textContent = "";
+  try {
+    const out = await apiPost(`${matBase}/recommend`, {});
+    if (!out.items.length) {
+      st.textContent = "지적사항과 관련된 자료를 찾지 못했습니다. '라이브러리에서 선택'으로 직접 고르세요.";
+      return;
+    }
+    applyMaterialsChange(out);
+    st.className = "status ok";
+    st.textContent = "지적사항과 관련된 자료로 채웠습니다. 10번 교육내용에도 반영했습니다.";
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
+
+async function setupMaterials() {
+  try {
+    renderMaterials(await api(matBase));
+  } catch (err) {
+    showError(errorEl, err);
   }
 }
 

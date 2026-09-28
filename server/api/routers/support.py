@@ -1,9 +1,6 @@
-"""10. 사업장 지원 사항 (TBM 활성화 지도 및 교육 / 계측자료) / 11. 제공자료.
+"""10. 사업장 지원 사항 (TBM 활성화 지도 및 교육 / 계측자료).
 
-**이번 1차 포팅 범위 밖(의도적으로 미룸)**: 11번 제공자료는 데스크톱에서 "라이브러리에서
-선택"(`MaterialLibrary`, AI 추천 포함) 또는 "직접 업로드" 둘 다 되는데, 이 웹판 DB엔 아직
-라이브러리 시딩이 안 되어 있어(`core/db.py::_seed_reference_data`가 데스크톱 `init_db()`
-경로에서만 호출됨 — 웹판은 다른 부트스트랩을 씀) 지금은 **직접 업로드만** 지원한다."""
+11번 제공자료는 `materials.py`로 분리됨(Sub-phase 40 — 라이브러리 선택/추천 추가)."""
 
 from __future__ import annotations
 
@@ -15,16 +12,15 @@ from sqlalchemy.orm import Session
 
 from core.constants import MEASUREMENT_INSTRUMENTS
 from core.db import BASE_DIR
-from core.models_db import Measurement, ProvidedMaterial, Report, SafetyEducation
+from core.models_db import Measurement, Report, SafetyEducation
 from core.models_web import User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
-from server.schemas.support import MaterialIn, MaterialOut, MeasurementIn, MeasurementOut, TbmIn, TbmOut
+from server.schemas.support import MeasurementIn, MeasurementOut, TbmIn, TbmOut
 
 router = APIRouter(prefix="/reports/{report_id}", tags=["support"])
 
 _ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-_MATERIAL_SLOTS = range(1, 3)
 
 
 def _require_report(db: Session, company_id: int, report_id: int) -> Report:
@@ -246,59 +242,3 @@ def delete_measurement_photo(
         instrument_type=instrument_type, unit=unit, value=row.value,
         manual_verdict=row.manual_verdict, manual_action=row.manual_action, has_photo=False,
     )
-
-
-# ---------- 11. 제공자료 (직접 업로드만 — 라이브러리 선택은 다음 단계) ----------
-
-
-@router.get("/materials", response_model=list[MaterialOut])
-def list_materials(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    _require_report(db, user.company_id, report_id)
-    rows = {m.slot: m for m in db.query(ProvidedMaterial).filter(ProvidedMaterial.report_id == report_id).all()}
-    return [
-        MaterialOut(slot=slot, title=(rows[slot].title if slot in rows else ""),
-                    has_photo=bool(rows[slot].custom_photo_path) if slot in rows else False)
-        for slot in _MATERIAL_SLOTS
-    ]
-
-
-@router.patch("/materials/{slot}", response_model=MaterialOut)
-def update_material(
-    report_id: int, slot: int, body: MaterialIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)
-):
-    _require_report(db, user.company_id, report_id)
-    if slot not in _MATERIAL_SLOTS:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "slot은 1~2여야 합니다.")
-    row = repo.upsert_slot_row(db, ProvidedMaterial, report_id, slot, title=body.title)
-    return MaterialOut(slot=slot, title=row.title, has_photo=bool(row.custom_photo_path))
-
-
-@router.post("/materials/{slot}/photo", response_model=MaterialOut)
-async def upload_material_photo(
-    report_id: int, slot: int, file: UploadFile, user: User = Depends(get_current_user), db: Session = Depends(get_db)
-):
-    _require_report(db, user.company_id, report_id)
-    if slot not in _MATERIAL_SLOTS:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "slot은 1~2여야 합니다.")
-    path = await _save_photo(file, report_id, f"material_{slot}")
-    row = repo.upsert_slot_row(db, ProvidedMaterial, report_id, slot, custom_photo_path=path)
-    return MaterialOut(slot=slot, title=row.title, has_photo=True)
-
-
-@router.get("/materials/{slot}/photo")
-def get_material_photo(report_id: int, slot: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    _require_report(db, user.company_id, report_id)
-    row = repo.get_slot_row(db, ProvidedMaterial, report_id, slot)
-    if row is None or not row.custom_photo_path or not Path(row.custom_photo_path).exists():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "자료가 없습니다.")
-    return FileResponse(row.custom_photo_path)
-
-
-@router.delete("/materials/{slot}/photo", response_model=MaterialOut)
-def delete_material_photo(
-    report_id: int, slot: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
-):
-    _require_report(db, user.company_id, report_id)
-    row = repo.get_slot_row(db, ProvidedMaterial, report_id, slot)
-    _clear_file(db, row, "custom_photo_path")
-    return MaterialOut(slot=slot, title=row.title if row else "", has_photo=False)

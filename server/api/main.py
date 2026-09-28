@@ -21,6 +21,7 @@ from server.api.routers import (
     auth,
     findings,
     jobs,
+    materials,
     photos,
     previous_findings,
     process_entries,
@@ -33,6 +34,14 @@ from server.api.routers import (
 from server.settings import CORS_ORIGINS
 
 app = FastAPI(title="한국미래안전 보고서 자동화 - 웹판 API")
+
+
+@app.on_event("startup")
+def _seed_reference_data() -> None:
+    # 계측기준/제공자료 라이브러리 등 공용 참조 데이터(없을 때만 채움, core/db.py 참고)
+    from core.db import seed_shared_reference_data
+
+    seed_shared_reference_data()
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -57,6 +66,7 @@ app.include_router(process_entries.future_process_router, prefix="/api")
 app.include_router(findings.router, prefix="/api")
 app.include_router(support.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(materials.router, prefix="/api")
 
 
 @app.get("/api/health")

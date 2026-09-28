@@ -29,9 +29,14 @@ class MeasurementOut(MeasurementIn):
 
 
 class MaterialIn(BaseModel):
+    """보낸 필드만 갱신(exclude_unset) — material_id를 보내면 라이브러리 자료로 지정."""
+
     title: str = ""
+    material_id: int | None = None
 
 
-class MaterialOut(MaterialIn):
+class MaterialOut(BaseModel):
     slot: int
+    title: str = ""
+    material_id: int | None = None  # 라이브러리 자료면 그 id, 직접 올린 이미지거나 비었으면 None
     has_photo: bool = False
