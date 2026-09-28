@@ -206,3 +206,10 @@ button.secondary:hover { background: var(--paper); }
   border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
 }
 .sig-upload-btn:hover { background: var(--paper); }
+
+/* 버튼처럼 보이는 내려받기 링크 */
+.secondary-link {
+  display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.secondary-link:hover { background: var(--paper); }

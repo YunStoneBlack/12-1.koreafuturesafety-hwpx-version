@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from core.models_web import User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
+from server.api.routers.report_manage import download_name
 from server.schemas.report import JobOut
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -29,4 +30,4 @@ def download_job_pdf(job_id: int, user: User = Depends(get_current_user), db: Se
     report = repo.get_report(db, user.company_id, job.report_id)
     if report is None or not report.pdf_path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "파일을 찾을 수 없습니다.")
-    return FileResponse(report.pdf_path, media_type="application/pdf", filename=f"report_{report.id}.pdf")
+    return FileResponse(report.pdf_path, media_type="application/pdf", filename=download_name(report, ".pdf"))

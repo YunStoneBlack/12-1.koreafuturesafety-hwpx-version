@@ -195,13 +195,28 @@ async function loadReports() {
       return;
     }
     listEl.innerHTML = "";
-    for (const report of reports) {
+    // 데스크톱 "보고서 이력"과 같은 줄 구성: 회차 · 지도일 · 공정률 · 상태 + 한글 내려받기 / 삭제
+    for (const report of [...reports].reverse()) {
       const row = document.createElement("div");
       row.className = "row";
+      row.style.flexWrap = "wrap";
       const isFinal = report.status === "final";
       row.innerHTML =
-        `<span class="title"><a href="/report.html?id=${report.id}">${report.visit_no}회차</a></span>` +
-        `<span class="status-pill ${isFinal ? "approved" : "pending"}">${isFinal ? "완료" : "작성중"}</span>`;
+        `<span class="title"><a href="/report.html?id=${report.id}">${report.visit_no}회차</a>` +
+        `<span class="meta" style="margin-left:10px;">${report.guidance_date || "지도일 미입력"} · 공정률 ${report.progress_rate ?? 0}%</span></span>` +
+        `<span class="status-pill ${isFinal ? "approved" : "pending"}">${isFinal ? "PDF 생성됨" : "작성중"}</span>` +
+        `<a class="secondary-link" href="/api/reports/${report.id}/hwpx">↓ 한글</a>` +
+        `<button type="button" class="secondary rp-del" style="margin-top:0; color:var(--crit);">삭제</button>`;
+      row.querySelector(".rp-del").addEventListener("click", async () => {
+        if (!confirm(`${report.visit_no}회차 보고서를 삭제할까요? 되돌릴 수 없습니다.`)) return;
+        errorEl.style.display = "none";
+        try {
+          await api(`/reports/${report.id}`, { method: "DELETE" });
+          loadReports();
+        } catch (err) {
+          showError(errorEl, err);
+        }
+      });
       listEl.appendChild(row);
     }
   } catch (err) {

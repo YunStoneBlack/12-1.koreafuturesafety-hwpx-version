@@ -231,10 +231,15 @@
 <section class="panel">
   <div class="panel-head"><h2>PDF 생성</h2></div>
   <div class="panel-body">
-  <p class="page-sub" style="margin:0 0 12px;">
-    각 섹션을 저장한 뒤 누르세요. 아직 안 채운 섹션은 빈 칸으로 나옵니다.
-  </p>
-  <button id="render-btn">PDF 생성</button>
+  <label style="font-weight:400; display:flex; gap:8px; align-items:flex-start; margin:0 0 4px;">
+    <input type="checkbox" id="confirm-check" style="margin-top:4px;" />
+    <span>위 내용에 대한 모든 사항을 확인했습니다. AI가 생성한 자료는 틀린 내용을 포함할 수 있으므로, 보고서 생성 전 반드시 직접 다시 한 번 확인해야 합니다.</span>
+  </label>
+  <p class="page-sub" style="margin:0 0 4px;">각 섹션을 저장한 뒤 누르세요. 아직 안 채운 섹션은 빈 칸으로 나옵니다.</p>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <button id="render-btn" disabled>PDF 생성</button>
+    <a class="secondary-link" id="hwpx-link" href="#" style="margin-top:14px;">↓ 한글(hwpx)로 받기</a>
+  </div>
   <div id="job-status" class="status"></div>
   </div>
 </section>
@@ -1568,6 +1573,12 @@ async function setupMaterials() {
 setupTbm();
 setupMeasurements();
 setupMaterials();
+
+// 데스크톱과 같이 "확인했습니다" 체크를 해야 PDF 생성 버튼이 켜진다(AI 작성 내용 재확인 안내).
+document.getElementById("confirm-check").addEventListener("change", (e) => {
+  document.getElementById("render-btn").disabled = !e.target.checked;
+});
+document.getElementById("hwpx-link").href = `/api/reports/${reportId}/hwpx`;
 
 // --- PDF 생성 ---
 document.getElementById("render-btn").addEventListener("click", async () => {
