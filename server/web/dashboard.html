@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>현장 목록 - 기술지도 보고서</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="topbar">
+  <h1>현장 목록</h1>
+  <button class="secondary" id="logout-btn">로그아웃</button>
+</div>
+
+<div id="error" class="error"></div>
+
+<div class="card">
+  <h2>현장 목록</h2>
+  <div id="site-list">불러오는 중...</div>
+</div>
+
+<div class="card">
+  <h2>새 현장 등록</h2>
+  <form id="site-form">
+    <label for="name">현장명</label>
+    <input id="name" required />
+    <label for="address">주소</label>
+    <input id="address" />
+    <button type="submit">등록</button>
+  </form>
+</div>
+
+<script src="/app.js"></script>
+<script>
+const errorEl = document.getElementById("error");
+
+async function loadSites() {
+  const listEl = document.getElementById("site-list");
+  try {
+    const sites = await api("/sites");
+    if (sites.length === 0) {
+      listEl.textContent = "아직 등록된 현장이 없습니다.";
+      return;
+    }
+    listEl.innerHTML = "";
+    for (const site of sites) {
+      const row = document.createElement("div");
+      row.className = "site-row";
+      row.innerHTML = `<a href="/site.html?id=${site.id}">${site.name}</a><span>${site.status}</span>`;
+      listEl.appendChild(row);
+    }
+  } catch (err) {
+    showError(errorEl, err);
+  }
+}
+
+document.getElementById("site-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorEl.style.display = "none";
+  try {
+    await apiPost("/sites", {
+      name: document.getElementById("name").value,
+      address: document.getElementById("address").value,
+    });
+    document.getElementById("site-form").reset();
+    await loadSites();
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
+
+document.getElementById("logout-btn").addEventListener("click", async () => {
+  await apiPost("/auth/logout");
+  window.location.href = "/index.html";
+});
+
+loadSites();
+</script>
+</body>
+</html>

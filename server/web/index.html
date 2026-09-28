@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>로그인 - 기술지도 보고서</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<h1>기술지도 보고서</h1>
+<div class="card">
+  <div id="error" class="error"></div>
+  <form id="login-form">
+    <label for="email">이메일</label>
+    <input id="email" type="email" required autocomplete="username" />
+    <label for="password">비밀번호</label>
+    <input id="password" type="password" required autocomplete="current-password" />
+    <button type="submit">로그인</button>
+  </form>
+</div>
+<script src="/app.js"></script>
+<script>
+document.getElementById("login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById("error");
+  errorEl.style.display = "none";
+  try {
+    await apiPost("/auth/login", {
+      email: document.getElementById("email").value,
+      password: document.getElementById("password").value,
+    });
+    window.location.href = "/dashboard.html";
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
+</script>
+</body>
+</html>

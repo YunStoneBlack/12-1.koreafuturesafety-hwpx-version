@@ -1,7 +1,13 @@
-"""SQLite 연결/세션 관리. 데스크톱 앱은 로컬 단일 DB 파일(data/app.db)을 사용한다."""
+"""DB 연결/세션 관리. 데스크톱 exe는 로컬 단일 SQLite 파일(data/app.db)을 그대로 쓰고,
+`server/`(웹판, Sub-phase 33~)는 환경변수 `DATABASE_URL`로 PostgreSQL을 가리켜서 쓴다.
+
+SQLite는 동시 쓰기에 약해서(한 번에 한 명만 쓸 수 있음) 여러 직원이 동시에 접속하는
+웹판에는 못 쓴다 — 그래서 `DATABASE_URL`이 있으면 그걸 우선하고, 없으면(=기존 데스크톱
+exe) SQLite로 그대로 동작해서 하위호환을 깨지 않는다."""
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -17,12 +23,22 @@ else:
     BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "data" / "app.db"
 
+# 웹판 서버/워커 프로세스가 사진·PDF·서명 등을 저장할 데이터 폴더. 데스크톱 exe와 마찬가지로
+# BASE_DIR 기준 상대경로가 기본값이라, 나중에 다른 PC로 옮길 때 이 환경변수 하나만 새 경로로
+# 맞춰주면 된다(코드 안에 절대경로를 하드코딩하지 않기 위함 — Sub-phase 33 설계 원칙).
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE_DIR / "data")))
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
 
 class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(f"sqlite:///{DB_PATH}")
+if DATABASE_URL:
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+else:
+    engine = create_engine(f"sqlite:///{DB_PATH}")
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
@@ -32,6 +48,7 @@ def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     from core import models_db  # noqa: F401  (테이블 등록을 위해 임포트 필요)
+    from core import models_web  # noqa: F401  (Sub-phase 33: 웹판 전용 테이블도 같이 등록)
 
     Base.metadata.create_all(engine)
     _seed_measurement_standards()

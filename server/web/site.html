@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>현장 상세 - 기술지도 보고서</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="topbar">
+  <h1 id="site-name">현장</h1>
+  <a href="/dashboard.html">← 목록</a>
+</div>
+
+<div id="error" class="error"></div>
+
+<div class="card">
+  <h2>보고서 생성 (1차: 최소 항목)</h2>
+  <p style="color:#666; font-size:14px;">
+    사진·서명·위험성평가 표 등 나머지 섹션은 다음 단계에서 추가됩니다 — 지금은 이 정보만으로
+    실제 한글 자동화를 거쳐 PDF가 만들어지는지 확인하는 단계입니다.
+  </p>
+  <form id="report-form">
+    <label for="guidance_date">기술지도실시일</label>
+    <input id="guidance_date" type="date" />
+    <label for="progress_rate">공정률 (%)</label>
+    <input id="progress_rate" type="number" min="0" max="100" />
+    <label for="notification_method">통보방법</label>
+    <select id="notification_method">
+      <option value="">선택 안 함</option>
+      <option value="직접전달">직접전달</option>
+      <option value="등기우편">등기우편</option>
+      <option value="전자우편">전자우편</option>
+      <option value="모바일">모바일</option>
+      <option value="기타">기타</option>
+    </select>
+    <label for="special_note">기타 특이사항</label>
+    <input id="special_note" />
+    <button type="submit">보고서 생성</button>
+  </form>
+</div>
+
+<div class="card" id="render-card" style="display:none;">
+  <h2>보고서 #<span id="report-visit-no"></span></h2>
+  <button id="render-btn">PDF 생성</button>
+  <div id="job-status" class="status"></div>
+</div>
+
+<script src="/app.js"></script>
+<script>
+const errorEl = document.getElementById("error");
+const siteId = new URLSearchParams(window.location.search).get("id");
+let currentReportId = null;
+let pollTimer = null;
+
+async function loadSite() {
+  try {
+    const site = await api(`/sites/${siteId}`);
+    document.getElementById("site-name").textContent = site.name;
+  } catch (err) {
+    showError(errorEl, err);
+  }
+}
+
+document.getElementById("report-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorEl.style.display = "none";
+  try {
+    const report = await apiPost(`/sites/${siteId}/reports`, {
+      guidance_date: document.getElementById("guidance_date").value || null,
+      progress_rate: document.getElementById("progress_rate").value
+        ? Number(document.getElementById("progress_rate").value)
+        : null,
+      notification_method: document.getElementById("notification_method").value,
+      special_note: document.getElementById("special_note").value,
+    });
+    currentReportId = report.id;
+    document.getElementById("report-visit-no").textContent = report.visit_no;
+    document.getElementById("render-card").style.display = "block";
+    document.getElementById("job-status").textContent = "";
+  } catch (err) {
+    showError(errorEl, err);
+  }
+});
+
+document.getElementById("render-btn").addEventListener("click", async () => {
+  errorEl.style.display = "none";
+  const statusEl = document.getElementById("job-status");
+  const btn = document.getElementById("render-btn");
+  btn.disabled = true;
+  statusEl.textContent = "대기열에 등록 중...";
+  try {
+    const job = await apiPost(`/reports/${currentReportId}/render`);
+    pollJob(job.id);
+  } catch (err) {
+    btn.disabled = false;
+    showError(errorEl, err);
+  }
+});
+
+function pollJob(jobId) {
+  const statusEl = document.getElementById("job-status");
+  const btn = document.getElementById("render-btn");
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    try {
+      const job = await api(`/jobs/${jobId}`);
+      if (job.status === "queued") {
+        statusEl.textContent = "대기 중 (다른 작업 처리 중)...";
+      } else if (job.status === "rendering") {
+        statusEl.textContent = "한글 프로그램으로 PDF 생성 중... (몇 초~십몇 초 걸릴 수 있어요)";
+      } else if (job.status === "done") {
+        clearInterval(pollTimer);
+        btn.disabled = false;
+        statusEl.innerHTML = `완료! <a href="/api/jobs/${jobId}/download">PDF 다운로드</a>`;
+      } else if (job.status === "failed") {
+        clearInterval(pollTimer);
+        btn.disabled = false;
+        statusEl.textContent = `생성 실패: ${job.error_message.split("\n")[0]} (다시 시도해보세요)`;
+      }
+    } catch (err) {
+      clearInterval(pollTimer);
+      btn.disabled = false;
+      showError(errorEl, err);
+    }
+  }, 1500);
+}
+
+loadSite();
+</script>
+</body>
+</html>

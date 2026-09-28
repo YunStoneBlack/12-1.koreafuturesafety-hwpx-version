@@ -1,0 +1,59 @@
+/* Milestone 1 최소 스타일 — 예쁘게 다듬는 건 다음 단계, 지금은 폰/태블릿에서도 최소한
+   눌리고 읽히는 정도만 맞춘다. */
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Malgun Gothic", sans-serif;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+  background: #f7f7f8;
+  color: #222;
+}
+h1, h2 { margin-top: 0; }
+.card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+label { display: block; margin: 10px 0 4px; font-size: 14px; color: #444; }
+input, select {
+  width: 100%;
+  padding: 10px;
+  font-size: 16px; /* 16px 미만이면 모바일 사파리가 자동 확대함 */
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+button {
+  margin-top: 14px;
+  padding: 12px 16px;
+  font-size: 16px;
+  border: none;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+}
+button.secondary { background: #6b7280; }
+button:disabled { background: #aaa; cursor: default; }
+.error {
+  display: none;
+  color: #b00020;
+  background: #fdecea;
+  border: 1px solid #f5c2c0;
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+.site-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #eee;
+}
+.site-row a { color: #2563eb; text-decoration: none; font-weight: 600; }
+.status { font-size: 14px; color: #555; margin-top: 8px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; }

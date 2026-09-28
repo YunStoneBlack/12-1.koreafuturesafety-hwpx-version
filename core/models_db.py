@@ -3,6 +3,10 @@
 이번 단계(Sub-phase 1)에서 실제로 화면에서 쓰는 건 Staff/Site 뿐이지만,
 보고서 작성 마법사(Sub-phase 2~3)에서 바로 이어 쓸 수 있도록 전체 스키마를
 한 번에 정의해둔다.
+
+Sub-phase 33: Company/User/UserSession/ReportJob(웹판 전용, 데스크톱 exe는 안 씀)은
+600줄 제한 때문에 core/models_web.py로 분리했다. Staff/Site에 `company_id`가 붙어있는
+건 그 웹판 테넌트 분리를 위한 것 — 데스크톱 exe에서는 항상 NULL이라 이전과 동작이 같다.
 """
 
 from __future__ import annotations
@@ -10,7 +14,7 @@ from __future__ import annotations
 import datetime
 import random
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Text
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.constants import FINDING_LOW_RISK_MAX_SCORE
@@ -23,6 +27,9 @@ class Staff(Base):
     __tablename__ = "staff"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # 웹판에서만 채워짐(회사별 격리용) — 데스크톱 exe는 SQLite 단일회사라 항상 NULL이고
+    # 그래도 전혀 문제없다(그 앱엔 company 개념 자체가 없으니까).
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("company.id"), default=None)
     name: Mapped[str] = mapped_column(Text)
     phone: Mapped[str] = mapped_column(Text, default="")
     active: Mapped[bool] = mapped_column(default=True)
@@ -38,6 +45,8 @@ class Site(Base):
     __tablename__ = "site"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Staff.company_id와 같은 이유로 웹판 전용, 데스크톱 exe에서는 항상 NULL.
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("company.id"), default=None)
 
     # 현장
     name: Mapped[str] = mapped_column(Text)
@@ -559,10 +568,15 @@ class MeasurementStandard(Base):
 
 
 class AppSetting(Base):
-    """사용자별 로컬 설정 (Claude API 키, AI 기능 on/off 등). 배포 시 각자 PC에서 직접 입력한다."""
+    """설정 (Claude API 키, AI 기능 on/off 등). 데스크톱 exe는 PC 1대 = 회사 1곳이라
+    key 하나로 충분했지만, 웹판은 회사마다 다른 값(예: 회사별 API 키)을 가질 수 있어야
+    해서 company_id를 붙이고 유니크 제약도 (company_id, key) 조합으로 바꿨다. 데스크톱
+    exe에서는 company_id가 항상 NULL인 채로 예전처럼 key 하나만 쓴다."""
 
     __tablename__ = "app_setting"
+    __table_args__ = (UniqueConstraint("company_id", "key", name="uq_app_setting_company_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    key: Mapped[str] = mapped_column(Text, unique=True)
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("company.id"), default=None)
+    key: Mapped[str] = mapped_column(Text)
     value: Mapped[str] = mapped_column(Text, default="")

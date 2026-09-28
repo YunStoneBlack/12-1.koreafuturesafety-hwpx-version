@@ -8,3 +8,13 @@ pyhwpx>=1.7.0
 pywin32>=306
 pymupdf>=1.24.0
 python-hwpx>=6.4.0
+
+# Sub-phase 33: 웹판(server/) — 데스크톱 exe(위 목록)는 이 아래 패키지들이 필요 없다.
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+psycopg[binary]>=3.2.0
+alembic>=1.13.0
+bcrypt>=4.0.0
+itsdangerous>=2.2.0
+python-multipart>=0.0.12
+email-validator>=2.2.0
