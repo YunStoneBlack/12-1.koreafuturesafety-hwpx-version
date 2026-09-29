@@ -115,6 +115,7 @@ async function loadReport() {
       deleteUrl: `${BASE}/api/reports/${reportId}/notify-signature`,
       registered: !!report.notify_signature_path,
       saveLabel: "서명 저장",
+      lockable: true, // 저장된 서명이 있으면 잠가 두고 "수정"을 눌러야 바뀜(없으면 바로 받을 수 있게)
     });
     document.getElementById("visit-no").value = report.visit_no ?? "";
     document.getElementById("guidance-date").value = report.guidance_date || "";

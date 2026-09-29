@@ -147,6 +147,7 @@ api("/settings/signatures").then((st) => {
       uploadUrl: `${BASE}/api/settings/signatures/${role}`,
       deleteUrl: `${BASE}/api/settings/signatures/${role}`,
       registered: st[role],
+      lockable: true, // 평소엔 잠가 두고 "수정"을 눌러야 고칠 수 있게
     });
   }
 }).catch((err) => showError(errorEl, err));

@@ -292,3 +292,10 @@ main.main > section.panel { scroll-margin-top: 60px; }
 .main .upload-state .upload-retry { margin-top: 0; padding: 4px 10px; font-size: 12px; color: var(--crit); border-color: #F3C9C9; }
 .photo-slot.uploading .thumb { opacity: .4; }
 .photo-slot.uploading .file-pick-btn { pointer-events: none; opacity: .5; }
+
+/* 서명 칸 잠금(signature.js lockable) — 잠겨 있으면 도구·안내 숨기고 칸은 보기 전용, "수정" 버튼만 */
+.sig-locked-bar { display: none; margin-top: 8px; }
+.sig-locked .sig-locked-bar { display: flex; }
+.sig-locked .sig-tools, .sig-locked .sig-drop-hint { display: none; }
+.sig-locked .sig-pad { pointer-events: none; cursor: default; }
+.main .sig-locked-bar button { margin-top: 0; padding: 7px 16px; font-size: 12.5px; }

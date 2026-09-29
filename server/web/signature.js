@@ -9,12 +9,15 @@
 //   - "지우기"는 칸만 비운다. 빈 칸으로 저장하면 그때 확인창을 띄우고 서명을 삭제한다.
 //   - 저장 안 한 변경이 있는 채로 페이지를 떠나면 브라우저가 경고한다.
 //
-// createSignatureField(container, { imageUrl, uploadUrl, deleteUrl, registered, onChange, standalone, saveLabel })
+// createSignatureField(container, { imageUrl, uploadUrl, deleteUrl, registered, onChange, standalone, saveLabel, lockable })
 //   imageUrl  : 저장된 이미지 GET 경로(미리보기)
 //   uploadUrl : POST(FormData: file, source="drawn"|"uploaded")
 //   deleteUrl : DELETE
 //   registered: 처음 상태(등록 여부)
 //   onChange(result): 저장/삭제 후 서버 응답을 넘겨준다
+//   lockable  : true면 저장된 서명이 있을 때 잠가 둔다(보기만, "수정" 버튼만) — "수정"을 눌러야 도구·저장·취소가 나오고,
+//               저장하거나 취소하면 다시 잠긴다. 저장된 서명이 없으면 바로 그릴 수 있다(보고서 1번에서 현장 책임자에게 바로 받게).
+//               결재란 도장(settings.html)·보고서 1번 현장책임자 서명에 사용(2026-09-29 사용자 요청). standalone일 때만 의미 있음.
 //   standalone: true(기본)면 칸 아래에 자체 "저장" 버튼을 둔다. false면 버튼 없이, 부르는 쪽이 돌려받은 field.save()를 부른다
 //               (담당요원 "수정"처럼 이름·연락처와 한 번에 저장하는 경우).
 // 돌려주는 값: { isDirty(), save() } — save()는 바뀐 게 없으면 아무것도 안 하고 true, 저장/삭제하면 true, 삭제 확인에서 취소하면 false.
@@ -29,6 +32,7 @@ window.addEventListener("beforeunload", (e) => {
 
 function createSignatureField(container, opts) {
   const standalone = opts.standalone !== false;
+  const lockable = standalone && !!opts.lockable;
   container.innerHTML = `
     <canvas class="sig-pad" width="360" height="140"></canvas>
     <div class="sig-tools">
@@ -40,7 +44,9 @@ function createSignatureField(container, opts) {
         <input type="file" accept="image/*" class="sig-file" style="display:none;" />
       </label>
       ${standalone ? `<button type="button" class="sig-save">${opts.saveLabel || "저장"}</button>` : ""}
+      ${lockable ? '<button type="button" class="secondary sig-cancel">취소</button>' : ""}
     </div>
+    ${lockable ? '<div class="sig-locked-bar"><button type="button" class="secondary sig-edit">수정</button></div>' : ""}
     <div class="status sig-status"></div>
     <div class="sig-drop-hint">PC에서는 이미지 파일을 서명 칸 위로 끌어다 놓아도 됩니다.</div>
   `;
@@ -57,6 +63,7 @@ function createSignatureField(container, opts) {
   // 화면 = 마지막 clear/image를 바탕으로(없으면 저장된 서명) 그 뒤 획들을 그린 것. 되돌리기 = 마지막 기록 빼고 다시 그림.
   let ops = [];
   let drawing = null;
+  let locked = false;
 
   const drawContained = (img) => {
     // 비율 유지해서 가운데에 맞춤(도장 이미지는 정사각형에 가까워 늘리면 찌그러짐)
@@ -131,6 +138,7 @@ function createSignatureField(container, opts) {
     return [(e.clientX - r.left) * (canvas.width / r.width), (e.clientY - r.top) * (canvas.height / r.height)];
   };
   canvas.addEventListener("pointerdown", (e) => {
+    if (locked) return;
     // 저장된 서명/올린 이미지 위에 처음 그으면 칸을 비우고 새로 시작(겹쳐 그리지 않게) — 되돌리기 한 번에 원래대로
     const b = baseIndex();
     const baseHasPicture = b >= 0 ? ops[b].t === "image" : !!savedImage;
@@ -180,8 +188,8 @@ function createSignatureField(container, opts) {
   canvas.title = "여기에 이미지를 끌어다 놓아도 됩니다";
   container.addEventListener("dragover", (e) => {
     if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
-    e.preventDefault();
-    canvas.classList.add("drop-over");
+    e.preventDefault(); // 잠겨 있어도 막는다 — 안 막으면 브라우저가 놓은 파일을 새 창으로 열어 버림
+    if (!locked) canvas.classList.add("drop-over");
   });
   container.addEventListener("dragleave", (e) => {
     if (!container.contains(e.relatedTarget)) canvas.classList.remove("drop-over");
@@ -189,6 +197,10 @@ function createSignatureField(container, opts) {
   container.addEventListener("drop", (e) => {
     e.preventDefault();
     canvas.classList.remove("drop-over");
+    if (locked) {
+      refreshUi('먼저 "수정"을 누른 뒤 이미지를 올려 주세요.', false);
+      return;
+    }
     loadImageFile(e.dataTransfer.files[0]);
   });
 
@@ -216,6 +228,7 @@ function createSignatureField(container, opts) {
       registered = true;
     }
     ops = [];
+    setLocked(lockable && registered); // 저장하면 다시 잠금(삭제해서 비었으면 바로 그릴 수 있게 둠)
     loadSaved(registered ? "저장되었습니다." : "서명을 삭제했습니다.", registered);
     if (opts.onChange) opts.onChange(out);
     return true;
@@ -231,6 +244,23 @@ function createSignatureField(container, opts) {
       }
     });
   }
+
+  // --- 잠금(lockable) — 컨테이너에 sig-locked 클래스(도구 숨김·칸 보기 전용, style.css) ---
+  function setLocked(value) {
+    locked = value;
+    container.classList.toggle("sig-locked", value);
+  }
+  if (lockable) {
+    container.classList.add("sig-lockable");
+    container.querySelector(".sig-edit").addEventListener("click", () => { setLocked(false); refreshUi(); });
+    container.querySelector(".sig-cancel").addEventListener("click", () => {
+      if (isDirty() && !confirm("저장하지 않고 닫을까요? 바꾼 내용은 사라집니다.")) return;
+      ops = [];
+      redraw();
+      if (registered) setLocked(true);
+    });
+  }
+  setLocked(lockable && registered);
 
   const field = { isDirty, save, isConnected: () => canvas.isConnected };
   _dirtySignatureFields.add(field);
