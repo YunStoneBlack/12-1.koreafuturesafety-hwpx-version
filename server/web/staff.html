@@ -24,7 +24,7 @@
       <div><label for="new-phone">연락처</label><input id="new-phone" placeholder="예: 010-1234-5678" /></div>
     </div>
     <button type="button" id="add-btn">+ 추가</button>
-    <p class="page-sub" style="margin:8px 0 0;">추가한 뒤 목록에서 "서명"을 눌러 서명을 등록하세요.</p>
+    <p class="page-sub" style="margin:8px 0 0;">추가한 뒤 목록에서 "수정"을 눌러 서명을 등록하세요.</p>
   </div>
 </section>
 
@@ -42,68 +42,80 @@
 <script>
 const errorEl = document.getElementById("error");
 
+// 요원 한 줄: 이름(연락처) · 서명 미리보기(보기 전용) · 수정/비활성화/삭제.
+// "수정"을 누르면 아래에 이름·연락처·서명을 한 번에 고치는 칸이 열린다(예전 "서명" 버튼은 여기로 합침).
+// 서명은 signature.js — 저장을 누르기 전엔 반영 안 되고 되돌리기가 있어서, 손이 스쳐도 원래 서명은 안전하다.
 function staffRow(s) {
   const wrap = document.createElement("div");
-  wrap.style.borderBottom = "1px solid var(--line)";
+  wrap.className = "staff-item";
   wrap.innerHTML = `
-    <div class="row" style="border-bottom:none; flex-wrap:wrap;">
-      <span class="title"></span>
-      <span class="status-pill ${s.has_signature ? "approved" : "pending"}">${s.has_signature ? "서명 등록됨" : "서명 미등록"}</span>
+    <div class="row staff-row">
+      <span class="title staff-name"></span>
+      ${s.has_signature
+        ? `<img class="sig-thumb" alt="" src="${BASE}/api/staff/${s.id}/signature?ts=${Date.now()}" />`
+        : '<span class="sig-thumb empty">서명 없음</span>'}
       ${s.active ? "" : '<span class="status-pill rejected">비활성</span>'}
-      <span style="display:flex; gap:6px; flex-wrap:wrap;">
-        <button type="button" class="secondary st-edit" style="margin-top:0;">수정</button>
-        <button type="button" class="secondary st-sig" style="margin-top:0;">서명</button>
-        <button type="button" class="secondary st-toggle" style="margin-top:0;">${s.active ? "비활성화" : "활성화"}</button>
-        <button type="button" class="secondary st-del" style="margin-top:0; color:var(--crit);">삭제</button>
+      <span class="staff-actions">
+        <button type="button" class="secondary st-edit">수정</button>
+        <button type="button" class="secondary st-toggle">${s.active ? "비활성화" : "활성화"}</button>
+        <button type="button" class="secondary st-del" style="color:var(--crit);">삭제</button>
       </span>
     </div>
-    <div class="st-panel" style="display:none; padding:0 18px 16px;"></div>
+    <div class="st-panel" hidden></div>
   `;
-  wrap.querySelector(".title").textContent = s.phone ? `${s.name} (${s.phone})` : s.name;
+  wrap.querySelector(".staff-name").textContent = s.phone ? `${s.name} (${s.phone})` : s.name;
+  const thumb = wrap.querySelector("img.sig-thumb");
+  if (thumb) thumb.alt = `${s.name} 서명`;
   const panel = wrap.querySelector(".st-panel");
-  const openPanel = (render) => {
-    const same = panel.dataset.kind === render.name && panel.style.display !== "none";
-    panel.style.display = same ? "none" : "block";
-    panel.dataset.kind = render.name;
-    if (!same) render();
-  };
+  const editBtn = wrap.querySelector(".st-edit");
+  let sigField = null;
 
-  function edit() {
+  const closeEdit = () => {
+    if (sigField && sigField.isDirty() && !confirm("저장하지 않은 서명 변경이 있습니다. 닫을까요?")) return;
+    panel.hidden = true;
+    panel.innerHTML = "";
+    sigField = null;
+    editBtn.textContent = "수정";
+  };
+  const openEdit = () => {
+    panel.hidden = false;
+    editBtn.textContent = "닫기";
     panel.innerHTML = `
       <div class="field-grid">
         <div><label>이름</label><input class="e-name" /></div>
         <div><label>연락처</label><input class="e-phone" /></div>
       </div>
-      <button type="button" class="e-save">저장</button>`;
+      <label>서명</label>
+      <div class="e-sig"></div>
+      <div class="edit-actions">
+        <button type="button" class="e-save">저장</button>
+        <button type="button" class="secondary e-cancel">취소</button>
+      </div>`;
     panel.querySelector(".e-name").value = s.name;
     panel.querySelector(".e-phone").value = s.phone;
-    panel.querySelector(".e-save").addEventListener("click", async () => {
-      errorEl.style.display = "none";
-      try {
-        await apiPatch(`/staff/${s.id}`, { name: panel.querySelector(".e-name").value, phone: panel.querySelector(".e-phone").value });
-        loadStaff();
-      } catch (err) {
-        showError(errorEl, err);
-      }
-    });
-  }
-  function signature() {
-    panel.innerHTML = "";
-    createSignatureField(panel, {
+    sigField = createSignatureField(panel.querySelector(".e-sig"), {
       imageUrl: `${BASE}/api/staff/${s.id}/signature`,
       uploadUrl: `${BASE}/api/staff/${s.id}/signature`,
       deleteUrl: `${BASE}/api/staff/${s.id}/signature`,
       registered: s.has_signature,
-      onChange: (out) => {
-        s.has_signature = out.has_signature;
-        const pill = wrap.querySelector(".status-pill");
-        pill.className = `status-pill ${out.has_signature ? "approved" : "pending"}`;
-        pill.textContent = out.has_signature ? "서명 등록됨" : "서명 미등록";
-      },
+      standalone: false,
     });
-  }
-  wrap.querySelector(".st-edit").addEventListener("click", () => openPanel(edit));
-  wrap.querySelector(".st-sig").addEventListener("click", () => openPanel(signature));
+    panel.querySelector(".e-cancel").addEventListener("click", closeEdit);
+    panel.querySelector(".e-save").addEventListener("click", async (e) => {
+      errorEl.style.display = "none";
+      e.target.disabled = true;
+      try {
+        await apiPatch(`/staff/${s.id}`, { name: panel.querySelector(".e-name").value, phone: panel.querySelector(".e-phone").value });
+        if (!(await sigField.save())) return; // 서명 삭제 확인에서 취소 — 창은 그대로 둔다
+        loadStaff();
+      } catch (err) {
+        showError(errorEl, err);
+      } finally {
+        e.target.disabled = false;
+      }
+    });
+  };
+  editBtn.addEventListener("click", () => (panel.hidden ? openEdit() : closeEdit()));
   wrap.querySelector(".st-toggle").addEventListener("click", async () => {
     errorEl.style.display = "none";
     try {

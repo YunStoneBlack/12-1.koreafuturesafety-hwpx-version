@@ -14,6 +14,8 @@ document.getElementById("render-btn").addEventListener("click", async () => {
   errorEl.style.display = "none";
   const statusEl = document.getElementById("job-status");
   const btn = document.getElementById("render-btn");
+  if (notifySigField && notifySigField.isDirty() &&
+      !confirm("1번 현장책임자 서명 변경을 아직 저장하지 않았습니다. 저장하지 않은 채로 PDF를 만들까요?")) return;
   btn.disabled = true;
   statusEl.textContent = "입력 내용 저장 확인 중...";
   try {

@@ -49,11 +49,8 @@
   <label for="notify-signee">현장책임자 성명</label>
   <input id="notify-signee" placeholder="예: 현장 책임자 이름" />
 
-  <label>현장책임자 서명</label>
-  <canvas id="sig-canvas" width="360" height="140"></canvas>
-  <button type="button" id="sig-clear" class="secondary">지우기</button>
-  <button type="button" class="autosave-manual" id="sig-save">서명 저장</button>
-  <div id="sig-status" class="status"></div>
+  <label>현장책임자 서명 <span style="font-weight:400; color:var(--muted);">(서명은 "서명 저장"을 눌러야 반영됩니다)</span></label>
+  <div id="notify-sig-field"></div>
 
   <button type="button" class="autosave" id="section1-save">1번 섹션 저장</button>
   <div id="section1-status" class="status"></div>
@@ -235,6 +232,7 @@
 
 <script src="app.js"></script>
 <script src="shell.js"></script>
+<script src="signature.js"></script>
 <script src="js/report-core.js"></script>
 <script src="js/report-photos.js"></script>
 <script src="js/report-work.js"></script>

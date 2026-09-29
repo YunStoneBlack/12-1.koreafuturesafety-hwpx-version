@@ -78,6 +78,7 @@ let currentMethod = "";
 let currentAccidentStatus = "";
 let siteId = null;
 let pollTimer = null;
+let notifySigField = null;
 
 async function loadReport() {
   try {
@@ -106,10 +107,15 @@ async function loadReport() {
     renderEquipmentTable("equip-machinery", MACHINERY_EQUIPMENT_ITEMS, report.machinery_checks || []);
     renderEquipmentTable("equip-handtool", HAND_TOOL_ITEMS, report.hand_tool_checks || []);
     renderEquipmentTable("equip-hazmat", HAZMAT_ITEMS, report.hazmat_checks || []);
-    if (report.notify_signature_path) {
-      loadSignaturePreview();
-      setSigStatus(true);
-    }
+    // 현장책임자 서명 — signature.js(되돌리기·저장 전 미반영). 손이 스쳐 기존 서명 위에 덧그려진 채 자동 저장되던 문제로
+    // 자동 저장에서 빼고 "서명 저장" 버튼으로만 저장한다.
+    notifySigField = createSignatureField(document.getElementById("notify-sig-field"), {
+      imageUrl: `${BASE}/api/reports/${reportId}/notify-signature-image`,
+      uploadUrl: `${BASE}/api/reports/${reportId}/notify-signature`,
+      deleteUrl: `${BASE}/api/reports/${reportId}/notify-signature`,
+      registered: !!report.notify_signature_path,
+      saveLabel: "서명 저장",
+    });
     document.getElementById("visit-no").value = report.visit_no ?? "";
     document.getElementById("guidance-date").value = report.guidance_date || "";
     document.getElementById("progress-rate").value = report.progress_rate ?? "";
@@ -393,89 +399,3 @@ document.getElementById("section1-save").addEventListener("click", async () => {
     showError(errorEl, err);
   }
 });
-
-// --- 서명패드 (마우스/터치/펜 공용 Pointer Events) ---
-const canvas = document.getElementById("sig-canvas");
-const ctx = canvas.getContext("2d");
-ctx.lineWidth = 2;
-ctx.lineCap = "round";
-ctx.lineJoin = "round";
-let drawing = false;
-let hasInk = false;
-
-function canvasPoint(e) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  return [(e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY];
-}
-
-canvas.addEventListener("pointerdown", (e) => {
-  drawing = true;
-  canvas.setPointerCapture(e.pointerId);
-  const [x, y] = canvasPoint(e);
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-});
-canvas.addEventListener("pointermove", (e) => {
-  if (!drawing) return;
-  const [x, y] = canvasPoint(e);
-  ctx.lineTo(x, y);
-  ctx.stroke();
-  hasInk = true;
-});
-canvas.addEventListener("pointerup", () => { drawing = false; });
-canvas.addEventListener("pointerleave", () => { drawing = false; });
-
-document.getElementById("sig-clear").addEventListener("click", async () => {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  hasInk = false;
-  try {
-    await api(`${BASE}/api/reports/${reportId}/notify-signature`, { method: "DELETE" });
-    setSigStatus(false);
-  } catch (err) {
-    showError(errorEl, err);
-  }
-});
-
-document.getElementById("sig-save").addEventListener("click", () => {
-  errorEl.style.display = "none";
-  if (!hasInk) {
-    document.getElementById("sig-status").textContent = "먼저 서명을 그려주세요.";
-    return;
-  }
-  canvas.toBlob(async (blob) => {
-    const formData = new FormData();
-    formData.append("file", blob, "signature.png");
-    try {
-      const res = await fetch(`${BASE}/api/reports/${reportId}/notify-signature`, {
-        method: "POST",
-        credentials: "include",
-        body: formData,
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || `저장 실패 (${res.status})`);
-      }
-      setSigStatus(true);
-    } catch (err) {
-      showError(errorEl, err);
-    }
-  }, "image/png");
-});
-
-function setSigStatus(saved) {
-  const el = document.getElementById("sig-status");
-  el.textContent = saved ? "서명이 저장되었습니다." : "서명을 등록해주세요.";
-  el.className = saved ? "ok" : "bad";
-}
-
-async function loadSignaturePreview() {
-  // 저장된 서명 PNG를 캔버스에 미리 그려 보여준다(투명 배경 PNG를 흰 배경 위에 그림).
-  const img = new Image();
-  img.onload = () => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  };
-  img.src = `${BASE}/api/reports/${reportId}/notify-signature-image?ts=${Date.now()}`;
-}

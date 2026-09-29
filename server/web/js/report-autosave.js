@@ -4,6 +4,7 @@
 //   - 글자 입력은 멈춘 뒤 1.2초, 선택·체크·토글 버튼은 0.3초 뒤 저장(연달아 바꾸면 마지막 한 번만).
 //   - 사진 칸(input[type=file])은 원래 고르는 즉시 저장되므로 제외, data-no-autosave(담당요원 — 바꾸는 즉시 저장)도 제외.
 //   - AI가 입력칸을 채운 경우엔 입력 이벤트가 안 나므로 각 파일에서 autosaveTouch(칸)를 부른다.
+//   - 1번 현장책임자 서명은 자동 저장하지 않는다(손이 스쳐 망가진 서명이 바로 저장되면 안 됨 — signature.js의 "서명 저장").
 // 저장 상태(저장 중/저장됨/실패)는 목차 줄 오른쪽 표시(report-nav.js)에 보인다. 페이지를 떠날 때 저장 대기 중이면 즉시 저장하고 경고,
 // PDF 생성 전에는 autosaveFlush()로 남은 저장을 끝낸다.
 
@@ -97,11 +98,6 @@ document.addEventListener("click", (e) => {
   const toggle = e.target.closest(".method-btn, .eval-btn, .pi-del");
   if (toggle) autosaveTouch(toggle);
 }, true);
-
-// 1번 현장책임자 서명 — 그리고 손을 떼면 저장(서명 저장 버튼도 숨김)
-document.getElementById("sig-canvas").addEventListener("pointerup", () => {
-  if (hasInk) scheduleAutosave(document.getElementById("sig-save"), 800);
-});
 
 window.addEventListener("beforeunload", (e) => {
   if (autosaveTimers.size) autosaveFlushNow();

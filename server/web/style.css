@@ -105,7 +105,6 @@
 .photo-slot .slot-label { font-size: 12px; color: var(--muted); }
 .main .photo-slot .slot-controls button { align-self: flex-start; margin-top: 4px; padding: 6px 14px; }
 
-#sig-canvas { width: 100%; max-width: 360px; height: 140px; border: 1px solid var(--line); border-radius: 8px; touch-action: none; background: #fff; }
 
 /* ---------- 토글 버튼(통보방법/양호·미흡 등) ---------- */
 .method-row, .hazard-row .line-check, .equip-line { display: flex; }
@@ -233,7 +232,7 @@ main.main > section.panel { scroll-margin-top: 60px; }
 }
 
 /* 자동 저장으로 바뀐 저장 버튼 — 저장 동작은 그대로 쓰고(report-autosave.js가 대신 누름) 화면에서만 숨긴다 */
-.main button.autosave, .main button.autosave-manual { display: none; }
+.main button.autosave { display: none; }
 /* 빈 슬롯 펼치기 버튼(report-nav.js collapseEmptySlots) */
 .main button.slot-add { margin-top: 2px; border-style: dashed; color: var(--blue); }
 
@@ -242,3 +241,31 @@ main.main > section.panel { scroll-margin-top: 60px; }
 .danger-zone .panel-head h2 { color: var(--crit); }
 .main button.danger { background: var(--crit-soft); color: var(--crit); border-color: #F3C9C9; }
 .main button.danger:hover { background: var(--crit); color: #fff; filter: none; }
+
+/* ---------- 서명 칸(signature.js) 도구 줄 ---------- */
+.sig-tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.main .sig-tools button { margin-top: 0; padding: 7px 12px; font-size: 12.5px; }
+.main .sig-tools button:disabled { background: var(--surface); color: var(--faint); border-color: var(--line); }
+.main .sig-tools button.sig-save:disabled { background: var(--faint); color: #fff; }
+.main .sig-upload-label { margin: 0; font-weight: 500; display: inline-flex; }
+.sig-tools .sig-upload-btn { padding: 7px 12px; font-size: 12.5px; }
+.status.warn { color: var(--warn); font-weight: 600; }
+
+/* ---------- 담당요원 목록: 서명 미리보기(보기 전용) + 수정 칸 ---------- */
+.staff-item { border-bottom: 1px solid var(--line); }
+.staff-item:last-child { border-bottom: none; }
+.staff-row { border-bottom: none; flex-wrap: wrap; }
+.staff-row .staff-name { flex: 0 1 auto; min-width: 200px; } /* 이름 길이가 달라도 서명 미리보기가 세로로 줄 맞게 */
+.sig-thumb {
+  flex: none; width: 120px; height: 44px; object-fit: contain; background: #fff;
+  border: 1px solid var(--line); border-radius: 6px; pointer-events: none; user-select: none;
+}
+.sig-thumb.empty { display: inline-flex; align-items: center; justify-content: center; border-style: dashed; font-size: 11.5px; color: var(--faint); background: var(--paper); }
+.staff-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.main .staff-actions button { margin-top: 0; }
+.st-panel { padding: 0 18px 16px; }
+.edit-actions { display: flex; gap: 6px; }
+@media (max-width: 760px) {
+  .staff-row .staff-name { flex-basis: 100%; }
+  .staff-actions { margin-left: 0; }
+}

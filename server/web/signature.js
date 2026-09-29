@@ -1,126 +1,216 @@
-// 재사용 서명/도장 칸 — 담당요원 서명(staff.html), 결재란 이사·대표이사 도장(settings.html).
-// 데스크톱 서명칸(desktop/widgets/signature_pad.py)처럼 "직접 그리기"와 "이미지 올리기"(도장 스캔 등)
-// 둘 다 된다. 저장은 명시적 "저장" 버튼(그리기) 또는 파일 선택 즉시(이미지). 서버는 둘 다 PNG로 저장.
+// 재사용 서명/도장 칸 — 담당요원 서명(staff.html "수정"), 결재란 이사·대표이사 도장(settings.html),
+// 보고서 1번 현장책임자 서명(report.html). 데스크톱 서명칸(desktop/widgets/signature_pad.py)처럼 "직접 그리기"와
+// "이미지 올리기"(도장 스캔 등) 둘 다 된다. 서버는 둘 다 PNG로 저장.
 //
-// createSignatureField(container, { imageUrl, uploadUrl, deleteUrl, registered, onChange })
+// 실수 방지(2026-09-29 사용자 요청 — 손이 한 번 스쳐 서명이 망가지거나, "지우기"가 서버 서명을 바로 지워 버리던 문제):
+//   - "저장"을 누르기 전에는 서버에 아무것도 반영하지 않는다. 그리다 망치면 "처음 상태로"(또는 저장 안 하고 닫기)로 끝.
+//   - "↶ 한 획 되돌리기": 획·지우기·이미지 올리기를 하나씩 취소. 저장된 서명 위에 처음 그으면 칸을 비우고 새로 시작하는데,
+//     이것도 되돌리기 한 번에 원래 서명으로 돌아온다.
+//   - "지우기"는 칸만 비운다. 빈 칸으로 저장하면 그때 확인창을 띄우고 서명을 삭제한다.
+//   - 저장 안 한 변경이 있는 채로 페이지를 떠나면 브라우저가 경고한다.
+//
+// createSignatureField(container, { imageUrl, uploadUrl, deleteUrl, registered, onChange, standalone, saveLabel })
 //   imageUrl  : 저장된 이미지 GET 경로(미리보기)
 //   uploadUrl : POST(FormData: file, source="drawn"|"uploaded")
 //   deleteUrl : DELETE
 //   registered: 처음 상태(등록 여부)
 //   onChange(result): 저장/삭제 후 서버 응답을 넘겨준다
+//   standalone: true(기본)면 칸 아래에 자체 "저장" 버튼을 둔다. false면 버튼 없이, 부르는 쪽이 돌려받은 field.save()를 부른다
+//               (담당요원 "수정"처럼 이름·연락처와 한 번에 저장하는 경우).
+// 돌려주는 값: { isDirty(), save() } — save()는 바뀐 게 없으면 아무것도 안 하고 true, 저장/삭제하면 true, 삭제 확인에서 취소하면 false.
+
+const _dirtySignatureFields = new Set();
+window.addEventListener("beforeunload", (e) => {
+  if ([..._dirtySignatureFields].some((f) => f.isConnected() && f.isDirty())) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+});
+
 function createSignatureField(container, opts) {
+  const standalone = opts.standalone !== false;
   container.innerHTML = `
     <canvas class="sig-pad" width="360" height="140"></canvas>
-    <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-      <button type="button" class="secondary sig-clear" style="margin-top:8px;">지우기</button>
-      <button type="button" class="sig-save" style="margin-top:8px;">그린 서명 저장</button>
-      <label class="sig-upload-label" style="margin:8px 0 0; font-weight:500;">
+    <div class="sig-tools">
+      <button type="button" class="secondary sig-undo">↶ 한 획 되돌리기</button>
+      <button type="button" class="secondary sig-reset">처음 상태로</button>
+      <button type="button" class="secondary sig-clear">지우기</button>
+      <label class="sig-upload-label">
         <span class="sig-upload-btn">이미지로 올리기</span>
         <input type="file" accept="image/*" class="sig-file" style="display:none;" />
       </label>
+      ${standalone ? `<button type="button" class="sig-save">${opts.saveLabel || "저장"}</button>` : ""}
     </div>
     <div class="status sig-status"></div>
   `;
   const canvas = container.querySelector(".sig-pad");
   const ctx = canvas.getContext("2d");
   const statusEl = container.querySelector(".sig-status");
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  let drawing = false;
-  let hasInk = false;
+  const undoBtn = container.querySelector(".sig-undo");
+  const resetBtn = container.querySelector(".sig-reset");
+  const saveBtn = container.querySelector(".sig-save");
 
-  const setStatus = (registered, message) => {
-    statusEl.className = "status sig-status " + (registered ? "ok" : "bad");
-    statusEl.textContent = message || (registered ? "등록됨" : "미등록 — 그리거나 이미지를 올려주세요.");
+  let registered = !!opts.registered;
+  let savedImage = null; // 서버에 저장된 서명(Image) — "처음 상태로"의 기준
+  // 편집 기록: {t:"stroke", pts:[[x,y],...]} / {t:"clear", auto?} / {t:"image", img, file}
+  // 화면 = 마지막 clear/image를 바탕으로(없으면 저장된 서명) 그 뒤 획들을 그린 것. 되돌리기 = 마지막 기록 빼고 다시 그림.
+  let ops = [];
+  let drawing = null;
+
+  const drawContained = (img) => {
+    // 비율 유지해서 가운데에 맞춤(도장 이미지는 정사각형에 가까워 늘리면 찌그러짐)
+    const ratio = Math.min(canvas.width / img.width, canvas.height / img.height);
+    const w = img.width * ratio, h = img.height * ratio;
+    ctx.drawImage(img, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
   };
-  const clearCanvas = () => {
+  const baseIndex = () => {
+    for (let i = ops.length - 1; i >= 0; i--) if (ops[i].t !== "stroke") return i;
+    return -1;
+  };
+  const strokeCount = () => ops.length - baseIndex() - 1;
+  const isBlank = () => {
+    const b = baseIndex();
+    const base = b >= 0 ? ops[b] : null;
+    const baseEmpty = base ? base.t === "clear" : !registered;
+    return baseEmpty && strokeCount() === 0;
+  };
+  const isDirty = () => ops.length > 0;
+
+  const redraw = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    hasInk = false;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    const b = baseIndex();
+    if (b >= 0 && ops[b].t === "image") drawContained(ops[b].img);
+    else if (b < 0 && savedImage) drawContained(savedImage);
+    for (const op of ops.slice(b + 1)) {
+      ctx.beginPath();
+      op.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      if (op.pts.length === 1) ctx.lineTo(op.pts[0][0] + 0.1, op.pts[0][1]); // 점 하나도 보이게
+      ctx.stroke();
+    }
+    refreshUi();
   };
-  const showSaved = () => {
+
+  const refreshUi = (message, ok) => {
+    undoBtn.disabled = !ops.length;
+    resetBtn.disabled = !ops.length;
+    if (saveBtn) saveBtn.disabled = !ops.length;
+    if (message) {
+      statusEl.className = "status sig-status " + (ok ? "ok" : "bad");
+      statusEl.textContent = message;
+    } else if (isDirty()) {
+      statusEl.className = "status sig-status warn";
+      statusEl.textContent = isBlank()
+        ? "칸을 비웠습니다 — 저장하면 서명이 삭제됩니다."
+        : "바뀐 서명이 아직 저장되지 않았습니다.";
+    } else {
+      statusEl.className = "status sig-status " + (registered ? "ok" : "bad");
+      statusEl.textContent = registered ? "등록됨" : "미등록 — 그리거나 이미지를 올려주세요.";
+    }
+  };
+
+  // 저장된 서명을 다시 불러와 그린다. message가 있으면 다 그린 뒤 그 안내를 띄운다(바로 "등록됨"으로 덮이지 않게).
+  const loadSaved = (message, ok) => {
+    const done = () => { redraw(); if (message) refreshUi(message, ok); };
+    if (!registered) {
+      savedImage = null;
+      done();
+      return;
+    }
     const img = new Image();
-    img.onload = () => {
-      clearCanvas();
-      // 비율 유지해서 가운데에 맞춤(도장 이미지는 정사각형에 가까워 늘리면 찌그러짐)
-      const ratio = Math.min(canvas.width / img.width, canvas.height / img.height);
-      const w = img.width * ratio, h = img.height * ratio;
-      ctx.drawImage(img, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
-    };
+    img.onload = () => { savedImage = img; done(); };
+    img.onerror = done;
     img.src = `${opts.imageUrl}?ts=${Date.now()}`;
   };
+
   const point = (e) => {
     const r = canvas.getBoundingClientRect();
     return [(e.clientX - r.left) * (canvas.width / r.width), (e.clientY - r.top) * (canvas.height / r.height)];
   };
-
   canvas.addEventListener("pointerdown", (e) => {
-    if (!hasInk) clearCanvas(); // 저장된 미리보기 위에 겹쳐 그리지 않게 새로 시작
-    drawing = true;
+    // 저장된 서명/올린 이미지 위에 처음 그으면 칸을 비우고 새로 시작(겹쳐 그리지 않게) — 되돌리기 한 번에 원래대로
+    const b = baseIndex();
+    const baseHasPicture = b >= 0 ? ops[b].t === "image" : !!savedImage;
+    if (baseHasPicture && strokeCount() === 0) ops.push({ t: "clear", auto: true });
+    drawing = { t: "stroke", pts: [point(e)] };
+    ops.push(drawing);
     canvas.setPointerCapture(e.pointerId);
-    const [x, y] = point(e);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
+    redraw();
   });
   canvas.addEventListener("pointermove", (e) => {
     if (!drawing) return;
-    const [x, y] = point(e);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    hasInk = true;
+    drawing.pts.push(point(e));
+    redraw();
   });
-  canvas.addEventListener("pointerup", () => { drawing = false; });
-  canvas.addEventListener("pointerleave", () => { drawing = false; });
+  const endStroke = () => { drawing = null; };
+  canvas.addEventListener("pointerup", endStroke);
+  canvas.addEventListener("pointercancel", endStroke);
 
-  const upload = async (blob, filename, source) => {
-    const form = new FormData();
-    form.append("file", blob, filename);
-    form.append("source", source);
-    const out = await apiUpload(opts.uploadUrl, form);
-    hasInk = false;
-    showSaved();
-    setStatus(true, "저장되었습니다.");
-    if (opts.onChange) opts.onChange(out);
-  };
-
-  container.querySelector(".sig-save").addEventListener("click", () => {
-    if (!hasInk) {
-      setStatus(false, "먼저 서명을 그려주세요.");
-      return;
-    }
-    canvas.toBlob(async (blob) => {
-      try {
-        await upload(blob, "signature.png", "drawn");
-      } catch (err) {
-        setStatus(false, err.message);
-      }
-    }, "image/png");
+  undoBtn.addEventListener("click", () => {
+    const op = ops.pop();
+    if (op && op.t === "stroke" && ops.length && ops[ops.length - 1].auto) ops.pop();
+    redraw();
   });
-  container.querySelector(".sig-file").addEventListener("change", async (e) => {
+  resetBtn.addEventListener("click", () => { ops = []; redraw(); });
+  container.querySelector(".sig-clear").addEventListener("click", () => {
+    if (isBlank()) return;
+    ops.push({ t: "clear" });
+    redraw();
+  });
+  container.querySelector(".sig-file").addEventListener("change", (e) => {
     const file = e.target.files[0];
-    if (!file) return;
-    try {
-      await upload(file, file.name, "uploaded");
-    } catch (err) {
-      setStatus(false, err.message);
-    }
     e.target.value = "";
-  });
-  container.querySelector(".sig-clear").addEventListener("click", async () => {
-    clearCanvas();
-    try {
-      const out = await api(opts.deleteUrl, { method: "DELETE" });
-      setStatus(false);
-      if (opts.onChange) opts.onChange(out);
-    } catch (err) {
-      setStatus(false, err.message);
-    }
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => { ops.push({ t: "image", img, file }); redraw(); };
+    img.onerror = () => refreshUi("이미지를 열 수 없습니다.", false);
+    img.src = URL.createObjectURL(file);
   });
 
-  if (opts.registered) {
-    showSaved();
-    setStatus(true);
-  } else {
-    setStatus(false);
+  async function save() {
+    if (!isDirty()) return true;
+    let out;
+    if (isBlank()) {
+      if (!registered) { ops = []; redraw(); return true; }
+      if (!confirm("서명을 삭제할까요?")) return false;
+      out = await api(opts.deleteUrl, { method: "DELETE" });
+      registered = false;
+    } else {
+      const b = baseIndex();
+      const form = new FormData();
+      if (b >= 0 && ops[b].t === "image" && strokeCount() === 0) {
+        // 올린 이미지를 그대로 저장(캔버스로 다시 그리면 화질이 떨어짐)
+        form.append("file", ops[b].file, ops[b].file.name);
+        form.append("source", "uploaded");
+      } else {
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        form.append("file", blob, "signature.png");
+        form.append("source", "drawn");
+      }
+      out = await apiUpload(opts.uploadUrl, form);
+      registered = true;
+    }
+    ops = [];
+    loadSaved(registered ? "저장되었습니다." : "서명을 삭제했습니다.", registered);
+    if (opts.onChange) opts.onChange(out);
+    return true;
   }
+
+  if (saveBtn) {
+    saveBtn.addEventListener("click", async () => {
+      saveBtn.disabled = true;
+      try {
+        await save();
+      } catch (err) {
+        refreshUi(err.message, false);
+      }
+    });
+  }
+
+  const field = { isDirty, save, isConnected: () => canvas.isConnected };
+  _dirtySignatureFields.add(field);
+  loadSaved();
+  return field;
 }
