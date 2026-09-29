@@ -303,3 +303,8 @@ main.main > section.panel { scroll-margin-top: 60px; }
 /* 현장 화면 보고서 목록의 "PDF 생성됨 ↓" — 누르면 마지막으로 만든 PDF를 받는다 */
 a.pdf-pill { cursor: pointer; border: 1px solid transparent; }
 a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
+
+/* 현장 화면 보고서 목록 — 줄 전체를 눌러 들어가게(site.html), 현장 목록 줄과 같은 올렸을 때 모양 */
+.report-row { cursor: pointer; }
+.report-row:hover { background: var(--paper); }
+.report-row:hover .title > a { color: var(--blue); }

@@ -199,8 +199,18 @@ async function loadReports() {
     // 데스크톱 "보고서 이력"과 같은 줄 구성: 회차 · 지도일 · 공정률 · 상태 + 한글 내려받기 / 삭제
     for (const report of [...reports].reverse()) {
       const row = document.createElement("div");
-      row.className = "row";
+      row.className = "row report-row";
       row.style.flexWrap = "wrap";
+      // 현장 목록처럼 줄 어디를 눌러도 보고서로 — 줄 안의 버튼·링크(PDF 받기·한글·삭제)는 각자 동작만 한다
+      // (버튼이 있어서 줄 전체를 <a>로 감쌀 수 없음). Ctrl/가운데 버튼은 새 탭.
+      const openReport = (e) => {
+        if (e.target.closest("a, button")) return;
+        const url = `report.html?id=${report.id}`;
+        if (e.ctrlKey || e.metaKey || e.button === 1) window.open(url, "_blank");
+        else window.location.href = url;
+      };
+      row.addEventListener("click", openReport);
+      row.addEventListener("auxclick", (e) => { if (e.button === 1) openReport(e); });
       const isFinal = report.status === "final";
       row.innerHTML =
         `<span class="title"><a href="report.html?id=${report.id}">${report.visit_no}회차</a>` +
