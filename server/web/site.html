@@ -217,7 +217,11 @@ async function loadReports() {
         `<span class="title"><a href="report.html?id=${report.id}">${report.visit_no}회차</a>` +
         `<span class="meta" style="margin-left:10px;">${report.guidance_date || "지도일 미입력"} · 공정률 ${report.progress_rate ?? 0}%</span>` +
         // 고객사에 메일로 보낸 적이 있으면 마지막 전송(누르면 전송 창에서 전체 기록)
-        (report.last_mail_at ? `<span class="mail-sent" title="${report.last_mail_to}">✓ ${report.last_mail_at.slice(5).replace("-", "/")} 전송</span>` : "") +
+        // 여러 곳에 보냈으면 "(3곳)" — 누구에게 보냈는지는 마우스를 올리면(title) 보임
+        (report.last_mail_at ? (() => {
+          const n = report.last_mail_to.split(",").filter((a) => a.trim()).length;
+          return `<span class="mail-sent" title="${report.last_mail_to.replace(/"/g, "&quot;")}">✓ ${report.last_mail_at.slice(5).replace("-", "/")} 전송${n > 1 ? `(${n}곳)` : ""}</span>`;
+        })() : "") +
         `</span>` +
         // PDF를 만든 보고서만 "고객사 전송"(수정 전 버전이면 창에서 "PDF를 다시 만든 뒤 보내세요"로 막음, mail.js)
         (isFinal ? `<button type="button" class="secondary rp-mail" title="고객사에 PDF 메일 보내기">📧 <span class="rp-mail-long">고객사 </span>전송</button>` : "") +

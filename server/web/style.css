@@ -464,3 +464,20 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 }
 .mail-foot .mail-primary { background: var(--blue); border-color: var(--blue); color: #fff; }
 .mail-foot button:disabled { opacity: .6; cursor: default; }
+/* 고객사 전송 — 받는 사람 여러 곳(직접 입력 칸 + ✕, "+ 받는 사람 추가") */
+.mail-note { font-weight: 400; color: var(--faint); font-size: 12px; }
+.mail-extras { display: flex; flex-direction: column; gap: 6px; }
+.mail-extras:empty { display: none; }
+.mail-extra { display: flex; gap: 6px; align-items: center; }
+.mail-extra .mail-input { flex: 1; min-width: 0; }
+.mail-box button.mail-x {
+  flex: none; width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); cursor: pointer; font-size: 14px; font-family: inherit;
+}
+.mail-box button.mail-x:hover { color: var(--crit); border-color: var(--crit); }
+.mail-box button.mail-add {
+  align-self: flex-start; padding: 8px 14px; border-radius: 8px; border: 1px dashed var(--blue); background: var(--surface);
+  color: var(--blue); cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+}
+.mail-box button.mail-add[hidden] { display: none; }
+.mail-opt input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--blue); }

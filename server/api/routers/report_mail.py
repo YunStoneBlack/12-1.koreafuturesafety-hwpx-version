@@ -1,8 +1,9 @@
 """고객사에 보고서 PDF 메일 보내기 — 현장 화면 보고서 목록의 "📧 고객사 전송"(Sub-phase 63).
 
 - GET  /reports/{id}/mail — 창에 띄울 정보: 현장책임자 메일(기본 받는 사람), 참조·보내는 주소, 첨부 파일 이름·크기,
-  PDF 상태(없음/수정 전 버전/만드는 중), 보낸 기록.
-- POST /reports/{id}/mail {to} — 최신 PDF만 보낸다(수정 전 버전·만드는 중이면 409 "PDF를 다시 만든 뒤 보내세요").
+  PDF 상태(없음/수정 전 버전/만드는 중), 보낸 기록, 이 현장에서 지난번에 보낸 받는 사람들(다음 회차에 자동으로 채움).
+- 보낸 기록 `to_addr`에는 받는 사람들을 ", "로 이어 저장한다(표 모양은 그대로).
+- POST /reports/{id}/mail {to: [주소…]} — 받는 사람 여러 곳(감리 현장은 발주처·감리단 등)을 한 통으로(서로 보임, 사용자 결정 2026-09-29). 최신 PDF만 보낸다(수정 전 버전·만드는 중이면 409 "PDF를 다시 만든 뒤 보내세요").
   보낸 기록(ReportMail)을 남긴다. 이 요청은 보고서 수정이 아니므로 edit_tracking에서 제외(PDF가 "수정 전 버전"이 되지 않게).
 """
 
@@ -16,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
+from core.models_db import Report
 from core.models_web import ReportJob, ReportMail, User
 from server import settings as app_settings
 from server.api import mailer, repo
@@ -38,8 +40,26 @@ def mail_table_ready(db: Session) -> bool:
     return _table_ready
 
 
+MAX_RECIPIENTS = 10
+
+
 class MailSendIn(BaseModel):
-    to: str
+    to: list[str] | str  # str은 예전 화면(한 곳) 호환
+
+
+def split_addrs(value: str) -> list[str]:
+    return [a.strip() for a in (value or "").split(",") if a.strip()]
+
+
+def _site_last_recipients(db: Session, site_id: int) -> list[str]:
+    """이 현장 보고서 중 가장 최근에 보낸 메일의 받는 사람들 — 감리 현장은 매 회차 같은 발주처·감리단에 보내므로 다음 회차에 채워 둔다."""
+    if not mail_table_ready(db):
+        return []
+    last = (
+        db.query(ReportMail).join(Report, Report.id == ReportMail.report_id)
+        .filter(Report.site_id == site_id).order_by(ReportMail.sent_at.desc()).first()
+    )
+    return split_addrs(last.to_addr) if last else []
 
 
 def _history(db: Session, report_id: int) -> list[dict]:
@@ -92,6 +112,8 @@ def mail_info(report_id: int, user: User = Depends(get_current_user), db: Sessio
         "size_bytes": Path(report.pdf_path).stat().st_size if has_pdf else 0,
         "problem": _pdf_problem(db, report),
         "history": _history(db, report_id),
+        "last_recipients": _site_last_recipients(db, report.site_id),
+        "max_recipients": MAX_RECIPIENTS,
     }
 
 
@@ -102,18 +124,28 @@ def send_mail(
     report = _require_report(db, user, report_id)
     if not mailer.is_configured() or not mail_table_ready(db):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "메일 보내기 설정이 아직 안 됐습니다(회사 네이버 메일 연결 필요).")
-    to_addr = body.to.strip()
-    if not mailer.valid_email(to_addr):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "받는 사람 메일 주소를 확인하세요.")
+    to_addrs: list[str] = []
+    for addr in ([body.to] if isinstance(body.to, str) else body.to):
+        addr = addr.strip()
+        if not addr:
+            continue
+        if not mailer.valid_email(addr):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 사람 메일 주소를 확인하세요: {addr}")
+        if addr.lower() not in (a.lower() for a in to_addrs):  # 같은 주소 두 번은 하나로
+            to_addrs.append(addr)
+    if not to_addrs:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "받는 사람을 한 곳 이상 넣으세요.")
+    if len(to_addrs) > MAX_RECIPIENTS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 사람은 {MAX_RECIPIENTS}곳까지 넣을 수 있습니다.")
     problem = _pdf_problem(db, report)
     if problem:
         raise HTTPException(status.HTTP_409_CONFLICT, problem)
 
     site_name = report.site.name if report.site else ""
-    cc_addr = mailer.cc_for(to_addr)
+    cc_addr = mailer.cc_for(to_addrs)
     try:
-        mailer.send_pdf(
-            to_addr, cc_addr,
+        refused = mailer.send_pdf(
+            to_addrs, cc_addr,
             mailer.mail_subject(site_name, report.visit_no), mailer.mail_body(site_name, report.visit_no),
             Path(report.pdf_path), download_name(report, ".pdf"),
         )
@@ -122,8 +154,8 @@ def send_mail(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
     db.add(ReportMail(
-        report_id=report.id, sent_at=datetime.datetime.now(), to_addr=to_addr, cc_addr=cc_addr,
+        report_id=report.id, sent_at=datetime.datetime.now(), to_addr=", ".join(to_addrs), cc_addr=cc_addr,
         sent_by=user.display_name or "",
     ))
     db.commit()
-    return {"ok": True, "to": to_addr, "cc": cc_addr, "history": _history(db, report_id)}
+    return {"ok": True, "to": to_addrs, "cc": cc_addr, "refused": refused, "history": _history(db, report_id)}
