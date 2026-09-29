@@ -42,9 +42,44 @@ function apiPatch(path, data) {
 }
 
 // 파일 업로드(multipart) — Content-Type은 브라우저가 boundary까지 붙여 정하게 비워둔다.
+// 폰 사진은 한 장 5~20MB라 그대로 올리면 느리고, 큰 요청이 AWS 중계(nginx)에서 500으로 실패하기도 했다(2026-09-29).
+// 서버는 어차피 보고서에 넣을 때 긴 변 1400px로 줄이므로(core/report_builder_hwpx_jpeg.py), 올리기 전에 브라우저에서
+// 긴 변 2000px JPEG로 줄여 보낸다(한 장 0.5MB 안팎). 사진 방향(EXIF 회전)은 브라우저가 그릴 때 반영돼 똑바로 된 픽셀로 나간다.
+// PNG(도장·서명 — 투명 배경)와 작은 사진은 건드리지 않고, 폰이 못 읽는 형식(일부 HEIC 등)이면 원본을 그대로 보낸다.
+const UPLOAD_MAX_SIDE = 2000;
+const UPLOAD_SHRINK_OVER_BYTES = 1.5 * 1024 * 1024;
+
+async function shrinkPhotoForUpload(file) {
+  if (!(file instanceof File) || !/^image\/(jpeg|jpg|heic|heif|webp)$/i.test(file.type)) return file;
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const ratio = Math.min(1, UPLOAD_MAX_SIDE / Math.max(w, h));
+    if (ratio === 1 && file.size <= UPLOAD_SHRINK_OVER_BYTES) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(w * ratio);
+    canvas.height = Math.round(h * ratio);
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    if (!blob || blob.size >= file.size) return file; // 줄여도 안 작아지면 원본
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function apiUpload(path, formData) {
   const url = apiUrl(path);
-  const res = await fetch(url, { method: "POST", credentials: "include", body: formData });
+  const body = new FormData();
+  for (const [key, value] of formData.entries()) {
+    body.append(key, value instanceof File ? await shrinkPhotoForUpload(value) : value);
+  }
+  const res = await fetch(url, { method: "POST", credentials: "include", body });
   if (res.status === 401) {
     window.location.href = "index.html";
     throw new Error("로그인이 필요합니다.");
