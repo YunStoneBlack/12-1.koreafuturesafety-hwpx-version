@@ -58,7 +58,10 @@ def send_pdf(to_addr: str, cc_addr: str, subject: str, body: str, pdf_path: Path
     msg.set_content(body)
     msg.add_attachment(Path(pdf_path).read_bytes(), maintype="application", subtype="pdf", filename=filename)
     try:
-        with smtplib.SMTP_SSL(settings.MAIL_SMTP_HOST, settings.MAIL_SMTP_PORT, timeout=60) as smtp:
+        # local_hostname — 기본값은 이 PC 이름인데 한글이 섞여 있으면 EHLO 단계에서 UnicodeEncodeError(ASCII만 가능)
+        with smtplib.SMTP_SSL(
+            settings.MAIL_SMTP_HOST, settings.MAIL_SMTP_PORT, local_hostname="localhost", timeout=60
+        ) as smtp:
             smtp.login(settings.MAIL_SMTP_USER, settings.MAIL_SMTP_PASSWORD)
             smtp.send_message(msg)
     except smtplib.SMTPAuthenticationError as e:
@@ -71,3 +74,5 @@ def send_pdf(to_addr: str, cc_addr: str, subject: str, body: str, pdf_path: Path
         raise MailError(f"메일 서버가 메일을 받지 않았습니다(첨부 용량 등). ({e.smtp_code})") from e
     except (smtplib.SMTPException, OSError) as e:
         raise MailError("메일 서버에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요.") from e
+    except Exception as e:  # 예상 못 한 오류도 화면엔 안내 문구로(원인은 API 로그에)
+        raise MailError(f"메일을 보내지 못했습니다({type(e).__name__}). 관리자에게 알려 주세요.") from e
