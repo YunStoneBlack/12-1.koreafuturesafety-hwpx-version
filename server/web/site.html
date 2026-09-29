@@ -205,7 +205,9 @@ async function loadReports() {
       row.innerHTML =
         `<span class="title"><a href="report.html?id=${report.id}">${report.visit_no}회차</a>` +
         `<span class="meta" style="margin-left:10px;">${report.guidance_date || "지도일 미입력"} · 공정률 ${report.progress_rate ?? 0}%</span></span>` +
-        `<span class="status-pill ${isFinal ? "approved" : "pending"}">${isFinal ? "PDF 생성됨" : "작성중"}</span>` +
+        (isFinal
+          ? `<a class="status-pill approved pdf-pill" href="${BASE}/api/reports/${report.id}/pdf" title="눌러서 PDF 받기">PDF 생성됨 ↓</a>`
+          : `<span class="status-pill pending">작성중</span>`) +
         `<a class="secondary-link" href="${BASE}/api/reports/${report.id}/hwpx">↓ 한글</a>` +
         `<button type="button" class="secondary rp-del" style="margin-top:0; color:var(--crit);">삭제</button>`;
       row.querySelector(".rp-del").addEventListener("click", async () => {

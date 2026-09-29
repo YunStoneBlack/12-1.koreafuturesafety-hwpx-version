@@ -299,3 +299,7 @@ main.main > section.panel { scroll-margin-top: 60px; }
 .sig-locked .sig-tools, .sig-locked .sig-drop-hint { display: none; }
 .sig-locked .sig-pad { pointer-events: none; cursor: default; }
 .main .sig-locked-bar button { margin-top: 0; padding: 7px 16px; font-size: 12.5px; }
+
+/* 현장 화면 보고서 목록의 "PDF 생성됨 ↓" — 누르면 마지막으로 만든 PDF를 받는다 */
+a.pdf-pill { cursor: pointer; border: 1px solid transparent; }
+a.pdf-pill:hover { border-color: var(--green); filter: brightness(0.97); }
