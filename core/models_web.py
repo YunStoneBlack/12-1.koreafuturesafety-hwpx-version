@@ -84,7 +84,7 @@ class ReportJob(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
-    status: Mapped[str] = mapped_column(Text, default="queued")  # queued|rendering|done|failed
+    status: Mapped[str] = mapped_column(Text, default="queued")  # queued|rendering|done|failed|canceled(대기 중 취소, jobs.py)
     error_message: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
     started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)

@@ -24,16 +24,49 @@ document.getElementById("render-btn").addEventListener("click", async () => {
     statusEl.textContent = "대기열에 등록 중...";
     const job = await apiPost(`/reports/${reportId}/render`);
     pollJob(job.id);
+    document.getElementById("render-cancel").hidden = false;
   } catch (err) {
     btn.disabled = false;
     showError(errorEl, err);
   }
 });
 
+// PDF 만들기 취소 — 순서를 기다리는 중이면 작업을 취소, 이미 한글로 만드는 중이면 멈추지 않고 기다리기만 그만둔다
+// (한글을 중간에 끊으면 다음 PDF까지 망가질 수 있음 — PDF는 끝까지 만들어져 현장 화면에 "PDF 생성됨"으로 나옴). server/api/routers/jobs.py cancel_job
+async function cancelRenderJob(jobId) {
+  try {
+    const out = await apiPost(`/jobs/${jobId}/cancel`);
+    return out.canceled
+      ? "PDF 만들기를 취소했습니다."
+      : out.status === "rendering"
+        ? "이미 한글로 만드는 중이라 끝까지 만들어집니다. 기다리지 않고 닫았습니다 — 완성되면 현장 화면에 'PDF 생성됨'으로 나옵니다."
+        : "";
+  } catch {
+    return "취소하지 못했습니다. 잠시 뒤 다시 시도하세요.";
+  }
+}
+
+let currentRenderJobId = null;
+document.getElementById("render-cancel").addEventListener("click", async () => {
+  const cancelBtn = document.getElementById("render-cancel");
+  if (!currentRenderJobId) return;
+  cancelBtn.disabled = true;
+  if (pollTimer) clearInterval(pollTimer);
+  const msg = await cancelRenderJob(currentRenderJobId);
+  currentRenderJobId = null;
+  cancelBtn.disabled = false;
+  cancelBtn.hidden = true;
+  document.getElementById("render-btn").disabled = !document.getElementById("confirm-check").checked;
+  if (msg) document.getElementById("job-status").textContent = msg;
+});
+
 function pollJob(jobId) {
   const statusEl = document.getElementById("job-status");
   const btn = document.getElementById("render-btn");
+  const cancelBtn = document.getElementById("render-cancel");
+  currentRenderJobId = jobId;
   if (pollTimer) clearInterval(pollTimer);
+  const stop = () => { clearInterval(pollTimer); currentRenderJobId = null; cancelBtn.hidden = true; btn.disabled = false; };
   pollTimer = setInterval(async () => {
     try {
       const job = await api(`/jobs/${jobId}`);
@@ -42,17 +75,17 @@ function pollJob(jobId) {
       } else if (job.status === "rendering") {
         statusEl.textContent = "한글 프로그램으로 PDF 생성 중... (몇 초~십몇 초 걸릴 수 있어요)";
       } else if (job.status === "done") {
-        clearInterval(pollTimer);
-        btn.disabled = false;
+        stop();
         statusEl.innerHTML = `완료! <a data-download="pdf" data-report-id="${reportId}" href="${BASE}/api/jobs/${jobId}/download">PDF 다운로드</a>`;
       } else if (job.status === "failed") {
-        clearInterval(pollTimer);
-        btn.disabled = false;
+        stop();
         statusEl.textContent = `생성 실패: ${job.error_message.split("\n")[0]} (다시 시도해보세요)`;
+      } else if (job.status === "canceled") {
+        stop();
+        statusEl.textContent = "PDF 만들기를 취소했습니다.";
       }
     } catch (err) {
-      clearInterval(pollTimer);
-      btn.disabled = false;
+      stop();
       showError(errorEl, err);
     }
   }, 1500);
@@ -102,12 +135,16 @@ async function previewReport() {
     const st = await api(`/reports/${reportId}/pdf-status`);
     if (!st.has_pdf || st.outdated) {
       const job = await apiPost(`/reports/${reportId}/render`);
+      // 만드는 중에 [닫기]/[취소] — 대기 중이면 작업 취소, 한글로 만드는 중이면 기다리기만 그만둔다(cancelRenderJob)
+      modal.onClose(() => cancelRenderJob(job.id));
       const started = Date.now();
       for (;;) {
         await new Promise((r) => setTimeout(r, 1500));
+        if (modal.closed()) return;
         const j = await api(`/jobs/${job.id}`);
         modal.setStatus(`PDF 만드는 중… ${Math.round((Date.now() - started) / 1000)}초 (보통 20~30초)`);
-        if (j.status === "done") break;
+        if (j.status === "done") { modal.onClose(null); break; }
+        if (j.status === "canceled") return;
         if (j.status === "failed") throw new Error(`PDF를 만들지 못했습니다: ${(j.error_message || "").split("\n")[0]}`);
       }
     }
@@ -143,7 +180,11 @@ function openPreviewModal() {
   const prevOverflow = document.documentElement.style.overflow;
   document.documentElement.style.overflow = "hidden"; // 미리보기 중엔 뒤 화면이 대신 스크롤되지 않게
   const onKey = (e) => { if (e.key === "Escape") close(); };
+  let closed = false;
+  let closeHook = null;
   const close = () => {
+    closed = true;
+    if (closeHook) closeHook();
     overlay.remove();
     document.documentElement.style.overflow = prevOverflow;
     document.removeEventListener("keydown", onKey);
@@ -153,6 +194,12 @@ function openPreviewModal() {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   const statusEl = overlay.querySelector(".preview-status");
   return {
+    closed: () => closed,
+    // 창을 닫을 때 할 일(PDF 만드는 중이면 취소) — 만들기가 끝나면 null로 푼다
+    onClose(fn) {
+      closeHook = fn;
+      overlay.querySelector(".preview-close").textContent = fn ? "취소" : "닫기";
+    },
     setStatus(text, bad) {
       statusEl.textContent = text;
       statusEl.classList.toggle("bad", !!bad);

@@ -62,12 +62,15 @@ async function apiUpload(path, formData) {
 // "⟳ 한글 파일 만드는 중… N초"를 보여 주고, 준비되면 받기를 시작한 뒤 "✓ 준비됐습니다"로 바꿔 3초 뒤 닫는다.
 // 쓰는 곳: <a data-download="pdf|hwpx" data-report-id="…" href="PDF 주소">. 한글은 먼저 서버에서 만들어 두고(.../hwpx/prepare) 받는다.
 // 받기는 <a download>를 눌러서(페이지 이동 없음 → 보고서 화면의 "저장 안 한 내용" 경고도 안 뜸), 폰·카카오톡 브라우저도 평소 받기처럼 저장 창이 뜬다.
-function openDownloadStatus(label) {
+// onCancel을 주면 [취소] 버튼이 붙는다(한글 만들기가 오래 걸릴 때 — 2026-09-29 사용자).
+function openDownloadStatus(label, onCancel) {
   const box = document.createElement("div");
   box.className = "dl-status";
-  box.innerHTML = '<span class="dl-spin"></span><span class="dl-text"></span>';
+  box.innerHTML = '<span class="dl-spin"></span><span class="dl-text"></span>' +
+    (onCancel ? '<button type="button" class="dl-cancel">취소</button>' : "");
   document.body.appendChild(box);
   const text = box.querySelector(".dl-text");
+  if (onCancel) box.querySelector(".dl-cancel").addEventListener("click", onCancel);
   const started = Date.now();
   const tick = () => { text.textContent = `${label}… ${Math.round((Date.now() - started) / 1000)}초`; };
   tick();
@@ -76,21 +79,28 @@ function openDownloadStatus(label) {
     clearInterval(timer);
     box.classList.add(cls);
     box.querySelector(".dl-spin").remove();
+    box.querySelector(".dl-cancel")?.remove();
     text.textContent = message;
     setTimeout(() => box.remove(), ms);
   };
   return {
     done: () => finish("ok", "✓ 준비됐습니다 — 저장할지 묻는 창이 뜨면 \"다운로드\"를 누르세요", 4000),
     fail: (msg) => finish("bad", `⚠ ${msg}`, 6000),
+    canceled: () => finish("muted", "취소했습니다", 2000),
   };
 }
 
 async function startDownload(kind, reportId, href) {
-  const status = openDownloadStatus(kind === "hwpx" ? "한글 파일 만드는 중" : "PDF 받는 중");
+  // 취소 — 기다리던 요청을 끊고 받기를 시작하지 않는다(서버는 시작한 한글 파일 만들기를 몇 초 안에 마저 끝내고 그냥 둔다, 보고서엔 영향 없음)
+  const ctrl = new AbortController();
+  let canceled = false;
+  const onCancel = kind === "hwpx" ? () => { canceled = true; ctrl.abort(); status.canceled(); } : null;
+  const status = openDownloadStatus(kind === "hwpx" ? "한글 파일 만드는 중" : "PDF 받는 중", onCancel);
   try {
     let url = href;
     if (kind === "hwpx") {
-      const out = await api(`/reports/${reportId}/hwpx/prepare`);
+      const out = await api(`/reports/${reportId}/hwpx/prepare`, { signal: ctrl.signal });
+      if (canceled) return;
       url = `${BASE}/api/reports/${reportId}/hwpx?token=${encodeURIComponent(out.token)}`;
     }
     const a = document.createElement("a");
@@ -101,6 +111,7 @@ async function startDownload(kind, reportId, href) {
     a.remove();
     status.done();
   } catch (err) {
+    if (canceled) return;
     status.fail(err.message || "받지 못했습니다. 다시 시도하세요.");
   }
 }
