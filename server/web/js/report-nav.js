@@ -34,7 +34,25 @@ function setupReportToc() {
   indicator.id = "save-indicator";
   indicator.title = "누르면 맨 위로";
   indicator.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
-  bar.append(chips, indicator);
+  // 따라다니는 버튼들(2026-09-29 사용자 요청): ← 현장으로 / 저장(지금 바로) / 미리보기(PDF) — 동작은 report-main.js
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "secondary toc-btn toc-back";
+  back.textContent = "← 현장으로";
+  back.addEventListener("click", () => goBackToSite());
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.id = "toc-save";
+  saveBtn.className = "secondary toc-btn";
+  saveBtn.textContent = "저장";
+  saveBtn.addEventListener("click", () => saveNow());
+  const previewBtn = document.createElement("button");
+  previewBtn.type = "button";
+  previewBtn.id = "toc-preview";
+  previewBtn.className = "toc-btn";
+  previewBtn.textContent = "미리보기";
+  previewBtn.addEventListener("click", () => previewReport());
+  bar.append(back, chips, indicator, saveBtn, previewBtn);
   document.getElementById("error").before(bar);
   updateSaveIndicator();
 

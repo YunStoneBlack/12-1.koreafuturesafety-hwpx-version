@@ -308,3 +308,34 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .report-row { cursor: pointer; }
 .report-row:hover { background: var(--paper); }
 .report-row:hover .title > a { color: var(--blue); }
+
+/* ---------- 보고서 목차 줄의 따라다니는 버튼(← 현장으로 / 저장 / 미리보기) ---------- */
+.main .report-toc .toc-btn { margin-top: 0; padding: 6px 12px; font-size: 12.5px; flex: none; }
+.main .report-toc .toc-back { padding: 6px 10px; }
+@media (max-width: 760px) {
+  .toc-chips { order: 10; }
+  /* 폰: 안내 문구는 남는 폭만 쓰고 넘치면 … — 버튼 세 개가 한 줄에 들어가게 */
+  .report-toc .save-indicator { flex: 1 1 0; min-width: 0; margin-left: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+}
+
+/* ---------- 미리보기 창(report-main.js openPreviewModal) — .main 밖(body)에 붙으므로 버튼 모양을 따로 준다 ---------- */
+.preview-overlay {
+  position: fixed; inset: 0; z-index: 1000; background: rgba(15, 17, 32, 0.55);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.preview-box {
+  background: var(--surface); border-radius: 12px; width: min(1100px, 100%); height: 100%;
+  display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 40px rgba(0, 0, 0, .25);
+}
+.preview-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.preview-head b { font-size: 14.5px; }
+.preview-status { font-size: 12.5px; color: var(--warn); font-weight: 600; flex: 1; }
+.preview-status.bad { color: var(--crit); }
+.preview-head .secondary-link { margin: 0; }
+.preview-head button {
+  padding: 7px 14px; font-size: 13px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink); cursor: pointer; font-family: inherit; font-weight: 600;
+}
+.preview-body { flex: 1; display: flex; background: var(--paper); }
+.preview-frame { flex: 1; border: 0; width: 100%; height: 100%; }
+.preview-wait { margin: auto; color: var(--muted); font-size: 14px; }

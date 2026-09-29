@@ -55,14 +55,20 @@ def download_hwpx(
 
 
 @router.get("/pdf")
-def download_pdf(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """마지막으로 만든 PDF 받기(현장 화면 보고서 목록의 "PDF 생성됨"을 누를 때). 새로 만들지 않고 저장된 파일을 그대로 준다."""
+def download_pdf(
+    report_id: int, inline: bool = False, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """마지막으로 만든 PDF 받기(현장 화면 보고서 목록의 "PDF 생성됨"을 누를 때). 새로 만들지 않고 저장된 파일을 그대로 준다.
+    inline=true면 내려받지 않고 브라우저 안에서 연다(보고서 화면 "미리보기")."""
     report = repo.get_report(db, user.company_id, report_id)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
     if not report.pdf_path or not Path(report.pdf_path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "아직 만든 PDF가 없습니다. 보고서 화면에서 'PDF 생성'을 먼저 누르세요.")
-    return FileResponse(report.pdf_path, media_type="application/pdf", filename=download_name(report, ".pdf"))
+    return FileResponse(
+        report.pdf_path, media_type="application/pdf", filename=download_name(report, ".pdf"),
+        content_disposition_type="inline" if inline else "attachment",
+    )
 
 
 @router.delete("")

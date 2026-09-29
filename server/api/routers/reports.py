@@ -27,20 +27,40 @@ def list_reports(site_id: int, user: User = Depends(get_current_user), db: Sessi
     ids = [r.id for r in reports]
     if not ids:
         return []
-    # "PDF 수정 전 버전" — 마지막으로 성공한 PDF 렌더 작업이 시작된 뒤에 고쳤으면(렌더 도중 고친 것도 빠졌을 수 있어 시작 시각 기준)
+    outdated = pdf_outdated_map(db, reports)
+    out = []
+    for r in reports:
+        item = ReportOut.model_validate(r)
+        item.pdf_outdated = outdated[r.id]
+        out.append(item)
+    return out
+
+
+def pdf_outdated_map(db: Session, reports) -> dict[int, bool]:
+    """{보고서 id: PDF가 수정 전 버전인가} — 마지막으로 성공한 PDF 렌더 작업이 시작된 뒤에 고쳤으면 True
+    (렌더 도중 고친 것도 빠졌을 수 있어 시작 시각 기준). 수정 시각은 server/api/edit_tracking.py가 기록."""
+    ids = [r.id for r in reports]
     edited = dict(db.query(ReportEdit.report_id, ReportEdit.edited_at).filter(ReportEdit.report_id.in_(ids)))
     rendered = dict(
         db.query(ReportJob.report_id, func.max(ReportJob.started_at))
         .filter(ReportJob.report_id.in_(ids), ReportJob.status == "done")
         .group_by(ReportJob.report_id)
     )
-    out = []
+    result = {}
     for r in reports:
-        item = ReportOut.model_validate(r)
         e, started = edited.get(r.id), rendered.get(r.id)
-        item.pdf_outdated = bool(r.status == "final" and e and (started is None or e > started))
-        out.append(item)
-    return out
+        result[r.id] = bool(r.status == "final" and e and (started is None or e > started))
+    return result
+
+
+@router.get("/reports/{report_id}/pdf-status")
+def pdf_status(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """보고서 화면 "미리보기"용 — 최신 PDF가 있으면 바로 띄우고, 없거나 수정 전 버전이면 새로 만든다."""
+    report = repo.get_report(db, user.company_id, report_id)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
+    has_pdf = bool(report.pdf_path) and Path(report.pdf_path).exists()
+    return {"has_pdf": has_pdf, "outdated": pdf_outdated_map(db, [report])[report.id]}
 
 
 @router.post("/sites/{site_id}/reports", response_model=ReportOut)
