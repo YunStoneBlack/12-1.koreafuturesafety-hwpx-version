@@ -2,7 +2,7 @@
 
 보고서 내용을 바꾸는 API는 섹션·사진·서명마다 수십 개라 하나하나 고치지 않고, 미들웨어 하나가 성공한 저장 요청을 보고 기록한다:
   - POST/PATCH/PUT/DELETE `/api/reports/{id}/...` 가 성공(4xx/5xx 아님)하면 그 보고서를 "수정됨"으로.
-    단 AI 분석(`/ai/...`, 입력칸만 채우고 저장 안 함)·PDF 생성(`/render`)·보고서 삭제 자체는 제외.
+    단 AI 분석(`/ai/...`, 입력칸만 채우고 저장 안 함)·PDF 생성(`/render`)·고객사 메일 전송(`/mail`)·보고서 삭제 자체는 제외.
   - PATCH `/api/sites/{id}`(현장 정보 수정) — 표지에 들어가므로 그 현장 보고서 전부를 "수정됨"으로.
 성공한 요청만 보므로 권한 검사는 원래 API가 이미 한 셈이다.
 """
@@ -31,7 +31,7 @@ def edited_report_ids(method: str, path: str) -> tuple[list[int], int | None]:
     m = _REPORT_PATH.search(path)
     if m:
         rest = m.group(2) or ""
-        if rest.startswith("/render") or rest.startswith("/ai/") or (rest in ("", "/") and method == "DELETE"):
+        if rest.startswith("/render") or rest.startswith("/ai/") or rest.startswith("/mail") or (rest in ("", "/") and method == "DELETE"):
             return [], None
         return [int(m.group(1))], None
     m = _SITE_PATH.search(path)

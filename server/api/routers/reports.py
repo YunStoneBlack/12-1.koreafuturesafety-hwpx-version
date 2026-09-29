@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from core import config
 from core.db import BASE_DIR
 from core.models_db import Staff
-from core.models_web import ReportEdit, ReportJob, User
+from core.models_web import ReportEdit, ReportJob, ReportMail, User
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY, is_full, other_site_names
 from server.api import repo
 from server.api.report_defaults import apply_new_report_defaults, record_site_hazard_checks
@@ -28,10 +28,19 @@ def list_reports(site_id: int, user: User = Depends(get_current_user), db: Sessi
     if not ids:
         return []
     outdated = pdf_outdated_map(db, reports)
+    # 고객사에 마지막으로 메일 보낸 기록(목록의 "✓ 전송") — 오래된 것부터 덮어써 보고서마다 마지막 것만 남는다
+    from server.api.routers.report_mail import mail_table_ready  # 순환 import 피해 여기서
+    last_mail = (
+        {m.report_id: m for m in db.query(ReportMail).filter(ReportMail.report_id.in_(ids)).order_by(ReportMail.sent_at)}
+        if mail_table_ready(db) else {}
+    )
     out = []
     for r in reports:
         item = ReportOut.model_validate(r)
         item.pdf_outdated = outdated[r.id]
+        if r.id in last_mail:
+            item.last_mail_at = last_mail[r.id].sent_at.strftime("%Y-%m-%d %H:%M")
+            item.last_mail_to = last_mail[r.id].to_addr
         out.append(item)
     return out
 

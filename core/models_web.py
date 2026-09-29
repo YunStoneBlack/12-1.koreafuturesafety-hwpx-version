@@ -100,3 +100,18 @@ class ReportEdit(Base):
 
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id", ondelete="CASCADE"), primary_key=True)
     edited_at: Mapped[datetime.datetime] = mapped_column(DateTime)
+
+
+class ReportMail(Base):
+    """웹판 전용 — 고객사에 보고서 PDF를 메일로 보낸 기록(현장 화면 "📧 고객사 전송", server/api/routers/report_mail.py).
+    누가·언제·누구에게 보냈는지 남겨 목록에 "전송됨"을 보여 주고, 다시 보낼 때 "이미 보낸 보고서"라고 알린다.
+    보고서가 지워지면 DB가 같이 지운다(ON DELETE CASCADE)."""
+
+    __tablename__ = "report_mail"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("report.id", ondelete="CASCADE"), index=True)
+    sent_at: Mapped[datetime.datetime] = mapped_column(DateTime)
+    to_addr: Mapped[str] = mapped_column(Text)
+    cc_addr: Mapped[str] = mapped_column(Text, default="")
+    sent_by: Mapped[str] = mapped_column(Text, default="")  # 보낸 직원 이름(그룹웨어 표시 이름)

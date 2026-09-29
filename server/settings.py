@@ -42,3 +42,14 @@ GROUPWARE_RELAY_SECRET = os.environ.get("GROUPWARE_RELAY_SECRET", "").strip()
 # 그룹웨어 직원이 처음 들어오면 자동으로 만들어지는 보고서 사용자가 속할 회사(company.id) — 한국미래안전
 GROUPWARE_COMPANY_ID = int(os.environ.get("GROUPWARE_COMPANY_ID", "1") or 1)
 
+
+# 고객사에 보고서 PDF 메일 보내기(현장 화면 "📧 고객사 전송", server/api/mailer.py) — 회사 네이버 메일(@naver.com)의 SMTP로 보낸다
+# (일반 네이버 메일엔 발송용 공개 API가 없음). 네이버 메일 환경설정 → POP3/IMAP 설정에서 "SMTP 사용"을 켜야 하고,
+# 2단계 인증을 쓰는 계정이면 로그인 비밀번호 대신 "애플리케이션 비밀번호"를 넣는다. 비워 두면 전송 버튼이 "설정 안 됨"을 알린다.
+MAIL_SMTP_HOST = os.environ.get("MAIL_SMTP_HOST", "smtp.naver.com").strip()
+MAIL_SMTP_PORT = int(os.environ.get("MAIL_SMTP_PORT", "465") or 465)
+MAIL_SMTP_USER = os.environ.get("MAIL_SMTP_USER", "").strip()  # 보내는 주소 = 로그인 아이디(예: xxx@naver.com)
+MAIL_SMTP_PASSWORD = os.environ.get("MAIL_SMTP_PASSWORD", "").strip()
+MAIL_FROM_NAME = os.environ.get("MAIL_FROM_NAME", "한국미래안전").strip()
+# 참조(CC) — 기본은 보내는 회사 메일 자신(보낸메일함 외에 받은메일함에도 남아 회사에서 확인하기 쉽게)
+MAIL_CC = os.environ.get("MAIL_CC", MAIL_SMTP_USER).strip()

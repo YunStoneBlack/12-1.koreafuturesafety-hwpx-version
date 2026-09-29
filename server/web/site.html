@@ -56,6 +56,7 @@
 </div>
 
 <script src="app.js"></script>
+<script src="mail.js"></script>
 <script src="shell.js"></script>
 <script>
 const errorEl = document.getElementById("error");
@@ -214,7 +215,12 @@ async function loadReports() {
       const isFinal = report.status === "final";
       row.innerHTML =
         `<span class="title"><a href="report.html?id=${report.id}">${report.visit_no}회차</a>` +
-        `<span class="meta" style="margin-left:10px;">${report.guidance_date || "지도일 미입력"} · 공정률 ${report.progress_rate ?? 0}%</span></span>` +
+        `<span class="meta" style="margin-left:10px;">${report.guidance_date || "지도일 미입력"} · 공정률 ${report.progress_rate ?? 0}%</span>` +
+        // 고객사에 메일로 보낸 적이 있으면 마지막 전송(누르면 전송 창에서 전체 기록)
+        (report.last_mail_at ? `<span class="mail-sent" title="${report.last_mail_to}">✓ ${report.last_mail_at.slice(5).replace("-", "/")} 전송</span>` : "") +
+        `</span>` +
+        // PDF를 만든 보고서만 "고객사 전송"(수정 전 버전이면 창에서 "PDF를 다시 만든 뒤 보내세요"로 막음, mail.js)
+        (isFinal ? `<button type="button" class="secondary rp-mail" title="고객사에 PDF 메일 보내기">📧 <span class="rp-mail-long">고객사 </span>전송</button>` : "") +
         // PDF를 만든 뒤 내용을 고쳤으면 "수정 전 버전" — 받을 순 있지만 최신이 아님(보고서 화면에서 "PDF 생성"을 다시 누르면 갱신)
         (!isFinal
           ? `<span class="status-pill pending">작성중</span>`
@@ -223,6 +229,9 @@ async function loadReports() {
             : `<a class="status-pill approved pdf-pill" data-download="pdf" data-report-id="${report.id}" href="${BASE}/api/reports/${report.id}/pdf" title="눌러서 PDF 받기">PDF 생성됨 ↓</a>`) +
         `<a class="secondary-link" data-download="hwpx" data-report-id="${report.id}" href="${BASE}/api/reports/${report.id}/hwpx">↓ 한글</a>` +
         `<button type="button" class="secondary rp-del" style="margin-top:0; color:var(--crit);">삭제</button>`;
+      row.querySelector(".rp-mail")?.addEventListener("click", () => {
+        openMailModal(report.id, `${currentSite ? currentSite.name + " " : ""}${report.visit_no}회차`, loadReports);
+      });
       row.querySelector(".rp-del").addEventListener("click", async () => {
         if (!confirm(`${report.visit_no}회차 보고서를 삭제할까요? 되돌릴 수 없습니다.`)) return;
         errorEl.style.display = "none";

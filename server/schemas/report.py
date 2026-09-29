@@ -51,6 +51,9 @@ class ReportOut(ReportIn):
     status: str
     # 현장 화면 목록용 — PDF를 만든 뒤(렌더 작업 시작 이후) 내용을 고쳤으면 True(목록 API에서만 채움)
     pdf_outdated: bool = False
+    # 고객사에 마지막으로 메일 보낸 시각·받는 사람(목록 API에서만 채움, server/api/routers/report_mail.py)
+    last_mail_at: str = ""
+    last_mail_to: str = ""
     pdf_path: str
     notify_signature_path: str = ""
 

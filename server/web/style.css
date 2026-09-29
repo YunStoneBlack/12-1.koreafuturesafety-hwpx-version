@@ -415,3 +415,52 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .dl-status.ok { background: var(--green); }
 .dl-status.bad { background: var(--crit); }
 .dl-spin { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .9); border-right-color: transparent; animation: upload-spin .8s linear infinite; }
+
+/* ---------- 고객사 전송(mail.js openMailModal) — 작은 가운데 창, 폰에선 거의 화면 폭. .main 밖(body)에 붙으므로 버튼 모양을 따로 준다 ---------- */
+.main .report-row button.rp-mail { margin-top: 0; }
+/* 폰: 보고서 줄 버튼 네 개(전송·PDF·한글·삭제)가 한 줄에 들어가게 글자·여백을 줄인다 */
+@media (max-width: 760px) {
+  .rp-mail-long { display: none; }
+  .main .report-row button.rp-mail, .main .report-row button.rp-del, .report-row .secondary-link { padding: 7px 11px; font-size: 12.5px; }
+  .report-row { column-gap: 6px; }
+}
+.mail-sent { margin-left: 8px; font-size: 12px; font-weight: 600; color: var(--green); white-space: nowrap; }
+.mail-overlay {
+  position: fixed; inset: 0; z-index: 1100; background: rgba(15, 17, 32, 0.55);
+  display: flex; align-items: center; justify-content: center; padding: 16px; overscroll-behavior: contain;
+}
+.mail-box {
+  background: var(--surface); border-radius: 12px; width: min(440px, 100%); max-height: 100%; overflow: auto;
+  padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 10px 40px rgba(0, 0, 0, .25);
+  font-size: 13.5px; color: var(--ink);
+}
+.mail-head { display: flex; flex-direction: column; gap: 2px; }
+.mail-head b { font-size: 16px; }
+.mail-sub { font-size: 12.5px; color: var(--muted); }
+.mail-wait { color: var(--muted); padding: 12px 0; text-align: center; }
+.mail-label { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-top: 2px; }
+.mail-opt { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.mail-opt:has(input:checked) { border-color: var(--blue); background: var(--blue-soft); }
+.mail-opt.disabled { cursor: default; color: var(--faint); }
+.mail-opt input { margin: 2px 0 0; accent-color: var(--blue); }
+.mail-addr { display: block; font-size: 12.5px; color: var(--muted); word-break: break-all; }
+.mail-input {
+  width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+  font: inherit; font-size: 16px; /* 16px 미만이면 아이폰이 입력할 때 화면을 확대함 */
+}
+.mail-input:focus { outline: none; border-color: var(--blue); }
+.mail-info { background: var(--paper); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; word-break: break-all; }
+.mail-info > div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; } /* 긴 파일 이름도 값 칸 안에서만 줄바꿈 */
+.mail-info span { color: var(--muted); }
+.mail-msg { font-size: 12.5px; padding: 9px 12px; border-radius: 8px; line-height: 1.5; }
+.mail-msg[hidden] { display: none; }
+.mail-msg.warn { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.mail-msg.bad { background: var(--crit-soft); color: var(--crit); font-weight: 600; }
+.mail-msg.ok { background: var(--green-soft); color: var(--green); font-weight: 600; }
+.mail-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.mail-foot button, .mail-foot a {
+  padding: 9px 18px; font-size: 13.5px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink); cursor: pointer; font-family: inherit; font-weight: 600; text-decoration: none;
+}
+.mail-foot .mail-primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.mail-foot button:disabled { opacity: .6; cursor: default; }
