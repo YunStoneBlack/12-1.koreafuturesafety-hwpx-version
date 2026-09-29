@@ -316,13 +316,27 @@ async function loadStaff(selectedId) {
       const opt = document.createElement("option");
       const l = byId[s.id];
       opt.value = s.id;
-      opt.textContent = `${s.name} (${s.phone})` + (l ? (l.full ? ` · ${load.max}/${load.max} 마감` : ` · ${l.count}/${load.max}`) : "");
+      opt.textContent = `${s.name} (${s.phone})` + staffLoadLabel(s.id, l, load.max);
       if (staffSelectedId && s.id === staffSelectedId) opt.selected = true;
       select.appendChild(opt);
     }
   } catch (err) {
     showError(errorEl, err);
   }
+}
+
+// "권태형 · 9/29 4곳 (마감)" — 그날(이 보고서 지도일) 방문하는 현장 수. 이 보고서를 맡은 사람은 이 현장까지 넣어 센다
+// (예전엔 "다른 현장 수/4"라 이미 4곳인 사람이 "3/4"로 보여 헷갈렸음 — 2026-09-29 사용자). 다른 사람은 그날 이미 맡은 수만,
+// 4곳이면 "(마감)" — 고르면 서버가 거부한다(하루 4현장 한도).
+function staffLoadLabel(staffId, loadItem, max) {
+  const date = document.getElementById("guidance-date").value;
+  if (!date) return "";
+  const mine = staffSelectedId && staffId === staffSelectedId;
+  const others = loadItem ? loadItem.count : 0;
+  const total = others + (mine ? 1 : 0);
+  if (!total) return "";
+  const full = mine ? total >= max : others >= max;
+  return ` · ${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))} ${total}곳${full ? " (마감)" : ""}`;
 }
 
 async function loadSignoffStatus() {
@@ -377,7 +391,7 @@ document.getElementById("staff-select").addEventListener("change", async (e) => 
   try {
     await apiPatch(`${BASE}/api/reports/${reportId}`, { assigned_staff_id: value });
     staffSelectedId = value;
-    await loadSignoffStatus();
+    await Promise.all([loadSignoffStatus(), loadStaff()]); // 이 현장 포함 개수가 사람마다 달라지므로 다시 표시
   } catch (err) {
     e.target.value = staffSelectedId ?? ""; // 하루 4현장 마감 등으로 거부되면 직전 선택으로 되돌림
     showError(errorEl, err);
