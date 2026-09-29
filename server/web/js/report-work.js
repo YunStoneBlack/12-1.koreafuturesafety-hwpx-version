@@ -155,7 +155,7 @@ async function setupFindings() {
       <h3>지적사항 ${slot}</h3>
       <div class="photo-slot">
         <img class="thumb" id="fd-thumb-${slot}" style="display:${data.has_photo ? "block" : "none"};"
-             ${data.has_photo ? `src="${base}/${slot}/photo?ts=${Date.now()}"` : ""} />
+             ${data.has_photo ? `src="${base}/${slot}/photo?thumb=1"` : ""} />
         <div class="slot-controls">
           <div class="slot-label">지적사항 사진 (선택하면 바로 저장)</div>
           <input type="file" accept="image/*" capture="environment" id="fd-file-${slot}" />

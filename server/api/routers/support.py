@@ -6,8 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from core.constants import MEASUREMENT_INSTRUMENTS
@@ -16,6 +15,7 @@ from core.models_db import Measurement, Report, SafetyEducation
 from core.models_web import User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
+from server.api.photo_thumbs import photo_response
 from server.schemas.support import MeasurementIn, MeasurementOut, TbmIn, TbmOut
 
 router = APIRouter(prefix="/reports/{report_id}", tags=["support"])
@@ -107,12 +107,15 @@ async def upload_tbm_photo(
 
 
 @router.get("/tbm/photo")
-def get_tbm_photo(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_tbm_photo(
+    request: Request, report_id: int, thumb: bool = False,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
     _require_report(db, user.company_id, report_id)
     row = db.query(SafetyEducation).filter(SafetyEducation.report_id == report_id).first()
     if row is None or not row.photo_path or not Path(row.photo_path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
-    return FileResponse(row.photo_path)
+    return photo_response(request, row.photo_path, thumb)
 
 
 @router.delete("/tbm/photo", response_model=TbmOut)
@@ -210,7 +213,8 @@ async def upload_measurement_photo(
 
 @router.get("/measurements/{instrument_type}/photo")
 def get_measurement_photo(
-    report_id: int, instrument_type: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    request: Request, report_id: int, instrument_type: str, thumb: bool = False,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
 ):
     _require_report(db, user.company_id, report_id)
     row = (
@@ -220,7 +224,7 @@ def get_measurement_photo(
     )
     if row is None or not row.photo_path or not Path(row.photo_path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
-    return FileResponse(row.photo_path)
+    return photo_response(request, row.photo_path, thumb)
 
 
 @router.delete("/measurements/{instrument_type}/photo", response_model=MeasurementOut)

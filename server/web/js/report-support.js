@@ -19,7 +19,7 @@ async function setupTbm() {
   document.getElementById("tbm-material").value = data.material || "";
   if (data.has_photo) {
     const thumb = document.getElementById("tbm-thumb");
-    thumb.src = `${base}/photo?ts=${Date.now()}`;
+    thumb.src = `${base}/photo?thumb=1`;
     thumb.style.display = "block";
     document.getElementById("tbm-del").style.display = "inline-block";
   }
@@ -100,7 +100,7 @@ async function setupMeasurements() {
       <input id="ms-action-${type}" value="${(data.manual_action || "").replace(/"/g, "&quot;")}" />
       <div class="photo-slot">
         <img class="thumb" id="ms-thumb-${type}" style="display:${data.has_photo ? "block" : "none"};"
-             ${data.has_photo ? `src="${base}/${encodeURIComponent(type)}/photo?ts=${Date.now()}"` : ""} />
+             ${data.has_photo ? `src="${base}/${encodeURIComponent(type)}/photo?thumb=1"` : ""} />
         <div class="slot-controls">
           <div class="slot-label">측정 사진 (선택하면 바로 저장)</div>
           <input type="file" accept="image/*" capture="environment" id="ms-file-${type}" />
@@ -171,8 +171,11 @@ async function setupMeasurements() {
 const matBase = `${BASE}/api/reports/${reportId}/materials`;
 let matLibrary = null;
 let matPickerSlot = null;
+// 선택이 바뀌어 슬롯을 다시 그릴 때 사진 주소를 바꿔야 화면이 예전 사진을 재사용하지 않는다(처음 그릴 땐 비워 둬 폰에 받아 둔 사진을 씀).
+let matPhotoVer = "";
 
 function applyMaterialsChange(out) {
+  matPhotoVer = `&v=${Date.now()}`;
   renderMaterials(out.items);
   document.getElementById("tbm-content").value = out.education_content;
 }
@@ -190,7 +193,7 @@ function renderMaterials(items) {
       <h3>제공자료 ${slot} <span style="font-weight:400; color:var(--muted); font-size:12px;">· ${kind}</span></h3>
       <div class="photo-slot">
         <img class="thumb" id="mat-thumb-${slot}" style="display:${data.has_photo ? "block" : "none"}; cursor:zoom-in;"
-             ${data.has_photo ? `src="${matBase}/${slot}/photo?ts=${Date.now()}"` : ""} />
+             ${data.has_photo ? `src="${matBase}/${slot}/photo?thumb=1${matPhotoVer}"` : ""} />
         <div class="slot-controls">
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
             <button type="button" id="mat-pick-${slot}" style="margin-top:0;">라이브러리에서 선택</button>

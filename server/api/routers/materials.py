@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -27,6 +27,7 @@ from core.models_web import User
 from core.thumbnail_generator import resolve_material_path
 from server.api import repo
 from server.api.deps import get_current_user, get_db
+from server.api.photo_thumbs import photo_response
 from server.schemas.support import MaterialIn, MaterialOut
 
 router = APIRouter(tags=["materials"])
@@ -244,7 +245,10 @@ def delete_material_photo(
 
 
 @router.get("/reports/{report_id}/materials/{slot}/photo")
-def get_material_photo(report_id: int, slot: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_material_photo(
+    request: Request, report_id: int, slot: int, thumb: bool = False,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
     """썸네일 — 직접 올린 이미지가 있으면 그것, 아니면 라이브러리 자료 썸네일."""
     _require_report(db, user.company_id, report_id)
     row = repo.get_slot_row(db, ProvidedMaterial, report_id, slot)
@@ -255,4 +259,4 @@ def get_material_photo(report_id: int, slot: int, user: User = Depends(get_curre
         path = resolve_material_path(row.material.thumbnail_path) or resolve_material_path(row.material.file_path)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "자료가 없습니다.")
-    return FileResponse(path)
+    return photo_response(request, path, thumb)

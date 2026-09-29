@@ -8,8 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from core.db import BASE_DIR
@@ -17,6 +16,7 @@ from core.models_db import InspectionPhoto, OverviewPhoto, Report
 from core.models_web import User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
+from server.api.photo_thumbs import photo_response
 
 _ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 _SLOT_RANGE = range(1, 5)  # 1~4
@@ -77,13 +77,13 @@ def _build_slot_router(category: str, model_cls, label: str) -> APIRouter:
 
     @router.get("/{slot}/image")
     def get_slot_image(
-        report_id: int, slot: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+        request: Request, report_id: int, slot: int, thumb: bool = False, user: User = Depends(get_current_user), db: Session = Depends(get_db)
     ):
         _require_report(db, user.company_id, report_id)
         row = repo.get_photo_slot(db, model_cls, report_id, slot)
         if row is None or not row.photo_path or not Path(row.photo_path).exists():
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"{label}이(가) 없습니다.")
-        return FileResponse(row.photo_path)
+        return photo_response(request, row.photo_path, thumb)
 
     return router
 

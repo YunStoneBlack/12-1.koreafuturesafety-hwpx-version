@@ -28,7 +28,7 @@ function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
 
     const showThumb = (slotNum) => {
       const t = slotEls[slotNum].thumb;
-      t.src = `${apiPrefix}/${slotNum}/image?ts=${Date.now()}`;
+      t.src = `${apiPrefix}/${slotNum}/image?thumb=1&v=${Date.now()}`;
       t.style.display = "block";
       slotEls[slotNum].del.style.display = "inline-block";
     };
@@ -64,7 +64,7 @@ function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
   // 이미 저장된 사진이 있으면 미리보기 채우기 (페이지 새로고침 후에도 보이게).
   api(apiPrefix).then((rows) => {
     for (const row of rows) {
-      slotEls[row.slot].thumb.src = `${apiPrefix}/${row.slot}/image?ts=${Date.now()}`;
+      slotEls[row.slot].thumb.src = `${apiPrefix}/${row.slot}/image?thumb=1`;
       slotEls[row.slot].thumb.style.display = "block";
       slotEls[row.slot].del.style.display = "inline-block";
     }
@@ -146,7 +146,7 @@ async function setupPreviousFindings() {
       <div class="status" id="pf-after-${slot}"></div>
       <div class="photo-slot">
         <img class="thumb" id="pf-thumb-${slot}" style="display:${item.has_photo ? "block" : "none"};"
-             ${item.has_photo ? `src="${base}/${slot}/photo?ts=${Date.now()}"` : ""} />
+             ${item.has_photo ? `src="${base}/${slot}/photo?thumb=1"` : ""} />
         <div class="slot-controls">
           <div class="slot-label">지적사항 사진${carried ? ` (${data.prev_visit_no}회차 사진)` : ""}</div>
           ${carried ? "" : `<input type="file" accept="image/*" id="pf-file-${slot}" />
@@ -155,7 +155,7 @@ async function setupPreviousFindings() {
       </div>
       <div class="photo-slot">
         <img class="thumb" id="pf-cthumb-${slot}" style="display:${item.has_completion_photo ? "block" : "none"};"
-             ${item.has_completion_photo ? `src="${base}/${slot}/completion-photo?ts=${Date.now()}"` : ""} />
+             ${item.has_completion_photo ? `src="${base}/${slot}/completion-photo?thumb=1"` : ""} />
         <div class="slot-controls">
           <div class="slot-label">이행완료 증빙사진</div>
           <input type="file" accept="image/*" id="pf-cfile-${slot}" />
@@ -240,7 +240,7 @@ function setupSinglePhotoUpload(url, fileInputId, thumbId, delBtnId) {
       const formData = new FormData();
       formData.append("file", file);
       await apiUpload(url, formData);
-      thumb.src = `${url}?ts=${Date.now()}`;
+      thumb.src = `${url}?thumb=1&v=${Date.now()}`;
       thumb.style.display = "block";
       delBtn.style.display = "inline-block";
     });

@@ -7,8 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from core.db import BASE_DIR
@@ -16,6 +15,7 @@ from core.models_db import Finding
 from core.models_web import User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
+from server.api.photo_thumbs import photo_response
 from server.schemas.finding import FindingIn, FindingOut
 
 router = APIRouter(prefix="/reports/{report_id}/findings", tags=["findings"])
@@ -102,9 +102,12 @@ def delete_photo(report_id: int, slot: int, user: User = Depends(get_current_use
 
 
 @router.get("/{slot}/photo")
-def get_photo(report_id: int, slot: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_photo(
+    request: Request, report_id: int, slot: int, thumb: bool = False,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
     _require_report(db, user.company_id, report_id)
     row = repo.get_slot_row(db, Finding, report_id, slot)
     if row is None or not row.photo_path or not Path(row.photo_path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
-    return FileResponse(row.photo_path)
+    return photo_response(request, row.photo_path, thumb)

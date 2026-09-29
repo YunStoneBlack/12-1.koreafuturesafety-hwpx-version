@@ -10,8 +10,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from core.db import BASE_DIR
@@ -20,6 +19,7 @@ from core.models_web import User
 from server.api import repo
 from server.api.carryover import owns_file, reconcile_previous_findings, sync_implemented_flag
 from server.api.deps import get_current_user, get_db
+from server.api.photo_thumbs import photo_response
 from server.schemas.previous_finding import PreviousFindingIn, PreviousFindingList, PreviousFindingOut
 
 router = APIRouter(prefix="/reports/{report_id}/previous-findings", tags=["previous-findings"])
@@ -148,14 +148,14 @@ def _clear_photo(db: Session, report_id: int, slot: int, field: str) -> None:
         db.commit()
 
 
-def _serve_photo(db: Session, report_id: int, slot: int, field: str):
+def _serve_photo(request: Request, db: Session, report_id: int, slot: int, field: str, thumb: bool):
     row = repo.get_slot_row(db, PreviousFinding, report_id, slot)
     path = ""
     if row is not None:
         path = row.display_fields()[2] if field == "photo_path" else getattr(row, field)
     if not path or not Path(path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
-    return FileResponse(path)
+    return photo_response(request, path, thumb)
 
 
 @router.post("/{slot}/photo", response_model=PreviousFindingOut)
@@ -177,9 +177,12 @@ def delete_photo(report_id: int, slot: int, user: User = Depends(get_current_use
 
 
 @router.get("/{slot}/photo")
-def get_photo(report_id: int, slot: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_photo(
+    request: Request, report_id: int, slot: int, thumb: bool = False,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
     _require_report(db, user.company_id, report_id)
-    return _serve_photo(db, report_id, slot, "photo_path")
+    return _serve_photo(request, db, report_id, slot, "photo_path", thumb)
 
 
 @router.post("/{slot}/completion-photo", response_model=PreviousFindingOut)
@@ -204,7 +207,8 @@ def delete_completion_photo(
 
 @router.get("/{slot}/completion-photo")
 def get_completion_photo(
-    report_id: int, slot: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    request: Request, report_id: int, slot: int, thumb: bool = False,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
 ):
     _require_report(db, user.company_id, report_id)
-    return _serve_photo(db, report_id, slot, "completion_photo_path")
+    return _serve_photo(request, db, report_id, slot, "completion_photo_path", thumb)
