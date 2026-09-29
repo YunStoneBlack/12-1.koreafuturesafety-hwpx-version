@@ -139,8 +139,14 @@ function openPreviewModal() {
       <div class="preview-body"><div class="preview-wait">준비하는 중…</div></div>
     </div>`;
   document.body.appendChild(overlay);
+  const prevOverflow = document.documentElement.style.overflow;
+  document.documentElement.style.overflow = "hidden"; // 미리보기 중엔 뒤 화면이 대신 스크롤되지 않게
   const onKey = (e) => { if (e.key === "Escape") close(); };
-  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
+  const close = () => {
+    overlay.remove();
+    document.documentElement.style.overflow = prevOverflow;
+    document.removeEventListener("keydown", onKey);
+  };
   document.addEventListener("keydown", onKey);
   overlay.querySelector(".preview-close").addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
