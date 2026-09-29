@@ -325,7 +325,7 @@ async function loadStaff(selectedId) {
   }
 }
 
-// "권태형 · 9/29 4곳 (마감)" — 그날(이 보고서 지도일) 방문하는 현장 수. 이 보고서를 맡은 사람은 이 현장까지 넣어 센다
+// "권태형 · 9/29 4/4곳 (마감)" — 그날(이 보고서 지도일) 방문하는 현장 수. 이 보고서를 맡은 사람은 이 현장까지 넣어 센다
 // (예전엔 "다른 현장 수/4"라 이미 4곳인 사람이 "3/4"로 보여 헷갈렸음 — 2026-09-29 사용자). 다른 사람은 그날 이미 맡은 수만,
 // 4곳이면 "(마감)" — 고르면 서버가 거부한다(하루 4현장 한도).
 function staffLoadLabel(staffId, loadItem, max) {
@@ -336,7 +336,7 @@ function staffLoadLabel(staffId, loadItem, max) {
   const total = others + (mine ? 1 : 0);
   if (!total) return "";
   const full = mine ? total >= max : others >= max;
-  return ` · ${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))} ${total}곳${full ? " (마감)" : ""}`;
+  return ` · ${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))} ${total}/${max}곳${full ? " (마감)" : ""}`;
 }
 
 async function loadSignoffStatus() {
