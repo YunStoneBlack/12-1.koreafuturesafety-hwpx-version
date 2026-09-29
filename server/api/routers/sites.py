@@ -16,7 +16,8 @@ from core.models_db import Finding, PreviousFinding, Report, Site, SiteProcessDe
 from core.models_web import ReportJob, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
-from server.api.routers.reports import _check_staff_limit
+from server.api.routers.report_manage import preview_dir
+from server.api.routers.reports import check_staff_limit
 from server.api.security import verify_password
 from server.schemas.site import SiteIn, SiteListItem, SiteOut
 
@@ -110,7 +111,7 @@ def update_site(
 ):
     # 담당요원은 현장 ↔ 보고서 연동(2026-09-29 사용자 요청) — 현장에서 바꾸면 이 현장의 **아직 PDF를 안 만든 보고서**
     # (status != final)도 같은 사람으로. 이미 PDF를 만든(제출한) 과거 회차는 그대로 둔다(표지·서명이 바뀌면 안 되므로).
-    # 하루 4현장 한도(reports._check_staff_limit)에 하나라도 걸리면 아무것도 안 바꾸고 400. 반대 방향은 reports.update_report.
+    # 하루 4현장 한도(reports.check_staff_limit)에 하나라도 걸리면 아무것도 안 바꾸고 400. 반대 방향은 reports.update_report.
     existing = repo.get_site(db, user.company_id, site_id)
     if existing is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
@@ -119,7 +120,7 @@ def update_site(
     if new_staff != existing.assigned_staff_id:
         drafts = [r for r in existing.reports if r.status != "final" and r.assigned_staff_id != new_staff]
         for r in drafts:
-            _check_staff_limit(db, r, {"assigned_staff_id": new_staff})
+            check_staff_limit(db, r, {"assigned_staff_id": new_staff})
     site = repo.update_site(db, user.company_id, site_id, **body.model_dump())
     if drafts:
         for r in drafts:
@@ -175,7 +176,7 @@ def delete_site_cascade(db: Session, site: Site) -> int:
     for path in files:
         Path(path).unlink(missing_ok=True)
         if path.lower().endswith(".pdf"):
-            shutil.rmtree(Path(path).with_name(Path(path).stem + "_preview"), ignore_errors=True)  # 폰 미리보기 쪽 이미지
+            shutil.rmtree(preview_dir(path), ignore_errors=True)  # 폰 미리보기 쪽 이미지
     for report_id in report_ids:
         shutil.rmtree(BASE_DIR / "data" / "photos" / f"report_{report_id}", ignore_errors=True)
     return len(report_ids)

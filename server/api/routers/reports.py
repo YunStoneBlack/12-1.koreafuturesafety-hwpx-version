@@ -102,7 +102,7 @@ def update_report(
     current = repo.get_report(db, user.company_id, report_id)
     if current is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
-    _check_staff_limit(db, current, fields)
+    check_staff_limit(db, current, fields)
     report = repo.update_report(db, user.company_id, report_id, **fields)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
@@ -117,7 +117,7 @@ def update_report(
     return report
 
 
-def _check_staff_limit(db: Session, report, fields: dict) -> None:
+def check_staff_limit(db: Session, report, fields: dict) -> None:
     """담당요원 하루 4현장 한도(core/staff_load.py, 데스크톱 report_wizard_staff_limit.py와 같은 규칙).
     요원이나 지도일을 **바꿀 때만** 검사한다 — 예전 데이터가 이미 4곳을 넘어도 열고 저장할 수 있어야 해서
     (데스크톱도 저장된 보고서를 다시 열 땐 검사 안 함)."""

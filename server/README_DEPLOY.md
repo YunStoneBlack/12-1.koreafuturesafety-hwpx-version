@@ -85,6 +85,7 @@ AWS는 **전달만** 하고 hwpx 생성·PDF 변환(한글)·사진/DB 저장은
 
 **AWS 서버 쪽** (설정 원본은 `server/deploy/`, 적용 전 백업은 서버 `~/backup-report-integration-20260928/`)
 1. `/etc/nginx/conf.d/groupware.conf`의 443 블록, `location /` 위에 `nginx_report_locations.conf` 내용 삽입
+   (**로그인 확인 location `/_gw_report_auth`에도 `client_max_body_size 30m;` 필수** — 없으면 1MB 넘는 사진 업로드가 500, 2026-09-29 수정·적용)
    (업로드 30MB, 응답 대기 180초, 통로 없으면 `/usr/share/nginx/kfsc-report/report_offline.html` 안내 화면 — 상태 코드는 502 유지)
    → `sudo nginx -t && sudo systemctl reload nginx`(무중단).
 2. `~/.ssh/authorized_keys`에 통로 전용 키 1줄: `restrict,port-forwarding,permitlisten="127.0.0.1:18000",command="/bin/false" <relay_key.pub>`
