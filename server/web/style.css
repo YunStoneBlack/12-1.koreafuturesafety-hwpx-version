@@ -22,6 +22,9 @@
 /* 보고서는 섹션 11개로 화면이 매우 길다 — 스크롤해도 그룹웨어 메뉴·로그아웃이 보이게 사이드바 고정 */
 .sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto; }
 .main { width: 100%; }
+/* 목차 줄·현장 목록 줄처럼 옆으로 긴 내용이 화면 틀(grid) 칸을 넓혀 페이지가 옆으로 넘치지 않게 — 모든 폭에서
+   (폰만 막아 뒀다가 800~1024px 폭(폰 가로·태블릿)에서 페이지가 넘쳐 브라우저가 화면을 축소해 보였음) */
+.app > * { min-width: 0; }
 
 /* hidden 속성이 버튼·패널의 display 규칙에 밀리지 않게(접힌 폼·빈 슬롯 등) */
 [hidden] { display: none !important; }
@@ -37,7 +40,6 @@
 /* 폰/현장 태블릿: 그룹웨어 사이드바(232px)를 그대로 두면 본문이 너무 좁아서 상단 가로바로 접는다 */
 @media (max-width: 760px) {
   .app { grid-template-columns: minmax(0, 1fr); }
-  .app > * { min-width: 0; } /* 목차 줄·가로 메뉴처럼 옆으로 긴 내용이 화면 틀 칸을 넓혀 가로로 넘치지 않게 */
   .sidebar { flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; height: auto; z-index: 10; overflow-x: auto; overflow-y: hidden; }
   .sidebar .brand { padding: 0; margin: 0; border: none; flex: none; }
   .sidebar .brand img { height: 24px; }
@@ -153,8 +155,7 @@
 label + .field-grid { margin-top: 4px; }
 @media (max-width: 600px) { .field-grid { grid-template-columns: 1fr; } }
 
-/* 서명/도장 칸(signature.js) */
-.sig-pad { display: block; width: 100%; max-width: 360px; height: 140px; border: 1px solid var(--line); border-radius: 8px; touch-action: none; background: #fff; }
+
 .sig-upload-btn {
   display: inline-flex; align-items: center; padding: 9px 18px; border-radius: 8px; font-size: 13.5px; font-weight: 600;
   border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
@@ -195,11 +196,14 @@ label + .field-grid { margin-top: 4px; }
 .site-metas [data-k="staff"] { width: 96px; }
 .site-metas [data-k="progress"] { width: 80px; }
 .site-metas [data-k="date"] { width: 104px; }
-@media (max-width: 760px) {
+/* 폰·태블릿(본문이 좁을 때): 현장 이름을 첫 줄에, 담당·회차·최근 지도는 그 아래 줄로(800px대 폭에서 이름이 "코하이젠 군포부…"로 잘렸음) */
+@media (max-width: 1000px) {
   .site-row { flex-wrap: wrap; row-gap: 6px; }
   .site-metas { order: 3; width: 100%; gap: 12px; flex-wrap: wrap; }
   .site-metas .meta { width: auto !important; text-align: left; }
   .site-metas .meta:empty { display: none; }
+}
+@media (max-width: 760px) {
   .list-toolbar { flex-wrap: wrap; }
   .main .list-toolbar input { max-width: none; flex-basis: 100%; }
   .main .list-toolbar button { margin-left: 0; }
@@ -242,14 +246,6 @@ main.main > section.panel { scroll-margin-top: 60px; }
 .main button.danger { background: var(--crit-soft); color: var(--crit); border-color: #F3C9C9; }
 .main button.danger:hover { background: var(--crit); color: #fff; filter: none; }
 
-/* ---------- 서명 칸(signature.js) 도구 줄 ---------- */
-.sig-tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
-.main .sig-tools button { margin-top: 0; padding: 7px 12px; font-size: 12.5px; }
-.main .sig-tools button:disabled { background: var(--surface); color: var(--faint); border-color: var(--line); }
-.main .sig-tools button.sig-save:disabled { background: var(--faint); color: #fff; }
-.main .sig-upload-label { margin: 0; font-weight: 500; display: inline-flex; }
-.sig-tools .sig-upload-btn { padding: 7px 12px; font-size: 12.5px; }
-.status.warn { color: var(--warn); font-weight: 600; }
 
 /* ---------- 담당요원 목록: 서명 미리보기(보기 전용) + 수정 칸 ---------- */
 .staff-item { border-bottom: 1px solid var(--line); }
@@ -271,12 +267,11 @@ main.main > section.panel { scroll-margin-top: 60px; }
 }
 
 /* 끌어다 놓기(signature.js 서명 칸, shell.js 파일/사진 칸) — 파일을 올려놓는 중인 곳 강조 */
-.sig-pad.drop-over, .photo-slot.drop-over, .file-pick.drop-over {
+.sig-modal-pad.drop-over canvas, .photo-slot.drop-over, .file-pick.drop-over {
   outline: 2px dashed var(--blue); outline-offset: 2px; background-color: var(--blue-soft);
 }
 .file-pick.drop-over { border-radius: 8px; }
-.sig-drop-hint { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
-@media (hover: none) { .sig-drop-hint { display: none; } } /* 폰·태블릿엔 끌어다 놓기가 없으니 안내도 숨김 */
+@media (hover: none) { .sig-modal-hint { display: none; } } /* 폰·태블릿엔 끌어다 놓기가 없으니 안내도 숨김 */
 
 /* 사진 칸 업로드 상태(report-photos.js uploadWithStatus) — 칸 안에 "올리는 중… / ✓ 올렸습니다 / ⚠ 실패 + 다시 시도" */
 .upload-state { font-size: 12px; margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -293,12 +288,6 @@ main.main > section.panel { scroll-margin-top: 60px; }
 .photo-slot.uploading .thumb { opacity: .4; }
 .photo-slot.uploading .file-pick-btn { pointer-events: none; opacity: .5; }
 
-/* 서명 칸 잠금(signature.js lockable) — 잠겨 있으면 도구·안내 숨기고 칸은 보기 전용, "수정" 버튼만 */
-.sig-locked-bar { display: none; margin-top: 8px; }
-.sig-locked .sig-locked-bar { display: flex; }
-.sig-locked .sig-tools, .sig-locked .sig-drop-hint { display: none; }
-.sig-locked .sig-pad { pointer-events: none; cursor: default; }
-.main .sig-locked-bar button { margin-top: 0; padding: 7px 16px; font-size: 12.5px; }
 
 /* 현장 화면 보고서 목록의 "PDF 생성됨 ↓" — 누르면 마지막으로 만든 PDF를 받는다 */
 a.pdf-pill { cursor: pointer; border: 1px solid transparent; }
@@ -339,3 +328,75 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .preview-body { flex: 1; display: flex; background: var(--paper); }
 .preview-frame { flex: 1; border: 0; width: 100%; height: 100%; }
 .preview-wait { margin: auto; color: var(--muted); font-size: 14px; }
+
+/* ---------- 서명/도장 칸(signature.js) — 페이지엔 미리보기 + [서명하기]/[수정], 그리기는 화면 가득 서명 창에서 ---------- */
+.status.warn { color: var(--warn); font-weight: 600; }
+.sig-preview {
+  width: 100%; max-width: 360px; aspect-ratio: 900 / 350; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.sig-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.sig-preview img[hidden], .sig-preview-empty[hidden] { display: none; }
+.sig-preview-empty { font-size: 12.5px; color: var(--faint); }
+.sig-inline-bar { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.main .sig-inline-bar button { margin-top: 0; padding: 7px 16px; font-size: 12.5px; }
+.sig-inline-bar .status { margin-top: 0; }
+
+.sig-modal-overlay {
+  position: fixed; inset: 0; z-index: 1100; background: rgba(15, 17, 32, 0.55);
+  display: flex; align-items: center; justify-content: center; padding: 20px; overscroll-behavior: contain;
+}
+.sig-modal {
+  background: var(--surface); border-radius: 12px; width: min(960px, 100%); max-height: 100%; overflow: auto;
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 10px 40px rgba(0, 0, 0, .25);
+}
+.sig-modal-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sig-modal-head b { font-size: 15px; }
+.sig-modal-hint { font-size: 12px; color: var(--faint); }
+.sig-modal-pad { touch-action: none; }
+.sig-modal-pad { display: flex; justify-content: center; }
+.sig-modal-pad canvas {
+  display: block; touch-action: none; cursor: crosshair; background: #fff; border: 1px solid var(--line); border-radius: 8px;
+  /* 칸 크기 = 창 폭에 맞추되 화면 높이도 넘지 않게(폰 가로) — 캔버스는 이미지처럼 비율을 지키며 줄어든다 */
+  width: auto; height: auto; max-width: 100%; max-height: calc(100dvh - 170px);
+}
+.sig-modal-rotate { display: none; font-size: 12px; color: var(--muted); flex-basis: 100%; }
+@media (max-width: 760px) and (orientation: portrait) { .sig-modal-rotate { display: block; } }
+.sig-modal-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.sig-modal-tools, .sig-modal-foot { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.sig-modal-foot { margin-left: auto; }
+.sig-modal button, .sig-modal .sig-upload span {
+  display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 8px; font: inherit; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.sig-modal button:disabled { color: var(--faint); cursor: default; }
+.sig-modal button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.sig-modal button.primary:disabled { background: var(--faint); border-color: var(--faint); color: #fff; }
+.sig-modal .sig-upload { margin: 0; }
+.sig-modal-status { font-size: 12.5px; color: var(--crit); font-weight: 600; min-height: 0; }
+.sig-modal-status:empty { display: none; }
+@media (max-width: 760px), (max-height: 500px) {
+  /* 폰(세로·가로): 창을 화면 가득 — 서명 칸을 최대한 넓게 */
+  .sig-modal-overlay { padding: 0; align-items: stretch; }
+  .sig-modal { border-radius: 0; width: 100%; max-height: none; padding: 12px 14px; margin: auto 0; }
+  .sig-modal-overlay { overflow-y: auto; }
+  .sig-modal-foot { flex-basis: 100%; }
+  .sig-modal-foot button { flex: 1; justify-content: center; padding: 11px; font-size: 14px; }
+}
+@media (max-height: 500px) {
+  /* 폰 가로: 높이가 낮으니 여백을 줄이고 버튼을 한 줄로 */
+  .sig-modal { padding: 8px 12px; gap: 6px; }
+  .sig-modal-hint { display: none; }
+  .sig-modal-foot { flex-basis: auto; }
+  .sig-modal button, .sig-modal .sig-upload span { padding: 6px 10px; font-size: 12.5px; }
+  .sig-modal-foot button { flex: none; padding: 6px 14px; }
+  .sig-modal-pad canvas { max-height: calc(100dvh - 105px); }
+}
+
+/* 현장 화면 보고서 줄 — 폰에선 보고서 이름(회차·지도일·공정률)을 첫 줄 전체에, 버튼은 그 아래 줄로(이름이 두 줄이면 세 번째 줄)
+   — 한 줄에 다 넣으면 이름이 "1회…"로 잘려 보였음 */
+@media (max-width: 760px) {
+  .report-row { row-gap: 10px; }
+  .report-row .title { flex-basis: 100%; white-space: normal; overflow: visible; }
+  .report-row .title .meta { display: inline; }
+}

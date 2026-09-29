@@ -107,15 +107,14 @@ async function loadReport() {
     renderEquipmentTable("equip-machinery", MACHINERY_EQUIPMENT_ITEMS, report.machinery_checks || []);
     renderEquipmentTable("equip-handtool", HAND_TOOL_ITEMS, report.hand_tool_checks || []);
     renderEquipmentTable("equip-hazmat", HAZMAT_ITEMS, report.hazmat_checks || []);
-    // 현장책임자 서명 — signature.js(되돌리기·저장 전 미반영). 손이 스쳐 기존 서명 위에 덧그려진 채 자동 저장되던 문제로
-    // 자동 저장에서 빼고 "서명 저장" 버튼으로만 저장한다.
+    // 현장책임자 서명 — signature.js: 페이지엔 미리보기만, [서명하기]/[수정]을 누르면 화면 가득 서명 창(폰 스크롤 간섭 없음),
+    // 창에서 [완료]하면 바로 저장. 자동 저장과는 별개.
     notifySigField = createSignatureField(document.getElementById("notify-sig-field"), {
       imageUrl: `${BASE}/api/reports/${reportId}/notify-signature-image`,
       uploadUrl: `${BASE}/api/reports/${reportId}/notify-signature`,
       deleteUrl: `${BASE}/api/reports/${reportId}/notify-signature`,
       registered: !!report.notify_signature_path,
-      saveLabel: "서명 저장",
-      lockable: true, // 저장된 서명이 있으면 잠가 두고 "수정"을 눌러야 바뀜(없으면 바로 받을 수 있게)
+      title: "현장책임자 서명",
     });
     document.getElementById("visit-no").value = report.visit_no ?? "";
     document.getElementById("guidance-date").value = report.guidance_date || "";

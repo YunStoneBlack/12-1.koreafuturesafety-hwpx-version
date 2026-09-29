@@ -74,7 +74,7 @@ async function saveNow() {
     if (autosaveFailed) return; // 표시는 updateSaveIndicator가 "저장 실패"로
     if (notifySigField && notifySigField.isDirty()) {
       el.className = "save-indicator bad";
-      el.textContent = '1번 서명은 "서명 저장"을 눌러야 저장됩니다';
+      el.textContent = "1번 서명 창을 먼저 완료하세요";
       return;
     }
     el.className = "save-indicator ok";

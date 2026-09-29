@@ -99,6 +99,7 @@ function staffRow(s) {
       deleteUrl: `${BASE}/api/staff/${s.id}/signature`,
       registered: s.has_signature,
       standalone: false,
+      title: `${s.name} 서명`,
     });
     panel.querySelector(".e-cancel").addEventListener("click", closeEdit);
     panel.querySelector(".e-save").addEventListener("click", async (e) => {
