@@ -302,4 +302,4 @@ main.main > section.panel { scroll-margin-top: 60px; }
 
 /* 현장 화면 보고서 목록의 "PDF 생성됨 ↓" — 누르면 마지막으로 만든 PDF를 받는다 */
 a.pdf-pill { cursor: pointer; border: 1px solid transparent; }
-a.pdf-pill:hover { border-color: var(--green); filter: brightness(0.97); }
+a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }

@@ -89,3 +89,14 @@ class ReportJob(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
     started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
+class ReportEdit(Base):
+    """웹판 전용 — 보고서 내용을 마지막으로 고친 시각. 현장 화면 보고서 목록에서 "PDF가 수정 전 버전"인지 판단하는 데 쓴다
+    (마지막 PDF 렌더 작업 시작 시각보다 늦게 고쳤으면 수정 전 버전). 저장 요청이 성공할 때마다 server/api/edit_tracking.py가 갱신.
+    Report는 데스크톱(SQLite)과 같이 쓰는 모델이라 칸을 늘리지 않고 따로 둔다. 보고서가 지워지면 DB가 같이 지운다(ON DELETE CASCADE)."""
+
+    __tablename__ = "report_edit"
+
+    report_id: Mapped[int] = mapped_column(ForeignKey("report.id", ondelete="CASCADE"), primary_key=True)
+    edited_at: Mapped[datetime.datetime] = mapped_column(DateTime)

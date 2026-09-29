@@ -18,6 +18,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from server.api.edit_tracking import track_report_edits
 from server.api.routers import (
     ai,
     auth,
@@ -50,6 +51,9 @@ if CORS_ORIGINS:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# 보고서 "마지막 수정 시각" 기록(현장 화면 "PDF 수정 전 버전" 표시용) — server/api/edit_tracking.py
+web_app.middleware("http")(track_report_edits)
 
 web_app.include_router(auth.router, prefix="/api")
 web_app.include_router(sites.router, prefix="/api")

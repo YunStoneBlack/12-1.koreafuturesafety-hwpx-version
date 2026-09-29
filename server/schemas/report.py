@@ -49,6 +49,8 @@ class ReportOut(ReportIn):
     site_id: int
     visit_no: int
     status: str
+    # 현장 화면 목록용 — PDF를 만든 뒤(렌더 작업 시작 이후) 내용을 고쳤으면 True(목록 API에서만 채움)
+    pdf_outdated: bool = False
     pdf_path: str
     notify_signature_path: str = ""
 

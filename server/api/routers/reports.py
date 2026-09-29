@@ -5,12 +5,13 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core import config
 from core.db import BASE_DIR
 from core.models_db import Staff
-from core.models_web import User
+from core.models_web import ReportEdit, ReportJob, User
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY, is_full, other_site_names
 from server.api import repo
 from server.api.report_defaults import apply_new_report_defaults, record_site_hazard_checks
@@ -22,7 +23,24 @@ router = APIRouter(tags=["reports"])
 
 @router.get("/sites/{site_id}/reports", response_model=list[ReportOut])
 def list_reports(site_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return repo.list_reports_for_site(db, user.company_id, site_id)
+    reports = repo.list_reports_for_site(db, user.company_id, site_id)
+    ids = [r.id for r in reports]
+    if not ids:
+        return []
+    # "PDF 수정 전 버전" — 마지막으로 성공한 PDF 렌더 작업이 시작된 뒤에 고쳤으면(렌더 도중 고친 것도 빠졌을 수 있어 시작 시각 기준)
+    edited = dict(db.query(ReportEdit.report_id, ReportEdit.edited_at).filter(ReportEdit.report_id.in_(ids)))
+    rendered = dict(
+        db.query(ReportJob.report_id, func.max(ReportJob.started_at))
+        .filter(ReportJob.report_id.in_(ids), ReportJob.status == "done")
+        .group_by(ReportJob.report_id)
+    )
+    out = []
+    for r in reports:
+        item = ReportOut.model_validate(r)
+        e, started = edited.get(r.id), rendered.get(r.id)
+        item.pdf_outdated = bool(r.status == "final" and e and (started is None or e > started))
+        out.append(item)
+    return out
 
 
 @router.post("/sites/{site_id}/reports", response_model=ReportOut)

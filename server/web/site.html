@@ -205,9 +205,12 @@ async function loadReports() {
       row.innerHTML =
         `<span class="title"><a href="report.html?id=${report.id}">${report.visit_no}회차</a>` +
         `<span class="meta" style="margin-left:10px;">${report.guidance_date || "지도일 미입력"} · 공정률 ${report.progress_rate ?? 0}%</span></span>` +
-        (isFinal
-          ? `<a class="status-pill approved pdf-pill" href="${BASE}/api/reports/${report.id}/pdf" title="눌러서 PDF 받기">PDF 생성됨 ↓</a>`
-          : `<span class="status-pill pending">작성중</span>`) +
+        // PDF를 만든 뒤 내용을 고쳤으면 "수정 전 버전" — 받을 순 있지만 최신이 아님(보고서 화면에서 "PDF 생성"을 다시 누르면 갱신)
+        (!isFinal
+          ? `<span class="status-pill pending">작성중</span>`
+          : report.pdf_outdated
+            ? `<a class="status-pill pending pdf-pill" href="${BASE}/api/reports/${report.id}/pdf" title="PDF를 만든 뒤 내용을 고쳤습니다. 보고서 화면에서 'PDF 생성'을 다시 누르면 최신이 됩니다. (눌러서 수정 전 PDF 받기)">PDF 수정 전 버전 ↓</a>`
+            : `<a class="status-pill approved pdf-pill" href="${BASE}/api/reports/${report.id}/pdf" title="눌러서 PDF 받기">PDF 생성됨 ↓</a>`) +
         `<a class="secondary-link" href="${BASE}/api/reports/${report.id}/hwpx">↓ 한글</a>` +
         `<button type="button" class="secondary rp-del" style="margin-top:0; color:var(--crit);">삭제</button>`;
       row.querySelector(".rp-del").addEventListener("click", async () => {
