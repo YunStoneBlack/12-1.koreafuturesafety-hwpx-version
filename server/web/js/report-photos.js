@@ -37,22 +37,16 @@ function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
       slotEls[slotNum].del.style.display = "none";
     };
 
-    slotEls[slot].file.addEventListener("change", async (e) => {
+    slotEls[slot].file.addEventListener("change", (e) => {
       const file = e.target.files[0];
+      e.target.value = ""; // 같은 파일을 다시 골라도 반응하게
       if (!file) return;
-      errorEl.style.display = "none";
-      const formData = new FormData();
-      formData.append("file", file);
-      try {
-        const res = await fetch(`${apiPrefix}/${slot}`, { method: "POST", credentials: "include", body: formData });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.detail || `업로드 실패 (${res.status})`);
-        }
+      uploadWithStatus(row, file, async () => {
+        const formData = new FormData();
+        formData.append("file", file);
+        await apiUpload(`${apiPrefix}/${slot}`, formData);
         showThumb(slot);
-      } catch (err) {
-        showError(errorEl, err);
-      }
+      });
     });
 
     slotEls[slot].del.addEventListener("click", async () => {
@@ -238,24 +232,18 @@ function setupSinglePhotoUpload(url, fileInputId, thumbId, delBtnId) {
   const thumb = document.getElementById(thumbId);
   const delBtn = document.getElementById(delBtnId);
 
-  fileInput.addEventListener("change", async (e) => {
+  fileInput.addEventListener("change", (e) => {
     const file = e.target.files[0];
+    e.target.value = ""; // 같은 파일을 다시 골라도 반응하게
     if (!file) return;
-    errorEl.style.display = "none";
-    const formData = new FormData();
-    formData.append("file", file);
-    try {
-      const res = await fetch(url, { method: "POST", credentials: "include", body: formData });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || `업로드 실패 (${res.status})`);
-      }
+    uploadWithStatus(fileInput.closest(".photo-slot") || fileInput.parentElement, file, async () => {
+      const formData = new FormData();
+      formData.append("file", file);
+      await apiUpload(url, formData);
       thumb.src = `${url}?ts=${Date.now()}`;
       thumb.style.display = "block";
       delBtn.style.display = "inline-block";
-    } catch (err) {
-      showError(errorEl, err);
-    }
+    });
   });
 
   delBtn.addEventListener("click", async () => {
@@ -269,4 +257,50 @@ function setupSinglePhotoUpload(url, fileInputId, thumbId, delBtnId) {
       showError(errorEl, err);
     }
   });
+}
+
+
+// 사진 업로드 상태를 그 사진 칸 안에 보여 준다 — 예전엔 실패 메시지가 페이지 맨 위에만 떠서, 아래 섹션에서 사진을 고르면
+// 실패해도 몰랐다(2026-09-29 "가끔 전경·점검사진이 안 올라감" — 서버 재시작·AWS 통로 재연결 중 502 등). 올리는 동안 "올리는 중…",
+// 성공하면 잠깐 "✓ 올렸습니다", 실패하면 이유 + "다시 시도"(같은 파일로 다시 보냄, 다시 고를 필요 없음).
+// doUpload: 실제 업로드(+성공 후 화면 갱신)를 하는 async 함수, 실패하면 throw.
+async function uploadWithStatus(slotEl, file, doUpload) {
+  const host = slotEl.querySelector(".slot-controls") || slotEl;
+  let st = host.querySelector(":scope > .upload-state");
+  if (!st) {
+    st = document.createElement("div");
+    host.appendChild(st);
+  }
+  st.className = "upload-state busy";
+  st.textContent = `올리는 중… (${file.name})`;
+  slotEl.classList.add("uploading");
+  try {
+    await doUpload();
+    st.className = "upload-state ok";
+    st.textContent = "✓ 올렸습니다";
+    setTimeout(() => {
+      if (st.classList.contains("ok")) { st.className = "upload-state"; st.textContent = ""; }
+    }, 4000);
+  } catch (err) {
+    st.className = "upload-state bad";
+    st.textContent = "";
+    const msg = document.createElement("span");
+    msg.textContent = `⚠ 실패 — ${uploadErrorText(err)}`;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "secondary upload-retry";
+    retry.textContent = "다시 시도";
+    retry.addEventListener("click", () => uploadWithStatus(slotEl, file, doUpload));
+    st.append(msg, retry);
+  } finally {
+    slotEl.classList.remove("uploading");
+  }
+}
+
+function uploadErrorText(err) {
+  const m = (err && err.message) || String(err);
+  if (err instanceof TypeError || /Failed to fetch|NetworkError|Load failed/i.test(m)) return "연결이 끊겼습니다. 잠시 후 다시 시도하세요.";
+  if (/\((502|503|504)\)/.test(m)) return "서버에 잠깐 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
+  if (/\(413\)/.test(m)) return "사진 파일이 너무 큽니다(30MB 이하).";
+  return m;
 }

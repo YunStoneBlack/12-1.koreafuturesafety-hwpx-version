@@ -277,3 +277,18 @@ main.main > section.panel { scroll-margin-top: 60px; }
 .file-pick.drop-over { border-radius: 8px; }
 .sig-drop-hint { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
 @media (hover: none) { .sig-drop-hint { display: none; } } /* 폰·태블릿엔 끌어다 놓기가 없으니 안내도 숨김 */
+
+/* 사진 칸 업로드 상태(report-photos.js uploadWithStatus) — 칸 안에 "올리는 중… / ✓ 올렸습니다 / ⚠ 실패 + 다시 시도" */
+.upload-state { font-size: 12px; margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.upload-state:empty { display: none; }
+.upload-state.busy { color: var(--warn); font-weight: 600; }
+.upload-state.busy::before {
+  content: ""; width: 11px; height: 11px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent;
+  animation: upload-spin .8s linear infinite;
+}
+@keyframes upload-spin { to { transform: rotate(360deg); } }
+.upload-state.ok { color: var(--green); font-weight: 600; }
+.upload-state.bad { color: var(--crit); font-weight: 600; }
+.main .upload-state .upload-retry { margin-top: 0; padding: 4px 10px; font-size: 12px; color: var(--crit); border-color: #F3C9C9; }
+.photo-slot.uploading .thumb { opacity: .4; }
+.photo-slot.uploading .file-pick-btn { pointer-events: none; opacity: .5; }

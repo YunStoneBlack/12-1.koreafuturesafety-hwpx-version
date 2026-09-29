@@ -222,17 +222,15 @@ function renderMaterials(items) {
         showError(errorEl, err);
       }
     });
-    document.getElementById(`mat-file-${slot}`).addEventListener("change", async (e) => {
+    document.getElementById(`mat-file-${slot}`).addEventListener("change", (e) => {
       const file = e.target.files[0];
+      e.target.value = "";
       if (!file) return;
-      errorEl.style.display = "none";
-      const form = new FormData();
-      form.append("file", file);
-      try {
-        applyMaterialsChange(await apiUpload(`${matBase}/${slot}/photo`, form));
-      } catch (err) {
-        showError(errorEl, err);
-      }
+      uploadWithStatus(e.target.closest(".photo-slot"), file, async () => {
+        const form = new FormData();
+        form.append("file", file);
+        applyMaterialsChange(await apiUpload(`${matBase}/${slot}/photo`, form)); // 성공하면 슬롯을 다시 그림
+      });
     });
     document.getElementById(`mat-save-${slot}`).addEventListener("click", async () => {
       errorEl.style.display = "none";
