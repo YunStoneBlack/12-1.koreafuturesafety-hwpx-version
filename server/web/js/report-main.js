@@ -8,6 +8,7 @@ document.getElementById("confirm-check").addEventListener("change", (e) => {
   document.getElementById("render-btn").disabled = !e.target.checked;
 });
 document.getElementById("hwpx-link").href = `${BASE}/api/reports/${reportId}/hwpx`;
+document.getElementById("hwpx-link").dataset.reportId = reportId;
 
 // --- PDF 생성 ---
 document.getElementById("render-btn").addEventListener("click", async () => {
@@ -43,7 +44,7 @@ function pollJob(jobId) {
       } else if (job.status === "done") {
         clearInterval(pollTimer);
         btn.disabled = false;
-        statusEl.innerHTML = `완료! <a href="${BASE}/api/jobs/${jobId}/download">PDF 다운로드</a>`;
+        statusEl.innerHTML = `완료! <a data-download="pdf" data-report-id="${reportId}" href="${BASE}/api/jobs/${jobId}/download">PDF 다운로드</a>`;
       } else if (job.status === "failed") {
         clearInterval(pollTimer);
         btn.disabled = false;
@@ -133,7 +134,7 @@ function openPreviewModal() {
       <div class="preview-head">
         <b>보고서 미리보기</b>
         <span class="preview-status">저장 확인 중…</span>
-        <a class="secondary-link preview-dl" style="display:none;">↓ PDF 받기</a>
+        <a class="secondary-link preview-dl" data-download="pdf" style="display:none;">↓ PDF 받기</a>
         <button type="button" class="preview-close">닫기</button>
       </div>
       <div class="preview-body"><div class="preview-wait">준비하는 중…</div></div>
@@ -161,6 +162,7 @@ function openPreviewModal() {
       statusEl.textContent = "";
       const dl = overlay.querySelector(".preview-dl");
       dl.href = url.replace("inline=true", "inline=false");
+      dl.dataset.reportId = reportId;
       dl.style.display = "";
       overlay.querySelector(".preview-body").innerHTML = `<iframe class="preview-frame" src="${url}" title="보고서 미리보기"></iframe>`;
     },
@@ -169,6 +171,7 @@ function openPreviewModal() {
       statusEl.textContent = `${count}쪽`;
       const dl = overlay.querySelector(".preview-dl");
       dl.href = url.replace("inline=true", "inline=false");
+      dl.dataset.reportId = reportId;
       dl.style.display = "";
       const body = overlay.querySelector(".preview-body");
       body.innerHTML = "";

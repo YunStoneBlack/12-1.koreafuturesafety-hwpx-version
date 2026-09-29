@@ -219,9 +219,9 @@ async function loadReports() {
         (!isFinal
           ? `<span class="status-pill pending">작성중</span>`
           : report.pdf_outdated
-            ? `<a class="status-pill pending pdf-pill" href="${BASE}/api/reports/${report.id}/pdf" title="PDF를 만든 뒤 내용을 고쳤습니다. 보고서 화면에서 'PDF 생성'을 다시 누르면 최신이 됩니다. (눌러서 수정 전 PDF 받기)">PDF 수정 전 버전 ↓</a>`
-            : `<a class="status-pill approved pdf-pill" href="${BASE}/api/reports/${report.id}/pdf" title="눌러서 PDF 받기">PDF 생성됨 ↓</a>`) +
-        `<a class="secondary-link" href="${BASE}/api/reports/${report.id}/hwpx">↓ 한글</a>` +
+            ? `<a class="status-pill pending pdf-pill" data-download="pdf" data-report-id="${report.id}" href="${BASE}/api/reports/${report.id}/pdf" title="PDF를 만든 뒤 내용을 고쳤습니다. 보고서 화면에서 'PDF 생성'을 다시 누르면 최신이 됩니다. (눌러서 수정 전 PDF 받기)">PDF 수정 전 버전 ↓</a>`
+            : `<a class="status-pill approved pdf-pill" data-download="pdf" data-report-id="${report.id}" href="${BASE}/api/reports/${report.id}/pdf" title="눌러서 PDF 받기">PDF 생성됨 ↓</a>`) +
+        `<a class="secondary-link" data-download="hwpx" data-report-id="${report.id}" href="${BASE}/api/reports/${report.id}/hwpx">↓ 한글</a>` +
         `<button type="button" class="secondary rp-del" style="margin-top:0; color:var(--crit);">삭제</button>`;
       row.querySelector(".rp-del").addEventListener("click", async () => {
         if (!confirm(`${report.visit_no}회차 보고서를 삭제할까요? 되돌릴 수 없습니다.`)) return;

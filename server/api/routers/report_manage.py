@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from core.models_db import Finding, PreviousFinding
 from core.models_web import ReportJob, User
+from core.db import BASE_DIR
 from core.report_builder_hwpx import build_report_hwpx
 from server.api import repo
 from server.api.deps import get_current_user, get_db
@@ -34,16 +35,45 @@ def download_name(report, suffix: str) -> str:
     return f"{safe}_{report.visit_no}회차{suffix}"
 
 
+# 한글 받기는 2단계(2026-09-29 사용자 — 누르면 몇 초 아무 반응이 없다가 저장 창이 떠서 답답함):
+#   1) GET .../hwpx/prepare — 최신 내용으로 만들어 PDF 옆 `report_{id}.hwpx`에 잠깐 두고 받기 번호(token=파일 수정 시각)를 돌려준다.
+#      화면은 그동안 "만드는 중… N초"를 보여 준다. GET인 이유: 쓰기 요청이면 edit_tracking이 "보고서 수정"으로 기록해 PDF가 수정 전 버전으로 보임.
+#   2) GET .../hwpx?token=… — 준비된 파일을 바로 준다(폰·카카오톡 브라우저도 일반 받기라 저장 창이 뜬다). token이 없거나 안 맞으면 예전처럼 즉석 생성.
+def prepared_hwpx_path(report_id: int) -> Path:
+    return BASE_DIR / "data" / "reports" / f"report_{report_id}.hwpx"
+
+
+@router.get("/hwpx/prepare")
+def prepare_hwpx(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    report = repo.get_report(db, user.company_id, report_id)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
+    out = prepared_hwpx_path(report_id)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".hwpx.tmp")
+    try:
+        build_report_hwpx(report_id, tmp)
+        tmp.replace(out)
+    except Exception as err:  # noqa: BLE001
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"한글 파일을 만들지 못했습니다: {err}") from err
+    return {"token": str(out.stat().st_mtime_ns)}
+
+
 @router.get("/hwpx")
 def download_hwpx(
     report_id: int,
     background: BackgroundTasks,
+    token: str = "",
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     report = repo.get_report(db, user.company_id, report_id)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
+    prepared = prepared_hwpx_path(report_id)
+    if token and prepared.exists() and str(prepared.stat().st_mtime_ns) == token:
+        return FileResponse(prepared, media_type="application/hwp+zip", filename=download_name(report, ".hwpx"))
     tmp_dir = tempfile.TemporaryDirectory()
     out = Path(tmp_dir.name) / "report.hwpx"
     try:
@@ -144,6 +174,7 @@ def delete_report(report_id: int, user: User = Depends(get_current_user), db: Se
             Path(path).unlink(missing_ok=True)
     if report.pdf_path:
         shutil.rmtree(preview_dir(report.pdf_path), ignore_errors=True)
+    prepared_hwpx_path(report_id).unlink(missing_ok=True)
     db.delete(report)
     db.commit()
     return {"ok": True}

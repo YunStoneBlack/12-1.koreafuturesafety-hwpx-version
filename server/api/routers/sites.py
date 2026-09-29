@@ -16,7 +16,7 @@ from core.models_db import Finding, PreviousFinding, Report, Site, SiteProcessDe
 from core.models_web import ReportJob, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
-from server.api.routers.report_manage import preview_dir
+from server.api.routers.report_manage import prepared_hwpx_path, preview_dir
 from server.api.routers.reports import check_staff_limit
 from server.api.security import verify_password
 from server.schemas.site import SiteIn, SiteListItem, SiteOut
@@ -179,4 +179,5 @@ def delete_site_cascade(db: Session, site: Site) -> int:
             shutil.rmtree(preview_dir(path), ignore_errors=True)  # 폰 미리보기 쪽 이미지
     for report_id in report_ids:
         shutil.rmtree(BASE_DIR / "data" / "photos" / f"report_{report_id}", ignore_errors=True)
+        prepared_hwpx_path(report_id).unlink(missing_ok=True)  # 한글 받기용으로 준비해 둔 파일
     return len(report_ids)
