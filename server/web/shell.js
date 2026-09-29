@@ -96,7 +96,7 @@ async function loadGroupwareSidebar() {
 // 파일 선택칸 — 브라우저 기본 버튼은 브라우저 언어를 따라 "Choose File / No file chosen"(영어)로 나오기도 하고 모양도 제각각이라,
 // 원래 칸은 안 보이게 두고(동작·이벤트는 그대로) 그룹웨어 보조 버튼 모양의 "사진 선택/파일 선택" 버튼을 옆에 붙인다.
 // 섹션이 나중에 그려지는 칸(보고서 슬롯 등)도 있어서 문서 변화를 지켜보며 새로 생긴 칸에도 붙인다.
-// 사진 칸(미리보기 썸네일이 있는 곳)은 고르는 즉시 올라가고 썸네일이 보이므로 파일 이름은 안 띄운다.
+// 사진 칸(미리보기 썸네일이 있는 곳)은 고르는 즉시 올라가고 썸네일이 보이므로 파일 이름은 안 띄운다. PC에선 끌어다 놓기도 된다.
 function enhanceFileInputs(root) {
   root.querySelectorAll('.main input[type="file"]:not([data-kr-file])').forEach((input) => {
     input.dataset.krFile = "1";
@@ -117,6 +117,36 @@ function enhanceFileInputs(root) {
     btn.addEventListener("click", () => input.click());
     input.addEventListener("change", () => {
       if (showName) name.textContent = input.files[0]?.name || "선택된 파일 없음";
+    });
+    // PC에서 파일을 끌어다 놓기 — 사진 칸이면 칸 전체(.photo-slot), 아니면 버튼 줄이 받는 곳. 놓은 파일을 원래 칸에 넣고
+    // change를 일으켜서 "선택"한 것과 똑같이 처리된다(사진 칸은 바로 업로드).
+    const zone = input.closest(".photo-slot") || wrap;
+    zone.addEventListener("dragover", (e) => {
+      if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
+      e.preventDefault();
+      zone.classList.add("drop-over");
+    });
+    zone.addEventListener("dragleave", (e) => {
+      if (!zone.contains(e.relatedTarget)) zone.classList.remove("drop-over");
+    });
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("drop-over");
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      const accept = (input.accept || "").trim();
+      const okType = !accept || accept.split(",").some((a) => {
+        a = a.trim();
+        return a.endsWith("/*") ? file.type.startsWith(a.slice(0, -1)) : file.type === a || file.name.toLowerCase().endsWith(a);
+      });
+      if (!okType) {
+        alert(accept.startsWith("image") ? "이미지 파일만 올릴 수 있습니다." : "이 칸에 맞는 파일 형식이 아닙니다.");
+        return;
+      }
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
     });
   });
 }

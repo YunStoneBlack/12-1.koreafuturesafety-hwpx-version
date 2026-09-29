@@ -42,6 +42,7 @@ function createSignatureField(container, opts) {
       ${standalone ? `<button type="button" class="sig-save">${opts.saveLabel || "저장"}</button>` : ""}
     </div>
     <div class="status sig-status"></div>
+    <div class="sig-drop-hint">PC에서는 이미지 파일을 서명 칸 위로 끌어다 놓아도 됩니다.</div>
   `;
   const canvas = container.querySelector(".sig-pad");
   const ctx = canvas.getContext("2d");
@@ -159,14 +160,36 @@ function createSignatureField(container, opts) {
     ops.push({ t: "clear" });
     redraw();
   });
-  container.querySelector(".sig-file").addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    e.target.value = "";
+  const loadImageFile = (file) => {
     if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      refreshUi("이미지 파일(PNG·JPG 등)만 올릴 수 있습니다.", false);
+      return;
+    }
     const img = new Image();
     img.onload = () => { ops.push({ t: "image", img, file }); redraw(); };
     img.onerror = () => refreshUi("이미지를 열 수 없습니다.", false);
     img.src = URL.createObjectURL(file);
+  };
+  container.querySelector(".sig-file").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    loadImageFile(file);
+  });
+  // 도장 스캔 이미지 등을 서명 칸 위로 끌어다 놓아도 "이미지로 올리기"와 같다(저장은 똑같이 "저장"을 눌러야 반영)
+  canvas.title = "여기에 이미지를 끌어다 놓아도 됩니다";
+  container.addEventListener("dragover", (e) => {
+    if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
+    e.preventDefault();
+    canvas.classList.add("drop-over");
+  });
+  container.addEventListener("dragleave", (e) => {
+    if (!container.contains(e.relatedTarget)) canvas.classList.remove("drop-over");
+  });
+  container.addEventListener("drop", (e) => {
+    e.preventDefault();
+    canvas.classList.remove("drop-over");
+    loadImageFile(e.dataTransfer.files[0]);
   });
 
   async function save() {
