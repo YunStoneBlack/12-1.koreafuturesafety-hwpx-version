@@ -7,6 +7,30 @@
 function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
   const container = document.getElementById(containerId);
   const slotEls = {};
+  let refreshBatch = () => {};
+
+  const showThumb = (slotNum) => {
+    const t = slotEls[slotNum].thumb;
+    t.src = `${apiPrefix}/${slotNum}/image?thumb=1&v=${Date.now()}`;
+    t.style.display = "block";
+    slotEls[slotNum].del.style.display = "inline-block";
+  };
+  const hideThumb = (slotNum) => {
+    slotEls[slotNum].thumb.style.display = "none";
+    slotEls[slotNum].del.style.display = "none";
+  };
+  // 한 칸 올리기 — 칸의 "사진 선택"과 "여러 장 올리기"(report-photo-batch.js)가 같이 쓴다. 성공 여부를 돌려준다.
+  const uploadToSlot = (slot, file) => {
+    slotEls[slot].row.hidden = false; // 접힌 빈칸에 넣을 때도 결과("✓ / ⚠ 다시 시도")가 보이게
+    return uploadWithStatus(slotEls[slot].row, file, async () => {
+      const formData = new FormData();
+      formData.append("file", file);
+      await apiUpload(`${apiPrefix}/${slot}`, formData);
+      showThumb(slot);
+      refreshBatch(); // 칸 안 [다시 시도]로 나중에 성공해도 "빈칸 N개"가 맞게
+    });
+  };
+  const isEmptyRow = (el) => el.querySelector(".thumb").style.display === "none";
 
   for (let slot = 1; slot <= 4; slot++) {
     const row = document.createElement("div");
@@ -21,32 +45,17 @@ function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
     `;
     container.appendChild(row);
     slotEls[slot] = {
+      row,
       thumb: row.querySelector(`#${containerId}-thumb-${slot}`),
       file: row.querySelector(`#${containerId}-file-${slot}`),
       del: row.querySelector(`#${containerId}-del-${slot}`),
-    };
-
-    const showThumb = (slotNum) => {
-      const t = slotEls[slotNum].thumb;
-      t.src = `${apiPrefix}/${slotNum}/image?thumb=1&v=${Date.now()}`;
-      t.style.display = "block";
-      slotEls[slotNum].del.style.display = "inline-block";
-    };
-    const hideThumb = (slotNum) => {
-      slotEls[slotNum].thumb.style.display = "none";
-      slotEls[slotNum].del.style.display = "none";
     };
 
     slotEls[slot].file.addEventListener("change", (e) => {
       const file = e.target.files[0];
       e.target.value = ""; // 같은 파일을 다시 골라도 반응하게
       if (!file) return;
-      uploadWithStatus(row, file, async () => {
-        const formData = new FormData();
-        formData.append("file", file);
-        await apiUpload(`${apiPrefix}/${slot}`, formData);
-        showThumb(slot);
-      });
+      uploadToSlot(slot, file);
     });
 
     slotEls[slot].del.addEventListener("click", async () => {
@@ -55,6 +64,7 @@ function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
         await api(`${apiPrefix}/${slot}`, { method: "DELETE" });
         hideThumb(slot);
         slotEls[slot].file.value = "";
+        refreshBatch();
       } catch (err) {
         showError(errorEl, err);
       }
@@ -68,10 +78,14 @@ function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
       slotEls[row.slot].thumb.style.display = "block";
       slotEls[row.slot].del.style.display = "inline-block";
     }
-    collapseEmptySlots(container, (el) => el.querySelector(".thumb").style.display === "none", labelPrefix);
+    collapseEmptySlots(container, isEmptyRow, labelPrefix);
+    refreshBatch = addBatchPhotoButton(container, labelPrefix, {
+      getEmptySlots: () => [1, 2, 3, 4].filter((s) => isEmptyRow(slotEls[s].row)),
+      upload: uploadToSlot,
+      afterBatch: () => collapseEmptySlots(container, isEmptyRow, labelPrefix),
+    });
   }).catch((err) => showError(errorEl, err));
 }
-
 
 // --- 4. 이전지적사항 — 직전 회차 8번 지적사항 자동 이월 + 수기 입력 ---
 // 목록을 불러올 때마다 서버가 직전 회차 지적사항을 다시 읽어 이월한다(server/api/carryover.py).
@@ -263,7 +277,7 @@ function setupSinglePhotoUpload(url, fileInputId, thumbId, delBtnId) {
 // 사진 업로드 상태를 그 사진 칸 안에 보여 준다 — 예전엔 실패 메시지가 페이지 맨 위에만 떠서, 아래 섹션에서 사진을 고르면
 // 실패해도 몰랐다(2026-09-29 "가끔 전경·점검사진이 안 올라감" — 서버 재시작·AWS 통로 재연결 중 502 등). 올리는 동안 "올리는 중…",
 // 성공하면 잠깐 "✓ 올렸습니다", 실패하면 이유 + "다시 시도"(같은 파일로 다시 보냄, 다시 고를 필요 없음).
-// doUpload: 실제 업로드(+성공 후 화면 갱신)를 하는 async 함수, 실패하면 throw.
+// doUpload: 실제 업로드(+성공 후 화면 갱신)를 하는 async 함수, 실패하면 throw. 성공하면 true, 실패하면 false를 돌려준다.
 async function uploadWithStatus(slotEl, file, doUpload) {
   const host = slotEl.querySelector(".slot-controls") || slotEl;
   let st = host.querySelector(":scope > .upload-state");
@@ -281,6 +295,7 @@ async function uploadWithStatus(slotEl, file, doUpload) {
     setTimeout(() => {
       if (st.classList.contains("ok")) { st.className = "upload-state"; st.textContent = ""; }
     }, 4000);
+    return true;
   } catch (err) {
     st.className = "upload-state bad";
     st.textContent = "";
@@ -292,6 +307,7 @@ async function uploadWithStatus(slotEl, file, doUpload) {
     retry.textContent = "다시 시도";
     retry.addEventListener("click", () => uploadWithStatus(slotEl, file, doUpload));
     st.append(msg, retry);
+    return false;
   } finally {
     slotEl.classList.remove("uploading");
   }

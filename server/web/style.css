@@ -599,3 +599,41 @@ a.dl-banner:hover { filter: brightness(0.98); }
 .dday { flex: none; font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--paper); color: var(--muted); white-space: nowrap; }
 .dday.imminent { background: var(--warn-soft); color: var(--warn); }
 .dday.over { background: var(--crit-soft); color: var(--crit); }
+
+/* 3번 사진 여러 장 한 번에 올리기(report-photo-batch.js) — 창 틀·버튼은 서명 창(.sig-modal) 모양을 같이 쓴다 */
+.batch-bar { margin: 0 0 8px; }
+.main .batch-bar .batch-btn { margin-top: 0; padding: 7px 14px; font-size: 12.5px; }
+@media (hover: none) { .sig-modal-hint.batch-hint { display: inline; color: var(--muted); } } /* 서명 창과 달리 폰에서도 안내(길게 눌러 끌기)가 필요 */
+.batch-info { font-size: 13px; color: var(--muted); }
+.batch-info.warn { color: var(--warn); font-weight: 600; }
+.batch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.batch-tile, .batch-ghost {
+  position: relative; aspect-ratio: 4 / 3; border-radius: 8px; background: var(--line) center / cover no-repeat;
+  cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; border: 2px solid transparent;
+}
+.batch-tile.no-room { opacity: .45; border-color: var(--warn); border-style: dashed; }
+.batch-tile.placeholder { background-image: none !important; border: 2px dashed var(--blue); background-color: var(--blue-soft); }
+.batch-tile.placeholder > * { visibility: hidden; }
+.batch-ghost { position: fixed; left: 0; top: 0; z-index: 1200; pointer-events: none; cursor: grabbing; opacity: .9;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .3); border-color: var(--blue); }
+.batch-no {
+  position: absolute; left: 6px; top: 6px; min-width: 26px; height: 26px; border-radius: 13px; padding: 0 6px;
+  display: flex; align-items: center; justify-content: center; background: var(--blue); color: #fff; font-weight: 700; font-size: 14px;
+}
+.batch-tile.no-room .batch-no { background: var(--faint); }
+.sig-modal button.batch-x {
+  position: absolute; right: 6px; top: 6px; width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 14px;
+  background: rgba(15, 17, 32, .6); border: none; color: #fff; font-size: 17px; line-height: 1;
+}
+.batch-noroom { position: absolute; left: 6px; bottom: 6px; font-size: 12px; font-weight: 700; color: #fff; background: var(--warn);
+  padding: 2px 8px; border-radius: 10px; }
+.batch-busy .batch-tile { cursor: default; }
+.batch-busy .batch-x { display: none; }
+.batch-tile.sending { outline: 3px solid var(--warn); outline-offset: 1px; }
+.batch-tile.sent::after, .batch-tile.failed::after {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; border-radius: 6px;
+  font-size: 30px; font-weight: 700; color: #fff;
+}
+.batch-tile.sent::after { content: "✓"; background: rgba(46, 158, 91, .55); }
+.batch-tile.failed::after { content: "!"; background: rgba(198, 60, 60, .6); }
+@media (max-width: 760px) { .batch-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; } }
