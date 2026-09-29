@@ -16,6 +16,7 @@ from core.models_db import Finding, PreviousFinding, Report, Site, SiteProcessDe
 from core.models_web import ReportJob, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
+from server.api.routers.reports import _check_staff_limit
 from server.api.security import verify_password
 from server.schemas.site import SiteIn, SiteListItem, SiteOut
 
@@ -107,9 +108,24 @@ def get_site(site_id: int, user: User = Depends(get_current_user), db: Session =
 def update_site(
     site_id: int, body: SiteIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    site = repo.update_site(db, user.company_id, site_id, **body.model_dump())
-    if site is None:
+    # 담당요원은 현장 ↔ 보고서 연동(2026-09-29 사용자 요청) — 현장에서 바꾸면 이 현장의 **아직 PDF를 안 만든 보고서**
+    # (status != final)도 같은 사람으로. 이미 PDF를 만든(제출한) 과거 회차는 그대로 둔다(표지·서명이 바뀌면 안 되므로).
+    # 하루 4현장 한도(reports._check_staff_limit)에 하나라도 걸리면 아무것도 안 바꾸고 400. 반대 방향은 reports.update_report.
+    existing = repo.get_site(db, user.company_id, site_id)
+    if existing is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
+    new_staff = body.assigned_staff_id
+    drafts = []
+    if new_staff != existing.assigned_staff_id:
+        drafts = [r for r in existing.reports if r.status != "final" and r.assigned_staff_id != new_staff]
+        for r in drafts:
+            _check_staff_limit(db, r, {"assigned_staff_id": new_staff})
+    site = repo.update_site(db, user.company_id, site_id, **body.model_dump())
+    if drafts:
+        for r in drafts:
+            r.assigned_staff_id = new_staff
+        db.commit()
+        db.refresh(site)
     return site
 
 

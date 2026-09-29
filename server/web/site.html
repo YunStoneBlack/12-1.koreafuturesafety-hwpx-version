@@ -120,7 +120,7 @@ async function openSiteEdit() {
     box.appendChild(div);
   }
   const staffDiv = document.createElement("div");
-  staffDiv.innerHTML = '<label for="sf-assigned_staff_id">기본 담당요원 (새 보고서에 자동 배정)</label><select id="sf-assigned_staff_id"><option value="">선택 안 함</option></select>';
+  staffDiv.innerHTML = '<label for="sf-assigned_staff_id">담당요원 <span style="font-weight:400; color:var(--muted);">(작성 중인 보고서·새 보고서에도 함께 반영, PDF를 만든 과거 회차는 그대로)</span></label><select id="sf-assigned_staff_id"><option value="">선택 안 함</option></select>';
   box.appendChild(staffDiv);
   try {
     for (const st of await api("/staff")) {

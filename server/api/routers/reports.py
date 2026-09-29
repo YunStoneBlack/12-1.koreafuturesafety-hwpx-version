@@ -108,6 +108,12 @@ def update_report(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
     if "hazard_factor_checks" in fields:
         record_site_hazard_checks(db, report)  # 다음 회차 기본값(데스크톱 저장 로직과 동일)
+    # 담당요원은 보고서 ↔ 현장 연동(2026-09-29 사용자 요청) — 보고서에서 정하면 현장 담당요원도 같은 사람으로
+    # (현장 목록 "담당"과 다음 회차 자동 배정이 따라온다). 반대 방향은 sites.update_site.
+    if "assigned_staff_id" in fields and report.site and report.site.assigned_staff_id != report.assigned_staff_id:
+        report.site.assigned_staff_id = report.assigned_staff_id
+        db.commit()
+        db.refresh(report)
     return report
 
 
