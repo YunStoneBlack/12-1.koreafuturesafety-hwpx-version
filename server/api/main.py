@@ -76,7 +76,20 @@ def health():
 
 # 정적 프론트엔드는 마지막에 등록한다 — API 라우터가 먼저 매칭되도록.
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
-web_app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
+
+
+class RevalidatingStaticFiles(StaticFiles):
+    """화면 파일(html/js/css/이미지)에 `Cache-Control: no-cache`를 붙인다 — 브라우저가 쓰기 전에 매번 바뀌었는지 물어보게.
+    안 붙이면 브라우저가 알아서 한동안 옛 파일을 그대로 써서, 화면을 고친 뒤 직원 화면엔 한참 반영이 안 됐다
+    (2026-09-29 서명 칸 잠금이 강력 새로고침 전까지 안 보임). 안 바뀌었으면 ETag로 304만 오가서 속도 차이는 거의 없다."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+web_app.mount("/", RevalidatingStaticFiles(directory=WEB_DIR, html=True), name="web")
 
 # 바깥 앱: WEB_BASE_PATH 아래에 웹판 전체를 올리고, 루트/경로 끝 슬래시 없는 주소는 "…/report/"로 보낸다
 # (화면이 상대 주소를 쓰므로 "/report"가 아니라 "/report/"여야 "dashboard.html"이 "/report/dashboard.html"로 풀린다).
