@@ -86,16 +86,15 @@ async function saveNow() {
 
 // "미리보기" — 실제로 나올 모양은 이 PC의 한글로 PDF를 만들어야 보인다. 최신 PDF가 있으면 바로 띄우고,
 // 없거나 만든 뒤 고쳤으면(수정 전 버전) 저장을 끝내고 새로 만든 뒤 띄운다(20~30초). 새로 만든 PDF가 곧 최신 PDF.
-// PC는 화면 위 창(iframe), 폰은 창 안 PDF 표시가 잘 안 돼서 새 탭 — 팝업 차단을 피하려고 누르는 순간 빈 탭을 먼저 연다.
-const isNarrowScreen = () => window.matchMedia("(max-width: 760px)").matches;
+// PC는 화면 위 창에 PDF 그대로(iframe — 확대·인쇄), 폰은 같은 창에 쪽별 이미지(폰 브라우저·카카오톡 안 브라우저는
+// PDF를 화면에 못 띄우고 내려받아 버림 — 2026-09-29 사용자, 새 탭 방식에서 바꿈).
+const isNarrowScreen = () => window.matchMedia("(max-width: 760px), (pointer: coarse)").matches;
 
 async function previewReport() {
   if (notifySigField && notifySigField.isDirty() &&
       !confirm("1번 현장책임자 서명 변경을 아직 저장하지 않았습니다. 저장하지 않은 채로 미리볼까요?")) return;
   const btn = document.getElementById("toc-preview");
-  const tab = isNarrowScreen() ? window.open("", "_blank") : null;
-  if (tab) tab.document.write('<p style="font-family:sans-serif;padding:24px;">보고서 미리보기를 준비하는 중입니다… (최대 30초)</p>');
-  const modal = tab ? null : openPreviewModal();
+  const modal = openPreviewModal();
   btn.disabled = true;
   try {
     await autosaveFlush();
@@ -106,18 +105,21 @@ async function previewReport() {
       for (;;) {
         await new Promise((r) => setTimeout(r, 1500));
         const j = await api(`/jobs/${job.id}`);
-        if (modal) modal.setStatus(`PDF 만드는 중… ${Math.round((Date.now() - started) / 1000)}초 (보통 20~30초)`);
+        modal.setStatus(`PDF 만드는 중… ${Math.round((Date.now() - started) / 1000)}초 (보통 20~30초)`);
         if (j.status === "done") break;
         if (j.status === "failed") throw new Error(`PDF를 만들지 못했습니다: ${(j.error_message || "").split("\n")[0]}`);
       }
     }
     const url = `${BASE}/api/reports/${reportId}/pdf?inline=true&ts=${Date.now()}`;
-    if (tab) tab.location.href = url;
-    else modal.show(url);
+    if (isNarrowScreen()) {
+      modal.setStatus("쪽 이미지 준비 중…");
+      const pages = await api(`/reports/${reportId}/pdf-pages`);
+      modal.showPages(url, pages);
+    } else {
+      modal.show(url);
+    }
   } catch (err) {
-    if (tab) tab.close();
-    if (modal) modal.setStatus(`⚠ ${err.message}`, true);
-    else showError(errorEl, err);
+    modal.setStatus(`⚠ ${err.message}`, true);
   } finally {
     btn.disabled = false;
   }
@@ -155,6 +157,25 @@ function openPreviewModal() {
       dl.href = url.replace("inline=true", "inline=false");
       dl.style.display = "";
       overlay.querySelector(".preview-body").innerHTML = `<iframe class="preview-frame" src="${url}" title="보고서 미리보기"></iframe>`;
+    },
+    // 폰: 쪽별 이미지를 위아래로 이어서(두 손가락 확대 가능). 판 번호(version)를 붙여 옛 이미지 캐시를 피한다.
+    showPages(url, { count, version }) {
+      statusEl.textContent = `${count}쪽`;
+      const dl = overlay.querySelector(".preview-dl");
+      dl.href = url.replace("inline=true", "inline=false");
+      dl.style.display = "";
+      const body = overlay.querySelector(".preview-body");
+      body.innerHTML = "";
+      const list = document.createElement("div");
+      list.className = "preview-pages";
+      for (let i = 1; i <= count; i++) {
+        const img = document.createElement("img");
+        img.loading = i <= 2 ? "eager" : "lazy";
+        img.alt = `${i}쪽`;
+        img.src = `${BASE}/api/reports/${reportId}/pdf-pages/${i}.jpg?v=${version}`;
+        list.appendChild(img);
+      }
+      body.appendChild(list);
     },
   };
 }

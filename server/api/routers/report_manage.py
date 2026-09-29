@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -71,6 +72,62 @@ def download_pdf(
     )
 
 
+# ---------- 폰 미리보기용 쪽별 이미지 ----------
+# 폰 브라우저(안드로이드 크롬, 카카오톡 안 브라우저 등)는 PDF를 화면에 못 띄우고 내려받아 버려서(2026-09-29 사용자),
+# 미리보기 창에 PDF 대신 쪽별 JPG를 보여 준다. 마지막으로 만든 PDF를 PyMuPDF로 바꿔 PDF 옆 "<pdf이름>_preview/" 폴더에 두고,
+# PDF가 새로 만들어졌을 때(수정 시각이 바뀌면)만 다시 바꾼다. 보고서/현장 삭제 때 폴더도 같이 지운다(preview_dir 사용).
+PREVIEW_ZOOM = 2.0  # A4 한 쪽 약 1190px 폭 — 폰에서 두 손가락으로 키워도 글자가 읽히는 정도
+
+
+def preview_dir(pdf_path: str) -> Path:
+    p = Path(pdf_path)
+    return p.with_name(p.stem + "_preview")
+
+
+def _ensure_preview_pages(pdf_path: str) -> tuple[Path, int, str]:
+    """(폴더, 쪽 수, 판 번호) — 판 번호는 PDF 수정 시각(브라우저 캐시가 옛 이미지를 쓰지 않게 주소에 붙임)."""
+    import fitz  # PyMuPDF — 여기서만 쓰므로 필요할 때 불러온다
+
+    folder = preview_dir(pdf_path)
+    version = str(int(Path(pdf_path).stat().st_mtime))
+    stamp = folder / "version.txt"
+    if stamp.exists() and stamp.read_text(encoding="utf-8").strip() == version:
+        return folder, len(list(folder.glob("p*.jpg"))), version
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True, exist_ok=True)
+    with fitz.open(pdf_path) as doc:
+        for i, page in enumerate(doc, start=1):
+            page.get_pixmap(matrix=fitz.Matrix(PREVIEW_ZOOM, PREVIEW_ZOOM)).save(str(folder / f"p{i}.jpg"), jpg_quality=80)
+        count = doc.page_count
+    stamp.write_text(version, encoding="utf-8")
+    return folder, count, version
+
+
+def _report_pdf_or_404(db: Session, company_id: int, report_id: int):
+    report = repo.get_report(db, company_id, report_id)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
+    if not report.pdf_path or not Path(report.pdf_path).exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "아직 만든 PDF가 없습니다. 보고서 화면에서 'PDF 생성'을 먼저 누르세요.")
+    return report
+
+
+@router.get("/pdf-pages")
+def pdf_pages(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    report = _report_pdf_or_404(db, user.company_id, report_id)
+    _, count, version = _ensure_preview_pages(report.pdf_path)
+    return {"count": count, "version": version}
+
+
+@router.get("/pdf-pages/{page}.jpg")
+def pdf_page_image(report_id: int, page: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    report = _report_pdf_or_404(db, user.company_id, report_id)
+    folder, count, _ = _ensure_preview_pages(report.pdf_path)
+    if not 1 <= page <= count:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "없는 쪽입니다.")
+    return FileResponse(folder / f"p{page}.jpg", media_type="image/jpeg")
+
+
 @router.delete("")
 def delete_report(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     report = repo.get_report(db, user.company_id, report_id)
@@ -85,6 +142,8 @@ def delete_report(report_id: int, user: User = Depends(get_current_user), db: Se
     for path in (report.pdf_path, report.notify_signature_path):
         if path:
             Path(path).unlink(missing_ok=True)
+    if report.pdf_path:
+        shutil.rmtree(preview_dir(report.pdf_path), ignore_errors=True)
     db.delete(report)
     db.commit()
     return {"ok": True}

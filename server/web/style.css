@@ -400,3 +400,12 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
   .report-row .title { flex-basis: 100%; white-space: normal; overflow: visible; }
   .report-row .title .meta { display: inline; }
 }
+
+/* 폰 미리보기: 쪽별 이미지(report-main.js showPages) — 창 안에서 위아래로 스크롤 */
+.preview-pages { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.preview-pages img { width: 100%; height: auto; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+@media (max-width: 760px) {
+  .preview-overlay { padding: 0; }
+  .preview-box { border-radius: 0; }
+  .preview-head { flex-wrap: wrap; padding: 10px 12px; }
+}

@@ -158,6 +158,8 @@ def delete_site_cascade(db: Session, site: Site) -> int:
     db.commit()
     for path in files:
         Path(path).unlink(missing_ok=True)
+        if path.lower().endswith(".pdf"):
+            shutil.rmtree(Path(path).with_name(Path(path).stem + "_preview"), ignore_errors=True)  # 폰 미리보기 쪽 이미지
     for report_id in report_ids:
         shutil.rmtree(BASE_DIR / "data" / "photos" / f"report_{report_id}", ignore_errors=True)
     return len(report_ids)
