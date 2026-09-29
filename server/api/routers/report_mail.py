@@ -14,30 +14,18 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from core.models_db import Report
 from core.models_web import ReportJob, ReportMail, User
 from server import settings as app_settings
 from server.api import mailer, repo
+from server.api.repo import mail_table_ready
 from server.api.deps import get_current_user, get_db
 from server.api.routers.report_manage import download_name
 from server.api.routers.reports import pdf_outdated_map
 
 router = APIRouter(prefix="/reports/{report_id}/mail", tags=["report-mail"])
-
-
-_table_ready = False
-
-
-def mail_table_ready(db: Session) -> bool:
-    """report_mail 표가 DB에 있나(alembic 0004 적용 전이면 False) — 새 코드가 먼저 돌아도 현장 화면 목록이 깨지지 않게.
-    한 번 있으면 계속 있으므로 True는 기억해 둔다."""
-    global _table_ready
-    if not _table_ready:
-        _table_ready = inspect(db.get_bind()).has_table("report_mail")
-    return _table_ready
 
 
 MAX_RECIPIENTS = 10

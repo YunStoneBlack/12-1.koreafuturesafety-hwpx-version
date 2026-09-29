@@ -29,6 +29,18 @@ SESSION_COOKIE_SECURE=true   ; Cloudflare Tunnel(HTTPS)로 쓸 땐 true 유지. 
                              ; false로 내려서 씀 — 그 상태로 실제 서비스하면 안 됨.
 ```
 
+고객사 메일 전송(현장 화면 "📧 고객사 전송")을 쓰려면 추가로:
+
+```
+MAIL_SMTP_USER=kfsc21c@naver.com   ; 보내는 주소 = 네이버 로그인 아이디
+MAIL_SMTP_PASSWORD=<애플리케이션 비밀번호 12자리>
+; 선택: MAIL_CC(기본 = 보내는 주소), MAIL_FROM_NAME(기본 한국미래안전), MAIL_SMTP_HOST/PORT(기본 smtp.naver.com:465)
+```
+
+네이버 메일 환경설정 → POP3/IMAP 설정 → "SMTP 사용"을 켜고, **네이버 ID 2단계 인증을 켠 뒤 애플리케이션 비밀번호**를 만들어 넣는다
+(로그인 비밀번호는 SMTP가 535로 거부함). SMTP를 90일 안 쓰면 네이버가 자동으로 꺼 버리니, 전송 창에 "로그인 실패"가 뜨면 이 설정부터 확인.
+비밀번호를 바꾼 뒤엔 API를 다시 시작해야 반영된다.
+
 절대경로를 코드에 하드코딩하지 않는 게 이 설계의 핵심이다 — 나중에 다른 PC로 옮길 때
 코드는 그대로 두고 이 환경변수들만 새 PC 값으로 바꾸면 된다.
 
@@ -37,6 +49,9 @@ SESSION_COOKIE_SECURE=true   ; Cloudflare Tunnel(HTTPS)로 쓸 땐 true 유지. 
 ```
 alembic -c server/alembic.ini upgrade head
 ```
+
+(2026-09-29 기준 0004까지: 0003 `report_edit` — PDF 수정 전 버전 판단, 0004 `report_mail` — 고객사 메일 보낸 기록.
+명령 창에 `DATABASE_URL` 환경변수가 있어야 한다 — `.env.server`의 값을 넣고 실행.)
 
 ## 4. 파일럿 회사/직원 계정 시딩
 

@@ -29,10 +29,9 @@ def list_reports(site_id: int, user: User = Depends(get_current_user), db: Sessi
         return []
     outdated = pdf_outdated_map(db, reports)
     # 고객사에 마지막으로 메일 보낸 기록(목록의 "✓ 전송") — 오래된 것부터 덮어써 보고서마다 마지막 것만 남는다
-    from server.api.routers.report_mail import mail_table_ready  # 순환 import 피해 여기서
     last_mail = (
         {m.report_id: m for m in db.query(ReportMail).filter(ReportMail.report_id.in_(ids)).order_by(ReportMail.sent_at)}
-        if mail_table_ready(db) else {}
+        if repo.mail_table_ready(db) else {}
     )
     out = []
     for r in reports:

@@ -8,7 +8,7 @@ Report와 그 자식 테이블들은 company_id 컬럼이 없다 — Site를 거
 
 from __future__ import annotations
 
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from sqlalchemy.orm import Session
 
 from core.models_db import Report, Site, Staff
@@ -17,6 +17,19 @@ from core.models_web import ReportJob
 # 전경사진(OverviewPhoto)/점검사진(InspectionPhoto)은 (report_id, slot, photo_path) 뿐인
 # 완전히 같은 모양이라, 슬롯 사진 공용 헬퍼 하나로 둘 다 처리한다 — 데스크톱(models_db.py)도
 # "표4/5로 독립된 별개 표"라서 모델은 둘로 나눴지만, 다루는 로직 자체는 항상 같이 다닌다.
+
+
+# 고객사 메일 보낸 기록(report_mail) — server/api/routers/report_mail.py·reports.py(목록의 "✓ 전송")가 같이 쓴다
+_table_ready = False
+
+
+def mail_table_ready(db: Session) -> bool:
+    """report_mail 표가 DB에 있나(alembic 0004 적용 전이면 False) — 새 코드가 먼저 돌아도 현장 화면 목록이 깨지지 않게.
+    한 번 있으면 계속 있으므로 True는 기억해 둔다."""
+    global _table_ready
+    if not _table_ready:
+        _table_ready = inspect(db.get_bind()).has_table("report_mail")
+    return _table_ready
 
 
 def list_sites(db: Session, company_id: int) -> list[Site]:
