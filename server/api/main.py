@@ -29,6 +29,7 @@ from server.api.routers import (
     previous_findings,
     process_entries,
     report_mail,
+    submission,
     report_manage,
     reports,
     settings,
@@ -73,6 +74,7 @@ web_app.include_router(ai.router, prefix="/api")
 web_app.include_router(materials.router, prefix="/api")
 web_app.include_router(report_manage.router, prefix="/api")
 web_app.include_router(report_mail.router, prefix="/api")
+web_app.include_router(submission.router, prefix="/api")
 
 
 @web_app.get("/api/health")

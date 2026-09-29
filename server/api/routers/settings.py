@@ -114,3 +114,47 @@ def get_signature_image(role: Role, user: User = Depends(get_current_user)):
     if not path or not Path(path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "등록된 도장이 없습니다.")
     return FileResponse(path, media_type="image/png")
+
+
+# ---------- 지도 기한 알림(제출 현황 "⏰ 임박"·아침 9시 알림 메일 — server/api/deadlines.py, server/worker/deadline_notifier.py) ----------
+class DeadlineAlertSettings(BaseModel):
+    enabled: bool = True
+    imminent_days: int = config.DEFAULT_IMMINENT_DAYS
+    admin_email: str = ""
+
+
+@router.get("/deadline-alert", response_model=DeadlineAlertSettings)
+def get_deadline_alert(user: User = Depends(get_current_user)):
+    return DeadlineAlertSettings(
+        enabled=config.get_deadline_alert_enabled(user.company_id),
+        imminent_days=config.get_deadline_imminent_days(user.company_id),
+        admin_email=config.get_deadline_admin_email(user.company_id),
+    )
+
+
+@router.post("/deadline-alert", response_model=DeadlineAlertSettings)
+def set_deadline_alert(body: DeadlineAlertSettings, user: User = Depends(get_current_user)):
+    from server.api.mailer import valid_email
+
+    if not 0 <= body.imminent_days <= 14:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "임박 기준은 0~14일 사이로 정하세요.")
+    emails = [a.strip() for a in body.admin_email.split(",") if a.strip()]
+    bad = [a for a in emails if not valid_email(a)]
+    if bad:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"메일 주소를 확인하세요: {', '.join(bad)}")
+    config.set_deadline_alert_enabled(body.enabled, user.company_id)
+    config.set_deadline_imminent_days(body.imminent_days, user.company_id)
+    config.set_deadline_admin_email(", ".join(emails), user.company_id)
+    return get_deadline_alert(user)
+
+
+@router.post("/deadline-alert/test")
+def test_deadline_alert(user: User = Depends(get_current_user)):
+    """지금 기준 임박·초과 현장 목록을 관리자 알림 메일로 한 번 보내 본다(보낸 기록은 안 남김 — 아침 알림은 그대로 나감)."""
+    from server.worker.deadline_notifier import send_test
+
+    try:
+        return send_test(user.company_id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+

@@ -89,6 +89,40 @@ def set_site_delete_password_hash(value: str, company_id: int | None = None) -> 
     _set_setting(_KEY_SITE_DELETE_PASSWORD, value, company_id)
 
 
+# ---------- 지도 기한 알림(웹판 제출 현황·아침 알림 메일, server/api/deadlines.py·server/worker/deadline_notifier.py) ----------
+_KEY_DEADLINE_IMMINENT_DAYS = "deadline_imminent_days"
+_KEY_DEADLINE_ALERT_ENABLED = "deadline_alert_enabled"
+_KEY_DEADLINE_ADMIN_EMAIL = "deadline_alert_admin_email"
+DEFAULT_IMMINENT_DAYS = 3  # 기한 D-3부터 "임박"(사용자 2026-09-29 "일단 D-3, 나중에 조정")
+
+
+def get_deadline_imminent_days(company_id: int | None = None) -> int:
+    try:
+        return max(0, int(_get_setting(_KEY_DEADLINE_IMMINENT_DAYS, company_id) or DEFAULT_IMMINENT_DAYS))
+    except ValueError:
+        return DEFAULT_IMMINENT_DAYS
+
+
+def set_deadline_imminent_days(days: int, company_id: int | None = None) -> None:
+    _set_setting(_KEY_DEADLINE_IMMINENT_DAYS, str(int(days)), company_id)
+
+
+def get_deadline_alert_enabled(company_id: int | None = None) -> bool:
+    return (_get_setting(_KEY_DEADLINE_ALERT_ENABLED, company_id) or "1") == "1"  # 기본 켜짐
+
+
+def set_deadline_alert_enabled(enabled: bool, company_id: int | None = None) -> None:
+    _set_setting(_KEY_DEADLINE_ALERT_ENABLED, "1" if enabled else "0", company_id)
+
+
+def get_deadline_admin_email(company_id: int | None = None) -> str:
+    return (_get_setting(_KEY_DEADLINE_ADMIN_EMAIL, company_id) or "").strip()
+
+
+def set_deadline_admin_email(value: str, company_id: int | None = None) -> None:
+    _set_setting(_KEY_DEADLINE_ADMIN_EMAIL, value.strip(), company_id)
+
+
 def get_ai_enabled() -> bool:
     stored = _get_setting(_KEY_AI_ENABLED)
     if stored is None:

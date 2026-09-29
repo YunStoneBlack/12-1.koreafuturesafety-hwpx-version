@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
@@ -115,3 +115,42 @@ class ReportMail(Base):
     to_addr: Mapped[str] = mapped_column(Text)
     cc_addr: Mapped[str] = mapped_column(Text, default="")
     sent_by: Mapped[str] = mapped_column(Text, default="")  # 보낸 직원 이름(그룹웨어 표시 이름)
+
+
+class ReportSubmitMark(Base):
+    """웹판 전용 — "직접 제출함" 표시(제출 현황 화면). 고객사 전송(ReportMail) 말고 직접 메일·출력물·카톡 등으로 낸 보고서를
+    제출 완료로 치기 위해 사람이 누른 기록. 되돌리기 = 행 삭제. 보고서가 지워지면 같이 지워진다(CASCADE).
+    제출 완료 판정은 server/api/submission.py 한 곳에서만 한다(사용자가 나중에 기준을 바꿀 예정 — 2026-09-29)."""
+
+    __tablename__ = "report_submit_mark"
+
+    report_id: Mapped[int] = mapped_column(ForeignKey("report.id", ondelete="CASCADE"), primary_key=True)
+    marked_at: Mapped[datetime.datetime] = mapped_column(DateTime)
+    marked_by: Mapped[str] = mapped_column(Text, default="")
+
+
+class StaffContact(Base):
+    """웹판 전용 — 담당요원 메일(지도 기한 알림 메일 받는 곳). Staff는 데스크톱(SQLite)과 같이 쓰는 모델이라 칸을 늘리지 않고
+    따로 둔다(ReportEdit과 같은 이유). 요원이 지워지면 같이 지워진다(CASCADE)."""
+
+    __tablename__ = "staff_contact"
+
+    staff_id: Mapped[int] = mapped_column(ForeignKey("staff.id", ondelete="CASCADE"), primary_key=True)
+    email: Mapped[str] = mapped_column(Text, default="")
+
+
+class DeadlineAlert(Base):
+    """웹판 전용 — 지도 기한 알림을 보낸 기록(server/worker/deadline_notifier.py). 현장·기한·단계(d3/dday/over)·경로(mail, 나중에 sms)마다
+    한 번만 보내려고 남긴다 — 같은 (현장, 기한, 단계, 경로)는 두 번 안 보냄. 현장이 지워지면 같이 지워진다(CASCADE)."""
+
+    __tablename__ = "deadline_alert"
+    __table_args__ = (UniqueConstraint("site_id", "deadline", "kind", "channel", name="uq_deadline_alert"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), index=True)
+    deadline: Mapped[datetime.date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column(Text)  # d3(임박 — 설정 일수 전) | dday | over(초과 첫날)
+    channel: Mapped[str] = mapped_column(Text, default="mail")
+    sent_at: Mapped[datetime.datetime] = mapped_column(DateTime)
+    recipients: Mapped[str] = mapped_column(Text, default="")
+

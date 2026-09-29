@@ -16,9 +16,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.models_db import Report, Site, Staff
-from core.models_web import User
+from core.models_web import StaffContact, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
+from server.api.mailer import valid_email
 from server.api.signature_files import normalize_source, save_signature_upload
 from server.schemas.staff import StaffOut
 
@@ -28,18 +29,37 @@ router = APIRouter(prefix="/staff", tags=["staff"])
 class StaffIn(BaseModel):
     name: str | None = None
     phone: str | None = None
+    email: str | None = None  # 지도 기한 알림 메일 받는 곳(staff_contact — Staff는 데스크톱과 같이 쓰는 모델이라 따로)
     active: bool | None = None
 
 
 class StaffAdminOut(StaffOut):
     active: bool
     has_signature: bool
+    email: str = ""
 
 
-def _admin_out(staff: Staff) -> StaffAdminOut:
+def _admin_out(staff: Staff, email: str = "") -> StaffAdminOut:
     return StaffAdminOut(
-        id=staff.id, name=staff.name, phone=staff.phone, active=staff.active, has_signature=bool(staff.signature_path)
+        id=staff.id, name=staff.name, phone=staff.phone, active=staff.active, has_signature=bool(staff.signature_path),
+        email=email,
     )
+
+
+def _email_of(db: Session, staff_id: int) -> str:
+    row = db.get(StaffContact, staff_id)
+    return row.email if row else ""
+
+
+def _set_email(db: Session, staff_id: int, email: str | None) -> None:
+    email = (email or "").strip()
+    if email and not valid_email(email):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "메일 주소를 확인하세요.")
+    row = db.get(StaffContact, staff_id)
+    if row is None:
+        db.add(StaffContact(staff_id=staff_id, email=email))
+    else:
+        row.email = email
 
 
 def _require_staff(db: Session, user: User, staff_id: int) -> Staff:
@@ -57,7 +77,8 @@ def list_staff(user: User = Depends(get_current_user), db: Session = Depends(get
 @router.get("/all", response_model=list[StaffAdminOut])
 def list_all_staff(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = db.query(Staff).filter(Staff.company_id == user.company_id).order_by(Staff.active.desc(), Staff.id).all()
-    return [_admin_out(s) for s in rows]
+    emails = dict(db.query(StaffContact.staff_id, StaffContact.email).filter(StaffContact.staff_id.in_([s.id for s in rows]))) if rows else {}
+    return [_admin_out(s, emails.get(s.id, "")) for s in rows]
 
 
 @router.post("", response_model=StaffAdminOut)
@@ -67,9 +88,12 @@ def add_staff(body: StaffIn, user: User = Depends(get_current_user), db: Session
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "담당요원 이름을 입력하세요.")
     staff = Staff(company_id=user.company_id, name=name, phone=(body.phone or "").strip())
     db.add(staff)
+    db.flush()
+    if body.email:
+        _set_email(db, staff.id, body.email)
     db.commit()
     db.refresh(staff)
-    return _admin_out(staff)
+    return _admin_out(staff, _email_of(db, staff.id))
 
 
 @router.patch("/{staff_id}", response_model=StaffAdminOut)
@@ -84,8 +108,10 @@ def update_staff(staff_id: int, body: StaffIn, user: User = Depends(get_current_
         staff.phone = (fields["phone"] or "").strip()
     if fields.get("active") is not None:
         staff.active = fields["active"]
+    if "email" in fields:
+        _set_email(db, staff.id, fields["email"])
     db.commit()
-    return _admin_out(staff)
+    return _admin_out(staff, _email_of(db, staff.id))
 
 
 @router.delete("/{staff_id}")

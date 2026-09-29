@@ -51,6 +51,27 @@
 </section>
 
 <section class="panel">
+  <div class="panel-head"><h2>지도 기한 알림</h2></div>
+  <div class="panel-body">
+  <p class="page-sub" style="margin:0 0 10px;">기한 = 마지막 지도일 + 15일. 평일 아침 9시에 담당요원(담당요원 탭의 메일)과 아래 관리자 메일로
+    임박·당일·초과를 현장마다 한 번씩 알립니다. 기한이 주말이면 금요일에 미리 알립니다.</p>
+  <label style="font-weight:400; display:flex; gap:8px; align-items:center; margin:0 0 10px;">
+    <input type="checkbox" id="dl-enabled" style="width:auto; margin:0;" /> 알림 메일 보내기
+  </label>
+  <div class="field-grid">
+    <div><label for="dl-days">임박 기준 (기한 며칠 전부터)</label><input id="dl-days" type="number" min="0" max="14" /></div>
+    <div><label for="dl-admin">관리자 알림 메일 <span style="font-weight:400; color:var(--muted);">(전체 목록, 여러 곳은 쉼표로)</span></label>
+      <input id="dl-admin" placeholder="예: kfsc21c@naver.com" /></div>
+  </div>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <button type="button" id="dl-save">저장</button>
+    <button type="button" id="dl-test" class="secondary">시험 메일 보내기</button>
+  </div>
+  <div id="dl-status" class="status"></div>
+  </div>
+</section>
+
+<section class="panel">
   <div class="panel-head"><h2>결재란 도장 (이사 · 대표이사)</h2></div>
   <div class="panel-body">
   <p class="page-sub" style="margin:0 0 12px;">한 번 등록하면 이 회사의 모든 보고서 결재란에 자동으로 들어갑니다. 도장 스캔 이미지를 올리거나 직접 그릴 수 있습니다.</p>
@@ -151,6 +172,51 @@ api("/settings/signatures").then((st) => {
     });
   }
 }).catch((err) => showError(errorEl, err));
+
+// ---------- 지도 기한 알림(server/api/routers/settings.py /settings/deadline-alert) ----------
+async function loadDeadlineAlert() {
+  try {
+    const d = await api("/settings/deadline-alert");
+    document.getElementById("dl-enabled").checked = d.enabled;
+    document.getElementById("dl-days").value = d.imminent_days;
+    document.getElementById("dl-admin").value = d.admin_email;
+  } catch (err) {
+    showError(errorEl, err);
+  }
+}
+document.getElementById("dl-save").addEventListener("click", async () => {
+  const st = document.getElementById("dl-status");
+  st.className = "status";
+  try {
+    await apiPost("/settings/deadline-alert", {
+      enabled: document.getElementById("dl-enabled").checked,
+      imminent_days: Number(document.getElementById("dl-days").value || 0),
+      admin_email: document.getElementById("dl-admin").value,
+    });
+    st.className = "status ok";
+    st.textContent = "저장했습니다.";
+  } catch (err) {
+    st.className = "status bad";
+    st.textContent = err.message;
+  }
+});
+document.getElementById("dl-test").addEventListener("click", async (e) => {
+  const st = document.getElementById("dl-status");
+  e.target.disabled = true;
+  st.className = "status";
+  st.textContent = "보내는 중…";
+  try {
+    const out = await apiPost("/settings/deadline-alert/test");
+    st.className = "status ok";
+    st.textContent = `${out.to.join(", ")}로 시험 메일을 보냈습니다(지금 임박·초과 ${out.count}곳).`;
+  } catch (err) {
+    st.className = "status bad";
+    st.textContent = err.message;
+  } finally {
+    e.target.disabled = false;
+  }
+});
+loadDeadlineAlert();
 </script>
 </body>
 </html>

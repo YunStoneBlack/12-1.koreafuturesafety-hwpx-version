@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>제출 현황 - 기술지도 보고서</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body data-report-tab="status">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<div class="st-toolbar">
+  <div class="st-month">
+    <button type="button" id="st-prev" aria-label="이전 달">◀</button><b id="st-month-label"></b><button type="button" id="st-next" aria-label="다음 달">▶</button>
+  </div>
+  <select id="st-staff" aria-label="담당요원"><option value="">담당요원 전체</option></select>
+  <label class="st-only"><input type="checkbox" id="st-open" /> 안 끝난 것만</label>
+</div>
+
+<div class="st-cards" id="st-cards"></div>
+
+<div class="st-row2">
+  <div class="st-chart">
+    <div class="st-chart-head"><b><span id="st-year-label"></span> 월별 보고서 <span class="st-hint">· 막대를 누르면 그달 목록</span></b>
+      <div class="st-legend"><span><i class="ok"></i>제출 완료</span><span><i class="wait"></i>미제출</span></div></div>
+    <div class="st-bars" id="st-bars"></div>
+  </div>
+  <div class="st-staff" id="st-staff-box"></div>
+</div>
+
+<section class="panel">
+  <div id="st-list"></div>
+</section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="mail.js"></script>
+<script src="js/status.js"></script>
+</body>
+</html>

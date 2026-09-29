@@ -53,3 +53,6 @@ MAIL_SMTP_PASSWORD = os.environ.get("MAIL_SMTP_PASSWORD", "").strip()
 MAIL_FROM_NAME = os.environ.get("MAIL_FROM_NAME", "한국미래안전").strip()
 # 참조(CC) — 기본은 보내는 회사 메일 자신(보낸메일함 외에 받은메일함에도 남아 회사에서 확인하기 쉽게)
 MAIL_CC = os.environ.get("MAIL_CC", MAIL_SMTP_USER).strip()
+
+# 알림 메일 등에 넣는 바깥 주소(제출 현황 링크 등) — 그룹웨어의 "보고서 자동화" 메뉴 주소
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://groupware.kfsc21c.com/report").strip().rstrip("/")

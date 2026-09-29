@@ -171,6 +171,7 @@ function renderSites() {
         <span class="meta" data-k="progress"></span>
         <span class="meta" data-k="date"></span>
       </span>
+      <span class="dday" hidden></span>
       <span class="status-pill ${pillClass}"></span>`;
     // 사용자 입력 값은 textContent로(따옴표·꺾쇠가 들어간 현장명도 안전하게)
     row.querySelector(".site-name").textContent = site.name;
@@ -181,6 +182,15 @@ function renderSites() {
     row.querySelector('[data-k="progress"]').textContent = hasSummary ? progress : "";
     row.querySelector('[data-k="date"]').textContent = site.last_guidance_date ? `최근 지도 ${shortDate(site.last_guidance_date)}` : "";
     row.querySelector(".status-pill").textContent = site.status;
+    // 지도 기한(마지막 지도일 + 15일, server/api/deadlines.py) — 진행 중인 현장만. 임박·초과는 색으로 눈에 띄게
+    if (site.deadline) {
+      const dd = row.querySelector(".dday");
+      const n = site.deadline_days_left;
+      dd.hidden = false;
+      dd.className = `dday ${site.deadline_stage}`;
+      dd.textContent = n < 0 ? `기한 ${-n}일 지남` : n === 0 ? "오늘 기한" : `D-${n}`;
+      dd.title = `지도 기한 ${site.deadline} (마지막 지도일 + 15일)`;
+    }
     listEl.appendChild(row);
   }
 }

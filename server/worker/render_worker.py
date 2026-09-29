@@ -34,6 +34,7 @@ from core.models_db import Report
 from core.models_web import ReportJob
 from core.report_builder import build_report
 from desktop.workers.ai_worker import with_com
+from server.worker import deadline_notifier
 
 POLL_INTERVAL_SECONDS = 1.5
 
@@ -84,6 +85,7 @@ def _render(job_id: int, report_id: int) -> None:
 def run_forever() -> None:
     print("[render_worker] 시작 — report_job 테이블 폴링 중...")
     while True:
+        deadline_notifier.tick()  # 평일 아침 9시 지도 기한 알림 메일(1분에 한 번만 확인, 실패해도 렌더는 계속)
         with SessionLocal() as db:
             claimed = _claim_next_job(db)
         if claimed is not None:

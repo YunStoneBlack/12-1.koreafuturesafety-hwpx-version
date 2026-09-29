@@ -46,3 +46,7 @@ class SiteListItem(SiteOut):
     last_visit_no: int | None = None
     last_guidance_date: datetime.date | None = None
     staff_name: str = ""
+    # 지도 기한(server/api/deadlines.py) — 진행 중이 아니면 비어 있음. stage: ok | imminent | over
+    deadline: datetime.date | None = None
+    deadline_days_left: int | None = None
+    deadline_stage: str = ""

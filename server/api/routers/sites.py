@@ -17,6 +17,7 @@ from core.models_web import ReportJob, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.routers.report_manage import prepared_hwpx_path, preview_dir
+from server.api.deadlines import site_deadlines
 from server.api.routers.reports import check_staff_limit
 from server.api.security import verify_password
 from server.schemas.site import SiteIn, SiteListItem, SiteOut
@@ -37,6 +38,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
     } if ids else {}
     staff_ids = {s.assigned_staff_id for s in sites if s.assigned_staff_id}
     staff_names = dict(db.query(Staff.id, Staff.name).filter(Staff.id.in_(staff_ids))) if staff_ids else {}
+    deadlines = {d.site_id: d for d in site_deadlines(db, user.company_id)}
     out = []
     for site in sites:
         count, last_no, last_date = stats.get(site.id, (0, None, None))
@@ -45,6 +47,9 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
         item.last_visit_no = last_no
         item.last_guidance_date = last_date
         item.staff_name = staff_names.get(site.assigned_staff_id, "")
+        if site.id in deadlines:
+            d = deadlines[site.id]
+            item.deadline, item.deadline_days_left, item.deadline_stage = d.deadline, d.days_left, d.stage
         out.append(item)
     return out
 

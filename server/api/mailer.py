@@ -50,6 +50,12 @@ def mail_body(site_name: str, visit_no: int) -> str:
 def send_pdf(to_addrs: list[str], cc_addr: str, subject: str, body: str, pdf_path: Path, filename: str) -> list[str]:
     """PDF 한 개를 첨부해 받는 사람 모두에게 한 통으로 보낸다(서로 보임). 실패하면 MailError(화면용 안내).
     돌려주는 값: 메일 서버가 거부한 주소들(일부만 거부되면 나머지에겐 이미 간 것 — 화면에 따로 알림)."""
+    return send_mail(to_addrs, cc_addr, subject, body, attachment=(Path(pdf_path).read_bytes(), filename))
+
+
+def send_mail(to_addrs: list[str], cc_addr: str, subject: str, body: str,
+              attachment: tuple[bytes, str] | None = None) -> list[str]:
+    """메일 한 통(PDF 첨부 선택) — 고객사 전송·지도 기한 알림(server/worker/deadline_notifier.py) 공용."""
     msg = EmailMessage()
     msg["From"] = formataddr((settings.MAIL_FROM_NAME, settings.MAIL_SMTP_USER))  # 네이버는 로그인 계정과 같은 보내는 주소만 허용
     msg["To"] = ", ".join(to_addrs)
@@ -57,7 +63,8 @@ def send_pdf(to_addrs: list[str], cc_addr: str, subject: str, body: str, pdf_pat
         msg["Cc"] = cc_addr
     msg["Subject"] = subject
     msg.set_content(body)
-    msg.add_attachment(Path(pdf_path).read_bytes(), maintype="application", subtype="pdf", filename=filename)
+    if attachment is not None:
+        msg.add_attachment(attachment[0], maintype="application", subtype="pdf", filename=attachment[1])
     try:
         # local_hostname — 기본값은 이 PC 이름인데 한글이 섞여 있으면 EHLO 단계에서 UnicodeEncodeError(ASCII만 가능)
         with smtplib.SMTP_SSL(

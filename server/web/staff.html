@@ -22,6 +22,7 @@
     <div class="field-grid">
       <div><label for="new-name">이름</label><input id="new-name" placeholder="예: 홍길동" /></div>
       <div><label for="new-phone">연락처</label><input id="new-phone" placeholder="예: 010-1234-5678" /></div>
+      <div><label for="new-email">메일 <span style="font-weight:400; color:var(--muted);">(지도 기한 알림 받는 곳)</span></label><input id="new-email" type="email" placeholder="예: name@naver.com" /></div>
     </div>
     <button type="button" id="add-btn">+ 추가</button>
     <p class="page-sub" style="margin:8px 0 0;">추가한 뒤 목록에서 "수정"을 눌러 서명을 등록하세요.</p>
@@ -63,7 +64,7 @@ function staffRow(s) {
     </div>
     <div class="st-panel" hidden></div>
   `;
-  wrap.querySelector(".staff-name").textContent = s.phone ? `${s.name} (${s.phone})` : s.name;
+  wrap.querySelector(".staff-name").textContent = [s.name, s.phone && `(${s.phone})`, s.email && `· ${s.email}`].filter(Boolean).join(" ");
   const thumb = wrap.querySelector("img.sig-thumb");
   if (thumb) thumb.alt = `${s.name} 서명`;
   const panel = wrap.querySelector(".st-panel");
@@ -84,6 +85,7 @@ function staffRow(s) {
       <div class="field-grid">
         <div><label>이름</label><input class="e-name" /></div>
         <div><label>연락처</label><input class="e-phone" /></div>
+        <div><label>메일 <span style="font-weight:400; color:var(--muted);">(지도 기한 알림)</span></label><input class="e-email" type="email" /></div>
       </div>
       <label>서명</label>
       <div class="e-sig"></div>
@@ -93,6 +95,7 @@ function staffRow(s) {
       </div>`;
     panel.querySelector(".e-name").value = s.name;
     panel.querySelector(".e-phone").value = s.phone;
+    panel.querySelector(".e-email").value = s.email || "";
     sigField = createSignatureField(panel.querySelector(".e-sig"), {
       imageUrl: `${BASE}/api/staff/${s.id}/signature`,
       uploadUrl: `${BASE}/api/staff/${s.id}/signature`,
@@ -106,7 +109,9 @@ function staffRow(s) {
       errorEl.style.display = "none";
       e.target.disabled = true;
       try {
-        await apiPatch(`/staff/${s.id}`, { name: panel.querySelector(".e-name").value, phone: panel.querySelector(".e-phone").value });
+        await apiPatch(`/staff/${s.id}`, {
+          name: panel.querySelector(".e-name").value, phone: panel.querySelector(".e-phone").value, email: panel.querySelector(".e-email").value,
+        });
         if (!(await sigField.save())) return; // 서명 삭제 확인에서 취소 — 창은 그대로 둔다
         loadStaff();
       } catch (err) {
@@ -154,10 +159,12 @@ document.getElementById("add-btn").addEventListener("click", async () => {
   errorEl.style.display = "none";
   const name = document.getElementById("new-name");
   const phone = document.getElementById("new-phone");
+  const email = document.getElementById("new-email");
   try {
-    await apiPost("/staff", { name: name.value, phone: phone.value });
+    await apiPost("/staff", { name: name.value, phone: phone.value, email: email.value });
     name.value = "";
     phone.value = "";
+    email.value = "";
     loadStaff();
   } catch (err) {
     showError(errorEl, err);
