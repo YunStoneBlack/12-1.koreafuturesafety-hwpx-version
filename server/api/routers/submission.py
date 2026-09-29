@@ -88,19 +88,17 @@ def overview(
     }
 
     # 요원별 그달 — 제출/전체, 임박·초과 현장 수
-    all_dl = site_deadlines(db, user.company_id)
     by_staff: dict = {}
+
+    def staff_entry(sid, name):
+        return by_staff.setdefault(sid or 0, {"id": sid, "name": name or "미지정", "total": 0, "submitted": 0, "imminent": 0, "over": 0})
+
     for x in rows:
-        k = x["staff_id"] or 0
-        e = by_staff.setdefault(k, {"id": x["staff_id"], "name": x["staff_name"] or "미지정", "total": 0, "submitted": 0, "imminent": 0, "over": 0})
+        e = staff_entry(x["staff_id"], x["staff_name"])
         e["total"] += 1
         e["submitted"] += x["state"] == "submitted"
-    for d in all_dl:
-        if d.stage == "ok" or (staff_id and d.staff_id != staff_id):
-            continue
-        k = d.staff_id or 0
-        e = by_staff.setdefault(k, {"id": d.staff_id, "name": d.staff_name or "미지정", "total": 0, "submitted": 0, "imminent": 0, "over": 0})
-        e[d.stage] += 1
+    for d in dl:
+        staff_entry(d.staff_id, d.staff_name)[d.stage] += 1
     return {
         "year": year, "month": month, "imminent_days": config.get_deadline_imminent_days(user.company_id),
         "cards": cards, "months": months, "staff": sorted(by_staff.values(), key=lambda e: (e["id"] is None, e["name"])),
@@ -108,7 +106,7 @@ def overview(
     }
 
 
-def _require_final_report(db: Session, user: User, report_id: int):
+def _require_report(db: Session, user: User, report_id: int):
     report = repo.get_report(db, user.company_id, report_id)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
@@ -117,7 +115,7 @@ def _require_final_report(db: Session, user: User, report_id: int):
 
 @router.post("/reports/{report_id}/submit-mark")
 def mark_submitted(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    report = _require_final_report(db, user, report_id)
+    report = _require_report(db, user, report_id)
     if report.status != "final":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF를 만든 보고서만 제출 완료로 표시할 수 있습니다.")
     mark = db.get(ReportSubmitMark, report_id) or ReportSubmitMark(report_id=report_id)
@@ -130,7 +128,7 @@ def mark_submitted(report_id: int, user: User = Depends(get_current_user), db: S
 
 @router.delete("/reports/{report_id}/submit-mark")
 def unmark_submitted(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    _require_final_report(db, user, report_id)
+    _require_report(db, user, report_id)
     db.query(ReportSubmitMark).filter(ReportSubmitMark.report_id == report_id).delete()
     db.commit()
     return {"ok": True}
