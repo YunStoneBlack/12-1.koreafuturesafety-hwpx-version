@@ -31,6 +31,11 @@
 .fc .fc-daygrid-event .fc-event-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cal-cap { font-size: 10.5px; font-weight: 700; color: #fff; background: var(--warn); border-radius: 8px; padding: 1px 6px; margin: 4px 4px 0 0; align-self: flex-start; line-height: 1.4; white-space: nowrap; }
 .cal-cap.over { background: var(--crit); }
+/* 하루 4곳 딱지는 날짜 숫자(와 공휴일 이름) 밑 줄부터 쌓는다(2026-09-30 사용자 1안) — 한 줄에 여러 개면 옆 칸까지 넘쳐 다른 날짜를 가렸음.
+   빈 ::after(폭 100%)가 줄을 끊고, 딱지는 그 뒤 순서(order)라 다음 줄로 간다. 윗줄은 row-reverse라 딱지도 오른쪽부터 쌓인다. */
+.fc .fc-daygrid-day-top { flex-wrap: wrap; }
+.fc .fc-daygrid-day-top::after { content: ""; flex-basis: 100%; height: 0; order: 1; }
+.fc .fc-daygrid-day-top .cal-cap { order: 2; margin: 2px 4px 0 0; }
 .fc .fc-daygrid-day.cal-selected { box-shadow: inset 0 0 0 2px var(--blue); }
 .cal-day { position: sticky; top: 12px; }
 .main .cal-day-title { color: var(--ink); font-size: 14px; margin: 0 0 4px; }
@@ -53,9 +58,7 @@
   .fc .fc-daygrid-event .fc-event-main { font-size: 0; }  /* 폰: 칸이 좁아 글자 대신 색 막대만, 날짜를 누르면 아래 목록 */
   .fc .fc-daygrid-event { height: 6px; margin-top: 2px !important; }
   .fc .fc-daygrid-day-frame { min-height: 62px; }
-  .fc .fc-daygrid-day-top { flex-wrap: wrap; }
-  .cal-cap { font-size: 9px; padding: 0 4px; margin: 1px 2px 0; flex-basis: auto; order: 2; } /* 날짜 숫자 아래 줄로(옆 칸 침범 방지) */
-  .fc .fc-daygrid-day-top .cal-cap { width: calc(100% - 4px); text-align: center; }
+  .fc .fc-daygrid-day-top .cal-cap { font-size: 9px; padding: 0 4px; margin: 1px 2px 0; width: calc(100% - 4px); text-align: center; } /* 폰: 칸 폭 가득, 이름 없이 "4/4" */
   .cal-drag-hint { display: none !important; }
   .fc .fc-toolbar-title { font-size: 14px; }
 }
