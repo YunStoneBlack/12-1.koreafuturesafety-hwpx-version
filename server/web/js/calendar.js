@@ -84,6 +84,20 @@ function renderFilter() {
     box.appendChild(chip);
   }
 }
+
+// [📅 자동 배치] — 지금 보고 있는 요원들(나만 = 나, 고른 요원 = 체크한 사람, 전체 = 활동 중인 요원 전부)의 진행 중 현장 전부(js/auto-plan.js 미리보기 창)
+document.getElementById("cal-autoplan").addEventListener("click", () => {
+  if (!data) return;
+  const shown = shownStaff();
+  const ids = shown === null ? data.staff.filter((s) => s.active).map((s) => s.id) : [...shown];
+  if (!ids.length) { alert("볼 사람(요원)을 먼저 고르세요."); return; }
+  const names = ids.map((id) => staffById()[id]?.name).filter(Boolean);
+  const title = names.length === 1 ? `${names[0]}님의 진행 중 현장 전부` : `${names[0]} 외 ${names.length - 1}명의 진행 중 현장 전부`;
+  openAutoPlan({ staffIds: ids }, title, () => {
+    reload();
+    renderUnplannedNotice(document.getElementById("ap-notice"), () => reload());
+  });
+});
 document.querySelectorAll(".cal-seg button").forEach((b) => b.addEventListener("click", () => {
   view.mode = b.dataset.mode;
   if (view.mode === "pick" && !(view.picked || []).length) view.picked = data?.staff.filter((s) => s.active).map((s) => s.id) || [];
@@ -110,7 +124,7 @@ function buildEvents() {
     const st = staffMap[p.staff_id];
     ev.push({
       id: `plan-${p.id}`,
-      title: `${p.state === "missed" ? "지난 예정" : "예정"} ${st ? shortName(st.name) + " · " : ""}${shortSite(p.site_name)}`,
+      title: `${p.state === "missed" ? "지난 예정" : p.source === "manual" ? "📌" : "예정"} ${st ? shortName(st.name) + " · " : ""}${shortSite(p.site_name)}`,
       start: p.date, allDay: true, classNames: [planClass(p.state)], startEditable: !isPhone(),
       extendedProps: { kind: "plan", planId: p.id },
     });
@@ -296,7 +310,7 @@ function planItem(p, staffMap) {
       <button type="button" class="secondary p-edit">고치기</button>
       <button type="button" class="secondary p-del" style="color:var(--crit);">삭제</button>
     </div>`;
-  el.querySelector("b").textContent = `${p.state === "missed" ? "지난 예정" : "방문 예정"} · ${p.site_name}`;
+  el.querySelector("b").textContent = `${p.state === "missed" ? "지난 예정" : p.source === "manual" ? "📌 방문 예정(고정)" : "방문 예정"} · ${p.site_name}`;
   addSiteLinks(el, p.site_id);
   el.querySelector("small").textContent = [staffMap[p.staff_id]?.name || "담당요원 없음", p.memo,
     p.state === "missed" ? "이 날 보고서가 없습니다" : ""].filter(Boolean).join(" · ");

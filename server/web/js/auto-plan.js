@@ -37,21 +37,25 @@ async function openAutoPlan(target, titleText, onDone) {
 
   // 현장별 안내(부족·배치 안 함) — 막지 않고 알려만 준다(사용자: 횟수를 다 못 채워도 큰일은 아님)
   const notes = pv.sites.filter((s) => s.note).map((s) =>
-    `<div class="ap-note">ℹ️ <b>${apEsc(apShort(s.site_name))}</b> — ${apEsc(s.note)}</div>`).join("");
+    `<div class="ap-note">ℹ️ <b>${apEsc(apShort(s.site_name))}</b>${s.staff_name ? ` (${apEsc(s.staff_name)})` : ""} — ${apEsc(s.note)}</div>`).join("");
   const multiSite = pv.sites.length > 1;
-  const byDay = new Map();
+  const multiStaff = new Set(pv.plans.map((p) => p.staff_id)).size > 1; // 달력 요원 단위(여러 명) — 줄마다 요원 이름
+  const byDay = new Map(); // 날짜(+요원) → 그날 넣는 것들 = 출장 한 번
   for (const p of pv.plans) {
-    if (!byDay.has(p.date)) byDay.set(p.date, []);
-    byDay.get(p.date).push(p);
+    const key = multiStaff ? `${p.date}|${p.staff_id}` : p.date;
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(p);
   }
   // 날짜 줄 — 여러 현장이면 그날 가는 현장들, 한 현장이면 "같이 가는 다른 현장"(묶였는지 보이게). 해가 바뀔 때만 연도 줄.
   let year = "";
-  const rows = [...byDay.entries()].map(([date, ps]) => {
+  const rows = [...byDay.values()].map((ps) => {
+    const date = ps[0].date;
     const y = date.slice(0, 4);
     const yearHead = y !== year ? `<div class="ap-month">${Number(y)}년</div>` : "";
     year = y;
     const others = [...new Set(ps.flatMap((p) => p.with || []))].filter((n) => !ps.some((p) => p.site_name === n));
-    const what = multiSite ? ps.map((p) => apEsc(apShort(p.site_name))).join(" · ") : "";
+    const who = multiStaff && ps[0].staff_name ? `<b class="ap-who">${apEsc(ps[0].staff_name)}</b> ` : "";
+    const what = multiSite ? who + ps.map((p) => apEsc(apShort(p.site_name))).join(" · ") : "";
     const withText = others.length ? `<span class="ap-with">+ ${others.map((n) => apEsc(apShort(n))).join(", ")}와 함께</span>` : "";
     return `${yearHead}<div class="ap-row"><span class="ap-date">${apDay(date)}</span><span class="ap-what">${what}${withText}</span>
       ${ps[0].region ? `<span class="ap-region">${apEsc(ps[0].region)}</span>` : ""}</div>`;
