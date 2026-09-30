@@ -1,11 +1,11 @@
-// 방문 달력(calendar.html, 2026-09-30 시안 (나)) — 다녀온 방문(보고서 지도일, 요원 색) + 방문 예정(점선) + 지난 예정(회색)
-// + 요원·날짜별 하루 4곳 딱지. (2026-10-01 "마지막 지도일 + 15일" 기한 ⏰·⚠ 예정없음은 없앰 — 실제 규칙이 아니었음.) 날짜를 누르면 오른쪽(폰은 아래)에 그날 목록과
+// 방문 달력(calendar.html, 2026-09-30 시안 (나)) — 다녀온 방문(보고서 지도일) + 방문 예정 + 지난 예정 + 요원·날짜별 하루 4곳 딱지.
+// 색은 요원별이 아니라 상태별(2026-10-01 사용자 — 요원이 20~30명이면 색으로 구분 못 함, 이름은 칸에 적혀 있음):
+// 예정 = 파란 테두리만, 지난 예정 = 빨간 점선 테두리, 작성 중(PDF 전·후 포함) = 연한 파랑, 제출 완료 = 진한 파랑(css/calendar.css .ev-*). (2026-10-01 "마지막 지도일 + 15일" 기한 ⏰·⚠ 예정없음은 없앰 — 실제 규칙이 아니었음.) 날짜를 누르면 오른쪽(폰은 아래)에 그날 목록과
 // "방문 예정 넣기". 볼 사람: 나만(그룹웨어 로그인 ↔ 담당요원 연결) / 고른 요원(여러 명) / 전체 — 고른 것은 이 브라우저에 기억.
 // 달력 모양·공휴일은 그룹웨어 달력과 같은 FullCalendar 6.1.15 + 그룹웨어 app.css `.fc` 규칙 + 그룹웨어 /api/holidays.
 // 데이터: GET /calendar?start=&end= (server/api/routers/calendar.py), 예정 넣기·고치기·지우기: /calendar/plans.
 
 const errorEl = document.getElementById("error");
-const PALETTE = ["#2A7DE1", "#2E9E5B", "#8A55D6", "#D9822B", "#0E9AA7", "#C2185B", "#6D4C41", "#546E7A"];
 const STATE_LABEL = { writing: "작성 중", pdf_ready: "PDF 만듦", outdated: "PDF 다시 만들어야 함", submitted: "제출 완료" };
 const PREF_KEY = "kfsc-report:calendar-view";
 const isPhone = () => matchMedia("(max-width: 760px)").matches;
@@ -32,7 +32,9 @@ function savePref() {
   try { localStorage.setItem(PREF_KEY, JSON.stringify(view)); } catch (_) { /* 저장 못 해도 동작엔 지장 없음 */ }
 }
 
-const staffById = () => Object.fromEntries((data?.staff || []).map((s, i) => [s.id, { ...s, color: PALETTE[i % PALETTE.length] }]));
+const staffById = () => Object.fromEntries((data?.staff || []).map((s) => [s.id, s]));
+const visitClass = (state) => (state === "submitted" ? "ev-submitted" : "ev-writing");
+const planClass = (state) => (state === "missed" ? "ev-missed" : "ev-plan");
 const shortName = (name) => (name && name.length >= 3 ? name.slice(1) : name || "");
 const shortSite = (name) => (name || "").replace(/\s*현장$/, "");
 
@@ -68,8 +70,7 @@ function renderFilter() {
     const on = shown === null || shown.has(s.id);
     const chip = document.createElement("label");
     chip.className = "cal-chip" + (on ? " on" : "");
-    chip.innerHTML = `<input type="checkbox" ${on ? "checked" : ""} /><i></i><span></span>`;
-    chip.querySelector("i").style.background = staffMap[s.id].color;
+    chip.innerHTML = `<input type="checkbox" ${on ? "checked" : ""} /><span></span>`;
     chip.querySelector("span").textContent = s.name + (s.id === me ? " (나)" : "");
     chip.querySelector("input").addEventListener("change", (e) => {
       // 칩을 누르면 "고른 요원"으로 — 지금 보이는 사람들에서 이 사람을 더하거나 뺀다
@@ -98,22 +99,19 @@ function buildEvents() {
   for (const v of data.visits) {
     if (!visible(v.staff_id)) continue;
     const st = staffMap[v.staff_id];
-    const color = st?.color || "#9498AE";
     ev.push({
       title: `${v.state === "submitted" ? "✓ " : ""}${st ? shortName(st.name) + " · " : ""}${shortSite(v.site_name)} ${v.visit_no}회`,
-      start: v.date, allDay: true, backgroundColor: color, borderColor: color, textColor: "#fff",
+      start: v.date, allDay: true, classNames: [visitClass(v.state)],
       extendedProps: { kind: "visit" },
     });
   }
   for (const p of data.plans) {
     if (p.state === "done" || !visible(p.staff_id)) continue;
     const st = staffMap[p.staff_id];
-    const color = p.state === "missed" ? "#9498AE" : st?.color || "#9498AE";
     ev.push({
       id: `plan-${p.id}`,
       title: `${p.state === "missed" ? "지난 예정" : "예정"} ${st ? shortName(st.name) + " · " : ""}${shortSite(p.site_name)}`,
-      start: p.date, allDay: true, backgroundColor: "#fff", borderColor: color, textColor: color,
-      classNames: ["ev-plan", p.state === "missed" ? "ev-missed" : ""], startEditable: !isPhone(),
+      start: p.date, allDay: true, classNames: [planClass(p.state)], startEditable: !isPhone(),
       extendedProps: { kind: "plan", planId: p.id },
     });
   }
@@ -148,7 +146,6 @@ function decorateCells() {
       const cap = document.createElement("span");
       cap.className = "cal-cap" + (l.count > data.limit ? " over" : "");
       cap.textContent = isPhone() ? `${l.count}/${data.limit}` : `${shortName(staffMap[l.staff_id]?.name || "")} ${l.count}/${data.limit}`;
-      cap.style.background = l.count > data.limit ? "" : staffMap[l.staff_id]?.color || ""; // 누구의 4곳인지 요원 색으로(넘으면 빨강)
       top.appendChild(cap);
     }
   });
@@ -262,17 +259,12 @@ function renderDay() {
   body.querySelector(".cal-day-title").textContent =
     `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEK[d.getDay()]})${holiday ? " · " + holiday.name : ""}`;
   const list = body.querySelector(".cal-day-list");
-  const item = (color, html, cls = "", siteId = null) => {
-    const el = document.createElement("div");
-    el.className = "cal-item " + cls;
-    el.innerHTML = `<i></i><div class="cal-item-main">${html}</div>`;
-    el.querySelector("i").style.background = color;
-    list.appendChild(el);
-    addSiteLinks(el, siteId);
-    return el;
-  };
   for (const v of visits) {
-    const el = item(staffMap[v.staff_id]?.color || "#9498AE", "<b></b><small></small>", "", v.site_id);
+    const el = document.createElement("div");
+    el.className = `cal-item ${visitClass(v.state)}`;
+    el.innerHTML = '<i></i><div class="cal-item-main"><b></b><small></small></div>';
+    list.appendChild(el);
+    addSiteLinks(el, v.site_id);
     el.querySelector("b").textContent = `${v.site_name} ${v.visit_no}회차`;
     el.querySelector("small").textContent = `${staffMap[v.staff_id]?.name || "담당요원 없음"} · ${STATE_LABEL[v.state] || ""}`;
     const a = document.createElement("a");
@@ -295,16 +287,14 @@ function renderDay() {
 }
 
 function planItem(p, staffMap) {
-  const color = p.state === "missed" ? "#9498AE" : staffMap[p.staff_id]?.color || "#9498AE";
   const el = document.createElement("div");
-  el.className = "cal-item plan";
+  el.className = `cal-item plan ${planClass(p.state)}`;
   el.innerHTML = `<i></i><div class="cal-item-main"><b></b><small></small></div>
     <div class="cal-plan-acts">
       <button type="button" class="secondary p-report">보고서 만들기</button>
       <button type="button" class="secondary p-edit">고치기</button>
       <button type="button" class="secondary p-del" style="color:var(--crit);">삭제</button>
     </div>`;
-  el.querySelector("i").style.borderColor = color;
   el.querySelector("b").textContent = `${p.state === "missed" ? "지난 예정" : "방문 예정"} · ${p.site_name}`;
   addSiteLinks(el, p.site_id);
   el.querySelector("small").textContent = [staffMap[p.staff_id]?.name || "담당요원 없음", p.memo,

@@ -31,8 +31,8 @@
 - 서버 전용 비밀값은 `server/.env.server`(git 제외, 예시 `.env.server.example`)
 
 **화면 주요 기능(2026-09-30 기준)**
-- **방문 달력 탭**(`calendar.html`, `js/calendar.js`, API `routers/calendar.py`, alembic 0007 `visit_plan`): 다녀온 방문(보고서 지도일, 요원 색·제출 ✓), 방문 예정(점선),
-  지난 예정(회색), 하루 4곳 딱지, 그룹웨어 공휴일. 볼 사람 나만/고른 요원/전체 + 요원 칩(브라우저에 기억).
+- **방문 달력 탭**(`calendar.html`, `js/calendar.js`, API `routers/calendar.py`, alembic 0007 `visit_plan`): 다녀온 방문(보고서 지도일, 작성 중 연한 파랑·제출 완료 진한 파랑 ✓), 방문 예정(파란 테두리),
+  지난 예정(빨간 점선), 하루 4곳 딱지 — 색은 상태별(요원별 색 없앰, 2026-10-01), 그룹웨어 공휴일. 볼 사람 나만/고른 요원/전체 + 요원 칩(브라우저에 기억).
   날짜를 누르면 그날 목록·예정 넣기/고치기/삭제·[보고서 만들기], PC는 예정을 끌어서 날짜 이동
 - **담당요원 = 그룹웨어 직원정보**(`js/staff-gw.js`, API `routers/staff_groupware.py`, alembic 0006 `staff_gw_link`): 담당요원 탭을 연 브라우저가 그룹웨어
   `/report-shell/employees`를 받아 보내 이어 붙임 — [담당요원] 체크(끄면 비활성)·서명만 여기서, 이름·연락처·메일은 그룹웨어 값.
