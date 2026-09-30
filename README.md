@@ -26,7 +26,7 @@
 - `server/api/mailer.py` + `routers/report_mail.py` — 고객사에 PDF 메일 보내기(회사 네이버 메일 SMTP), `photo_thumbs.py` — 사진 칸 썸네일
 - `server/web/` — 화면(현장 목록/제출 현황/방문 달력/담당요원/설정/현장/보고서). `shell.js`가 그룹웨어 사이드바를 끼워 넣고, 보고서 화면 스크립트는
   `js/report-*.js`로 나뉨(core → photos → photo-batch → work → support → main, 시작 호출은 main 맨 아래). 주소는 `app.js`의 `BASE` + 상대 경로.
-  공통 CSS는 `style.css`, 한 화면 전용은 `css/`(calendar·mail·photo-batch)
+  공통 CSS는 `style.css`, 몇몇 화면 전용은 `css/`(calendar·mail·photo-batch·site-info — 전화·지도 버튼·진행 막대·지도 선택 창)
 - `server/scripts/web_watchdog.ps1` — API·워커·그룹웨어 통로 자동 실행/재시작(시작프로그램 바로가기), `server/deploy/` — AWS 서버 설정 원본
 - 서버 전용 비밀값은 `server/.env.server`(git 제외, 예시 `.env.server.example`)
 
@@ -43,7 +43,7 @@
 - **지도 기한 알림**(기한 = 마지막 지도일 + 15일, `server/api/deadlines.py`): 목록 탭 위 알림 띠, 현장 줄 D-day, 평일 아침 9시 메일(담당요원 자기 현장 + 관리자 전체,
   D-3·당일·초과 첫날 각 1번, 주말 기한은 금요일에 — `server/worker/deadline_notifier.py`, 렌더 워커가 돌림). 설정 탭에서 켜기·임박 기준·관리자 메일·시험 메일
 - **현장 진행 막대**(`app.js` `sitePaceBox`, 서버 `site_pace_out.py` — 데스크톱 `core/site_pace.py`와 같은 계산): 공기 경과 vs 지도 수행, 🚨 N회 부족·✅ 여유·🏁 완료·🎯 월 N회 필요 — 현장 목록·현장 화면·방문 달력
-- **[📞 전화]·[📍 지도]**(`app.js` `siteLinkButtons` — 현장 목록·현장 화면·방문 달력): 현장책임자 통화(PC는 번호 복사), 지도 방문 주소(없으면 현장 주소, alembic 0009)를 네이버 지도로
+- **[📞 전화]·[📍 지도]**(폰의 [지도]는 🚗 티맵 검색 / 🗺 네이버 지도 선택 창 — `app.js` `openMapChooser`)(`app.js` `siteLinkButtons` — 현장 목록·현장 화면·방문 달력): 현장책임자 통화(PC는 번호 복사), 지도 방문 주소(없으면 현장 주소, alembic 0009)를 네이버 지도로
 - 현장 목록: 검색, 현장별 담당·회차(N/총)·최근 지도일·D-day, "+ 새 현장 등록"(접힘, 계약서 PDF AI 자동 채우기·끌어다 놓기, 담당요원)
 - 현장 화면: 현장 정보 수정(담당요원은 작성 중 보고서와 연동, 발주처·감리단 칸, 현장 정보가 실제로 바뀔 때만 저장 — 저장하면 PDF가 수정 전 버전), 보고서 줄 클릭으로 열기, "PDF 생성됨 ↓"/"PDF 수정 전 버전 ↓"(마지막 PDF 받기),
   한글 받기(누를 때마다 최신으로 생성, 준비 창에 [취소]), 현장 삭제(설정 탭의 삭제 비밀번호)

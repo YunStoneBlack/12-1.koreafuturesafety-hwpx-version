@@ -51,9 +51,9 @@ MAIL_SMTP_PASSWORD=<애플리케이션 비밀번호 12자리>
 alembic -c server/alembic.ini upgrade head
 ```
 
-(2026-09-30 기준 0008까지: 0003 `report_edit` — PDF 수정 전 버전 판단, 0004 `report_mail` — 고객사 메일 보낸 기록,
+(2026-09-30 기준 0009까지: 0003 `report_edit` — PDF 수정 전 버전 판단, 0004 `report_mail` — 고객사 메일 보낸 기록,
 0005 `report_submit_mark`·`staff_contact`·`deadline_alert` — 직접 제출함·요원 메일·지도 기한 알림 보낸 기록,
-0006 `staff_gw_link` — 담당요원 ↔ 그룹웨어 직원, 0007 `visit_plan` — 방문 달력 예정, 0008 `site_contact` — 현장 발주처·감리단.
+0006 `staff_gw_link` — 담당요원 ↔ 그룹웨어 직원, 0007 `visit_plan` — 방문 달력 예정, 0008 `site_contact` — 현장 발주처·감리단, 0009 `site_contact.visit_address` — 지도 방문 주소.
 전부 표를 새로 만드는 것뿐이라 돌고 있는 서버에 영향 없이 먼저 적용해도 된다(적용 → API 재시작 → 화면).
 명령 창에 `DATABASE_URL` 환경변수가 있어야 한다 — `.env.server`의 값을 넣고 실행.)
 
