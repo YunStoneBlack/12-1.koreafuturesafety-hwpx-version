@@ -102,7 +102,7 @@
   border: 1px dashed var(--line); border-radius: 8px; padding: 10px; margin-bottom: 10px;
   display: flex; align-items: center; gap: 12px; background: var(--paper);
 }
-.photo-slot .thumb { width: 64px; height: 48px; object-fit: cover; border-radius: 4px; background: var(--line); flex-shrink: 0; }
+.photo-slot .thumb { width: 64px; height: 48px; object-fit: contain; /* 잘라내지 않고 전체 — 세로 사진·돌린 방향이 보이게(2026-09-30) */ border-radius: 4px; background: var(--line); flex-shrink: 0; }
 .photo-slot .slot-controls { flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .photo-slot .slot-label { font-size: 12px; color: var(--muted); }
 .main .photo-slot .slot-controls button { align-self: flex-start; margin-top: 4px; padding: 6px 14px; }
@@ -544,3 +544,8 @@ a.dl-banner:hover { filter: brightness(0.98); }
 .gw-sub { display: block; font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
 .staff-item.gw-off .gw-name { color: var(--muted); font-weight: 500; }
 .main .staff-actions .gw-pick { width: auto; min-width: 160px; margin: 0; padding: 6px 8px; font-size: 12.5px; }
+
+/* 사진 칸 [↻ 돌리기] + [삭제] 한 줄(report-photos.js addRotateButton) */
+.slot-btn-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.main .slot-btn-row button { margin-top: 4px; }
+.main .photo-slot .slot-controls .slot-btn-row button { align-self: auto; }

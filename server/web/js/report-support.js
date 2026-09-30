@@ -198,6 +198,7 @@ function renderMaterials(items) {
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
             <button type="button" id="mat-pick-${slot}" style="margin-top:0;">라이브러리에서 선택</button>
             <button type="button" class="secondary" id="mat-clear-${slot}" style="margin-top:0; display:${data.has_photo || data.title ? "inline-flex" : "none"};">비우기</button>
+            ${data.has_photo && !data.material_id ? `<button type="button" class="secondary rotate-btn" id="mat-rot-${slot}" style="margin-top:0;" title="오른쪽으로 90도 돌리기">↻ 돌리기</button>` : ""}
           </div>
           <div class="slot-label">또는 직접 이미지 올리기</div>
           <input type="file" accept="image/*" id="mat-file-${slot}" />
@@ -217,6 +218,10 @@ function renderMaterials(items) {
       window.open(data.material_id ? `${BASE}/api/material-library/${data.material_id}/file` : `${matBase}/${slot}/photo`, "_blank");
     });
     document.getElementById(`mat-pick-${slot}`).addEventListener("click", () => openMaterialPicker(slot));
+    const rotBtn = document.getElementById(`mat-rot-${slot}`); // 직접 올린 이미지만(라이브러리 자료는 공용 파일)
+    if (rotBtn) rotBtn.addEventListener("click", () => rotatePhoto(rotBtn, `${matBase}/${slot}/photo/rotate`, () => {
+      document.getElementById(`mat-thumb-${slot}`).src = `${matBase}/${slot}/photo?thumb=1&v=${Date.now()}`;
+    }));
     document.getElementById(`mat-clear-${slot}`).addEventListener("click", async () => {
       errorEl.style.display = "none";
       try {

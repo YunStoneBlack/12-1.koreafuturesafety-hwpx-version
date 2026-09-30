@@ -26,6 +26,7 @@ from server.api.routers import (
     findings,
     jobs,
     materials,
+    photo_rotate,
     photos,
     previous_findings,
     process_entries,
@@ -70,6 +71,7 @@ web_app.include_router(staff.router, prefix="/api")
 web_app.include_router(staff_groupware.router, prefix="/api")
 web_app.include_router(photos.overview_router, prefix="/api")
 web_app.include_router(photos.inspection_router, prefix="/api")
+web_app.include_router(photo_rotate.router, prefix="/api")
 web_app.include_router(previous_findings.router, prefix="/api")
 web_app.include_router(process_entries.current_process_router, prefix="/api")
 web_app.include_router(process_entries.future_process_router, prefix="/api")

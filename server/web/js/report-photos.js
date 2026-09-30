@@ -58,6 +58,8 @@ function setupPhotoSlots(containerId, apiPrefix, labelPrefix) {
       uploadToSlot(slot, file);
     });
 
+    addRotateButton(slotEls[slot].del, `${apiPrefix}/${slot}/rotate`, () => showThumb(slot));
+
     slotEls[slot].del.addEventListener("click", async () => {
       errorEl.style.display = "none";
       try {
@@ -245,6 +247,7 @@ function setupSinglePhotoUpload(url, fileInputId, thumbId, delBtnId) {
   const fileInput = document.getElementById(fileInputId);
   const thumb = document.getElementById(thumbId);
   const delBtn = document.getElementById(delBtnId);
+  addRotateButton(delBtn, `${url}/rotate`, () => { thumb.src = `${url}?thumb=1&v=${Date.now()}`; });
 
   fileInput.addEventListener("change", (e) => {
     const file = e.target.files[0];
@@ -273,6 +276,42 @@ function setupSinglePhotoUpload(url, fileInputId, thumbId, delBtnId) {
   });
 }
 
+
+// [↻ 돌리기] — 사진을 오른쪽으로 90도(서버가 원본 파일을 돌려 다시 저장, server/api/routers/photo_rotate.py). 폰 화면 회전 잠금 상태로
+// 옆으로 들고 찍은 사진이 누워 들어가는 경우용(2026-09-30). 사진이 있을 때만(= 삭제 버튼이 보일 때만) 보이고, 삭제 버튼과 한 줄에 둔다.
+// 삭제 버튼 표시는 여러 곳에서 바꾸므로(업로드·삭제·섹션 다시 그리기) 버튼의 style 변화를 지켜보며 따라간다.
+function addRotateButton(delBtn, rotateUrl, onRotated) {
+  const row = document.createElement("span");
+  row.className = "slot-btn-row";
+  delBtn.before(row);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "secondary rotate-btn";
+  btn.title = "오른쪽으로 90도 돌리기";
+  btn.textContent = "↻ 돌리기";
+  row.append(btn, delBtn);
+  const sync = () => { btn.style.display = delBtn.style.display === "none" ? "none" : "inline-block"; };
+  sync();
+  new MutationObserver(sync).observe(delBtn, { attributes: true, attributeFilter: ["style"] });
+  btn.addEventListener("click", () => rotatePhoto(btn, rotateUrl, onRotated));
+  return btn;
+}
+
+async function rotatePhoto(btn, rotateUrl, onRotated) {
+  errorEl.style.display = "none";
+  btn.disabled = true;
+  btn.textContent = "돌리는 중…";
+  try {
+    await apiPost(rotateUrl);
+    onRotated();
+  } catch (err) {
+    showError(errorEl, err);
+    alert(`사진을 돌리지 못했습니다: ${uploadErrorText(err)}`); // 폰에선 맨 위 오류가 안 보일 수 있어서
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "↻ 돌리기";
+  }
+}
 
 // 사진 업로드 상태를 그 사진 칸 안에 보여 준다 — 예전엔 실패 메시지가 페이지 맨 위에만 떠서, 아래 섹션에서 사진을 고르면
 // 실패해도 몰랐다(2026-09-29 "가끔 전경·점검사진이 안 올라감" — 서버 재시작·AWS 통로 재연결 중 502 등). 올리는 동안 "올리는 중…",
