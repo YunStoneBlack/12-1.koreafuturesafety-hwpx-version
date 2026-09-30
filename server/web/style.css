@@ -573,16 +573,20 @@ a.dl-banner:hover { filter: brightness(0.98); }
 .pace { margin-top: 6px; font-size: 12px; max-width: 560px; }
 .pace-status { font-weight: 700; }
 .pace-extra { font-weight: 500; color: var(--muted); }
-.pace-row { display: grid; grid-template-columns: 52px minmax(40px, 1fr) 66px; gap: 6px; align-items: center; margin-top: 4px;
+.pace-row { display: grid; grid-template-columns: 52px minmax(40px, 1fr) 128px; gap: 6px; align-items: center; margin-top: 4px;
   color: var(--muted); font-size: 11.5px; font-weight: 500; }
-.site-row .pace-row, .topline .pace-row { grid-template-columns: 64px minmax(80px, 1fr) 124px; }
+.site-row .pace-row, .topline .pace-row { grid-template-columns: 64px minmax(80px, 1fr) 150px; }
 .pace-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .pace-fill { display: block; height: 100%; border-radius: 3px; }
 .pace-fill.time { background: #94a3b8; }
-.pace-val { white-space: nowrap; text-align: right; }
+.pace-val { white-space: nowrap; text-align: left; } /* 두 줄 숫자의 시작 위치를 맞춘다(2026-09-30 사용자) */
 .pace-num { color: var(--ink); font-weight: 700; }
 .cal-item .pace-row .pace-note { font-weight: 500; }
-.cal-item .pace-row:first-of-type .pace-note { display: none; } /* 달력 목록은 좁아 "(N개월 경과)"는 뺀다 */
 .topline { flex-wrap: wrap; }
 .topline .pace { flex-basis: 100%; }
-@media (max-width: 760px) { .site-row .pace-row, .topline .pace-row { grid-template-columns: 56px minmax(40px, 1fr) 96px; } }
+@media (max-width: 760px) {
+  .site-row .pace-row, .topline .pace-row, .pace-row { grid-template-columns: 56px minmax(40px, 1fr) 132px; }
+  /* 폰 현장 목록: D-day·진행중을 현장명 위 줄로 올려 현장명·막대가 화면 폭을 다 쓰게(2026-09-30 사용자) */
+  .site-row .dday, .site-row .status-pill { order: -1; align-self: flex-start; }
+  .site-row .title { order: 0; flex: 1 1 100%; }
+}

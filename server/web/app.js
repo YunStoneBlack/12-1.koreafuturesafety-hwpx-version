@@ -199,7 +199,10 @@ function sitePaceBox(pace) {
   else {
     timeRow.querySelector(".pace-fill").style.width = `${pct(pace.time_ratio)}%`;
     timeRow.querySelector(".pace-num").textContent = `${pct(pace.time_ratio)}%`;
-    timeRow.querySelector(".pace-note").textContent = pace.elapsed_text ? ` (${pace.elapsed_text})` : "";
+    // 경과 개월/전체 공사 개월(예: 6/15개월 경과) — 시작 전이면 "시작 전"
+    const months = pace.elapsed_months == null ? (pace.elapsed_text || "")
+      : `${pace.elapsed_months}/${pace.total_months}개월 경과`;
+    timeRow.querySelector(".pace-note").textContent = months ? ` (${months})` : "";
   }
   const fill = countRow.querySelector(".pace-fill");
   fill.style.width = `${pct(pace.count_ratio)}%`;
