@@ -154,3 +154,20 @@ class DeadlineAlert(Base):
     sent_at: Mapped[datetime.datetime] = mapped_column(DateTime)
     recipients: Mapped[str] = mapped_column(Text, default="")
 
+
+
+class StaffGroupwareLink(Base):
+    """웹판 전용 — 담당요원과 그룹웨어 직원정보(employee)를 잇는 줄(2026-09-30). 담당요원 탭이 그룹웨어 `/report-shell/employees`를
+    받아 보내면(server/api/routers/staff_groupware.py) 이름·연락처·메일을 그룹웨어 값으로 맞추고, 로그인 아이디(username)로
+    "지금 로그인한 사람 = 어느 담당요원"을 알아본다(방문 달력 "나만"). 요원이 지워지면 같이 지워진다(CASCADE)."""
+
+    __tablename__ = "staff_gw_link"
+    __table_args__ = (UniqueConstraint("company_id", "gw_employee_id", name="uq_staff_gw_link_employee"),)
+
+    staff_id: Mapped[int] = mapped_column(ForeignKey("staff.id", ondelete="CASCADE"), primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"))
+    gw_employee_id: Mapped[int] = mapped_column()
+    gw_username: Mapped[str] = mapped_column(Text, default="")
+    department: Mapped[str] = mapped_column(Text, default="")
+    position: Mapped[str] = mapped_column(Text, default="")
+    synced_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)

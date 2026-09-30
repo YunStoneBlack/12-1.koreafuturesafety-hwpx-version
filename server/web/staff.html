@@ -16,7 +16,7 @@
 
 <div id="error" class="error"></div>
 
-<section class="panel">
+<section class="panel" id="manual-add" hidden>
   <div class="panel-head"><h2>새 담당요원 추가</h2></div>
   <div class="panel-body">
     <div class="field-grid">
@@ -34,12 +34,19 @@
   <div class="rows" id="staff-list"><div class="empty-note">불러오는 중...</div></div>
 </section>
 
+<section class="panel" id="unlinked-panel" hidden>
+  <div class="panel-head"><h2>그룹웨어 직원과 이어지지 않은 담당요원</h2></div>
+  <p class="page-sub" style="margin:0; padding:10px 18px 0;">지난 보고서에 남아 있는 담당요원입니다. 같은 사람이면 그룹웨어 직원을 골라 [잇기]를 누르세요 — 보고서·현장 배정·서명이 그대로 이어집니다.</p>
+  <div class="rows" id="unlinked-list"></div>
+</section>
+
   </main>
 </div>
 
 <script src="app.js"></script>
 <script src="shell.js"></script>
 <script src="signature.js"></script>
+<script src="js/staff-gw.js"></script>
 <script>
 const errorEl = document.getElementById("error");
 
@@ -171,8 +178,12 @@ document.getElementById("add-btn").addEventListener("click", async () => {
   }
 });
 
-
-loadStaff();
+// 그룹웨어 직원정보로 관리(staff-gw.js). 그룹웨어 목록·새 API를 못 쓰면 예전 화면(직접 추가·수정).
+initGroupwareStaff().then((ok) => {
+  if (ok) return;
+  document.getElementById("manual-add").hidden = false;
+  loadStaff();
+});
 </script>
 </body>
 </html>
