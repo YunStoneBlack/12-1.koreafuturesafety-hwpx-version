@@ -4,7 +4,7 @@
 //    한 번 받은 조각은 이 탭(sessionStorage)에 기억해 두고 다음 화면부터는 즉시 그린 뒤 뒤에서 새로 받아 바뀐 경우만 교체한다
 //    — 매 화면마다 빈 사이드바가 잠깐 보였다가 채워지면 그룹웨어의 다른 메뉴와 달리 "다른 사이트로 넘어가는" 느낌이 났다.
 //    그룹웨어를 거치지 않은 접속(사무실 LAN 직접 접속 등)이면 로고+보고서 메뉴만 있는 대체 사이드바를 그린다.
-// 2) 본문 머리: 목록 화면(<body data-report-tab="sites|status|staff|settings">)은 그룹웨어 화면처럼 "큰 제목 + 회색 설명" 아래
+// 2) 본문 머리: 목록 화면(<body data-report-tab="sites|status|calendar|staff|settings">)은 그룹웨어 화면처럼 "큰 제목 + 회색 설명" 아래
 //    하위 메뉴 탭(현장 목록/제출 현황/담당요원/설정)을 두고, 상세 화면(data-report-tab 없음)은 각 페이지의 경로 표시(crumb)를 쓴다.
 //    탭 아래엔 지도 기한 임박·초과 현장이 있으면 알림 띠("⏰ 임박 N곳 · ⚠ 초과 N곳 → 제출 현황")를 띄운다(제출 현황 탭 자체는 숫자 칸이 있어 생략).
 // 페이지마다 <aside class="sidebar" id="gw-sidebar"></aside> 빈 자리와 <main class="main">이 있어야 한다.
@@ -12,6 +12,7 @@
 const REPORT_TABS = [
   ["sites", "현장 목록", "dashboard.html"],
   ["status", "제출 현황", "status.html"],
+  ["calendar", "방문 달력", "calendar.html"],
   ["staff", "담당요원", "staff.html"],
   ["settings", "설정", "settings.html"],
 ];

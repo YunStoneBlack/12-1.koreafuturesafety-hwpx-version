@@ -171,3 +171,20 @@ class StaffGroupwareLink(Base):
     department: Mapped[str] = mapped_column(Text, default="")
     position: Mapped[str] = mapped_column(Text, default="")
     synced_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class VisitPlan(Base):
+    """웹판 전용 — 방문 달력의 "방문 예정"(2026-09-30). 날짜·현장·요원·메모. 그 현장·그 날짜 보고서가 생기면 달력에선 "다녀온 방문"으로
+    바뀌어 보이고(행은 그대로 둠), 날짜가 지났는데 보고서가 없으면 "지난 예정"(server/api/routers/calendar.py). 현장이 지워지면 같이
+    지워지고, 요원이 지워지면 요원만 빈 값이 된다."""
+
+    __tablename__ = "visit_plan"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), index=True)
+    staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"), default=None)
+    plan_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    memo: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)

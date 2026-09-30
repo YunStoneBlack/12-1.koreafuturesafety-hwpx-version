@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>방문 달력 - 기술지도 보고서</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+</head>
+<body data-report-tab="calendar">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<div class="cal-filter">
+  <div class="cal-seg" role="group" aria-label="볼 사람">
+    <button type="button" data-mode="me">나만</button><button type="button" data-mode="pick">고른 요원</button><button type="button" data-mode="all">전체</button>
+  </div>
+  <div class="cal-chips" id="cal-chips"></div>
+</div>
+
+<div class="cal-wrap">
+  <section class="panel">
+    <div class="panel-body">
+      <div id="cal"></div>
+      <div class="cal-legend">
+        <span><i class="lg solid"></i>다녀온 방문(요원 색)</span>
+        <span><i class="lg plan"></i>방문 예정</span>
+        <span><i class="lg missed"></i>지난 예정(보고서 없음)</span>
+        <span><i class="lg dl"></i>지도 기한</span>
+        <span><i class="lg warn"></i>기한 안에 예정 없음</span>
+        <span class="cal-drag-hint">PC에선 예정을 끌어서 날짜를 옮길 수 있습니다.</span>
+      </div>
+    </div>
+  </section>
+  <section class="panel cal-day" id="cal-day">
+    <div class="panel-body" id="cal-day-body"></div>
+  </section>
+</div>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/calendar.js"></script>
+</body>
+</html>

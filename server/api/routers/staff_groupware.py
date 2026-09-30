@@ -183,14 +183,19 @@ def link_staff(staff_id: int, body: LinkIn, user: User = Depends(get_current_use
     return {"ok": True}
 
 
-@router.get("/me")
-def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def my_staff_id(db: Session, user: User) -> int | None:
+    """지금 로그인한 그룹웨어 아이디와 이어진 담당요원 id(없으면 None) — 방문 달력 "나만"."""
     name = gw_username(user)
+    if not name:
+        return None
     link = (
         db.query(StaffGroupwareLink)
         .filter(StaffGroupwareLink.company_id == user.company_id, StaffGroupwareLink.gw_username == name)
         .first()
-        if name
-        else None
     )
-    return {"username": name, "staff_id": link.staff_id if link else None}
+    return link.staff_id if link else None
+
+
+@router.get("/me")
+def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return {"username": gw_username(user), "staff_id": my_staff_id(db, user)}
