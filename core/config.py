@@ -89,7 +89,7 @@ def set_site_delete_password_hash(value: str, company_id: int | None = None) -> 
     _set_setting(_KEY_SITE_DELETE_PASSWORD, value, company_id)
 
 
-# ---------- 지도 기한 알림(웹판 제출 현황·아침 알림 메일, server/api/deadlines.py·server/worker/deadline_notifier.py) ----------
+# ---------- 알림 설정(웹판) — 2026-10-01 15일 지도 기한 알림은 없앰, 값(관리자 메일 등)은 다른 알림에서 다시 쓰려고 보존 ----------
 _KEY_DEADLINE_IMMINENT_DAYS = "deadline_imminent_days"
 _KEY_DEADLINE_ALERT_ENABLED = "deadline_alert_enabled"
 _KEY_DEADLINE_ADMIN_EMAIL = "deadline_alert_admin_email"

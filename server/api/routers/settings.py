@@ -116,7 +116,8 @@ def get_signature_image(role: Role, user: User = Depends(get_current_user)):
     return FileResponse(path, media_type="image/png")
 
 
-# ---------- 지도 기한 알림(제출 현황 "⏰ 임박"·아침 9시 알림 메일 — server/api/deadlines.py, server/worker/deadline_notifier.py) ----------
+# ---------- 알림 설정(관리자 알림 메일 등) — 2026-10-01 "15일 지도 기한" 알림을 없애면서 화면은 숨기고 값만 보존.
+# 나중에 다른 알림 기능에서 관리자 메일을 다시 쓸 때 살린다(settings.html #alert-panel). ----------
 class DeadlineAlertSettings(BaseModel):
     enabled: bool = True
     imminent_days: int = config.DEFAULT_IMMINENT_DAYS
@@ -147,14 +148,4 @@ def set_deadline_alert(body: DeadlineAlertSettings, user: User = Depends(get_cur
     config.set_deadline_admin_email(", ".join(emails), user.company_id)
     return get_deadline_alert(user)
 
-
-@router.post("/deadline-alert/test")
-def test_deadline_alert(user: User = Depends(get_current_user)):
-    """지금 기준 임박·초과 현장 목록을 관리자 알림 메일로 한 번 보내 본다(보낸 기록은 안 남김 — 아침 알림은 그대로 나감)."""
-    from server.worker.deadline_notifier import send_test
-
-    try:
-        return send_test(user.company_id)
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 

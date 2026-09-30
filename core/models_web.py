@@ -140,7 +140,7 @@ class StaffContact(Base):
 
 
 class DeadlineAlert(Base):
-    """웹판 전용 — 지도 기한 알림을 보낸 기록(server/worker/deadline_notifier.py). 현장·기한·단계(d3/dday/over)·경로(mail, 나중에 sms)마다
+    """웹판 전용 — 지도 기한 알림을 보낸 기록(2026-10-01 알림 기능 없앰, 테이블·지난 기록만 남음). 현장·기한·단계(d3/dday/over)·경로(mail, 나중에 sms)마다
     한 번만 보내려고 남긴다 — 같은 (현장, 기한, 단계, 경로)는 두 번 안 보냄. 현장이 지워지면 같이 지워진다(CASCADE)."""
 
     __tablename__ = "deadline_alert"

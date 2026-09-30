@@ -34,8 +34,8 @@
 .topline .pace { flex-basis: 100%; }
 @media (max-width: 760px) {
   .site-row .pace-row, .topline .pace-row, .pace-row { grid-template-columns: 56px minmax(40px, 1fr) 132px; }
-  /* 폰 현장 목록: D-day·진행중을 현장명 위 줄로 올려 현장명·막대가 화면 폭을 다 쓰게(2026-09-30 사용자) */
-  .site-row .dday, .site-row .status-pill { order: -1; align-self: flex-start; }
+  /* 폰 현장 목록: 진행중을 현장명 위 줄로 올려 현장명·막대가 화면 폭을 다 쓰게(2026-09-30 사용자) */
+  .site-row .status-pill { order: -1; align-self: flex-start; }
   .site-row .title { order: 0; flex: 1 1 100%; }
 }
 

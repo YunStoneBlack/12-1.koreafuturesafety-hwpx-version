@@ -1,5 +1,5 @@
 // 방문 달력(calendar.html, 2026-09-30 시안 (나)) — 다녀온 방문(보고서 지도일, 요원 색) + 방문 예정(점선) + 지난 예정(회색)
-// + 지도 기한(⏰, 기한 안에 예정이 없으면 ⚠ 진한 빨강) + 요원·날짜별 하루 4곳 딱지. 날짜를 누르면 오른쪽(폰은 아래)에 그날 목록과
+// + 요원·날짜별 하루 4곳 딱지. (2026-10-01 "마지막 지도일 + 15일" 기한 ⏰·⚠ 예정없음은 없앰 — 실제 규칙이 아니었음.) 날짜를 누르면 오른쪽(폰은 아래)에 그날 목록과
 // "방문 예정 넣기". 볼 사람: 나만(그룹웨어 로그인 ↔ 담당요원 연결) / 고른 요원(여러 명) / 전체 — 고른 것은 이 브라우저에 기억.
 // 달력 모양·공휴일은 그룹웨어 달력과 같은 FullCalendar 6.1.15 + 그룹웨어 app.css `.fc` 규칙 + 그룹웨어 /api/holidays.
 // 데이터: GET /calendar?start=&end= (server/api/routers/calendar.py), 예정 넣기·고치기·지우기: /calendar/plans.
@@ -117,15 +117,6 @@ function buildEvents() {
       extendedProps: { kind: "plan", planId: p.id },
     });
   }
-  for (const d of data.deadlines) {
-    if (!d.in_view || !visible(d.staff_id)) continue;
-    const warn = !d.has_plan;
-    ev.push({
-      title: `${warn ? "⚠ 예정없음" : "⏰ 기한"} ${shortSite(d.site_name)}`,
-      start: d.date, allDay: true, classNames: ["ev-deadline", warn ? "ev-deadline-warn" : ""],
-      extendedProps: { kind: "deadline" }, display: "block",
-    });
-  }
   return ev;
 }
 
@@ -185,7 +176,7 @@ const cal = new FullCalendar.Calendar(document.getElementById("cal"), {
   buttonText: { today: "오늘" },
   dayMaxEvents: false,
   dayCellContent: (arg) => (isPhone() ? arg.dayNumberText.replace("일", "") : arg.dayNumberText), // 폰은 칸이 좁아 숫자만
-  eventOrder: (a, b) => ["deadline", "visit", "plan"].indexOf(a.extendedProps.kind) - ["deadline", "visit", "plan"].indexOf(b.extendedProps.kind),
+  eventOrder: (a, b) => ["visit", "plan"].indexOf(a.extendedProps.kind) - ["visit", "plan"].indexOf(b.extendedProps.kind),
   events: async (info, success, failure) => {
     const start = ymd(info.start);
     const end = ymd(new Date(info.end.getTime() - 86400000));
@@ -266,7 +257,6 @@ function renderDay() {
   const d = new Date(selected + "T00:00:00");
   const visits = data.visits.filter((v) => v.date === selected && visible(v.staff_id));
   const plans = data.plans.filter((p) => p.date === selected && p.state !== "done" && visible(p.staff_id));
-  const dls = data.deadlines.filter((x) => x.date === selected && visible(x.staff_id));
   const holiday = holidays[selected];
   body.innerHTML = `<h3 class="cal-day-title"></h3><div class="cal-day-list"></div>`;
   body.querySelector(".cal-day-title").textContent =
@@ -281,12 +271,6 @@ function renderDay() {
     addSiteLinks(el, siteId);
     return el;
   };
-  for (const dl of dls) {
-    const el = item(dl.has_plan ? "var(--crit-soft)" : "var(--crit)", "<b></b><small></small>", "dl", dl.site_id);
-    el.querySelector("b").textContent = `⏰ ${dl.site_name} 지도 기한`;
-    el.querySelector("small").textContent = (staffMap[dl.staff_id]?.name || "담당요원 없음") +
-      (dl.has_plan ? " · 기한 안에 방문 예정 있음" : " · 기한 안에 방문 예정이 없습니다");
-  }
   for (const v of visits) {
     const el = item(staffMap[v.staff_id]?.color || "#9498AE", "<b></b><small></small>", "", v.site_id);
     el.querySelector("b").textContent = `${v.site_name} ${v.visit_no}회차`;
@@ -298,7 +282,7 @@ function renderDay() {
     el.appendChild(a);
   }
   for (const p of plans) list.appendChild(planItem(p, staffMap));
-  if (!dls.length && !visits.length && !plans.length) {
+  if (!visits.length && !plans.length) {
     list.innerHTML = '<div class="empty-note" style="padding:12px 0;">이 날은 방문·예정이 없습니다.</div>';
   }
   for (const l of data.day_load.filter((x) => x.date === selected && x.count >= data.limit && visible(x.staff_id))) {

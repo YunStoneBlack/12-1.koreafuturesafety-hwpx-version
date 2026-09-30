@@ -1,6 +1,7 @@
-// 제출 현황(status.html) — 그달(지도일 기준) 보고서 상태·지도 기한 임박/초과·월별 막대·요원별 현황.
+// 제출 현황(status.html) — 그달(지도일 기준) 보고서 상태·월별 막대·요원별 현황.
 // 데이터는 GET /submission/overview 한 번(server/api/routers/submission.py). "제출 완료" 판정은 서버 server/api/submission.py 한 곳.
-// 할 일 버튼: 📧 전송(mail.js 전송 창 그대로) · 직접 제출함/되돌리기 · 이어서 작성 · + 새 보고서(기한 임박·초과 현장).
+// 할 일 버튼: 📧 전송(mail.js 전송 창 그대로) · 직접 제출함/되돌리기 · 이어서 작성.
+// (2026-10-01 "마지막 지도일 + 15일" 기한 임박·초과 칸과 목록은 없앰 — 실제 규칙이 아니었음.)
 
 const errorEl = document.getElementById("error");
 const today = new Date();
@@ -13,7 +14,6 @@ const STATE = {
   pdf_ready: ["PDF 완료·미전송", "pending"],
   submitted: ["제출 완료", "approved"],
 };
-const WD = "일월화수목금토";
 
 function h(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -21,15 +21,6 @@ function h(s) {
 function md(iso) {
   const d = new Date(`${iso}T00:00:00`);
   return `${d.getMonth() + 1}/${d.getDate()}`;
-}
-function mdw(iso) {
-  const d = new Date(`${iso}T00:00:00`);
-  return `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]})`;
-}
-function dueText(d) {
-  if (d.days_left < 0) return `기한 ${mdw(d.deadline)} · ${-d.days_left}일 지남`;
-  if (d.days_left === 0) return `기한 오늘 ${mdw(d.deadline)}`;
-  return `기한 ${mdw(d.deadline)} · D-${d.days_left}`;
 }
 
 async function loadStatus() {
@@ -59,13 +50,11 @@ function renderCards() {
     ["submitted", "제출 완료", c.submitted, `전송 ${c.submitted_mail} · 직접 제출 ${c.submitted_manual}`, "ok"],
     ["pdf_ready", "PDF 완료·미전송", c.pdf_ready, "보내면 끝", "wait"],
     ["pending", "작성 중·수정 전", c.writing + c.outdated, `작성 중 ${c.writing} · 수정 전 버전 ${c.outdated}`, "idle"],
-    ["deadline-imminent", "⏰ 기한 임박", c.imminent, `기한 D-${stData.imminent_days} 이내 · 지금 기준`, "warn"],
-    ["deadline-over", "⚠ 기한 초과", c.over, "마지막 지도일 + 15일 지남", "crit"],
   ];
   const el = document.getElementById("st-cards");
   el.innerHTML = cards.map(([key, label, n, sub, tone]) => `
-    <button type="button" class="st-card ${tone}${stView.filter === key ? " active" : ""}${(key.startsWith("deadline") && n > 0) ? " alert" : ""}" data-filter="${key}">
-      <span class="l">${tone && !key.startsWith("deadline") ? `<i class="st-dot ${tone}"></i>` : ""}${label}</span>
+    <button type="button" class="st-card ${tone}${stView.filter === key ? " active" : ""}" data-filter="${key}">
+      <span class="l">${tone ? `<i class="st-dot ${tone}"></i>` : ""}${label}</span>
       <span class="n">${n}</span><span class="s">${h(sub)}</span>
     </button>`).join("");
   el.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => {
@@ -102,11 +91,9 @@ function renderStaff() {
   const box = document.getElementById("st-staff-box");
   const rows = stData.staff.map((s) => {
     const pct = s.total ? (s.submitted / s.total) * 100 : 0;
-    const warn = [s.imminent ? `⏰ 임박 ${s.imminent}` : "", s.over ? `⚠ 초과 ${s.over}` : ""].filter(Boolean).join(" · ");
     return `<div class="st-staff-row"><span class="nm">${h(s.name)}</span>
       <span class="st-staff-bar">${s.total ? `<span class="ok" style="width:${pct}%"></span><span class="wait" style="width:${100 - pct}%"></span>` : ""}</span>
-      <span class="num">제출 ${s.submitted} / ${s.total}건</span>
-      ${warn ? `<span class="st-staff-warn">${warn}</span>` : ""}</div>`;
+      <span class="num">제출 ${s.submitted} / ${s.total}건</span></div>`;
   }).join("");
   box.innerHTML = `<b>요원별 ${stData.month}월</b>${rows || '<div class="st-empty">이달 보고서가 없습니다.</div>'}`;
 }
@@ -141,34 +128,13 @@ function filteredReports() {
   if (f === "submitted") rows = rows.filter((r) => r.state === "submitted");
   else if (f === "pdf_ready") rows = rows.filter((r) => r.state === "pdf_ready");
   else if (f === "pending") rows = rows.filter((r) => r.state === "writing" || r.state === "outdated");
-  else if (f.startsWith("deadline")) rows = [];
   return rows;
-}
-
-function filteredDeadlines() {
-  const f = stView.filter;
-  if (f === "deadline-imminent") return stData.deadlines.filter((d) => d.stage === "imminent");
-  if (f === "deadline-over") return stData.deadlines.filter((d) => d.stage === "over");
-  if (f === "all") return stData.deadlines;
-  return [];
 }
 
 function renderList() {
   const el = document.getElementById("st-list");
-  const dls = filteredDeadlines();
   const rows = filteredReports();
   let html = "";
-  if (dls.length) {
-    html += `<div class="st-group">⏰ 지도 기한 임박·초과 — 마지막 지도일 + 15일 기준(오늘 기준, D-${stData.imminent_days}부터 임박)</div>`;
-    html += dls.map((d) => `
-      <div class="st-dl ${d.stage}">
-        <div class="st-dl-main"><a class="st-site" href="site.html?id=${d.site_id}">${h(d.site_name)}</a>
-          <div class="st-dl-due">${d.stage === "over" ? "⚠" : "⏰"} ${dueText(d)}</div>
-          <div class="st-sub">${d.last_date ? `마지막 지도 ${md(d.last_date)} · ${d.last_visit_no}회차` : "아직 지도 기록 없음(공사 시작일 기준)"} · 담당 ${h(d.staff_name || "미지정")}</div></div>
-        <div class="st-act"><button type="button" class="secondary st-new" data-site="${d.site_id}">+ 새 보고서</button></div>
-      </div>`).join("");
-  }
-  if (!stView.filter.startsWith("deadline")) {
     html += `<div class="st-head"><span>${stData.month}월 보고서 (지도일 기준)</span><span>회차</span><span>지도일</span><span>담당</span><span>상태</span><span>제출</span><span></span></div>`;
     html += rows.length ? rows.map((r) => {
       const [label, pill] = STATE[r.state];
@@ -183,9 +149,6 @@ function renderList() {
         <div class="st-act">${reportActions(r)}</div>
       </div>`;
     }).join("") : '<div class="empty-note">해당하는 보고서가 없습니다.</div>';
-  } else if (!dls.length) {
-    html += '<div class="empty-note">지금 기한이 임박하거나 지난 현장이 없습니다.</div>';
-  }
   el.innerHTML = html;
   bindListActions(el);
 }
@@ -205,16 +168,6 @@ function bindListActions(el) {
     const r = find(b.dataset.id);
     if (!confirm(`${r.site_name} ${r.visit_no}회차의 "직접 제출함" 표시를 되돌릴까요?`)) return;
     try { await api(`/reports/${r.id}/submit-mark`, { method: "DELETE" }); loadStatus(); } catch (err) { showError(errorEl, err); }
-  }));
-  el.querySelectorAll(".st-new").forEach((b) => b.addEventListener("click", async () => {
-    b.disabled = true;
-    try {
-      const report = await apiPost(`/sites/${b.dataset.site}/reports`, {});
-      window.location.href = `report.html?id=${report.id}`;
-    } catch (err) {
-      b.disabled = false;
-      showError(errorEl, err);
-    }
   }));
 }
 

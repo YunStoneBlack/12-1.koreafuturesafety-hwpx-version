@@ -18,16 +18,11 @@
 .cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .cal-legend .lg { width: 18px; height: 10px; border-radius: 3px; display: inline-block; }
 .lg.solid { background: var(--blue); } .lg.plan { border: 1.5px dashed var(--blue); background: #fff; }
-.lg.missed { border: 1.5px dashed var(--faint); background: #fff; } .lg.dl { border: 1px solid #F3C9C9; background: var(--crit-soft); }
-.lg.warn { background: var(--crit); }
+.lg.missed { border: 1.5px dashed var(--faint); background: #fff; }
 .cal-drag-hint { color: var(--faint); }
 .fc .ev-plan { border-style: dashed !important; border-width: 1.5px !important; }
 .fc .ev-plan .fc-event-main { font-weight: 600; }
 .fc .ev-missed { opacity: .85; }
-.fc .ev-deadline { background: var(--crit-soft) !important; border: 1px solid #F3C9C9 !important; }
-.fc .ev-deadline .fc-event-main, .fc .ev-deadline .fc-event-title { color: var(--crit) !important; font-weight: 600; }
-.fc .ev-deadline-warn { background: var(--crit) !important; border-color: var(--crit) !important; }
-.fc .ev-deadline-warn .fc-event-main, .fc .ev-deadline-warn .fc-event-title { color: #fff !important; }
 .fc .fc-daygrid-event .fc-event-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cal-cap { font-size: 10.5px; font-weight: 700; color: #fff; background: var(--warn); border-radius: 8px; padding: 1px 6px; margin: 4px 4px 0 0; align-self: flex-start; line-height: 1.4; white-space: nowrap; }
 .cal-cap.over { background: var(--crit); }

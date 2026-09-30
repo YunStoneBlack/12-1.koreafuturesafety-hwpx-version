@@ -50,7 +50,8 @@
   </div>
 </section>
 
-<section class="panel">
+<!-- 2026-10-01 "15일 지도 기한" 알림을 없애면서 숨김(관리자 메일 등 값은 보존) — 다른 알림 기능이 생기면 hidden을 풀고 문구를 바꿔 다시 쓴다 -->
+<section class="panel" id="alert-panel" hidden>
   <div class="panel-head"><h2>지도 기한 알림</h2></div>
   <div class="panel-body">
   <p class="page-sub" style="margin:0 0 10px;">기한 = 마지막 지도일 + 15일. 평일 아침 9시에 담당요원(담당요원 탭의 메일)과 아래 관리자 메일로
@@ -65,7 +66,6 @@
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
     <button type="button" id="dl-save">저장</button>
-    <button type="button" id="dl-test" class="secondary">시험 메일 보내기</button>
   </div>
   <div id="dl-status" class="status"></div>
   </div>
@@ -173,7 +173,7 @@ api("/settings/signatures").then((st) => {
   }
 }).catch((err) => showError(errorEl, err));
 
-// ---------- 지도 기한 알림(server/api/routers/settings.py /settings/deadline-alert) ----------
+// ---------- 알림 설정(숨긴 칸 #alert-panel, server/api/routers/settings.py /settings/deadline-alert) ----------
 async function loadDeadlineAlert() {
   try {
     const d = await api("/settings/deadline-alert");
@@ -198,22 +198,6 @@ document.getElementById("dl-save").addEventListener("click", async () => {
   } catch (err) {
     st.className = "status bad";
     st.textContent = err.message;
-  }
-});
-document.getElementById("dl-test").addEventListener("click", async (e) => {
-  const st = document.getElementById("dl-status");
-  e.target.disabled = true;
-  st.className = "status";
-  st.textContent = "보내는 중…";
-  try {
-    const out = await apiPost("/settings/deadline-alert/test");
-    st.className = "status ok";
-    st.textContent = `${out.to.join(", ")}로 시험 메일을 보냈습니다(지금 임박·초과 ${out.count}곳).`;
-  } catch (err) {
-    st.className = "status bad";
-    st.textContent = err.message;
-  } finally {
-    e.target.disabled = false;
   }
 });
 loadDeadlineAlert();

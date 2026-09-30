@@ -38,23 +38,6 @@ function renderReportHeader() {
   }
   head.appendChild(nav);
   main.prepend(head);
-  if (active !== "status") renderDeadlineBanner(head);
-}
-
-// 지도 기한 알림 띠 — GET /submission/deadlines(server/api/deadlines.py). 실패하면 조용히 안 띄운다(본 화면이 우선).
-function renderDeadlineBanner(head) {
-  api("/submission/deadlines").then((d) => {
-    if (!d.imminent && !d.over) return;
-    const bar = document.createElement("a");
-    bar.className = `dl-banner${d.over ? " over" : ""}`;
-    bar.href = "status.html";
-    const parts = [d.imminent ? `⏰ 지도 기한 임박 ${d.imminent}곳` : "", d.over ? `⚠ 기한 초과 ${d.over}곳` : ""].filter(Boolean);
-    const names = d.items.slice(0, 3).map((x) => x.site_name).join(", ") + (d.items.length > 3 ? ` 외 ${d.items.length - 3}곳` : "");
-    bar.innerHTML = `<b></b><span class="dl-banner-sites"></span><span class="dl-banner-go">제출 현황에서 보기 →</span>`;
-    bar.querySelector("b").textContent = parts.join(" · ");
-    bar.querySelector(".dl-banner-sites").textContent = names;
-    head.appendChild(bar);
-  }).catch(() => {});
 }
 
 function renderFallbackSidebar(aside) {

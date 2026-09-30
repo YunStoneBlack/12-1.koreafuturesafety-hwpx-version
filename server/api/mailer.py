@@ -55,7 +55,7 @@ def send_pdf(to_addrs: list[str], cc_addr: str, subject: str, body: str, pdf_pat
 
 def send_mail(to_addrs: list[str], cc_addr: str, subject: str, body: str,
               attachment: tuple[bytes, str] | None = None) -> list[str]:
-    """메일 한 통(PDF 첨부 선택) — 고객사 전송·지도 기한 알림(server/worker/deadline_notifier.py) 공용."""
+    """메일 한 통(PDF 첨부 선택) — 고객사 전송용(나중에 다른 알림 메일도 이걸로)."""
     msg = EmailMessage()
     msg["From"] = formataddr((settings.MAIL_FROM_NAME, settings.MAIL_SMTP_USER))  # 네이버는 로그인 계정과 같은 보내는 주소만 허용
     msg["To"] = ", ".join(to_addrs)
