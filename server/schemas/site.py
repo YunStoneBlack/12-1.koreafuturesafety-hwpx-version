@@ -37,6 +37,8 @@ class SiteOut(SiteIn):
 
     id: int
     status: str
+    # 진행 막대(공기 경과 vs 기술지도 수행, server/api/site_pace_out.py) — 현장 조회·목록에서만 채움
+    pace: dict | None = None
 
 
 class SiteListItem(SiteOut):

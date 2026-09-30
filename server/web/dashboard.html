@@ -185,6 +185,8 @@ function renderSites() {
     // 사용자 입력 값은 textContent로(따옴표·꺾쇠가 들어간 현장명도 안전하게)
     row.querySelector(".site-name").textContent = site.name;
     row.querySelector(".site-sub").textContent = [site.address, site.hq_company].filter(Boolean).join(" · ");
+    const pace = sitePaceBox(site.pace); // 진행 막대(공기 경과 vs 지도 수행 — 데스크톱 현장 카드와 같음)
+    if (pace) row.querySelector(".title").appendChild(pace);
     const links = siteLinkButtons(site.manager_phone, site.map_address); // [📞 전화] [📍 지도]
     if (links) row.querySelector(".title").appendChild(links);
     // 진행 요약(report_count 등)은 API 서버를 재시작해야 내려온다 — 없으면 "보고서 없음"처럼 틀리게 보이지 않게 비워 둔다

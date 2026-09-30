@@ -171,3 +171,41 @@ function siteLinkButtons(phone, mapAddress) {
   }
   return box;
 }
+
+// ---------- 현장 진행 막대(공기 경과 vs 기술지도 수행) — 데스크톱 현장 카드와 같은 계산(서버 pace, core/site_pace.py) ----------
+// 🚨 N회 부족(빨강)·✅ N회 여유(파랑)·✅ 정상·🏁 완료 + 🎯 월 N회 필요, 막대 두 줄(2026-09-30 사용자 A안). 총 횟수·공기 정보가 없으면 null.
+const PACE_COLORS = { shortage: ["#dc2626", "#dc2626"], surplus: ["#2563eb", "#2563eb"], normal: ["#111827", "#4f46e5"], done: ["#2563eb", "#2563eb"] };
+function sitePaceBox(pace) {
+  if (!pace || !PACE_COLORS[pace.status]) return null;
+  const [textColor, barColor] = PACE_COLORS[pace.status];
+  const label = pace.status === "done" ? "🏁 완료" : pace.status === "shortage" ? `🚨 ${pace.diff}회 부족`
+    : pace.status === "surplus" ? `✅ ${pace.diff}회 여유` : "✅ 정상";
+  const extra = pace.period_over ? "기간 종료" : pace.monthly_needed != null ? `🎯 월 ${pace.monthly_needed.toFixed(1)}회 필요` : "";
+  const pct = (r) => (r == null ? 0 : Math.round(r * 100));
+  const box = document.createElement("div");
+  box.className = "pace";
+  box.innerHTML = `
+    <div class="pace-status"><span class="pace-label"></span><span class="pace-extra"></span></div>
+    <div class="pace-row"><span class="pace-cap">공기 경과</span><span class="pace-bar"><span class="pace-fill time"></span></span>
+      <span class="pace-val"><span class="pace-num"></span><span class="pace-note"></span></span></div>
+    <div class="pace-row"><span class="pace-cap">지도 수행</span><span class="pace-bar"><span class="pace-fill count"></span></span>
+      <span class="pace-val"><span class="pace-num"></span><span class="pace-note"></span></span></div>`;
+  const lab = box.querySelector(".pace-label");
+  lab.textContent = label;
+  lab.style.color = textColor;
+  box.querySelector(".pace-extra").textContent = extra ? ` · ${extra}` : "";
+  const [timeRow, countRow] = box.querySelectorAll(".pace-row");
+  if (pace.time_ratio == null) timeRow.remove();
+  else {
+    timeRow.querySelector(".pace-fill").style.width = `${pct(pace.time_ratio)}%`;
+    timeRow.querySelector(".pace-num").textContent = `${pct(pace.time_ratio)}%`;
+    timeRow.querySelector(".pace-note").textContent = pace.elapsed_text ? ` (${pace.elapsed_text})` : "";
+  }
+  const fill = countRow.querySelector(".pace-fill");
+  fill.style.width = `${pct(pace.count_ratio)}%`;
+  fill.style.background = barColor;
+  countRow.querySelector(".pace-num").textContent = `${pace.performed}`;
+  countRow.querySelector(".pace-note").textContent = `/${pace.total}회`;
+  return box;
+}
+

@@ -568,3 +568,21 @@ a.dl-banner:hover { filter: brightness(0.98); }
   .site-link .sl-short { display: inline; }
   .site-link .sl-full { display: none; }
 }
+
+/* 현장 진행 막대(app.js sitePaceBox) — 현장 목록·현장 화면·방문 달력. 데스크톱 현장 카드와 같은 색(부족 빨강·여유/완료 파랑) */
+.pace { margin-top: 6px; font-size: 12px; max-width: 560px; }
+.pace-status { font-weight: 700; }
+.pace-extra { font-weight: 500; color: var(--muted); }
+.pace-row { display: grid; grid-template-columns: 52px minmax(40px, 1fr) 66px; gap: 6px; align-items: center; margin-top: 4px;
+  color: var(--muted); font-size: 11.5px; font-weight: 500; }
+.site-row .pace-row, .topline .pace-row { grid-template-columns: 64px minmax(80px, 1fr) 124px; }
+.pace-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.pace-fill { display: block; height: 100%; border-radius: 3px; }
+.pace-fill.time { background: #94a3b8; }
+.pace-val { white-space: nowrap; text-align: right; }
+.pace-num { color: var(--ink); font-weight: 700; }
+.cal-item .pace-row .pace-note { font-weight: 500; }
+.cal-item .pace-row:first-of-type .pace-note { display: none; } /* 달력 목록은 좁아 "(N개월 경과)"는 뺀다 */
+.topline { flex-wrap: wrap; }
+.topline .pace { flex-basis: 100%; }
+@media (max-width: 760px) { .site-row .pace-row, .topline .pace-row { grid-template-columns: 56px minmax(40px, 1fr) 96px; } }

@@ -345,9 +345,11 @@ function planItem(p, staffMap) {
   return el;
 }
 
-// 그날 목록 한 줄에 [📞 전화] [📍 지도](현장책임자 연락처, 지도 방문 주소 — 서버 site_links)
+// 그날 목록 한 줄에 진행 막대 + [📞 전화] [📍 지도](현장책임자 연락처, 지도 방문 주소 — 서버 site_links)
 function addSiteLinks(el, siteId) {
   const info = siteId != null ? data.site_links?.[siteId] : null;
+  const pace = info ? sitePaceBox(info.pace) : null; // 진행 막대(데스크톱 현장 카드와 같은 계산)
+  if (pace) el.querySelector(".cal-item-main").appendChild(pace);
   const links = info ? siteLinkButtons(info.phone, info.map_address) : null;
   if (links) el.querySelector(".cal-item-main").appendChild(links);
 }

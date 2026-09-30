@@ -18,6 +18,7 @@ from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.routers.report_manage import prepared_hwpx_path, preview_dir
 from server.api.deadlines import site_deadlines
+from server.api.site_pace_out import last_visit_nos, pace_dict
 from server.api.routers.reports import check_staff_limit
 from server.api.security import verify_password
 from server.schemas.site import SiteIn, SiteListItem, SiteOut
@@ -49,6 +50,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
         item.last_guidance_date = last_date
         item.staff_name = staff_names.get(site.assigned_staff_id, "")
         item.map_address = (visit.get(site.id) or site.address or "").strip()
+        item.pace = pace_dict(site, last_no)
         if site.id in deadlines:
             d = deadlines[site.id]
             item.deadline, item.deadline_days_left, item.deadline_stage = d.deadline, d.days_left, d.stage
@@ -109,7 +111,9 @@ def get_site(site_id: int, user: User = Depends(get_current_user), db: Session =
     site = repo.get_site(db, user.company_id, site_id)
     if site is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
-    return site
+    out = SiteOut.model_validate(site)
+    out.pace = pace_dict(site, last_visit_nos(db, [site.id]).get(site.id))
+    return out
 
 
 @router.patch("/{site_id}", response_model=SiteOut)

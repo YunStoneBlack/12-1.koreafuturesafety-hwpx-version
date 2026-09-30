@@ -82,6 +82,7 @@ const CONTACT_FIELDS = [
   ["supervisor_name", "감리단 이름·기관명", "text"], ["supervisor_email", "감리단 메일 (여러 개면 쉼표로)", "text"],
 ];
 let currentContacts = {};
+let currentPace = null;
 
 function renderSiteSummary(site) {
   const box = document.getElementById("site-summary");
@@ -203,7 +204,8 @@ document.getElementById("site-edit-form").addEventListener("submit", async (e) =
     // (발주처·감리단만 고쳤을 때 PDF를 다시 만들 필요 없게, 2026-09-30)
     const norm = (v) => (v == null ? "" : String(v));
     if (Object.keys(body).some((k) => norm(body[k]) !== norm(currentSite[k]))) {
-      currentSite = await apiPatch(`/sites/${siteId}`, body);
+      await apiPatch(`/sites/${siteId}`, body);
+      currentSite = await api(`/sites/${siteId}`); // 진행 막대(공기·총 횟수가 바뀌었을 수 있음)까지 새로
     }
     applySite(currentSite);
     closeSiteEdit();
@@ -217,9 +219,13 @@ function applySite(site) {
   document.getElementById("site-name-h1").textContent = site.name;
   // 현장명 밑 [📞 전화] [📍 지도] — 지도는 지도 방문 주소(없으면 현장 주소)
   const top = document.getElementById("site-name-h1").parentElement;
-  top.querySelector(".site-links")?.remove();
+  top.querySelectorAll(".site-links, .pace").forEach((el) => el.remove());
   const links = siteLinkButtons(site.manager_phone, currentContacts.map_address || site.address);
   if (links) top.appendChild(links);
+  // 진행 막대 — 수정 저장 응답엔 pace가 없어 처음 불러온 값을 유지
+  if (site.pace) currentPace = site.pace;
+  const pace = sitePaceBox(currentPace);
+  if (pace) top.appendChild(pace);
   renderSiteSummary(site);
 }
 
