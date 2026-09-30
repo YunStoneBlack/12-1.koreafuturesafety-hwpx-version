@@ -590,3 +590,15 @@ a.dl-banner:hover { filter: brightness(0.98); }
   .site-row .dday, .site-row .status-pill { order: -1; align-self: flex-start; }
   .site-row .title { order: 0; flex: 1 1 100%; }
 }
+
+/* [📍 지도] 폰 선택 창(app.js openMapChooser) — 화면 아래에서 올라오는 시트 */
+.map-chooser { position: fixed; inset: 0; z-index: 1200; background: rgba(15, 17, 32, .45); display: flex; align-items: flex-end; justify-content: center; }
+.map-sheet { width: 100%; max-width: 480px; background: var(--surface); border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 8px; box-shadow: 0 -8px 30px rgba(0, 0, 0, .2); }
+.map-sheet-title { font-size: 16px; font-weight: 700; color: var(--ink); }
+.map-sheet-addr { font-size: 13px; color: var(--muted); margin-bottom: 4px; word-break: keep-all; }
+.map-sheet button { font: inherit; font-size: 16px; font-weight: 700; padding: 14px; border-radius: 12px; cursor: pointer; text-align: left; }
+.map-sheet .map-opt { border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.map-sheet .map-opt.tmap { background: #eef4ff; border-color: #cfe0ff; }
+.map-sheet .map-opt span { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+.map-sheet .map-cancel { border: none; background: transparent; color: var(--muted); text-align: center; font-weight: 600; }

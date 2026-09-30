@@ -131,7 +131,7 @@ function showError(el, err) {
 
 // ---------- 현장 [📞 전화] [📍 지도] (현장 목록·현장 화면·방문 달력, 2026-09-30) ----------
 // 전화 = 현장책임자 연락처: 폰은 누르면 통화 화면, PC(마우스)는 전화를 걸 수 없어 번호를 보여 주고 누르면 복사.
-// 지도 = 지도 방문 주소(없으면 현장 주소 — 서버가 map_address로 줌): PC·폰 모두 네이버 지도 검색을 새 창으로(폰은 앱이 있으면 앱으로).
+// 지도 = 지도 방문 주소(없으면 현장 주소 — 서버가 map_address로 줌): PC는 네이버 지도 검색을 새 창으로, 폰은 매번 [티맵]/[네이버 지도] 선택 창.
 // 둘 다 없으면 null. 현장 목록 줄은 줄 전체가 링크라 버튼을 누른 게 줄 이동으로 번지지 않게 막는다.
 function siteLinkButtons(phone, mapAddress) {
   phone = (phone || "").trim();
@@ -165,9 +165,7 @@ function siteLinkButtons(phone, mapAddress) {
     });
   }
   if (mapAddress) {
-    make("map", "📍", "지도", `지도 ${mapAddress}`, `네이버 지도에서 열기: ${mapAddress}`, () => {
-      window.open(`https://map.naver.com/p/search/${encodeURIComponent(mapAddress)}`, "_blank", "noopener");
-    });
+    make("map", "📍", "지도", `지도 ${mapAddress}`, `지도에서 열기: ${mapAddress}`, () => openMapChooser(mapAddress));
   }
   return box;
 }
@@ -210,5 +208,66 @@ function sitePaceBox(pace) {
   countRow.querySelector(".pace-num").textContent = `${pace.performed}`;
   countRow.querySelector(".pace-note").textContent = `/${pace.total}회`;
   return box;
+}
+
+
+// ---------- [📍 지도] 폰 선택 창 — 🚗 티맵 / 🗺 네이버 지도 (2026-09-30 사용자: 매번 묻기, 카카오내비는 안 넣음) ----------
+// 티맵은 키 없이 "검색 방식": 주소가 검색된 채 열린다. 폰에서 직접 눌러 본 결과(tmap-test) 된 형식만 쓴다 —
+//   안드로이드: intent://search?name=…#Intent;scheme=tmap;package=com.skt.tmap.ku;end (티맵이 없으면 플레이스토어로)
+//   아이폰: tmap://search?name=… (티맵이 없으면 안 열림 → 잠시 뒤 화면이 그대로면 앱스토어 설치를 묻는다)
+// PC(마우스)는 티맵이 없으니 묻지 않고 네이버 지도 웹을 새 창으로.
+const TMAP_APPSTORE = "https://apps.apple.com/kr/app/id431589174";
+function naverMapUrl(address) {
+  return `https://map.naver.com/p/search/${encodeURIComponent(address)}`;
+}
+function openMapChooser(address) {
+  const isPc = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  if (isPc) {
+    window.open(naverMapUrl(address), "_blank", "noopener");
+    return;
+  }
+  document.querySelector(".map-chooser")?.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "map-chooser";
+  overlay.innerHTML = `
+    <div class="map-sheet" role="dialog" aria-modal="true">
+      <div class="map-sheet-title">어디서 열까요?</div>
+      <div class="map-sheet-addr"></div>
+      <button type="button" class="map-opt tmap">🚗 티맵 <span>길안내</span></button>
+      <button type="button" class="map-opt naver">🗺 네이버 지도</button>
+      <button type="button" class="map-cancel">취소</button>
+    </div>`;
+  overlay.querySelector(".map-sheet-addr").textContent = address;
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector(".map-cancel").addEventListener("click", close);
+  overlay.querySelector(".naver").addEventListener("click", () => {
+    close();
+    window.open(naverMapUrl(address), "_blank", "noopener");
+  });
+  overlay.querySelector(".tmap").addEventListener("click", () => {
+    close();
+    openTmapSearch(address);
+  });
+  document.body.appendChild(overlay);
+}
+function openTmapSearch(address) {
+  const q = encodeURIComponent(address);
+  if (/android/i.test(navigator.userAgent)) {
+    window.location.href = `intent://search?name=${q}#Intent;scheme=tmap;package=com.skt.tmap.ku;end`;
+    return;
+  }
+  // 아이폰 등 — 앱이 열리면 이 화면이 숨겨진다. 1.5초 뒤에도 보이면 티맵이 없는 것으로 보고 설치를 묻는다.
+  let left = false;
+  const onHide = () => { if (document.visibilityState === "hidden") left = true; };
+  document.addEventListener("visibilitychange", onHide);
+  window.location.href = `tmap://search?name=${q}`;
+  setTimeout(() => {
+    document.removeEventListener("visibilitychange", onHide);
+    if (!left && document.visibilityState === "visible" &&
+        confirm("티맵이 설치되어 있지 않은 것 같습니다. 앱스토어에서 티맵을 설치할까요?")) {
+      window.location.href = TMAP_APPSTORE;
+    }
+  }, 1500);
 }
 
