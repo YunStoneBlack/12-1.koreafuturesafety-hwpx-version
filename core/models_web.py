@@ -191,7 +191,7 @@ class VisitPlan(Base):
 
 
 class SiteContact(Base):
-    """웹판 전용 — 현장의 발주처·감리단(이름·기관명 + 메일, 메일은 ", "로 여러 개)(2026-09-30). 고객사 전송 창에서 현장책임자와 함께
+    """웹판 전용 — 현장의 발주처·감리단(이름·기관명 + 메일, 메일은 ", "로 여러 개)과 지도 방문 주소(2026-09-30). 고객사 전송 창에서 현장책임자와 함께
     체크 항목으로 나온다. 표지에 안 들어가므로 바꿔도 PDF는 그대로. retired_emails: 현장책임자·발주처·감리단에서 빠진 옛 주소 —
     "지난번 받는 사람" 자동 채움에서 뺀다(주소가 바뀌었는데 옛 주소가 계속 채워지지 않게). 현장이 지워지면 같이 지워진다(CASCADE)."""
 
@@ -203,3 +203,6 @@ class SiteContact(Base):
     supervisor_name: Mapped[str] = mapped_column(Text, default="")
     supervisor_email: Mapped[str] = mapped_column(Text, default="")
     retired_emails: Mapped[str] = mapped_column(Text, default="")
+    # 지도 방문 주소(2026-09-30) — 군부대처럼 서류상 주소와 실제로 찾아가는 주소가 다를 때만 채움. 비어 있으면 현장 주소.
+    # [📍 지도] 버튼이 이 주소를 네이버 지도로 연다. 보고서(PDF)엔 안 나감.
+    visit_address: Mapped[str] = mapped_column(Text, default="")

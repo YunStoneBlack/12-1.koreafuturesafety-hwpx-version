@@ -552,3 +552,19 @@ a.dl-banner:hover { filter: brightness(0.98); }
 .slot-btn-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .main .slot-btn-row button { margin-top: 4px; }
 .main .photo-slot .slot-controls .slot-btn-row button { align-self: auto; }
+
+/* 현장 [📞 전화] [📍 지도](app.js siteLinkButtons) — 현장 목록·현장 화면·방문 달력. PC는 번호·주소까지, 폰은 큰 [전화] [지도] */
+.site-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.main .site-links button.site-link { margin: 0; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; line-height: 1.4; max-width: 100%; }
+.main .site-links button.site-link.tel { color: #1f7a44; border: 1px solid #bfe3cc; background: #eef9f2; }
+.main .site-links button.site-link.map { color: #0a6b3d; border: 1px solid #c9e7d6; background: #f3fbf6; }
+.site-link .sl-short { display: none; }
+.site-link .sl-full { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px; }
+.site-link.tel .sl-full { font-weight: 600; }
+.topline .site-links { flex-basis: 100%; margin-top: 4px; }
+@media (max-width: 760px) {
+  .main .site-links button.site-link { font-size: 13.5px; padding: 7px 14px; }
+  .site-link .sl-short { display: inline; }
+  .site-link .sl-full { display: none; }
+}

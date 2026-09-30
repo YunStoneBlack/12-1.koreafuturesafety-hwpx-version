@@ -50,3 +50,5 @@ class SiteListItem(SiteOut):
     deadline: datetime.date | None = None
     deadline_days_left: int | None = None
     deadline_stage: str = ""
+    # [📍 지도] 버튼이 여는 주소(지도 방문 주소, 없으면 현장 주소 — server/api/routers/site_contacts.py)
+    map_address: str = ""

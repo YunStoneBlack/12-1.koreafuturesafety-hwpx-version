@@ -3,6 +3,7 @@
 
 - `GET /sites/{id}/contacts`, `PATCH /sites/{id}/contacts {manager_name?, manager_email?, owner_name?, owner_email?, ...}`
 - 메일 칸은 쉼표로 여러 개(현장책임자는 한 개). 저장할 때 ", "로 정리한다.
+- 지도 방문 주소(visit_address): [📍 지도] 버튼용, 비어 있으면 현장 주소(`map_address`). 보고서엔 안 나가 PDF 영향 없음.
 - 현장책임자 이름·메일은 보고서 표지에 들어가므로 바뀌면 그 현장 보고서를 "수정됨"으로 기록한다(PATCH /sites/{id}와 같은 규칙 —
   PDF를 다시 만들어야 보낼 수 있다). 발주처·감리단은 표지에 없어서 PDF에 영향 없음 — 이 주소(/contacts)는 edit_tracking이 자동으로
   잡지 않으므로(현장 수정 규칙은 `/api/sites/{id}`로 끝나는 주소만) 현장책임자일 때만 여기서 직접 기록한다.
@@ -30,6 +31,7 @@ class ContactsIn(BaseModel):
     owner_email: str | None = None
     supervisor_name: str | None = None
     supervisor_email: str | None = None
+    visit_address: str | None = None
 
 
 def split_emails(value: str) -> list[str]:
@@ -60,7 +62,14 @@ def contacts_of(db: Session, site) -> dict:
         "owner_email": row.owner_email if row else "",
         "supervisor_name": row.supervisor_name if row else "",
         "supervisor_email": row.supervisor_email if row else "",
+        "visit_address": row.visit_address if row else "",
+        "map_address": map_address(site, row),
     }
+
+
+def map_address(site, row: SiteContact | None) -> str:
+    """[📍 지도]가 여는 주소 — 지도 방문 주소가 있으면 그것, 없으면 현장 주소."""
+    return ((row.visit_address if row else "") or site.address or "").strip()
 
 
 ROLE_EMAIL_KEYS = (("manager", "manager_email"), ("owner", "owner_email"), ("supervisor", "supervisor_email"))
@@ -100,7 +109,8 @@ def update_contacts(site_id: int, body: ContactsIn, user: User = Depends(get_cur
     before = contacts_of(db, site)
     row = db.get(SiteContact, site.id)
     if row is None:
-        row = SiteContact(site_id=site.id, owner_name="", owner_email="", supervisor_name="", supervisor_email="", retired_emails="")
+        row = SiteContact(site_id=site.id, owner_name="", owner_email="", supervisor_name="", supervisor_email="", retired_emails="",
+                          visit_address="")
         db.add(row)
 
     manager_changed = False
@@ -118,6 +128,8 @@ def update_contacts(site_id: int, body: ContactsIn, user: User = Depends(get_cur
         if f"{role}_email" in fields:
             setattr(row, f"{role}_email", _clean_emails(fields[f"{role}_email"] or "", label))
 
+    if "visit_address" in fields:
+        row.visit_address = (fields["visit_address"] or "").strip()
     db.flush()
     after = contacts_of(db, site)
     now_all = {a.lower() for _, k in ROLE_EMAIL_KEYS for a in split_emails(after[k])}

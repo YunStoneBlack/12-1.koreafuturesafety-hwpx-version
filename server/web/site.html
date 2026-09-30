@@ -119,6 +119,15 @@ async function openSiteEdit() {
     div.innerHTML = `<label for="sf-${key}"></label><input id="sf-${key}" type="${type}" ${type === "number" ? 'min="0"' : ""} />`;
     div.querySelector("label").textContent = label;
     div.querySelector("input").value = currentSite[key] ?? "";
+    if (key === "address") { // 주소 바로 밑에 지도 방문 주소(보고서엔 안 나감, 비우면 현장 주소)
+      box.appendChild(div);
+      const v = document.createElement("div");
+      v.innerHTML = `<label for="sf-c-visit_address">지도 방문 주소 <span style="font-weight:400; color:var(--muted);">(보고서엔 안 나감 — [📍 지도]가 여는 곳)</span></label>
+        <input id="sf-c-visit_address" placeholder="비우면 현장 주소와 같음 — 군부대처럼 실제로 찾아가는 곳이 다를 때만" />`;
+      v.querySelector("input").value = currentContacts.visit_address ?? "";
+      box.appendChild(v);
+      continue;
+    }
     if (key === "management_no") {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -187,7 +196,8 @@ document.getElementById("site-edit-form").addEventListener("submit", async (e) =
     return;
   }
   try {
-    const contactBody = Object.fromEntries(CONTACT_FIELDS.map(([key]) => [key, document.getElementById(`sf-c-${key}`).value.trim()]));
+    const contactBody = Object.fromEntries([...CONTACT_FIELDS.map(([key]) => key), "visit_address"]
+      .map((key) => [key, document.getElementById(`sf-c-${key}`).value.trim()]));
     currentContacts = await apiPatch(`/sites/${siteId}/contacts`, contactBody); // 메일 주소가 틀리면 여기서 400 — 현장 정보보다 먼저 확인
     // 현장 정보는 실제로 바뀐 게 있을 때만 저장 — 저장하면 표지가 바뀐 것으로 보고 이 현장 PDF가 전부 "수정 전 버전"이 되므로
     // (발주처·감리단만 고쳤을 때 PDF를 다시 만들 필요 없게, 2026-09-30)
@@ -205,6 +215,11 @@ document.getElementById("site-edit-form").addEventListener("submit", async (e) =
 function applySite(site) {
   document.getElementById("site-name").textContent = site.name;
   document.getElementById("site-name-h1").textContent = site.name;
+  // 현장명 밑 [📞 전화] [📍 지도] — 지도는 지도 방문 주소(없으면 현장 주소)
+  const top = document.getElementById("site-name-h1").parentElement;
+  top.querySelector(".site-links")?.remove();
+  const links = siteLinkButtons(site.manager_phone, currentContacts.map_address || site.address);
+  if (links) top.appendChild(links);
   renderSiteSummary(site);
 }
 

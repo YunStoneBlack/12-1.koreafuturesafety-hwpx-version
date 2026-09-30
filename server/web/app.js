@@ -128,3 +128,46 @@ function showError(el, err) {
   el.textContent = err.message || String(err);
   el.style.display = "block";
 }
+
+// ---------- 현장 [📞 전화] [📍 지도] (현장 목록·현장 화면·방문 달력, 2026-09-30) ----------
+// 전화 = 현장책임자 연락처: 폰은 누르면 통화 화면, PC(마우스)는 전화를 걸 수 없어 번호를 보여 주고 누르면 복사.
+// 지도 = 지도 방문 주소(없으면 현장 주소 — 서버가 map_address로 줌): PC·폰 모두 네이버 지도 검색을 새 창으로(폰은 앱이 있으면 앱으로).
+// 둘 다 없으면 null. 현장 목록 줄은 줄 전체가 링크라 버튼을 누른 게 줄 이동으로 번지지 않게 막는다.
+function siteLinkButtons(phone, mapAddress) {
+  phone = (phone || "").trim();
+  mapAddress = (mapAddress || "").trim();
+  if (!phone && !mapAddress) return null;
+  const box = document.createElement("div");
+  box.className = "site-links";
+  const make = (cls, icon, short, full, title, onClick) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `site-link ${cls}`;
+    b.title = title;
+    b.innerHTML = `<span class="sl-ico">${icon}</span><span class="sl-short"></span><span class="sl-full"></span>`;
+    b.querySelector(".sl-short").textContent = short;
+    b.querySelector(".sl-full").textContent = full;
+    b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); onClick(b); });
+    box.appendChild(b);
+  };
+  if (phone) {
+    make("tel", "📞", "전화", phone, "현장책임자에게 전화(PC에선 번호 복사)", async (b) => {
+      if (matchMedia("(hover: hover) and (pointer: fine)").matches) { // PC — 복사
+        try {
+          await navigator.clipboard.writeText(phone);
+          const full = b.querySelector(".sl-full");
+          full.textContent = "복사됨 ✓";
+          setTimeout(() => { full.textContent = phone; }, 1500);
+        } catch (_) { /* 복사가 막혀 있으면 번호가 이미 보이므로 그대로 */ }
+        return;
+      }
+      window.location.href = `tel:${phone.replace(/[^0-9+]/g, "")}`;
+    });
+  }
+  if (mapAddress) {
+    make("map", "📍", "지도", `지도 ${mapAddress}`, `네이버 지도에서 열기: ${mapAddress}`, () => {
+      window.open(`https://map.naver.com/p/search/${encodeURIComponent(mapAddress)}`, "_blank", "noopener");
+    });
+  }
+  return box;
+}

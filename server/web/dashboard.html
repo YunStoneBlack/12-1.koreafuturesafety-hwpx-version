@@ -37,6 +37,7 @@
     <div class="field-grid">
       <div><label for="name">현장명</label><input id="name" required /></div>
       <div><label for="address">주소</label><input id="address" /></div>
+      <div><label for="visit_address">지도 방문 주소 <span style="font-weight:400; color:var(--muted);">(보고서엔 안 나감)</span></label><input id="visit_address" placeholder="비우면 현장 주소와 같음 — 실제로 찾아가는 곳이 다를 때만" /></div>
       <div><label for="site_mgmt_no">사업장관리번호</label><input id="site_mgmt_no" /></div>
       <div><label for="biz_start_no">사업개시번호</label><input id="biz_start_no" /></div>
       <div><label for="period_start">공사기간 시작일</label><input id="period_start" type="date" /></div>
@@ -184,6 +185,8 @@ function renderSites() {
     // 사용자 입력 값은 textContent로(따옴표·꺾쇠가 들어간 현장명도 안전하게)
     row.querySelector(".site-name").textContent = site.name;
     row.querySelector(".site-sub").textContent = [site.address, site.hq_company].filter(Boolean).join(" · ");
+    const links = siteLinkButtons(site.manager_phone, site.map_address); // [📞 전화] [📍 지도]
+    if (links) row.querySelector(".title").appendChild(links);
     // 진행 요약(report_count 등)은 API 서버를 재시작해야 내려온다 — 없으면 "보고서 없음"처럼 틀리게 보이지 않게 비워 둔다
     const hasSummary = site.report_count !== undefined;
     row.querySelector('[data-k="staff"]').textContent = !hasSummary ? "" : site.staff_name ? `담당 ${site.staff_name}` : "담당 미지정";
@@ -267,13 +270,13 @@ document.getElementById("site-form").addEventListener("submit", async (e) => {
   errorEl.style.display = "none";
   try {
     const created = await apiPost("/sites", readSiteForm());
-    const contacts = Object.fromEntries(["owner_name", "owner_email", "supervisor_name", "supervisor_email"]
+    const contacts = Object.fromEntries(["owner_name", "owner_email", "supervisor_name", "supervisor_email", "visit_address"]
       .map((id) => [id, document.getElementById(id).value.trim()]));
     if (Object.values(contacts).some(Boolean)) {
       try {
         await apiPatch(`/sites/${created.id}/contacts`, contacts);
       } catch (err) {
-        alert(`현장은 등록했지만 발주처·감리단은 저장하지 못했습니다(${err.message}). 현장 화면의 [수정]에서 다시 넣어 주세요.`);
+        alert(`현장은 등록했지만 발주처·감리단·지도 방문 주소는 저장하지 못했습니다(${err.message}). 현장 화면의 [수정]에서 다시 넣어 주세요.`);
       }
     }
     // 등록하면 바로 그 현장 화면으로(다음 할 일이 거기서 보고서 작성이라)

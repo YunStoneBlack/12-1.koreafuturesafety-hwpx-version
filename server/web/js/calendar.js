@@ -272,22 +272,23 @@ function renderDay() {
   body.querySelector(".cal-day-title").textContent =
     `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEK[d.getDay()]})${holiday ? " · " + holiday.name : ""}`;
   const list = body.querySelector(".cal-day-list");
-  const item = (color, html, cls = "") => {
+  const item = (color, html, cls = "", siteId = null) => {
     const el = document.createElement("div");
     el.className = "cal-item " + cls;
     el.innerHTML = `<i></i><div class="cal-item-main">${html}</div>`;
     el.querySelector("i").style.background = color;
     list.appendChild(el);
+    addSiteLinks(el, siteId);
     return el;
   };
   for (const dl of dls) {
-    const el = item(dl.has_plan ? "var(--crit-soft)" : "var(--crit)", "<b></b><small></small>", "dl");
+    const el = item(dl.has_plan ? "var(--crit-soft)" : "var(--crit)", "<b></b><small></small>", "dl", dl.site_id);
     el.querySelector("b").textContent = `⏰ ${dl.site_name} 지도 기한`;
     el.querySelector("small").textContent = (staffMap[dl.staff_id]?.name || "담당요원 없음") +
       (dl.has_plan ? " · 기한 안에 방문 예정 있음" : " · 기한 안에 방문 예정이 없습니다");
   }
   for (const v of visits) {
-    const el = item(staffMap[v.staff_id]?.color || "#9498AE", "<b></b><small></small>");
+    const el = item(staffMap[v.staff_id]?.color || "#9498AE", "<b></b><small></small>", "", v.site_id);
     el.querySelector("b").textContent = `${v.site_name} ${v.visit_no}회차`;
     el.querySelector("small").textContent = `${staffMap[v.staff_id]?.name || "담당요원 없음"} · ${STATE_LABEL[v.state] || ""}`;
     const a = document.createElement("a");
@@ -321,6 +322,7 @@ function planItem(p, staffMap) {
     </div>`;
   el.querySelector("i").style.borderColor = color;
   el.querySelector("b").textContent = `${p.state === "missed" ? "지난 예정" : "방문 예정"} · ${p.site_name}`;
+  addSiteLinks(el, p.site_id);
   el.querySelector("small").textContent = [staffMap[p.staff_id]?.name || "담당요원 없음", p.memo,
     p.state === "missed" ? "이 날 보고서가 없습니다" : ""].filter(Boolean).join(" · ");
   el.querySelector(".p-del").addEventListener("click", async () => {
@@ -341,6 +343,13 @@ function planItem(p, staffMap) {
     el.appendChild(planForm(p));
   });
   return el;
+}
+
+// 그날 목록 한 줄에 [📞 전화] [📍 지도](현장책임자 연락처, 지도 방문 주소 — 서버 site_links)
+function addSiteLinks(el, siteId) {
+  const info = siteId != null ? data.site_links?.[siteId] : null;
+  const links = info ? siteLinkButtons(info.phone, info.map_address) : null;
+  if (links) el.querySelector(".cal-item-main").appendChild(links);
 }
 
 // 예정 넣기(p 없음) / 고치기(p 있음) 칸

@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.models_db import Report, Site, Staff
-from core.models_web import User, VisitPlan
+from core.models_web import SiteContact, User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
 from server.api import repo
 from server.api.deadlines import site_deadlines
@@ -105,8 +105,14 @@ def calendar(
                 "in_view": show_date is not None, "days_left": d.days_left, "stage": d.stage, "has_plan": has_plan,
             })
 
+    visit_addr = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(list(sites)))) if sites else {}
     return {
         "today": today.isoformat(),
+        # 현장별 [📞 전화]·[📍 지도] — 현장책임자 연락처, 지도 방문 주소(없으면 현장 주소)
+        "site_links": {
+            s.id: {"phone": (s.manager_phone or "").strip(), "map_address": (visit_addr.get(s.id) or s.address or "").strip()}
+            for s in sites.values()
+        },
         "limit": MAX_SITES_PER_STAFF_PER_DAY,
         "staff": [{"id": s.id, "name": s.name, "active": s.active} for s in staff],
         "me_staff_id": my_staff_id(db, user),

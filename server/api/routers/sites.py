@@ -13,7 +13,7 @@ from core import config
 from core.contract_analyzer import extract_site_info
 from core.db import BASE_DIR
 from core.models_db import Finding, PreviousFinding, Report, Site, SiteProcessDefault, Staff
-from core.models_web import ReportJob, User
+from core.models_web import ReportJob, SiteContact, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.routers.report_manage import prepared_hwpx_path, preview_dir
@@ -39,6 +39,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
     staff_ids = {s.assigned_staff_id for s in sites if s.assigned_staff_id}
     staff_names = dict(db.query(Staff.id, Staff.name).filter(Staff.id.in_(staff_ids))) if staff_ids else {}
     deadlines = {d.site_id: d for d in site_deadlines(db, user.company_id)}
+    visit = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(ids))) if ids else {}
     out = []
     for site in sites:
         count, last_no, last_date = stats.get(site.id, (0, None, None))
@@ -47,6 +48,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
         item.last_visit_no = last_no
         item.last_guidance_date = last_date
         item.staff_name = staff_names.get(site.assigned_staff_id, "")
+        item.map_address = (visit.get(site.id) or site.address or "").strip()
         if site.id in deadlines:
             d = deadlines[site.id]
             item.deadline, item.deadline_days_left, item.deadline_stage = d.deadline, d.days_left, d.stage
