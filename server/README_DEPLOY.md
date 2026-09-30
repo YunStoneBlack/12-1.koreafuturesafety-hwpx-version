@@ -51,8 +51,10 @@ MAIL_SMTP_PASSWORD=<애플리케이션 비밀번호 12자리>
 alembic -c server/alembic.ini upgrade head
 ```
 
-(2026-09-30 기준 0005까지: 0003 `report_edit` — PDF 수정 전 버전 판단, 0004 `report_mail` — 고객사 메일 보낸 기록,
-0005 `report_submit_mark`·`staff_contact`·`deadline_alert` — 직접 제출함·요원 메일·지도 기한 알림 보낸 기록.
+(2026-09-30 기준 0008까지: 0003 `report_edit` — PDF 수정 전 버전 판단, 0004 `report_mail` — 고객사 메일 보낸 기록,
+0005 `report_submit_mark`·`staff_contact`·`deadline_alert` — 직접 제출함·요원 메일·지도 기한 알림 보낸 기록,
+0006 `staff_gw_link` — 담당요원 ↔ 그룹웨어 직원, 0007 `visit_plan` — 방문 달력 예정, 0008 `site_contact` — 현장 발주처·감리단.
+전부 표를 새로 만드는 것뿐이라 돌고 있는 서버에 영향 없이 먼저 적용해도 된다(적용 → API 재시작 → 화면).
 명령 창에 `DATABASE_URL` 환경변수가 있어야 한다 — `.env.server`의 값을 넣고 실행.)
 
 ## 4. 파일럿 회사/직원 계정 시딩
@@ -121,10 +123,13 @@ AWS는 **전달만** 하고 hwpx 생성·PDF 변환(한글)·사진/DB 저장은
   처음 온 직원은 자동 등록(`user.email = "gw:<그룹웨어 아이디>"`, 회사 `GROUPWARE_COMPANY_ID`=1 한국미래안전), 자체 로그인은 403.
   사무실 LAN 직접 접속·헤더 위조는 401(실측).
 - 화면 틀: 그룹웨어의 `/css/app.css` + 사이드바 조각(`/report-shell/sidebar`)을 그대로 끼워 넣음(`server/web/shell.js`) — 로고·메뉴·
-  관리자 메뉴·프로필·로그아웃이 그룹웨어와 동일. 보고서 하위 메뉴(현장 목록/담당요원/설정)는 본문 위 탭.
+  관리자 메뉴·프로필·로그아웃이 그룹웨어와 동일. 보고서 하위 메뉴(현장 목록/제출 현황/방문 달력/담당요원/설정)는 본문 위 탭.
+- 그룹웨어가 보고서에 더 주는 것(같은 도메인이라 **브라우저가** 그룹웨어 로그인으로 받아 씀 — nginx·SSH 통로 변경 없음):
+  `/report-shell/employees`(직원정보 목록 JSON + 로그인 아이디 — 담당요원 탭, 13번 `e0d92e5`), `/api/holidays?year=`(공휴일 — 방문 달력).
 - 그룹웨어 배포(13번): 로컬 커밋 → GitHub push → 서버 `~/groupware-src`에서 `git pull` → `JAVA_HOME=/usr/lib/jvm/java-22-amazon-corretto.x86_64
   mvn -q clean package -DskipTests`(비대화형 ssh엔 JAVA_HOME이 없어 지정 필요) → `~/groupware/groupware.jar` 교체 → `sudo systemctl restart groupware`(실측 15초).
-  이번 교체 전 jar 백업: `~/backup-report-integration-20260928/groupware.jar.before`.
+  교체 전 jar 백업: `~/backup-report-integration-20260928/groupware.jar.before`, `~/backup-staff-link-20260930/groupware.jar.before`.
+  재시작 동안(약 15초) 그룹웨어 전체가 멈추므로 업무 시간엔 사용자에게 먼저 묻는다.
 
 **Cloudflare 임시 주소**: 그룹웨어 자동 로그인 적용과 함께 껐다(바로가기에서 `-Tunnel` 제거). 감시 스크립트 기능은 남아 있어 필요하면 `-Tunnel`로 다시 켤 수 있으나,
 그룹웨어 모드에선 nginx를 안 거친 요청이 전부 401이라 쓸모가 없다.
