@@ -123,6 +123,22 @@ def set_deadline_admin_email(value: str, company_id: int | None = None) -> None:
     _set_setting(_KEY_DEADLINE_ADMIN_EMAIL, value.strip(), company_id)
 
 
+# ---------- 지도 출장 자동 배치(웹판 server/api/visit_scheduler.py) — 마지막 지도를 준공 며칠 전까지 마칠지(사용자 2026-10-01 "기본 2주, 언제든 변경") ----------
+_KEY_PLAN_FINISH_BEFORE_DAYS = "plan_finish_before_days"
+DEFAULT_PLAN_FINISH_BEFORE_DAYS = 14
+
+
+def get_plan_finish_before_days(company_id: int | None = None) -> int:
+    try:
+        return max(0, int(_get_setting(_KEY_PLAN_FINISH_BEFORE_DAYS, company_id) or DEFAULT_PLAN_FINISH_BEFORE_DAYS))
+    except ValueError:
+        return DEFAULT_PLAN_FINISH_BEFORE_DAYS
+
+
+def set_plan_finish_before_days(days: int, company_id: int | None = None) -> None:
+    _set_setting(_KEY_PLAN_FINISH_BEFORE_DAYS, str(int(days)), company_id)
+
+
 def get_ai_enabled() -> bool:
     stored = _get_setting(_KEY_AI_ENABLED)
     if stored is None:

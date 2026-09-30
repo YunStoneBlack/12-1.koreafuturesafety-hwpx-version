@@ -5,6 +5,7 @@
 - 예정 상태: 그 현장·그 날짜 보고서가 있으면 done(달력엔 다녀온 방문으로만 보임), 날짜가 지났는데 없으면 missed(지난 예정), 아니면 planned.
 - (2026-10-01 "마지막 지도일 + 15일" 지도 기한·⚠ 예정없음은 없앰 — 실제 규칙이 아니었음.)
 - `POST/PATCH/DELETE /calendar/plans` — 누구나 누구의 예정이든 넣고 고친다(사용자 결정). 하루 4곳을 넘겨도 막지 않고 화면이 경고만 한다.
+  사람이 넣은 예정, 자동 배치 예정의 날짜·현장·요원을 사람이 바꾼 것은 source=manual(📌 고정 — 자동 배치가 안 건드림, routers/auto_plan.py).
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ class PlanIn(BaseModel):
 
 def _plan_out(p: VisitPlan, site_name: str, state: str) -> dict:
     return {"id": p.id, "site_id": p.site_id, "site_name": site_name, "staff_id": p.staff_id,
-            "date": p.plan_date.isoformat(), "memo": p.memo, "state": state}
+            "date": p.plan_date.isoformat(), "memo": p.memo, "state": state, "source": p.source or "manual"}
 
 
 @router.get("")
@@ -152,6 +153,8 @@ def update_plan(plan_id: int, body: PlanIn, user: User = Depends(get_current_use
         plan.plan_date = fields["plan_date"]
     if "memo" in fields:
         plan.memo = (fields["memo"] or "").strip()
+    if {"site_id", "staff_id", "plan_date"} & fields.keys():
+        plan.source = "manual"  # 사람이 옮기거나 바꾼 예정은 고정
     db.commit()
     return {"ok": True}
 

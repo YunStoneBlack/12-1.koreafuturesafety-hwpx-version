@@ -22,6 +22,7 @@ from server.api.edit_tracking import track_report_edits
 from server.api.routers import (
     ai,
     auth,
+    auto_plan,
     calendar,
     findings,
     jobs,
@@ -83,6 +84,7 @@ web_app.include_router(report_manage.router, prefix="/api")
 web_app.include_router(report_mail.router, prefix="/api")
 web_app.include_router(submission.router, prefix="/api")
 web_app.include_router(calendar.router, prefix="/api")
+web_app.include_router(auto_plan.router, prefix="/api")
 
 
 @web_app.get("/api/health")

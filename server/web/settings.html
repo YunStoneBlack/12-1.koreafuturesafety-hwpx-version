@@ -50,6 +50,19 @@
   </div>
 </section>
 
+<section class="panel">
+  <div class="panel-head"><h2>지도 출장 자동 배치</h2></div>
+  <div class="panel-body">
+  <p class="page-sub" style="margin:0 0 10px;">자동 배치는 남은 지도 회차를 공사 기간에 고르게 나눠 방문 예정으로 넣습니다(주말·공휴일·징검다리 휴일 빼고,
+    같은 지역 현장은 같은 날로). 마지막 지도는 <b>준공일 며칠 전</b>까지 마칠지 정하세요 — 현장 사정에 따라 언제든 바꿔도 됩니다.</p>
+  <div class="field-grid">
+    <div><label for="ap-days">마지막 지도 마감 (준공일 며칠 전)</label><input id="ap-days" type="number" min="0" max="180" /></div>
+  </div>
+  <button type="button" id="ap-save">저장</button>
+  <div id="ap-status" class="status"></div>
+  </div>
+</section>
+
 <!-- 2026-10-01 "15일 지도 기한" 알림을 없애면서 숨김(관리자 메일 등 값은 보존) — 다른 알림 기능이 생기면 hidden을 풀고 문구를 바꿔 다시 쓴다 -->
 <section class="panel" id="alert-panel" hidden>
   <div class="panel-head"><h2>지도 기한 알림</h2></div>
@@ -172,6 +185,23 @@ api("/settings/signatures").then((st) => {
     });
   }
 }).catch((err) => showError(errorEl, err));
+
+// ---------- 지도 출장 자동 배치 마감(server/api/routers/auto_plan.py /settings/auto-plan) ----------
+api("/settings/auto-plan").then((d) => { document.getElementById("ap-days").value = d.finish_before_days; })
+  .catch((err) => showError(errorEl, err));
+document.getElementById("ap-save").addEventListener("click", async () => {
+  const st = document.getElementById("ap-status");
+  st.className = "status";
+  try {
+    const d = await apiPost("/settings/auto-plan", { finish_before_days: Number(document.getElementById("ap-days").value || 0) });
+    document.getElementById("ap-days").value = d.finish_before_days;
+    st.className = "status ok";
+    st.textContent = `저장했습니다 — 준공 ${d.finish_before_days}일 전까지 마치게 배치합니다(다음 자동 배치부터).`;
+  } catch (err) {
+    st.className = "status bad";
+    st.textContent = err.message;
+  }
+});
 
 // ---------- 알림 설정(숨긴 칸 #alert-panel, server/api/routers/settings.py /settings/deadline-alert) ----------
 async function loadDeadlineAlert() {
