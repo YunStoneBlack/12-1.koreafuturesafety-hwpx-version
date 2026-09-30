@@ -215,6 +215,11 @@ function renderHazardFactorTable(checkedList) {
       html += `<label class="line-check"><input type="checkbox" class="hf-line" data-value="${value}" ${checkedSet.has(value) ? "checked" : ""} /> ${line}</label>`;
     });
     row.innerHTML = html;
+    // 기인물을 체크하면 그 필수 지도사항 줄이 전부 같이 체크되고, 해제하면 같이 해제(데스크톱과 같음, 2026-09-30) — 그 뒤 줄 단위로 따로 고칠 수 있다.
+    // 사용자가 누를 때(change)만 — 저장된 값을 그릴 때는 발동 안 함. 자동 저장(문서 전체 change)은 이 처리 다음에 돌아 줄 체크까지 저장된다.
+    row.querySelector(".hf-factor").addEventListener("change", (e) => {
+      row.querySelectorAll(".hf-line").forEach((box) => { box.checked = e.target.checked; });
+    });
     listEl.appendChild(row);
   }
 }
