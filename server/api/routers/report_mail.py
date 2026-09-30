@@ -23,6 +23,7 @@ from server.api import mailer, repo
 from server.api.repo import mail_table_ready
 from server.api.deps import get_current_user, get_db
 from server.api.routers.report_manage import download_name
+from server.api.routers.site_contacts import contacts_of, retired_emails, split_emails
 from server.api.routers.reports import pdf_outdated_map
 
 router = APIRouter(prefix="/reports/{report_id}/mail", tags=["report-mail"])
@@ -89,18 +90,43 @@ def mail_info(report_id: int, user: User = Depends(get_current_user), db: Sessio
     site = report.site
     has_pdf = bool(report.pdf_path) and Path(report.pdf_path).exists()
     manager_email = (site.manager_email or "").strip() if site else ""
+    contacts = contacts_of(db, site) if site else {}
+    retired = retired_emails(db, site.id) if site else {}
+    last_raw = [a.lower() for a in _site_last_recipients(db, report.site_id)]
+    role_emails = {
+        "manager": [manager_email] if mailer.valid_email(manager_email) else [],
+        "owner": split_emails(contacts.get("owner_email", "")),
+        "supervisor": split_emails(contacts.get("supervisor_email", "")),
+    }
+    # 처음 체크 상태 — 지난번에 받은 곳(지금 주소로든, 바뀌기 전 옛 주소로든). 처음 보내면 등록된 곳 전부.
+    role_checked = {
+        role: bool(emails) and (
+            not last_raw
+            or any(a.lower() in last_raw for a in emails)
+            or any(retired.get(a) == role for a in last_raw)
+        )
+        for role, emails in role_emails.items()
+    }
     return {
+        "site_id": report.site_id,
         "configured": mailer.is_configured() and mail_table_ready(db),
         "from_addr": app_settings.MAIL_SMTP_USER,
         "cc": app_settings.MAIL_CC,
         "manager_name": (site.manager_name or "") if site else "",
         "manager_email": manager_email if mailer.valid_email(manager_email) else "",
+        # 발주처·감리단(site_contact) — 전송 창 체크 항목(없으면 빈 값)
+        "owner_name": contacts.get("owner_name", ""),
+        "owner_emails": split_emails(contacts.get("owner_email", "")),
+        "supervisor_name": contacts.get("supervisor_name", ""),
+        "supervisor_emails": split_emails(contacts.get("supervisor_email", "")),
         "subject": mailer.mail_subject(site.name if site else "", report.visit_no),
         "filename": download_name(report, ".pdf"),
         "size_bytes": Path(report.pdf_path).stat().st_size if has_pdf else 0,
         "problem": _pdf_problem(db, report),
         "history": _history(db, report_id),
-        "last_recipients": _site_last_recipients(db, report.site_id),
+        # 지난번 받는 사람 — 현장책임자·발주처·감리단에서 바뀌어 빠진 옛 주소는 빼고 채운다
+        "last_recipients": [a for a in _site_last_recipients(db, report.site_id) if a.lower() not in retired],
+        "role_checked": role_checked,
         "max_recipients": MAX_RECIPIENTS,
     }
 

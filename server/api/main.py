@@ -34,6 +34,7 @@ from server.api.routers import (
     report_manage,
     reports,
     settings,
+    site_contacts,
     sites,
     staff,
     staff_groupware,
@@ -61,6 +62,7 @@ web_app.middleware("http")(track_report_edits)
 
 web_app.include_router(auth.router, prefix="/api")
 web_app.include_router(sites.router, prefix="/api")
+web_app.include_router(site_contacts.router, prefix="/api")
 web_app.include_router(reports.router, prefix="/api")
 web_app.include_router(jobs.router, prefix="/api")
 web_app.include_router(settings.router, prefix="/api")

@@ -54,6 +54,14 @@
       <div><label for="manager_email">이메일</label><input id="manager_email" type="email" /></div>
     </div>
 
+    <h3 class="form-group-title">발주처·감리단 <span style="font-weight:400; color:var(--muted); font-size:12px;">(선택 — 고객사 전송 때 받는 사람으로 체크, 메일 여러 개면 쉼표로)</span></h3>
+    <div class="field-grid">
+      <div><label for="owner_name">발주처 이름·기관명</label><input id="owner_name" placeholder="예: ○○시청 건설과" /></div>
+      <div><label for="owner_email">발주처 메일</label><input id="owner_email" /></div>
+      <div><label for="supervisor_name">감리단 이름·기관명</label><input id="supervisor_name" /></div>
+      <div><label for="supervisor_email">감리단 메일</label><input id="supervisor_email" /></div>
+    </div>
+
     <h3 class="form-group-title">시공사(건설업체)</h3>
     <div class="field-grid">
       <div><label for="hq_company">회사명</label><input id="hq_company" /></div>
@@ -259,6 +267,15 @@ document.getElementById("site-form").addEventListener("submit", async (e) => {
   errorEl.style.display = "none";
   try {
     const created = await apiPost("/sites", readSiteForm());
+    const contacts = Object.fromEntries(["owner_name", "owner_email", "supervisor_name", "supervisor_email"]
+      .map((id) => [id, document.getElementById(id).value.trim()]));
+    if (Object.values(contacts).some(Boolean)) {
+      try {
+        await apiPatch(`/sites/${created.id}/contacts`, contacts);
+      } catch (err) {
+        alert(`현장은 등록했지만 발주처·감리단은 저장하지 못했습니다(${err.message}). 현장 화면의 [수정]에서 다시 넣어 주세요.`);
+      }
+    }
     // 등록하면 바로 그 현장 화면으로(다음 할 일이 거기서 보고서 작성이라)
     window.location.href = `site.html?id=${created.id}`;
   } catch (err) {
