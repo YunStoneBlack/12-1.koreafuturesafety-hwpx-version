@@ -102,7 +102,10 @@
   border: 1px dashed var(--line); border-radius: 8px; padding: 10px; margin-bottom: 10px;
   display: flex; align-items: center; gap: 12px; background: var(--paper);
 }
-.photo-slot .thumb { width: 64px; height: 48px; object-fit: contain; /* 잘라내지 않고 전체 — 세로 사진·돌린 방향이 보이게(2026-09-30) */ border-radius: 4px; background: var(--line); flex-shrink: 0; }
+/* 사진 칸 썸네일 — 사진 자리(폭·높이)는 고정해 옆 버튼이 줄 맞게, 그 안에 사진을 잘라내지 않고 제 모양대로 가운데(가로 사진은 넓게,
+   세로 사진은 좁게 — 2026-09-30: 세로 사진이 가로 틀에 잘려 "화면은 가로, PDF는 세로"로 보였음). 빈 곳은 투명. 폰은 조금 크게. */
+.photo-slot .thumb { width: 112px; height: 72px; object-fit: contain; object-position: center; background: transparent; flex-shrink: 0; }
+@media (max-width: 760px) { .photo-slot .thumb { width: 124px; height: 88px; } }
 .photo-slot .slot-controls { flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .photo-slot .slot-label { font-size: 12px; color: var(--muted); }
 .main .photo-slot .slot-controls button { align-self: flex-start; margin-top: 4px; padding: 6px 14px; }
