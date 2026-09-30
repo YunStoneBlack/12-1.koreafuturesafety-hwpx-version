@@ -3,6 +3,7 @@
 - `POST /calendar/auto-plan/preview` — 저장 없이 "이렇게 넣겠습니다"(미리보기). body: `site_id`(그 현장만) 또는 `staff_ids`(그 요원들의 진행 중 현장 전부).
 - `POST /calendar/auto-plan/apply` — 같은 계산을 다시 해서 저장: 대상 현장의 "자동(auto)이면서 내일 이후" 예정을 지우고 새로 넣는다.
   사람이 넣거나 옮긴 예정(manual, 📌)은 안 건드리고 기준점으로 쓴다. 현장 하나만 할 땐 다른 현장 예정은 그대로(새 현장을 기존 일정에 끼워 넣기).
+- `GET /calendar/unplanned` — "📅 일정 없는 현장"(진행 중·남은 회차 있음·공사 기간 안 끝남인데 내일 이후 예정이 하나도 없음) — 현장 목록·달력 위 안내.
 - `GET/POST /settings/auto-plan` — 마감(준공 며칠 전까지 마칠지, 기본 14일).
 """
 
@@ -88,7 +89,7 @@ def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.dat
     ) for s in targets]
     finish = config.get_plan_finish_before_days(company_id)
     placed, results = plan_sites(ins, today, busy, region_days, finish, MAX_SITES_PER_STAFF_PER_DAY, site_regions=region)
-    return sites, region, replaced, placed, results, finish
+    return sites, region, replaced, kept, placed, results, finish
 
 
 def _names(db: Session, company_id: int) -> dict[int, str]:
@@ -98,14 +99,23 @@ def _names(db: Session, company_id: int) -> dict[int, str]:
 @router.post("/calendar/auto-plan/preview")
 def preview(body: AutoPlanIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     today = datetime.date.today()
-    sites, region, replaced, placed, results, finish = _compute(db, user.company_id, body, today)
+    sites, region, replaced, kept, placed, results, finish = _compute(db, user.company_id, body, today)
     names = _names(db, user.company_id)
+    # 그날 같은 요원이 같이 가는 다른 현장(남기는 예정 + 이번에 넣는 것) — 미리보기에서 "누구와 함께"를 보여 준다
+    day_sites: dict[tuple[int, datetime.date], set[int]] = defaultdict(set)
+    for p in kept:
+        if p.staff_id is not None:
+            day_sites[(p.staff_id, p.plan_date)].add(p.site_id)
+    for p in placed:
+        if p.staff_id is not None:
+            day_sites[(p.staff_id, p.date)].add(p.site_id)
+    with_names = lambda p: sorted(sites[x].name for x in day_sites.get((p.staff_id, p.date), set()) if x != p.site_id and x in sites)
     return {
         "today": today.isoformat(),
         "finish_before_days": finish,
         "replace_count": len(replaced),
         "plans": [{"date": p.date.isoformat(), "site_id": p.site_id, "site_name": sites[p.site_id].name, "region": region[p.site_id],
-                   "staff_id": p.staff_id, "staff_name": names.get(p.staff_id, "")} for p in placed],
+                   "staff_id": p.staff_id, "staff_name": names.get(p.staff_id, ""), "with": with_names(p)} for p in placed],
         "sites": [{"site_id": r.site_id, "site_name": sites[r.site_id].name, "staff_name": names.get(sites[r.site_id].assigned_staff_id, ""),
                    "region": region[r.site_id], "needed": r.needed, "placed": r.placed, "note": r.note} for r in results],
     }
@@ -114,7 +124,7 @@ def preview(body: AutoPlanIn, user: User = Depends(get_current_user), db: Sessio
 @router.post("/calendar/auto-plan/apply")
 def apply(body: AutoPlanIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     today = datetime.date.today()
-    _, _, replaced, placed, results, _ = _compute(db, user.company_id, body, today)
+    _, _, replaced, _, placed, results, _ = _compute(db, user.company_id, body, today)
     for p in replaced:
         db.delete(p)
     for p in placed:
@@ -123,6 +133,25 @@ def apply(body: AutoPlanIn, user: User = Depends(get_current_user), db: Session 
     db.commit()
     return {"ok": True, "added": len(placed), "removed": len(replaced),
             "short": sum(1 for r in results if r.note.startswith("넣을 날"))}
+
+
+@router.get("/calendar/unplanned")
+def unplanned(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    today = datetime.date.today()
+    sites = [s for s in db.query(Site).filter(Site.company_id == user.company_id) if _active(s)
+             and s.total_guidance_count and s.period_end and s.period_end > today]
+    if not sites:
+        return []
+    ids = [s.id for s in sites]
+    planned = {sid for (sid,) in db.query(VisitPlan.site_id).filter(VisitPlan.site_id.in_(ids), VisitPlan.plan_date > today).distinct()}
+    last = dict(db.query(Report.site_id, func.max(Report.visit_no)).filter(Report.site_id.in_(ids)).group_by(Report.site_id))
+    names = _names(db, user.company_id)
+    return sorted(
+        ({"site_id": s.id, "site_name": s.name, "staff_id": s.assigned_staff_id, "staff_name": names.get(s.assigned_staff_id, ""),
+          "remaining": s.total_guidance_count - (last.get(s.id) or 0)}
+         for s in sites if s.id not in planned and s.total_guidance_count > (last.get(s.id) or 0)),
+        key=lambda x: (x["staff_name"], x["site_name"]),
+    )
 
 
 @router.get("/settings/auto-plan", response_model=AutoPlanSettings)

@@ -213,6 +213,7 @@ const cal = new FullCalendar.Calendar(document.getElementById("cal"), {
   },
 });
 cal.render();
+renderUnplannedNotice(document.getElementById("ap-notice"), () => reload());
 
 function refresh() { // 데이터는 그대로, 볼 사람만 바뀜
   renderFilter();

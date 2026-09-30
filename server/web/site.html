@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="css/site-info.css" />
 <link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/auto-plan.css" />
 </head>
 <body>
 <div class="app">
@@ -59,6 +60,7 @@
 
 <script src="app.js"></script>
 <script src="mail.js"></script>
+<script src="js/auto-plan.js"></script>
 <script src="shell.js"></script>
 <script>
 const errorEl = document.getElementById("error");
@@ -220,20 +222,43 @@ function applySite(site) {
   document.getElementById("site-name-h1").textContent = site.name;
   // 현장명 밑 [📞 전화] [📍 지도] — 지도는 지도 방문 주소(없으면 현장 주소)
   const top = document.getElementById("site-name-h1").parentElement;
-  top.querySelectorAll(".site-links, .pace").forEach((el) => el.remove());
+  top.querySelectorAll(".site-links, .pace, .site-plan").forEach((el) => el.remove());
   const links = siteLinkButtons(site.manager_phone, currentContacts.map_address || site.address);
   if (links) top.appendChild(links);
   // 진행 막대 — 수정 저장 응답엔 pace가 없어 처음 불러온 값을 유지
   if (site.pace) currentPace = site.pace;
   const pace = sitePaceBox(currentPace);
   if (pace) top.appendChild(pace);
+  top.appendChild(sitePlanBox(site));
   renderSiteSummary(site);
+}
+
+// [📅 지도 일정 자동 배치] — 이 현장만 기존 일정(같은 지역 출장)에 끼워 넣는다(js/auto-plan.js). 넣은 뒤 결과 한 줄 + 달력 링크.
+function sitePlanBox(site) {
+  const box = document.createElement("div");
+  box.className = "site-plan";
+  box.innerHTML = '<button type="button" class="secondary">📅 지도 일정 자동 배치</button><span class="site-plan-msg"></span>';
+  box.querySelector("button").addEventListener("click", () => openSitePlan(site));
+  return box;
+}
+function openSitePlan(site) {
+  openAutoPlan({ siteId: site.id }, site.name, (res) => {
+    const msg = document.querySelector(".site-plan-msg");
+    if (msg) msg.innerHTML = `✓ 방문 예정 ${res.added}회를 넣었습니다 — <a href="calendar.html">방문 달력에서 보기</a>`;
+  });
 }
 
 async function loadSite() {
   try {
     [currentSite, currentContacts] = await Promise.all([api(`/sites/${siteId}`), api(`/sites/${siteId}/contacts`).catch(() => ({}))]);
     applySite(currentSite);
+    // 새 현장 등록에서 "자동으로 넣을까요?"에 [확인]하고 넘어온 경우(dashboard.html) — 미리보기 창을 바로 연다
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("autoplan") === "1") {
+      q.delete("autoplan");
+      history.replaceState(null, "", `${location.pathname}?${q}`);
+      openSitePlan(currentSite);
+    }
   } catch (err) {
     showError(errorEl, err);
   }

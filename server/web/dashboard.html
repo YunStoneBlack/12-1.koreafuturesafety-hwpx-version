@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="/css/app.css" />
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="css/site-info.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/auto-plan.css" />
 </head>
 <body data-report-tab="sites">
 <div class="app">
@@ -80,6 +82,7 @@
   </div>
 </section>
 
+<div id="ap-notice"></div>
 <div class="panel">
   <div class="panel-head"><h2>현장 목록</h2><span class="panel-count" id="site-count"></span></div>
   <div class="rows" id="site-list"><div class="empty-note">불러오는 중...</div></div>
@@ -90,6 +93,7 @@
 
 <script src="app.js"></script>
 <script src="shell.js"></script>
+<script src="js/auto-plan.js"></script>
 <script>
 const errorEl = document.getElementById("error");
 
@@ -272,8 +276,11 @@ document.getElementById("site-form").addEventListener("submit", async (e) => {
         alert(`현장은 등록했지만 발주처·감리단·지도 방문 주소는 저장하지 못했습니다(${err.message}). 현장 화면의 [수정]에서 다시 넣어 주세요.`);
       }
     }
-    // 등록하면 바로 그 현장 화면으로(다음 할 일이 거기서 보고서 작성이라)
-    window.location.href = `site.html?id=${created.id}`;
+    // 등록하면 바로 그 현장 화면으로(다음 할 일이 거기서 보고서 작성이라). 지도 일정 자동 배치를 물어보고, [확인]이면 그 화면에서 미리보기 창을 연다
+    // ([취소]면 현장 목록·달력 위 "📅 일정 없는 현장"에 남는다 — 2026-10-01 사용자 2안)
+    const auto = created.total_guidance_count && created.period_end &&
+      confirm("이 현장의 지도 일정을 자동으로 넣을까요?\n(같은 지역 출장이 있는 날에 맞춰 넣고, 넣기 전에 미리 보여 줍니다)");
+    window.location.href = `site.html?id=${created.id}${auto ? "&autoplan=1" : ""}`;
   } catch (err) {
     showError(errorEl, err);
   }
@@ -282,6 +289,7 @@ document.getElementById("site-form").addEventListener("submit", async (e) => {
 
 loadSites();
 loadStaffOptions();
+renderUnplannedNotice(document.getElementById("ap-notice"), loadSites);
 </script>
 </body>
 </html>
