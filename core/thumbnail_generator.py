@@ -32,11 +32,14 @@ def resolve_material_path(stored_path: str | None) -> Path | None:
     if path.exists():
         return path
 
-    from core.db import BASE_DIR
+    from core.db import BASE_DIR, DATA_DIR
 
-    materials_dir = BASE_DIR / "data" / "materials"
-    fallback = materials_dir / "thumbnails" / path.name if path.parent.name == "thumbnails" else materials_dir / path.name
-    return fallback if fallback.exists() else None
+    # 웹판 저장소의 자료실(2026-10-01 — DATA_DIR/_자료실) → 예전 자리(data/materials) 순서로 찾는다
+    for materials_dir in (DATA_DIR / "_자료실", BASE_DIR / "data" / "materials"):
+        fallback = materials_dir / "thumbnails" / path.name if path.parent.name == "thumbnails" else materials_dir / path.name
+        if fallback.exists():
+            return fallback
+    return None
 
 
 def generate_pdf_thumbnail(pdf_path: str | Path, output_path: str | Path) -> bool:

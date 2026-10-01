@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
@@ -20,12 +19,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.db import BASE_DIR
 from core.material_recommender import recommend_materials
 from core.models_db import Finding, MaterialLibrary, ProvidedMaterial, SafetyEducation
 from core.models_web import User
 from core.thumbnail_generator import resolve_material_path
-from server.api import repo
+from server.api import repo, storage
 from server.api.deps import get_current_user, get_db
 from server.api.photo_thumbs import photo_response
 from server.schemas.support import MaterialIn, MaterialOut
@@ -212,20 +210,18 @@ def recommend(report_id: int, user: User = Depends(get_current_user), db: Sessio
 async def upload_material_photo(
     report_id: int, slot: int, file: UploadFile, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    _require_report(db, user.company_id, report_id)
+    report = _require_report(db, user.company_id, report_id)
     _require_slot(slot)
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in _ALLOWED_SUFFIXES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "이미지 파일만 업로드할 수 있습니다.")
-    photo_dir = BASE_DIR / "data" / "photos" / f"report_{report_id}"
-    photo_dir.mkdir(parents=True, exist_ok=True)
-    dest = photo_dir / f"material_{slot}_{uuid.uuid4().hex[:8]}{suffix}"
-    dest.write_bytes(await file.read())
     row = repo.get_slot_row(db, ProvidedMaterial, report_id, slot)
     if row is None:
         row = ProvidedMaterial(report_id=report_id, slot=slot)
         db.add(row)
-    _drop_custom_file(row)
+    dest = storage.photo_path(db, report, f"제공자료{slot}", suffix, own=row.custom_photo_path or "")
+    _drop_custom_file(row)  # 예전 파일 먼저 지우고(같은 이름일 수 있음) 새로 쓴다
+    dest.write_bytes(await file.read())
     row.custom_photo_path = str(dest)
     row.material_id = None
     db.commit()

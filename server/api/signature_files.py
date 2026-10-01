@@ -14,9 +14,9 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile, status
 from PIL import Image, ImageOps
 
-from core.db import BASE_DIR
+from core.db import DATA_DIR
 
-SIGNATURE_DIR = BASE_DIR / "data" / "signatures"
+SIGNATURE_DIR = DATA_DIR / "_서명"  # 요원 서명·결재 도장(server/api/storage.py 저장소 규칙, 2026-10-01)
 _MAX_SIDE = 1200  # 도장 스캔 원본이 커도 결재란 칸은 작다 — 용량만 줄이고 화질엔 영향 없음
 
 

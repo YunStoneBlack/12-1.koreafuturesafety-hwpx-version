@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.constants import FINDING_LOW_RISK_MAX_SCORE
 from core.db import Base
+from core.stored_path import StoredPath  # 파일 경로 칸 — 저장소 기준 상대경로로 저장(2026-10-01)
 
 
 class Staff(Base):
@@ -35,7 +36,7 @@ class Staff(Base):
     active: Mapped[bool] = mapped_column(default=True)
 
     # Sub-phase 8: 담당요원 서명 — 요원별 1회 등록, 모든 보고서에 재사용.
-    signature_path: Mapped[str] = mapped_column(Text, default="")
+    signature_path: Mapped[str] = mapped_column(StoredPath, default="")
     signature_source: Mapped[str] = mapped_column(Text, default="")  # "drawn" | "uploaded"
 
 
@@ -125,14 +126,14 @@ class Report(Base):
     special_note: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(Text, default="draft")  # draft / final
 
-    pdf_path: Mapped[str] = mapped_column(Text, default="")
-    docx_path: Mapped[str] = mapped_column(Text, default="")
-    hwpx_path: Mapped[str] = mapped_column(Text, default="")  # 예전 DOCX→HWPX 변환 파이프라인용(미사용)
-    hwp_path: Mapped[str] = mapped_column(Text, default="")  # Sub-phase 8: 신규 템플릿 기반 .hwp 산출물
+    pdf_path: Mapped[str] = mapped_column(StoredPath, default="")
+    docx_path: Mapped[str] = mapped_column(StoredPath, default="")
+    hwpx_path: Mapped[str] = mapped_column(StoredPath, default="")  # 예전 DOCX→HWPX 변환 파이프라인용(미사용)
+    hwp_path: Mapped[str] = mapped_column(StoredPath, default="")  # Sub-phase 8: 신규 템플릿 기반 .hwp 산출물
 
     # Sub-phase 8: 통보방법 성명/서명 — 회차마다 통보 대상자가 다를 수 있어 Report에 둔다.
     notify_signee_name: Mapped[str] = mapped_column(Text, default="")
-    notify_signature_path: Mapped[str] = mapped_column(Text, default="")
+    notify_signature_path: Mapped[str] = mapped_column(StoredPath, default="")
     notify_signature_source: Mapped[str] = mapped_column(Text, default="")  # "drawn" | "uploaded"
 
     # 표3 "기타 특이사항" 행 — 공사기간 편중/사진촬영 불가/기타(자유 텍스트)/재해발생현황(유·무 + 내용)
@@ -213,7 +214,7 @@ class OverviewPhoto(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~4
-    photo_path: Mapped[str] = mapped_column(Text, default="")
+    photo_path: Mapped[str] = mapped_column(StoredPath, default="")
 
     report: Mapped[Report] = relationship(back_populates="overview_photos")
 
@@ -228,7 +229,7 @@ class InspectionPhoto(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~4
-    photo_path: Mapped[str] = mapped_column(Text, default="")
+    photo_path: Mapped[str] = mapped_column(StoredPath, default="")
 
     report: Mapped[Report] = relationship(back_populates="inspection_photos")
 
@@ -240,7 +241,7 @@ class SafetyEducation(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"), unique=True)
-    photo_path: Mapped[str] = mapped_column(Text, default="")
+    photo_path: Mapped[str] = mapped_column(StoredPath, default="")
     attendee_count: Mapped[int | None] = mapped_column(default=None)
     na_flag: Mapped[bool] = mapped_column(default=False)
 
@@ -260,7 +261,7 @@ class Finding(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~4
-    photo_path: Mapped[str] = mapped_column(Text, default="")
+    photo_path: Mapped[str] = mapped_column(StoredPath, default="")
     description: Mapped[str] = mapped_column(Text, default="")  # 사용자가 적는 간단 설명(AI 입력용)
     title: Mapped[str] = mapped_column(Text, default="")
     content: Mapped[str] = mapped_column(Text, default="")
@@ -286,14 +287,14 @@ class PreviousFinding(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~4
-    photo_path: Mapped[str] = mapped_column(Text, default="")
+    photo_path: Mapped[str] = mapped_column(StoredPath, default="")
     title: Mapped[str] = mapped_column(Text, default="")
     content: Mapped[str] = mapped_column(Text, default="")
     action_result: Mapped[str] = mapped_column(Text, default="조치완료")
     result_status: Mapped[str] = mapped_column(Text, default="")  # ""(미선택)|"확인불가"|"보완필요"|"이행완료"
     # "이행완료" 체크 시 업로드하는 조치 완료 증빙 사진 — 원본 지적사항 사진(photo_path/
     # display_fields())과 별개다.
-    completion_photo_path: Mapped[str] = mapped_column(Text, default="")
+    completion_photo_path: Mapped[str] = mapped_column(StoredPath, default="")
     risk_level: Mapped[str] = mapped_column(Text, default="")  # 상/중/하 (Sub-phase 8, 표4 대응)
     # 직전 회차 지적사항에서 이월된 경우 그 원본 Finding을 가리킨다 — 원본이 나중에 수정되면
     # display_fields()가 그 최신 내용을 실시간으로 반영한다. 수기로 추가했거나(+ 버튼) 원본이
@@ -392,7 +393,7 @@ class Measurement(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     instrument_type: Mapped[str] = mapped_column(Text)  # 소음측정기/산소농도측정기/... (7종)
-    photo_path: Mapped[str] = mapped_column(Text, default="")
+    photo_path: Mapped[str] = mapped_column(StoredPath, default="")
     value: Mapped[str] = mapped_column(Text, default="")
     manual_verdict: Mapped[str] = mapped_column(Text, default="")  # "" | "양호" | "불량" — 수동 지정 시 자동판정보다 우선
     manual_action: Mapped[str] = mapped_column(Text, default="")  # 표16 "조치사항" 수기 입력 — 비어있으면 "-"로 표시
@@ -409,7 +410,7 @@ class ProvidedMaterial(Base):
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~2
     material_id: Mapped[int | None] = mapped_column(ForeignKey("material_library.id"), default=None)
-    custom_photo_path: Mapped[str] = mapped_column(Text, default="")
+    custom_photo_path: Mapped[str] = mapped_column(StoredPath, default="")
     title: Mapped[str] = mapped_column(Text, default="")
 
     report: Mapped[Report] = relationship(back_populates="provided_materials")
@@ -431,7 +432,7 @@ class ProcessHazardEntry(Base):
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~4
     process_name: Mapped[str] = mapped_column(Text, default="")
-    photo_path: Mapped[str] = mapped_column(Text, default="")  # AI 분석에 쓴 공정 사진
+    photo_path: Mapped[str] = mapped_column(StoredPath, default="")  # AI 분석에 쓴 공정 사진
     hazard_text: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
     prevention_text: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
     risk_level: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
@@ -469,7 +470,7 @@ class CurrentProcessPhoto(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~2
-    photo_path: Mapped[str] = mapped_column(Text, default="")
+    photo_path: Mapped[str] = mapped_column(StoredPath, default="")
 
     report: Mapped[Report] = relationship(back_populates="current_process_photos")
 
@@ -491,7 +492,7 @@ class CurrentProcessEntry(Base):
     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     slot: Mapped[int] = mapped_column()  # 1~4
     process_name: Mapped[str] = mapped_column(Text, default="")
-    photo_path: Mapped[str] = mapped_column(Text, default="")  # AI 분석에 쓴 공정 사진
+    photo_path: Mapped[str] = mapped_column(StoredPath, default="")  # AI 분석에 쓴 공정 사진
     hazard_text: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
     prevention_text: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
     risk_level: Mapped[str] = mapped_column(Text, default="")  # (옛 구조) 더 이상 안 씀
@@ -556,8 +557,8 @@ class MaterialLibrary(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(Text)
-    thumbnail_path: Mapped[str] = mapped_column(Text, default="")
-    file_path: Mapped[str] = mapped_column(Text, default="")
+    thumbnail_path: Mapped[str] = mapped_column(StoredPath, default="")
+    file_path: Mapped[str] = mapped_column(StoredPath, default="")
     tags: Mapped[str] = mapped_column(Text, default="")  # 쉼표 구분
 
 

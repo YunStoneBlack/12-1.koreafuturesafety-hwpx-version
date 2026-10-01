@@ -7,16 +7,14 @@
 
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
-from core.db import BASE_DIR
-from core.models_db import PreviousFinding
+from core.models_db import PreviousFinding, Report
 from core.models_web import User
-from server.api import repo
+from server.api import repo, storage
 from server.api.carryover import owns_file, reconcile_previous_findings, sync_implemented_flag
 from server.api.deps import get_current_user, get_db
 from server.api.photo_thumbs import photo_response
@@ -126,14 +124,12 @@ async def _save_photo(db: Session, report_id: int, slot: int, field: str, slug: 
     row = repo.get_slot_row(db, PreviousFinding, report_id, slot)
     if field == "photo_path":
         _reject_if_carried(row)
-    photo_dir = BASE_DIR / "data" / "photos" / f"report_{report_id}"
-    photo_dir.mkdir(parents=True, exist_ok=True)
-    # 파일명에 난수를 붙인다 — 이월 때문에 항목의 슬롯 번호가 바뀔 수 있어서, 슬롯 번호만으로
-    # 이름을 지으면 다른 항목이 같은 파일을 덮어쓸 수 있다.
-    dest = photo_dir / f"{slug}_{uuid.uuid4().hex[:8]}{suffix}"
-    dest.write_bytes(await file.read())
     old = getattr(row, field, "") if row else ""
-    if row is not None and owns_file(row, old):
+    # 이름은 storage 규칙("…_05회차_이전지적사항2.jpg"). 이월 때문에 칸 번호가 바뀌어 같은 이름을 다른 항목이 쓰고 있으면
+    # storage.photo_path가 _2를 붙여 덮어쓰지 않는다(예전엔 그래서 난수를 붙였음).
+    dest = storage.photo_path(db, db.get(Report, report_id), slug, suffix, own=old)  # 회사 확인은 호출하는 쪽(_require_report)
+    dest.write_bytes(await file.read())
+    if row is not None and owns_file(row, old) and not storage.same_path(old, dest):
         Path(old).unlink(missing_ok=True)
     repo.upsert_slot_row(db, PreviousFinding, report_id, slot, **{field: str(dest)})
 
@@ -164,7 +160,7 @@ async def upload_photo(
 ):
     _require_report(db, user.company_id, report_id)
     _require_slot(slot)
-    await _save_photo(db, report_id, slot, "photo_path", f"previous_{slot}", file)
+    await _save_photo(db, report_id, slot, "photo_path", f"이전지적사항{slot}", file)
     return _to_out(slot, repo.get_slot_row(db, PreviousFinding, report_id, slot))
 
 
@@ -191,7 +187,7 @@ async def upload_completion_photo(
 ):
     _require_report(db, user.company_id, report_id)
     _require_slot(slot)
-    await _save_photo(db, report_id, slot, "completion_photo_path", f"previous_{slot}_completion", file)
+    await _save_photo(db, report_id, slot, "completion_photo_path", f"이전지적사항{slot}_이행완료", file)
     return _to_out(slot, repo.get_slot_row(db, PreviousFinding, report_id, slot))
 
 

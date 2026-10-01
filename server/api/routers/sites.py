@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -11,13 +10,11 @@ from sqlalchemy.orm import Session
 
 from core import config
 from core.contract_analyzer import extract_site_info
-from core.db import BASE_DIR
 from core.models_db import Finding, PreviousFinding, Report, Site, SiteProcessDefault, Staff
 from core.models_web import ReportJob, User
-from server.api import repo
+from server.api import repo, storage
 from server.api.deps import get_current_user, get_db
 from server.api.geocode import map_addresses
-from server.api.routers.report_manage import prepared_hwpx_path, preview_dir
 from server.api.site_pace_out import done_counts, pace_dict
 from server.api.site_status import NEW_SITE
 from server.api.routers.reports import check_staff_limit
@@ -131,7 +128,9 @@ def update_site(
         drafts = [r for r in existing.reports if r.status != "final" and r.assigned_staff_id != new_staff]
         for r in drafts:
             check_staff_limit(db, r, {"assigned_staff_id": new_staff})
+    old_base = storage.base_site_name(existing)  # 현장 폴더 이름(현장명·관리번호) — 바뀌면 폴더·파일 이름도 다시 맞춤
     site = repo.update_site(db, user.company_id, site_id, **body.model_dump())
+    storage.relocate_after_site_change(db, site, old_base)
     if drafts:
         for r in drafts:
             r.assigned_staff_id = new_staff
@@ -170,7 +169,8 @@ def delete_site_cascade(db: Session, site: Site) -> int:
     site_id = site.id
     reports = db.query(Report).filter(Report.site_id == site_id).all()
     report_ids = [r.id for r in reports]
-    files = [p for r in reports for p in (r.pdf_path, r.notify_signature_path) if p]
+    # 지울 파일 목록은 지금 모으고(현장·회차 폴더 이름 계산에 DB 행이 필요) 실제 삭제는 DB 삭제가 확정된 뒤에
+    targets = [t for report in reports for t in storage.report_file_targets(db, report)] + [storage.site_dir(db, site)]
     if report_ids:
         finding_ids = [f.id for f in db.query(Finding.id).filter(Finding.report_id.in_(report_ids))]
         if finding_ids:
@@ -183,11 +183,5 @@ def delete_site_cascade(db: Session, site: Site) -> int:
     db.query(SiteProcessDefault).filter(SiteProcessDefault.site_id == site_id).delete(synchronize_session=False)
     db.delete(site)
     db.commit()
-    for path in files:
-        Path(path).unlink(missing_ok=True)
-        if path.lower().endswith(".pdf"):
-            shutil.rmtree(preview_dir(path), ignore_errors=True)  # 폰 미리보기 쪽 이미지
-    for report_id in report_ids:
-        shutil.rmtree(BASE_DIR / "data" / "photos" / f"report_{report_id}", ignore_errors=True)
-        prepared_hwpx_path(report_id).unlink(missing_ok=True)  # 한글 받기용으로 준비해 둔 파일
+    storage.delete_targets(targets)  # 회차 폴더·현장 폴더·예전 사진 폴더·미리보기
     return len(report_ids)

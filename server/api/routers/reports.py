@@ -9,11 +9,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core import config
-from core.db import BASE_DIR
 from core.models_db import Staff
 from core.models_web import ReportEdit, ReportJob, ReportMail, User
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY, is_full, other_site_names
-from server.api import repo
+from server.api import repo, storage
 from server.api.report_defaults import apply_new_report_defaults, record_site_hazard_checks
 from server.api.deps import get_current_user, get_db
 from server.schemas.report import JobOut, ReportIn, ReportOut, SignoffStatus
@@ -111,9 +110,15 @@ def update_report(
     if current is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
     check_staff_limit(db, current, fields)
+    old_visit_no = current.visit_no
     report = repo.update_report(db, user.company_id, report_id, **fields)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
+    if report.visit_no != old_visit_no and report.site:
+        # 회차가 바뀌면 회차 폴더·파일 이름도("05회차" → "06회차"). 같은 회차가 겹치거나 풀리는 다른 보고서까지 현장 단위로 다시 맞춘다
+        storage.relocate_site(db, report.site)
+        db.commit()
+        db.refresh(report)
     if "hazard_factor_checks" in fields:
         record_site_hazard_checks(db, report)  # 다음 회차 기본값(데스크톱 저장 로직과 동일)
     # 담당요원은 보고서 ↔ 현장 연동(2026-09-29 사용자 요청) — 보고서에서 정하면 현장 담당요원도 같은 사람으로
@@ -193,16 +198,14 @@ async def save_notify_signature(
     report_id: int, file: UploadFile, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """현장책임자 서명 저장 — 브라우저 캔버스에서 그린 PNG를 그대로 받아서 저장한다.
-    desktop/widgets/signature_pad.py의 `move_or_reference`와 같은 최종 경로 규칙
-    (`data/signatures/report_{id}_notify.png`)을 그대로 따른다."""
+    저장 자리는 server/api/storage.py 규칙(회차 폴더)."""
     report = repo.get_report(db, user.company_id, report_id)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
 
-    sig_dir = BASE_DIR / "data" / "signatures"
-    sig_dir.mkdir(parents=True, exist_ok=True)
-    final_path = sig_dir / f"report_{report_id}_notify.png"
+    final_path = storage.notify_signature_path(db, report)  # 회차 폴더 "…_05회차_현장책임자서명.png"(storage 규칙)
     final_path.write_bytes(await file.read())
+    storage.drop_old(report.notify_signature_path, final_path)
 
     return repo.update_report(
         db, user.company_id, report_id, notify_signature_path=str(final_path), notify_signature_source="drawn"

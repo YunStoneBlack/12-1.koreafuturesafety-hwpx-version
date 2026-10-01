@@ -89,7 +89,9 @@ def _seed_reference_data() -> None:
     if not seed_path.exists():
         return
     data = json.loads(seed_path.read_text(encoding="utf-8"))
-    materials_dir = BASE_DIR / "data" / "materials"
+    materials_dir = DATA_DIR / "_자료실"  # 웹판 저장소의 자료실(2026-10-01) — 없으면 예전 자리
+    if not materials_dir.exists():
+        materials_dir = BASE_DIR / "data" / "materials"
 
     with SessionLocal() as session:
         if session.query(ProcessCatalog).count() == 0:

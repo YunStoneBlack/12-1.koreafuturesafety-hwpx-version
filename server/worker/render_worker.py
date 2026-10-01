@@ -29,11 +29,12 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from core.db import BASE_DIR, SessionLocal
+from core.db import SessionLocal
 from core.models_db import Report
 from core.models_web import ReportJob
 from core.report_builder import build_report
 from desktop.workers.ai_worker import with_com
+from server.api import storage
 
 POLL_INTERVAL_SECONDS = 1.5
 
@@ -58,13 +59,12 @@ def _claim_next_job(db) -> tuple[int, int] | None:
 
 
 def _render(job_id: int, report_id: int) -> None:
-    output_dir = BASE_DIR / "data" / "reports"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"report_{report_id}.pdf"
-
     with SessionLocal() as db:
         job = db.get(ReportJob, job_id)
         try:
+            # 회차 폴더 "…_05회차.pdf"(server/api/storage.py 규칙). 예전 자리(data/reports/report_N.pdf)에 있던 PDF는 새로 만든 뒤 지운다
+            old_pdf = db.get(Report, report_id).pdf_path
+            output_path = storage.pdf_path(db, db.get(Report, report_id))
             with_com(lambda: build_report(report_id, output_path))()
             # build_report()(특히 한글 COM 경로인 build_report_pdf_via_hwpx)는 report.status만
             # 갱신하고 pdf_path는 스스로 저장하지 않는다 — 데스크톱 앱도 report_export.py의
@@ -72,6 +72,7 @@ def _render(job_id: int, report_id: int) -> None:
             # 여기서도 호출부(워커)가 책임진다.
             report = db.get(Report, report_id)
             report.pdf_path = str(output_path)
+            storage.drop_old(old_pdf, output_path)
             job.status = "done"
         except Exception as exc:  # noqa: BLE001 -- 어떤 예외든 그대로 기록, 워커 루프는 계속 돌아야 함
             job.status = "failed"

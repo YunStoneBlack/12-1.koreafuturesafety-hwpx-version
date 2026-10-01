@@ -10,10 +10,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
-from core.db import BASE_DIR
-from core.models_db import Finding
+from core.models_db import Finding, PreviousFinding
 from core.models_web import User
-from server.api import repo
+from server.api import repo, storage
 from server.api.deps import get_current_user, get_db
 from server.api.photo_thumbs import photo_response
 from server.schemas.finding import FindingIn, FindingOut
@@ -76,15 +75,17 @@ def update_finding(
 async def upload_photo(
     report_id: int, slot: int, file: UploadFile, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    _require_report(db, user.company_id, report_id)
+    report = _require_report(db, user.company_id, report_id)
     _require_slot(slot)
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in _ALLOWED_SUFFIXES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "이미지 파일만 업로드할 수 있습니다.")
-    photo_dir = BASE_DIR / "data" / "photos" / f"report_{report_id}"
-    photo_dir.mkdir(parents=True, exist_ok=True)
-    dest = photo_dir / f"finding_{slot}{suffix}"
+    dest = storage.photo_path(db, report, f"지적사항{slot}", suffix)
     dest.write_bytes(await file.read())
+    old = repo.get_slot_row(db, Finding, report_id, slot)
+    # 예전 파일은 다음 회차 이전지적사항이 같은 경로를 쓰고 있지 않을 때만 지운다(이월 복사본 보호)
+    if old and old.photo_path and not db.query(PreviousFinding.id).filter(PreviousFinding.photo_path == old.photo_path).first():
+        storage.drop_old(old.photo_path, dest)
     repo.upsert_slot_row(db, Finding, report_id, slot, photo_path=str(dest))
     return _to_out(slot, repo.get_slot_row(db, Finding, report_id, slot))
 

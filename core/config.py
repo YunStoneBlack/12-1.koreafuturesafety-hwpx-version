@@ -211,11 +211,15 @@ def get_company_signature(role: str, company_id: int | None = None) -> tuple[str
 
     반환값: (signature_path, source). 등록 안 됐으면 ("", "").
     """
-    path = (_get_setting(f"signature_{role}_path", company_id) or "").strip()
+    from core.stored_path import to_full  # 저장소 기준 상대경로로 저장됨(2026-10-01) — 예전 전체 경로도 그대로 읽힘
+
+    path = to_full((_get_setting(f"signature_{role}_path", company_id) or "").strip())
     source = (_get_setting(f"signature_{role}_source", company_id) or "").strip()
     return path, source
 
 
 def set_company_signature(role: str, path: str, source: str, company_id: int | None = None) -> None:
-    _set_setting(f"signature_{role}_path", path, company_id)
+    from core.stored_path import to_stored
+
+    _set_setting(f"signature_{role}_path", to_stored(path), company_id)
     _set_setting(f"signature_{role}_source", source, company_id)

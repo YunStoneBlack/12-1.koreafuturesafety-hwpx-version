@@ -14,13 +14,12 @@ from __future__ import annotations
 
 import gc
 import shutil
-import tempfile
 import time
 from pathlib import Path
 
 from hwpx.document import HwpxDocument
 
-from core.db import BASE_DIR, SessionLocal
+from core.db import BASE_DIR, DATA_DIR, SessionLocal
 from core.models_db import Report
 from core.report_builder_hwpx_borders import normalize_table_styles
 from core.report_builder_hwpx_fields import fill_all
@@ -36,7 +35,8 @@ from core.report_builder_hwpx_images import (
 )
 
 _TEMPLATE_PATH = BASE_DIR / "data" / "templates" / "report_template.hwpx"
-_PDF_CACHE_DIR = Path(tempfile.gettempdir()) / "claude" / "hwpx_pdf_cache"
+# 한글 중간 파일 — 저장소 안 _시스템/cache(2026-10-01, 예전엔 윈도우 임시 폴더라 정리 기능이 지울 수 있었음). 지워도 다음에 다시 만듦
+_PDF_CACHE_DIR = DATA_DIR / "_시스템" / "cache"
 
 
 class HwpxBuildError(RuntimeError):

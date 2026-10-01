@@ -23,9 +23,9 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from core.db import BASE_DIR
 from core.models_db import Measurement, ProcessHazardEntry, Report, SafetyEducation, Site, SiteProcessDefault
 from core.staff_load import is_full, other_site_names
+from server.api import storage
 
 DEFAULT_NOTIFICATION_METHOD = "전자우편"
 DEFAULT_EDUCATION_LOCATION = "현장 내"
@@ -35,13 +35,12 @@ DEFAULT_MEASUREMENT_VERDICT = "양호"
 DEFAULT_MEASUREMENT_ACTION = "이상 없음 확인"
 
 
-def _copy_signature(src: str, report_id: int) -> str:
-    """이전 회차 서명을 이 보고서 전용 경로로 복사한다(같은 파일을 공유하면 한쪽에서 지울 때 다른
-    회차 서명까지 사라지므로 — 데스크톱 move_or_reference와 같은 최종 경로 규칙)."""
+def _copy_signature(src: str, db: Session, report: Report) -> str:
+    """이전 회차 서명을 이 보고서 전용 경로(회차 폴더, storage 규칙)로 복사한다(같은 파일을 공유하면 한쪽에서 지울 때 다른
+    회차 서명까지 사라지므로)."""
     if not src or not Path(src).exists():
         return ""
-    dest = BASE_DIR / "data" / "signatures" / f"report_{report_id}_notify.png"
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest = storage.notify_signature_path(db, report)
     try:
         shutil.copyfile(src, dest)
     except OSError:
@@ -79,7 +78,7 @@ def apply_new_report_defaults(db: Session, report: Report, explicit: set[str]) -
     if "hazard_factor_checks" not in explicit and site and site.hazard_factor_checks:
         report.hazard_factor_checks = list(site.hazard_factor_checks)
     if last and last.notify_signature_path and "notify_signature_path" not in explicit:
-        copied = _copy_signature(last.notify_signature_path, report.id)
+        copied = _copy_signature(last.notify_signature_path, db, report)
         if copied:
             report.notify_signature_path = copied
             report.notify_signature_source = last.notify_signature_source

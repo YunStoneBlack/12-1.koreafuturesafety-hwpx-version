@@ -1,8 +1,7 @@
 """3. 전경사진 및 점검사진 — 전경(표4)/점검(표5) 각각 최대 4칸, 완전히 같은 모양이라
 `_build_slot_router()` 하나로 두 카테고리(overview/inspection) 라우터를 둘 다 찍어낸다.
 
-저장 경로 규칙은 데스크톱과 동일: `data/photos/report_{id}/{category}_{slot}{확장자}`
-(desktop/views/report_wizard_save.py의 `_stored_photo` 참고)."""
+저장 경로는 server/api/storage.py 규칙(2026-10-01): `현장\05회차\사진\현장_05회차_전경사진1.jpg`."""
 
 from __future__ import annotations
 
@@ -11,10 +10,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
-from core.db import BASE_DIR
 from core.models_db import InspectionPhoto, OverviewPhoto, Report
 from core.models_web import User
-from server.api import repo
+from server.api import repo, storage
 from server.api.deps import get_current_user, get_db
 from server.api.photo_thumbs import photo_response
 
@@ -49,16 +47,16 @@ def _build_slot_router(category: str, model_cls, label: str) -> APIRouter:
         user: User = Depends(get_current_user),
         db: Session = Depends(get_db),
     ):
-        _require_report(db, user.company_id, report_id)
+        report = _require_report(db, user.company_id, report_id)
         _require_slot(slot)
         suffix = Path(file.filename or "").suffix.lower()
         if suffix not in _ALLOWED_SUFFIXES:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{label}은(는) 이미지 파일만 업로드할 수 있습니다.")
 
-        photo_dir = BASE_DIR / "data" / "photos" / f"report_{report_id}"
-        photo_dir.mkdir(parents=True, exist_ok=True)
-        dest = photo_dir / f"{category}_{slot}{suffix}"
+        dest = storage.photo_path(db, report, f"{label}{slot}", suffix)
         dest.write_bytes(await file.read())
+        old = repo.get_photo_slot(db, model_cls, report_id, slot)
+        storage.drop_old(old.photo_path if old else "", dest)
 
         repo.upsert_photo_slot(db, model_cls, report_id, slot, str(dest))
         return {"slot": slot, "ok": True}

@@ -10,10 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, stat
 from sqlalchemy.orm import Session
 
 from core.constants import MEASUREMENT_INSTRUMENTS
-from core.db import BASE_DIR
 from core.models_db import Measurement, Report, SafetyEducation
 from core.models_web import User
-from server.api import repo
+from server.api import repo, storage
 from server.api.deps import get_current_user, get_db
 from server.api.photo_thumbs import photo_response
 from server.schemas.support import MeasurementIn, MeasurementOut, TbmIn, TbmOut
@@ -30,14 +29,14 @@ def _require_report(db: Session, company_id: int, report_id: int) -> Report:
     return report
 
 
-async def _save_photo(file: UploadFile, report_id: int, slug: str) -> str:
+async def _save_photo(db: Session, file: UploadFile, report: Report, label: str, old: str) -> str:
+    """label = 파일 이름 속 칸 이름(storage 규칙 — "TBM교육", "계측자료_조도계"). old = 이 칸의 예전 파일(이름이 다르면 지움)."""
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in _ALLOWED_SUFFIXES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "이미지 파일만 업로드할 수 있습니다.")
-    photo_dir = BASE_DIR / "data" / "photos" / f"report_{report_id}"
-    photo_dir.mkdir(parents=True, exist_ok=True)
-    dest = photo_dir / f"{slug}{suffix}"
+    dest = storage.photo_path(db, report, label, suffix, own=old)
     dest.write_bytes(await file.read())
+    storage.drop_old(old, dest)
     return str(dest)
 
 
@@ -90,9 +89,9 @@ def update_tbm(
 async def upload_tbm_photo(
     report_id: int, file: UploadFile, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    _require_report(db, user.company_id, report_id)
-    path = await _save_photo(file, report_id, "education")
+    report = _require_report(db, user.company_id, report_id)
     row = db.query(SafetyEducation).filter(SafetyEducation.report_id == report_id).first()
+    path = await _save_photo(db, file, report, "TBM교육", row.photo_path if row else "")
     if row is None:
         row = SafetyEducation(report_id=report_id, photo_path=path)
         db.add(row)
@@ -189,15 +188,14 @@ async def upload_measurement_photo(
     report_id: int, instrument_type: str, file: UploadFile,
     user: User = Depends(get_current_user), db: Session = Depends(get_db),
 ):
-    _require_report(db, user.company_id, report_id)
+    report = _require_report(db, user.company_id, report_id)
     _require_instrument(instrument_type)
-    slug = f"measurement_{instrument_type}"
-    path = await _save_photo(file, report_id, slug)
     row = (
         db.query(Measurement)
         .filter(Measurement.report_id == report_id, Measurement.instrument_type == instrument_type)
         .first()
     )
+    path = await _save_photo(db, file, report, f"계측자료_{instrument_type}", row.photo_path if row else "")
     if row is None:
         row = Measurement(report_id=report_id, instrument_type=instrument_type, photo_path=path)
         db.add(row)
