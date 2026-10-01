@@ -42,7 +42,7 @@
 
 /* 공사 상태 4칸(app.js siteStatusSwitch, 2026-10-01 사용자) — 따로 떨어진 버튼 4개, 하나만 불이 켜짐. 진행중만 지도 출장 배치.
    현장 목록: PC는 줄 오른쪽 세로, 폰은 현장명 위 가로 한 줄. 현장 화면: 가로(진행 막대 위).
-   꺼진 칸 = 흰 바탕 + 상태 색 점, 켜진 칸 = 상태 색으로 채움. 그룹웨어 .main button 규칙을 이기려고 .main을 붙임. */
+   꺼진 칸 = 흰 바탕(마우스 올리면 상태 색), 켜진 칸 = 상태 색으로 채움. 그룹웨어 .main button 규칙을 이기려고 .main을 붙임. */
 .st-switch { flex: none; align-self: center; display: flex; flex-direction: column; gap: 5px; }
 .st-switch button[data-s="착공전"] { --c: #6B7280; --soft: #F1F2F4; }
 .st-switch button[data-s="진행중"] { --c: #2A7DE1; --soft: #EAF2FD; }
@@ -52,10 +52,8 @@
   border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: none; color: var(--muted);
   font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.2; text-align: center; white-space: nowrap; cursor: pointer;
   transition: background .15s, color .15s, border-color .15s, box-shadow .15s; }
-.main .st-switch button::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
 .main .st-switch button:hover:not(.on) { border-color: var(--c); background: var(--soft); color: var(--c); }
 .main .st-switch button.on { border-color: var(--c); background: var(--c); color: #fff; box-shadow: 0 2px 6px rgba(15, 17, 32, .16); cursor: default; }
-.main .st-switch button.on::before { background: #fff; }
 .st-switch.busy { opacity: .5; pointer-events: none; }
 .topline .st-wrap { flex-basis: 100%; } /* 현장 화면: 버튼 줄이 한 줄을 따로 쓰게 */
 .topline .st-switch { flex-direction: row; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
