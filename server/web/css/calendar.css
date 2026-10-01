@@ -27,6 +27,10 @@
 .fc .ev-writing, .lg.ev-writing, .cal-item.ev-writing > i { background: #CFE1F8 !important; border: 1px solid #A9C9F0 !important; }
 .fc .ev-submitted, .lg.ev-submitted, .cal-item.ev-submitted > i { background: #1E5FAF !important; border: 1px solid #1E5FAF !important; }
 .fc .ev-plan .fc-event-main { color: var(--blue) !important; font-weight: 600; }
+/* ⚠ 대타 필요(자동 배치 — 담당 요원은 거리가 멀어 못 감) — 주황 칸, 범례·그날 목록 동그라미도 같은 색 */
+.fc .ev-sub, .lg.ev-sub, .cal-item.ev-sub > i { background: var(--warn-soft) !important; border: 1.5px solid #E0A33A !important; }
+.fc .ev-sub .fc-event-main { color: var(--warn) !important; font-weight: 700; }
+.cal-item.ev-sub small { color: var(--warn); font-weight: 600; }
 .fc .ev-missed .fc-event-main { color: var(--crit) !important; font-weight: 600; }
 .fc .ev-writing .fc-event-main { color: #1E4F8F !important; }
 .fc .ev-submitted .fc-event-main { color: #fff !important; }

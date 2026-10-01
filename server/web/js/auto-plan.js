@@ -41,10 +41,10 @@ async function openAutoPlan(target, titleText, onDone) {
   const notes = pv.sites.filter((s) => s.note).map((s) =>
     `<div class="ap-note">ℹ️ <b>${apEsc(apShort(s.site_name))}</b>${s.staff_name ? ` (${apEsc(s.staff_name)})` : ""} — ${apEsc(s.note)}</div>`).join("");
   const multiSite = pv.sites.length > 1;
-  const multiStaff = new Set(pv.plans.map((p) => p.staff_id)).size > 1; // 달력 요원 단위(여러 명) — 줄마다 요원 이름
-  const byDay = new Map(); // 날짜(+요원) → 그날 넣는 것들 = 출장 한 번
+  const multiStaff = new Set(pv.plans.filter((p) => !p.need_sub).map((p) => p.staff_id)).size > 1; // 달력 요원 단위(여러 명) — 줄마다 요원 이름
+  const byDay = new Map(); // 날짜(+요원) → 그날 넣는 것들 = 출장 한 번. "⚠ 대타 필요"(담당 없음)는 따로 한 줄씩
   for (const p of pv.plans) {
-    const key = multiStaff ? `${p.date}|${p.staff_id}` : p.date;
+    const key = p.need_sub ? `${p.date}|sub|${p.site_id}` : multiStaff ? `${p.date}|${p.staff_id}` : p.date;
     if (!byDay.has(key)) byDay.set(key, []);
     byDay.get(key).push(p);
   }
@@ -57,15 +57,19 @@ async function openAutoPlan(target, titleText, onDone) {
     year = y;
     const others = [...new Set(ps.flatMap((p) => p.with || []))].filter((n) => !ps.some((p) => p.site_name === n));
     const who = multiStaff && ps[0].staff_name ? `<b class="ap-who">${apEsc(ps[0].staff_name)}</b> ` : "";
-    const what = multiSite ? who + ps.map((p) => apEsc(apShort(p.site_name))).join(" · ") : "";
+    const what = ps[0].need_sub
+      ? `<b class="ap-subtag">⚠ 대타 필요</b> ${multiSite ? apEsc(apShort(ps[0].site_name)) + " " : ""}<span class="ap-subnote">거리가 멀어 ${apEsc(ps[0].owner_name || "담당 요원")}님이 못 가는 날</span>`
+      : multiSite ? who + ps.map((p) => apEsc(apShort(p.site_name))).join(" · ") : "";
     const kmOf = Object.fromEntries(ps.flatMap((p) => (p.with || []).map((n, i) => [n, (p.with_km || [])[i]])));
     const withText = others.length ? `<span class="ap-with">+ ${apEsc(apWithKm(others, others.map((n) => kmOf[n])))}와 함께</span>` : "";
     return `${yearHead}<div class="ap-row"><span class="ap-date">${apDay(date)}</span><span class="ap-what">${what}${withText}</span>
       ${ps[0].region ? `<span class="ap-region">${apEsc(ps[0].region)}</span>` : ""}</div>`;
   }).join("");
-  const trips = byDay.size;
+  const subCount = pv.plans.filter((p) => p.need_sub).length;
+  const trips = [...byDay.values()].filter((ps) => !ps[0].need_sub).length;
   const summary = pv.plans.length
-    ? `<b>${pv.plans.length}회</b>를 ${multiSite ? `출장 <b>${trips}번</b>으로 ` : ""}넣습니다 — 마지막 지도는 준공 ${pv.finish_before_days}일 전까지.`
+    ? `<b>${pv.plans.length}회</b>를 ${multiSite ? `출장 <b>${trips}번</b>으로 ` : ""}넣습니다 — 마지막 지도는 준공 ${pv.finish_before_days}일 전까지.` +
+      (subCount ? `<div class="ap-subsum">⚠ 그중 <b>${subCount}건</b>은 거리가 멀어 담당 요원이 갈 날이 없어 <b>대타 필요</b>로 넣습니다 — 넣은 뒤 달력에서 [📅 일정 변경] → [대신 갈 요원]으로 정해 주세요.</div>` : "")
     : "넣을 일정이 없습니다(남은 회차가 없거나 공사 기간·총 횟수 정보가 없음).";
   const replaceNote = pv.replace_count
     ? `<div class="ap-sub">지금 자동으로 넣어 둔 예정 ${pv.replace_count}건은 이 일정으로 바뀝니다. 📌 사람이 정한 예정은 그대로 둡니다.</div>`

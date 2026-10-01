@@ -11,7 +11,7 @@
   도로 거리는 카카오 길찾기(server/api/geocode.py, 실패하면 직선거리). 좌표가 없는 현장은 예전처럼 시·군이 같으면 같이 가기 좋음.
 - 요원 하루 4곳 한도(다녀온 방문·남은 예정·새로 넣는 것, 같은 현장은 1곳). 한 현장은 하루 한 번, 회차 순서대로.
 - 한 요원은 **하루에 같이 가기 좋은 현장끼리만**(속초·김포를 한날로 잡던 것 — 2026-10-01 실데이터 미리보기에서 발견). 먼 현장 출장이 있는 날은 피한다.
-- 목표 범위에 자리가 없으면 마감(없으면 준공일 전날)까지 가장 가까운 가능한 날로(그래도 없으면 그때만 지역 섞기 허용),
+- 목표 범위에 자리가 없으면 마감(없으면 준공일 전날)까지 가장 가까운 가능한 날로(먼 현장과 섞어야만 되면 섞지 않고 담당 없이 "⚠ 대타 필요"),
   그래도 없으면 "넣을 날 부족"으로 남긴다(막지 않고 안내만 — 사용자: 횟수를 다 못 채워도 큰일은 아님).
 """
 
@@ -95,14 +95,16 @@ class Placed:
     site_id: int
     staff_id: int | None
     date: datetime.date
+    need_sub: bool = False  # 담당 요원은 먼 현장과 섞어야만 갈 수 있음 → 담당 없이 "⚠ 대타 필요"(staff_id None)
 
 
 @dataclass
 class SiteResult:
     site_id: int
     needed: int  # 이번에 넣어야 할 회차 수
-    placed: int
-    note: str = ""  # "넣을 날 부족" 등 안내(막지 않음)
+    placed: int  # 담당 요원으로 넣은 회차
+    note: str = ""  # "넣을 날 부족"·"대타 필요" 안내(막지 않음)
+    need_sub: int = 0  # "⚠ 대타 필요"로 넣은 회차
 
 
 def _targets(base: datetime.date, end: datetime.date, count: int) -> list[datetime.date]:
@@ -222,7 +224,10 @@ def plan_sites(
     for s, t, tol, _ in slots:
         if s.staff_id is not None:
             pending[s.staff_id].append((s.id, t - datetime.timedelta(days=tol), t + datetime.timedelta(days=tol)))
-    STRICT, WITH_NEAR, ANY = ("empty", SAME), ("empty", SAME, NEAR), ("empty", SAME, NEAR, FAR)
+    STRICT, WITH_NEAR = ("empty", SAME), ("empty", SAME, NEAR)
+    site_days: dict[int, set[datetime.date]] = defaultdict(set)  # 현장 → 가는 날(고정 예정 + 이번에 넣은 것) — 대타 날짜 고를 때
+    for s in sites:
+        site_days[s.id].update(d for d in s.fixed if d > today)
 
     for s, t, tol, end in slots:
         if s.staff_id is not None:
@@ -243,21 +248,40 @@ def plan_sites(
         day = None
         # 폭 안(같이 가기 좋은 곳만) → 폭 안(가까운 다른 시·군도) → 마감까지(좋은 곳만) → 마감까지(가까운 곳도) → 마감까지 아무 데나
         for days_, allow, by_score in ((window, STRICT, True), (window, WITH_NEAR, True), (span, STRICT, False),
-                                       (span, WITH_NEAR, False), (span, ANY, False)):
+                                       (span, WITH_NEAR, False)):
             cands = [d for d in days_ if ok_day(s, d, after, allow)]
             if cands:
                 day = min(cands, key=score) if by_score else min(cands, key=lambda d: (abs((d - t).days), d))
                 break
         if day is None:
+            # 먼 현장과 섞어야만 갈 수 있는 회차 — 섞지 않고(속초·파주 한날 같은 것, 2026-10-01) 담당 없이 "⚠ 대타 필요"로 넣는다.
+            # 사람이 달력 [일정 변경] → [대신 갈 요원]으로 정한다(수동 대타 — 사용자 결정). 아예 갈 날이 없으면 그냥 부족.
+            # 대타는 다른 요원이 가므로 회차 순서·담당 요원 한도와 상관없이, 이 현장 방문이 아직 없는 가장 가까운 평일
+            all_days = [today + DAY * i for i in range(1, (last_ok - today).days + 1)]
+            cands = [d for d in all_days if d not in blocked and d not in site_days[s.id]]
+            if not cands:
+                continue
+            day = min(cands, key=lambda d: (abs((d - t).days), d))
+            placed.append(Placed(s.id, None, day, need_sub=True))
+            site_days[s.id].add(day)
+            results[s.id].need_sub += 1
             continue
         placed.append(Placed(s.id, s.staff_id, day))
         last_by_site[s.id] = day
+        site_days[s.id].add(day)
         results[s.id].placed += 1
         if s.staff_id is not None:
             busy[(s.staff_id, day)].add(s.id)
 
     for r in results.values():
-        if r.needed and r.placed < r.needed and not r.note:
-            r.note = f"넣을 날이 부족합니다 — {r.needed}회 중 {r.placed}회만 배치(주말·공휴일·하루 4곳 한도)"
+        notes = []
+        if r.need_sub:
+            notes.append(f"거리가 멀어 담당 요원이 갈 날이 없는 회차 {r.need_sub}건은 '⚠ 대타 필요'로 넣었습니다 — "
+                         "달력에서 [일정 변경] → [대신 갈 요원]으로 정해 주세요")
+        short = r.needed - r.placed - r.need_sub
+        if r.needed and short > 0:
+            notes.append(f"넣을 날이 부족합니다 — {r.needed}회 중 {r.needed - short}회만 배치(주말·공휴일·하루 4곳 한도)")
+        if notes and not r.note:
+            r.note = " / ".join(notes)
     placed.sort(key=lambda p: (p.date, p.site_id))
     return placed, list(results.values())

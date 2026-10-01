@@ -26,6 +26,8 @@ from server.api.geocode import RoadDistance, site_coords
 from server.api.visit_scheduler import SiteIn, plan_sites, region_of
 
 router = APIRouter(tags=["auto-plan"])
+# visit_plan.source: auto = 자동 배치, sub = 자동 배치가 넣은 "⚠ 대타 필요"(담당 없음 — 먼 현장과 섞어야만 갈 수 있는 회차), manual = 사람이 정함(📌)
+AUTO_SOURCES = ("auto", "sub")
 
 
 class AutoPlanIn(BaseModel):
@@ -58,8 +60,9 @@ def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.dat
     target_ids = {s.id for s in targets}
 
     future = db.query(VisitPlan).filter(VisitPlan.company_id == company_id, VisitPlan.plan_date > today).all()
-    replaced = [p for p in future if p.site_id in target_ids and p.source == "auto"]
-    kept = [p for p in future if not (p.site_id in target_ids and p.source == "auto")]
+    redo = lambda p: p.site_id in target_ids and p.source in AUTO_SOURCES  # 자동으로 넣은 것(대타 필요 포함)만 다시 짠다
+    replaced = [p for p in future if redo(p)]
+    kept = [p for p in future if not redo(p)]
 
     visit_addr = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(list(sites)))) if sites else {}
     region = {sid: region_of(visit_addr.get(sid) or s.address or "") for sid, s in sites.items()}
@@ -119,25 +122,29 @@ def preview(body: AutoPlanIn, user: User = Depends(get_current_user), db: Sessio
         "finish_before_days": finish,
         "replace_count": len(replaced),
         "plans": [{"date": p.date.isoformat(), "site_id": p.site_id, "site_name": sites[p.site_id].name, "region": region[p.site_id],
-                   "staff_id": p.staff_id, "staff_name": names.get(p.staff_id, ""), "with": [sites[x].name for x in others(p)],
+                   "staff_id": p.staff_id, "staff_name": names.get(p.staff_id, ""), "need_sub": p.need_sub,
+                   "owner_name": names.get(sites[p.site_id].assigned_staff_id, ""), "with": [sites[x].name for x in others(p)],
                    "with_km": [km_of(p.site_id, x) for x in others(p)]} for p in placed],
         "sites": [{"site_id": r.site_id, "site_name": sites[r.site_id].name, "staff_name": names.get(sites[r.site_id].assigned_staff_id, ""),
-                   "region": region[r.site_id], "needed": r.needed, "placed": r.placed, "note": r.note} for r in results],
+                   "region": region[r.site_id], "needed": r.needed, "placed": r.placed, "need_sub": r.need_sub, "note": r.note} for r in results],
     }
 
 
 @router.post("/calendar/auto-plan/apply")
 def apply(body: AutoPlanIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     today = datetime.date.today()
-    _, _, _, replaced, _, placed, results, _ = _compute(db, user.company_id, body, today)
+    sites, _, _, replaced, _, placed, results, _ = _compute(db, user.company_id, body, today)
+    names = _names(db, user.company_id)
     for p in replaced:
         db.delete(p)
     for p in placed:
+        owner = names.get(sites[p.site_id].assigned_staff_id, "")
         db.add(VisitPlan(company_id=user.company_id, site_id=p.site_id, staff_id=p.staff_id, plan_date=p.date,
-                         memo="", source="auto", created_by=user.display_name or ""))
+                         memo=f"거리가 멀어 대타 필요 — 원 담당 {owner}" if p.need_sub else "",
+                         source="sub" if p.need_sub else "auto", created_by=user.display_name or ""))
     db.commit()
-    return {"ok": True, "added": len(placed), "removed": len(replaced),
-            "short": sum(1 for r in results if r.note.startswith("넣을 날"))}
+    return {"ok": True, "added": len(placed), "removed": len(replaced), "need_sub": sum(p.need_sub for p in placed),
+            "short": sum(1 for r in results if "넣을 날" in r.note)}
 
 
 @router.get("/calendar/unplanned")

@@ -34,7 +34,9 @@ function savePref() {
 
 const staffById = () => Object.fromEntries((data?.staff || []).map((s) => [s.id, s]));
 const visitClass = (state) => (state === "submitted" ? "ev-submitted" : "ev-writing");
-const planClass = (state) => (state === "missed" ? "ev-missed" : "ev-plan");
+// "⚠ 대타 필요"(source=sub) — 자동 배치가 담당 요원은 먼 현장과 섞어야만 갈 수 있는 회차를 담당 없이 넣은 것(사람이 [일정 변경] → [대신 갈 요원])
+const planClass = (p) => (p.state === "missed" ? "ev-missed" : p.source === "sub" ? "ev-sub" : "ev-plan");
+const planOwner = (p) => p.staff_id ?? p.owner_staff_id; // 대타 필요는 요원이 비어 있으니 현장 담당자 기준으로 보이기
 const shortName = (name) => (name && name.length >= 3 ? name.slice(1) : name || "");
 const shortSite = (name) => (name || "").replace(/\s*현장$/, "");
 
@@ -120,12 +122,13 @@ function buildEvents() {
     });
   }
   for (const p of data.plans) {
-    if (p.state === "done" || !visible(p.staff_id)) continue;
+    if (p.state === "done" || !visible(planOwner(p))) continue;
     const st = staffMap[p.staff_id];
     ev.push({
       id: `plan-${p.id}`,
-      title: `${p.state === "missed" ? "지난 예정" : p.source === "manual" ? "📌" : "예정"} ${st ? shortName(st.name) + " · " : ""}${shortSite(p.site_name)}`,
-      start: p.date, allDay: true, classNames: [planClass(p.state)], startEditable: !isPhone(),
+      title: p.source === "sub" && p.state !== "missed" ? `⚠ 대타 필요 · ${shortSite(p.site_name)}`
+        : `${p.state === "missed" ? "지난 예정" : p.source === "manual" ? "📌" : "예정"} ${st ? shortName(st.name) + " · " : ""}${shortSite(p.site_name)}`,
+      start: p.date, allDay: true, classNames: [planClass(p)], startEditable: !isPhone(),
       extendedProps: { kind: "plan", planId: p.id },
     });
   }
@@ -268,7 +271,7 @@ function renderDay() {
   const staffMap = staffById();
   const d = new Date(selected + "T00:00:00");
   const visits = data.visits.filter((v) => v.date === selected && visible(v.staff_id));
-  const plans = data.plans.filter((p) => p.date === selected && p.state !== "done" && visible(p.staff_id));
+  const plans = data.plans.filter((p) => p.date === selected && p.state !== "done" && visible(planOwner(p)));
   const holiday = holidays[selected];
   body.innerHTML = `<h3 class="cal-day-title"></h3><div class="cal-day-list"></div>`;
   body.querySelector(".cal-day-title").textContent =
@@ -303,14 +306,14 @@ function renderDay() {
 
 function planItem(p, staffMap) {
   const el = document.createElement("div");
-  el.className = `cal-item plan ${planClass(p.state)}`;
+  el.className = `cal-item plan ${planClass(p)}`;
   el.innerHTML = `<i></i><div class="cal-item-main"><b></b><small></small></div>
     <div class="cal-plan-acts">
       <button type="button" class="secondary p-report">보고서 만들기</button>
       <button type="button" class="secondary p-edit">고치기</button>
       <button type="button" class="secondary p-del" style="color:var(--crit);">삭제</button>
     </div>`;
-  el.querySelector("b").textContent = `${p.state === "missed" ? "지난 예정" : p.source === "manual" ? "📌 방문 예정(고정)" : "방문 예정"} · ${p.site_name}`;
+  el.querySelector("b").textContent = `${p.state === "missed" ? "지난 예정" : p.source === "sub" ? "⚠ 대타 필요" : p.source === "manual" ? "📌 방문 예정(고정)" : "방문 예정"} · ${p.site_name}`;
   addSiteLinks(el, p.site_id);
   // [📅 일정 변경] — [📞 전화] [📍 지도] 오른쪽(현장에 전화해 보고 바로 옮기게, js/plan-change.js)
   const main = el.querySelector(".cal-item-main");
@@ -331,8 +334,9 @@ function planItem(p, staffMap) {
     reload();
   }));
   links.appendChild(change); // [📞 전화] [📍 지도] 오른쪽(2026-10-01 사용자)
-  el.querySelector("small").textContent = [staffMap[p.staff_id]?.name || "담당요원 없음", p.memo,
-    p.state === "missed" ? "이 날 보고서가 없습니다" : ""].filter(Boolean).join(" · ");
+  el.querySelector("small").textContent = p.source === "sub"
+    ? `거리가 멀어 담당 요원(${staffMap[p.owner_staff_id]?.name || "담당 없음"})이 이날 갈 수 없습니다 — [📅 일정 변경] → [대신 갈 요원]으로 정해 주세요`
+    : [staffMap[p.staff_id]?.name || "담당요원 없음", p.memo, p.state === "missed" ? "이 날 보고서가 없습니다" : ""].filter(Boolean).join(" · ");
   el.querySelector(".p-del").addEventListener("click", async () => {
     if (!confirm(`${p.site_name} 방문 예정을 지울까요?`)) return;
     try { await api(`/calendar/plans/${p.id}`, { method: "DELETE" }); reload(); } catch (err) { showError(errorEl, err); }

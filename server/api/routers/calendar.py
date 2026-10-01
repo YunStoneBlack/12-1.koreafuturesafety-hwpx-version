@@ -38,8 +38,9 @@ class PlanIn(BaseModel):
     memo: str | None = None
 
 
-def _plan_out(p: VisitPlan, site_name: str, state: str) -> dict:
-    return {"id": p.id, "site_id": p.site_id, "site_name": site_name, "staff_id": p.staff_id,
+def _plan_out(p: VisitPlan, site: Site, state: str) -> dict:
+    # owner_staff_id = 현장 담당요원 — "⚠ 대타 필요"(source=sub, 요원 비어 있음)도 그 담당자를 볼 때 보이게
+    return {"id": p.id, "site_id": p.site_id, "site_name": site.name, "staff_id": p.staff_id, "owner_staff_id": site.assigned_staff_id,
             "date": p.plan_date.isoformat(), "memo": p.memo, "state": state, "source": p.source or "manual"}
 
 
@@ -76,7 +77,7 @@ def calendar(
         if p.site_id not in sites:
             continue
         state = "done" if (p.site_id, p.plan_date) in visited else ("missed" if p.plan_date < today else "planned")
-        plans.append(_plan_out(p, sites[p.site_id].name, state))
+        plans.append(_plan_out(p, sites[p.site_id], state))
 
     # 하루 현장 수 — 요원·날짜별 서로 다른 현장(다녀온 방문 + 아직 안 다녀온 예정)
     load: dict[tuple[int, str], set[int]] = defaultdict(set)
@@ -153,6 +154,8 @@ def update_plan(plan_id: int, body: PlanIn, user: User = Depends(get_current_use
         plan.plan_date = fields["plan_date"]
     if "memo" in fields:
         plan.memo = (fields["memo"] or "").strip()
+    if plan.source == "sub" and fields.get("staff_id") and "memo" not in fields:  # "⚠ 대타 필요"에 대신 갈 요원을 정함
+        plan.memo = (plan.memo or "").replace("거리가 멀어 대타 필요 — 원 담당", "대타 · 원 담당")
     if {"site_id", "staff_id", "plan_date"} & fields.keys():
         plan.source = "manual"  # 사람이 옮기거나 바꾼 예정은 고정
     db.commit()
