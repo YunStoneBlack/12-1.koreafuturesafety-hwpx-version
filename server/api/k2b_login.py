@@ -3,8 +3,8 @@
 - 성공 판단: 로그인 뒤 첫 화면의 "재해예방기관 기술지도" 메뉴가 보이면 성공(14번 프로젝트 CONFIRMED 흐름).
 - 이름 확인: K2B는 로그인한 계정 이름이 보고서 "점검자"로 고정 입력된다 → 화면 글자에서 담당요원 이름을 찾고, 없으면 "○○님" 모양 이름을 찾아 알려 준다.
 - 매번 화면을 `_시스템/k2b/`에 찍어 둔다(실패 이유·이름 위치 확인용 — 첫 실계정 시험 때 이름 칸을 정확히 맞출 것).
-로그인 칸 위치·입력 방식은 14번(`core/k2b_selectors.py`·`k2b_client_base._type_into`)에서 옮겨 옴 — Nexacro 입력칸은 .fill()이 이어붙는 문제가 있어
-클릭 → 전체 선택·삭제 → 한 글자씩 입력. 나중에 K2B 제출 워커도 이 로그인을 쓴다.
+로그인 칸 위치는 server/k2b/selectors.py(14번에서 옮김), 입력 방식은 `server/k2b/base._type_into`와 같음 — Nexacro 입력칸은 .fill()이 이어붙는 문제가 있어
+클릭 → 전체 선택·삭제 → 한 글자씩 입력. K2B 제출(server/k2b/runner.py)은 같은 칸으로 K2BClient.login을 쓴다.
 """
 from __future__ import annotations
 
@@ -13,11 +13,13 @@ import re
 from dataclasses import dataclass
 
 from core.db import DATA_DIR
+from server.k2b import selectors as sel
 
-LOGIN_URL = "https://k2b.kosha.or.kr/"
-LOGIN_ID_INPUT = "#mainframe_VFrameSet_LoginFrame_form_div_Login_div_box_edt_mber_id_input"
-LOGIN_PW_INPUT = "#mainframe_VFrameSet_LoginFrame_form_div_Login_div_box_edt_password_input"
-LOGIN_BUTTON_TEXT = "로그인"
+# 로그인 칸 위치는 K2B 제출 코드와 한 곳에서(server/k2b/selectors.py — 14번에서 옮긴 CONFIRMED 값)
+LOGIN_URL = sel.K2B_LOGIN_URL
+LOGIN_ID_INPUT = sel.LOGIN_ID_INPUT
+LOGIN_PW_INPUT = sel.LOGIN_PW_INPUT
+LOGIN_BUTTON_TEXT = sel.LOGIN_BUTTON_TEXT
 DASHBOARD_TEXT = "재해예방기관 기술지도"
 SHOT_DIR = DATA_DIR / "_시스템" / "k2b"
 # 실패 창 문구(실측 2026-10-01: "로그인 정보가 올바르지 않습니다.") — 로그인 화면 FAQ에도 같은 글이 있어서 누르기 전보다 **늘어난** 것만 본다

@@ -30,7 +30,21 @@
 - `server/scripts/web_watchdog.ps1` — API·워커·그룹웨어 통로 자동 실행/재시작(시작프로그램 바로가기), `server/deploy/` — AWS 서버 설정 원본
 - 서버 전용 비밀값은 `server/.env.server`(git 제외, 예시 `.env.server.example`)
 
-**화면 주요 기능(2026-10-01 기준)** — 현장 이름은 화면마다 줄인 관리번호를 앞에 붙여 `26-12)_고모지구 …`로 보인다(`server/api/site_label.py`·`app.js` `siteLabel`)
+**화면 주요 기능(2026-10-02 기준)** — 현장 이름은 화면마다 줄인 관리번호를 앞에 붙여 `26-12)_고모지구 …`로 보인다(`server/api/site_label.py`·`app.js` `siteLabel`)
+- **K2B 제출**(2026-10-01, `server/k2b/` — 14번 프로젝트 K2B 입력 코드를 옮김): 현장 화면 보고서 줄 **[📤 K2B 제출]**(고객사 전송 왼쪽, PDF 만든 보고서만) → 창
+  (`js/k2b-submit.js`, API `routers/k2b_submit.py`)에서 K2B 전용 항목(현재 작업공종·이전 기술지도 이행여부·비계 — K2B 필수, 대형사고 위험작업 줄(없으면 해당없음),
+  불량사업장 통보+첨부)을 고르면 대기열(`k2b_submission`, alembic 0015) → 이 PC 작업 프로그램(`server/worker/k2b_worker.py`, supervisor_entry의 별도 스레드)이
+  **그 회차 담당요원의 K2B 계정**으로 화면 없는 크롬을 띄워 현장 검색(현장명 첫 단어, 띄어쓰기 무시 전체 이름으로 행 고르기) → **새 차수** → 입력·사진(전경/점검/개선)·PDF →
+  [저장] → "저장하시겠습니까?" → "정상적으로 저장되었습니다." → 저장된 화면을 회차 폴더 `…_06회차_K2B제출.png`로(`server/k2b/runner.py`). K2B 새 차수가 웹 회차와 다르면 저장 전 멈춤.
+  결과는 보고서 줄 "✓ K2B 10/02 00:12 · 6차"(누르면 화면). K2B는 로그인 계정 이름이 점검자로 고정 → 계정은 요원별.
+- **담당요원 K2B 계정**(담당요원 탭 요원 줄 "K2B 아이디 · ✓ 로그인 확인", `js/staff-k2b.js`, API `routers/staff_k2b.py`, alembic 0014): 본인 또는 그룹웨어 관리자(X-Gw-Role ADMIN)만 입력,
+  비밀번호는 Fernet 암호화(`server/api/k2b_secret.py`, 열쇠 `.env.server` K2B_SECRET_KEY — 바꾸면 못 풂), [로그인 확인] = K2B 로그인만 해 보고 오른쪽 위 "○○님"이 요원 이름과 같은지(`server/api/k2b_login.py`)
+- **현장 공사 상태**(착공전·진행중·공사중지·준공, `app.js` `siteStatusSwitch`, `POST /sites/{id}/status`): 현장 목록(PC 세로·폰 가로)·현장 화면 버튼 4개, 바꿀 때 "A → B" 확인,
+  **진행중만 지도 출장 배치**(`server/api/site_status.py` — 아니게 되면 앞으로의 예정 지움, 진행중이 되면 자동 배치 물음), 새 현장은 착공전으로 등록 후 "이미 공사 중?" 질문.
+  현장 목록 위 **상태 카드 5개**(전체·착공전·진행중·공사중지·준공 N건 + 비율 막대, 화면 위에 붙어 다님, 누르면 그 상태만 — `dashboard.html` `renderStatusCards`)
+- **파일 저장소**(2026-10-01, `server/api/storage.py`): `DATA_DIR`(기본 `data`) 아래 `관리번호)_현장명(30자)\NN회차\사진\현장_NN회차_전경사진1.jpg`, 회차 폴더에 PDF·한글·현장책임자 서명·K2B 제출 화면,
+  `_서명`·`_자료실`·`_시스템`(작은 사진·미리보기·한글 중간 파일). DB에는 저장소 기준 상대경로(`core/stored_path.py`) — 옮길 땐 폴더 복사 + DATA_DIR 한 줄.
+  현장명·관리번호·회차가 바뀌면 폴더·파일 이름이 따라 바뀜(`relocate_site`). 예전 구조에서 옮기기 `server/scripts/migrate_storage.py`(2026-10-01 345개 옮김)
 - **방문 달력 탭**(`calendar.html`, `js/calendar.js`, API `routers/calendar.py`, alembic 0007 `visit_plan`): 다녀온 방문(보고서 지도일, 작성 중 연한 파랑·제출 완료 진한 파랑 ✓), 방문 예정(파란 테두리),
   지난 예정(빨간 점선), 하루 4곳 딱지 — 색은 상태별(요원별 색 없앰, 2026-10-01), 그룹웨어 공휴일. 볼 사람 나만/고른 요원/전체 + 요원 칩(브라우저에 기억).
   날짜를 누르면 그날 목록·예정 넣기/고치기/삭제·[보고서 만들기], PC는 예정을 끌어서 날짜 이동
@@ -42,7 +56,8 @@
 - **첫 지도 회차**(현장 등록·수정, 총 횟수 옆, 기본 1): 이 시스템 전에 다녀온 회차가 있으면(30회 중 1~7회 → 8) 진행 막대·자동 배치는 7회 다녀온 것으로, 첫 보고서는 8회차로
 - **그날 목록은 요원별 상자**(머리줄 "👤 이름 · N곳" + [🚗 동선 짜기], 대타 필요는 주황 상자)
 - **[🚗 동선 짜기]**(`js/route-plan.js`, API `routers/route_plan.py`): 회사(설정 탭 "회사 주소") → 그날 현장들(도로 거리 최적 순서) → 회사, 출발·복귀지 바꾸기, ☰ 끌기·▲▼로 순서 바꾸면
-  거리 다시 계산. 폰은 [🚗 티맵으로 출발]·[🗺 네이버 지도] — 출발지·경유지·복귀지째 길안내(티맵 `tmap://route?goalx…&startx…&via1x…`, 네이버 `nmap://route/car`)
+  거리 다시 계산. 폰은 [🚗 티맵으로 출발]·[🗺 네이버 지도] — 출발지·경유지·복귀지째 길안내(티맵 `tmap://route?goalx…&startx…&via1x…`, 네이버 `nmap://route/car`).
+  티맵은 바깥 앱에서 경유지를 2곳까지만 받아서 현장 3곳 이상이면 구간 고르기 창(① 회사→1·2→3, ② 3→4→회사)
 - **[📅 일정 변경]**(달력 그날 목록 📞·📍 오른쪽, `js/plan-change.js`, API `routers/plan_change.py`): 추천 날짜(같은 지역 출장에 붙이기·가장 가까운 빈 평일) + 작은 달력 + 대신 갈 요원.
   현장 담당요원을 바꾸면 앞으로의 예정도 넘길지·같은 지역끼리 다시 묶을지 묻는다(`POST /sites/{id}/plans/handover`)
 - **담당요원 = 그룹웨어 직원정보**(`js/staff-gw.js`, API `routers/staff_groupware.py`, alembic 0006 `staff_gw_link`): 담당요원 탭을 연 브라우저가 그룹웨어

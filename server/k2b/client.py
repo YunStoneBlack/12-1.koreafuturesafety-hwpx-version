@@ -3,10 +3,8 @@
 Playwright 자체 Chromium을 사용(CDP로 기존 크롬에 붙는 방식 아님) — 로컬에서는 headed로
 개발/검증하고, 나중에 서버(AWS)로 옮길 때 headless=True만 바꾸면 그대로 동작하도록 설계.
 
-중요: 이 모듈은 **최종 저장(제출) 버튼을 누르는 코드를 포함하지 않는다.** 모든 필드
-입력/사진 첨부까지만 자동화하고, 사람이 화면을 직접 확인한 뒤 수동으로 저장 버튼을
-누른다. 자동 제출 기능은 다른 모든 동작이 실사용으로 검증된 뒤 가장 마지막에 추가한다
-(README "개발 단계 안내" 참고).
+웹판(2026-10-01): 이 클라이언트는 입력·첨부까지(14번 그대로). **저장 누르기·확인 창·저장 뒤 화면 찍기는
+server/k2b/runner.py**가 한다(코하이젠 시험 6차수로 실측 — 사용자 결정: 저장까지 자동).
 
 중요(실사용 중 발견): 이 사이트는 Nexacro 기반이라 상세 모달 전체가 하나의 거대한
 절대좌표(absolute positioning) 패널로 그려진다 — 일반적인 `overflow:scroll` 컨테이너가
@@ -36,7 +34,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from server.k2b.attachments import AttachmentMixin
-from server.k2b.base import K2BClientBase, LogFn, ReportModificationExpiredError, _noop_log
+from server.k2b.base import K2BClientBase, LogFn, ReportModificationExpiredError
 from server.k2b.fields import FieldsMixin
 from server.k2b.hazard import HazardWorkMixin
 from server.k2b.nav import NavigationMixin
@@ -50,11 +48,10 @@ __all__ = [
 
 
 class K2BClient(NavigationMixin, FieldsMixin, HazardWorkMixin, AttachmentMixin, K2BClientBase):
-    """K2B 화면 자동화 — 로그인부터 필드 입력/사진 첨부까지. 저장은 하지 않는다.
+    """K2B 화면 자동화 — 로그인부터 필드 입력/사진 첨부까지(저장은 server/k2b/runner.py).
 
     실제 메서드는 전부 위 mixin들에 있다(각 파일의 docstring/주석 참고)."""
 
-    # 최종 저장(제출) 메서드는 의도적으로 아직 없음. README "개발 단계 안내" 참고.
 
 
 def _find_system_chrome() -> str | None:
