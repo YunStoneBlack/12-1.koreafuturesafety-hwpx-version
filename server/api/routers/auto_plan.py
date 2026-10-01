@@ -38,6 +38,7 @@ class AutoPlanIn(BaseModel):
 class AutoPlanSettings(BaseModel):
     finish_before_days: int = config.DEFAULT_PLAN_FINISH_BEFORE_DAYS
     far_km: float = config.DEFAULT_PLAN_FAR_KM  # 같은 시·군이라도 이보다 멀면 안 묶음
+    home_address: str = config.DEFAULT_ROUTE_HOME_ADDRESS  # 동선 짜기 출발·복귀지 기본값(회사)
     near_km: float = config.DEFAULT_PLAN_NEAR_KM  # 다른 시·군이라도 이보다 가까우면 자리 없을 때 묶음
 
 
@@ -170,7 +171,7 @@ def unplanned(user: User = Depends(get_current_user), db: Session = Depends(get_
 def get_settings(user: User = Depends(get_current_user)):
     cid = user.company_id
     return AutoPlanSettings(finish_before_days=config.get_plan_finish_before_days(cid), far_km=config.get_plan_far_km(cid),
-                            near_km=config.get_plan_near_km(cid))
+                            near_km=config.get_plan_near_km(cid), home_address=config.get_route_home_address(cid))
 
 
 @router.post("/settings/auto-plan", response_model=AutoPlanSettings)
@@ -182,4 +183,6 @@ def set_settings(body: AutoPlanSettings, user: User = Depends(get_current_user))
     config.set_plan_finish_before_days(body.finish_before_days, user.company_id)
     config.set_plan_far_km(body.far_km, user.company_id)
     config.set_plan_near_km(body.near_km, user.company_id)
+    if body.home_address.strip():
+        config.set_route_home_address(body.home_address, user.company_id)
     return get_settings(user)

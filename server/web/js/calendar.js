@@ -318,6 +318,14 @@ function renderDay() {
     box.querySelector(".cal-group-n").textContent = `${g.sites.size}곳`;
     const load = loadOf[g.key] || 0;
     if (load >= data.limit) box.querySelector(".cal-group-warn").textContent = load > data.limit ? "하루 한도를 넘었습니다" : "하루 4곳 다 참";
+    if (typeof g.key === "number") { // [🚗 동선 짜기] — 회사 → 이 요원의 그날 현장들(최적 순서) → 회사(js/route-plan.js)
+      const go = document.createElement("button");
+      go.type = "button";
+      go.className = "cal-route";
+      go.textContent = "🚗 동선 짜기";
+      go.addEventListener("click", () => openRoutePlan(selected, g.key, staffMap[g.key]?.name || ""));
+      box.querySelector(".cal-group-head").appendChild(go);
+    }
     for (const el of g.items) box.appendChild(el);
     list.appendChild(box);
   }

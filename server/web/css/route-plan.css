@@ -1,0 +1,37 @@
+/* 출장 동선 짜기 창(js/route-plan.js) — 틀은 css/mail.css. 출발 → 현장(☰ 끌기·▲▼) → 복귀, 구간 거리. */
+.mail-box.rp-box { width: min(460px, 100%); }
+.rp-total { font-size: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.rp-total b { font-size: 18px; }
+.rp-hint { font-size: 11.5px; color: var(--faint); font-weight: 400; }
+.rp-best { font-size: 12px; font-weight: 700; color: var(--green); }
+.rp-worse { font-size: 12px; font-weight: 700; color: var(--warn); }
+.rp-tobest { margin: 0; padding: 4px 10px; border: 1px solid var(--blue); border-radius: 999px; background: var(--blue-soft); color: var(--blue); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.rp-list { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+.rp-list.busy { opacity: .5; pointer-events: none; }
+.rp-end, .rp-stop { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.rp-stop { background: var(--surface); border-radius: 8px; }
+.rp-stop.dragging { box-shadow: 0 4px 16px rgba(0, 0, 0, .18); outline: 2px solid var(--blue); position: relative; z-index: 2; }
+.rp-main { flex: 1; min-width: 0; }
+.rp-main b { display: block; font-size: 13.5px; }
+.rp-main small { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-dot { flex: none; width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: #fff; background: var(--blue); }
+.rp-dot.start, .rp-dot.end { background: var(--ink); }
+.rp-handle { flex: none; cursor: grab; touch-action: none; user-select: none; color: var(--faint); font-size: 18px; padding: 6px 2px; }
+.rp-arrows { flex: none; display: flex; flex-direction: column; gap: 2px; }
+.rp-arrows button { margin: 0; width: 30px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--muted); font-size: 10px; cursor: pointer; }
+.rp-arrows button:disabled { opacity: .3; cursor: default; }
+.rp-leg { font-size: 12px; font-weight: 600; color: var(--blue); padding: 0 0 0 44px; }
+.rp-change { flex: none; margin: 0; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.rp-edit { display: flex; gap: 6px; margin-top: 6px; }
+.rp-edit[hidden] { display: none; }
+.rp-edit input { flex: 1; min-width: 0; margin: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 13px; }
+.rp-edit button { margin: 0; padding: 6px 10px; border: 1px solid var(--blue); border-radius: 6px; background: var(--blue); color: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.rp-edit .rp-home { background: var(--surface); color: var(--blue); }
+.mail-foot .rp-go:disabled { opacity: .5; }
+@media (max-width: 760px) { .rp-arrows button { width: 36px; height: 26px; font-size: 12px; } .rp-handle { font-size: 20px; padding: 8px 4px; } }
+
+/* 그날 목록 요원 머리줄의 [🚗 동선 짜기](js/calendar.js renderDay) */
+.main .cal-group-head .cal-route { margin: 0 0 0 auto; padding: 4px 11px; font-size: 12.5px; font-weight: 600; border-radius: 999px;
+  background: var(--surface); color: var(--blue); border: 1px solid #c4dbf6; }
+.cal-group-head .cal-group-warn:not(:empty) + .cal-route { margin-left: 6px; }

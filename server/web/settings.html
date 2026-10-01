@@ -60,6 +60,7 @@
     <div><label for="ap-days">마지막 지도 마감 (준공일 며칠 전)</label><input id="ap-days" type="number" min="0" max="180" /></div>
     <div><label for="ap-far">같은 시·군 — 도로 거리가 이보다 멀면 다른 날 (km)</label><input id="ap-far" type="number" min="1" max="200" step="1" /></div>
     <div><label for="ap-near">다른 시·군 — 도로 거리가 이 안이면 자리 없을 때 같은 날 (km)</label><input id="ap-near" type="number" min="1" max="100" step="1" /></div>
+    <div style="grid-column: 1 / -1;"><label for="ap-home">회사 주소 <span style="font-weight:400;color:var(--muted);">(방문 달력 [🚗 동선 짜기]의 출발·복귀지 기본값)</span></label><input id="ap-home" type="text" /></div>
   </div>
   <button type="button" id="ap-save">저장</button>
   <div id="ap-status" class="status"></div>
@@ -194,6 +195,7 @@ const fillAutoPlan = (d) => {
   document.getElementById("ap-days").value = d.finish_before_days;
   document.getElementById("ap-far").value = d.far_km;
   document.getElementById("ap-near").value = d.near_km;
+  document.getElementById("ap-home").value = d.home_address;
 };
 api("/settings/auto-plan").then(fillAutoPlan).catch((err) => showError(errorEl, err));
 document.getElementById("ap-save").addEventListener("click", async () => {
@@ -204,6 +206,7 @@ document.getElementById("ap-save").addEventListener("click", async () => {
       finish_before_days: Number(document.getElementById("ap-days").value || 0),
       far_km: Number(document.getElementById("ap-far").value || 0),
       near_km: Number(document.getElementById("ap-near").value || 0),
+      home_address: document.getElementById("ap-home").value,
     });
     fillAutoPlan(d);
     st.className = "status ok";

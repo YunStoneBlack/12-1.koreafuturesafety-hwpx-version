@@ -30,6 +30,7 @@ from server.api.routers import (
     photo_rotate,
     photos,
     plan_change,
+    route_plan,
     previous_findings,
     process_entries,
     report_mail,
@@ -87,6 +88,7 @@ web_app.include_router(submission.router, prefix="/api")
 web_app.include_router(calendar.router, prefix="/api")
 web_app.include_router(auto_plan.router, prefix="/api")
 web_app.include_router(plan_change.router, prefix="/api")
+web_app.include_router(route_plan.router, prefix="/api")
 
 
 @web_app.get("/api/health")

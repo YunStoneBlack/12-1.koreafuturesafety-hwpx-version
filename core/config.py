@@ -169,6 +169,19 @@ def set_plan_near_km(value: float, company_id: int | None = None) -> None:
     _set_setting(_KEY_PLAN_NEAR_KM, str(float(value)), company_id)
 
 
+# 출장 동선 짜기(server/api/routers/route_plan.py)의 출발·복귀지 기본값 = 회사 주소(사용자 2026-10-01)
+_KEY_ROUTE_HOME_ADDRESS = "route_home_address"
+DEFAULT_ROUTE_HOME_ADDRESS = "경기도 포천시 선마로 155"
+
+
+def get_route_home_address(company_id: int | None = None) -> str:
+    return (_get_setting(_KEY_ROUTE_HOME_ADDRESS, company_id) or DEFAULT_ROUTE_HOME_ADDRESS).strip()
+
+
+def set_route_home_address(value: str, company_id: int | None = None) -> None:
+    _set_setting(_KEY_ROUTE_HOME_ADDRESS, value.strip(), company_id)
+
+
 def get_ai_enabled() -> bool:
     stored = _get_setting(_KEY_AI_ENABLED)
     if stored is None:
