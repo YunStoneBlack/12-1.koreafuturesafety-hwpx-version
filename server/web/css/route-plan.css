@@ -29,6 +29,7 @@
 .rp-edit button { margin: 0; padding: 6px 10px; border: 1px solid var(--blue); border-radius: 6px; background: var(--blue); color: #fff; font: inherit; font-size: 12px; cursor: pointer; }
 .rp-edit .rp-home { background: var(--surface); color: var(--blue); }
 .mail-foot .rp-go:disabled { opacity: .5; }
+.mail-foot .rp-naver { background: #03C75A; border-color: #03C75A; } /* 네이버 초록, 티맵은 기본 파랑 */
 @media (max-width: 760px) { .rp-arrows button { width: 36px; height: 26px; font-size: 12px; } .rp-handle { font-size: 20px; padding: 8px 4px; } }
 
 /* 그날 목록 요원 머리줄의 [🚗 동선 짜기](js/calendar.js renderDay) */

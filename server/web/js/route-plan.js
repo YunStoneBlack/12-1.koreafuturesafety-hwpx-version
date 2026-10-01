@@ -1,9 +1,14 @@
 // 출장 동선 짜기 창(2026-10-01) — 방문 달력 그날 목록의 요원 머리줄 [🚗 동선 짜기]. 출발지 → 현장들(도로 거리 최적 순서) → 복귀지.
 // 서버: POST /calendar/route(server/api/routers/route_plan.py). 순서는 ☰ 손잡이로 끌거나 ▲▼로 바꾸면 거리를 다시 계산한다.
-// [🧭 네이버 지도로 출발] = 폰 네이버 지도 앱 자동차 길찾기에 경유지째(nmap://route/car, 키 없이 됨 — 폰 시험 2026-10-01).
-// 티맵은 좌표·경유지를 키 없이 못 받아(앱만 열림) SK 오픈API 키를 받아 시험 예정. 창 틀은 css/mail.css, 이 창 규칙은 css/route-plan.css.
+// 폰 출발 버튼 두 개(사용자 안드로이드 시험 2026-10-01, 키 없이 됨):
+//   [🚗 티맵으로 출발] = tmap://route?goalx·goaly·goalname(목적지 = 복귀지)&key=티맵 공식 안내 페이지 기본값
+//     &startx·starty·startname(출발지)&via1x·via1y·via1name …(경유지 = 현장들) — 티맵 공식 route.jsp가 쓰는 형식에 출발·경유지를 붙임.
+//     시험: rV1X·rStX·origx 형식과 SK 공식 주소(appKey)는 안 됨(목적지만·출발 = 지금 위치). SK 키는 결국 필요 없었음.
+//   [🗺 네이버 지도] = nmap://route/car 출발·도착·경유지 v1~v5.
+// 창 틀은 css/mail.css, 이 창 규칙은 css/route-plan.css.
 
-const RP_MAX_WAYPOINTS = 5; // 네이버 지도 앱 경유지 최대
+const RP_MAX_WAYPOINTS = 5; // 네이버 지도 앱 경유지 최대(티맵도 같은 수로 — 하루 최대 4곳)
+const RP_TMAP_KEY = "ACDF74F09C347613"; // 티맵 공식 안내 페이지(tmap.co.kr route.jsp)가 기본으로 넣는 값
 
 async function openRoutePlan(date, staffId, staffName) {
   const overlay = document.createElement("div");
@@ -67,13 +72,16 @@ async function openRoutePlan(date, staffId, staffName) {
       <div class="rp-list">${placeRow("start", r.start)}${stops}${legRow(r.stops.length)}${placeRow("end", r.end)}</div>
       <div class="mail-foot">
         <button type="button" class="mail-cancel">닫기</button>
-        ${isPhone ? `<button type="button" class="mail-primary rp-go" ${tooMany ? "disabled" : ""}>🧭 네이버 지도로 출발</button>` : ""}
+        ${isPhone ? `<button type="button" class="mail-primary rp-go rp-naver" ${tooMany ? "disabled" : ""}>🗺 네이버 지도</button>
+          <button type="button" class="mail-primary rp-go rp-tmap" ${tooMany ? "disabled" : ""}>🚗 티맵으로 출발</button>` : ""}
       </div>
-      ${isPhone ? (tooMany ? `<div class="rp-hint">네이버 지도는 경유지를 ${RP_MAX_WAYPOINTS}곳까지 받습니다.</div>` : "")
-        : '<div class="rp-hint">폰에서 열면 [🧭 네이버 지도로 출발]로 이 순서 그대로 길안내가 시작됩니다(경유지 포함).</div>'}`;
+      ${isPhone ? (tooMany ? `<div class="rp-hint">내비 앱은 경유지를 ${RP_MAX_WAYPOINTS}곳까지 받습니다.</div>`
+        : "")
+        : '<div class="rp-hint">폰에서 열면 [🚗 티맵으로 출발]·[🗺 네이버 지도]로 이 순서 그대로 길안내가 시작됩니다(경유지 포함).</div>'}`;
     box.querySelector(".mail-cancel").addEventListener("click", close);
     box.querySelector(".rp-tobest")?.addEventListener("click", () => { state.order = r.best_order; load(); });
-    box.querySelector(".rp-go")?.addEventListener("click", () => openNaverRoute(r));
+    box.querySelector(".rp-naver")?.addEventListener("click", () => openNaverRoute(r));
+    box.querySelector(".rp-tmap")?.addEventListener("click", () => openTmapRoute(r));
     box.querySelectorAll(".rp-end").forEach((row, idx) => {
       const kind = idx === 0 ? "start" : "end";
       const edit = row.querySelector(".rp-edit");
@@ -149,4 +157,17 @@ function openNaverRoute(r) {
   window.location.href = /Android/i.test(navigator.userAgent)
     ? `intent://route/car?${q}#Intent;scheme=nmap;package=com.nhn.android.nmap;end`
     : `nmap://route/car?${q}`;
+}
+
+// 티맵 자동차 길찾기 — 출발 → 경유지(현장들, 순서대로) → 목적지(복귀지). 안드로이드는 intent(앱 없으면 스토어), 아이폰은 tmap://
+function openTmapRoute(r) {
+  const e = encodeURIComponent;
+  let q = `goalx=${r.end.lng}&goaly=${r.end.lat}&goalname=${e(r.end.is_home ? "회사" : r.end.address)}&key=${RP_TMAP_KEY}`
+    + `&startx=${r.start.lng}&starty=${r.start.lat}&startname=${e(r.start.is_home ? "회사" : r.start.address)}`;
+  r.stops.forEach((s, i) => { q += `&via${i + 1}x=${s.lng}&via${i + 1}y=${s.lat}&via${i + 1}name=${e(s.name)}`; });
+  if (/Android/i.test(navigator.userAgent)) {
+    window.location.href = `intent://route?${q}#Intent;scheme=tmap;package=com.skt.tmap.ku;end`;
+    return;
+  }
+  window.location.href = `tmap://route?${q}`;
 }
