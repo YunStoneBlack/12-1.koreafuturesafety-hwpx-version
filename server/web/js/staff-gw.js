@@ -54,6 +54,7 @@ function renderGroupwareStaff(view, employees) {
   const rows = [...view.employees].sort((a, b) =>
     (b.is_staff - a.is_staff) || a.department.localeCompare(b.department, "ko") || a.name.localeCompare(b.name, "ko"));
   for (const e of rows) list.appendChild(gwStaffRow(e));
+  if (typeof decorateK2b === "function") decorateK2b(list); // 요원마다 K2B 계정 표시·[K2B 계정](js/staff-k2b.js)
 
   const unlinkedPanel = document.getElementById("unlinked-panel");
   const free = view.employees.filter((e) => e.staff_id == null);
@@ -66,16 +67,18 @@ function renderGroupwareStaff(view, employees) {
 function gwStaffRow(e) {
   const wrap = document.createElement("div");
   wrap.className = "staff-item" + (e.is_staff ? "" : " gw-off");
+  if (e.is_staff) wrap.dataset.staffId = e.staff_id; // K2B 계정 표시(js/staff-k2b.js decorateK2b)가 찾는 표시
   wrap.innerHTML = `
     <div class="row staff-row">
       <label class="gw-check"><input type="checkbox" ${e.is_staff ? "checked" : ""} /> 담당요원</label>
-      <span class="title staff-name"><b class="gw-name"></b><span class="gw-sub"></span></span>
+      <span class="title staff-name"><b class="gw-name"></b><span class="gw-sub"></span>${e.is_staff ? '<span class="k2b-chip"></span>' : ""}</span>
       ${e.is_staff ? (e.has_signature
         ? `<img class="sig-thumb" alt="" src="${BASE}/api/staff/${e.staff_id}/signature?ts=${Date.now()}" />`
         : '<span class="sig-thumb empty">서명 없음</span>') : ""}
-      <span class="staff-actions">${e.is_staff ? '<button type="button" class="secondary st-edit">서명</button>' : ""}</span>
+      <span class="staff-actions">${e.is_staff ? '<button type="button" class="secondary st-edit">서명</button><button type="button" class="secondary k2b-btn" hidden>K2B 계정</button>' : ""}</span>
     </div>
-    <div class="st-panel" hidden></div>`;
+    <div class="st-panel" hidden></div>
+    <div class="k2b-panel" hidden></div>`;
   wrap.querySelector(".gw-name").textContent = e.name + (e.is_me ? " (나)" : "");
   wrap.querySelector(".gw-sub").textContent = [
     [e.department, e.position].filter(Boolean).join(" "), e.phone, e.email, e.username ? "" : "그룹웨어 계정 없음",

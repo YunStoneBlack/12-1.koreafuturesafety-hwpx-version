@@ -42,6 +42,7 @@ from server.api.routers import (
     sites,
     staff,
     staff_groupware,
+    staff_k2b,
     support,
 )
 from server.settings import CORS_ORIGINS, WEB_BASE_PATH
@@ -72,6 +73,7 @@ web_app.include_router(jobs.router, prefix="/api")
 web_app.include_router(settings.router, prefix="/api")
 web_app.include_router(staff.router, prefix="/api")
 web_app.include_router(staff_groupware.router, prefix="/api")
+web_app.include_router(staff_k2b.router, prefix="/api")
 web_app.include_router(photos.overview_router, prefix="/api")
 web_app.include_router(photos.inspection_router, prefix="/api")
 web_app.include_router(photo_rotate.router, prefix="/api")

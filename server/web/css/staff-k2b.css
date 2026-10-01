@@ -1,0 +1,28 @@
+/* 담당요원 K2B 계정(js/staff-k2b.js, 2026-10-01) — 요원 이름 밑 "K2B 아이디 · ✓ 로그인 확인" 표시 + [K2B 계정] 창 */
+.k2b-chip { display: inline-block; margin-top: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  background: var(--paper); color: var(--muted); border: 1px solid var(--line); width: fit-content; }
+.k2b-chip:empty { display: none; }
+.k2b-chip.ok { background: var(--green-soft); color: var(--green); border-color: #bfe5cd; }
+.k2b-chip.warn { background: var(--warn-soft); color: var(--warn); border-color: #f0d6ad; }
+.k2b-chip.bad { background: #fdecec; color: #c0392b; border-color: #f3c4c0; }
+.k2b-chip.none { border-style: dashed; color: var(--faint); }
+.k2b-panel { padding: 0 18px 16px; }
+.k2b-panel[hidden] { display: none; }
+.k2b-help { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.k2b-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 260px)); gap: 10px 14px; margin-bottom: 10px; }
+.k2b-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--ink); margin: 0; }
+.main .k2b-fields input { margin: 0; }
+.k2b-pw-wrap { display: flex; gap: 6px; }
+.k2b-pw-wrap input { flex: 1; min-width: 0; }
+.main .k2b-pw-wrap button { margin: 0; padding: 6px 10px; font-size: 12px; flex: none; }
+.main .k2b-panel .edit-actions button { margin-top: 0; }
+.k2b-result { margin-top: 10px; padding: 9px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; background: var(--paper); color: var(--ink); }
+.k2b-result[hidden] { display: none; }
+.k2b-result.ok { background: var(--green-soft); color: var(--green); font-weight: 600; }
+.k2b-result.warn { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.k2b-result.bad { background: #fdecec; color: #c0392b; font-weight: 600; }
+.k2b-result a { margin-left: 6px; color: var(--blue); font-weight: 500; }
+@media (max-width: 760px) {
+  .k2b-fields { grid-template-columns: 1fr; }
+  .k2b-panel .edit-actions { flex-wrap: wrap; }
+}

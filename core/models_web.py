@@ -173,6 +173,25 @@ class StaffGroupwareLink(Base):
     synced_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
 
+class StaffK2bAccount(Base):
+    """웹판 전용 — 담당요원의 K2B 계정(2026-10-01, alembic 0014). 요원 한 명에 하나. K2B는 로그인한 계정 이름이 "점검자"로 고정되므로
+    그 회차 담당요원 본인 계정으로 제출한다. 비밀번호는 Fernet 암호문(server/api/k2b_secret.py, 열쇠 = .env.server K2B_SECRET_KEY) —
+    화면에 다시 보여 주지 않는다. check_* = [로그인 확인] 결과(ok/mismatch/fail, K2B에서 찾은 이름, 안내, 시각). 요원이 지워지면 같이 지워진다."""
+
+    __tablename__ = "staff_k2b_account"
+
+    staff_id: Mapped[int] = mapped_column(ForeignKey("staff.id", ondelete="CASCADE"), primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"))
+    k2b_id: Mapped[str] = mapped_column(Text, default="")
+    password_enc: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    updated_by: Mapped[str] = mapped_column(Text, default="")
+    check_status: Mapped[str] = mapped_column(Text, default="")
+    check_name: Mapped[str] = mapped_column(Text, default="")
+    check_message: Mapped[str] = mapped_column(Text, default="")
+    checked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
 class VisitPlan(Base):
     """웹판 전용 — 방문 달력의 "방문 예정"(2026-09-30). 날짜·현장·요원·메모. 그 현장·그 날짜 보고서가 생기면 달력에선 "다녀온 방문"으로
     바뀌어 보이고(행은 그대로 둠), 날짜가 지났는데 보고서가 없으면 "지난 예정"(server/api/routers/calendar.py). 현장이 지워지면 같이

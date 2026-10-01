@@ -72,3 +72,14 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if user is None or not user.active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "계정을 찾을 수 없습니다.")
     return user
+
+
+def is_groupware_admin(request: Request) -> bool:
+    """그룹웨어 관리자인지(2026-10-01 — K2B 계정은 본인 또는 관리자만 입력). nginx가 그룹웨어 로그인 확인 뒤 붙이는 X-Gw-Role
+    ("ADMIN"/"USER", 그룹웨어 ReportController)을 쓰고, 비밀값이 맞을 때만 믿는다. 그룹웨어 없이 자체 로그인 모드면 역할 구분이 없어 True."""
+    if not GROUPWARE_RELAY_SECRET:
+        return True
+    secret = request.headers.get("X-Relay-Secret", "")
+    if not secret or not hmac.compare_digest(secret, GROUPWARE_RELAY_SECRET):
+        return False
+    return unquote(request.headers.get("X-Gw-Role", "")).strip().upper() == "ADMIN"

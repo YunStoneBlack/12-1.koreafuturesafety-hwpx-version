@@ -160,7 +160,9 @@ DB에는 저장소 기준 상대경로만 들어간다(`core/stored_path.py`) �
 
 ## 8. 나중에 전용 서버 PC로 이전할 때
 
-1. 새 PC에 PostgreSQL + 한글 + cloudflared 설치, 이 저장소 그대로 복사(+ `server/.env.server`)
+1. 새 PC에 PostgreSQL + 한글 + cloudflared 설치, 이 저장소 그대로 복사(+ `server/.env.server` — **특히 `K2B_SECRET_KEY`는 그대로**:
+   담당요원 K2B 비밀번호가 이 열쇠로 잠겨 DB에 들어 있어서, 열쇠가 바뀌거나 없으면 모든 요원이 K2B 비밀번호를 다시 입력해야 한다).
+   K2B 로그인 확인·제출은 Playwright 크롬을 쓴다 — 새 PC에서 `python -m playwright install chromium`
 2. 최신 DB 덤프를 새 PC로 옮겨서 `pg_restore`
 3. 저장소(현장 폴더들·`_서명`·`_자료실`)를 새 PC의 원하는 자리로 복사하고 `.env.server`에 `DATA_DIR=그 자리` 한 줄. `data/templates`(한글 양식)는 git에 없으므로 새 PC 코드 폴더의 같은 자리로 따로 복사
 4. 환경변수(2번)를 새 PC 값으로 설정
