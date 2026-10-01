@@ -30,6 +30,12 @@
 .rp-edit .rp-home { background: var(--surface); color: var(--blue); }
 .mail-foot .rp-go:disabled { opacity: .5; }
 .mail-foot .rp-naver { background: #03C75A; border-color: #03C75A; } /* 네이버 초록, 티맵은 기본 파랑 */
+/* 폰: 버튼 셋이 한 줄이면 글자가 꺾임 → 티맵·네이버 위 줄 반반(티맵 왼쪽), 닫기 아래 줄 전체 */
+.rp-box .mail-foot { flex-wrap: wrap; }
+.rp-box .mail-foot button { white-space: nowrap; }
+.rp-box .mail-foot .rp-go { flex: 1 1 calc(50% - 4px); order: -1; }
+.rp-box .mail-foot .rp-tmap { order: -2; }
+.rp-box .mail-foot .rp-go ~ .mail-cancel, .rp-box .mail-foot .mail-cancel:has(~ .rp-go) { flex: 1 1 100%; }
 @media (max-width: 760px) { .rp-arrows button { width: 36px; height: 26px; font-size: 12px; } .rp-handle { font-size: 20px; padding: 8px 4px; } }
 
 /* 그날 목록 요원 머리줄의 [🚗 동선 짜기](js/calendar.js renderDay) */
