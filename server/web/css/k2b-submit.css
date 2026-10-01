@@ -1,7 +1,8 @@
 /* K2B 제출 창(js/k2b-submit.js, 2026-10-01) — 틀은 css/mail.css. + 보고서 줄의 [📤 K2B 제출]·"✓ K2B 10/02 · 6차" 표시 */
 .mail-box.kb-box { width: min(620px, 100%); }
 .kb-info > div { grid-template-columns: 72px minmax(0, 1fr); }
-.kb-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px 14px; }
+.kb-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 14px; }
+.kb-grid .kb-field:last-child { grid-column: 1 / -1; } /* 비계 사용은 한 줄 전체(종류 체크까지) */
 .kb-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--ink); margin: 0; }
 .kb-field em { font-style: normal; font-size: 11px; color: var(--crit); font-weight: 700; margin-left: 4px; }
 .kb-box select, .kb-box input[type="date"] { margin: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px;

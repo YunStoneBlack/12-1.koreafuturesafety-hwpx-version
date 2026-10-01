@@ -53,7 +53,7 @@ async function openK2bModal(reportId, titleText, onDone) {
         <div><span>K2B 검색</span><div><b>${mailEsc(s.search_word)}</b> → ${mailEsc(s.site_name)}</div></div>
         <div><span>회차</span><div>${s.visit_no}회차 · 지도일 ${mailEsc(s.guidance_date || "없음")} → K2B 새 차수</div></div>
         <div><span>점검자</span><div>${accText}</div></div>
-        <div><span>공정률</span><div>${s.progress_rate ?? "없음"}% · 통보 ${mailEsc(s.notification_method || "없음")} · 이전 지도 ${mailEsc(s.prev_guidance_implemented || "-")}</div></div>
+        <div><span>공정률</span><div>${s.progress_rate ?? "없음"}% · 통보 ${mailEsc(s.notification_method || "없음")}</div></div>
         <div><span>현장책임자</span><div>${mailEsc(s.site_manager || "없음")}</div></div>
         <div><span>사진</span><div>${mailEsc(photos)}</div></div>
         <div><span>보고서</span><div>${mailEsc(s.pdf || "PDF 없음")}</div></div>
@@ -62,6 +62,9 @@ async function openK2bModal(reportId, titleText, onDone) {
       <div class="kb-grid">
         <label class="kb-field"><span>현재 작업공종 <em>필수</em></span>
           <select class="kb-process"><option value="">고르세요</option>${info.choices.current_process.map((p) => `<option>${mailEsc(p)}</option>`).join("")}</select></label>
+        <label class="kb-field"><span>이전 기술지도 이행여부 <em>필수</em></span>
+          <select class="kb-prev"><option value="">고르세요</option><option>이행</option><option>불이행</option><option>해당없음</option></select>
+          <span class="mail-note">해당없음은 K2B 1차수에서만 됩니다</span></label>
         <div class="kb-field"><span>비계 사용 <em>필수</em></span>
           <div class="kb-radios"><label><input type="radio" name="kb-scaffold" value="미사용" /> 미사용</label>
             <label><input type="radio" name="kb-scaffold" value="사용" /> 사용</label>
@@ -84,6 +87,7 @@ async function openK2bModal(reportId, titleText, onDone) {
     const msg = $(".kb-msg");
     $(".kb-close").addEventListener("click", close);
     $(".kb-process").value = last.current_process || "";
+    $(".kb-prev").value = (prefill && prefill.prev_guidance) || s.prev_guidance_default || "";
     const radios = [...box.querySelectorAll('input[name="kb-scaffold"]')];
     const types = [...box.querySelectorAll(".kb-type")];
     const syncTypes = () => {
@@ -136,6 +140,7 @@ async function openK2bModal(reportId, titleText, onDone) {
       }
       const options = {
         current_process: $(".kb-process").value,
+        prev_guidance: $(".kb-prev").value,
         scaffold_usage: radios.find((r) => r.checked)?.value || "",
         scaffold_types: types.filter((t) => t.checked).map((t) => t.value),
         major_hazard_works: [...hazards.querySelectorAll(".kb-hazard")].map((r) => ({
@@ -147,6 +152,7 @@ async function openK2bModal(reportId, titleText, onDone) {
         allow_round_mismatch: $(".kb-allow").checked,
       };
       if (!options.current_process) return show("bad", "현재 작업공종을 고르세요(K2B 필수).");
+      if (!options.prev_guidance) return show("bad", "이전 기술지도 이행여부를 고르세요(K2B 필수).");
       if (!options.scaffold_usage) return show("bad", "비계 사용 여부를 고르세요(K2B 필수).");
       if (!confirm(`K2B에 ${info.summary.site_name} ${info.summary.visit_no}회차를 새 차수로 저장합니다. 진행할까요?`)) return;
       const fd = new FormData();

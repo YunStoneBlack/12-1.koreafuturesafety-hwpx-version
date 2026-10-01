@@ -82,7 +82,9 @@ def k2b_info(report_id: int, user: User = Depends(get_current_user), db: Session
             "guidance_date": sub.guidance_date, "staff_name": sub.staff_name, "progress_rate": sub.progress_rate,
             "site_manager": " ".join(x for x in (sub.site_manager_name, sub.site_manager_phone) if x),
             "notification_method": sub.notification_method,
-            "prev_guidance_implemented": "해당없음" if sub.prev_guidance_implemented is None else ("이행" if sub.prev_guidance_implemented else "불이행"),
+            # 창의 "이전 기술지도 이행여부" 기본값 — 보고서 값, 없으면 1회차만 해당없음(그 밖엔 사람이 고름)
+            "prev_guidance_default": ("이행" if sub.prev_guidance_implemented else "불이행") if sub.prev_guidance_implemented is not None
+            else ("해당없음" if sub.visit_no == 1 else ""),
             "special_note": sub.special_note,
             "photos": {"현장전경": len(sub.overview_photo_paths), "현장점검": len(sub.inspection_photo_paths), "현장개선": len(sub.improvement_photo_paths)},
             "pdf": Path(sub.report_pdf_path).name if sub.report_pdf_path else "",
@@ -115,6 +117,8 @@ async def k2b_submit(
     problems = _blockers(db, report)
     if o.get("current_process") not in sel.CURRENT_PROCESS_OPTIONS:
         problems.append("현재 작업공종을 고르세요(K2B 필수).")
+    if o.get("prev_guidance") not in ("이행", "불이행", "해당없음"):
+        problems.append("이전 기술지도 이행여부를 고르세요(K2B 필수).")
     if o.get("scaffold_usage") not in ("사용", "미사용"):
         problems.append("비계 사용 여부를 고르세요(K2B 필수).")
     elif o["scaffold_usage"] == "사용" and not o.get("scaffold_types"):
@@ -139,7 +143,7 @@ async def k2b_submit(
     if busy:
         raise HTTPException(status.HTTP_409_CONFLICT, "이 보고서는 지금 K2B에 제출하는 중입니다 — 끝날 때까지 기다리세요.")
     keep = {k: o.get(k) for k in ("current_process", "scaffold_usage", "scaffold_types", "bad_site_notify",
-                                  "bad_site_content", "major_hazard_works", "allow_round_mismatch")}
+                                  "bad_site_content", "major_hazard_works", "allow_round_mismatch", "prev_guidance")}
     job = K2bSubmission(company_id=user.company_id, report_id=report_id, staff_id=report.assigned_staff_id,
                         status="queued", options=keep, created_by=user.display_name or "")
     db.add(job)

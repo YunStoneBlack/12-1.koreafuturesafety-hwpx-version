@@ -38,6 +38,9 @@ class ManualFields:
     bad_site_content: str = ""
     bad_site_files: list[str] = field(default_factory=list)
     major_hazard_works: list[MajorHazardWork] = field(default_factory=list)
+    # 이전 기술지도 이행여부 — 창에서 고름(이행/불이행/해당없음). K2B는 "해당없음"을 1차수에서만 받음(2026-10-01 실측: 6차수에선 잠겨
+    # "이전 기술지도 통보여부를 선택해 주세요."로 저장 막힘) — 그래서 보고서 값이 없을 때 자동으로 해당없음을 넣지 않고 사람이 고른다.
+    prev_guidance: str = ""
 
 
 @dataclass

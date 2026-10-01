@@ -105,9 +105,9 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
             c.check_notification_method(sub.notification_method)
         if m.scaffold_usage:
             c.set_scaffold_usage(m.scaffold_usage == "사용", m.scaffold_types)
-        # K2B 필수 — 보고서에 값이 없으면(1회차 등 이전 지도 없음) "해당없음"
-        c.check_prev_guidance_implemented("해당없음" if sub.prev_guidance_implemented is None
-                                          else "이행" if sub.prev_guidance_implemented else "불이행")
+        # K2B 필수 — 창에서 고른 값(manual.prev_guidance), 없으면 보고서 값, 그것도 없으면 "해당없음"(1차수에서만 K2B가 받음)
+        c.check_prev_guidance_implemented(m.prev_guidance or ("해당없음" if sub.prev_guidance_implemented is None
+                                          else "이행" if sub.prev_guidance_implemented else "불이행"))
         if m.bad_site_notify:
             c.notify_bad_site(m.bad_site_content, m.bad_site_files)
         for hz in m.major_hazard_works:
