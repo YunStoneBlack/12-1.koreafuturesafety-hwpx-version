@@ -18,12 +18,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.models_db import Report, Site, Staff
-from core.models_web import SiteContact, User, VisitPlan
+from core.models_web import User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY as LIMIT
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from core import config
-from server.api.geocode import RoadDistance, site_coords
+from server.api.geocode import RoadDistance, map_addresses, site_coords
 from server.api.site_label import site_label
 from server.api.visit_scheduler import FAR, blocked_days, korean_holidays, make_compat, region_of
 
@@ -41,8 +41,7 @@ def _plan(db: Session, user: User, plan_id: int) -> VisitPlan:
 
 def _compat(db: Session, company_id: int, sites: dict[int, Site]):
     """(현장 → 시·군, 두 현장 궁합 함수, 도로 거리) — 자동 배치와 같은 기준(같은 시·군 30km·다른 시·군 12km 도로 거리, 좌표 없으면 시·군)."""
-    va = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(list(sites)))) if sites else {}
-    region = {sid: region_of(va.get(sid) or s.address or "") for sid, s in sites.items()}
+    region = {sid: region_of(addr) for sid, addr in map_addresses(db, sites).items()}
     dist = RoadDistance(db, site_coords(db, sites))
     compat = make_compat(region, dist, config.get_plan_far_km(company_id), config.get_plan_near_km(company_id))
     return region, compat, dist

@@ -37,6 +37,15 @@ MAIL_SMTP_PASSWORD=<애플리케이션 비밀번호 12자리>
 ; 선택: MAIL_CC(기본 = 보내는 주소), MAIL_FROM_NAME(기본 한국미래안전), MAIL_SMTP_HOST/PORT(기본 smtp.naver.com:465)
 ```
 
+방문 달력 자동 배치·일정 변경·동선 짜기의 **거리 기준**(현장 좌표·도로 거리, 2026-10-01)을 쓰려면:
+
+```
+KAKAO_REST_API_KEY=<카카오 개발자 사이트 앱의 REST API 키>   ; 회사(사용자) 카카오 계정 앱 — 앱 설정에서 "카카오맵" 사용 ON
+; 주소 → 좌표(dapi.kakao.com 로컬)와 자동차 도로 거리(apis-navi.kakaomobility.com 길찾기)에 같은 키를 쓴다.
+; 없으면 거리 없이 예전처럼 주소의 시·군으로만 묶고, 동선 짜기는 직선거리도 못 구해 쓸 수 없다.
+; SK_TMAP_APPKEY(SK 오픈API 티맵 키)는 시험용으로 받아 보관만 — 티맵 길안내는 키 없이 된다(핵심기술.md 15절).
+```
+
 네이버 메일 환경설정 → POP3/IMAP 설정 → "SMTP 사용"을 켜고, **네이버 ID 2단계 인증을 켠 뒤 애플리케이션 비밀번호**를 만들어 넣는다
 (로그인 비밀번호는 SMTP가 535로 거부함). SMTP를 90일 안 쓰면 네이버가 자동으로 꺼 버리니, 전송 창에 "로그인 실패"가 뜨면 이 설정부터 확인.
 비밀번호를 바꾼 뒤엔 API를 다시 시작해야 반영된다. (지도 기한 알림 메일은 2026-10-01 없앰.)
@@ -50,10 +59,11 @@ MAIL_SMTP_PASSWORD=<애플리케이션 비밀번호 12자리>
 alembic -c server/alembic.ini upgrade head
 ```
 
-(2026-09-30 기준 0009까지: 0003 `report_edit` — PDF 수정 전 버전 판단, 0004 `report_mail` — 고객사 메일 보낸 기록,
+(2026-10-01 기준 0012까지: 0003 `report_edit` — PDF 수정 전 버전 판단, 0004 `report_mail` — 고객사 메일 보낸 기록,
 0010 `visit_plan.source` — 방문 예정 자동/고정(자동 배치, `pip install holidays` 필요 — requirements.txt),
 0005 `report_submit_mark`·`staff_contact`·`deadline_alert` — 직접 제출함·요원 메일·지도 기한 알림 보낸 기록,
-0006 `staff_gw_link` — 담당요원 ↔ 그룹웨어 직원, 0007 `visit_plan` — 방문 달력 예정, 0008 `site_contact` — 현장 발주처·감리단, 0009 `site_contact.visit_address` — 지도 방문 주소.
+0006 `staff_gw_link` — 담당요원 ↔ 그룹웨어 직원, 0007 `visit_plan` — 방문 달력 예정, 0008 `site_contact` — 현장 발주처·감리단, 0009 `site_contact.visit_address` — 지도 방문 주소,
+0011 `site_geo` — 현장 좌표(카카오), 0012 `site_distance` — 현장 사이 도로 거리(카카오 길찾기).
 전부 표를 새로 만드는 것뿐이라 돌고 있는 서버에 영향 없이 먼저 적용해도 된다(적용 → API 재시작 → 화면).
 명령 창에 `DATABASE_URL` 환경변수가 있어야 한다 — `.env.server`의 값을 넣고 실행.)
 

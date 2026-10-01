@@ -20,7 +20,7 @@ async function openRoutePlan(date, staffId, staffName) {
   const onKey = (e) => { if (e.key === "Escape") close(); };
   document.addEventListener("keydown", onKey);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
-  const isPhone = !matchMedia("(hover: hover) and (pointer: fine)").matches;
+  const isPhone = !isMousePc(); // app.js
   const state = { start: "", end: "", order: null };
   let r = null;
 

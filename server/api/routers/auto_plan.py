@@ -19,10 +19,10 @@ from sqlalchemy.orm import Session
 
 from core import config
 from core.models_db import Report, Site, Staff
-from core.models_web import SiteContact, User, VisitPlan
+from core.models_web import User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
 from server.api.deps import get_current_user, get_db
-from server.api.geocode import RoadDistance, site_coords
+from server.api.geocode import RoadDistance, map_addresses, site_coords
 from server.api.site_label import site_label
 from server.api.visit_scheduler import SiteIn, plan_sites, region_of
 
@@ -66,8 +66,7 @@ def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.dat
     replaced = [p for p in future if redo(p)]
     kept = [p for p in future if not redo(p)]
 
-    visit_addr = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(list(sites)))) if sites else {}
-    region = {sid: region_of(visit_addr.get(sid) or s.address or "") for sid, s in sites.items()}
+    region = {sid: region_of(addr) for sid, addr in map_addresses(db, sites).items()}
     stats = {
         sid: (no or 0, last)
         for sid, no, last in db.query(Report.site_id, func.max(Report.visit_no), func.max(Report.guidance_date))

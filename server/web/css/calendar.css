@@ -53,7 +53,6 @@
 .cal-act { color: var(--blue); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .cal-plan-acts { flex-basis: 100%; display: flex; gap: 6px; flex-wrap: wrap; padding-left: 17px; }
 .main .cal-plan-acts button { margin: 0; padding: 5px 10px; font-size: 12px; }
-.cal-full { margin-top: 8px; font-size: 12px; font-weight: 700; color: var(--crit); }
 /* 그날 목록 요원별 묶음(js/calendar.js renderDay, 2026-10-01) — 머리줄(이름·N곳·한도) + 그 요원의 방문·예정. 대타 필요는 주황 묶음 */
 .cal-group { border: 1px solid var(--line); border-radius: 10px; margin: 12px 0; overflow: hidden; background: var(--surface); }
 .cal-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px; background: var(--blue-soft); border-bottom: 1px solid var(--line); }

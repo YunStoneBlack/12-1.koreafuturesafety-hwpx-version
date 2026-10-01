@@ -62,19 +62,25 @@ def geocode(address: str) -> tuple[float, float, int, str] | None:
     return best
 
 
-def site_address(site: Site, visit_address: str | None) -> str:
-    return (visit_address or site.address or "").strip()
+def map_addresses(db: Session, sites) -> dict[int, str]:
+    """현장 → 지도에 쓰는 주소(지도 방문 주소, 없으면 현장 주소). sites = {id: Site} 또는 Site 목록.
+    [📍 지도]·좌표 찾기·지역(시·군)·동선이 모두 이 주소를 쓴다(2026-10-01 여섯 군데 같은 코드를 모음)."""
+    by_id = sites if isinstance(sites, dict) else {s.id: s for s in sites}
+    if not by_id:
+        return {}
+    va = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(list(by_id))))
+    return {sid: (va.get(sid) or s.address or "").strip() for sid, s in by_id.items()}
 
 
 def site_coords(db: Session, sites: dict[int, Site]) -> dict[int, tuple[float, float]]:
     """현장 → (위도, 경도) — 믿을 만한 것만(precise). 없거나 주소가 바뀐 현장은 지금 찾아서 저장한다(키 없으면 저장된 것만)."""
     if not sites:
         return {}
-    va = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(list(sites))))
+    addresses = map_addresses(db, sites)
     rows = {g.site_id: g for g in db.query(SiteGeo).filter(SiteGeo.site_id.in_(list(sites)))}
     changed = False
     for sid, site in sites.items():
-        addr = site_address(site, va.get(sid))
+        addr = addresses[sid]
         g = rows.get(sid)
         if g is not None and g.address == addr:
             continue

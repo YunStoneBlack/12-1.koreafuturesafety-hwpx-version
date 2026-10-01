@@ -18,11 +18,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.models_db import Report, Site, Staff
-from core.models_web import SiteContact, User, VisitPlan
+from core.models_web import User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.site_pace_out import last_visit_nos, pace_dict
+from server.api.geocode import map_addresses
 from server.api.site_label import site_label
 from server.api.routers.staff_groupware import my_staff_id
 from server.api.submission import report_states
@@ -91,12 +92,12 @@ def calendar(
     day_load = [{"staff_id": sid, "date": d, "count": len(s)} for (sid, d), s in load.items()]
 
     last_nos = last_visit_nos(db, list(sites))
-    visit_addr = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(list(sites)))) if sites else {}
+    map_addr = map_addresses(db, sites)
     return {
         "today": today.isoformat(),
         # 현장별 [📞 전화]·[📍 지도](현장책임자 연락처, 지도 방문 주소 — 없으면 현장 주소) + 진행 막대(pace)
         "site_links": {
-            s.id: {"phone": (s.manager_phone or "").strip(), "map_address": (visit_addr.get(s.id) or s.address or "").strip(),
+            s.id: {"phone": (s.manager_phone or "").strip(), "map_address": map_addr[s.id],
                    "pace": pace_dict(s, last_nos.get(s.id))}
             for s in sites.values()
         },

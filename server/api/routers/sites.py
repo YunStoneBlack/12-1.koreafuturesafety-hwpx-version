@@ -13,9 +13,10 @@ from core import config
 from core.contract_analyzer import extract_site_info
 from core.db import BASE_DIR
 from core.models_db import Finding, PreviousFinding, Report, Site, SiteProcessDefault, Staff
-from core.models_web import ReportJob, SiteContact, User
+from core.models_web import ReportJob, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
+from server.api.geocode import map_addresses
 from server.api.routers.report_manage import prepared_hwpx_path, preview_dir
 from server.api.site_pace_out import last_visit_nos, pace_dict
 from server.api.routers.reports import check_staff_limit
@@ -38,7 +39,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
     } if ids else {}
     staff_ids = {s.assigned_staff_id for s in sites if s.assigned_staff_id}
     staff_names = dict(db.query(Staff.id, Staff.name).filter(Staff.id.in_(staff_ids))) if staff_ids else {}
-    visit = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(ids))) if ids else {}
+    map_addr = map_addresses(db, sites)
     out = []
     for site in sites:
         count, last_no, last_date = stats.get(site.id, (0, None, None))
@@ -47,7 +48,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
         item.last_visit_no = last_no
         item.last_guidance_date = last_date
         item.staff_name = staff_names.get(site.assigned_staff_id, "")
-        item.map_address = (visit.get(site.id) or site.address or "").strip()
+        item.map_address = map_addr[site.id]
         item.pace = pace_dict(site, last_no)
         out.append(item)
     return out

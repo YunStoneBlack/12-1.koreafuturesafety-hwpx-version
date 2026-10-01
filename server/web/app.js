@@ -133,6 +133,9 @@ function showError(el, err) {
 // 전화 = 현장책임자 연락처: 폰은 누르면 통화 화면, PC(마우스)는 전화를 걸 수 없어 번호를 보여 주고 누르면 복사.
 // 지도 = 지도 방문 주소(없으면 현장 주소 — 서버가 map_address로 줌): PC는 네이버 지도 검색을 새 창으로, 폰은 매번 [티맵]/[네이버 지도] 선택 창.
 // 둘 다 없으면 null. 현장 목록 줄은 줄 전체가 링크라 버튼을 누른 게 줄 이동으로 번지지 않게 막는다.
+// 마우스로 쓰는 PC인지(폰·태블릿 아님) — 전화는 복사, 지도는 바로 네이버, 동선 창 내비 버튼 숨김 등을 가른다
+const isMousePc = () => matchMedia("(hover: hover) and (pointer: fine)").matches;
+
 function siteLinkButtons(phone, mapAddress) {
   phone = (phone || "").trim();
   mapAddress = (mapAddress || "").trim();
@@ -152,7 +155,7 @@ function siteLinkButtons(phone, mapAddress) {
   };
   if (phone) {
     make("tel", "📞", "전화", phone, "현장책임자에게 전화(PC에선 번호 복사)", async (b) => {
-      if (matchMedia("(hover: hover) and (pointer: fine)").matches) { // PC — 복사
+      if (isMousePc()) { // PC — 복사
         try {
           await navigator.clipboard.writeText(phone);
           const full = b.querySelector(".sl-full");
@@ -167,7 +170,7 @@ function siteLinkButtons(phone, mapAddress) {
   if (mapAddress) {
     make("map", "📍", "지도", `지도 ${mapAddress}`, `지도에서 열기: ${mapAddress}`, () => openMapChooser(mapAddress));
     // PC는 [지도]가 바로 네이버 지도라 선택 창(📋 주소 복사)이 없다 → 옆에 따로(2026-10-01 사용자). 폰은 선택 창 안에.
-    if (matchMedia("(hover: hover) and (pointer: fine)").matches) {
+    if (isMousePc()) {
       make("copy", "📋", "복사", "주소 복사", `주소 복사: ${mapAddress}`, async (b) => {
         const full = b.querySelector(".sl-full");
         full.textContent = (await copyText(mapAddress)) ? "복사됨 ✓" : "복사 안 됨";
@@ -229,8 +232,7 @@ function naverMapUrl(address) {
   return `https://map.naver.com/p/search/${encodeURIComponent(address)}`;
 }
 function openMapChooser(address) {
-  const isPc = matchMedia("(hover: hover) and (pointer: fine)").matches;
-  if (isPc) {
+  if (isMousePc()) {
     window.open(naverMapUrl(address), "_blank", "noopener");
     return;
   }
