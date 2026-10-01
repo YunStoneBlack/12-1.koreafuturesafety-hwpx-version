@@ -139,11 +139,11 @@ def set_plan_finish_before_days(days: int, company_id: int | None = None) -> Non
     _set_setting(_KEY_PLAN_FINISH_BEFORE_DAYS, str(int(days)), company_id)
 
 
-# 거리 기준 묶기(현장 좌표 — server/api/geocode.py): 같은 시·군이라도 far_km보다 멀면 안 묶고, 다른 시·군이라도 near_km 안이면 자리 없을 때 묶는다
+# 거리 기준 묶기(현장 사이 도로 거리 — server/api/geocode.py): 같은 시·군이라도 far_km보다 멀면 안 묶고, 다른 시·군이라도 near_km 안이면 자리 없을 때 묶는다
 _KEY_PLAN_FAR_KM = "plan_far_km"
 _KEY_PLAN_NEAR_KM = "plan_near_km"
-DEFAULT_PLAN_FAR_KM = 25.0
-DEFAULT_PLAN_NEAR_KM = 10.0
+DEFAULT_PLAN_FAR_KM = 30.0  # 도로 거리(카카오 길찾기) 기준
+DEFAULT_PLAN_NEAR_KM = 12.0
 
 
 def _get_float(key: str, default: float, company_id: int | None) -> float:

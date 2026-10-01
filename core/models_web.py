@@ -223,3 +223,16 @@ class SiteGeo(Base):
     precise: Mapped[bool] = mapped_column(Boolean, default=False)
     found: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
+class SiteDistance(Base):
+    """웹판 전용 — 현장 사이 도로 거리(카카오모빌리티 길찾기, 2026-10-01, alembic 0012). site_a < site_b.
+    coords = 물었을 때 두 좌표("lat,lng|lat,lng") — 좌표가 바뀌면 다시 묻는다. road_km가 비면 길찾기 실패(직선거리로 대신)."""
+
+    __tablename__ = "site_distance"
+
+    site_a: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), primary_key=True)
+    site_b: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), primary_key=True)
+    coords: Mapped[str] = mapped_column(Text, default="")
+    road_km: Mapped[float | None] = mapped_column(Float, default=None)
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)

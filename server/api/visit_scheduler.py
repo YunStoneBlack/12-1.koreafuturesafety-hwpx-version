@@ -7,8 +7,8 @@
 - 가는 날에서 빼는 날: 주말, 공휴일, 공휴일과 주말(또는 공휴일) 사이에 낀 평일(목 공휴 → 금, 화 공휴 → 월), 평일 공휴일이 3일 이상인 주는 월~금 전부.
 - 같은 요원의 **같이 가기 좋은 현장**은 날짜를 모은다 — 각 회차는 목표일 ± 간격의 1/3 안에서 움직일 수 있고,
   그 안에 그런 현장 출장이 이미 있거나(고정 예정·앞서 고른 날) 그런 현장의 다른 회차도 올 수 있는 날을 고른다. 묶음은 매번 새로 짠다.
-  같이 가기 좋음 = 같은 시·군이면서 좌표 거리 25km 이내(설정). 다른 시·군이라도 10km 이내(설정)면 자리가 없을 때만 묶는다(2026-10-01).
-  좌표(server/api/geocode.py, 카카오)가 없는 현장은 예전처럼 시·군이 같으면 같이 가기 좋음.
+  같이 가기 좋음 = 같은 시·군이면서 도로 거리 30km 이내(설정). 다른 시·군이라도 12km 이내(설정)면 자리가 없을 때만 묶는다(2026-10-01).
+  도로 거리는 카카오 길찾기(server/api/geocode.py, 실패하면 직선거리). 좌표가 없는 현장은 예전처럼 시·군이 같으면 같이 가기 좋음.
 - 요원 하루 4곳 한도(다녀온 방문·남은 예정·새로 넣는 것, 같은 현장은 1곳). 한 현장은 하루 한 번, 회차 순서대로.
 - 한 요원은 **하루에 같이 가기 좋은 현장끼리만**(속초·김포를 한날로 잡던 것 — 2026-10-01 실데이터 미리보기에서 발견). 먼 현장 출장이 있는 날은 피한다.
 - 목표 범위에 자리가 없으면 마감(없으면 준공일 전날)까지 가장 가까운 가능한 날로(그래도 없으면 그때만 지역 섞기 허용),
@@ -111,22 +111,27 @@ def _targets(base: datetime.date, end: datetime.date, count: int) -> list[dateti
 
 
 SAME, NEAR, FAR = "same", "near", "far"
-DEFAULT_FAR_KM = 25.0   # 같은 시·군이라도 이보다 멀면 안 묶는다
-DEFAULT_NEAR_KM = 10.0  # 다른 시·군이라도 이보다 가까우면 자리가 없을 때 묶는다
+DEFAULT_FAR_KM = 30.0   # 같은 시·군이라도 도로 거리가 이보다 멀면 안 묶는다
+DEFAULT_NEAR_KM = 12.0  # 다른 시·군이라도 도로 거리가 이보다 가까우면 자리가 없을 때 묶는다
 
 
-def make_compat(regions: dict[int, str], coords: dict[int, tuple[float, float]], far_km: float = DEFAULT_FAR_KM,
-                near_km: float = DEFAULT_NEAR_KM):
+def make_compat(regions: dict[int, str], dist=None, far_km: float = DEFAULT_FAR_KM, near_km: float = DEFAULT_NEAR_KM):
     """두 현장을 한날 묶을 수 있는지 — SAME(같이 가기 좋음) / NEAR(자리 없을 때만) / FAR(안 묶음), 거리(km, 모르면 None).
-    좌표가 둘 다 있으면 거리로(같은 시·군 ≤ far_km = SAME, 다른 시·군 ≤ near_km = NEAR), 없으면 예전처럼 시·군으로(같으면 SAME).
+    dist(a, b) = 두 현장 사이 도로 거리 km(server/api/geocode.RoadDistance — 좌표 모르면 None). 거리가 있으면
+    같은 시·군 ≤ far_km = SAME, 다른 시·군 ≤ near_km = NEAR, 없으면 예전처럼 시·군으로(같으면 SAME).
     지역을 모르는 현장은 NEAR(막지는 않되 일부러 묶지도 않음)."""
-    from server.api.geocode import km
+    memo: dict[tuple[int, int], tuple[str, float | None]] = {}
 
     def compat(a: int, b: int) -> tuple[str, float | None]:
+        if (a, b) in memo:
+            return memo[(a, b)]
+        memo[(a, b)] = memo[(b, a)] = out = _compat(a, b)
+        return out
+
+    def _compat(a: int, b: int) -> tuple[str, float | None]:
         ra, rb = regions.get(a, ""), regions.get(b, "")
-        ca, cb = coords.get(a), coords.get(b)
-        if ca and cb:
-            d = km(ca, cb)
+        d = dist(a, b) if dist else None
+        if d is not None:
             if ra and ra == rb:
                 return (SAME if d <= far_km else FAR), d
             return (NEAR if d <= near_km else FAR), d
@@ -145,14 +150,14 @@ def plan_sites(
     limit: int = 4,
     holidays_: dict[datetime.date, str] | None = None,
     site_regions: dict[int, str] | None = None,
-    coords: dict[int, tuple[float, float]] | None = None,
+    dist=None,
     far_km: float = DEFAULT_FAR_KM,
     near_km: float = DEFAULT_NEAR_KM,
 ) -> tuple[list[Placed], list[SiteResult]]:
     """sites의 남은 회차를 배치한다.
 
     busy: (요원, 날짜) → 그날 가는 현장들(다녀온 방문·남기는 예정 — 새로 넣는 건 여기에 더해 간다). 묶기의 기준점도 여기서 본다.
-    site_regions·coords: 현장 → 시·군 / (위도, 경도) — busy에 든 다른 현장까지(sites의 지역은 저절로 들어간다). 좌표는 믿을 만한 것만.
+    site_regions: 현장 → 시·군(busy에 든 다른 현장까지, sites의 지역은 저절로 들어간다). dist(a, b): 도로 거리 km(모르면 None — 시·군으로).
     """
     ends = [s.period_end for s in sites if s.period_end]
     if not ends:
@@ -163,7 +168,7 @@ def plan_sites(
     busy = defaultdict(set, {k: set(v) for k, v in busy.items()})
     regions = dict(site_regions or {})
     regions.update({s.id: s.region for s in sites})
-    compat = make_compat(regions, coords or {}, far_km, near_km)
+    compat = make_compat(regions, dist, far_km, near_km)
 
     def day_kind(site: SiteIn, d: datetime.date) -> str:
         """그날 이 요원 일정과 이 현장의 궁합 — empty(빈 날) / same(같이 가기 좋은 현장만) / near(가까운 다른 시·군 섞임) / far."""

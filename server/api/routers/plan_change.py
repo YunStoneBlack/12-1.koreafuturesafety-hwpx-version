@@ -23,7 +23,7 @@ from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY as LIMIT
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from core import config
-from server.api.geocode import site_coords
+from server.api.geocode import RoadDistance, site_coords
 from server.api.visit_scheduler import FAR, blocked_days, korean_holidays, make_compat, region_of
 
 router = APIRouter(tags=["plan-change"])
@@ -39,11 +39,12 @@ def _plan(db: Session, user: User, plan_id: int) -> VisitPlan:
 
 
 def _compat(db: Session, company_id: int, sites: dict[int, Site]):
-    """(현장 → 시·군, 두 현장 궁합 함수) — 자동 배치와 같은 기준(같은 시·군 25km·다른 시·군 10km, 좌표 없으면 시·군)."""
+    """(현장 → 시·군, 두 현장 궁합 함수, 도로 거리) — 자동 배치와 같은 기준(같은 시·군 30km·다른 시·군 12km 도로 거리, 좌표 없으면 시·군)."""
     va = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(list(sites)))) if sites else {}
     region = {sid: region_of(va.get(sid) or s.address or "") for sid, s in sites.items()}
-    compat = make_compat(region, site_coords(db, sites), config.get_plan_far_km(company_id), config.get_plan_near_km(company_id))
-    return region, compat
+    dist = RoadDistance(db, site_coords(db, sites))
+    compat = make_compat(region, dist, config.get_plan_far_km(company_id), config.get_plan_near_km(company_id))
+    return region, compat, dist
 
 
 def _together(sites: dict[int, Site], compat, me: int, here: set[int]):
@@ -78,7 +79,7 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
     first = (min(plan.plan_date, today + DAY)).replace(day=1)
     end = (first + datetime.timedelta(days=95)).replace(day=1) - DAY  # 원래 날짜(또는 내일)가 있는 달부터 석 달
     sites = {s.id: s for s in db.query(Site).filter(Site.company_id == user.company_id)}
-    region, compat = _compat(db, user.company_id, sites)
+    region, compat, dist = _compat(db, user.company_id, sites)
     my_region = region.get(plan.site_id, "")
     blocked = blocked_days(first, end, korean_holidays({first.year, end.year}))
     busy = _day_sites(db, user.company_id, first, end, plan.id)
@@ -104,6 +105,7 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
     suggestions = [{"date": x["date"], "kind": "join", "with": x["same"], "with_km": x["same_km"]} for x in join]
     suggestions += [{"date": x["date"], "kind": "free", "with": []} for x in free[:1 if join else 3]]
     staff_name = db.query(Staff.name).filter(Staff.id == plan.staff_id).scalar() if plan.staff_id else ""
+    dist.save()  # 이번에 새로 물은 도로 거리 저장
     return {
         "plan": {"id": plan.id, "site_id": plan.site_id, "site_name": sites[plan.site_id].name if plan.site_id in sites else "",
                  "staff_id": plan.staff_id, "staff_name": staff_name or "", "date": plan.plan_date.isoformat(), "region": my_region},
@@ -115,7 +117,7 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
 def substitutes(plan_id: int, date: datetime.date = Query(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     plan = _plan(db, user, plan_id)
     sites = {s.id: s for s in db.query(Site).filter(Site.company_id == user.company_id)}
-    region, compat = _compat(db, user.company_id, sites)
+    region, compat, dist = _compat(db, user.company_id, sites)
     my_region = region.get(plan.site_id, "")
     busy = _day_sites(db, user.company_id, date, date, plan.id)
     out = []
@@ -129,6 +131,7 @@ def substitutes(plan_id: int, date: datetime.date = Query(...), user: User = Dep
                     "other_regions": other, "full": len(here) >= LIMIT})
     # 같은 지역 출장 있는 사람 → 그날 비어 있는 사람 → 다른 지역 출장 있는 사람(한도 찬 사람은 맨 뒤)
     out.sort(key=lambda x: (x["full"], 0 if x["same"] and not x["other_regions"] else 1 if x["count"] == 0 else 2, x["count"], x["name"]))
+    dist.save()
     return {"date": date.isoformat(), "region": my_region, "limit": LIMIT, "staff": out}
 
 
