@@ -206,11 +206,15 @@ document.getElementById("site-edit-form").addEventListener("submit", async (e) =
     // 현장 정보는 실제로 바뀐 게 있을 때만 저장 — 저장하면 표지가 바뀐 것으로 보고 이 현장 PDF가 전부 "수정 전 버전"이 되므로
     // (발주처·감리단만 고쳤을 때 PDF를 다시 만들 필요 없게, 2026-09-30)
     const norm = (v) => (v == null ? "" : String(v));
+    let handoverMsg = "";
     if (Object.keys(body).some((k) => norm(body[k]) !== norm(currentSite[k]))) {
+      const staffChanged = norm(body.assigned_staff_id) !== norm(currentSite.assigned_staff_id);
       await apiPatch(`/sites/${siteId}`, body);
       currentSite = await api(`/sites/${siteId}`); // 진행 막대(공기·총 횟수가 바뀌었을 수 있음)까지 새로
+      if (staffChanged) handoverMsg = await handoverPlans(body.assigned_staff_id);
     }
     applySite(currentSite);
+    if (handoverMsg) document.querySelector(".site-plan-msg").innerHTML = handoverMsg;
     closeSiteEdit();
   } catch (err) {
     showError(errorEl, err);
@@ -231,6 +235,25 @@ function applySite(site) {
   if (pace) top.appendChild(pace);
   top.appendChild(sitePlanBox(site));
   renderSiteSummary(site);
+}
+
+// 담당요원을 바꿨을 때 — 이 현장의 앞으로의 방문 예정도 새 담당자로 넘길지, 넘기면 새 담당자의 다른 현장과 같은 지역끼리 다시 묶을지
+// (POST /sites/{id}/plans/handover, server/api/routers/plan_change.py — 📌 고정 예정은 날짜 그대로 요원만 바뀜)
+async function handoverPlans(toStaffId) {
+  try {
+    const dry = await apiPost(`/sites/${siteId}/plans/handover`, { to_staff_id: toStaffId, dry_run: true });
+    if (!dry.count) return;
+    const sel = document.getElementById("sf-assigned_staff_id");
+    const who = toStaffId ? sel.options[sel.selectedIndex].textContent.replace(/\s*\(.*\)\s*$/, "") : "담당 없음"; // 선택 칸 글자 "이름 (연락처)"에서 이름만
+    if (!confirm(`이 현장의 앞으로의 방문 예정 ${dry.count}건도 새 담당자(${who})로 넘길까요?`)) return;
+    const replan = !!toStaffId && dry.auto > 0 &&
+      confirm(`${who}님의 다른 현장과 같은 지역끼리 같은 날로 다시 묶을까요?\n(자동으로 넣은 예정 ${dry.auto}건만 다시 짜고, 📌 고정 예정은 날짜 그대로)`);
+    const res = await apiPost(`/sites/${siteId}/plans/handover`, { to_staff_id: toStaffId, replan });
+    return `✓ 방문 예정 ${res.moved}건을 ${who}님께 넘겼습니다${replan ? "(같은 지역끼리 다시 묶음)" : ""} — <a href="calendar.html">방문 달력에서 보기</a>`;
+  } catch (err) {
+    showError(errorEl, err);
+  }
+  return "";
 }
 
 // [📅 지도 일정 자동 배치] — 이 현장만 기존 일정(같은 지역 출장)에 끼워 넣는다(js/auto-plan.js). 넣은 뒤 결과 한 줄 + 달력 링크.

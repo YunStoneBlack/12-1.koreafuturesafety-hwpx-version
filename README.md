@@ -37,6 +37,8 @@
 - **지도 출장 자동 배치**(2026-10-01, `server/api/visit_scheduler.py` 계산 · `routers/auto_plan.py` API · `js/auto-plan.js` 창, alembic 0010 `visit_plan.source`):
   남은 회차를 공기에 고르게(마감 준공 N일 전, 설정 탭), 주말·공휴일·징검다리·연휴 주 제외, 같은 요원·같은 시·군은 같은 날로(하루 한 지역·4곳), 사람이 정한 예정 📌 고정.
   버튼: 현장 화면 [📅 지도 일정 자동 배치](그 현장만 끼워 넣기), 새 현장 등록 시 질문, 방문 달력 [📅 자동 배치](보는 요원들 전부), 현장 목록·달력 위 "📅 일정 없는 현장 N곳"
+- **[📅 일정 변경]**(달력 그날 목록 📞 옆, `js/plan-change.js`, API `routers/plan_change.py`): 추천 날짜(같은 지역 출장에 붙이기·가장 가까운 빈 평일) + 작은 달력 + 대신 갈 요원.
+  현장 담당요원을 바꾸면 앞으로의 예정도 넘길지·같은 지역끼리 다시 묶을지 묻는다(`POST /sites/{id}/plans/handover`)
 - **담당요원 = 그룹웨어 직원정보**(`js/staff-gw.js`, API `routers/staff_groupware.py`, alembic 0006 `staff_gw_link`): 담당요원 탭을 연 브라우저가 그룹웨어
   `/report-shell/employees`를 받아 보내 이어 붙임 — [담당요원] 체크(끄면 비활성)·서명만 여기서, 이름·연락처·메일은 그룹웨어 값.
   로그인 아이디로 "나"를 알아봄(달력 나만). 그룹웨어 목록을 못 받으면 예전 화면(직접 추가·수정)
