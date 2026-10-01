@@ -29,7 +29,7 @@ async function setupProcessSlots(containerId, apiPrefix) {
       <div class="photo-slot">
         <div class="slot-controls">
           <div class="slot-label">AI 분석용 공정 사진 (선택 — 공정명만 있어도 작성됩니다, 보관 안 함)</div>
-          <input type="file" accept="image/*" capture="environment" id="${containerId}-aiphoto-${slot}" />
+          <input type="file" accept="image/*" id="${containerId}-aiphoto-${slot}" />
         </div>
         <button type="button" id="${containerId}-ai-${slot}" style="margin-top:0;">✨ AI로 작성</button>
       </div>
@@ -158,7 +158,7 @@ async function setupFindings() {
              ${data.has_photo ? `src="${base}/${slot}/photo?thumb=1"` : ""} />
         <div class="slot-controls">
           <div class="slot-label">지적사항 사진 (선택하면 바로 저장)</div>
-          <input type="file" accept="image/*" capture="environment" id="fd-file-${slot}" />
+          <input type="file" accept="image/*" id="fd-file-${slot}" />
           <button type="button" class="secondary" id="fd-del-${slot}" style="display:${data.has_photo ? "inline-block" : "none"};">삭제</button>
         </div>
       </div>

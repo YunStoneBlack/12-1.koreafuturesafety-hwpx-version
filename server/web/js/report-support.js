@@ -74,6 +74,9 @@ async function setupTbm() {
 }
 
 // --- 10-2. 계측자료 (7종 고정) ---
+// 실제로 쓰는 건 가스농도측정기·조도계뿐이라 나머지 5종은 숨김(사용자 2026-10-02). 단, 이 보고서에 이미 값·사진이 있으면
+// 고치거나 지울 수 있게 보여 준다(서버 목록·보고서 양식은 7종 그대로).
+const MEASUREMENT_SHOWN = ["가스농도측정기", "조도계"];
 async function setupMeasurements() {
   const container = document.getElementById("measurement-list");
   const base = `${BASE}/api/reports/${reportId}/measurements`;
@@ -86,6 +89,7 @@ async function setupMeasurements() {
   }
   for (const data of rows) {
     const type = data.instrument_type;
+    if (!MEASUREMENT_SHOWN.includes(type) && !data.value && !data.has_photo && !data.manual_verdict && !data.manual_action) continue;
     const row = document.createElement("div");
     row.className = "sub-card";
     row.innerHTML = `
@@ -103,7 +107,7 @@ async function setupMeasurements() {
              ${data.has_photo ? `src="${base}/${encodeURIComponent(type)}/photo?thumb=1"` : ""} />
         <div class="slot-controls">
           <div class="slot-label">측정 사진 (선택하면 바로 저장)</div>
-          <input type="file" accept="image/*" capture="environment" id="ms-file-${type}" />
+          <input type="file" accept="image/*" id="ms-file-${type}" />
           <button type="button" class="secondary" id="ms-del-${type}" style="display:${data.has_photo ? "inline-block" : "none"};">삭제</button>
         </div>
         <button type="button" id="ms-ai-${type}" style="margin-top:0;">✨ AI로 읽기</button>
