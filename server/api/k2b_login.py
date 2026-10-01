@@ -88,13 +88,20 @@ def check_login(staff_id: int, k2b_id: str, password: str, expect_name: str, tim
             browser.close()
     if not logged_in:
         return LoginResult("fail", "", f"로그인 실패 — {reason or '시간 안에 K2B 첫 화면이 안 떴습니다(아이디·비밀번호 확인)'}", str(shot))
-    if expect_name and expect_name in text:
-        return LoginResult("ok", expect_name, f"로그인 성공 — K2B 점검자 이름이 '{expect_name}'로 담당요원과 같습니다.", str(shot))
-    found = re.search(r"([가-힣]{2,5})\s*님", text)
+    # 계정 이름 = 첫 화면 오른쪽 위 "권태형님 | 접속유지시간"(실측 2026-10-01, 요원 4명 모두 확인) — 화면 어딘가에 이름이 있는 것만으론 판단하지 않는다
+    found = re.search(r"([가-힣]{2,5})\s*님\s*\n?\s*\|?\s*접속유지", text) or re.search(r"([가-힣]{2,5})\s*님", text)
     name = found.group(1) if found else ""
-    msg = (f"로그인은 됐지만 K2B 이름이 '{name}'로 보입니다 — 이 계정으로 제출하면 점검자가 '{name}'(으)로 들어갑니다. 본인 계정인지 확인하세요."
+    if expect_name and name == expect_name:
+        return LoginResult("ok", name, f"로그인 성공 — K2B 점검자 이름이 '{name}'{_ro(name)} 담당요원과 같습니다.", str(shot))
+    msg = (f"로그인은 됐지만 K2B 이름이 '{name}'{_ro(name)} 보입니다 — 이 계정으로 제출하면 점검자가 '{name}'{_ro(name)} 들어갑니다. 본인 계정인지 확인하세요."
            if name else "로그인은 됐지만 K2B 화면에서 담당요원 이름을 찾지 못했습니다 — 화면 사진으로 확인해 주세요.")
     return LoginResult("mismatch", name, msg, str(shot))
+
+
+def _ro(word: str) -> str:
+    """'으로'/'로' — 마지막 글자 받침(ㄹ 받침은 '로')."""
+    jong = (ord(word[-1]) - 0xAC00) % 28 if word and "가" <= word[-1] <= "힣" else 0
+    return "으로" if jong and jong != 8 else "로"
 
 
 def now() -> datetime.datetime:
