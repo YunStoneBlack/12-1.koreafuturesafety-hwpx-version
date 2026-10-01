@@ -50,7 +50,7 @@ async function openPlanChange(planId, onDone) {
     if (!d) return "";
     if (d.blocked) return d.blocked;
     const parts = [];
-    if (d.same.length) parts.push(`같은 지역: ${d.same.map(apShort).join(", ")}`);
+    if (d.same.length) parts.push(`같이 갈 현장: ${apWithKm(d.same, d.same_km)}`);
     if (d.other) parts.push("다른 지역 출장 있음");
     parts.push(d.count ? `그날 ${d.count}곳` : "그날 비어 있음");
     if (d.count >= o.limit) parts.push("한도 다 참");
@@ -62,7 +62,7 @@ async function openPlanChange(planId, onDone) {
       <span class="mail-sub">${apEsc(plan.site_name)} · 원래 ${apDay(plan.date)}${plan.staff_name ? ` · ${apEsc(plan.staff_name)}` : ""}</span></div>
     <div class="mail-label">⭐ 추천 날짜</div>
     <div class="pc-sugs"></div>
-    <div class="mail-label">📅 직접 고르기 <span class="pc-hint">초록 = 같은 지역 출장 있는 날 · 숫자 = 그날 가는 현장 수</span></div>
+    <div class="mail-label">📅 직접 고르기 <span class="pc-hint">초록 = 가까운 현장 출장 있는 날 · 숫자 = 그날 가는 현장 수</span></div>
     <div class="pc-cal">
       <div class="pc-cal-head"><button type="button" class="pc-prev" aria-label="이전 달">‹</button><b></b><button type="button" class="pc-next" aria-label="다음 달">›</button></div>
       <div class="pc-grid"></div>
@@ -81,7 +81,7 @@ async function openPlanChange(planId, onDone) {
     b.type = "button";
     b.className = `pc-sug ${s.kind}`;
     b.innerHTML = `<b>${apDay(s.date)}</b><span></span>`;
-    b.querySelector("span").textContent = s.kind === "join" ? `${s.with.map(apShort).join(", ")}와 함께` : "가장 가까운 빈 평일";
+    b.querySelector("span").textContent = s.kind === "join" ? `${apWithKm(s.with, s.with_km)}와 함께` : "가장 가까운 빈 평일";
     b.addEventListener("click", () => moveTo(s.date));
     sugs.appendChild(b);
   }
@@ -127,13 +127,13 @@ async function openPlanChange(planId, onDone) {
     subsBody.innerHTML = '<div class="mail-wait">불러오는 중…</div>';
     try {
       const r = await api(`/calendar/plans/${plan.id}/substitutes?date=${date}`);
-      subsBody.innerHTML = `<div class="pc-hint">${apDay(date)}에 대신 갈 요원 — 같은 지역 출장이 있는 사람부터</div>`;
+      subsBody.innerHTML = `<div class="pc-hint">${apDay(date)}에 대신 갈 요원 — 가까운 현장 출장이 있는 사람부터</div>`;
       for (const s of r.staff) {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "pc-sub" + (s.full ? " full" : "");
         b.disabled = s.full;
-        const note = s.full ? "그날 한도 다 참" : s.same.length ? `같은 지역 출장: ${s.same.map(apShort).join(", ")}`
+        const note = s.full ? "그날 한도 다 참" : s.same.length ? `가까운 현장 출장: ${apWithKm(s.same, s.same_km)}`
           : s.count === 0 ? "그날 비어 있음" : `그날 ${s.count}곳 (${s.other_regions.join(", ")})`;
         b.innerHTML = "<b></b><span></span>";
         b.querySelector("b").textContent = s.name;

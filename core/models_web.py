@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
@@ -208,3 +208,18 @@ class SiteContact(Base):
     # 지도 방문 주소(2026-09-30) — 군부대처럼 서류상 주소와 실제로 찾아가는 주소가 다를 때만 채움. 비어 있으면 현장 주소.
     # [📍 지도] 버튼이 이 주소를 네이버 지도로 연다. 보고서(PDF)엔 안 나감.
     visit_address: Mapped[str] = mapped_column(Text, default="")
+
+
+class SiteGeo(Base):
+    """웹판 전용 — 현장 좌표(카카오 로컬 API, 2026-10-01, alembic 0011). 자동 배치·일정 변경의 거리 기준 묶기(server/api/geocode.py).
+    address = 좌표를 찾을 때 쓴 주소(지도 방문 주소, 없으면 현장 주소 — 바뀌면 다시 찾음), precise = 시·군 중심보다 구체적으로 찾았는지."""
+
+    __tablename__ = "site_geo"
+
+    site_id: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), primary_key=True)
+    address: Mapped[str] = mapped_column(Text, default="")
+    lat: Mapped[float | None] = mapped_column(Float, default=None)
+    lng: Mapped[float | None] = mapped_column(Float, default=None)
+    precise: Mapped[bool] = mapped_column(Boolean, default=False)
+    found: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)

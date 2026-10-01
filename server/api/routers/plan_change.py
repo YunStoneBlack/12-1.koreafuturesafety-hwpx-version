@@ -22,7 +22,9 @@ from core.models_web import SiteContact, User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY as LIMIT
 from server.api import repo
 from server.api.deps import get_current_user, get_db
-from server.api.visit_scheduler import blocked_days, korean_holidays, region_of
+from core import config
+from server.api.geocode import site_coords
+from server.api.visit_scheduler import FAR, blocked_days, korean_holidays, make_compat, region_of
 
 router = APIRouter(tags=["plan-change"])
 DAY = datetime.timedelta(days=1)
@@ -36,9 +38,24 @@ def _plan(db: Session, user: User, plan_id: int) -> VisitPlan:
     return plan
 
 
-def _regions(db: Session, sites: dict[int, Site]) -> dict[int, str]:
+def _compat(db: Session, company_id: int, sites: dict[int, Site]):
+    """(현장 → 시·군, 두 현장 궁합 함수) — 자동 배치와 같은 기준(같은 시·군 25km·다른 시·군 10km, 좌표 없으면 시·군)."""
     va = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(list(sites)))) if sites else {}
-    return {sid: region_of(va.get(sid) or s.address or "") for sid, s in sites.items()}
+    region = {sid: region_of(va.get(sid) or s.address or "") for sid, s in sites.items()}
+    compat = make_compat(region, site_coords(db, sites), config.get_plan_far_km(company_id), config.get_plan_near_km(company_id))
+    return region, compat
+
+
+def _together(sites: dict[int, Site], compat, me: int, here: set[int]):
+    """그날 가는 현장들 중 같이 가도 되는 것(이름·거리 km)과 먼 현장이 섞였는지."""
+    ok, far = [], False
+    for x in sorted(here - {me}, key=lambda x: sites[x].name if x in sites else ""):
+        kind, dist = compat(me, x)
+        if kind == FAR:
+            far = True
+        elif x in sites:
+            ok.append((sites[x].name, round(dist, 1) if dist is not None else None))
+    return ok, far
 
 
 def _day_sites(db: Session, company_id: int, start: datetime.date, end: datetime.date, exclude_plan: int | None):
@@ -61,7 +78,7 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
     first = (min(plan.plan_date, today + DAY)).replace(day=1)
     end = (first + datetime.timedelta(days=95)).replace(day=1) - DAY  # 원래 날짜(또는 내일)가 있는 달부터 석 달
     sites = {s.id: s for s in db.query(Site).filter(Site.company_id == user.company_id)}
-    region = _regions(db, sites)
+    region, compat = _compat(db, user.company_id, sites)
     my_region = region.get(plan.site_id, "")
     blocked = blocked_days(first, end, korean_holidays({first.year, end.year}))
     busy = _day_sites(db, user.company_id, first, end, plan.id)
@@ -70,10 +87,9 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
     d = first
     while d <= end:
         here = busy.get((plan.staff_id, d), set()) if plan.staff_id is not None else set()
-        same = sorted(sites[x].name for x in here if region.get(x) and region.get(x) == my_region and x != plan.site_id)
-        other = any(region.get(x) and region.get(x) != my_region for x in here)
+        ok, far = _together(sites, compat, plan.site_id, here)
         days.append({"date": d.isoformat(), "blocked": blocked.get(d, ""), "past": d <= today, "count": len(here),
-                     "same": same, "other": other, "already": plan.site_id in here})
+                     "same": [n for n, _ in ok], "same_km": [k for _, k in ok], "other": far, "already": plan.site_id in here})
         d += DAY
 
     def usable(x):
@@ -85,7 +101,7 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
                    and lo <= datetime.date.fromisoformat(x["date"]) <= hi), key=near)[:2]
     free = sorted((x for x in days if usable(x) and x["count"] == 0), key=lambda x: (near(x), x["date"]))
     # 같은 지역 출장에 붙이기 최대 2개 + 가장 가까운 빈 평일(붙일 데가 없으면 빈 평일 3개)
-    suggestions = [{"date": x["date"], "kind": "join", "with": x["same"]} for x in join]
+    suggestions = [{"date": x["date"], "kind": "join", "with": x["same"], "with_km": x["same_km"]} for x in join]
     suggestions += [{"date": x["date"], "kind": "free", "with": []} for x in free[:1 if join else 3]]
     staff_name = db.query(Staff.name).filter(Staff.id == plan.staff_id).scalar() if plan.staff_id else ""
     return {
@@ -99,7 +115,7 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
 def substitutes(plan_id: int, date: datetime.date = Query(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     plan = _plan(db, user, plan_id)
     sites = {s.id: s for s in db.query(Site).filter(Site.company_id == user.company_id)}
-    region = _regions(db, sites)
+    region, compat = _compat(db, user.company_id, sites)
     my_region = region.get(plan.site_id, "")
     busy = _day_sites(db, user.company_id, date, date, plan.id)
     out = []
@@ -107,9 +123,10 @@ def substitutes(plan_id: int, date: datetime.date = Query(...), user: User = Dep
         if st.id == plan.staff_id:
             continue
         here = busy.get((st.id, date), set())
-        same = sorted(sites[x].name for x in here if region.get(x) and region.get(x) == my_region)
-        other = sorted({region.get(x) or "지역 모름" for x in here if region.get(x) != my_region})
-        out.append({"staff_id": st.id, "name": st.name, "count": len(here), "same": same, "other_regions": other, "full": len(here) >= LIMIT})
+        ok, _ = _together(sites, compat, plan.site_id, here)
+        other = sorted({region.get(x) or "지역 모름" for x in here if compat(plan.site_id, x)[0] == FAR})
+        out.append({"staff_id": st.id, "name": st.name, "count": len(here), "same": [n for n, _ in ok], "same_km": [k for _, k in ok],
+                    "other_regions": other, "full": len(here) >= LIMIT})
     # 같은 지역 출장 있는 사람 → 그날 비어 있는 사람 → 다른 지역 출장 있는 사람(한도 찬 사람은 맨 뒤)
     out.sort(key=lambda x: (x["full"], 0 if x["same"] and not x["other_regions"] else 1 if x["count"] == 0 else 2, x["count"], x["name"]))
     return {"date": date.isoformat(), "region": my_region, "limit": LIMIT, "staff": out}

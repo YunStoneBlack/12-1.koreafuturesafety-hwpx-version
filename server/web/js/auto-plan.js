@@ -9,6 +9,8 @@ const apDay = (iso) => {
   return `${d.getMonth() + 1}/${d.getDate()}(${AP_WD[d.getDay()]})`;
 };
 const apShort = (name) => (name || "").replace(/\s*현장$/, "");
+// "고모지구(1.3km), 초가팔리천" — 같이 가는 현장 이름 + 거리(현장 좌표 server/api/geocode.py, 모르면 이름만). plan-change.js도 쓴다.
+const apWithKm = (names, kms) => names.map((n, i) => (kms && kms[i] != null ? `${apShort(n)}(${kms[i]}km)` : apShort(n))).join(", ");
 
 // target: { siteId } 그 현장만(다른 현장 예정은 그대로, 기존 일정에 끼워 넣기) / { staffIds: [...] } 그 요원들의 진행 중 현장 전부
 async function openAutoPlan(target, titleText, onDone) {
@@ -56,7 +58,8 @@ async function openAutoPlan(target, titleText, onDone) {
     const others = [...new Set(ps.flatMap((p) => p.with || []))].filter((n) => !ps.some((p) => p.site_name === n));
     const who = multiStaff && ps[0].staff_name ? `<b class="ap-who">${apEsc(ps[0].staff_name)}</b> ` : "";
     const what = multiSite ? who + ps.map((p) => apEsc(apShort(p.site_name))).join(" · ") : "";
-    const withText = others.length ? `<span class="ap-with">+ ${others.map((n) => apEsc(apShort(n))).join(", ")}와 함께</span>` : "";
+    const kmOf = Object.fromEntries(ps.flatMap((p) => (p.with || []).map((n, i) => [n, (p.with_km || [])[i]])));
+    const withText = others.length ? `<span class="ap-with">+ ${apEsc(apWithKm(others, others.map((n) => kmOf[n])))}와 함께</span>` : "";
     return `${yearHead}<div class="ap-row"><span class="ap-date">${apDay(date)}</span><span class="ap-what">${what}${withText}</span>
       ${ps[0].region ? `<span class="ap-region">${apEsc(ps[0].region)}</span>` : ""}</div>`;
   }).join("");

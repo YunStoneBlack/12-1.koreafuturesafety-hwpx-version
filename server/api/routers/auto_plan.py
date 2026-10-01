@@ -4,7 +4,7 @@
 - `POST /calendar/auto-plan/apply` — 같은 계산을 다시 해서 저장: 대상 현장의 "자동(auto)이면서 내일 이후" 예정을 지우고 새로 넣는다.
   사람이 넣거나 옮긴 예정(manual, 📌)은 안 건드리고 기준점으로 쓴다. 현장 하나만 할 땐 다른 현장 예정은 그대로(새 현장을 기존 일정에 끼워 넣기).
 - `GET /calendar/unplanned` — "📅 일정 없는 현장"(진행 중·남은 회차 있음·공사 기간 안 끝남인데 내일 이후 예정이 하나도 없음) — 현장 목록·달력 위 안내.
-- `GET/POST /settings/auto-plan` — 마감(준공 며칠 전까지 마칠지, 기본 14일).
+- `GET/POST /settings/auto-plan` — 마감(준공 며칠 전까지 마칠지, 기본 14일) + 거리 기준(같은 시·군 25km·다른 시·군 10km, 좌표는 server/api/geocode.py).
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from core.models_db import Report, Site, Staff
 from core.models_web import SiteContact, User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
 from server.api.deps import get_current_user, get_db
+from server.api.geocode import km, site_coords
 from server.api.visit_scheduler import SiteIn, plan_sites, region_of
 
 router = APIRouter(tags=["auto-plan"])
@@ -34,6 +35,8 @@ class AutoPlanIn(BaseModel):
 
 class AutoPlanSettings(BaseModel):
     finish_before_days: int = config.DEFAULT_PLAN_FINISH_BEFORE_DAYS
+    far_km: float = config.DEFAULT_PLAN_FAR_KM  # 같은 시·군이라도 이보다 멀면 안 묶음
+    near_km: float = config.DEFAULT_PLAN_NEAR_KM  # 다른 시·군이라도 이보다 가까우면 자리 없을 때 묶음
 
 
 def _active(site: Site) -> bool:
@@ -66,14 +69,12 @@ def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.dat
         .filter(Report.site_id.in_(list(target_ids))).group_by(Report.site_id)
     } if target_ids else {}
 
-    # 요원·날짜별로 이미 가는 현장(남기는 예정 + 앞날짜로 만든 보고서), 요원·지역별로 이미 가는 날(묶기 기준점)
+    coords = site_coords(db, sites)  # 현장 좌표(카카오, 처음이거나 주소가 바뀐 현장만 지금 찾음) — 거리 기준 묶기
+    # 요원·날짜별로 이미 가는 현장(남기는 예정 + 앞날짜로 만든 보고서) — 묶기 기준점
     busy: dict[tuple[int, datetime.date], set[int]] = defaultdict(set)
-    region_days: dict[tuple[int, str], set[datetime.date]] = defaultdict(set)
     for p in kept:
         if p.staff_id is not None:
             busy[(p.staff_id, p.plan_date)].add(p.site_id)
-            if region.get(p.site_id):
-                region_days[(p.staff_id, region[p.site_id])].add(p.plan_date)
     for sid, staff_id, gdate in db.query(Report.site_id, Report.assigned_staff_id, Report.guidance_date).filter(
             Report.site_id.in_(list(sites)), Report.guidance_date > today):
         if staff_id is not None:
@@ -88,8 +89,9 @@ def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.dat
         total=s.total_guidance_count, performed=stats.get(s.id, (0, None))[0], last_date=stats.get(s.id, (0, None))[1], fixed=fixed[s.id],
     ) for s in targets]
     finish = config.get_plan_finish_before_days(company_id)
-    placed, results = plan_sites(ins, today, busy, region_days, finish, MAX_SITES_PER_STAFF_PER_DAY, site_regions=region)
-    return sites, region, replaced, kept, placed, results, finish
+    placed, results = plan_sites(ins, today, busy, finish, MAX_SITES_PER_STAFF_PER_DAY, site_regions=region, coords=coords,
+                                 far_km=config.get_plan_far_km(company_id), near_km=config.get_plan_near_km(company_id))
+    return sites, region, coords, replaced, kept, placed, results, finish
 
 
 def _names(db: Session, company_id: int) -> dict[int, str]:
@@ -99,7 +101,7 @@ def _names(db: Session, company_id: int) -> dict[int, str]:
 @router.post("/calendar/auto-plan/preview")
 def preview(body: AutoPlanIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     today = datetime.date.today()
-    sites, region, replaced, kept, placed, results, finish = _compute(db, user.company_id, body, today)
+    sites, region, coords, replaced, kept, placed, results, finish = _compute(db, user.company_id, body, today)
     names = _names(db, user.company_id)
     # 그날 같은 요원이 같이 가는 다른 현장(남기는 예정 + 이번에 넣는 것) — 미리보기에서 "누구와 함께"를 보여 준다
     day_sites: dict[tuple[int, datetime.date], set[int]] = defaultdict(set)
@@ -109,13 +111,15 @@ def preview(body: AutoPlanIn, user: User = Depends(get_current_user), db: Sessio
     for p in placed:
         if p.staff_id is not None:
             day_sites[(p.staff_id, p.date)].add(p.site_id)
-    with_names = lambda p: sorted(sites[x].name for x in day_sites.get((p.staff_id, p.date), set()) if x != p.site_id and x in sites)
+    others = lambda p: sorted((x for x in day_sites.get((p.staff_id, p.date), set()) if x != p.site_id and x in sites), key=lambda x: sites[x].name)
+    dist = lambda a, b: round(km(coords[a], coords[b]), 1) if a in coords and b in coords else None  # "○○와 함께 · 4km"
     return {
         "today": today.isoformat(),
         "finish_before_days": finish,
         "replace_count": len(replaced),
         "plans": [{"date": p.date.isoformat(), "site_id": p.site_id, "site_name": sites[p.site_id].name, "region": region[p.site_id],
-                   "staff_id": p.staff_id, "staff_name": names.get(p.staff_id, ""), "with": with_names(p)} for p in placed],
+                   "staff_id": p.staff_id, "staff_name": names.get(p.staff_id, ""), "with": [sites[x].name for x in others(p)],
+                   "with_km": [dist(p.site_id, x) for x in others(p)]} for p in placed],
         "sites": [{"site_id": r.site_id, "site_name": sites[r.site_id].name, "staff_name": names.get(sites[r.site_id].assigned_staff_id, ""),
                    "region": region[r.site_id], "needed": r.needed, "placed": r.placed, "note": r.note} for r in results],
     }
@@ -124,7 +128,7 @@ def preview(body: AutoPlanIn, user: User = Depends(get_current_user), db: Sessio
 @router.post("/calendar/auto-plan/apply")
 def apply(body: AutoPlanIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     today = datetime.date.today()
-    _, _, replaced, _, placed, results, _ = _compute(db, user.company_id, body, today)
+    _, _, _, replaced, _, placed, results, _ = _compute(db, user.company_id, body, today)
     for p in replaced:
         db.delete(p)
     for p in placed:
@@ -156,12 +160,18 @@ def unplanned(user: User = Depends(get_current_user), db: Session = Depends(get_
 
 @router.get("/settings/auto-plan", response_model=AutoPlanSettings)
 def get_settings(user: User = Depends(get_current_user)):
-    return AutoPlanSettings(finish_before_days=config.get_plan_finish_before_days(user.company_id))
+    cid = user.company_id
+    return AutoPlanSettings(finish_before_days=config.get_plan_finish_before_days(cid), far_km=config.get_plan_far_km(cid),
+                            near_km=config.get_plan_near_km(cid))
 
 
 @router.post("/settings/auto-plan", response_model=AutoPlanSettings)
 def set_settings(body: AutoPlanSettings, user: User = Depends(get_current_user)):
     if not 0 <= body.finish_before_days <= 180:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "0~180일 사이로 정하세요.")
+    if not (0 < body.near_km <= 100 and 0 < body.far_km <= 200):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "거리 기준을 확인하세요(다른 시·군 0~100km, 같은 시·군 0~200km).")
     config.set_plan_finish_before_days(body.finish_before_days, user.company_id)
+    config.set_plan_far_km(body.far_km, user.company_id)
+    config.set_plan_near_km(body.near_km, user.company_id)
     return get_settings(user)

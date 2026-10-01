@@ -139,6 +139,36 @@ def set_plan_finish_before_days(days: int, company_id: int | None = None) -> Non
     _set_setting(_KEY_PLAN_FINISH_BEFORE_DAYS, str(int(days)), company_id)
 
 
+# 거리 기준 묶기(현장 좌표 — server/api/geocode.py): 같은 시·군이라도 far_km보다 멀면 안 묶고, 다른 시·군이라도 near_km 안이면 자리 없을 때 묶는다
+_KEY_PLAN_FAR_KM = "plan_far_km"
+_KEY_PLAN_NEAR_KM = "plan_near_km"
+DEFAULT_PLAN_FAR_KM = 25.0
+DEFAULT_PLAN_NEAR_KM = 10.0
+
+
+def _get_float(key: str, default: float, company_id: int | None) -> float:
+    try:
+        return float(_get_setting(key, company_id) or default)
+    except ValueError:
+        return default
+
+
+def get_plan_far_km(company_id: int | None = None) -> float:
+    return _get_float(_KEY_PLAN_FAR_KM, DEFAULT_PLAN_FAR_KM, company_id)
+
+
+def set_plan_far_km(value: float, company_id: int | None = None) -> None:
+    _set_setting(_KEY_PLAN_FAR_KM, str(float(value)), company_id)
+
+
+def get_plan_near_km(company_id: int | None = None) -> float:
+    return _get_float(_KEY_PLAN_NEAR_KM, DEFAULT_PLAN_NEAR_KM, company_id)
+
+
+def set_plan_near_km(value: float, company_id: int | None = None) -> None:
+    _set_setting(_KEY_PLAN_NEAR_KM, str(float(value)), company_id)
+
+
 def get_ai_enabled() -> bool:
     stored = _get_setting(_KEY_AI_ENABLED)
     if stored is None:
