@@ -34,7 +34,7 @@ SESSION_COOKIE_SECURE=true   ; Cloudflare Tunnel(HTTPS)로 쓸 땐 true 유지. 
 ```
 MAIL_SMTP_USER=kfsc21c@naver.com   ; 보내는 주소 = 네이버 로그인 아이디
 MAIL_SMTP_PASSWORD=<애플리케이션 비밀번호 12자리>
-; 선택: MAIL_CC(기본 = 보내는 주소), MAIL_FROM_NAME(기본 한국미래안전), MAIL_SMTP_HOST/PORT(기본 smtp.naver.com:465)
+; 선택: MAIL_CC(기본 없음 — 2026-10-01부터 나한테 참조 안 보냄, 보낸메일함에 남음), MAIL_FROM_NAME(기본 한국미래안전), MAIL_SMTP_HOST/PORT(기본 smtp.naver.com:465)
 ```
 
 방문 달력 자동 배치·일정 변경·동선 짜기의 **거리 기준**(현장 좌표·도로 거리, 2026-10-01)을 쓰려면:

@@ -51,8 +51,9 @@ MAIL_SMTP_PORT = int(os.environ.get("MAIL_SMTP_PORT", "465") or 465)
 MAIL_SMTP_USER = os.environ.get("MAIL_SMTP_USER", "").strip()  # 보내는 주소 = 로그인 아이디(예: xxx@naver.com)
 MAIL_SMTP_PASSWORD = os.environ.get("MAIL_SMTP_PASSWORD", "").strip()
 MAIL_FROM_NAME = os.environ.get("MAIL_FROM_NAME", "한국미래안전").strip()
-# 참조(CC) — 기본은 보내는 회사 메일 자신(보낸메일함 외에 받은메일함에도 남아 회사에서 확인하기 쉽게)
-MAIL_CC = os.environ.get("MAIL_CC", MAIL_SMTP_USER).strip()
+# 참조(CC) — 기본 없음(2026-10-01 사용자: 회사 메일로 보낸 건 네이버 "보낸메일함"에 이미 남으니 나한테 또 보내지 말 것 —
+# 예전엔 보내는 회사 메일 자신을 참조로 넣어 메일함(28GB)에 PDF가 두 번씩 쌓였음). 꼭 필요하면 .env.server에 MAIL_CC=주소.
+MAIL_CC = os.environ.get("MAIL_CC", "").strip()
 
 # 알림 메일 등에 넣는 바깥 주소(제출 현황 링크 등) — 그룹웨어의 "보고서 자동화" 메뉴 주소
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://groupware.kfsc21c.com/report").strip().rstrip("/")
