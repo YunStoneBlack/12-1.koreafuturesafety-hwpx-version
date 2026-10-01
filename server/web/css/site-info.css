@@ -7,6 +7,7 @@
   font-size: 12px; font-weight: 600; line-height: 1.4; max-width: 100%; }
 .main .site-links button.site-link.tel { color: #1f7a44; border: 1px solid #bfe3cc; background: #eef9f2; }
 .main .site-links button.site-link.map { color: #0a6b3d; border: 1px solid #c9e7d6; background: #f3fbf6; }
+.main .site-links button.site-link.copy { color: var(--muted); border: 1px solid var(--line); background: var(--surface); } /* PC 📋 주소 복사(2026-10-01) */
 .site-link .sl-short { display: none; }
 .site-link .sl-full { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px; }
 .site-link.tel .sl-full { font-weight: 600; }
@@ -44,10 +45,11 @@
 .map-sheet { width: 100%; max-width: 480px; background: var(--surface); border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
   display: flex; flex-direction: column; gap: 8px; box-shadow: 0 -8px 30px rgba(0, 0, 0, .2); }
 .map-sheet-title { font-size: 16px; font-weight: 700; color: var(--ink); }
-.map-sheet-addr { font-size: 13px; color: var(--muted); margin-bottom: 4px; word-break: keep-all; }
+.map-sheet-addr { font-size: 13px; color: var(--muted); margin-bottom: 4px; word-break: keep-all; user-select: text; -webkit-user-select: text; }
 .map-sheet button { font: inherit; font-size: 16px; font-weight: 700; padding: 14px; border-radius: 12px; cursor: pointer; text-align: left; }
 .map-sheet .map-opt { border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
 .map-sheet .map-opt.tmap { background: #eef4ff; border-color: #cfe0ff; }
+.map-sheet .map-opt.copy { background: var(--surface); } /* 📋 주소 복사(2026-10-01) */
 .map-sheet .map-opt span { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 4px; }
 .map-sheet .map-cancel { border: none; background: transparent; color: var(--muted); text-align: center; font-weight: 600; }
 

@@ -166,6 +166,14 @@ function siteLinkButtons(phone, mapAddress) {
   }
   if (mapAddress) {
     make("map", "📍", "지도", `지도 ${mapAddress}`, `지도에서 열기: ${mapAddress}`, () => openMapChooser(mapAddress));
+    // PC는 [지도]가 바로 네이버 지도라 선택 창(📋 주소 복사)이 없다 → 옆에 따로(2026-10-01 사용자). 폰은 선택 창 안에.
+    if (matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      make("copy", "📋", "복사", "주소 복사", `주소 복사: ${mapAddress}`, async (b) => {
+        const full = b.querySelector(".sl-full");
+        full.textContent = (await copyText(mapAddress)) ? "복사됨 ✓" : "복사 안 됨";
+        setTimeout(() => { full.textContent = "주소 복사"; }, 1500);
+      });
+    }
   }
   return box;
 }
@@ -235,12 +243,19 @@ function openMapChooser(address) {
       <div class="map-sheet-addr"></div>
       <button type="button" class="map-opt tmap">🚗 티맵 <span>길안내</span></button>
       <button type="button" class="map-opt naver">🗺 네이버 지도</button>
+      <button type="button" class="map-opt copy">📋 주소 복사 <span>다른 앱에 붙여 넣기</span></button>
       <button type="button" class="map-cancel">취소</button>
     </div>`;
   overlay.querySelector(".map-sheet-addr").textContent = address;
   const close = () => overlay.remove();
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   overlay.querySelector(".map-cancel").addEventListener("click", close);
+  overlay.querySelector(".copy").addEventListener("click", async (e) => { // 2026-10-01 사용자 요청
+    const btn = e.currentTarget;
+    const ok = await copyText(address);
+    btn.innerHTML = ok ? "✓ 주소를 복사했습니다" : "복사가 막혀 있습니다 — 위 주소를 길게 눌러 복사하세요";
+    if (ok) setTimeout(close, 900);
+  });
   overlay.querySelector(".naver").addEventListener("click", () => {
     close();
     window.open(naverMapUrl(address), "_blank", "noopener");
@@ -250,6 +265,24 @@ function openMapChooser(address) {
     openTmapSearch(address);
   });
   document.body.appendChild(overlay);
+}
+// 글자 복사 — 클립보드 API(https)가 안 되면 숨긴 입력 칸으로 한 번 더(옛 브라우저·일부 앱 안 브라우저)
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+    ta.remove();
+    return ok;
+  }
 }
 function openTmapSearch(address) {
   const q = encodeURIComponent(address);
