@@ -26,6 +26,7 @@ from server.api.routers import (
     calendar,
     findings,
     jobs,
+    k2b_submit,
     materials,
     photo_rotate,
     photos,
@@ -70,6 +71,7 @@ web_app.include_router(sites.router, prefix="/api")
 web_app.include_router(site_contacts.router, prefix="/api")
 web_app.include_router(reports.router, prefix="/api")
 web_app.include_router(jobs.router, prefix="/api")
+web_app.include_router(k2b_submit.router, prefix="/api")
 web_app.include_router(settings.router, prefix="/api")
 web_app.include_router(staff.router, prefix="/api")
 web_app.include_router(staff_groupware.router, prefix="/api")

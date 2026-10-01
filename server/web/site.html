@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="css/site-info.css" />
 <link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/k2b-submit.css" />
 <link rel="stylesheet" href="css/auto-plan.css" />
 </head>
 <body>
@@ -60,6 +61,7 @@
 
 <script src="app.js"></script>
 <script src="mail.js"></script>
+<script src="js/k2b-submit.js"></script>
 <script src="js/auto-plan.js"></script>
 <script src="shell.js"></script>
 <script>
@@ -343,8 +345,16 @@ async function loadReports() {
           const n = report.last_mail_to.split(",").filter((a) => a.trim()).length;
           return `<span class="mail-sent" title="${report.last_mail_to.replace(/"/g, "&quot;")}">✓ ${report.last_mail_at.slice(5).replace("-", "/")} 전송${n > 1 ? `(${n}곳)` : ""}</span>`;
         })() : "") +
+        // 마지막 K2B 제출(js/k2b-submit.js) — 성공은 누르면 저장된 K2B 화면, 실패는 이유(마우스 올림)
+        (report.k2b ? (() => {
+          const k = report.k2b;
+          if (k.status === "done") return `<a class="k2b-sent" href="${BASE}/api/k2b-jobs/${k.id}/shot" target="_blank" rel="noopener" title="눌러서 저장된 K2B 화면 보기">✓ K2B ${k.at}${k.round_no ? ` · ${k.round_no}차` : ""}</a>`;
+          if (k.status === "failed") return `<span class="k2b-sent bad" title="${k.message.replace(/"/g, "&quot;")}">✗ K2B 실패</span>`;
+          return `<span class="k2b-sent wait">K2B 제출 중…</span>`;
+        })() : "") +
         `</span>` +
-        // PDF를 만든 보고서만 "고객사 전송"(수정 전 버전이면 창에서 "PDF를 다시 만든 뒤 보내세요"로 막음, mail.js)
+        // PDF를 만든 보고서만 [K2B 제출](고객사 전송 왼쪽, 2026-10-01 사용자)과 "고객사 전송"(수정 전 버전이면 창에서 막음)
+        (isFinal ? `<button type="button" class="secondary rp-k2b" title="K2B에 새 차수로 입력·저장">📤 K2B<span class="rp-k2b-long"> 제출</span></button>` : "") +
         (isFinal ? `<button type="button" class="secondary rp-mail" title="고객사에 PDF 메일 보내기">📧 <span class="rp-mail-long">고객사 </span>전송</button>` : "") +
         // PDF를 만든 뒤 내용을 고쳤으면 "수정 전 버전" — 받을 순 있지만 최신이 아님(보고서 화면에서 "PDF 생성"을 다시 누르면 갱신)
         (!isFinal
@@ -354,6 +364,9 @@ async function loadReports() {
             : `<a class="status-pill approved pdf-pill" data-download="pdf" data-report-id="${report.id}" href="${BASE}/api/reports/${report.id}/pdf" title="눌러서 PDF 받기">PDF 생성됨 ↓</a>`) +
         `<a class="secondary-link" data-download="hwpx" data-report-id="${report.id}" href="${BASE}/api/reports/${report.id}/hwpx">↓ 한글</a>` +
         `<button type="button" class="secondary rp-del" style="margin-top:0; color:var(--crit);">삭제</button>`;
+      row.querySelector(".rp-k2b")?.addEventListener("click", () => {
+        openK2bModal(report.id, `${currentSite ? currentSite.name + " " : ""}${report.visit_no}회차`, loadReports);
+      });
       row.querySelector(".rp-mail")?.addEventListener("click", () => {
         openMailModal(report.id, `${currentSite ? currentSite.name + " " : ""}${report.visit_no}회차`, loadReports);
       });

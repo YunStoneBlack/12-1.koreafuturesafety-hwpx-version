@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
+from core.stored_path import StoredPath
 
 
 class Company(Base):
@@ -190,6 +191,29 @@ class StaffK2bAccount(Base):
     check_name: Mapped[str] = mapped_column(Text, default="")
     check_message: Mapped[str] = mapped_column(Text, default="")
     checked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
+class K2bSubmission(Base):
+    """웹판 전용 — K2B 제출 기록·대기열(2026-10-01, alembic 0015). 현장 화면 보고서 줄 [K2B 제출] → queued, 이 PC 작업 프로그램
+    (server/worker/k2b_worker.py)이 running → done(K2B에 저장됨, round_no = K2B가 매긴 새 차수) | failed(message·화면).
+    options = 창에서 고른 K2B 전용 항목(현재 작업공종·비계·불량사업장·대형사고 위험작업). screenshot = 저장 뒤(또는 실패 때) K2B 화면."""
+
+    __tablename__ = "k2b_submission"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("report.id", ondelete="CASCADE"), index=True)
+    staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"), default=None)
+    status: Mapped[str] = mapped_column(Text, default="queued")
+    options: Mapped[dict | None] = mapped_column(JSON, default=None)
+    round_no: Mapped[int | None] = mapped_column(default=None)
+    message: Mapped[str] = mapped_column(Text, default="")
+    screenshot: Mapped[str] = mapped_column(StoredPath, default="")
+    log: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)
+    started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
 
 
 class VisitPlan(Base):

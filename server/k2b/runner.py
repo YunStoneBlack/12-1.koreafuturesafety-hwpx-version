@@ -40,7 +40,9 @@ def _wait_popup(page, timeout_s: int = 20):
 
 
 def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bool = False,
-        shots: bool = False, headless: bool = True) -> RunResult:
+        shots: bool = False, headless: bool = True, allow_round_mismatch: bool = False) -> RunResult:
+    """allow_round_mismatch: K2B가 매긴 새 차수 번호가 웹 회차(sub.visit_no)와 달라도 저장할지. 기본은 다르면 저장하지 않고 멈춘다
+    (사용자 2026-10-01: 실제 업무에선 웹 회차 = K2B 차수 — 다르면 이미 올렸거나 회차가 어긋난 것)."""
     lines: list[str] = []
     shot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -80,6 +82,10 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
         round_text = page.locator(sel.ROUND_NO_INPUT).input_value().strip()
         round_no = int(round_text) if round_text.isdigit() else None
         log(f"K2B 새 차수 번호: {round_text}")
+        if round_no != sub.visit_no and not allow_round_mismatch:
+            shot = snap(page, "차수다름")
+            return RunResult(False, False, f"K2B 새 차수는 {round_text}차인데 웹 보고서는 {sub.visit_no}회차라 저장하지 않았습니다 — "
+                             "K2B에 이미 올렸거나 회차가 어긋났는지 확인하세요(그래도 올리려면 '차수가 달라도 저장'을 켜고 다시).", shot, lines, round_no)
         if shots:
             snap(page, "차수추가")
         if sub.guidance_date:
@@ -99,8 +105,9 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
             c.check_notification_method(sub.notification_method)
         if m.scaffold_usage:
             c.set_scaffold_usage(m.scaffold_usage == "사용", m.scaffold_types)
-        if sub.prev_guidance_implemented is not None:
-            c.check_prev_guidance_implemented("이행" if sub.prev_guidance_implemented else "불이행")
+        # K2B 필수 — 보고서에 값이 없으면(1회차 등 이전 지도 없음) "해당없음"
+        c.check_prev_guidance_implemented("해당없음" if sub.prev_guidance_implemented is None
+                                          else "이행" if sub.prev_guidance_implemented else "불이행")
         if m.bad_site_notify:
             c.notify_bad_site(m.bad_site_content, m.bad_site_files)
         for hz in m.major_hazard_works:

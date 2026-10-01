@@ -15,9 +15,26 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+import threading
+
 from server.worker.render_worker import run_forever
 
+
+def _k2b_loop() -> None:
+    """K2B 제출 작업(server/worker/k2b_worker.py, 2026-10-01) — PDF 렌더(한글 COM, 주 스레드)와 따로 이 스레드에서. 죽으면 5초 뒤 다시."""
+    from server.worker import k2b_worker
+
+    while True:
+        try:
+            k2b_worker.run_forever()
+        except Exception:  # noqa: BLE001
+            print("[supervisor] k2b_worker가 예기치 않게 종료됨, 5초 후 재시작:")
+            traceback.print_exc()
+            time.sleep(5)
+
+
 if __name__ == "__main__":
+    threading.Thread(target=_k2b_loop, name="k2b_worker", daemon=True).start()
     while True:
         try:
             run_forever()

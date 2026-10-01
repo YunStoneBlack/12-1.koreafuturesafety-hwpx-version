@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from core import config
 from core.models_db import Staff
-from core.models_web import ReportEdit, ReportJob, ReportMail, User
+from core.models_web import K2bSubmission, ReportEdit, ReportJob, ReportMail, User
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY, is_full, other_site_names
 from server.api import repo, storage
 from server.api.report_defaults import apply_new_report_defaults, record_site_hazard_checks
@@ -32,10 +32,16 @@ def list_reports(site_id: int, user: User = Depends(get_current_user), db: Sessi
         {m.report_id: m for m in db.query(ReportMail).filter(ReportMail.report_id.in_(ids)).order_by(ReportMail.sent_at)}
         if repo.mail_table_ready(db) else {}
     )
+    # 마지막 K2B 제출(보고서마다 가장 최근 것) — 보고서 줄의 "✓ K2B …" / "✗ K2B 실패" / "K2B 제출 중…"
+    last_k2b = {j.report_id: j for j in db.query(K2bSubmission).filter(K2bSubmission.report_id.in_(ids)).order_by(K2bSubmission.id)}
     out = []
     for r in reports:
         item = ReportOut.model_validate(r)
         item.pdf_outdated = outdated[r.id]
+        if r.id in last_k2b:
+            j = last_k2b[r.id]
+            item.k2b = {"id": j.id, "status": j.status, "round_no": j.round_no, "message": j.message,
+                        "at": (j.finished_at or j.created_at).strftime("%m/%d %H:%M") if (j.finished_at or j.created_at) else ""}
         if r.id in last_mail:
             item.last_mail_at = last_mail[r.id].sent_at.strftime("%Y-%m-%d %H:%M")
             item.last_mail_to = last_mail[r.id].to_addr

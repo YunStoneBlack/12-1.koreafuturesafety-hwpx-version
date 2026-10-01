@@ -1,0 +1,48 @@
+/* K2B 제출 창(js/k2b-submit.js, 2026-10-01) — 틀은 css/mail.css. + 보고서 줄의 [📤 K2B 제출]·"✓ K2B 10/02 · 6차" 표시 */
+.mail-box.kb-box { width: min(620px, 100%); }
+.kb-info > div { grid-template-columns: 72px minmax(0, 1fr); }
+.kb-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px 14px; }
+.kb-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--ink); margin: 0; }
+.kb-field em { font-style: normal; font-size: 11px; color: var(--crit); font-weight: 700; margin-left: 4px; }
+.kb-box select, .kb-box input[type="date"] { margin: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px;
+  background: var(--surface); color: var(--ink); min-width: 0; }
+.kb-radios { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-weight: 500; min-height: 34px; }
+.kb-radios label, .kb-check, .kb-again { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; cursor: pointer; margin: 0; }
+.kb-types { display: inline-flex; gap: 10px; padding-left: 10px; border-left: 1px solid var(--line); }
+.kb-types label:has(input:disabled) { color: var(--faint); cursor: default; }
+.kb-check { font-size: 13px; font-weight: 600; }
+.kb-check[hidden], .kb-bad-box[hidden] { display: none; }
+.kb-again { display: flex; margin-top: 6px; color: var(--ink); }
+.kb-hazards { display: flex; flex-direction: column; gap: 6px; }
+.kb-hazard { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto 32px; gap: 6px; align-items: center; }
+.kb-dates { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; color: var(--muted); }
+.kb-box button.kb-del { width: 32px; height: 32px; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer; }
+.kb-box button.kb-add { align-self: flex-start; margin: 2px 0 0; padding: 6px 12px; border: 1px dashed var(--blue); border-radius: 8px;
+  background: var(--blue-soft); color: var(--blue); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.kb-bad-box { display: flex; flex-direction: column; gap: 6px; }
+.kb-bad-box textarea { font-size: 14px; resize: vertical; }
+.kb-hint { font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+.kb-progress { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+.kb-shot { display: block; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; text-decoration: none; }
+.kb-shot img { display: block; width: 100%; height: auto; }
+.kb-shot span { display: block; padding: 6px 10px; font-size: 12px; color: var(--blue); background: var(--paper); }
+@media (max-width: 760px) {
+  .kb-grid { grid-template-columns: 1fr; }
+  .kb-hazard { grid-template-columns: minmax(0, 1fr) 32px; }
+  .kb-hazard .kb-work, .kb-hazard .kb-dates { grid-column: 1 / -1; }
+  .kb-hazard .kb-del { grid-column: 2; grid-row: 1; } /* ✕는 발생형태 오른쪽에 */
+  .kb-hazard .kb-dates input { flex: 1; min-width: 0; }
+  .kb-box select { font-size: 16px; } /* 아이폰 확대 방지 */
+}
+
+/* 보고서 줄 — [📤 K2B 제출](고객사 전송 왼쪽)과 마지막 결과 */
+.k2b-sent { margin-left: 8px; font-size: 12px; font-weight: 600; white-space: nowrap; color: var(--green); text-decoration: none; }
+.k2b-sent.bad { color: var(--crit); }
+.k2b-sent.wait { color: var(--blue); }
+a.k2b-sent:hover { text-decoration: underline; }
+/* [📤 K2B 제출]도 [고객사 전송]과 같은 줄·크기(css/mail.css .rp-mail 규칙과 같게 — 빠져 있어 아래로 처졌음, 2026-10-01 사용자) */
+.main .report-row button.rp-k2b { margin-top: 0; }
+@media (max-width: 760px) {
+  .rp-k2b-long { display: none; }
+  .main .report-row button.rp-k2b { padding: 7px 11px; font-size: 12.5px; }
+}

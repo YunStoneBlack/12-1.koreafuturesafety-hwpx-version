@@ -54,6 +54,8 @@ class ReportOut(ReportIn):
     # 고객사에 마지막으로 메일 보낸 시각·받는 사람(목록 API에서만 채움, server/api/routers/report_mail.py)
     last_mail_at: str = ""
     last_mail_to: str = ""
+    # 마지막 K2B 제출(현장 화면 보고서 줄 "✓ K2B 10/02 09:12 · 6차" — server/api/routers/k2b_submit.py) — 목록에서만 채움
+    k2b: dict | None = None
     pdf_path: str
     notify_signature_path: str = ""
 
