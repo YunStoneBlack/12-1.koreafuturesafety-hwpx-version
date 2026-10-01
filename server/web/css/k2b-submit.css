@@ -49,3 +49,16 @@ a.k2b-sent:hover { text-decoration: underline; }
 }
 .kb-box select.kb-need { border-color: var(--crit); box-shadow: 0 0 0 2px var(--crit-soft); }
 .kb-field .mail-note.kb-warn { color: var(--crit); font-weight: 600; } /* 4번 결과를 안 고른 줄이 있어 이행여부를 못 미리 고름 */
+/* 실패 때 "이렇게 하세요" 한 줄(server/k2b/advice.py) — 제출 창 결과·보고서 화면 K2B 칸 */
+.kb-hint-do { font-size: 12.5px; line-height: 1.55; padding: 9px 12px; border-radius: 8px; background: var(--blue-soft); color: var(--ink); }
+.kb-hint-do b { color: var(--blue); margin-right: 6px; }
+/* 보고서 화면 맨 아래 "K2B 제출" 칸(js/report-k2b.js) */
+#k2b-panel .rk-state { display: flex; flex-direction: column; gap: 8px; }
+#k2b-panel .rk-none { font-size: 13px; color: var(--muted); }
+#k2b-panel .rk-block { font-size: 12.5px; color: var(--crit); line-height: 1.55; }
+#k2b-panel .rk-shot { max-width: 420px; }
+#k2b-panel .rk-older { font-size: 12.5px; color: var(--muted); }
+#k2b-panel .rk-older summary { cursor: pointer; }
+#k2b-panel .rk-older ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.6; }
+#k2b-panel .rk-actions { margin-top: 10px; }
+#k2b-panel .rk-actions button { margin-top: 0; }

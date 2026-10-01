@@ -215,6 +215,7 @@ async function openK2bModal(reportId, titleText, onDone) {
     const mismatch = !ok && /차수는 .*회차라 저장하지 않았습니다/.test(job.message);
     box.innerHTML = `${head}
       <div class="mail-msg ${ok ? "ok" : "bad"}">${ok ? "✓ " : "✗ "}${mailEsc(job.message)}</div>
+      ${job.hint ? `<div class="kb-hint-do"><b>이렇게 하세요</b> ${mailEsc(job.hint)}</div>` : ""}
       ${job.has_shot ? `<a class="kb-shot" href="${BASE}/api/k2b-jobs/${job.id}/shot?ts=${Date.now()}" target="_blank" rel="noopener">
         <img src="${BASE}/api/k2b-jobs/${job.id}/shot?ts=${Date.now()}" alt="K2B 화면" /><span>눌러서 크게 보기</span></a>` : ""}
       <div class="mail-foot"><button type="button" class="kb-close">닫기</button>

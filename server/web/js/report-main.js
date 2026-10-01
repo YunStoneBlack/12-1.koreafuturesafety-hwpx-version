@@ -77,6 +77,7 @@ function pollJob(jobId) {
       } else if (job.status === "done") {
         stop();
         statusEl.innerHTML = `완료! <a data-download="pdf" data-report-id="${reportId}" href="${BASE}/api/jobs/${jobId}/download">PDF 다운로드</a>`;
+        loadK2bPanel(); // "PDF를 먼저 만드세요" 안내가 사라지게(js/report-k2b.js)
       } else if (job.status === "failed") {
         stop();
         statusEl.textContent = `생성 실패: ${job.error_message.split("\n")[0]} (다시 시도해보세요)`;

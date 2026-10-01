@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="/css/app.css" />
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="css/photo-batch.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/k2b-submit.css" />
 </head>
 <body class="has-toc">
 <div class="app">
@@ -229,6 +231,15 @@
   </div>
 </section>
 
+<!-- K2B 제출(2026-10-02) — 마지막 결과(성공: 저장된 K2B 화면 / 실패: 이유 + 이렇게 하세요) + [📤 K2B 제출](현장 화면과 같은 창). js/report-k2b.js -->
+<section class="panel" id="k2b-panel">
+  <div class="panel-head"><h2>K2B 제출</h2></div>
+  <div class="panel-body">
+    <div id="k2b-state" class="rk-state">불러오는 중…</div>
+    <div class="rk-actions"><button type="button" id="k2b-open" class="secondary">📤 K2B 제출</button></div>
+  </div>
+</section>
+
   </main>
 </div>
 
@@ -242,6 +253,9 @@
 <script src="js/report-support.js"></script>
 <script src="js/report-autosave.js"></script>
 <script src="js/report-nav.js"></script>
+<script src="mail.js"></script>
+<script src="js/k2b-submit.js"></script>
+<script src="js/report-k2b.js"></script>
 <script src="js/report-main.js"></script>
 </body>
 </html>

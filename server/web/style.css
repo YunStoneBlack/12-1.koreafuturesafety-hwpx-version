@@ -295,6 +295,10 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .report-row { cursor: pointer; }
 .report-row:hover { background: var(--paper); }
 .report-row:hover .title > a { color: var(--blue); }
+/* 전송·K2B 표시 — 제목(회차·지도일·공정률) 아래 둘째 줄. 제목 칸은 줄바꿈 허용(그룹웨어 기본은 한 줄 + "…") */
+.report-row .title { white-space: normal; min-width: 0; }
+.report-row .rp-status { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 3px; }
+.report-row .rp-status > * { margin-left: 0; }
 
 /* ---------- 보고서 목차 줄의 따라다니는 버튼(← 현장으로 / 저장 / 미리보기) ---------- */
 .main .report-toc .toc-btn { margin-top: 0; padding: 6px 12px; font-size: 12.5px; flex: none; }

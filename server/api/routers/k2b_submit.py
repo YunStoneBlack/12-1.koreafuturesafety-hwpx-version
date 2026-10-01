@@ -23,6 +23,7 @@ from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.routers.reports import pdf_outdated_map
 from server.k2b import selectors as sel
+from server.k2b.advice import advice
 from server.k2b.submission import build_submission
 from server.worker.k2b_worker import UPLOAD_DIR
 
@@ -33,6 +34,7 @@ _BAD_SITE_SUFFIXES = {".jpg", ".jpeg", ".gif", ".png", ".bmp", ".pdf"}  # K2B �
 def _job_out(j: K2bSubmission) -> dict:
     return {
         "id": j.id, "status": j.status, "round_no": j.round_no, "message": j.message, "options": j.options or {},
+        "hint": advice(j.message, j.log) if j.status == "failed" else "",  # 실패면 "이렇게 하세요" 한 줄(server/k2b/advice.py)
         "has_shot": bool(j.screenshot and Path(j.screenshot).exists()), "created_by": j.created_by,
         "created_at": j.created_at.strftime("%Y-%m-%d %H:%M") if j.created_at else None,
         "finished_at": j.finished_at.strftime("%Y-%m-%d %H:%M") if j.finished_at else None,

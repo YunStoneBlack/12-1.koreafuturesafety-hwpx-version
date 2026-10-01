@@ -16,6 +16,7 @@ from server.api import repo, storage
 from server.api.report_defaults import apply_new_report_defaults, record_site_hazard_checks
 from server.api.deps import get_current_user, get_db
 from server.schemas.report import JobOut, ReportIn, ReportOut, SignoffStatus
+from server.k2b.advice import advice
 
 router = APIRouter(tags=["reports"])
 
@@ -41,6 +42,7 @@ def list_reports(site_id: int, user: User = Depends(get_current_user), db: Sessi
         if r.id in last_k2b:
             j = last_k2b[r.id]
             item.k2b = {"id": j.id, "status": j.status, "round_no": j.round_no, "message": j.message,
+                        "hint": advice(j.message, j.log) if j.status == "failed" else "",
                         "at": (j.finished_at or j.created_at).strftime("%m/%d %H:%M") if (j.finished_at or j.created_at) else ""}
         if r.id in last_mail:
             item.last_mail_at = last_mail[r.id].sent_at.strftime("%Y-%m-%d %H:%M")
