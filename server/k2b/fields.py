@@ -123,7 +123,8 @@ class FieldsMixin(K2BClientBase):
                 self._type_into(locator_str, str(value))
 
     def add_problem_requests(self, texts: list[str]) -> None:
-        """문제점 및 개선 요청사항 — 한 건마다 [+ 추가] → 새 줄 칸을 두 번 눌러 편집 → 줄마다 입력 + Enter(줄바꿈 그대로).
+        """문제점 및 개선 요청사항 — 한 건마다 [+ 추가] → 새 줄 칸을 두 번 눌러 편집 → 한 줄 입력("제목 / 내용" —
+        K2B 칸은 첫 줄만 보여서 줄바꿈 방식은 안 씀, 사용자 2026-10-02).
         새 차수는 줄이 없어서 n번째 추가 = n-1번 줄. 마지막에 첫 줄 번호 칸을 눌러 편집 중인 값을 확정한다."""
         page = self.page
         add = page.locator(sel.PROBLEM_ADD_BUTTON)
@@ -141,11 +142,7 @@ class FieldsMixin(K2BClientBase):
             page.wait_for_timeout(300)
             cell.click(force=True)
             page.wait_for_timeout(300)
-            for i, line in enumerate(text.splitlines()):
-                if i:
-                    page.keyboard.press("Enter")
-                if line:
-                    page.keyboard.insert_text(line)
+            page.keyboard.insert_text(text)
             page.wait_for_timeout(200)
         if texts:
             page.locator(sel.problem_cell(0, 0)).click(force=True)

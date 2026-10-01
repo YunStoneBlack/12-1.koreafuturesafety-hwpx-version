@@ -57,7 +57,7 @@ async function openK2bModal(reportId, titleText, onDone) {
         <div><span>공정률</span><div>${s.progress_rate ?? "없음"}% · 통보 ${mailEsc(s.notification_method || "없음")}</div></div>
         <div><span>현장책임자</span><div>${mailEsc(s.site_manager || "없음")}</div></div>
         <div><span>건수</span><div>${mailEsc(counts)}</div></div>
-        <div><span>문제점·개선</span><div>${s.problems ? `8번 지적사항 ${s.problems}건 (제목 + 내용)` : "없음"}</div></div>
+        <div><span>문제점·개선</span><div>${s.problems ? `8번 지적사항 ${s.problems}건 (제목 / 내용)` : "없음"}</div></div>
         <div><span>사진</span><div>${mailEsc(photos)}</div></div>
         <div><span>보고서</span><div>${mailEsc(s.pdf || "PDF 없음")}</div></div>
       </div>

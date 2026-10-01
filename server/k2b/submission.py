@@ -4,7 +4,7 @@
   사진(3번 전경 → K2B "현장전경" / 3번 점검 → "현장점검"(사용자 2026-10-02: 점검 사진만 — 이전지적·지적·TBM·계측 사진은 안 올림) /
   4번 이전지적사항 이행완료 증빙 → "현장개선"), 보고서 파일 = PDF(K2B는 PDF만 받음, CONFIRMED).
 - 사용자 2026-10-02: 지도건수 = 8번 지적사항 개수, 교육인원 = 10번 TBM 참석 인원, 배포자료건수 = 11번 제공자료 개수(값이 없으면 비워 둠),
-  문제점 및 개선 요청사항 = 8번 지적사항 한 줄에 한 건(제목, 빈 줄, 내용), 이전 기술지도 이행여부 = 4번 결과로 미리 고름(prev_guidance_auto).
+  문제점 및 개선 요청사항 = 8번 지적사항 한 줄에 한 건("제목 / 내용" 한 줄), 이전 기술지도 이행여부 = 4번 결과로 미리 고름(prev_guidance_auto).
 - [K2B 제출] 창에서 사람이 고르는 것(ManualFields): 현재 작업공종(7종), 비계 사용·종류, 불량사업장 통보(+내용·첨부), 대형사고 위험작업.
   경영책임자/발주자 통보일은 넣지 않는다(사용자 2026-10-01).
 - 점검자는 K2B가 로그인 계정 이름으로 고정 → 그 회차 담당요원의 K2B 계정으로 로그인(server/api/routers/staff_k2b.py).
@@ -95,8 +95,10 @@ def prev_guidance_auto(report: Report, rows: list[PreviousFinding]) -> tuple[str
 
 
 def _problem_text(f: Finding) -> str:
-    """문제점 및 개선 요청사항 한 칸 — 제목, 빈 줄, 내용(사용자 2026-10-02)."""
-    return "\n\n".join(x for x in ((f.title or "").strip(), (f.content or "").strip()) if x)
+    """문제점 및 개선 요청사항 한 칸 — "제목 / 내용" 한 줄(사용자 2026-10-02: K2B 칸은 첫 줄만 보여 줄바꿈 방식은 제목만 보였음).
+    제목·내용 안의 줄바꿈은 띄어쓰기로 잇는다."""
+    parts = (" ".join((f.title or "").split()), " ".join((f.content or "").split()))
+    return " / ".join(x for x in parts if x)
 
 
 def build_submission(db: Session, report: Report, manual: ManualFields | None = None) -> K2BSubmission:
