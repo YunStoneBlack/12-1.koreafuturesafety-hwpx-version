@@ -25,6 +25,7 @@ from server.api.deps import get_current_user, get_db
 from server.api.site_pace_out import done_counts, pace_dict
 from server.api.geocode import map_addresses
 from server.api.site_label import site_label
+from server.api.site_status import is_active
 from server.api.routers.staff_groupware import my_staff_id
 from server.api.submission import report_states
 
@@ -106,7 +107,7 @@ def calendar(
         "me_staff_id": my_staff_id(db, user),
         "sites": sorted(
             [{"id": s.id, "name": site_label(s), "staff_id": s.assigned_staff_id} for s in sites.values()
-             if (s.status or "진행중") == "진행중"],
+             if is_active(s)],
             key=lambda s: s["name"],
         ),
         "visits": visits,

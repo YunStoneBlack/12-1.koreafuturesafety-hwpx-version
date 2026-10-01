@@ -25,6 +25,7 @@ from server.api.deps import get_current_user, get_db
 from server.api.geocode import RoadDistance, map_addresses, site_coords
 from server.api.site_pace_out import done_counts
 from server.api.site_label import site_label
+from server.api.site_status import is_active
 from server.api.visit_scheduler import SiteIn, plan_sites, region_of
 
 router = APIRouter(tags=["auto-plan"])
@@ -44,8 +45,7 @@ class AutoPlanSettings(BaseModel):
     near_km: float = config.DEFAULT_PLAN_NEAR_KM  # 다른 시·군이라도 이보다 가까우면 자리 없을 때 묶음
 
 
-def _active(site: Site) -> bool:
-    return (site.status or "진행중") == "진행중"
+_active = is_active  # 진행중 현장만 배치(server/api/site_status.py)
 
 
 def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.date):

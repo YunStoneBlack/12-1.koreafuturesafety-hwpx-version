@@ -5,6 +5,8 @@
 - `GET /calendar/plans/{id}/substitutes?date=` — 그날 대신 갈 요원(같은 지역 출장 있는 요원 → 여유 있는 요원 순). 바꾸기도 PATCH(staff_id).
 - `POST /sites/{id}/plans/handover` — 현장 담당요원을 바꿀 때 앞으로의 예정도 새 담당자로(dry_run이면 건수만). replan이면 그 현장
   자동 예정을 새 담당자의 다른 현장과 같은 지역끼리 다시 짠다(📌 고정 예정은 날짜 그대로, 요원만 바뀜).
+- `POST /sites/{id}/status` — 공사 상태(착공전·진행중·공사중지·준공, server/api/site_status.py) 바꾸기. 진행중이 아니게 되면 그 현장의
+  내일 이후 예정을 전부(📌 포함) 지운다. dry_run이면 지울 건수만.
 규칙(빼는 날·지역·하루 4곳)은 server/api/visit_scheduler.py와 같다.
 """
 
@@ -25,6 +27,7 @@ from server.api.deps import get_current_user, get_db
 from core import config
 from server.api.geocode import RoadDistance, map_addresses, site_coords
 from server.api.site_label import site_label
+from server.api.site_status import ACTIVE, STATUSES
 from server.api.visit_scheduler import FAR, blocked_days, korean_holidays, make_compat, region_of
 
 router = APIRouter(tags=["plan-change"])
@@ -164,3 +167,28 @@ def handover(site_id: int, body: HandoverIn, user: User = Depends(get_current_us
 
         replanned = auto_apply(AutoPlanIn(site_id=site_id), user, db)
     return {"ok": True, "moved": moved, "replanned": replanned}
+
+
+class SiteStatusIn(BaseModel):
+    status: str
+    dry_run: bool = False
+
+
+@router.post("/sites/{site_id}/status")
+def set_site_status(site_id: int, body: SiteStatusIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    site = repo.get_site(db, user.company_id, site_id)
+    if site is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
+    if body.status not in STATUSES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"상태는 {'·'.join(STATUSES)} 중 하나입니다.")
+    plans = []
+    if body.status != ACTIVE:
+        plans = db.query(VisitPlan).filter(VisitPlan.site_id == site_id,
+                                           VisitPlan.plan_date > datetime.date.today()).all()
+    if body.dry_run:
+        return {"plans": len(plans)}
+    site.status = body.status
+    for p in plans:
+        db.delete(p)
+    db.commit()
+    return {"ok": True, "status": site.status, "deleted_plans": len(plans)}

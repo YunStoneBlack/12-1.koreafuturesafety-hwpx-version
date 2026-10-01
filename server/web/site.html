@@ -242,9 +242,13 @@ function applySite(site) {
   document.getElementById("site-name-h1").textContent = siteLabel(site);
   // 현장명 밑 [📞 전화] [📍 지도] — 지도는 지도 방문 주소(없으면 현장 주소)
   const top = document.getElementById("site-name-h1").parentElement;
-  top.querySelectorAll(".site-links, .pace, .site-plan").forEach((el) => el.remove());
+  top.querySelectorAll(".site-links, .st-wrap, .pace, .site-plan").forEach((el) => el.remove());
   const links = siteLinkButtons(site.manager_phone, currentContacts.map_address || site.address);
   if (links) top.appendChild(links);
+  const stWrap = document.createElement("div"); // 공사 상태 4칸(app.js) — 진행 막대 위 한 줄, 진행중만 출장 배치
+  stWrap.className = "st-wrap";
+  stWrap.appendChild(siteStatusSwitch(site));
+  top.appendChild(stWrap);
   // 진행 막대 — 수정 저장 응답엔 pace가 없어 처음 불러온 값을 유지
   if (site.pace) currentPace = site.pace;
   const pace = sitePaceBox(currentPace);

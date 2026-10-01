@@ -181,6 +181,61 @@ function siteLinkButtons(phone, mapAddress) {
   return box;
 }
 
+// ---------- 공사 상태 4칸(2026-10-01 사용자) — 착공전·진행중·공사중지·준공 중 하나만 불이 켜짐, 누르면 바로 저장 ----------
+// 진행중만 지도 출장 배치(server/api/site_status.py). 진행중이 아니게 되면 앞으로의 방문 예정(📌 포함)을 지울지 묻고 지움,
+// 진행중이 되면 지도 일정 자동 배치를 물어 미리보기 창(js/auto-plan.js openAutoPlan). onChanged(새 상태)는 저장 뒤 화면 새로고침용.
+const SITE_STATUSES = ["착공전", "진행중", "공사중지", "준공"];
+function siteStatusSwitch(site, onChanged) {
+  const box = document.createElement("div");
+  box.className = "st-switch";
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-label", "공사 상태");
+  const draw = () => {
+    box.querySelectorAll("button").forEach((b) => {
+      const on = b.dataset.s === site.status;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on);
+    });
+  };
+  for (const s of SITE_STATUSES) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.s = s;
+    b.textContent = s;
+    b.addEventListener("click", async (e) => {
+      e.preventDefault(); // 현장 목록 줄은 링크라 — 현장 화면으로 넘어가지 않게
+      e.stopPropagation();
+      if (s === site.status) return;
+      box.classList.add("busy");
+      try {
+        // 실수로 누르는 것 막기 — 항상 "A → B" 한 번 묻는다(2026-10-01 사용자). 지울 예정이 있으면 같은 창에 함께 알린다.
+        const jong = (w) => (w.charCodeAt(w.length - 1) - 0xAC00) % 28; // 마지막 글자 받침(0 = 없음, 8 = ㄹ)
+        let question = `${site.status || "진행중"} → ${s}${jong(s) && jong(s) !== 8 ? "으로" : "로"} 바꾸시겠습니까?`;
+        if (s !== "진행중") {
+          const dry = await apiPost(`/sites/${site.id}/status`, { status: s, dry_run: true });
+          if (dry.plans) question += `\n\n${s}${jong(s) ? "은" : "는"} 지도 출장을 배치하지 않아서 앞으로의 방문 예정 ${dry.plans}건(📌 고정 포함)도 지웁니다.`;
+        }
+        if (!confirm(question)) return;
+        await apiPost(`/sites/${site.id}/status`, { status: s });
+        site.status = s;
+        draw();
+        if (onChanged) onChanged(s);
+        if (s === "진행중" && typeof openAutoPlan === "function" && site.total_guidance_count && site.period_end &&
+            confirm("진행중으로 바꿨습니다. 이 현장의 지도 일정을 자동으로 넣을까요?\n(넣기 전에 미리 보여 줍니다)")) {
+          openAutoPlan({ siteId: site.id }, siteLabel(site), () => { if (onChanged) onChanged(s); });
+        }
+      } catch (err) {
+        alert(`상태를 바꾸지 못했습니다: ${err.message}`);
+      } finally {
+        box.classList.remove("busy");
+      }
+    });
+    box.appendChild(b);
+  }
+  draw();
+  return box;
+}
+
 // ---------- 현장 진행 막대(공기 경과 vs 기술지도 수행) — 데스크톱 현장 카드와 같은 계산(서버 pace, core/site_pace.py) ----------
 // 🚨 N회 부족(빨강)·✅ N회 여유(파랑)·✅ 정상·🏁 완료 + 🎯 월 N회 필요, 막대 두 줄(2026-09-30 사용자 A안). 총 횟수·공기 정보가 없으면 null.
 const PACE_COLORS = { shortage: ["#dc2626", "#dc2626"], surplus: ["#2563eb", "#2563eb"], normal: ["#111827", "#4f46e5"], done: ["#2563eb", "#2563eb"] };

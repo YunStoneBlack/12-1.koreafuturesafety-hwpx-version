@@ -177,7 +177,6 @@ function renderSites() {
     const row = document.createElement("a");
     row.className = "row site-row";
     row.href = `site.html?id=${site.id}`;
-    const pillClass = site.status === "완료" ? "approved" : site.status === "보류" ? "rejected" : "pending";
     const progress = site.last_visit_no
       ? `${site.last_visit_no}${site.total_guidance_count ? ` / ${site.total_guidance_count}` : ""}회차`
       : "보고서 없음";
@@ -187,8 +186,7 @@ function renderSites() {
         <span class="meta" data-k="staff"></span>
         <span class="meta" data-k="progress"></span>
         <span class="meta" data-k="date"></span>
-      </span>
-      <span class="status-pill ${pillClass}"></span>`;
+      </span>`;
     // 사용자 입력 값은 textContent로(따옴표·꺾쇠가 들어간 현장명도 안전하게)
     row.querySelector(".site-name").textContent = siteLabel(site); // "26-12)_현장명"(app.js)
     row.querySelector(".site-sub").textContent = [site.address, site.hq_company].filter(Boolean).join(" · ");
@@ -201,7 +199,7 @@ function renderSites() {
     row.querySelector('[data-k="staff"]').textContent = !hasSummary ? "" : site.staff_name ? `담당 ${site.staff_name}` : "담당 미지정";
     row.querySelector('[data-k="progress"]').textContent = hasSummary ? progress : "";
     row.querySelector('[data-k="date"]').textContent = site.last_guidance_date ? `최근 지도 ${shortDate(site.last_guidance_date)}` : "";
-    row.querySelector(".status-pill").textContent = site.status;
+    row.appendChild(siteStatusSwitch(site, refreshNotice)); // 공사 상태 4칸(app.js) — 진행중만 출장 배치
     listEl.appendChild(row);
   }
 }
@@ -281,10 +279,18 @@ document.getElementById("site-form").addEventListener("submit", async (e) => {
         alert(`현장은 등록했지만 발주처·감리단·지도 방문 주소·첫 지도 회차는 저장하지 못했습니다(${err.message}). 현장 화면의 [수정]에서 다시 넣어 주세요.`);
       }
     }
-    // 등록하면 바로 그 현장 화면으로(다음 할 일이 거기서 보고서 작성이라). 지도 일정 자동 배치를 물어보고, [확인]이면 그 화면에서 미리보기 창을 연다
-    // ([취소]면 현장 목록·달력 위 "📅 일정 없는 현장"에 남는다 — 2026-10-01 사용자 2안)
-    const auto = created.total_guidance_count && created.period_end &&
-      confirm("이 현장의 지도 일정을 자동으로 넣을까요?\n(같은 지역 출장이 있는 날에 맞춰 넣고, 넣기 전에 미리 보여 줍니다)");
+    // 등록하면 바로 그 현장 화면으로(다음 할 일이 거기서 보고서 작성이라). 새 현장은 착공전으로 등록되므로(2026-10-01 사용자)
+    // 이미 공사 중인지 묻고, [확인]이면 진행중으로 바꾼 뒤 그 화면에서 지도 일정 자동 배치 미리보기 창을 연다.
+    // [취소]면 착공전 그대로 — 공사가 시작되면 현장 목록·현장 화면의 [진행중]을 누르면 된다.
+    const going = confirm("이 현장은 '착공전'으로 등록됩니다.\n\n이미 공사가 시작된 현장인가요?\n[확인] = 진행중으로 바꾸고 지도 일정 자동 배치\n[취소] = 착공전으로 두기(공사가 시작되면 [진행중]을 누르세요)");
+    if (going) {
+      try {
+        await apiPost(`/sites/${created.id}/status`, { status: "진행중" });
+      } catch (err) {
+        alert(`현장은 등록했지만 진행중으로 바꾸지 못했습니다(${err.message}). 현장 화면에서 [진행중]을 눌러 주세요.`);
+      }
+    }
+    const auto = going && created.total_guidance_count && created.period_end;
     window.location.href = `site.html?id=${created.id}${auto ? "&autoplan=1" : ""}`;
   } catch (err) {
     showError(errorEl, err);
@@ -294,7 +300,9 @@ document.getElementById("site-form").addEventListener("submit", async (e) => {
 
 loadSites();
 loadStaffOptions();
-renderUnplannedNotice(document.getElementById("ap-notice"), loadSites);
+// "📅 일정 없는 현장" 띠 — 처음 + 공사 상태를 바꿨을 때(진행중이 아니면 빠지고, 진행중이 되면 들어옴)
+function refreshNotice() { renderUnplannedNotice(document.getElementById("ap-notice"), loadSites); }
+refreshNotice();
 </script>
 </body>
 </html>

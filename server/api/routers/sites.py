@@ -19,6 +19,7 @@ from server.api.deps import get_current_user, get_db
 from server.api.geocode import map_addresses
 from server.api.routers.report_manage import prepared_hwpx_path, preview_dir
 from server.api.site_pace_out import done_counts, pace_dict
+from server.api.site_status import NEW_SITE
 from server.api.routers.reports import check_staff_limit
 from server.api.security import verify_password
 from server.schemas.site import SiteIn, SiteListItem, SiteOut
@@ -100,7 +101,8 @@ def next_management_no(year: int | None = None, user: User = Depends(get_current
 
 @router.post("", response_model=SiteOut)
 def create_site(body: SiteIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return repo.create_site(db, user.company_id, **body.model_dump())
+    # 새 현장은 착공전(2026-10-01 사용자) — 등록 화면에서 "이미 공사 중"이면 진행중으로 바꾸고 자동 배치(POST /sites/{id}/status)
+    return repo.create_site(db, user.company_id, status=NEW_SITE, **body.model_dump())
 
 
 @router.get("/{site_id}", response_model=SiteOut)
