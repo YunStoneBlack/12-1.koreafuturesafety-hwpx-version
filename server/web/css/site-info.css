@@ -56,3 +56,4 @@
 .main .site-plan button { margin: 0; padding: 7px 14px; font-size: 13px; }
 .site-plan-msg { font-size: 12.5px; color: var(--green); font-weight: 600; }
 .site-plan-msg a { color: var(--blue); }
+.main .site-links button.site-link.plan-change { color: var(--blue); border: 1px solid #c4dbf6; background: var(--blue-soft); font-weight: 600; } /* 방문 예정 [📅 일정 변경](js/plan-change.js) — 📞 바로 옆 */

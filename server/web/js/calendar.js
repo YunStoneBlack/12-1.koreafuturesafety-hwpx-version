@@ -312,6 +312,25 @@ function planItem(p, staffMap) {
     </div>`;
   el.querySelector("b").textContent = `${p.state === "missed" ? "지난 예정" : p.source === "manual" ? "📌 방문 예정(고정)" : "방문 예정"} · ${p.site_name}`;
   addSiteLinks(el, p.site_id);
+  // [📅 일정 변경] — [📞 전화] 바로 옆(현장에 전화해 보고 바로 옮기게, js/plan-change.js)
+  const main = el.querySelector(".cal-item-main");
+  let links = main.querySelector(".site-links");
+  if (!links) {
+    links = document.createElement("div");
+    links.className = "site-links";
+    main.appendChild(links);
+  }
+  const change = document.createElement("button");
+  change.type = "button";
+  change.className = "site-link plan-change";
+  change.innerHTML = '<span class="sl-ico">📅</span><span class="sl-short">일정 변경</span><span class="sl-full">일정 변경</span>';
+  change.addEventListener("click", () => openPlanChange(p.id, (date) => {
+    selected = date;
+    const { activeStart, activeEnd } = cal.view;
+    if (date < ymd(activeStart) || date >= ymd(activeEnd)) cal.gotoDate(date); // 다른 달로 옮겼으면 그 달로
+    reload();
+  }));
+  links.insertBefore(change, links.querySelector(".site-link.map"));
   el.querySelector("small").textContent = [staffMap[p.staff_id]?.name || "담당요원 없음", p.memo,
     p.state === "missed" ? "이 날 보고서가 없습니다" : ""].filter(Boolean).join(" · ");
   el.querySelector(".p-del").addEventListener("click", async () => {
