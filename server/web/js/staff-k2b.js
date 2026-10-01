@@ -73,7 +73,7 @@ function k2bToggle(item, info) {
     </div>
     <div class="edit-actions">
       <button type="button" class="k2b-save">저장</button>
-      <button type="button" class="secondary k2b-check" ${info.has_password ? "" : "disabled"}>로그인 확인</button>
+      <button type="button" class="secondary k2b-check">로그인 확인</button>
       ${info.has_password ? '<button type="button" class="secondary k2b-del">계정 지우기</button>' : ""}
     </div>
     <div class="k2b-result" hidden></div>`;
@@ -114,15 +114,28 @@ function k2bToggle(item, info) {
       ev.target.disabled = false;
     }
   });
-  panel.querySelector(".k2b-check").addEventListener("click", async (ev) => {
-    if (pwEl.value && !confirm("새로 입력한 비밀번호를 아직 저장하지 않았습니다. 저장된 비밀번호로 확인할까요?")) return;
+  // [로그인 확인] — 입력한 아이디·비밀번호가 있으면 먼저 저장하고 바로 확인(2026-10-01 사용자: 저장 전엔 버튼이 잠겨 눌러도 반응이 없었음)
+  panel.querySelector(".k2b-check").addEventListener("click", async () => {
+    const changed = pwEl.value || idEl.value.trim() !== (info.k2b_id || "");
+    if (!info.has_password && !(idEl.value.trim() && pwEl.value)) {
+      show("bad", "K2B 아이디와 비밀번호를 입력하세요.");
+      return;
+    }
     const buttons = panel.querySelectorAll("button");
     buttons.forEach((b) => { b.disabled = true; });
     const started = Date.now();
     const tick = () => show("", `K2B에 로그인해 보는 중… ${Math.round((Date.now() - started) / 1000)}초 (보통 10~40초, 아무것도 제출하지 않습니다)`);
-    tick();
-    const timer = setInterval(tick, 1000);
+    let timer = null;
     try {
+      if (changed) {
+        show("", "저장하는 중…");
+        Object.assign(info, await api(`/staff-k2b/${info.staff_id}`, { method: "PUT", body: JSON.stringify({ k2b_id: idEl.value, password: pwEl.value }) }));
+        pwEl.value = "";
+        pwEl.placeholder = "저장돼 있음 — 바꿀 때만 입력";
+        k2bRender(item, info);
+      }
+      tick();
+      timer = setInterval(tick, 1000);
       const checked = await apiPost(`/staff-k2b/${info.staff_id}/check`, {});
       Object.assign(info, checked);
       k2bRender(item, info);
@@ -130,7 +143,7 @@ function k2bToggle(item, info) {
     } catch (err) {
       show("bad", k2bEsc(err.message));
     } finally {
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
       buttons.forEach((b) => { b.disabled = false; });
     }
   });
