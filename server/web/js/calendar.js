@@ -312,7 +312,7 @@ function planItem(p, staffMap) {
     </div>`;
   el.querySelector("b").textContent = `${p.state === "missed" ? "지난 예정" : p.source === "manual" ? "📌 방문 예정(고정)" : "방문 예정"} · ${p.site_name}`;
   addSiteLinks(el, p.site_id);
-  // [📅 일정 변경] — [📞 전화] 바로 옆(현장에 전화해 보고 바로 옮기게, js/plan-change.js)
+  // [📅 일정 변경] — [📞 전화] [📍 지도] 오른쪽(현장에 전화해 보고 바로 옮기게, js/plan-change.js)
   const main = el.querySelector(".cal-item-main");
   let links = main.querySelector(".site-links");
   if (!links) {
@@ -330,7 +330,7 @@ function planItem(p, staffMap) {
     if (date < ymd(activeStart) || date >= ymd(activeEnd)) cal.gotoDate(date); // 다른 달로 옮겼으면 그 달로
     reload();
   }));
-  links.insertBefore(change, links.querySelector(".site-link.map"));
+  links.appendChild(change); // [📞 전화] [📍 지도] 오른쪽(2026-10-01 사용자)
   el.querySelector("small").textContent = [staffMap[p.staff_id]?.name || "담당요원 없음", p.memo,
     p.state === "missed" ? "이 날 보고서가 없습니다" : ""].filter(Boolean).join(" · ");
   el.querySelector(".p-del").addEventListener("click", async () => {
