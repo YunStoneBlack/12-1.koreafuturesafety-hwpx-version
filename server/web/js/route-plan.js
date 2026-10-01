@@ -3,11 +3,13 @@
 // 폰 출발 버튼 두 개(사용자 안드로이드 시험 2026-10-01, 키 없이 됨):
 //   [🚗 티맵으로 출발] = tmap://route?goalx·goaly·goalname(목적지 = 복귀지)&key=티맵 공식 안내 페이지 기본값
 //     &startx·starty·startname(출발지)&via1x·via1y·via1name …(경유지 = 현장들) — 티맵 공식 route.jsp가 쓰는 형식에 출발·경유지를 붙임.
+//     경유지는 2곳까지만 들어감 → 현장 3곳 이상이면 구간 고르기 창(openTmapRoute).
 //     시험: rV1X·rStX·origx 형식과 SK 공식 주소(appKey)는 안 됨(목적지만·출발 = 지금 위치). SK 키는 결국 필요 없었음.
 //   [🗺 네이버 지도] = nmap://route/car 출발·도착·경유지 v1~v5.
 // 창 틀은 css/mail.css, 이 창 규칙은 css/route-plan.css.
 
 const RP_MAX_WAYPOINTS = 5; // 네이버 지도 앱 경유지 최대(티맵도 같은 수로 — 하루 최대 4곳)
+const RP_TMAP_VIA = 2; // 티맵이 바깥 앱에서 받는 경유지 최대(SK 개발자 포럼) — 넘으면 구간 나누기
 const RP_TMAP_KEY = "ACDF74F09C347613"; // 티맵 공식 안내 페이지(tmap.co.kr route.jsp)가 기본으로 넣는 값
 
 async function openRoutePlan(date, staffId, staffName) {
@@ -159,12 +161,55 @@ function openNaverRoute(r) {
     : `nmap://route/car?${q}`;
 }
 
-// 티맵 자동차 길찾기 — 출발 → 경유지(현장들, 순서대로) → 목적지(복귀지). 안드로이드는 intent(앱 없으면 스토어), 아이폰은 tmap://
+// 티맵 자동차 길찾기 — 출발 → 경유지(현장들, 순서대로) → 목적지(복귀지).
+// 티맵은 바깥 앱에서 경유지를 2곳까지만 받음(사용자 폰 2026-10-01: 4곳 넘기면 앞 2곳만, SK 개발자 포럼 답변도 같음)
+// → 현장 3곳 이상이면 구간 고르기 창: 한 구간 = 경유지 2곳 + 목적지, 다음 구간은 그 목적지에서 출발.
 function openTmapRoute(r) {
+  if (r.stops.length <= RP_TMAP_VIA) {
+    launchTmap(r.start, r.stops, r.end);
+    return;
+  }
+  const pts = [{ ...r.start, kind: "start" }, ...r.stops.map((s, i) => ({ ...s, no: i + 1 })), { ...r.end, kind: "end" }];
+  const legs = [];
+  for (let i = 0; i < pts.length - 1;) {
+    const j = Math.min(i + RP_TMAP_VIA + 1, pts.length - 1);
+    const km = r.legs.slice(i, j).reduce((a, b) => a + b, 0);
+    legs.push({ from: pts[i], vias: pts.slice(i + 1, j), to: pts[j], km: Math.round(km * 10) / 10 });
+    i = j;
+  }
+  const label = (p) => p.kind ? `${p.kind === "start" ? "출발" : "복귀"} · ${p.is_home ? "회사" : apEsc(p.address)}` : `${p.no}. ${apEsc(p.name)}`;
+  const circled = "①②③④⑤";
+  const overlay = document.createElement("div");
+  overlay.className = "mail-overlay";
+  overlay.innerHTML = `<div class="mail-box rp-tleg-box" role="dialog" aria-modal="true">
+    <div class="mail-head"><b>🚗 티맵으로 출발</b></div>
+    <div class="mail-msg warn">티맵은 다른 앱에서 경유지를 <b>2곳까지만</b> 받아서 ${r.stops.length}곳을 한 번에 넣을 수 없습니다.
+      ${legs.length}구간으로 나눴어요 — 한 구간이 끝난 현장에서 일을 마치면 다음 구간을 누르세요.</div>
+    ${legs.map((g, k) => `<button type="button" class="rp-tleg" data-k="${k}">
+      <span class="rp-dot">${circled[k] || k + 1}</span>
+      <span class="rp-tleg-pts">${[g.from, ...g.vias, g.to].map((p) => `<span>${label(p)}</span>`).join("")}</span>
+      <span class="rp-tleg-km">${g.km}km</span></button>`).join("")}
+    <div class="rp-hint">네이버 지도는 ${r.stops.length}곳을 한 번에 넣을 수 있습니다.</div>
+    <div class="mail-foot"><button type="button" class="mail-cancel">닫기</button></div></div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (ev) => { if (ev.target === overlay) close(); });
+  overlay.querySelector(".mail-cancel").addEventListener("click", close);
+  overlay.querySelectorAll(".rp-tleg").forEach((btn) => btn.addEventListener("click", () => {
+    const g = legs[Number(btn.dataset.k)];
+    btn.classList.add("sent");
+    launchTmap(g.from, g.vias, g.to);
+  }));
+}
+
+// 점 이름: 출발·복귀 = "회사" 또는 주소, 현장 = 현장 이름
+function rpPlaceName(p) { return "is_home" in p ? (p.is_home ? "회사" : p.address) : p.name; }
+
+function launchTmap(from, vias, to) {
   const e = encodeURIComponent;
-  let q = `goalx=${r.end.lng}&goaly=${r.end.lat}&goalname=${e(r.end.is_home ? "회사" : r.end.address)}&key=${RP_TMAP_KEY}`
-    + `&startx=${r.start.lng}&starty=${r.start.lat}&startname=${e(r.start.is_home ? "회사" : r.start.address)}`;
-  r.stops.forEach((s, i) => { q += `&via${i + 1}x=${s.lng}&via${i + 1}y=${s.lat}&via${i + 1}name=${e(s.name)}`; });
+  let q = `goalx=${to.lng}&goaly=${to.lat}&goalname=${e(rpPlaceName(to))}&key=${RP_TMAP_KEY}`
+    + `&startx=${from.lng}&starty=${from.lat}&startname=${e(rpPlaceName(from))}`;
+  vias.forEach((s, i) => { q += `&via${i + 1}x=${s.lng}&via${i + 1}y=${s.lat}&via${i + 1}name=${e(rpPlaceName(s))}`; });
   if (/Android/i.test(navigator.userAgent)) {
     window.location.href = `intent://route?${q}#Intent;scheme=tmap;package=com.skt.tmap.ku;end`;
     return;

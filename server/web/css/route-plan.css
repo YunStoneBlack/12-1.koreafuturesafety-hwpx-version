@@ -36,6 +36,16 @@
 .rp-box .mail-foot .rp-go { flex: 1 1 calc(50% - 4px); order: -1; }
 .rp-box .mail-foot .rp-tmap { order: -2; }
 .rp-box .mail-foot .rp-go ~ .mail-cancel, .rp-box .mail-foot .mail-cancel:has(~ .rp-go) { flex: 1 1 100%; }
+/* 티맵 구간 나누기 창(현장 3곳 이상 — 티맵은 바깥에서 경유지를 2곳까지만 받음) */
+.mail-box.rp-tleg-box { width: min(420px, 100%); }
+.rp-tleg { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0; padding: 10px 12px; text-align: left;
+  border: 1px solid var(--blue); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.rp-tleg .rp-dot { width: 30px; height: 30px; font-size: 14px; }
+.rp-tleg-pts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.rp-tleg-pts span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-tleg-km { flex: none; font-size: 12px; font-weight: 700; color: var(--blue); }
+.rp-tleg.sent { border-color: var(--line); background: var(--green-soft); }
+.rp-tleg.sent .rp-tleg-km::after { content: " · ✓ 보냄"; color: var(--green); }
 @media (max-width: 760px) { .rp-arrows button { width: 36px; height: 26px; font-size: 12px; } .rp-handle { font-size: 20px; padding: 8px 4px; } }
 
 /* 그날 목록 요원 머리줄의 [🚗 동선 짜기](js/calendar.js renderDay) */
