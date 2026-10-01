@@ -277,29 +277,49 @@ function renderDay() {
   body.querySelector(".cal-day-title").textContent =
     `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEK[d.getDay()]})${holiday ? " · " + holiday.name : ""}`;
   const list = body.querySelector(".cal-day-list");
+  // 요원별 묶음(2026-10-01 사용자 — 여러 명이 출장 가는 날 누가 어디 가는지 한눈에): 머리줄 "👤 이름 · N곳" + 그 요원의 다녀온 방문·예정.
+  // 담당 없는 "⚠ 대타 필요"는 맨 아래 따로. 머리줄 오른쪽은 나중에 [🚗 동선 짜기] 자리.
+  const groups = new Map(); // key → { title, sites:Set, items:[] }
+  const groupOf = (key) => {
+    if (!groups.has(key)) groups.set(key, { key, sites: new Set(), items: [] });
+    return groups.get(key);
+  };
   for (const v of visits) {
     const el = document.createElement("div");
     el.className = `cal-item ${visitClass(v.state)}`;
     el.innerHTML = '<i></i><div class="cal-item-main"><b></b><small></small></div>';
-    list.appendChild(el);
     addSiteLinks(el, v.site_id);
     el.querySelector("b").textContent = `${v.site_name} ${v.visit_no}회차`;
-    el.querySelector("small").textContent = `${staffMap[v.staff_id]?.name || "담당요원 없음"} · ${STATE_LABEL[v.state] || ""}`;
+    el.querySelector("small").textContent = STATE_LABEL[v.state] || "";
     const a = document.createElement("a");
     a.href = `report.html?id=${v.report_id}`;
     a.className = "cal-act";
     a.textContent = "보고서 열기";
     el.appendChild(a);
+    const g = groupOf(v.staff_id ?? "none");
+    g.sites.add(v.site_id);
+    g.items.push(el);
   }
-  for (const p of plans) list.appendChild(planItem(p, staffMap));
-  if (!visits.length && !plans.length) {
+  for (const p of plans) {
+    const g = groupOf(p.source === "sub" && p.state !== "missed" ? "sub" : p.staff_id ?? "none");
+    g.sites.add(p.site_id);
+    g.items.push(planItem(p, staffMap));
+  }
+  if (!groups.size) {
     list.innerHTML = '<div class="empty-note" style="padding:12px 0;">이 날은 방문·예정이 없습니다.</div>';
   }
-  for (const l of data.day_load.filter((x) => x.date === selected && x.count >= data.limit && visible(x.staff_id))) {
-    const warn = document.createElement("div");
-    warn.className = "cal-full";
-    warn.textContent = `${staffMap[l.staff_id]?.name || ""} 이 날 ${l.count}곳 — ${l.count > data.limit ? "하루 한도를 넘었습니다" : "한도 다 참"}`;
-    list.appendChild(warn);
+  const order = (key) => (key === "sub" ? 1e9 : key === "none" ? 1e9 - 1 : data.staff.findIndex((s) => s.id === key));
+  const loadOf = Object.fromEntries(data.day_load.filter((x) => x.date === selected).map((x) => [x.staff_id, x.count]));
+  for (const g of [...groups.values()].sort((a, b) => order(a.key) - order(b.key))) {
+    const box = document.createElement("section");
+    box.className = `cal-group${g.key === "sub" ? " sub" : ""}`;
+    box.innerHTML = '<div class="cal-group-head"><b></b><span class="cal-group-n"></span><span class="cal-group-warn"></span></div>';
+    box.querySelector("b").textContent = g.key === "sub" ? "⚠ 대타 필요" : g.key === "none" ? "담당요원 없음" : `👤 ${staffMap[g.key]?.name || ""}`;
+    box.querySelector(".cal-group-n").textContent = `${g.sites.size}곳`;
+    const load = loadOf[g.key] || 0;
+    if (load >= data.limit) box.querySelector(".cal-group-warn").textContent = load > data.limit ? "하루 한도를 넘었습니다" : "하루 4곳 다 참";
+    for (const el of g.items) box.appendChild(el);
+    list.appendChild(box);
   }
   body.appendChild(planForm());
 }
@@ -336,7 +356,7 @@ function planItem(p, staffMap) {
   links.appendChild(change); // [📞 전화] [📍 지도] 오른쪽(2026-10-01 사용자)
   el.querySelector("small").textContent = p.source === "sub"
     ? `거리가 멀어 담당 요원(${staffMap[p.owner_staff_id]?.name || "담당 없음"})이 이날 갈 수 없습니다 — [📅 일정 변경] → [대신 갈 요원]으로 정해 주세요`
-    : [staffMap[p.staff_id]?.name || "담당요원 없음", p.memo, p.state === "missed" ? "이 날 보고서가 없습니다" : ""].filter(Boolean).join(" · ");
+    : [p.memo, p.state === "missed" ? "이 날 보고서가 없습니다" : ""].filter(Boolean).join(" · "); // 요원 이름은 묶음 머리줄에
   el.querySelector(".p-del").addEventListener("click", async () => {
     if (!confirm(`${p.site_name} 방문 예정을 지울까요?`)) return;
     try { await api(`/calendar/plans/${p.id}`, { method: "DELETE" }); reload(); } catch (err) { showError(errorEl, err); }

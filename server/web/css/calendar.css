@@ -54,6 +54,19 @@
 .cal-plan-acts { flex-basis: 100%; display: flex; gap: 6px; flex-wrap: wrap; padding-left: 17px; }
 .main .cal-plan-acts button { margin: 0; padding: 5px 10px; font-size: 12px; }
 .cal-full { margin-top: 8px; font-size: 12px; font-weight: 700; color: var(--crit); }
+/* 그날 목록 요원별 묶음(js/calendar.js renderDay, 2026-10-01) — 머리줄(이름·N곳·한도) + 그 요원의 방문·예정. 대타 필요는 주황 묶음 */
+.cal-group { border: 1px solid var(--line); border-radius: 10px; margin: 12px 0; overflow: hidden; background: var(--surface); }
+.cal-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px; background: var(--blue-soft); border-bottom: 1px solid var(--line); }
+.cal-group-head b { font-size: 14px; color: var(--ink); }
+.cal-group-n { font-size: 12px; font-weight: 700; color: var(--blue); background: var(--surface); border: 1px solid #c4dbf6; border-radius: 999px; padding: 1px 8px; }
+.cal-group-warn { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--crit); }
+.cal-group-warn:empty { display: none; }
+.cal-group > .cal-item { padding: 10px 12px; }
+.cal-group > .cal-item:last-child { border-bottom: 0; }
+.cal-group.sub { border-color: #F1D6A8; }
+.cal-group.sub .cal-group-head { background: var(--warn-soft); border-bottom-color: #F1D6A8; }
+.cal-group.sub .cal-group-head b { color: var(--warn); }
+.cal-group.sub .cal-group-n { color: var(--warn); border-color: #F1D6A8; }
 .cal-form { margin-top: 12px; }
 .cal-item .cal-form { flex-basis: 100%; padding-left: 17px; }
 .main .cal-form .cal-add { width: 100%; margin: 0; }
@@ -67,3 +80,4 @@
   .cal-drag-hint { display: none !important; }
   .fc .fc-toolbar-title { font-size: 14px; }
 }
+.cal-item small:empty { display: none; }
