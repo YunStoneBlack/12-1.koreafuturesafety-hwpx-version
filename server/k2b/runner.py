@@ -82,6 +82,11 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
         round_text = page.locator(sel.ROUND_NO_INPUT).input_value().strip()
         round_no = int(round_text) if round_text.isdigit() else None
         log(f"K2B 새 차수 번호: {round_text}")
+        prev_choice = sub.manual.prev_guidance or ("해당없음" if sub.prev_guidance_implemented is None else "")
+        if round_no and round_no > 1 and prev_choice == "해당없음":  # K2B는 해당없음을 1차수에서만 받음(실측) — 저장 누르기 전에 멈춤
+            shot = snap(page, "해당없음불가")
+            return RunResult(False, False, f"K2B {round_text}차수에서는 이전 기술지도 이행여부를 '해당없음'으로 낼 수 없습니다 — "
+                             "'이행' 또는 '불이행'으로 바꿔 다시 제출하세요.", shot, lines, round_no)
         if round_no != sub.visit_no and not allow_round_mismatch:
             shot = snap(page, "차수다름")
             return RunResult(False, False, f"K2B 새 차수는 {round_text}차인데 웹 보고서는 {sub.visit_no}회차라 저장하지 않았습니다 — "

@@ -87,7 +87,13 @@ async function openK2bModal(reportId, titleText, onDone) {
     const msg = $(".kb-msg");
     $(".kb-close").addEventListener("click", close);
     $(".kb-process").value = last.current_process || "";
-    $(".kb-prev").value = (prefill && prefill.prev_guidance) || s.prev_guidance_default || "";
+    $(".kb-prev").value = prefill && prefill.prev_needs_choice ? "" : (prefill && prefill.prev_guidance) || s.prev_guidance_default || "";
+    if (prefill && prefill.prev_needs_choice) {
+      $(".kb-prev").classList.add("kb-need");
+      $(".kb-msg").hidden = false;
+      $(".kb-msg").className = "mail-msg kb-msg bad";
+      $(".kb-msg").textContent = "K2B 차수가 2 이상이라 '해당없음'은 안 됩니다 — 이전 기술지도 이행여부를 '이행' 또는 '불이행'으로 고르세요.";
+    }
     const radios = [...box.querySelectorAll('input[name="kb-scaffold"]')];
     const types = [...box.querySelectorAll(".kb-type")];
     const syncTypes = () => {
@@ -212,7 +218,9 @@ async function openK2bModal(reportId, titleText, onDone) {
     box.querySelector(".kb-close").addEventListener("click", close);
     box.querySelector(".kb-retry")?.addEventListener("click", async () => {
       info = await api(`/reports/${reportId}/k2b`);
-      drawForm({ ...(options || {}), allow_round_mismatch: mismatch || (options && options.allow_round_mismatch) });
+      const prevBad = /해당없음.*낼 수 없습니다|통보여부를 선택/.test(job.message); // 해당없음을 못 받는 차수 — 이행여부를 다시 고르게 비움
+      drawForm({ ...(options || job.options || {}), allow_round_mismatch: mismatch || !!((options || job.options || {}).allow_round_mismatch),
+        ...(prevBad ? { prev_guidance: "", prev_needs_choice: true } : {}) });
     });
   }
 }

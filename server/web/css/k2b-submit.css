@@ -47,3 +47,4 @@ a.k2b-sent:hover { text-decoration: underline; }
   .rp-k2b-long { display: none; }
   .main .report-row button.rp-k2b { padding: 7px 11px; font-size: 12.5px; }
 }
+.kb-box select.kb-need { border-color: var(--crit); box-shadow: 0 0 0 2px var(--crit-soft); }
