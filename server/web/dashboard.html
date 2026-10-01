@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/auto-plan.css" />
 </head>
-<body data-report-tab="sites">
+<body data-report-tab="sites" class="has-toc">
 <div class="app">
   <aside class="sidebar" id="gw-sidebar"></aside>
   <main class="main">
@@ -86,6 +86,8 @@
 </section>
 
 <div id="ap-notice"></div>
+<!-- 공사 상태별 현장 수 카드(2026-10-01 사용자 B안) — 화면 위에 붙어 다님, 누르면 그 상태만 목록에(전체 = 거르기 없음) -->
+<div class="sc-cards" id="sc-cards" role="group" aria-label="공사 상태별 현장 수"></div>
 <div class="panel">
   <div class="panel-head"><h2>현장 목록</h2><span class="panel-count" id="site-count"></span></div>
   <div class="rows" id="site-list"><div class="empty-note">불러오는 중...</div></div>
@@ -158,18 +160,44 @@ function shortDate(iso) {
   return y === String(new Date().getFullYear()) ? `${m}.${d}` : `${y.slice(2)}.${m}.${d}`;
 }
 
+// 공사 상태별 현장 수 카드(2026-10-01 사용자 B안) — 전체·착공전·진행중·공사중지·준공. 누르면 그 상태만 목록에(statusFilter, "" = 전체).
+// 숫자는 검색과 무관하게 전체 현장 기준. 상태 버튼을 바꾸면 renderSites → 여기도 다시 그림.
+const STATUS_CARDS = [["", "전체", "등록된 현장 전부"], ["착공전", "착공전", "공사 시작 전 · 배치 안 함"], ["진행중", "진행중", "지도 출장 배치 대상"],
+  ["공사중지", "공사중지", "재개 전까지 배치 안 함"], ["준공", "준공", "공사 끝 · 배치 안 함"]];
+let statusFilter = "";
+function renderStatusCards() {
+  const box = document.getElementById("sc-cards");
+  const total = allSites.length;
+  box.innerHTML = STATUS_CARDS.map(([s, label, sub]) => {
+    const n = s ? allSites.filter((x) => x.status === s).length : total;
+    const pct = total ? Math.round((n / total) * 100) : 0;
+    return `<button type="button" class="sc-card${s === statusFilter ? " on" : ""}" data-s="${s}" aria-pressed="${s === statusFilter}">
+      <span class="stc-top"><span class="stc-label">${label}</span>${s ? `<span class="stc-pct">${pct}%</span>` : ""}</span>
+      <span class="stc-num">${n}<small>건</small></span>
+      <span class="stc-bar"><i style="width:${s ? pct : total ? 100 : 0}%"></i></span>
+      <span class="stc-sub">${sub}</span></button>`;
+  }).join("");
+  box.querySelectorAll(".sc-card").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.s === statusFilter) return;
+    statusFilter = b.dataset.s;
+    renderSites();
+  }));
+}
+
 function renderSites() {
+  renderStatusCards();
   const listEl = document.getElementById("site-list");
   const q = document.getElementById("site-search").value.trim().replace(/\s+/g, "").toLowerCase();
-  const shown = allSites.filter((s) => !q || [s.name, s.address, s.hq_company, s.staff_name, s.manager_name, s.management_no]
-    .some((v) => (v || "").replace(/\s+/g, "").toLowerCase().includes(q)));
-  document.getElementById("site-count").textContent = q ? `${shown.length} / ${allSites.length}곳` : `${allSites.length}곳`;
+  const shown = allSites.filter((s) => (!statusFilter || s.status === statusFilter) &&
+    (!q || [s.name, s.address, s.hq_company, s.staff_name, s.manager_name, s.management_no]
+      .some((v) => (v || "").replace(/\s+/g, "").toLowerCase().includes(q))));
+  document.getElementById("site-count").textContent = q || statusFilter ? `${shown.length} / ${allSites.length}곳` : `${allSites.length}곳`;
   if (!allSites.length) {
     listEl.innerHTML = '<div class="empty-note">아직 등록된 현장이 없습니다. 위의 "+ 새 현장 등록"을 눌러 추가하세요.</div>';
     return;
   }
   if (!shown.length) {
-    listEl.innerHTML = '<div class="empty-note">검색 결과가 없습니다.</div>';
+    listEl.innerHTML = `<div class="empty-note">${q ? "검색 결과가 없습니다." : `${statusFilter} 현장이 없습니다.`}</div>`;
     return;
   }
   listEl.innerHTML = "";
@@ -199,7 +227,8 @@ function renderSites() {
     row.querySelector('[data-k="staff"]').textContent = !hasSummary ? "" : site.staff_name ? `담당 ${site.staff_name}` : "담당 미지정";
     row.querySelector('[data-k="progress"]').textContent = hasSummary ? progress : "";
     row.querySelector('[data-k="date"]').textContent = site.last_guidance_date ? `최근 지도 ${shortDate(site.last_guidance_date)}` : "";
-    row.appendChild(siteStatusSwitch(site, refreshNotice)); // 공사 상태 4칸(app.js) — 진행중만 출장 배치
+    // 공사 상태 4칸(app.js) — 진행중만 출장 배치. 바꾸면 일정 없는 현장 띠·상태 카드 숫자·(거르는 중이면) 목록도 새로
+    row.appendChild(siteStatusSwitch(site, () => { refreshNotice(); renderSites(); }));
     listEl.appendChild(row);
   }
 }

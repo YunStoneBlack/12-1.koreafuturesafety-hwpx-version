@@ -64,6 +64,44 @@
   .main .st-switch button, .main .topline .st-switch button { flex: 1; width: auto; min-width: 0; padding: 9px 0; font-size: 13.5px; }
 }
 
+/* 현장 목록 위 공사 상태별 현장 수 카드 5개(dashboard.html renderStatusCards, 2026-10-01 사용자 B안) — 화면 위에 붙어 다님(보고서 목차 줄처럼,
+   폰은 body.has-toc로 그룹웨어 머리줄을 붙지 않게). 숫자·비율 막대는 상태 색, 고른 카드는 그 색으로 꽉 채움. 누르면 그 상태만 목록에. */
+.sc-cards { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;
+  margin: 0 -40px 12px; padding: 10px 40px; background: rgba(244, 246, 251, 0.94); backdrop-filter: blur(6px); }
+.sc-card[data-s=""] { --c: #1B1E2E; --soft: #EEF0F5; }
+.sc-card[data-s="착공전"] { --c: #6B7280; --soft: #F1F2F4; }
+.sc-card[data-s="진행중"] { --c: #2A7DE1; --soft: #EAF2FD; }
+.sc-card[data-s="공사중지"] { --c: #E08A1E; --soft: #FDF3E4; }
+.sc-card[data-s="준공"] { --c: #2E9E5B; --soft: #E9F7EF; }
+.main .sc-card { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; width: 100%; margin: 0; padding: 14px 16px; text-align: left; font: inherit; color: var(--ink); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 1px 2px rgba(15, 17, 32, .04);
+  transition: background .15s, border-color .15s, box-shadow .15s, transform .15s; }
+.main .sc-card:hover:not(.on) { border-color: var(--c); box-shadow: 0 3px 10px rgba(15, 17, 32, .08); transform: translateY(-1px); }
+.sc-card .stc-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.sc-card .stc-label { font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.sc-card .stc-pct { font-size: 11px; font-weight: 700; color: var(--c); background: var(--soft); padding: 2px 7px; border-radius: 999px; }
+.sc-card .stc-num { display: block; margin: 6px 0 8px; white-space: nowrap; font-size: 26px; font-weight: 800; line-height: 1.1; color: var(--c); }
+.sc-card .stc-num small { margin-left: 2px; font-size: 15px; font-weight: 700; }
+.sc-card .stc-bar { display: block; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.sc-card .stc-bar i { display: block; height: 100%; border-radius: 3px; background: var(--c); }
+.sc-card .stc-sub { display: block; margin-top: 6px; font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.main .sc-card.on { background: var(--c); border-color: var(--c); box-shadow: 0 4px 12px rgba(15, 17, 32, .15); cursor: default; }
+.sc-card.on .stc-label, .sc-card.on .stc-num, .sc-card.on .stc-sub { color: #fff; }
+.sc-card.on .stc-pct { background: rgba(255, 255, 255, .25); color: #fff; }
+.sc-card.on .stc-bar { background: rgba(255, 255, 255, .3); }
+.sc-card.on .stc-bar i { background: #fff; }
+@media (max-width: 760px) {
+  .sc-cards { gap: 6px; margin: 0 -16px 10px; padding: 8px 16px; }
+  .main .sc-card { border-radius: 10px; text-align: center; }
+  .sc-card .stc-top { justify-content: center; }
+  .sc-card .stc-pct, .sc-card .stc-sub { display: none; }
+  .main .sc-card { padding: 9px 2px; }
+  .sc-card .stc-label { font-size: 11px; letter-spacing: -.02em; }
+  .sc-card .stc-num { margin: 3px 0 5px; font-size: 19px; letter-spacing: -.02em; } /* 세 자리(999건)도 한 줄 */
+  .sc-card .stc-num small { margin-left: 1px; font-size: 11px; }
+  .sc-card .stc-bar { height: 4px; margin: 0 4px; }
+}
+
 /* [📍 지도] 폰 선택 창(app.js openMapChooser) — 화면 아래에서 올라오는 시트 */
 .map-chooser { position: fixed; inset: 0; z-index: 1200; background: rgba(15, 17, 32, .45); display: flex; align-items: flex-end; justify-content: center; }
 .map-sheet { width: 100%; max-width: 480px; background: var(--surface); border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
