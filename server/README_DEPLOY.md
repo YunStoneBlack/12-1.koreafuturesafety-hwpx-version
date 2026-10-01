@@ -153,14 +153,16 @@ python -m server.scripts.backup
 ```
 
 저장소 루트 `backups/` 아래 DB 덤프가 쌓인다(git 무시 — API 키 등 실데이터 포함). pg_dump가 PATH에 없으면 `C:/Program Files/PostgreSQL/16/bin`을 쓴다. **DB 덤프에는 안 담기는 파일**(사진/PDF/서명)도
-같이 챙겨야 한다 — 스크립트 실행 시 그 폴더 목록을 출력해준다:
-`data/photos`, `data/reports`, `data/signatures`, `data/templates`
+같이 챙겨야 한다 — 스크립트 실행 시 그 폴더 목록을 출력해준다: 저장소(`DATA_DIR`, 기본 `data/`)의 **현장 폴더들·`_서명`·`_자료실`**
+(`_시스템`은 작은 사진·미리보기·한글 중간 파일이라 빼도 됨) + `data/templates`(한글 양식).
+저장소 구조(2026-10-01, `server/api/storage.py`): `관리번호)_현장명(30자)/NN회차/사진/현장_NN회차_전경사진1.jpg`, 같은 회차 폴더에 PDF·한글·현장책임자 서명.
+DB에는 저장소 기준 상대경로만 들어간다(`core/stored_path.py`) — 저장소를 옮겨도 `DATA_DIR`만 바꾸면 된다.
 
 ## 8. 나중에 전용 서버 PC로 이전할 때
 
 1. 새 PC에 PostgreSQL + 한글 + cloudflared 설치, 이 저장소 그대로 복사(+ `server/.env.server`)
 2. 최신 DB 덤프를 새 PC로 옮겨서 `pg_restore`
-3. 위 4개 데이터 폴더를 새 PC로 그대로 복사
+3. 저장소(현장 폴더들·`_서명`·`_자료실`)를 새 PC의 원하는 자리로 복사하고 `.env.server`에 `DATA_DIR=그 자리` 한 줄. `data/templates`(한글 양식)는 git에 없으므로 새 PC 코드 폴더의 같은 자리로 따로 복사
 4. 환경변수(2번)를 새 PC 값으로 설정
 5. 5~6번(시작프로그램 바로가기·자동 로그인, Cloudflare Tunnel)을 새 PC에서 다시 등록 — 도메인은 그대로 재사용
    가능(터널이 가리키는 대상만 새 PC로 바뀌는 것)

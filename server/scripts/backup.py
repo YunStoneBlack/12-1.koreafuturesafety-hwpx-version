@@ -22,7 +22,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from core.db import BASE_DIR, DATABASE_URL
+from core.db import BASE_DIR, DATA_DIR, DATABASE_URL
 
 BACKUP_DIR = BASE_DIR / "backups"
 
@@ -44,9 +44,10 @@ def main() -> None:
     subprocess.run([pg_dump, "-Fc", "-f", str(dump_path), "-d", libpq_url], check=True)
     print(f"DB 백업 완료: {dump_path}")
 
-    print("아래 폴더도 같이 백업(복사)해야 합니다 — pg_dump에는 안 포함됨:")
-    for name in ("photos", "reports", "signatures", "templates"):
-        print(f"  - {BASE_DIR / 'data' / name}")
+    # 파일 저장소(2026-10-01 server/api/storage.py) — 현장 폴더들 + _서명 + _자료실(_시스템은 다시 만들어지므로 빼도 됨)
+    print("아래 저장소 폴더도 같이 백업(복사)해야 합니다 — pg_dump에는 안 포함됨(_시스템 폴더는 빼도 됨):")
+    print(f"  - {DATA_DIR}  (현장 폴더들, _서명, _자료실)")
+    print(f"  - {BASE_DIR / 'data' / 'templates'}  (한글 양식)")
 
 
 if __name__ == "__main__":
