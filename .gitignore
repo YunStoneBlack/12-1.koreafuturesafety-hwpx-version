@@ -64,3 +64,7 @@ data/templates/
 
 # DB 덤프·파일 백업(server/scripts/backup.py) — API 키 등 실데이터가 들어 있으므로 절대 커밋 금지
 backups/
+
+# 저장소(2026-10-01 server/api/storage.py) — data 아래 폴더는 전부 데이터(현장 폴더 "26-12)_현장명\05회차\…", _서명, _자료실, _시스템).
+# data 바로 아래 .py(예전 템플릿 빌드·마이그레이션 스크립트)만 코드라 계속 추적된다.
+data/*/
