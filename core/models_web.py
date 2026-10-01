@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
@@ -208,6 +208,9 @@ class SiteContact(Base):
     # 지도 방문 주소(2026-09-30) — 군부대처럼 서류상 주소와 실제로 찾아가는 주소가 다를 때만 채움. 비어 있으면 현장 주소.
     # [📍 지도] 버튼이 이 주소를 네이버 지도로 연다. 보고서(PDF)엔 안 나감.
     visit_address: Mapped[str] = mapped_column(Text, default="")
+    # 첫 지도 회차(2026-10-01, alembic 0013) — 이 시스템 전에 다녀온 회차가 있으면(30회 중 1~7회) 8. 보고서가 없을 때 "다녀온 횟수" = 이 값 - 1,
+    # 첫 보고서 회차 = 이 값(server/api/site_pace_out.done_counts, repo.create_report). 보고서가 생기면 최근 보고서 회차가 우선(둘 중 큰 것).
+    first_visit_no: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
 
 class SiteGeo(Base):

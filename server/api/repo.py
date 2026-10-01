@@ -104,7 +104,13 @@ def create_report(db: Session, company_id: int, site_id: int, **fields) -> Repor
         # expire_on_commit=False라 커밋 후에도 안 갱신됨) 새로 추가된 보고서를 못 볼 수
         # 있다 — 그래서 관계 대신 매번 새로 집계 쿼리를 날린다.
         max_visit_no = db.query(func.max(Report.visit_no)).filter(Report.site_id == site_id).scalar()
-        visit_no = (max_visit_no or 0) + 1
+        if max_visit_no is None:  # 첫 보고서 — 이 시스템 전에 다녀온 회차가 있으면 "첫 지도 회차"부터(2026-10-01)
+            from core.models_web import SiteContact
+
+            first = db.query(SiteContact.first_visit_no).filter(SiteContact.site_id == site_id).scalar()
+            visit_no = first or 1
+        else:
+            visit_no = max_visit_no + 1
     report = Report(site_id=site_id, visit_no=visit_no, **fields)
     db.add(report)
     db.commit()

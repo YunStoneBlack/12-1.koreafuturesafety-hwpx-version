@@ -1,5 +1,6 @@
 """현장 진행 막대(공기 경과 vs 기술지도 수행) — 데스크톱 현장 카드(core/site_pace.py, 2026-09-21)와 **같은 계산**을 웹 화면용 dict로.
-현장 목록·현장 화면·방문 달력 그날 목록이 쓴다(2026-09-30, 사용자 A안: 막대 두 줄). 수행 횟수 = 그 현장 가장 최근 보고서 회차."""
+현장 목록·현장 화면·방문 달력 그날 목록이 쓴다(2026-09-30, 사용자 A안: 막대 두 줄). 수행 횟수 = 그 현장 가장 최근 보고서 회차 —
+보고서가 없거나 적으면 "첫 지도 회차 - 1"(이 시스템 전에 다녀온 회차, 2026-10-01) 중 큰 것(`done_counts`)."""
 
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.models_db import Report
+from core.models_web import SiteContact
 from core.site_pace import compute_site_pace
 
 _DAYS_PER_MONTH = 30.4375  # core/site_pace.py와 같은 값
@@ -29,6 +31,20 @@ def pace_dict(site, last_visit_no: int | None, today: datetime.date | None = Non
 
 
 def last_visit_nos(db: Session, site_ids: list[int]) -> dict[int, int]:
+    """현장 -> 가장 최근 보고서 회차(보고서 있는 현장만)."""
     if not site_ids:
         return {}
     return dict(db.query(Report.site_id, func.max(Report.visit_no)).filter(Report.site_id.in_(site_ids)).group_by(Report.site_id))
+
+
+def first_visit_nos(db: Session, site_ids: list[int]) -> dict[int, int]:
+    """현장 -> 첫 지도 회차(적어 둔 현장만, 기본 1)."""
+    if not site_ids:
+        return {}
+    return dict(db.query(SiteContact.site_id, SiteContact.first_visit_no).filter(SiteContact.site_id.in_(site_ids)))
+
+
+def done_counts(db: Session, site_ids: list[int]) -> dict[int, int]:
+    """현장 -> 다녀온 횟수 = max(최근 보고서 회차, 첫 지도 회차 - 1) — 진행 막대·자동 배치·일정 없는 현장이 쓴다."""
+    last, first = last_visit_nos(db, site_ids), first_visit_nos(db, site_ids)
+    return {sid: max(last.get(sid) or 0, (first.get(sid) or 1) - 1) for sid in site_ids}

@@ -22,7 +22,7 @@ from core.models_web import User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
 from server.api import repo
 from server.api.deps import get_current_user, get_db
-from server.api.site_pace_out import last_visit_nos, pace_dict
+from server.api.site_pace_out import done_counts, pace_dict
 from server.api.geocode import map_addresses
 from server.api.site_label import site_label
 from server.api.routers.staff_groupware import my_staff_id
@@ -91,7 +91,7 @@ def calendar(
             load[(p["staff_id"], p["date"])].add(p["site_id"])
     day_load = [{"staff_id": sid, "date": d, "count": len(s)} for (sid, d), s in load.items()]
 
-    last_nos = last_visit_nos(db, list(sites))
+    last_nos = done_counts(db, list(sites))  # 다녀온 횟수(첫 지도 회차 반영)
     map_addr = map_addresses(db, sites)
     return {
         "today": today.isoformat(),

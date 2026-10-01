@@ -46,9 +46,12 @@
       <div><label for="period_start">공사기간 시작일</label><input id="period_start" type="date" /></div>
       <div><label for="period_end">공사기간 종료일</label><input id="period_end" type="date" /></div>
       <div><label for="amount">공사금액</label><input id="amount" type="number" min="0" /></div>
-      <div><label for="total_guidance_count">기술지도 총 횟수</label><input id="total_guidance_count" type="number" min="0" /></div>
       <div><label for="assigned_staff_id">담당요원 <span style="font-weight:400; color:var(--muted);">(보고서에 자동 배정)</span></label>
         <select id="assigned_staff_id"><option value="">선택 안 함</option></select></div>
+      <div><label for="total_guidance_count">기술지도 총 횟수</label><input id="total_guidance_count" type="number" min="0" /></div>
+      <!-- 첫 지도 회차(2026-10-01 사용자) — 이 시스템 전에 다녀온 회차가 있으면(30회 중 1~7회 했으면 8). 자동 배치·진행 막대·첫 보고서 회차에 반영 -->
+      <div><label for="first_visit_no">첫 지도 회차 <span style="font-weight:400; color:var(--muted);">(이 시스템 전에 1~7회를 했으면 8)</span></label>
+        <input id="first_visit_no" type="number" min="1" value="1" /></div>
     </div>
 
     <h3 class="form-group-title">현장책임자</h3>
@@ -269,11 +272,13 @@ document.getElementById("site-form").addEventListener("submit", async (e) => {
     const created = await apiPost("/sites", readSiteForm());
     const contacts = Object.fromEntries(["owner_name", "owner_email", "supervisor_name", "supervisor_email", "visit_address"]
       .map((id) => [id, document.getElementById(id).value.trim()]));
+    const first = Number(document.getElementById("first_visit_no").value) || 1;
+    if (first > 1) contacts.first_visit_no = first;
     if (Object.values(contacts).some(Boolean)) {
       try {
         await apiPatch(`/sites/${created.id}/contacts`, contacts);
       } catch (err) {
-        alert(`현장은 등록했지만 발주처·감리단·지도 방문 주소는 저장하지 못했습니다(${err.message}). 현장 화면의 [수정]에서 다시 넣어 주세요.`);
+        alert(`현장은 등록했지만 발주처·감리단·지도 방문 주소·첫 지도 회차는 저장하지 못했습니다(${err.message}). 현장 화면의 [수정]에서 다시 넣어 주세요.`);
       }
     }
     // 등록하면 바로 그 현장 화면으로(다음 할 일이 거기서 보고서 작성이라). 지도 일정 자동 배치를 물어보고, [확인]이면 그 화면에서 미리보기 창을 연다

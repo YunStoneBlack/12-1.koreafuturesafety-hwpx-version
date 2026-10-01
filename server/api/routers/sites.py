@@ -18,7 +18,7 @@ from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.geocode import map_addresses
 from server.api.routers.report_manage import prepared_hwpx_path, preview_dir
-from server.api.site_pace_out import last_visit_nos, pace_dict
+from server.api.site_pace_out import done_counts, pace_dict
 from server.api.routers.reports import check_staff_limit
 from server.api.security import verify_password
 from server.schemas.site import SiteIn, SiteListItem, SiteOut
@@ -40,6 +40,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
     staff_ids = {s.assigned_staff_id for s in sites if s.assigned_staff_id}
     staff_names = dict(db.query(Staff.id, Staff.name).filter(Staff.id.in_(staff_ids))) if staff_ids else {}
     map_addr = map_addresses(db, sites)
+    done = done_counts(db, ids)  # 다녀온 횟수(첫 지도 회차 반영) — 진행 막대
     out = []
     for site in sites:
         count, last_no, last_date = stats.get(site.id, (0, None, None))
@@ -49,7 +50,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
         item.last_guidance_date = last_date
         item.staff_name = staff_names.get(site.assigned_staff_id, "")
         item.map_address = map_addr[site.id]
-        item.pace = pace_dict(site, last_no)
+        item.pace = pace_dict(site, done.get(site.id))
         out.append(item)
     return out
 
@@ -108,7 +109,7 @@ def get_site(site_id: int, user: User = Depends(get_current_user), db: Session =
     if site is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
     out = SiteOut.model_validate(site)
-    out.pace = pace_dict(site, last_visit_nos(db, [site.id]).get(site.id))
+    out.pace = pace_dict(site, done_counts(db, [site.id]).get(site.id))
     return out
 
 

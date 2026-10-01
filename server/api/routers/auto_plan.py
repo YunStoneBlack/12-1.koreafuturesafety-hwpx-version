@@ -23,6 +23,7 @@ from core.models_web import User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
 from server.api.deps import get_current_user, get_db
 from server.api.geocode import RoadDistance, map_addresses, site_coords
+from server.api.site_pace_out import done_counts
 from server.api.site_label import site_label
 from server.api.visit_scheduler import SiteIn, plan_sites, region_of
 
@@ -84,13 +85,14 @@ def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.dat
         if staff_id is not None:
             busy[(staff_id, gdate)].add(sid)
 
+    done = done_counts(db, list(target_ids))  # 다녀온 횟수 = max(최근 보고서 회차, 첫 지도 회차 - 1)
     fixed = defaultdict(list)
     for p in kept:
         if p.site_id in target_ids:
             fixed[p.site_id].append(p.plan_date)
     ins = [SiteIn(
         id=s.id, name=s.name, staff_id=s.assigned_staff_id, region=region[s.id], period_start=s.period_start, period_end=s.period_end,
-        total=s.total_guidance_count, performed=stats.get(s.id, (0, None))[0], last_date=stats.get(s.id, (0, None))[1], fixed=fixed[s.id],
+        total=s.total_guidance_count, performed=done[s.id], last_date=stats.get(s.id, (0, None))[1], fixed=fixed[s.id],
     ) for s in targets]
     finish = config.get_plan_finish_before_days(company_id)
     placed, results = plan_sites(ins, today, busy, finish, MAX_SITES_PER_STAFF_PER_DAY, site_regions=region, dist=dist,
@@ -157,7 +159,7 @@ def unplanned(user: User = Depends(get_current_user), db: Session = Depends(get_
         return []
     ids = [s.id for s in sites]
     planned = {sid for (sid,) in db.query(VisitPlan.site_id).filter(VisitPlan.site_id.in_(ids), VisitPlan.plan_date > today).distinct()}
-    last = dict(db.query(Report.site_id, func.max(Report.visit_no)).filter(Report.site_id.in_(ids)).group_by(Report.site_id))
+    last = done_counts(db, ids)
     names = _names(db, user.company_id)
     return sorted(
         ({"site_id": s.id, "site_name": site_label(s), "staff_id": s.assigned_staff_id, "staff_name": names.get(s.assigned_staff_id, ""),

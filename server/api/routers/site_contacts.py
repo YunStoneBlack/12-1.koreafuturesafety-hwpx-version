@@ -32,6 +32,7 @@ class ContactsIn(BaseModel):
     supervisor_name: str | None = None
     supervisor_email: str | None = None
     visit_address: str | None = None
+    first_visit_no: int | None = None  # 첫 지도 회차(이 시스템 전에 다녀온 회차가 있으면 그다음, 기본 1)
 
 
 def split_emails(value: str) -> list[str]:
@@ -63,6 +64,7 @@ def contacts_of(db: Session, site) -> dict:
         "supervisor_name": row.supervisor_name if row else "",
         "supervisor_email": row.supervisor_email if row else "",
         "visit_address": row.visit_address if row else "",
+        "first_visit_no": (row.first_visit_no if row else 1) or 1,
         "map_address": map_address(site, row),
     }
 
@@ -110,7 +112,7 @@ def update_contacts(site_id: int, body: ContactsIn, user: User = Depends(get_cur
     row = db.get(SiteContact, site.id)
     if row is None:
         row = SiteContact(site_id=site.id, owner_name="", owner_email="", supervisor_name="", supervisor_email="", retired_emails="",
-                          visit_address="")
+                          visit_address="", first_visit_no=1)
         db.add(row)
 
     manager_changed = False
@@ -130,6 +132,11 @@ def update_contacts(site_id: int, body: ContactsIn, user: User = Depends(get_cur
 
     if "visit_address" in fields:
         row.visit_address = (fields["visit_address"] or "").strip()
+    if fields.get("first_visit_no") is not None:
+        n = int(fields["first_visit_no"])
+        if n < 1 or (site.total_guidance_count and n > site.total_guidance_count):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"첫 지도 회차는 1~{site.total_guidance_count or '총 횟수'} 사이로 적으세요.")
+        row.first_visit_no = n
     db.flush()
     after = contacts_of(db, site)
     now_all = {a.lower() for _, k in ROLE_EMAIL_KEYS for a in split_emails(after[k])}

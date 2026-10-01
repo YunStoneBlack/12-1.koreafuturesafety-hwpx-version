@@ -59,11 +59,11 @@ KAKAO_REST_API_KEY=<카카오 개발자 사이트 앱의 REST API 키>   ; 회�
 alembic -c server/alembic.ini upgrade head
 ```
 
-(2026-10-01 기준 0012까지: 0003 `report_edit` — PDF 수정 전 버전 판단, 0004 `report_mail` — 고객사 메일 보낸 기록,
+(2026-10-01 기준 0013까지: 0003 `report_edit` — PDF 수정 전 버전 판단, 0004 `report_mail` — 고객사 메일 보낸 기록,
 0010 `visit_plan.source` — 방문 예정 자동/고정(자동 배치, `pip install holidays` 필요 — requirements.txt),
 0005 `report_submit_mark`·`staff_contact`·`deadline_alert` — 직접 제출함·요원 메일·지도 기한 알림 보낸 기록,
 0006 `staff_gw_link` — 담당요원 ↔ 그룹웨어 직원, 0007 `visit_plan` — 방문 달력 예정, 0008 `site_contact` — 현장 발주처·감리단, 0009 `site_contact.visit_address` — 지도 방문 주소,
-0011 `site_geo` — 현장 좌표(카카오), 0012 `site_distance` — 현장 사이 도로 거리(카카오 길찾기).
+0011 `site_geo` — 현장 좌표(카카오), 0012 `site_distance` — 현장 사이 도로 거리(카카오 길찾기), 0013 `site_contact.first_visit_no` — 첫 지도 회차.
 전부 표를 새로 만드는 것뿐이라 돌고 있는 서버에 영향 없이 먼저 적용해도 된다(적용 → API 재시작 → 화면).
 명령 창에 `DATABASE_URL` 환경변수가 있어야 한다 — `.env.server`의 값을 넣고 실행.)
 
