@@ -191,7 +191,7 @@ function renderSites() {
   const shown = allSites.filter((s) => (!statusFilter || s.status === statusFilter) &&
     (!q || [s.name, s.address, s.hq_company, s.staff_name, s.manager_name, s.management_no]
       .some((v) => (v || "").replace(/\s+/g, "").toLowerCase().includes(q))));
-  document.getElementById("site-count").textContent = q || statusFilter ? `${shown.length} / ${allSites.length}곳` : `${allSites.length}곳`;
+  document.getElementById("site-count").textContent = q || statusFilter ? `${shown.length} / ${allSites.length}건` : `${allSites.length}건`;
   if (!allSites.length) {
     listEl.innerHTML = '<div class="empty-note">아직 등록된 현장이 없습니다. 위의 "+ 새 현장 등록"을 눌러 추가하세요.</div>';
     return;
