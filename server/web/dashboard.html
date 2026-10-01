@@ -187,7 +187,7 @@ function renderSites() {
       </span>
       <span class="status-pill ${pillClass}"></span>`;
     // 사용자 입력 값은 textContent로(따옴표·꺾쇠가 들어간 현장명도 안전하게)
-    row.querySelector(".site-name").textContent = site.name;
+    row.querySelector(".site-name").textContent = siteLabel(site); // "26-12)_현장명"(app.js)
     row.querySelector(".site-sub").textContent = [site.address, site.hq_company].filter(Boolean).join(" · ");
     const pace = sitePaceBox(site.pace); // 진행 막대(공기 경과 vs 지도 수행 — 데스크톱 현장 카드와 같음)
     if (pace) row.querySelector(".title").appendChild(pace);

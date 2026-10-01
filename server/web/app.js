@@ -266,6 +266,18 @@ function openMapChooser(address) {
   });
   document.body.appendChild(overlay);
 }
+// 화면에 보이는 현장 이름 앞 관리번호(2026-10-01 사용자) — "26-12)_고모지구 …". 서버 server/api/site_label.py와 같은 규칙:
+// "연도-숫자"면 연도 뒤 두 자리·숫자 앞 0 빼기(2026-0000046 → 26-46), 그 밖(26-M5)은 그대로, 없으면 이름만.
+function shortMgmt(no) {
+  const m = String(no || "").trim();
+  const found = m.match(/^(\d{2}|\d{4})-0*(\d+)$/);
+  return found ? `${found[1].slice(-2)}-${found[2]}` : m;
+}
+function siteLabel(site) {
+  const short = shortMgmt(site?.management_no);
+  return short ? `${short})_${site.name}` : site?.name || "";
+}
+
 // 글자 복사 — 클립보드 API(https)가 안 되면 숨긴 입력 칸으로 한 번 더(옛 브라우저·일부 앱 안 브라우저)
 async function copyText(text) {
   try {

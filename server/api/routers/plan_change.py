@@ -24,6 +24,7 @@ from server.api import repo
 from server.api.deps import get_current_user, get_db
 from core import config
 from server.api.geocode import RoadDistance, site_coords
+from server.api.site_label import site_label
 from server.api.visit_scheduler import FAR, blocked_days, korean_holidays, make_compat, region_of
 
 router = APIRouter(tags=["plan-change"])
@@ -50,12 +51,12 @@ def _compat(db: Session, company_id: int, sites: dict[int, Site]):
 def _together(sites: dict[int, Site], compat, me: int, here: set[int]):
     """그날 가는 현장들 중 같이 가도 되는 것(이름·거리 km)과 먼 현장이 섞였는지."""
     ok, far = [], False
-    for x in sorted(here - {me}, key=lambda x: sites[x].name if x in sites else ""):
+    for x in sorted(here - {me}, key=lambda x: site_label(sites[x]) if x in sites else ""):
         kind, dist = compat(me, x)
         if kind == FAR:
             far = True
         elif x in sites:
-            ok.append((sites[x].name, round(dist, 1) if dist is not None else None))
+            ok.append((site_label(sites[x]), round(dist, 1) if dist is not None else None))
     return ok, far
 
 
@@ -107,7 +108,7 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
     staff_name = db.query(Staff.name).filter(Staff.id == plan.staff_id).scalar() if plan.staff_id else ""
     dist.save()  # 이번에 새로 물은 도로 거리 저장
     return {
-        "plan": {"id": plan.id, "site_id": plan.site_id, "site_name": sites[plan.site_id].name if plan.site_id in sites else "",
+        "plan": {"id": plan.id, "site_id": plan.site_id, "site_name": site_label(sites[plan.site_id]) if plan.site_id in sites else "",
                  "staff_id": plan.staff_id, "staff_name": staff_name or "", "date": plan.plan_date.isoformat(), "region": my_region},
         "limit": LIMIT, "days": days, "suggestions": suggestions,
     }

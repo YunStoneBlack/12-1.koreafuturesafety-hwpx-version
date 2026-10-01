@@ -23,6 +23,7 @@ from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.site_pace_out import last_visit_nos, pace_dict
+from server.api.site_label import site_label
 from server.api.routers.staff_groupware import my_staff_id
 from server.api.submission import report_states
 
@@ -40,7 +41,7 @@ class PlanIn(BaseModel):
 
 def _plan_out(p: VisitPlan, site: Site, state: str) -> dict:
     # owner_staff_id = 현장 담당요원 — "⚠ 대타 필요"(source=sub, 요원 비어 있음)도 그 담당자를 볼 때 보이게
-    return {"id": p.id, "site_id": p.site_id, "site_name": site.name, "staff_id": p.staff_id, "owner_staff_id": site.assigned_staff_id,
+    return {"id": p.id, "site_id": p.site_id, "site_name": site_label(site), "staff_id": p.staff_id, "owner_staff_id": site.assigned_staff_id,
             "date": p.plan_date.isoformat(), "memo": p.memo, "state": state, "source": p.source or "manual"}
 
 
@@ -66,7 +67,7 @@ def calendar(
     )
     states = report_states(db, reports)
     visits = [{
-        "report_id": r.id, "site_id": r.site_id, "site_name": sites[r.site_id].name, "visit_no": r.visit_no,
+        "report_id": r.id, "site_id": r.site_id, "site_name": site_label(sites[r.site_id]), "visit_no": r.visit_no,
         "date": r.guidance_date.isoformat(), "staff_id": r.assigned_staff_id, "state": states[r.id]["state"],
     } for r in reports]
     visited = {(r.site_id, r.guidance_date) for r in reports}
@@ -103,7 +104,7 @@ def calendar(
         "staff": [{"id": s.id, "name": s.name, "active": s.active} for s in staff],
         "me_staff_id": my_staff_id(db, user),
         "sites": sorted(
-            [{"id": s.id, "name": s.name, "staff_id": s.assigned_staff_id} for s in sites.values()
+            [{"id": s.id, "name": site_label(s), "staff_id": s.assigned_staff_id} for s in sites.values()
              if (s.status or "진행중") == "진행중"],
             key=lambda s: s["name"],
         ),

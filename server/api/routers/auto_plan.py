@@ -23,6 +23,7 @@ from core.models_web import SiteContact, User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
 from server.api.deps import get_current_user, get_db
 from server.api.geocode import RoadDistance, site_coords
+from server.api.site_label import site_label
 from server.api.visit_scheduler import SiteIn, plan_sites, region_of
 
 router = APIRouter(tags=["auto-plan"])
@@ -116,17 +117,17 @@ def preview(body: AutoPlanIn, user: User = Depends(get_current_user), db: Sessio
     for p in placed:
         if p.staff_id is not None:
             day_sites[(p.staff_id, p.date)].add(p.site_id)
-    others = lambda p: sorted((x for x in day_sites.get((p.staff_id, p.date), set()) if x != p.site_id and x in sites), key=lambda x: sites[x].name)
+    others = lambda p: sorted((x for x in day_sites.get((p.staff_id, p.date), set()) if x != p.site_id and x in sites), key=lambda x: site_label(sites[x]))
     km_of = lambda a, b: round(d, 1) if (d := dist(a, b)) is not None else None  # "○○(4km)와 함께" — 도로 거리
     return {
         "today": today.isoformat(),
         "finish_before_days": finish,
         "replace_count": len(replaced),
-        "plans": [{"date": p.date.isoformat(), "site_id": p.site_id, "site_name": sites[p.site_id].name, "region": region[p.site_id],
+        "plans": [{"date": p.date.isoformat(), "site_id": p.site_id, "site_name": site_label(sites[p.site_id]), "region": region[p.site_id],
                    "staff_id": p.staff_id, "staff_name": names.get(p.staff_id, ""), "need_sub": p.need_sub,
-                   "owner_name": names.get(sites[p.site_id].assigned_staff_id, ""), "with": [sites[x].name for x in others(p)],
+                   "owner_name": names.get(sites[p.site_id].assigned_staff_id, ""), "with": [site_label(sites[x]) for x in others(p)],
                    "with_km": [km_of(p.site_id, x) for x in others(p)]} for p in placed],
-        "sites": [{"site_id": r.site_id, "site_name": sites[r.site_id].name, "staff_name": names.get(sites[r.site_id].assigned_staff_id, ""),
+        "sites": [{"site_id": r.site_id, "site_name": site_label(sites[r.site_id]), "staff_name": names.get(sites[r.site_id].assigned_staff_id, ""),
                    "region": region[r.site_id], "needed": r.needed, "placed": r.placed, "need_sub": r.need_sub, "note": r.note} for r in results],
     }
 
@@ -160,7 +161,7 @@ def unplanned(user: User = Depends(get_current_user), db: Session = Depends(get_
     last = dict(db.query(Report.site_id, func.max(Report.visit_no)).filter(Report.site_id.in_(ids)).group_by(Report.site_id))
     names = _names(db, user.company_id)
     return sorted(
-        ({"site_id": s.id, "site_name": s.name, "staff_id": s.assigned_staff_id, "staff_name": names.get(s.assigned_staff_id, ""),
+        ({"site_id": s.id, "site_name": site_label(s), "staff_id": s.assigned_staff_id, "staff_name": names.get(s.assigned_staff_id, ""),
           "remaining": s.total_guidance_count - (last.get(s.id) or 0)}
          for s in sites if s.id not in planned and s.total_guidance_count > (last.get(s.id) or 0)),
         key=lambda x: (x["staff_name"], x["site_name"]),

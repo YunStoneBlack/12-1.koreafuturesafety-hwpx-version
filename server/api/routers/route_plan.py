@@ -22,6 +22,7 @@ from core.models_db import Report, Site
 from core.models_web import SiteContact, User, VisitPlan
 from server.api.deps import get_current_user, get_db
 from server.api.geocode import RoadDistance, geocode, km, road_km, site_coords
+from server.api.site_label import site_label
 
 router = APIRouter(tags=["route"])
 
@@ -105,7 +106,7 @@ def route(body: RouteIn, user: User = Depends(get_current_user), db: Session = D
     dist.save()
 
     va = dict(db.query(SiteContact.site_id, SiteContact.visit_address).filter(SiteContact.site_id.in_(ids)))
-    site_out = lambda i: {"site_id": i, "name": sites_all[i].name, "address": (va.get(i) or sites_all[i].address or "").strip(),
+    site_out = lambda i: {"site_id": i, "name": site_label(sites_all[i]), "address": (va.get(i) or sites_all[i].address or "").strip(),
                           "lat": coords[i][0] if i in coords else None, "lng": coords[i][1] if i in coords else None}
     return {
         "date": body.date.isoformat(), "staff_id": body.staff_id, "home": home,

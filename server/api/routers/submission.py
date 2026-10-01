@@ -18,6 +18,7 @@ from core.models_web import ReportSubmitMark, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.submission import report_states
+from server.api.site_label import site_label
 
 router = APIRouter(tags=["submission"])
 
@@ -56,7 +57,7 @@ def overview(
     for r in in_month:
         site = sites.get(r.site_id)
         rows.append({
-            "id": r.id, "site_id": r.site_id, "site_name": site.name if site else "", "hq_company": site.hq_company if site else "",
+            "id": r.id, "site_id": r.site_id, "site_name": site_label(site) if site else "", "hq_company": site.hq_company if site else "",
             "visit_no": r.visit_no, "date": _effective_date(r).isoformat(), "has_guidance_date": r.guidance_date is not None,
             "staff_id": r.assigned_staff_id, "staff_name": staff_names.get(r.assigned_staff_id, ""),
             **states[r.id],

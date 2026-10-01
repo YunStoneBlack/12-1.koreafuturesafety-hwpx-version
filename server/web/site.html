@@ -222,8 +222,8 @@ document.getElementById("site-edit-form").addEventListener("submit", async (e) =
 });
 
 function applySite(site) {
-  document.getElementById("site-name").textContent = site.name;
-  document.getElementById("site-name-h1").textContent = site.name;
+  document.getElementById("site-name").textContent = siteLabel(site); // "26-12)_현장명"(app.js)
+  document.getElementById("site-name-h1").textContent = siteLabel(site);
   // 현장명 밑 [📞 전화] [📍 지도] — 지도는 지도 방문 주소(없으면 현장 주소)
   const top = document.getElementById("site-name-h1").parentElement;
   top.querySelectorAll(".site-links, .pace, .site-plan").forEach((el) => el.remove());
@@ -265,7 +265,7 @@ function sitePlanBox(site) {
   return box;
 }
 function openSitePlan(site) {
-  openAutoPlan({ siteId: site.id }, site.name, (res) => {
+  openAutoPlan({ siteId: site.id }, siteLabel(site), (res) => {
     const msg = document.querySelector(".site-plan-msg");
     if (msg) msg.innerHTML = `✓ 방문 예정 ${res.added}회를 넣었습니다 — <a href="calendar.html">방문 달력에서 보기</a>`;
   });
