@@ -82,10 +82,12 @@ def k2b_info(report_id: int, user: User = Depends(get_current_user), db: Session
             "guidance_date": sub.guidance_date, "staff_name": sub.staff_name, "progress_rate": sub.progress_rate,
             "site_manager": " ".join(x for x in (sub.site_manager_name, sub.site_manager_phone) if x),
             "notification_method": sub.notification_method,
-            # 창의 "이전 기술지도 이행여부" 기본값 — 보고서 값, 없으면 1회차만 해당없음(그 밖엔 사람이 고름)
-            "prev_guidance_default": ("이행" if sub.prev_guidance_implemented else "불이행") if sub.prev_guidance_implemented is not None
-            else ("해당없음" if sub.visit_no == 1 else ""),
+            # 창의 "이전 기술지도 이행여부" 기본값 — 4번 이전지적사항 결과로 미리 고름(""이면 사람이 고름) + 그 이유
+            "prev_guidance_default": sub.prev_guidance_auto,
+            "prev_guidance_reason": sub.prev_guidance_reason,
             "special_note": sub.special_note,
+            "counts": {"지도건수": sub.guidance_count, "교육인원": sub.education_count, "배포자료건수": sub.material_count},
+            "problems": len(sub.problem_texts),
             "photos": {"현장전경": len(sub.overview_photo_paths), "현장점검": len(sub.inspection_photo_paths), "현장개선": len(sub.improvement_photo_paths)},
             "pdf": Path(sub.report_pdf_path).name if sub.report_pdf_path else "",
         },

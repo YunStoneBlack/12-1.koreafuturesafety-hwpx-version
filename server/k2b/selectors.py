@@ -89,9 +89,10 @@ INSPECTOR_NAME_INPUT_ID = _modal("_edt_INSCTR_NM_input")  # CONFIRMED readonly -
 
 SITE_MANAGER_NAME_INPUT_ID = _modal("_edt_SPT_RSPNBER_NM_input")  # CONFIRMED, 편집 가능
 SPECIAL_NOTE_INPUT_ID = _modal("_edt_PARTCLR_MATTER_CN_input")  # CONFIRMED (특이사항)
-GUIDANCE_COUNT_INPUT_ID = _modal("_edt_CCH_NOCS_input")  # 지도건수, id만 확인(TODO: 편집 가능 여부 미검증)
-EDUCATION_COUNT_INPUT_ID = _modal("_edt_PREARNGE_NMPR_CNT_input")  # 교육인원, id만 확인
-DISTRIBUTED_MATERIAL_COUNT_INPUT_ID = _modal("_edt_WDTB_DATA_NOCS_input")  # 배포자료건수, id만 확인
+# 지도건수·교육인원·배포자료건수 — 새 차수에서 셋 다 빈 칸, 편집 가능(readOnly·disabled 아님) CONFIRMED 2026-10-02
+GUIDANCE_COUNT_INPUT_ID = _modal("_edt_CCH_NOCS_input")  # 지도건수
+EDUCATION_COUNT_INPUT_ID = _modal("_edt_PREARNGE_NMPR_CNT_input")  # 교육인원
+DISTRIBUTED_MATERIAL_COUNT_INPUT_ID = _modal("_edt_WDTB_DATA_NOCS_input")  # 배포자료건수
 
 # 현장책임자 연락처 - CONFIRMED. 겉보기엔 3칸(지역-국번-번호)처럼 보이지만 실제로는
 # **마스크 입력(msk_) 단일 필드 하나**다. 빈 값일 때 placeholder가 "___-____-____"로
@@ -271,3 +272,12 @@ DETAIL_SAVE_BUTTON = "[id$='tabpage1_btn_SaveTextBoxElement']"  # 상세내용 [
 POPUP_CONFIRM_BUTTONS = "[id*='_form_'][id$='btn_confirmTextBoxElement']"
 SAVE_ASK_TEXT = "저장하시겠습니까"
 SAVE_DONE_TEXT = "정상적으로 저장"
+
+# --- 문제점 및 개선 요청사항(2026-10-02 실측, 저장 없이) ---
+# [+ 추가]마다 맨 아래에 줄이 생긴다. 열: 0=번호 1=문제점 및 개선 요청사항 2=삭제. 1열 셀을 두 번 누르면 편집 textarea가 뜨고
+# 키보드 입력·Enter 줄바꿈이 그대로 들어감 — 다른 줄의 번호 칸을 누르면 값이 셀에 확정(CONFIRMED, "제목\r\n\r\n내용").
+PROBLEM_ADD_BUTTON = "[id$='tabpage1_btn_reqAddTextBoxElement']"
+
+
+def problem_cell(row: int, col: int) -> str:
+    return f"[id$='tabpage1_grd_DS_EBP0110_R03_body_gridrow_{row}_cell_{row}_{col}']"

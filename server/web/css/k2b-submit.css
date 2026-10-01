@@ -48,3 +48,4 @@ a.k2b-sent:hover { text-decoration: underline; }
   .main .report-row button.rp-k2b { padding: 7px 11px; font-size: 12.5px; }
 }
 .kb-box select.kb-need { border-color: var(--crit); box-shadow: 0 0 0 2px var(--crit-soft); }
+.kb-field .mail-note.kb-warn { color: var(--crit); font-weight: 600; } /* 4번 결과를 안 고른 줄이 있어 이행여부를 못 미리 고름 */

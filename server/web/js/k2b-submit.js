@@ -44,6 +44,7 @@ async function openK2bModal(reportId, titleText, onDone) {
       ? `${mailEsc(s.staff_name)} · ${mailEsc(acc.k2b_id)} ${acc.check_status === "ok" ? "✓ 로그인 확인" : acc.check_status === "fail" ? "✗ 로그인 실패" : "(확인 전)"}`
       : `${mailEsc(s.staff_name || "담당요원 없음")} · K2B 계정 없음`;
     const photos = Object.entries(s.photos).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(" · ") || "없음";
+    const counts = Object.entries(s.counts).map(([k, n]) => `${k} ${n ?? "비움"}`).join(" · ");
     box.innerHTML = `${head}
       ${info.blockers.length ? `<div class="mail-msg bad">${info.blockers.map(mailEsc).join("<br>")}</div>` : ""}
       ${lastDone ? `<div class="mail-msg warn">이미 ${mailEsc(lastDone.finished_at)}에 K2B ${lastDone.round_no ?? ""}차수로 제출했습니다. 다시 내면 K2B에 차수가 하나 더 생깁니다.
@@ -55,6 +56,8 @@ async function openK2bModal(reportId, titleText, onDone) {
         <div><span>점검자</span><div>${accText}</div></div>
         <div><span>공정률</span><div>${s.progress_rate ?? "없음"}% · 통보 ${mailEsc(s.notification_method || "없음")}</div></div>
         <div><span>현장책임자</span><div>${mailEsc(s.site_manager || "없음")}</div></div>
+        <div><span>건수</span><div>${mailEsc(counts)}</div></div>
+        <div><span>문제점·개선</span><div>${s.problems ? `8번 지적사항 ${s.problems}건 (제목 + 내용)` : "없음"}</div></div>
         <div><span>사진</span><div>${mailEsc(photos)}</div></div>
         <div><span>보고서</span><div>${mailEsc(s.pdf || "PDF 없음")}</div></div>
       </div>
@@ -64,6 +67,7 @@ async function openK2bModal(reportId, titleText, onDone) {
           <select class="kb-process"><option value="">고르세요</option>${info.choices.current_process.map((p) => `<option>${mailEsc(p)}</option>`).join("")}</select></label>
         <label class="kb-field"><span>이전 기술지도 이행여부 <em>필수</em></span>
           <select class="kb-prev"><option value="">고르세요</option><option>이행</option><option>불이행</option><option>해당없음</option></select>
+          <span class="mail-note ${s.prev_guidance_default ? "" : "kb-warn"}">${mailEsc(s.prev_guidance_reason)}</span>
           <span class="mail-note">해당없음은 K2B 1차수에서만 됩니다</span></label>
         <div class="kb-field"><span>비계 사용 <em>필수</em></span>
           <div class="kb-radios"><label><input type="radio" name="kb-scaffold" value="미사용" /> 미사용</label>

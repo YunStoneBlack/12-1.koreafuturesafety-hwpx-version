@@ -113,6 +113,44 @@ class FieldsMixin(K2BClientBase):
         self._scroll_into_view(checkbox)
         checkbox.click()
 
+    def fill_counts(self, guidance: int | None, education: int | None, materials: int | None) -> None:
+        """지도건수(8번 지적사항 개수)·교육인원(10번 TBM 인원)·배포자료건수(11번 제공자료 개수) — None이면 그 칸은 그대로 비워 둔다."""
+        for label, locator_str, value in (("지도건수", sel.GUIDANCE_COUNT_INPUT_ID, guidance),
+                                          ("교육인원", sel.EDUCATION_COUNT_INPUT_ID, education),
+                                          ("배포자료건수", sel.DISTRIBUTED_MATERIAL_COUNT_INPUT_ID, materials)):
+            if value is not None:
+                self.log(f"{label} {value} 입력 중...")
+                self._type_into(locator_str, str(value))
+
+    def add_problem_requests(self, texts: list[str]) -> None:
+        """문제점 및 개선 요청사항 — 한 건마다 [+ 추가] → 새 줄 칸을 두 번 눌러 편집 → 줄마다 입력 + Enter(줄바꿈 그대로).
+        새 차수는 줄이 없어서 n번째 추가 = n-1번 줄. 마지막에 첫 줄 번호 칸을 눌러 편집 중인 값을 확정한다."""
+        page = self.page
+        add = page.locator(sel.PROBLEM_ADD_BUTTON)
+        for row, text in enumerate(texts):
+            self.log(f"문제점 및 개선 요청사항 {row + 1}번째 입력 중...")
+            self._scroll_into_view(add)
+            add.click()
+            page.wait_for_timeout(500)
+            if row:
+                page.locator(sel.problem_cell(row - 1, 0)).click(force=True)  # 앞 줄 편집 확정
+                page.wait_for_timeout(300)
+            cell = page.locator(sel.problem_cell(row, 1))
+            self._scroll_into_view(cell)
+            cell.click(force=True)
+            page.wait_for_timeout(300)
+            cell.click(force=True)
+            page.wait_for_timeout(300)
+            for i, line in enumerate(text.splitlines()):
+                if i:
+                    page.keyboard.press("Enter")
+                if line:
+                    page.keyboard.insert_text(line)
+            page.wait_for_timeout(200)
+        if texts:
+            page.locator(sel.problem_cell(0, 0)).click(force=True)
+            page.wait_for_timeout(300)
+
     def check_prev_guidance_implemented(self, status: str) -> None:
         """status: '이행' | '불이행' | '해당없음' (세 옵션 모두 실제 클릭으로 CONFIRMED)"""
         checkbox_id = sel.PREV_GUIDANCE_IMPLEMENTED_CHECKBOX_IDS.get(status)

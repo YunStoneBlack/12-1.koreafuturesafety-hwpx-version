@@ -82,7 +82,7 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
         round_text = page.locator(sel.ROUND_NO_INPUT).input_value().strip()
         round_no = int(round_text) if round_text.isdigit() else None
         log(f"K2B 새 차수 번호: {round_text}")
-        prev_choice = sub.manual.prev_guidance or ("해당없음" if sub.prev_guidance_implemented is None else "")
+        prev_choice = sub.manual.prev_guidance or sub.prev_guidance_auto
         if round_no and round_no > 1 and prev_choice == "해당없음":  # K2B는 해당없음을 1차수에서만 받음(실측) — 저장 누르기 전에 멈춤
             shot = snap(page, "해당없음불가")
             return RunResult(False, False, f"K2B {round_text}차수에서는 이전 기술지도 이행여부를 '해당없음'으로 낼 수 없습니다 — "
@@ -110,9 +110,10 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
             c.check_notification_method(sub.notification_method)
         if m.scaffold_usage:
             c.set_scaffold_usage(m.scaffold_usage == "사용", m.scaffold_types)
-        # K2B 필수 — 창에서 고른 값(manual.prev_guidance), 없으면 보고서 값, 그것도 없으면 "해당없음"(1차수에서만 K2B가 받음)
-        c.check_prev_guidance_implemented(m.prev_guidance or ("해당없음" if sub.prev_guidance_implemented is None
-                                          else "이행" if sub.prev_guidance_implemented else "불이행"))
+        # K2B 필수 — 창에서 고른 값(manual.prev_guidance), 없으면 4번 결과로 미리 고른 값(submission.prev_guidance_auto)
+        if prev_choice:
+            c.check_prev_guidance_implemented(prev_choice)
+        c.fill_counts(sub.guidance_count, sub.education_count, sub.material_count)
         if m.bad_site_notify:
             c.notify_bad_site(m.bad_site_content, m.bad_site_files)
         for hz in m.major_hazard_works:
@@ -128,6 +129,7 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
             c.attach_photos("현장개선", sub.improvement_photo_paths)
         if sub.report_pdf_path:
             c.attach_report_file(sub.report_pdf_path)
+        c.add_problem_requests(sub.problem_texts)
         if not m.major_hazard_works:
             log("대형사고 위험작업 '해당없음' 체크")
             none_box = page.locator(sel.MAJOR_HAZARD_NONE_CHECKBOX)
