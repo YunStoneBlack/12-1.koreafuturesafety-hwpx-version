@@ -68,11 +68,8 @@ def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.dat
     kept = [p for p in future if not redo(p)]
 
     region = {sid: region_of(addr) for sid, addr in map_addresses(db, sites).items()}
-    stats = {
-        sid: (no or 0, last)
-        for sid, no, last in db.query(Report.site_id, func.max(Report.visit_no), func.max(Report.guidance_date))
-        .filter(Report.site_id.in_(list(target_ids))).group_by(Report.site_id)
-    } if target_ids else {}
+    last_dates = dict(db.query(Report.site_id, func.max(Report.guidance_date))
+                      .filter(Report.site_id.in_(list(target_ids))).group_by(Report.site_id)) if target_ids else {}  # 최근 지도일(배치 기준일)
 
     dist = RoadDistance(db, site_coords(db, sites))  # 현장 사이 도로 거리(카카오, 처음 묻는 쌍만 길찾기) — 거리 기준 묶기
     # 요원·날짜별로 이미 가는 현장(남기는 예정 + 앞날짜로 만든 보고서) — 묶기 기준점
@@ -92,7 +89,7 @@ def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.dat
             fixed[p.site_id].append(p.plan_date)
     ins = [SiteIn(
         id=s.id, name=s.name, staff_id=s.assigned_staff_id, region=region[s.id], period_start=s.period_start, period_end=s.period_end,
-        total=s.total_guidance_count, performed=done[s.id], last_date=stats.get(s.id, (0, None))[1], fixed=fixed[s.id],
+        total=s.total_guidance_count, performed=done[s.id], last_date=last_dates.get(s.id), fixed=fixed[s.id],
     ) for s in targets]
     finish = config.get_plan_finish_before_days(company_id)
     placed, results = plan_sites(ins, today, busy, finish, MAX_SITES_PER_STAFF_PER_DAY, site_regions=region, dist=dist,
