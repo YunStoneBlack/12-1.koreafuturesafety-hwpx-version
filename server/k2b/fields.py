@@ -16,14 +16,7 @@ class FieldsMixin(K2BClientBase):
     def set_guidance_date(self, target: datetime.date) -> None:
         """기술지도일을 캘린더 팝업에서 원하는 날짜(다른 달 포함)로 선택한다(CONFIRMED,
         같은 달/다른 달 이동 모두 실화면에서 검증)."""
-        self.log(f"기술지도일을 {target.isoformat()}로 변경 중...")
-        self.page.locator(sel.GUIDANCE_DATE_CALENDAR_BUTTON_ID).click()
-        self._pick_date_in_open_calendar(
-            target,
-            sel.GUIDANCE_DATE_CALENDAR_YEAR_ID, sel.GUIDANCE_DATE_CALENDAR_MONTH_ID,
-            sel.GUIDANCE_DATE_CALENDAR_PREV_BUTTON_ID, sel.GUIDANCE_DATE_CALENDAR_NEXT_BUTTON_ID,
-            sel.GUIDANCE_DATE_CALENDAR_DAY_CELLS,
-        )
+        self._set_calendar(sel.GUIDANCE_DATE_CALENDAR, "기술지도일", target)
 
     def fill_progress_rate(self, percent: int) -> None:
         self.log(f"공정률 {percent}% 입력 중...")

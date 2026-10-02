@@ -65,18 +65,15 @@ ADD_ROUND_BUTTON_TEXT = "추가"
 # 이동해 날짜 선택 검증함).
 # 팝업 내부 요소도 위 _modal()과 같은 이유로 접미사 매칭을 쓴다(팝업 id 자체가
 # `..._cal_TCHGUD_YMD_popupcalendar_...` 형태로 모달 접두사에 종속됨).
-GUIDANCE_DATE_CALENDAR_BUTTON_ID = _modal("_cal_TCHGUD_YMD_dropbuttonAlignImageElement")
-GUIDANCE_DATE_CALENDAR_YEAR_ID = _modal("_cal_TCHGUD_YMD_popupcalendar_header_yearStatic")  # 텍스트 "YYYY."
-GUIDANCE_DATE_CALENDAR_MONTH_ID = _modal("_cal_TCHGUD_YMD_popupcalendar_header_monthStatic")  # 텍스트 "MM"
-GUIDANCE_DATE_CALENDAR_PREV_BUTTON_ID = _modal("_cal_TCHGUD_YMD_popupcalendar_header_prevbutton")
-GUIDANCE_DATE_CALENDAR_NEXT_BUTTON_ID = _modal("_cal_TCHGUD_YMD_popupcalendar_header_nextbutton")
+# 셀렉터(단추·연/월 헤더 "YYYY."/"MM"·이전/다음·날짜 칸)는 아래 calendar_ids(GUIDANCE_DATE_CALENDAR)가 만든다 — 경영책임자·발주자
+# 통보일 달력도 같은 규칙(2026-10-02 리팩토링: 따로 적어 두던 GUIDANCE_DATE_CALENDAR_* 상수를 합침).
+GUIDANCE_DATE_CALENDAR = "TCHGUD_YMD"
 # 주의(CONFIRMED, DOM 전체 스캔으로 확인): 날짜 셀은 Nexacro 특성상 42칸(6주 x 7일) 전부
 # **동일한 id**를 공유한다(중복 id, 개별 구분 불가) -- 그래서 텍스트로 찾으면 이전달/다음달
 # 잔여일과 겹쳐 모호하다(예: 이번 달 마지막 날이 30/31이면 그리드 맨 앞의 "지난달 30/31"과
 # 텍스트가 같아 `.first`가 엉뚱한 셀을 고를 수 있음). 대신 attribute selector로 전체 42칸을
 # 가져와서, 목표 월 1일의 요일로 계산한 그리드 인덱스를 `.nth()`로 지정해 정확히 찾는다
-# (K2BClient.set_guidance_date 참고).
-GUIDANCE_DATE_CALENDAR_DAY_CELLS = _modal("_cal_TCHGUD_YMD_popupcalendar_body_daystatic")
+# (K2BClientBase._pick_date_in_open_calendar 참고).
 
 PROGRESS_RATE_INPUT_ID = _modal("_edt_PROCS_RAT_CVALUE_input")  # CONFIRMED, .fill("70") 동작
 
@@ -280,7 +277,7 @@ PROBLEM_ADD_BUTTON = "[id$='tabpage1_btn_reqAddTextBoxElement']"
 
 # --- 경영책임자(건설업체 본사) 통보일·건설공사 발주자 통보일(2026-10-02 실측, 저장 없이) ---
 # 경영책임자: 분기 체크 chk20_1~4(통보방법 chk01_*과 같은 모양) + 달력 cal_MNGER_DSPTH_DY. 발주자: 달력 cal_CNTWRK_ORDER_MAN_DSPTH_DY만.
-# 두 달력은 기술지도일 달력(cal_TCHGUD_YMD)과 같은 구조 — calendar_ids(이름)로 셀렉터를 만든다.
+# 두 달력은 기술지도일 달력(cal_TCHGUD_YMD)과 같은 구조 — calendar_ids(이름)로 셀렉터를 만든다(셋 다 이걸 씀).
 # 발주자 통보일 달력은 이전 기술지도 이행여부가 '불이행'일 때만 켜짐(이행·처음엔 disabled, CONFIRMED).
 CEO_NOTICE_QUARTER_CHECKBOX_IDS = {q: _modal(f"_chk20_{q}_chkimg") + " > div" for q in (1, 2, 3, 4)}
 CEO_NOTICE_CALENDAR = "MNGER_DSPTH_DY"
@@ -288,7 +285,7 @@ OWNER_NOTICE_CALENDAR = "CNTWRK_ORDER_MAN_DSPTH_DY"
 
 
 def calendar_ids(name: str) -> dict[str, str]:
-    """상세 모달 달력(cal_{name})의 단추·팝업 셀렉터 — 기술지도일 달력 GUIDANCE_DATE_CALENDAR_*와 같은 규칙."""
+    """상세 모달 달력(cal_{name})의 단추·팝업 셀렉터 — 기술지도일·경영책임자·발주자 통보일 달력 공통(CONFIRMED)."""
     p = f"_cal_{name}"
     return {
         "button": _modal(f"{p}_dropbuttonAlignImageElement"),

@@ -336,11 +336,12 @@ async function loadReports() {
       row.addEventListener("click", openReport);
       row.addEventListener("auxclick", (e) => { if (e.button === 1) openReport(e); });
       const isFinal = report.status === "final";
+      const hasStatus = !!(report.last_mail_at || report.k2b); // 전송·K2B 표시 둘째 줄(rp-status)이 있는지
       row.innerHTML =
         `<span class="title"><a href="report.html?id=${report.id}">${report.visit_no}회차</a>` +
         `<span class="meta" style="margin-left:10px;">${report.guidance_date || "지도일 미입력"} · 공정률 ${report.progress_rate ?? 0}%</span>` +
         // 전송·K2B 표시는 제목 아래 둘째 줄(rp-status) — 제목 줄에 붙이면 그룹웨어 .row .title의 "…" 자르기에 같이 잘렸음(10/2 사용자)
-        ((report.last_mail_at || report.k2b) ? `<span class="rp-status">` : "") +
+        (hasStatus ? `<span class="rp-status">` : "") +
         // 고객사에 메일로 보낸 적이 있으면 마지막 전송(누르면 전송 창에서 전체 기록)
         // 여러 곳에 보냈으면 "(3곳)" — 누구에게 보냈는지는 마우스를 올리면(title) 보임
         (report.last_mail_at ? (() => {
@@ -354,7 +355,7 @@ async function loadReports() {
           if (k.status === "failed") return `<span class="k2b-sent bad" title="${`${k.message}\n→ ${k.hint}`.replace(/"/g, "&quot;")}">✗ K2B 실패 ${k.at}</span>`;
           return `<span class="k2b-sent wait">K2B 제출 중…</span>`;
         })() : "") +
-        ((report.last_mail_at || report.k2b) ? `</span>` : "") +
+        (hasStatus ? `</span>` : "") +
         `</span>` +
         // PDF를 만든 보고서만 [K2B 제출](고객사 전송 왼쪽, 2026-10-01 사용자)과 "고객사 전송"(수정 전 버전이면 창에서 막음)
         (isFinal ? `<button type="button" class="secondary rp-k2b" title="K2B에 새 차수로 입력·저장">📤 K2B<span class="rp-k2b-long"> 제출</span></button>` : "") +
