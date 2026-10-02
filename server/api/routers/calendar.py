@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from core import config
 from core.models_db import Report, Site, Staff
 from core.models_web import User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
@@ -125,6 +126,8 @@ def calendar(
         "report_limit": MAX_SITES_PER_STAFF_PER_DAY,  # 보고서 담당 한 사람 하루
         "day_cap": day_cap(db, cid),  # 회사 하루 출장(요원 수 × 4)
         "day_total": {d: len(x) for d, x in total.items()},
+        "max_travelers": config.get_plan_max_travelers(cid),  # 하루 출장 인원(회사 전체, 비상 인력 — 2026-10-02)
+        "day_travelers": {d: len({sid for (sid, dd) in load if dd == d}) for d in total},
         "staff": [{"id": s.id, "name": s.name, "active": s.active} for s in staff],
         "staff_order": staff_order(db, cid),
         "me_staff_id": my_staff_id(db, user),

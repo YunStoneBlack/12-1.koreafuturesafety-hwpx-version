@@ -18,7 +18,7 @@ function dsOverlay(title) {
 }
 
 // items: [{ planId, siteName, reportName }] — 그날 그 사람의 예정(보고서를 만든 다녀온 방문은 빼고)
-function openMoveTraveler(date, fromId, fromName, items, staff, onDone) {
+function openMoveTraveler(date, fromId, fromName, items, staff, onDone, okToMove) {
   const { body, close } = dsOverlay(`출장 담당자 변경 — ${apDay(date)} ${fromName || "담당 없음"}`);
   const others = staff.filter((s) => s.active && s.id !== fromId);
   body.innerHTML = `
@@ -35,6 +35,7 @@ function openMoveTraveler(date, fromId, fromName, items, staff, onDone) {
     const to = Number(body.querySelector(".ds-to").value);
     const msg = body.querySelector(".ds-msg");
     if (!ids.length || !to) { msg.hidden = false; msg.textContent = "넘길 현장과 사람을 고르세요."; return; }
+    if (okToMove && !okToMove(to)) return; // 하루 출장 인원 경고(달력 쪽에서 묻고, 아니요면 그대로)
     ev.target.disabled = true;
     try {
       await apiPost(`/calendar/day/${date}/move`, { from_staff_id: fromId, to_staff_id: to, plan_ids: ids });

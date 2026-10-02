@@ -156,6 +156,14 @@ function decorateCells() {
       lab.textContent = holiday.name;
       top.appendChild(lab);
     }
+    const crew = data?.day_travelers?.[date] || 0; // 하루 출장 인원(회사 전체, 기본 2명 — 비상 인력)을 넘으면 빨간 딱지
+    if (data && crew > data.max_travelers && date >= data.today) { // 지난 날은 고칠 수 없으니 오늘부터만
+      const cap = document.createElement("span");
+      cap.className = "cal-cap over";
+      cap.textContent = `출장 ${crew}명`;
+      cap.title = `그날 출장 나가는 사람 ${crew}명 — 하루 ${data.max_travelers}명까지(비상 인력, 설정 탭)`;
+      top.appendChild(cap);
+    }
     const total = data?.day_total?.[date] || 0;
     if (data && total >= data.day_cap) {
       const cap = document.createElement("span");
@@ -214,7 +222,7 @@ const cal = new FullCalendar.Calendar(document.getElementById("cal"), {
   eventDrop: async (info) => {
     const p = data.plans.find((x) => x.id === info.event.extendedProps.planId);
     const date = ymd(info.event.start);
-    if (!p || !confirmLoad(date, p.site_id, `${shortSite(p.site_name)} 예정을 ${date}로 옮길까요?`)) {
+    if (!p || !confirmLoad(date, p.site_id, `${shortSite(p.site_name)} 예정을 ${date}로 옮길까요?`, p.staff_id, p.id)) {
       info.revert();
       return;
     }
@@ -256,10 +264,24 @@ function siteCountOn(date, exceptSiteId) {
   sites.delete(exceptSiteId);
   return sites.size;
 }
-function confirmLoad(date, siteId, question) {
+// 그날 출장 나가는 사람들(이 예정 제외) — 새 사람이 나가면 하루 출장 인원(기본 2명)을 넘는지
+function crewOn(date, exceptPlanId) {
+  const people = new Set();
+  for (const v of data.visits) if (v.date === date && v.staff_id) people.add(v.staff_id);
+  for (const p of data.plans) if (p.date === date && p.state !== "done" && p.staff_id && p.id !== exceptPlanId) people.add(p.staff_id);
+  return people;
+}
+// 넣거나 옮기기 전 경고(막지 않음 — 급한 사정이 있을 수 있음, 2026-10-02 사용자): 회사 하루 곳 수·하루 출장 인원
+function confirmLoad(date, siteId, question, staffId = null, planId = null) {
+  const warns = [];
   const n = siteCountOn(date, siteId);
-  if (n < data.day_cap) return question ? confirm(question) : true;
-  return confirm(`${date}에는 회사 전체가 이미 ${n}곳을 갑니다(하루 ${data.day_cap}곳 — 요원 수 × 4). 그래도 ${question ? question.replace(/\?$/, "") : "넣을까요"}?`);
+  if (n >= data.day_cap) warns.push(`회사 전체가 이미 ${n}곳을 갑니다(하루 ${data.day_cap}곳 — 요원 수 × 4)`);
+  const crew = crewOn(date, planId);
+  if (staffId && !crew.has(staffId) && crew.size >= data.max_travelers) {
+    warns.push(`이미 ${crew.size}명이 출장 갑니다(하루 ${data.max_travelers}명 — 비상 인력)`);
+  }
+  if (!warns.length) return question ? confirm(question) : true;
+  return confirm(`${date}에는 ${warns.join(", ")}. 그래도 ${question ? question.replace(/\?$/, "") : "넣을까요"}?`);
 }
 
 // ---------- 고른 날 목록 ----------
@@ -336,7 +358,9 @@ function renderDay() {
       const fromId = typeof g.key === "number" ? g.key : null;
       mv.addEventListener("click", () => openMoveTraveler(selected, fromId, fromId ? staffMap[fromId]?.name : "",
         movable.map((p) => ({ planId: p.id, siteName: p.site_name, reportName: staffMap[p.report_staff_id]?.name,
-          address: data.site_links?.[p.site_id]?.map_address || "" })), data.staff, reload));
+          address: data.site_links?.[p.site_id]?.map_address || "" })), data.staff, reload,
+        (to) => { const crew = crewOn(selected, null); crew.delete(fromId); return crew.has(to) || crew.size + 1 <= data.max_travelers
+          || confirm(`${selected}에 이미 ${crew.size + 1}명이 출장 갑니다(하루 ${data.max_travelers}명 — 비상 인력). 그래도 넘길까요?`); }));
       box.querySelector(".cal-group-head").appendChild(mv);
     }
     if (typeof g.key === "number") { // [🚗 동선 짜기] — 회사 → 이 요원의 그날 현장들(최적 순서) → 회사(js/route-plan.js)
@@ -483,7 +507,7 @@ function planFields(p) {
     const reportId = Number(reportSel.value) || null;
     if (p ? reportId !== (p.report_staff_id ?? null) : reportId) body.report_staff_id = reportId;
     if (!body.site_id || !body.plan_date) { alert("현장과 날짜를 고르세요."); return; }
-    if (!confirmLoad(body.plan_date, body.site_id, null)) return;
+    if (!confirmLoad(body.plan_date, body.site_id, null, body.staff_id, p?.id ?? null)) return;
     e.target.disabled = true;
     try {
       if (p) await apiPatch(`/calendar/plans/${p.id}`, body); else await apiPost("/calendar/plans", body);

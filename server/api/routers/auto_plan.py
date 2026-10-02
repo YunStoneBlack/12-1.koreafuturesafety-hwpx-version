@@ -6,7 +6,8 @@
   (보고서 담당자도 규칙대로 — report_staff.assign_new_plans).
   사람이 넣거나 옮긴 예정(manual, 📌)은 안 건드리고 기준점으로 쓴다. 현장 하나만 할 땐 다른 현장 예정은 그대로(새 현장을 기존 일정에 끼워 넣기).
 - `GET /calendar/unplanned` — "📅 일정 없는 현장"(진행 중·남은 회차 있음·공사 기간 안 끝남인데 내일 이후 예정이 하나도 없음) — 현장 목록·달력 위 안내.
-- `GET/POST /settings/auto-plan` — 마감(준공 며칠 전까지 마칠지, 기본 14일) + 도로 거리 기준(같은 시·군 30km·다른 시·군 12km, server/api/geocode.py).
+- `GET/POST /settings/auto-plan` — 마감(준공 며칠 전까지 마칠지, 기본 14일) + 도로 거리 기준(같은 시·군 30km·한 사람 하루 현장끼리 70km,
+  server/api/geocode.py) + 하루 출장 인원(회사 전체, 기본 2명 — 비상 인력, 2026-10-02).
 """
 
 from __future__ import annotations
@@ -44,7 +45,8 @@ class AutoPlanSettings(BaseModel):
     finish_before_days: int = config.DEFAULT_PLAN_FINISH_BEFORE_DAYS
     far_km: float = config.DEFAULT_PLAN_FAR_KM  # 같은 시·군이라도 이보다 멀면 안 묶음
     home_address: str = config.DEFAULT_ROUTE_HOME_ADDRESS  # 동선 짜기 출발·복귀지 기본값(회사)
-    near_km: float = config.DEFAULT_PLAN_NEAR_KM  # 다른 시·군이라도 이보다 가까우면 자리 없을 때 묶음
+    trip_km: float = config.DEFAULT_PLAN_TRIP_KM  # 한 사람의 그날 현장끼리 이 안이면 시·군이 달라도 묶음(넘으면 다른 날)
+    max_travelers: int = config.DEFAULT_PLAN_MAX_TRAVELERS  # 하루 출장 인원(회사 전체)
 
 
 _active = is_active  # 진행중 현장만 배치(server/api/site_status.py)
@@ -105,8 +107,9 @@ def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.dat
     ) for s in targets]
     finish = config.get_plan_finish_before_days(company_id)
     placed, results = plan_sites(ins, today, busy, finish, day_cap(db, company_id), site_regions=region, dist=dist,
-                                 far_km=config.get_plan_far_km(company_id), near_km=config.get_plan_near_km(company_id),
-                                 staff_order=staff_order(db, company_id), day_sites=day_sites)
+                                 far_km=config.get_plan_far_km(company_id), trip_km=config.get_plan_trip_km(company_id),
+                                 staff_order=staff_order(db, company_id), day_sites=day_sites,
+                                 max_travelers=config.get_plan_max_travelers(company_id))
     dist.save()
     return sites, region, dist, replaced, kept, placed, results, finish
 
@@ -187,18 +190,22 @@ def unplanned(user: User = Depends(get_current_user), db: Session = Depends(get_
 def get_settings(user: User = Depends(get_current_user)):
     cid = user.company_id
     return AutoPlanSettings(finish_before_days=config.get_plan_finish_before_days(cid), far_km=config.get_plan_far_km(cid),
-                            near_km=config.get_plan_near_km(cid), home_address=config.get_route_home_address(cid))
+                            trip_km=config.get_plan_trip_km(cid), max_travelers=config.get_plan_max_travelers(cid),
+                            home_address=config.get_route_home_address(cid))
 
 
 @router.post("/settings/auto-plan", response_model=AutoPlanSettings)
 def set_settings(body: AutoPlanSettings, user: User = Depends(get_current_user)):
     if not 0 <= body.finish_before_days <= 180:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "0~180일 사이로 정하세요.")
-    if not (0 < body.near_km <= 100 and 0 < body.far_km <= 200):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "거리 기준을 확인하세요(다른 시·군 0~100km, 같은 시·군 0~200km).")
+    if not (0 < body.far_km <= 200 and 0 < body.trip_km <= 300):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "거리 기준을 확인하세요(같은 시·군 0~200km, 한 사람 하루 현장끼리 0~300km).")
+    if not 1 <= body.max_travelers <= 50:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "하루 출장 인원은 1명 이상으로 정하세요.")
     config.set_plan_finish_before_days(body.finish_before_days, user.company_id)
     config.set_plan_far_km(body.far_km, user.company_id)
-    config.set_plan_near_km(body.near_km, user.company_id)
+    config.set_plan_trip_km(body.trip_km, user.company_id)
+    config.set_plan_max_travelers(body.max_travelers, user.company_id)
     if body.home_address.strip():
         config.set_route_home_address(body.home_address, user.company_id)
     return get_settings(user)

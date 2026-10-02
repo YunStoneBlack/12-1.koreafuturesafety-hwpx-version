@@ -137,8 +137,12 @@ async function openPlanChange(planId, onDone) {
         b.innerHTML = "<b></b><span></span>";
         b.querySelector("b").textContent = s.name;
         b.querySelector("span").textContent = note;
+        // 그날 안 나가던 사람을 세우면 하루 출장 인원(기본 2명 — 비상 인력)을 넘는지 함께 알림(막지는 않음). r.crew = 이 예정 말고 그날 나가는 사람
+        const crewAfter = new Set([...r.crew, s.staff_id]);
+        const over = !r.crew.includes(s.staff_id) && crewAfter.size > r.max_travelers
+          ? `\n⚠ 그날 출장자가 ${crewAfter.size}명이 됩니다(하루 ${r.max_travelers}명 — 비상 인력).` : "";
         b.addEventListener("click", () => save({ staff_id: s.staff_id, plan_date: date },
-          `${apShort(plan.site_name)} ${apDay(date)} 방문을 ${s.name}님이 가는 것으로 바꿀까요?\n(📌 고정 — 이 회차만, 현장 담당요원은 그대로)`));
+          `${apShort(plan.site_name)} ${apDay(date)} 방문을 ${s.name}님이 가는 것으로 바꿀까요?\n(📌 고정 — 이 회차만, 현장 담당요원은 그대로)${over}`));
         subsBody.appendChild(b);
       }
       if (!r.staff.length) subsBody.insertAdjacentHTML("beforeend", '<div class="pc-none">다른 요원이 없습니다.</div>');

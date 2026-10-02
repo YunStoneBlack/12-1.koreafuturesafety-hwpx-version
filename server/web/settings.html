@@ -55,11 +55,14 @@
   <div class="panel-body">
   <p class="page-sub" style="margin:0 0 10px;">자동 배치는 남은 지도 회차를 공사 기간에 고르게 나눠 방문 예정으로 넣습니다(주말·공휴일·징검다리 휴일 빼고,
     가까운 현장은 같은 날로). 마지막 지도는 <b>준공일 며칠 전</b>까지 마칠지 정하세요 — 현장 사정에 따라 언제든 바꿔도 됩니다.<br />
-    현장끼리 거리는 카카오 내비 기준 <b>자동차 도로 거리</b>입니다(시간은 교통에 따라 달라 쓰지 않음). 같은 시·군이라도 멀면 다른 날로, 다른 시·군이라도 아주 가까우면 자리가 없을 때만 같은 날로 넣습니다.</p>
+    현장끼리 거리는 카카오 내비 기준 <b>자동차 도로 거리</b>입니다(시간은 교통에 따라 달라 쓰지 않음). 같은 시·군 가까운 현장끼리 먼저 묶고,
+    시·군이 달라도 한 사람의 그날 현장끼리 거리 안이면 같은 날로(인천·파주는 묶고 인천·속초는 다른 날로). 하루에 출장 나가는 사람은 회사 전체
+    <b>하루 출장 인원</b>까지입니다(비상 인력 — 넘으면 다른 날로).</p>
   <div class="field-grid">
     <div><label for="ap-days">마지막 지도 마감 (준공일 며칠 전)</label><input id="ap-days" type="number" min="0" max="180" /></div>
-    <div><label for="ap-far">같은 시·군 — 도로 거리가 이보다 멀면 다른 날 (km)</label><input id="ap-far" type="number" min="1" max="200" step="1" /></div>
-    <div><label for="ap-near">다른 시·군 — 도로 거리가 이 안이면 자리 없을 때 같은 날 (km)</label><input id="ap-near" type="number" min="1" max="100" step="1" /></div>
+    <div><label for="ap-far">같은 시·군 — 이 안이면 먼저 같은 날로 묶음 (km)</label><input id="ap-far" type="number" min="1" max="200" step="1" /></div>
+    <div><label for="ap-trip">한 사람의 그날 현장끼리 — 이보다 멀면 다른 날 (km)</label><input id="ap-trip" type="number" min="1" max="300" step="1" /></div>
+    <div><label for="ap-crew">하루 출장 인원 (회사 전체, 명)</label><input id="ap-crew" type="number" min="1" max="50" step="1" /></div>
     <div style="grid-column: 1 / -1;"><label for="ap-home">회사 주소 <span style="font-weight:400;color:var(--muted);">(방문 달력 [🚗 동선 짜기]의 출발·복귀지 기본값)</span></label><input id="ap-home" type="text" /></div>
   </div>
   <button type="button" id="ap-save">저장</button>
@@ -194,7 +197,8 @@ api("/settings/signatures").then((st) => {
 const fillAutoPlan = (d) => {
   document.getElementById("ap-days").value = d.finish_before_days;
   document.getElementById("ap-far").value = d.far_km;
-  document.getElementById("ap-near").value = d.near_km;
+  document.getElementById("ap-trip").value = d.trip_km;
+  document.getElementById("ap-crew").value = d.max_travelers;
   document.getElementById("ap-home").value = d.home_address;
 };
 api("/settings/auto-plan").then(fillAutoPlan).catch((err) => showError(errorEl, err));
@@ -205,12 +209,14 @@ document.getElementById("ap-save").addEventListener("click", async () => {
     const d = await apiPost("/settings/auto-plan", {
       finish_before_days: Number(document.getElementById("ap-days").value || 0),
       far_km: Number(document.getElementById("ap-far").value || 0),
-      near_km: Number(document.getElementById("ap-near").value || 0),
+      trip_km: Number(document.getElementById("ap-trip").value || 0),
+      max_travelers: Number(document.getElementById("ap-crew").value || 0),
       home_address: document.getElementById("ap-home").value,
     });
     fillAutoPlan(d);
     st.className = "status ok";
-    st.textContent = `저장했습니다 — 준공 ${d.finish_before_days}일 전까지, 같은 시·군 ${d.far_km}km·다른 시·군 ${d.near_km}km 기준(다음 자동 배치부터).`;
+    st.textContent = `저장했습니다 — 준공 ${d.finish_before_days}일 전까지, 같은 시·군 ${d.far_km}km·한 사람 하루 현장끼리 ${d.trip_km}km·`
+      + `하루 출장 ${d.max_travelers}명 기준(다음 자동 배치부터).`;
   } catch (err) {
     st.className = "status bad";
     st.textContent = err.message;

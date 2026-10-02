@@ -139,11 +139,15 @@ def set_plan_finish_before_days(days: int, company_id: int | None = None) -> Non
     _set_setting(_KEY_PLAN_FINISH_BEFORE_DAYS, str(int(days)), company_id)
 
 
-# 거리 기준 묶기(현장 사이 도로 거리 — server/api/geocode.py): 같은 시·군이라도 far_km보다 멀면 안 묶고, 다른 시·군이라도 near_km 안이면 자리 없을 때 묶는다
+# 거리 기준 묶기(현장 사이 도로 거리 — server/api/geocode.py): 같은 시·군 far_km 안 = 같이 가기 좋음(먼저 묶음),
+# 한 사람의 그날 현장끼리는 서로 trip_km 안이면 시·군이 달라도 묶음(자리 없을 때), 넘으면 다른 날로(2026-10-02 사용자: 인천·파주 OK,
+# 인천·속초 안 됨 — 예전 "한 사람 하루 한 시·군"·"다른 시·군 12km"를 바꿈). 하루 출장 인원(회사 전체, 비상 인력 남기기) — 기본 2명.
 _KEY_PLAN_FAR_KM = "plan_far_km"
-_KEY_PLAN_NEAR_KM = "plan_near_km"
+_KEY_PLAN_TRIP_KM = "plan_trip_km"
+_KEY_PLAN_MAX_TRAVELERS = "plan_max_travelers"
 DEFAULT_PLAN_FAR_KM = 30.0  # 도로 거리(카카오 길찾기) 기준
-DEFAULT_PLAN_NEAR_KM = 12.0
+DEFAULT_PLAN_TRIP_KM = 70.0
+DEFAULT_PLAN_MAX_TRAVELERS = 2
 
 
 def _get_float(key: str, default: float, company_id: int | None) -> float:
@@ -161,12 +165,23 @@ def set_plan_far_km(value: float, company_id: int | None = None) -> None:
     _set_setting(_KEY_PLAN_FAR_KM, str(float(value)), company_id)
 
 
-def get_plan_near_km(company_id: int | None = None) -> float:
-    return _get_float(_KEY_PLAN_NEAR_KM, DEFAULT_PLAN_NEAR_KM, company_id)
+def get_plan_trip_km(company_id: int | None = None) -> float:
+    return _get_float(_KEY_PLAN_TRIP_KM, DEFAULT_PLAN_TRIP_KM, company_id)
 
 
-def set_plan_near_km(value: float, company_id: int | None = None) -> None:
-    _set_setting(_KEY_PLAN_NEAR_KM, str(float(value)), company_id)
+def set_plan_trip_km(value: float, company_id: int | None = None) -> None:
+    _set_setting(_KEY_PLAN_TRIP_KM, str(float(value)), company_id)
+
+
+def get_plan_max_travelers(company_id: int | None = None) -> int:
+    try:
+        return max(1, int(_get_setting(_KEY_PLAN_MAX_TRAVELERS, company_id) or DEFAULT_PLAN_MAX_TRAVELERS))
+    except ValueError:
+        return DEFAULT_PLAN_MAX_TRAVELERS
+
+
+def set_plan_max_travelers(value: int, company_id: int | None = None) -> None:
+    _set_setting(_KEY_PLAN_MAX_TRAVELERS, str(int(value)), company_id)
 
 
 # 출장 동선 짜기(server/api/routers/route_plan.py)의 출발·복귀지 기본값 = 회사 주소(사용자 2026-10-01)

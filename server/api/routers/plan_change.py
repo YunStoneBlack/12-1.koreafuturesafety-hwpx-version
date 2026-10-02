@@ -44,10 +44,10 @@ def _plan(db: Session, user: User, plan_id: int) -> VisitPlan:
 
 
 def _compat(db: Session, company_id: int, sites: dict[int, Site]):
-    """(현장 → 시·군, 두 현장 궁합 함수, 도로 거리) — 자동 배치와 같은 기준(같은 시·군 30km·다른 시·군 12km 도로 거리, 좌표 없으면 시·군)."""
+    """(현장 → 시·군, 두 현장 궁합 함수, 도로 거리) — 자동 배치와 같은 기준(같은 시·군 30km·한 사람 하루 현장끼리 70km 도로 거리, 좌표 없으면 시·군)."""
     region = {sid: region_of(addr) for sid, addr in map_addresses(db, sites).items()}
     dist = RoadDistance(db, site_coords(db, sites))
-    compat = make_compat(region, dist, config.get_plan_far_km(company_id), config.get_plan_near_km(company_id))
+    compat = make_compat(region, dist, config.get_plan_far_km(company_id), config.get_plan_trip_km(company_id))
     return region, compat, dist
 
 
@@ -144,7 +144,10 @@ def substitutes(plan_id: int, date: datetime.date = Query(...), user: User = Dep
     # 같은 지역 출장 있는 사람 → 그날 비어 있는 사람 → 다른 지역 출장 있는 사람(출장은 한 사람 한도 없음 — 2026-10-02)
     out.sort(key=lambda x: (0 if x["same"] and not x["other_regions"] else 1 if x["count"] == 0 else 2, x["count"], x["name"]))
     dist.save()
-    return {"date": date.isoformat(), "region": my_region, "staff": out}
+    # 그날 이 예정 말고 출장 나가는 사람 — 그날 안 나가던 사람을 대타로 세우면 하루 출장 인원(기본 2명)을 넘는지 화면이 경고
+    crew = sorted({st for (st, d), here in busy.items() if d == date and here})
+    return {"date": date.isoformat(), "region": my_region, "staff": out, "crew": crew,
+            "max_travelers": config.get_plan_max_travelers(user.company_id)}
 
 
 class HandoverIn(BaseModel):

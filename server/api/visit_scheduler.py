@@ -7,13 +7,16 @@
 - 가는 날에서 빼는 날: 주말, 공휴일, 공휴일과 주말(또는 공휴일) 사이에 낀 평일(목 공휴 → 금, 화 공휴 → 월), 평일 공휴일이 3일 이상인 주는 월~금 전부.
 - **같이 가기 좋은 현장**은 날짜를 모은다(요원과 상관없이 — 2026-10-02) — 각 회차는 목표일 ± 간격의 1/3 안에서 움직일 수 있고,
   그 안에 그런 현장 출장이 이미 있거나(고정 예정·앞서 고른 날) 그런 현장의 다른 회차도 올 수 있는 날을 고른다. 묶음은 매번 새로 짠다.
-  같이 가기 좋음 = 같은 시·군이면서 도로 거리 30km 이내(설정). 다른 시·군이라도 12km 이내(설정)면 자리가 없을 때만 묶는다(2026-10-01).
+  같이 가기 좋음 = 같은 시·군이면서 도로 거리 30km 이내(설정). 시·군이 달라도 70km 이내(설정)면 자리가 없을 때 묶는다(2026-10-02,
+  예전 12km — 인천·파주는 묶고 인천·속초는 다른 날로).
   도로 거리는 카카오 길찾기(server/api/geocode.py, 실패하면 직선거리). 좌표가 없는 현장은 예전처럼 시·군이 같으면 같이 가기 좋음.
 - **출장자 ≠ 보고서 담당자(2026-10-02, server/api/report_staff.py)**: 출장은 한 사람 한도 없음, 회사 하루 = 요원 수 × 4곳. 그날 같은 지역 출장이
   있으면 그 사람이 붙여서 가고, 없으면 빈 사람(1순위 = 직전 회차 보고서 담당 → 현장 담당, 아니면 보고서 담당 순서)이 새 지역을 맡는다.
   새로 만든 묶음은 마지막에 그 현장들의 1순위 중 가장 많은 사람으로(그날 비어 있으면). 정석 규칙(요원별 하루 4곳, 자기 현장만)은 태그 standard-rules-20261002.
 - 한 현장은 하루 한 번, 회차 순서대로.
-- 한 사람은 **하루에 같이 가기 좋은 현장끼리만**(속초·김포를 한날로 잡던 것 — 2026-10-01 실데이터 미리보기에서 발견).
+- 한 사람의 그날 현장은 **서로 70km(설정) 안끼리만**(속초·김포를 한날로 잡던 것 — 2026-10-01 실데이터 미리보기에서 발견).
+- **하루 출장 인원 = 회사 전체 2명(설정)**(2026-10-02 사용자: 비상 인력을 남김) — 그날 이미 그만큼 나가면 새 사람을 안 내보내고, 그 사람들에게
+  붙일 수 없으면 다른 날로.
 - 목표 범위에 자리가 없으면 마감(없으면 준공일 전날)까지 가장 가까운 가능한 날로, 그래도 없으면 "넣을 날 부족"으로 남긴다
   (막지 않고 안내만 — 사용자: 횟수를 다 못 채워도 큰일은 아님). 예전 "⚠ 대타 필요"(담당 없이 넣기)는 출장자를 고를 수 있게 되며 안 생긴다.
 """
@@ -116,15 +119,15 @@ def _targets(base: datetime.date, end: datetime.date, count: int) -> list[dateti
 
 
 SAME, NEAR, FAR = "same", "near", "far"
-DEFAULT_FAR_KM = 30.0   # 같은 시·군이라도 도로 거리가 이보다 멀면 안 묶는다
-DEFAULT_NEAR_KM = 12.0  # 다른 시·군이라도 도로 거리가 이보다 가까우면 자리가 없을 때 묶는다
+DEFAULT_FAR_KM = 30.0   # 같은 시·군이면서 도로 거리가 이 안이면 같이 가기 좋음(먼저 묶음)
+DEFAULT_TRIP_KM = 70.0  # 한 사람의 그날 현장끼리 도로 거리가 이 안이면 시·군이 달라도 묶음(자리 없을 때), 넘으면 다른 날로
 
 
-def make_compat(regions: dict[int, str], dist=None, far_km: float = DEFAULT_FAR_KM, near_km: float = DEFAULT_NEAR_KM):
-    """두 현장을 한날 묶을 수 있는지 — SAME(같이 가기 좋음) / NEAR(자리 없을 때만) / FAR(안 묶음), 거리(km, 모르면 None).
+def make_compat(regions: dict[int, str], dist=None, far_km: float = DEFAULT_FAR_KM, trip_km: float = DEFAULT_TRIP_KM):
+    """두 현장을 한 사람이 한날 갈 수 있는지 — SAME(같이 가기 좋음) / NEAR(자리 없을 때 묶음) / FAR(안 묶음, 다른 날로), 거리(km, 모르면 None).
     dist(a, b) = 두 현장 사이 도로 거리 km(server/api/geocode.RoadDistance — 좌표 모르면 None). 거리가 있으면
-    같은 시·군 ≤ far_km = SAME, 다른 시·군 ≤ near_km = NEAR, 없으면 예전처럼 시·군으로(같으면 SAME).
-    지역을 모르는 현장은 NEAR(막지는 않되 일부러 묶지도 않음)."""
+    같은 시·군 ≤ far_km = SAME, (시·군 상관없이) ≤ trip_km = NEAR(2026-10-02 사용자: 인천·파주 OK, 인천·속초 안 됨), 넘으면 FAR.
+    거리를 모르면 예전처럼 시·군으로(같으면 SAME, 다르면 FAR). 지역을 모르는 현장은 NEAR(막지는 않되 일부러 묶지도 않음)."""
     memo: dict[tuple[int, int], tuple[str, float | None]] = {}
 
     def compat(a: int, b: int) -> tuple[str, float | None]:
@@ -137,9 +140,9 @@ def make_compat(regions: dict[int, str], dist=None, far_km: float = DEFAULT_FAR_
         ra, rb = regions.get(a, ""), regions.get(b, "")
         d = dist(a, b) if dist else None
         if d is not None:
-            if ra and ra == rb:
-                return (SAME if d <= far_km else FAR), d
-            return (NEAR if d <= near_km else FAR), d
+            if ra and ra == rb and d <= far_km:
+                return SAME, d
+            return (NEAR if d <= trip_km else FAR), d
         if not ra or not rb:
             return NEAR, None
         return (SAME if ra == rb else FAR), None
@@ -157,15 +160,17 @@ def plan_sites(
     site_regions: dict[int, str] | None = None,
     dist=None,
     far_km: float = DEFAULT_FAR_KM,
-    near_km: float = DEFAULT_NEAR_KM,
+    trip_km: float = DEFAULT_TRIP_KM,
     staff_order: list[int] | None = None,
     day_sites: dict[datetime.date, set[int]] | None = None,
+    max_travelers: int = 2,
 ) -> tuple[list[Placed], list[SiteResult]]:
     """sites의 남은 회차를 배치한다(출장자는 그날 묶음마다 고른다 — 2026-10-02).
 
     busy: (출장자, 날짜) → 그날 가는 현장들(다녀온 방문·남기는 예정 — 새로 넣는 건 여기에 더해 간다). 묶기의 기준점도 여기서 본다.
     day_sites: 날짜 → 회사 전체 그날 가는 현장들(요원 없는 예정 포함) — 회사 하루 한도(day_cap = 요원 수 × 4).
     staff_order: 출장 갈 수 있는 요원(보고서 담당 순서). site.staff_id = 1순위(직전 회차 보고서 담당 → 현장 담당).
+    max_travelers: 하루 출장 인원(회사 전체) — 그날 이만큼 나가면 새 사람(빈 사람)을 안 내보낸다(이미 넘은 날의 사람이 정한 예정은 그대로).
     site_regions: 현장 → 시·군(busy에 든 다른 현장까지, sites의 지역은 저절로 들어간다). dist(a, b): 도로 거리 km(모르면 None — 시·군으로).
     """
     ends = [s.period_end for s in sites if s.period_end]
@@ -180,7 +185,7 @@ def plan_sites(
         on_day[d] |= here
     regions = dict(site_regions or {})
     regions.update({s.id: s.region for s in sites})
-    compat = make_compat(regions, dist, far_km, near_km)
+    compat = make_compat(regions, dist, far_km, trip_km)
     people = list(staff_order or [])
     for s in sites:  # 1순위가 순서 목록에 없으면(쉬는 요원 등) 뒤에
         if s.staff_id is not None and s.staff_id not in people:
@@ -190,11 +195,22 @@ def plan_sites(
         kinds = {compat(site.id, x)[0] for x in here}
         return "empty" if not kinds else FAR if FAR in kinds else NEAR if NEAR in kinds else SAME
 
+    crew: dict[datetime.date, set[int]] = defaultdict(set)  # 날짜 → 그날 출장 나가는 사람(하루 출장 인원 세기)
+    for (x, d), here in busy.items():
+        if here:
+            crew[d].add(x)
+
+    def travelers(d: datetime.date) -> int:
+        return len(crew[d])
+
     def choose(site: SiteIn, d: datetime.date, allow: tuple[str, ...]) -> tuple[str, int] | None:
-        """그날 이 현장을 누가 가면 되는지 — 같은 지역 출장(SAME)에 붙이기 → 빈 사람(1순위 → 순서) → 가까운 다른 시·군 출장(NEAR)."""
+        """그날 이 현장을 누가 가면 되는지 — 같은 지역 출장(SAME)에 붙이기 → 빈 사람(1순위 → 순서, 하루 출장 인원이 남을 때만)
+        → 70km 안 다른 시·군 출장(NEAR)."""
         by_kind: dict[str, list[int]] = defaultdict(list)
         for x in people:
             by_kind[kind_with(site, busy[(x, d)])].append(x)
+        if travelers(d) >= max_travelers:
+            by_kind.pop("empty", None)
         for k in (SAME, "empty", NEAR):
             if k in allow and by_kind[k]:
                 cands = by_kind[k]
@@ -279,6 +295,7 @@ def plan_sites(
         results[s.id].placed += 1
         busy[(who, day)].add(s.id)
         on_day[day].add(s.id)
+        crew[day].add(who)
 
     # 3) 새로 만든 출장 묶음(그날 그 사람에게 원래 일정이 없던 것)은 그 현장들의 1순위 중 가장 많은 사람이 가게(동점이면 순서) —
     #    그 사람이 그날 비어 있을 때만 바꾼다(사용자 2026-10-02: 포천 7곳 중 1곳만 맡은 사람이 7곳 다 가면 이상함).
@@ -299,12 +316,15 @@ def plan_sites(
         best = max(votes, key=lambda x: (votes[x], -rank.get(x, 99)))
         if best != who and not busy[(best, d)]:
             busy[(best, d)] = busy.pop((who, d))
+            crew[d].discard(who)
+            crew[d].add(best)
             for p in group:
                 p.staff_id = best
 
     for r in results.values():
         short = r.needed - r.placed
         if r.needed and short > 0 and not r.note:
-            r.note = f"넣을 날이 부족합니다 — {r.needed}회 중 {r.placed}회만 배치(주말·공휴일·회사 하루 {day_cap}곳 한도·한 사람 하루 한 지역)"
+            r.note = (f"넣을 날이 부족합니다 — {r.needed}회 중 {r.placed}회만 배치(주말·공휴일·회사 하루 {day_cap}곳·하루 출장 {max_travelers}명·"
+                      f"한 사람 하루 현장끼리 {trip_km:g}km)")
     placed.sort(key=lambda p: (p.date, p.site_id))
     return placed, list(results.values())
