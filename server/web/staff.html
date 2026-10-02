@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/css/app.css" />
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="css/staff-k2b.css" />
+<link rel="stylesheet" href="css/staff-order.css" />
 </head>
 <body data-report-tab="staff">
 <div class="app">
@@ -33,6 +34,14 @@
 <section class="panel">
   <div class="panel-head"><h2>담당요원 목록</h2></div>
   <div class="rows" id="staff-list"><div class="empty-note">불러오는 중...</div></div>
+</section>
+
+<!-- 보고서 담당 순서(2026-10-02, js/staff-order.js) — 보고서 담당자가 그날 보고서 4곳이 차면 이 순서로 여유 있는 사람 -->
+<section class="panel" id="report-order-panel">
+  <div class="panel-head"><h2>보고서 담당 순서</h2></div>
+  <p class="page-sub" style="margin:0; padding:10px 18px 0;">보고서는 한 사람 하루 4곳까지입니다. 직전 회차 보고서 담당이 그날 4곳이 차면 이 순서로 여유 있는 사람에게 보고서 이름이 갑니다(방문 달력·새 보고서). ▲▼로 바꾸고 [순서 저장]을 누르세요.</p>
+  <div class="ro-list" id="report-order-list"><div class="empty-note">불러오는 중...</div></div>
+  <div class="ro-foot"><span class="ro-status" id="report-order-status"></span><button type="button" id="report-order-save" disabled>순서 저장</button></div>
 </section>
 
 <section class="panel" id="unlinked-panel" hidden>
@@ -159,6 +168,7 @@ async function loadStaff() {
     const rows = await api("/staff/all");
     list.innerHTML = rows.length ? "" : '<div class="empty-note">아직 등록된 담당요원이 없습니다.</div>';
     for (const s of rows) list.appendChild(staffRow(s));
+    window.reloadReportOrder?.(); // 요원을 더하거나 쉬게 하면 보고서 담당 순서도(js/staff-order.js)
   } catch (err) {
     showError(errorEl, err);
   }
@@ -187,5 +197,6 @@ initGroupwareStaff().then((ok) => {
   loadStaff();
 });
 </script>
+<script src="js/staff-order.js"></script>
 </body>
 </html>

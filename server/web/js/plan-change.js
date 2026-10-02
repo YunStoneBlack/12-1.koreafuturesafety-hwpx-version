@@ -53,7 +53,7 @@ async function openPlanChange(planId, onDone) {
     if (d.same.length) parts.push(`같이 갈 현장: ${apWithKm(d.same, d.same_km)}`);
     if (d.other) parts.push("다른 지역 출장 있음");
     parts.push(d.count ? `그날 ${d.count}곳` : "그날 비어 있음");
-    if (d.count >= o.limit) parts.push("한도 다 참");
+    if (d.full) parts.push(`회사 하루 ${o.day_cap}곳 다 참`); // 출장은 한 사람 한도 없음(2026-10-02)
     return parts.join(" · ");
   };
 
@@ -99,7 +99,7 @@ async function openPlanChange(planId, onDone) {
     html += "<span></span>".repeat(first.getDay());
     for (const d of o.days.filter((x) => x.date.startsWith(ym))) {
       const n = Number(d.date.slice(8));
-      const off = d.past || d.blocked || d.already || d.count >= o.limit;
+      const off = d.past || d.blocked || d.already || d.full;
       const cls = ["pc-day", off ? "off" : "", d.same.length && !d.other ? "same" : "", d.other ? "other" : "",
         d.date === plan.date ? "orig" : "", d.date === picked ? "picked" : "", d.blocked && d.blocked !== "주말" ? "hol" : ""].filter(Boolean).join(" ");
       html += `<button type="button" class="${cls}" data-date="${d.date}" ${off ? "disabled" : ""} title="${apEsc(dayInfo(d))}">
@@ -131,9 +131,8 @@ async function openPlanChange(planId, onDone) {
       for (const s of r.staff) {
         const b = document.createElement("button");
         b.type = "button";
-        b.className = "pc-sub" + (s.full ? " full" : "");
-        b.disabled = s.full;
-        const note = s.full ? "그날 한도 다 참" : s.same.length ? `가까운 현장 출장: ${apWithKm(s.same, s.same_km)}`
+        b.className = "pc-sub";
+        const note = s.same.length ? `가까운 현장 출장: ${apWithKm(s.same, s.same_km)}`
           : s.count === 0 ? "그날 비어 있음" : `그날 ${s.count}곳 (${s.other_regions.join(", ")})`;
         b.innerHTML = "<b></b><span></span>";
         b.querySelector("b").textContent = s.name;

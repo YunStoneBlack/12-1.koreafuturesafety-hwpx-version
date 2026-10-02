@@ -5,7 +5,8 @@
 
 - 이전 회차(같은 현장 마지막 보고서) 승계: 현장책임자 성명(없으면 현장 관리자명)·서명(파일 복사)·
   통보방법(없으면 "전자우편")·공정률, 이전 지도일 = 직전 회차 지도일
-- 현장 단위 승계: 담당요원(현장 배정 요원), 6번 12대 기인물 체크, 9번 향후 진행공정 "공정명만"
+- 담당요원: 그날 예정의 보고서 담당자 → 직전 회차 보고서 담당 → 현장 담당(그날 4곳이면 순서대로 여유 있는 사람, 2026-10-02)
+- 현장 단위 승계: 6번 12대 기인물 체크, 9번 향후 진행공정 "공정명만"
   (유해요인은 매 회차 새로 작성하는 값이라 승계 안 함 — 데스크톱 Sub-phase 20 원칙)
 - 고정 기본값: 지도일 오늘, 재해발생 "무", 10-1 교육장소 "현장 내"·교육자료 "안전보건공단 배포자료",
   10-2 조도계/가스농도측정기 측정치 문구 + 판정 "양호" + 조치 "이상 없음 확인"
@@ -24,8 +25,10 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from core.models_db import Measurement, ProcessHazardEntry, Report, SafetyEducation, Site, SiteProcessDefault
-from core.staff_load import is_full, other_site_names
+from core.models_web import VisitPlan
+from core.staff_load import other_site_names
 from server.api import storage
+from server.api.report_staff import pick, staff_order
 
 DEFAULT_NOTIFICATION_METHOD = "전자우편"
 DEFAULT_EDUCATION_LOCATION = "현장 내"
@@ -68,13 +71,16 @@ def apply_new_report_defaults(db: Session, report: Report, explicit: set[str]) -
     setdefault("prev_guidance_date", last.guidance_date if last else None)
     setdefault("guidance_date", datetime.date.today())
     setdefault("accident_status", "무")
-    # 현장에 배정된 요원 우선(데스크톱과 동일), 배정이 없으면 직전 회차 요원(웹판 보완 — 대부분 한 요원이 계속 맡음).
-    # 그 요원이 이 지도일에 이미 4곳을 맡았으면 배정하지 않는다(데스크톱: 새 보고서 기본 요원이 마감이면 되돌림).
-    default_staff = (site.assigned_staff_id if site else None) or (last.assigned_staff_id if last else None)
+    # 보고서 담당요원(2026-10-02, server/api/report_staff.py): 그날 이 현장 방문 예정에 정해 둔 보고서 담당자 → 없으면 직전 회차 보고서 담당
+    # → 1회차면 현장 담당(계약 당시). 그 사람이 그 지도일에 이미 보고서 4곳이면 보고서 담당 순서에서 여유 있는 사람(모두 차면 비움).
     date = report.guidance_date or datetime.date.today()
-    if default_staff and is_full(other_site_names(db, default_staff, date, report.site_id)):
-        default_staff = None
-    setdefault("assigned_staff_id", default_staff)
+    planned = db.query(VisitPlan.report_staff_id).filter(VisitPlan.site_id == report.site_id, VisitPlan.plan_date == date,
+                                                         VisitPlan.report_staff_id.isnot(None)).order_by(VisitPlan.id).first()
+    preferred = (planned[0] if planned else None) or (last.assigned_staff_id if last else None) or (site.assigned_staff_id if site else None)
+    if site and "assigned_staff_id" not in explicit:
+        load = {sid: set(other_site_names(db, sid, date, report.site_id)) for sid in staff_order(db, site.company_id)}
+        preferred = pick(preferred, load, staff_order(db, site.company_id), report.site_id)
+    setdefault("assigned_staff_id", preferred)
     if "hazard_factor_checks" not in explicit and site and site.hazard_factor_checks:
         report.hazard_factor_checks = list(site.hazard_factor_checks)
     if last and last.notify_signature_path and "notify_signature_path" not in explicit:

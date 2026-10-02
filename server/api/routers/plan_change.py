@@ -7,7 +7,8 @@
   자동 예정을 새 담당자의 다른 현장과 같은 지역끼리 다시 짠다(📌 고정 예정은 날짜 그대로, 요원만 바뀜).
 - `POST /sites/{id}/status` — 공사 상태(착공전·진행중·공사중지·준공, server/api/site_status.py) 바꾸기. 진행중이 아니게 되면 그 현장의
   내일 이후 예정을 전부(📌 포함) 지운다. dry_run이면 지울 건수만.
-규칙(빼는 날·지역·하루 4곳)은 server/api/visit_scheduler.py와 같다.
+규칙(빼는 날·지역)은 server/api/visit_scheduler.py와 같다. 출장은 한 사람 한도 없음 — 회사 하루 한도(요원 수 × 4, report_staff.day_cap)만(2026-10-02).
+그날 요원이 가는 현장 = 그 요원의 예정 + 그날 보고서(출장자 = 그날 그 현장 예정의 요원, 없으면 보고서 담당).
 """
 
 from __future__ import annotations
@@ -21,12 +22,12 @@ from sqlalchemy.orm import Session
 
 from core.models_db import Report, Site, Staff
 from core.models_web import User, VisitPlan
-from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY as LIMIT
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from core import config
 from server.api.geocode import RoadDistance, map_addresses, site_coords
 from server.api.site_label import site_label
+from server.api.report_staff import day_cap, travelers
 from server.api.site_status import ACTIVE, STATUSES
 from server.api.visit_scheduler import FAR, blocked_days, korean_holidays, make_compat, region_of
 
@@ -63,16 +64,22 @@ def _together(sites: dict[int, Site], compat, me: int, here: set[int]):
 
 
 def _day_sites(db: Session, company_id: int, start: datetime.date, end: datetime.date, exclude_plan: int | None):
-    """(요원, 날짜) → 그날 가는 현장들(방문 예정 + 그날 지도일로 만든 보고서)."""
+    """((요원, 날짜) → 그날 가는 현장들, 날짜 → 회사 전체 현장들) — 방문 예정 + 그날 지도일로 만든 보고서(실제 출장자 기준)."""
     out: dict[tuple[int, datetime.date], set[int]] = defaultdict(set)
+    total: dict[datetime.date, set[int]] = defaultdict(set)
     for p in db.query(VisitPlan).filter(VisitPlan.company_id == company_id, VisitPlan.plan_date >= start, VisitPlan.plan_date <= end):
-        if p.id != exclude_plan and p.staff_id is not None:
-            out[(p.staff_id, p.plan_date)].add(p.site_id)
+        if p.id != exclude_plan:
+            total[p.plan_date].add(p.site_id)
+            if p.staff_id is not None:
+                out[(p.staff_id, p.plan_date)].add(p.site_id)
+    went = travelers(db, company_id, start, end)
     for sid, staff_id, gdate in db.query(Report.site_id, Report.assigned_staff_id, Report.guidance_date).join(Site, Site.id == Report.site_id).filter(
             Site.company_id == company_id, Report.guidance_date >= start, Report.guidance_date <= end):
-        if staff_id is not None:
-            out[(staff_id, gdate)].add(sid)
-    return out
+        total[gdate].add(sid)
+        who = went.get((sid, gdate), staff_id)
+        if who is not None:
+            out[(who, gdate)].add(sid)
+    return out, total
 
 
 @router.get("/calendar/plans/{plan_id}/options")
@@ -85,7 +92,8 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
     region, compat, dist = _compat(db, user.company_id, sites)
     my_region = region.get(plan.site_id, "")
     blocked = blocked_days(first, end, korean_holidays({first.year, end.year}))
-    busy = _day_sites(db, user.company_id, first, end, plan.id)
+    busy, total = _day_sites(db, user.company_id, first, end, plan.id)
+    cap = day_cap(db, user.company_id)
 
     days = []
     d = first
@@ -93,11 +101,12 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
         here = busy.get((plan.staff_id, d), set()) if plan.staff_id is not None else set()
         ok, far = _together(sites, compat, plan.site_id, here)
         days.append({"date": d.isoformat(), "blocked": blocked.get(d, ""), "past": d <= today, "count": len(here),
+                     "total": len(total.get(d, set())), "full": len(total.get(d, set()) - {plan.site_id}) >= cap,
                      "same": [n for n, _ in ok], "same_km": [k for _, k in ok], "other": far, "already": plan.site_id in here})
         d += DAY
 
     def usable(x):
-        return not x["blocked"] and not x["past"] and not x["already"] and x["count"] < LIMIT and x["date"] != plan.plan_date.isoformat()
+        return not x["blocked"] and not x["past"] and not x["already"] and not x["full"] and x["date"] != plan.plan_date.isoformat()
 
     near = lambda x: abs((datetime.date.fromisoformat(x["date"]) - plan.plan_date).days)
     lo, hi = plan.plan_date - datetime.timedelta(days=SUGGEST_WINDOW_DAYS), plan.plan_date + datetime.timedelta(days=SUGGEST_WINDOW_DAYS)
@@ -112,7 +121,7 @@ def options(plan_id: int, user: User = Depends(get_current_user), db: Session = 
     return {
         "plan": {"id": plan.id, "site_id": plan.site_id, "site_name": site_label(sites[plan.site_id]) if plan.site_id in sites else "",
                  "staff_id": plan.staff_id, "staff_name": staff_name or "", "date": plan.plan_date.isoformat(), "region": my_region},
-        "limit": LIMIT, "days": days, "suggestions": suggestions,
+        "day_cap": cap, "days": days, "suggestions": suggestions,
     }
 
 
@@ -122,7 +131,7 @@ def substitutes(plan_id: int, date: datetime.date = Query(...), user: User = Dep
     sites = {s.id: s for s in db.query(Site).filter(Site.company_id == user.company_id)}
     region, compat, dist = _compat(db, user.company_id, sites)
     my_region = region.get(plan.site_id, "")
-    busy = _day_sites(db, user.company_id, date, date, plan.id)
+    busy, _ = _day_sites(db, user.company_id, date, date, plan.id)
     out = []
     for st in db.query(Staff).filter(Staff.company_id == user.company_id, Staff.active.is_(True)).order_by(Staff.id):
         if st.id == plan.staff_id:
@@ -131,11 +140,11 @@ def substitutes(plan_id: int, date: datetime.date = Query(...), user: User = Dep
         ok, _ = _together(sites, compat, plan.site_id, here)
         other = sorted({region.get(x) or "지역 모름" for x in here if compat(plan.site_id, x)[0] == FAR})
         out.append({"staff_id": st.id, "name": st.name, "count": len(here), "same": [n for n, _ in ok], "same_km": [k for _, k in ok],
-                    "other_regions": other, "full": len(here) >= LIMIT})
-    # 같은 지역 출장 있는 사람 → 그날 비어 있는 사람 → 다른 지역 출장 있는 사람(한도 찬 사람은 맨 뒤)
-    out.sort(key=lambda x: (x["full"], 0 if x["same"] and not x["other_regions"] else 1 if x["count"] == 0 else 2, x["count"], x["name"]))
+                    "other_regions": other})
+    # 같은 지역 출장 있는 사람 → 그날 비어 있는 사람 → 다른 지역 출장 있는 사람(출장은 한 사람 한도 없음 — 2026-10-02)
+    out.sort(key=lambda x: (0 if x["same"] and not x["other_regions"] else 1 if x["count"] == 0 else 2, x["count"], x["name"]))
     dist.save()
-    return {"date": date.isoformat(), "region": my_region, "limit": LIMIT, "staff": out}
+    return {"date": date.isoformat(), "region": my_region, "staff": out}
 
 
 class HandoverIn(BaseModel):

@@ -226,7 +226,9 @@ class VisitPlan(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
     site_id: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), index=True)
-    staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"), default=None)
+    staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"), default=None)  # 실제 출장자
+    # 보고서 담당자(2026-10-02, alembic 0016) — 출장은 다른 사람이 가도 보고서에 이름이 들어갈 사람(한 사람 하루 4곳, server/api/report_staff.py)
+    report_staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"), default=None)
     plan_date: Mapped[datetime.date] = mapped_column(Date, index=True)
     memo: Mapped[str] = mapped_column(Text, default="")
     # auto = 자동 배치가 넣음(다시 배치하면 바뀜), manual = 사람이 넣거나 옮김(📌 고정 — 자동 배치가 안 건드리고 기준점으로 씀). alembic 0010

@@ -17,7 +17,6 @@ from server.api.deps import get_current_user, get_db
 from server.api.geocode import map_addresses
 from server.api.site_pace_out import done_counts, pace_dict
 from server.api.site_status import NEW_SITE
-from server.api.routers.reports import check_staff_limit
 from server.api.security import verify_password
 from server.schemas.site import SiteIn, SiteListItem, SiteOut
 
@@ -116,26 +115,14 @@ def get_site(site_id: int, user: User = Depends(get_current_user), db: Session =
 def update_site(
     site_id: int, body: SiteIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    # 담당요원은 현장 ↔ 보고서 연동(2026-09-29 사용자 요청) — 현장에서 바꾸면 이 현장의 **아직 PDF를 안 만든 보고서**
-    # (status != final)도 같은 사람으로. 이미 PDF를 만든(제출한) 과거 회차는 그대로 둔다(표지·서명이 바뀌면 안 되므로).
-    # 하루 4현장 한도(reports.check_staff_limit)에 하나라도 걸리면 아무것도 안 바꾸고 400. 반대 방향은 reports.update_report.
+    # 현장 담당요원 = 계약 당시 요원 — 바꿔도 보고서 담당요원은 그대로(2026-10-02, 예전 "현장 ↔ 보고서 연동"과 하루 4곳 검사를 뺌 —
+    # 보고서 담당은 회차마다 따로, server/api/report_staff.py). 앞으로의 예정을 넘길지는 화면이 따로 묻는다(plan_change.handover).
     existing = repo.get_site(db, user.company_id, site_id)
     if existing is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
-    new_staff = body.assigned_staff_id
-    drafts = []
-    if new_staff != existing.assigned_staff_id:
-        drafts = [r for r in existing.reports if r.status != "final" and r.assigned_staff_id != new_staff]
-        for r in drafts:
-            check_staff_limit(db, r, {"assigned_staff_id": new_staff})
     old_base = storage.base_site_name(existing)  # 현장 폴더 이름(현장명·관리번호) — 바뀌면 폴더·파일 이름도 다시 맞춤
     site = repo.update_site(db, user.company_id, site_id, **body.model_dump())
     storage.relocate_after_site_change(db, site, old_base)
-    if drafts:
-        for r in drafts:
-            r.assigned_staff_id = new_staff
-        db.commit()
-        db.refresh(site)
     return site
 
 

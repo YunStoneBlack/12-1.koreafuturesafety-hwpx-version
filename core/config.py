@@ -182,6 +182,20 @@ def set_route_home_address(value: str, company_id: int | None = None) -> None:
     _set_setting(_KEY_ROUTE_HOME_ADDRESS, value.strip(), company_id)
 
 
+# 보고서 담당 순서(2026-10-02) — 보고서 담당자가 그날 4곳이 차면 이 순서로 여유 있는 사람을 고른다(server/api/report_staff.py).
+# 요원 id를 쉼표로. 담당요원 표(staff)는 데스크톱과 같이 쓰는 표라 칸을 늘리지 않고 회사 설정으로 둔다.
+_KEY_REPORT_STAFF_ORDER = "report_staff_order"
+
+
+def get_report_staff_order(company_id: int | None = None) -> list[int]:
+    raw = _get_setting(_KEY_REPORT_STAFF_ORDER, company_id) or ""
+    return [int(x) for x in raw.split(",") if x.strip().isdigit()]
+
+
+def set_report_staff_order(staff_ids: list[int], company_id: int | None = None) -> None:
+    _set_setting(_KEY_REPORT_STAFF_ORDER, ",".join(str(int(x)) for x in staff_ids), company_id)
+
+
 def get_ai_enabled() -> bool:
     stored = _get_setting(_KEY_AI_ENABLED)
     if stored is None:

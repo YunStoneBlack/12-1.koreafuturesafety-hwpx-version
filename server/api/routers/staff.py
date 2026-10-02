@@ -2,6 +2,7 @@
 추가/수정/활성·비활성/삭제 + 요원별 서명 등록(그리기 또는 이미지). 전부 로그인한 회사 안에서만.
 
 - `GET /staff`는 보고서 담당요원 드롭다운용(활성 요원만, 예전과 동일), 관리 화면은 `GET /staff/all`.
+- `GET/POST /staff/report-order` — 보고서 담당 순서(그날 4곳이 차면 이 순서로 여유 있는 사람, 2026-10-02).
 - 삭제 시 이 요원이 배정된 현장/보고서는 담당요원이 빈 값이 된다(데스크톱 안내 문구와 같은 동작).
   PostgreSQL은 외래키를 실제로 검사해서 먼저 연결을 끊어야 한다(데스크톱 SQLite는 검사 안 함).
 """
@@ -17,9 +18,11 @@ from sqlalchemy.orm import Session
 
 from core.models_db import Report, Site, Staff
 from core.models_web import StaffContact, User
+from core import config
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.mailer import valid_email
+from server.api.report_staff import staff_order
 from server.api.signature_files import normalize_source, save_signature_upload
 from server.schemas.staff import StaffOut
 
@@ -157,3 +160,21 @@ def get_staff_signature(staff_id: int, user: User = Depends(get_current_user), d
     if not staff.signature_path or not Path(staff.signature_path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "등록된 서명이 없습니다.")
     return FileResponse(staff.signature_path, media_type="image/png")
+
+
+class ReportOrderIn(BaseModel):
+    staff_ids: list[int]
+
+
+@router.get("/report-order")
+def get_report_order(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """보고서 담당 순서(2026-10-02) — 보고서 담당자가 그날 4곳이 차면 이 순서로 여유 있는 사람(server/api/report_staff.py)."""
+    names = dict(db.query(Staff.id, Staff.name).filter(Staff.company_id == user.company_id))
+    return [{"id": sid, "name": names.get(sid, "")} for sid in staff_order(db, user.company_id)]
+
+
+@router.post("/report-order")
+def set_report_order(body: ReportOrderIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    mine = {sid for (sid,) in db.query(Staff.id).filter(Staff.company_id == user.company_id)}
+    config.set_report_staff_order([x for x in body.staff_ids if x in mine], user.company_id)
+    return get_report_order(user, db)

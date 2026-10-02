@@ -1,4 +1,6 @@
-// 방문 달력(calendar.html, 2026-09-30 시안 (나)) — 다녀온 방문(보고서 지도일) + 방문 예정 + 지난 예정 + 요원·날짜별 하루 4곳 딱지.
+// 방문 달력(calendar.html, 2026-09-30 시안 (나)) — 다녀온 방문(보고서 지도일) + 방문 예정 + 지난 예정 + 회사 하루 한도 딱지.
+// 2026-10-02 출장자 ≠ 보고서 담당자(server/api/report_staff.py): 달력·요원 상자의 이름은 실제 출장자(한 사람 한도 없음, 회사 하루 = 요원 수 × 4),
+// 카드에 "보고서 담당자: ○○○"(한 사람 하루 4곳). 그날 목록 [📝 보고서 담당 다시 나누기]·요원 상자 [출장 담당자 변경]은 js/day-staff.js.
 // 색은 요원별이 아니라 상태별(2026-10-01 사용자 — 요원이 20~30명이면 색으로 구분 못 함, 이름은 칸에 적혀 있음):
 // 예정 = 파란 테두리만, 지난 예정 = 빨간 점선 테두리, 작성 중(PDF 전·후 포함) = 연한 파랑, 제출 완료 = 진한 파랑(css/calendar.css .ev-*). (2026-10-01 "마지막 지도일 + 15일" 기한 ⏰·⚠ 예정없음은 없앰 — 실제 규칙이 아니었음.) 날짜를 누르면 오른쪽(폰은 아래)에 그날 목록과
 // "방문 예정 넣기". 볼 사람: 나만(그룹웨어 로그인 ↔ 담당요원 연결) / 고른 요원(여러 명) / 전체 — 고른 것은 이 브라우저에 기억.
@@ -135,14 +137,9 @@ function buildEvents() {
   return ev;
 }
 
-// 하루 4곳 딱지 + 공휴일 + 고른 날 표시 — FullCalendar가 칸을 다시 그릴 때마다(달 이동·일정 갱신) 다시 칠한다.
+// 회사 하루 한도 딱지 + 공휴일 + 고른 날 표시 — FullCalendar가 칸을 다시 그릴 때마다(달 이동·일정 갱신) 다시 칠한다.
+// 딱지는 그날 회사 전체 출장이 한도(요원 수 × 4)에 닿았을 때만 "16/16"(넘으면 빨강). 출장은 한 사람 한도가 없어 요원별 딱지는 없앰(2026-10-02).
 function decorateCells() {
-  const staffMap = staffById();
-  const loads = {};
-  for (const l of data?.day_load || []) {
-    if (!visible(l.staff_id) || l.count < data.limit) continue;
-    (loads[l.date] ||= []).push(l);
-  }
   document.querySelectorAll("#cal .fc-daygrid-day").forEach((cell) => {
     const date = cell.getAttribute("data-date");
     const other = cell.classList.contains("fc-day-other");
@@ -159,10 +156,12 @@ function decorateCells() {
       lab.textContent = holiday.name;
       top.appendChild(lab);
     }
-    for (const l of loads[date] || []) {
+    const total = data?.day_total?.[date] || 0;
+    if (data && total >= data.day_cap) {
       const cap = document.createElement("span");
-      cap.className = "cal-cap" + (l.count > data.limit ? " over" : "");
-      cap.textContent = isPhone() ? `${l.count}/${data.limit}` : `${shortName(staffMap[l.staff_id]?.name || "")} ${l.count}/${data.limit}`;
+      cap.className = "cal-cap" + (total > data.day_cap ? " over" : "");
+      cap.textContent = isPhone() ? `${total}/${data.day_cap}` : `전체 ${total}/${data.day_cap}`;
+      cap.title = `그날 회사 전체 출장 ${total}곳(하루 ${data.day_cap}곳 = 요원 수 × 4)`;
       top.appendChild(cap);
     }
   });
@@ -215,7 +214,7 @@ const cal = new FullCalendar.Calendar(document.getElementById("cal"), {
   eventDrop: async (info) => {
     const p = data.plans.find((x) => x.id === info.event.extendedProps.planId);
     const date = ymd(info.event.start);
-    if (!p || !confirmLoad(p.staff_id, date, p.site_id, `${shortSite(p.site_name)} 예정을 ${date}로 옮길까요?`)) {
+    if (!p || !confirmLoad(date, p.site_id, `${shortSite(p.site_name)} 예정을 ${date}로 옮길까요?`)) {
       info.revert();
       return;
     }
@@ -248,20 +247,19 @@ function selectDay(date) {
   if (isPhone()) document.getElementById("cal-day").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-// 그날 이 요원이 맡는 현장 수(이 현장 제외) — 넣거나 옮기면 한도를 넘는지
-function siteCountOn(staffId, date, exceptSiteId) {
-  if (!staffId || !data) return 0;
+// 그날 회사 전체 출장 현장 수(이 현장 제외) — 넣거나 옮기면 회사 하루 한도(요원 수 × 4)를 넘는지. 출장은 한 사람 한도 없음(2026-10-02).
+function siteCountOn(date, exceptSiteId) {
+  if (!data) return 0;
   const sites = new Set();
-  for (const v of data.visits) if (v.staff_id === staffId && v.date === date) sites.add(v.site_id);
-  for (const p of data.plans) if (p.staff_id === staffId && p.date === date && p.state !== "done") sites.add(p.site_id);
+  for (const v of data.visits) if (v.date === date) sites.add(v.site_id);
+  for (const p of data.plans) if (p.date === date && p.state !== "done") sites.add(p.site_id);
   sites.delete(exceptSiteId);
   return sites.size;
 }
-function confirmLoad(staffId, date, siteId, question) {
-  const n = siteCountOn(staffId, date, siteId);
-  if (n < data.limit) return question ? confirm(question) : true;
-  const name = staffById()[staffId]?.name || "";
-  return confirm(`${name}님은 ${date}에 이미 ${n}곳입니다(하루 ${data.limit}곳 한도). 그래도 ${question ? question.replace(/\?$/, "") : "넣을까요"}?`);
+function confirmLoad(date, siteId, question) {
+  const n = siteCountOn(date, siteId);
+  if (n < data.day_cap) return question ? confirm(question) : true;
+  return confirm(`${date}에는 회사 전체가 이미 ${n}곳을 갑니다(하루 ${data.day_cap}곳 — 요원 수 × 4). 그래도 ${question ? question.replace(/\?$/, "") : "넣을까요"}?`);
 }
 
 // ---------- 고른 날 목록 ----------
@@ -281,13 +279,14 @@ function renderDay() {
   // 담당 없는 "⚠ 대타 필요"는 맨 아래 따로. 머리줄 오른쪽은 나중에 [🚗 동선 짜기] 자리.
   const groups = new Map(); // key → { title, sites:Set, items:[] }
   const groupOf = (key) => {
-    if (!groups.has(key)) groups.set(key, { key, sites: new Set(), items: [] });
+    if (!groups.has(key)) groups.set(key, { key, sites: new Set(), items: [], plans: [] });
     return groups.get(key);
   };
   for (const v of visits) {
     const el = document.createElement("div");
     el.className = `cal-item ${visitClass(v.state)}`;
     el.innerHTML = '<i></i><div class="cal-item-main"><b></b><small></small></div>';
+    addReportStaff(el, v.report_staff_id, staffMap);
     addSiteLinks(el, v.site_id);
     el.querySelector("b").textContent = `${v.site_name} ${v.visit_no}회차`;
     el.querySelector("small").textContent = STATE_LABEL[v.state] || "";
@@ -303,21 +302,39 @@ function renderDay() {
   for (const p of plans) {
     const g = groupOf(p.source === "sub" && p.state !== "missed" ? "sub" : p.staff_id ?? "none");
     g.sites.add(p.site_id);
+    g.plans.push(p);
     g.items.push(planItem(p, staffMap));
   }
   if (!groups.size) {
     list.innerHTML = '<div class="empty-note" style="padding:12px 0;">이 날은 방문·예정이 없습니다.</div>';
   }
+  if (plans.some((p) => p.state === "planned")) { // [📝 보고서 담당 다시 나누기] — 예정을 많이 옮긴 뒤 그날 보고서 담당을 규칙대로 다시(js/day-staff.js)
+    const tools = document.createElement("div");
+    tools.className = "cal-day-tools";
+    tools.innerHTML = '<button type="button" class="secondary">📝 보고서 담당 다시 나누기</button>';
+    tools.querySelector("button").addEventListener("click", () => openRedistribute(selected, reload));
+    list.before(tools);
+  }
   const order = (key) => (key === "sub" ? 1e9 : key === "none" ? 1e9 - 1 : data.staff.findIndex((s) => s.id === key));
-  const loadOf = Object.fromEntries(data.day_load.filter((x) => x.date === selected).map((x) => [x.staff_id, x.count]));
   for (const g of [...groups.values()].sort((a, b) => order(a.key) - order(b.key))) {
     const box = document.createElement("section");
     box.className = `cal-group${g.key === "sub" ? " sub" : ""}`;
-    box.innerHTML = '<div class="cal-group-head"><b></b><span class="cal-group-n"></span><span class="cal-group-warn"></span></div>';
+    box.innerHTML = '<div class="cal-group-head"><b></b><span class="cal-group-n"></span></div>';
     box.querySelector("b").textContent = g.key === "sub" ? "⚠ 대타 필요" : g.key === "none" ? "담당요원 없음" : `👤 ${staffMap[g.key]?.name || ""}`;
     box.querySelector(".cal-group-n").textContent = `${g.sites.size}곳`;
-    const load = loadOf[g.key] || 0;
-    if (load >= data.limit) box.querySelector(".cal-group-warn").textContent = load > data.limit ? "하루 한도를 넘었습니다" : "하루 4곳 다 참";
+    // [출장 담당자 변경] — 그날 이 사람(또는 출장자 없는 예정)의 예정 여러 곳을 한 번에 다른 사람에게(휴가·병가, js/day-staff.js).
+    // 예전 "하루 4곳 다 참" 자리(출장은 한 사람 한도 없음 — 2026-10-02). 현장 하나만은 카드의 [📅 일정 변경] → 대신 갈 요원.
+    const movable = g.plans.filter((p) => p.state === "planned");
+    if (movable.length) {
+      const mv = document.createElement("button");
+      mv.type = "button";
+      mv.className = "secondary cal-move";
+      mv.textContent = "출장 담당자 변경";
+      const fromId = typeof g.key === "number" ? g.key : null;
+      mv.addEventListener("click", () => openMoveTraveler(selected, fromId, fromId ? staffMap[fromId]?.name : "",
+        movable.map((p) => ({ planId: p.id, siteName: p.site_name, reportName: staffMap[p.report_staff_id]?.name })), data.staff, reload));
+      box.querySelector(".cal-group-head").appendChild(mv);
+    }
     if (typeof g.key === "number") { // [🚗 동선 짜기] — 회사 → 이 요원의 그날 현장들(최적 순서) → 회사(js/route-plan.js)
       const go = document.createElement("button");
       go.type = "button";
@@ -342,6 +359,7 @@ function planItem(p, staffMap) {
       <button type="button" class="secondary p-del" style="color:var(--crit);">삭제</button>
     </div>`;
   el.querySelector("b").textContent = `${p.state === "missed" ? "지난 예정" : p.source === "sub" ? "⚠ 대타 필요" : p.source === "manual" ? "📌 방문 예정(고정)" : "방문 예정"} · ${p.site_name}`;
+  addReportStaff(el, p.report_staff_id, staffMap);
   addSiteLinks(el, p.site_id);
   // [📅 일정 변경] — [📞 전화] [📍 지도] 오른쪽(현장에 전화해 보고 바로 옮기게, js/plan-change.js)
   const main = el.querySelector(".cal-item-main");
@@ -372,7 +390,8 @@ function planItem(p, staffMap) {
   el.querySelector(".p-report").addEventListener("click", async () => {
     if (!confirm(`${p.site_name} 새 보고서를 지도일 ${p.date}로 만들까요?`)) return;
     try {
-      const rep = await apiPost(`/sites/${p.site_id}/reports`, { guidance_date: p.date, ...(p.staff_id ? { assigned_staff_id: p.staff_id } : {}) });
+      // 보고서 담당요원 = 이 예정의 보고서 담당자(출장자 아님, 2026-10-02) — 비어 있으면 서버가 규칙대로(report_defaults)
+      const rep = await apiPost(`/sites/${p.site_id}/reports`, { guidance_date: p.date, ...(p.report_staff_id ? { assigned_staff_id: p.report_staff_id } : {}) });
       location.href = `report.html?id=${rep.id}`;
     } catch (err) {
       showError(errorEl, err);
@@ -383,6 +402,15 @@ function planItem(p, staffMap) {
     el.appendChild(planForm(p));
   });
   return el;
+}
+
+// 현장명 바로 아래 "보고서 담당자: ○○○"(2026-10-02 사용자) — 출장은 묶음 머리줄의 사람이 가도 보고서의 주인공은 이 사람. 출장자와 같아도 늘 같은 모양.
+function addReportStaff(el, staffId, staffMap) {
+  const line = document.createElement("div");
+  line.className = "cal-report-staff";
+  line.innerHTML = "<em>보고서 담당자 :</em> <span></span>";
+  line.querySelector("span").textContent = staffMap[staffId]?.name || "미정";
+  el.querySelector(".cal-item-main b").after(line);
 }
 
 // 그날 목록 한 줄에 진행 막대 + [📞 전화] [📍 지도](현장책임자 연락처, 지도 방문 주소 — 서버 site_links)
@@ -413,9 +441,11 @@ function planFields(p) {
   wrap.innerHTML = `
     <label>현장</label><select class="f-site"><option value="">현장 고르기…</option></select>
     <div class="field-grid">
-      <div><label>담당요원</label><select class="f-staff"><option value="">(없음)</option></select></div>
+      <div><label>출장자</label><select class="f-staff"><option value="">(없음)</option></select></div>
       <div><label>날짜</label><input type="date" class="f-date" /></div>
     </div>
+    <label>보고서 담당자 <span style="font-weight:400;color:var(--muted);">(한 사람 하루 ${data.report_limit}곳)</span></label>
+    <select class="f-report"><option value="">${p ? "(비우기)" : "(자동 — 직전 회차 담당, 4곳이면 순서대로)"}</option></select>
     <label>메모 <span style="font-weight:400;color:var(--muted);">(선택, 예: 오후 2시)</span></label><input class="f-memo" maxlength="100" />
     <div class="edit-actions"><button type="button" class="f-save">${p ? "저장" : "예정 넣기"}</button>
       <button type="button" class="secondary f-cancel">취소</button></div>`;
@@ -425,11 +455,14 @@ function planFields(p) {
   for (const s of sites) siteSel.add(new Option(s.name, s.id));
   const staffSel = wrap.querySelector(".f-staff");
   for (const s of data.staff.filter((s) => s.active || s.id === p?.staff_id)) staffSel.add(new Option(s.name, s.id));
+  const reportSel = wrap.querySelector(".f-report");
+  for (const s of data.staff.filter((s) => s.active || s.id === p?.report_staff_id)) reportSel.add(new Option(s.name, s.id));
+  reportSel.value = p?.report_staff_id ?? "";
   siteSel.value = p ? p.site_id : "";
   staffSel.value = p?.staff_id ?? (view.mode === "me" && data.me_staff_id ? data.me_staff_id : "");
   wrap.querySelector(".f-date").value = p ? p.date : selected;
   wrap.querySelector(".f-memo").value = p?.memo || "";
-  siteSel.addEventListener("change", () => { // 현장을 고르면 그 현장 담당요원으로
+  siteSel.addEventListener("change", () => { // 현장을 고르면 출장자는 그 현장 담당요원으로(보고서 담당자는 서버가 규칙대로)
     const s = data.sites.find((x) => String(x.id) === siteSel.value);
     if (s && s.staff_id) staffSel.value = s.staff_id;
   });
@@ -442,8 +475,11 @@ function planFields(p) {
       plan_date: wrap.querySelector(".f-date").value || null,
       memo: wrap.querySelector(".f-memo").value,
     };
+    // 보고서 담당자 — 새 예정은 고른 경우만(안 고르면 서버가 규칙대로), 고칠 땐 바꾼 경우만 보냄(안 바꾸면 날짜를 옮겨도 서버가 4곳을 보고 맞춤)
+    const reportId = Number(reportSel.value) || null;
+    if (p ? reportId !== (p.report_staff_id ?? null) : reportId) body.report_staff_id = reportId;
     if (!body.site_id || !body.plan_date) { alert("현장과 날짜를 고르세요."); return; }
-    if (!confirmLoad(body.staff_id, body.plan_date, body.site_id, null)) return;
+    if (!confirmLoad(body.plan_date, body.site_id, null)) return;
     e.target.disabled = true;
     try {
       if (p) await apiPatch(`/calendar/plans/${p.id}`, body); else await apiPost("/calendar/plans", body);

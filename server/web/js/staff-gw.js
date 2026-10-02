@@ -39,6 +39,7 @@ async function reloadGroupwareStaff() {
   }
   try {
     renderGroupwareStaff(await apiPost("/staff-groupware/sync", { employees }), employees);
+    window.reloadReportOrder?.(); // 요원이 늘거나 쉬게 되면 보고서 담당 순서도(js/staff-order.js)
   } catch (err) {
     showError(errorEl, err);
   }

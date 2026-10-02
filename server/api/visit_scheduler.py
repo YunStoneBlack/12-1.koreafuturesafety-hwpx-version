@@ -5,14 +5,17 @@
 - 기준일(오늘, 공사 시작 전이면 시작일, 최근 지도일이 더 늦으면 그날)부터 마감(준공일 − 설정 일수, 기본 14일)까지 고르게 나눈다
   (첫 지도는 기준일 + 한 간격 — "등록 후 한 간격 안"). 고정 예정이 있으면 그 날짜에 가장 가까운 자리를 고정 예정이 차지한다.
 - 가는 날에서 빼는 날: 주말, 공휴일, 공휴일과 주말(또는 공휴일) 사이에 낀 평일(목 공휴 → 금, 화 공휴 → 월), 평일 공휴일이 3일 이상인 주는 월~금 전부.
-- 같은 요원의 **같이 가기 좋은 현장**은 날짜를 모은다 — 각 회차는 목표일 ± 간격의 1/3 안에서 움직일 수 있고,
+- **같이 가기 좋은 현장**은 날짜를 모은다(요원과 상관없이 — 2026-10-02) — 각 회차는 목표일 ± 간격의 1/3 안에서 움직일 수 있고,
   그 안에 그런 현장 출장이 이미 있거나(고정 예정·앞서 고른 날) 그런 현장의 다른 회차도 올 수 있는 날을 고른다. 묶음은 매번 새로 짠다.
   같이 가기 좋음 = 같은 시·군이면서 도로 거리 30km 이내(설정). 다른 시·군이라도 12km 이내(설정)면 자리가 없을 때만 묶는다(2026-10-01).
   도로 거리는 카카오 길찾기(server/api/geocode.py, 실패하면 직선거리). 좌표가 없는 현장은 예전처럼 시·군이 같으면 같이 가기 좋음.
-- 요원 하루 4곳 한도(다녀온 방문·남은 예정·새로 넣는 것, 같은 현장은 1곳). 한 현장은 하루 한 번, 회차 순서대로.
-- 한 요원은 **하루에 같이 가기 좋은 현장끼리만**(속초·김포를 한날로 잡던 것 — 2026-10-01 실데이터 미리보기에서 발견). 먼 현장 출장이 있는 날은 피한다.
-- 목표 범위에 자리가 없으면 마감(없으면 준공일 전날)까지 가장 가까운 가능한 날로(먼 현장과 섞어야만 되면 섞지 않고 담당 없이 "⚠ 대타 필요"),
-  그래도 없으면 "넣을 날 부족"으로 남긴다(막지 않고 안내만 — 사용자: 횟수를 다 못 채워도 큰일은 아님).
+- **출장자 ≠ 보고서 담당자(2026-10-02, server/api/report_staff.py)**: 출장은 한 사람 한도 없음, 회사 하루 = 요원 수 × 4곳. 그날 같은 지역 출장이
+  있으면 그 사람이 붙여서 가고, 없으면 빈 사람(1순위 = 직전 회차 보고서 담당 → 현장 담당, 아니면 보고서 담당 순서)이 새 지역을 맡는다.
+  새로 만든 묶음은 마지막에 그 현장들의 1순위 중 가장 많은 사람으로(그날 비어 있으면). 정석 규칙(요원별 하루 4곳, 자기 현장만)은 태그 standard-rules-20261002.
+- 한 현장은 하루 한 번, 회차 순서대로.
+- 한 사람은 **하루에 같이 가기 좋은 현장끼리만**(속초·김포를 한날로 잡던 것 — 2026-10-01 실데이터 미리보기에서 발견).
+- 목표 범위에 자리가 없으면 마감(없으면 준공일 전날)까지 가장 가까운 가능한 날로, 그래도 없으면 "넣을 날 부족"으로 남긴다
+  (막지 않고 안내만 — 사용자: 횟수를 다 못 채워도 큰일은 아님). 예전 "⚠ 대타 필요"(담당 없이 넣기)는 출장자를 고를 수 있게 되며 안 생긴다.
 """
 
 from __future__ import annotations
@@ -149,16 +152,20 @@ def plan_sites(
     today: datetime.date,
     busy: dict[tuple[int, datetime.date], set[int]],
     finish_before_days: int = DEFAULT_FINISH_BEFORE_DAYS,
-    limit: int = 4,
+    day_cap: int = 16,
     holidays_: dict[datetime.date, str] | None = None,
     site_regions: dict[int, str] | None = None,
     dist=None,
     far_km: float = DEFAULT_FAR_KM,
     near_km: float = DEFAULT_NEAR_KM,
+    staff_order: list[int] | None = None,
+    day_sites: dict[datetime.date, set[int]] | None = None,
 ) -> tuple[list[Placed], list[SiteResult]]:
-    """sites의 남은 회차를 배치한다.
+    """sites의 남은 회차를 배치한다(출장자는 그날 묶음마다 고른다 — 2026-10-02).
 
-    busy: (요원, 날짜) → 그날 가는 현장들(다녀온 방문·남기는 예정 — 새로 넣는 건 여기에 더해 간다). 묶기의 기준점도 여기서 본다.
+    busy: (출장자, 날짜) → 그날 가는 현장들(다녀온 방문·남기는 예정 — 새로 넣는 건 여기에 더해 간다). 묶기의 기준점도 여기서 본다.
+    day_sites: 날짜 → 회사 전체 그날 가는 현장들(요원 없는 예정 포함) — 회사 하루 한도(day_cap = 요원 수 × 4).
+    staff_order: 출장 갈 수 있는 요원(보고서 담당 순서). site.staff_id = 1순위(직전 회차 보고서 담당 → 현장 담당).
     site_regions: 현장 → 시·군(busy에 든 다른 현장까지, sites의 지역은 저절로 들어간다). dist(a, b): 도로 거리 km(모르면 None — 시·군으로).
     """
     ends = [s.period_end for s in sites if s.period_end]
@@ -168,25 +175,42 @@ def plan_sites(
     hol = holidays_ if holidays_ is not None else korean_holidays(range(today.year, horizon.year + 1))
     blocked = blocked_days(today, horizon, hol)
     busy = defaultdict(set, {k: set(v) for k, v in busy.items()})
+    on_day: dict[datetime.date, set[int]] = defaultdict(set, {k: set(v) for k, v in (day_sites or {}).items()})
+    for (_, d), here in busy.items():
+        on_day[d] |= here
     regions = dict(site_regions or {})
     regions.update({s.id: s.region for s in sites})
     compat = make_compat(regions, dist, far_km, near_km)
+    people = list(staff_order or [])
+    for s in sites:  # 1순위가 순서 목록에 없으면(쉬는 요원 등) 뒤에
+        if s.staff_id is not None and s.staff_id not in people:
+            people.append(s.staff_id)
 
-    def day_kind(site: SiteIn, d: datetime.date) -> str:
-        """그날 이 요원 일정과 이 현장의 궁합 — empty(빈 날) / same(같이 가기 좋은 현장만) / near(가까운 다른 시·군 섞임) / far."""
-        here = busy[(site.staff_id, d)] if site.staff_id is not None else set()
+    def kind_with(site: SiteIn, here: set[int]) -> str:
         kinds = {compat(site.id, x)[0] for x in here}
         return "empty" if not kinds else FAR if FAR in kinds else NEAR if NEAR in kinds else SAME
+
+    def choose(site: SiteIn, d: datetime.date, allow: tuple[str, ...]) -> tuple[str, int] | None:
+        """그날 이 현장을 누가 가면 되는지 — 같은 지역 출장(SAME)에 붙이기 → 빈 사람(1순위 → 순서) → 가까운 다른 시·군 출장(NEAR)."""
+        by_kind: dict[str, list[int]] = defaultdict(list)
+        for x in people:
+            by_kind[kind_with(site, busy[(x, d)])].append(x)
+        for k in (SAME, "empty", NEAR):
+            if k in allow and by_kind[k]:
+                cands = by_kind[k]
+                if site.staff_id in cands:
+                    return k, site.staff_id
+                if k == "empty":
+                    return k, cands[0]
+                return k, max(cands, key=lambda x: len(busy[(x, d)]))  # 붙일 데가 여럿이면 많이 가는 사람에게
+        return None
 
     def ok_day(site: SiteIn, d: datetime.date, after: datetime.date, allow: tuple[str, ...]) -> bool:
         if d <= after or d <= today or d in blocked:
             return False
-        if site.staff_id is None:
-            return True
-        here = busy[(site.staff_id, d)]
-        if site.id in here or len(here) >= limit:
+        if site.id in on_day[d] or len(on_day[d]) >= day_cap:
             return False
-        return day_kind(site, d) in allow
+        return choose(site, d, allow) is not None
 
     # 1) 현장마다 회차 자리(목표일·움직일 폭) 만들기
     slots = []  # (site, 목표일, 폭, 마감)
@@ -216,72 +240,71 @@ def plan_sites(
         for t in all_targets:
             slots.append((s, t, tol, end))
 
-    # 2) 목표일 순서로 하나씩 — 같이 가기 좋은 현장 출장이 이미 있거나, 그런 현장의 다른 회차도 올 수 있는 날을 우선
+    # 2) 목표일 순서로 하나씩 — 같은 지역 출장이 이미 있거나, 같은 지역 다른 현장의 회차도 올 수 있는 날을 우선
     slots.sort(key=lambda x: (x[1], x[0].id))
     last_by_site: dict[int, datetime.date] = {}
     placed: list[Placed] = []
-    pending = defaultdict(list)  # 요원 → 아직 안 놓은 회차의 (현장, 시작, 끝)
-    for s, t, tol, _ in slots:
-        if s.staff_id is not None:
-            pending[s.staff_id].append((s.id, t - datetime.timedelta(days=tol), t + datetime.timedelta(days=tol)))
+    pending = [(s.id, t - datetime.timedelta(days=tol), t + datetime.timedelta(days=tol)) for s, t, tol, _ in slots]
     STRICT, WITH_NEAR = ("empty", SAME), ("empty", SAME, NEAR)
-    site_days: dict[int, set[datetime.date]] = defaultdict(set)  # 현장 → 가는 날(고정 예정 + 이번에 넣은 것) — 대타 날짜 고를 때
-    for s in sites:
-        site_days[s.id].update(d for d in s.fixed if d > today)
 
     for s, t, tol, end in slots:
-        if s.staff_id is not None:
-            mine = pending[s.staff_id]
-            mine.remove(next(p for p in mine if p[0] == s.id and p[1] == t - datetime.timedelta(days=tol)))
+        pending.remove((s.id, t - datetime.timedelta(days=tol), t + datetime.timedelta(days=tol)))
         after = last_by_site.get(s.id, datetime.date.min)
         lo, hi = max(t - datetime.timedelta(days=tol), today + DAY), min(t + datetime.timedelta(days=tol), end)
         window = [lo + DAY * i for i in range((hi - lo).days + 1)] if hi >= lo else []
 
         def score(d: datetime.date):
-            join = day_kind(s, d) == SAME
-            others = sum(1 for (sid, a, b) in pending[s.staff_id] if sid != s.id and a <= d <= b and compat(s.id, sid)[0] == SAME)                 if s.staff_id is not None else 0
+            got = choose(s, d, WITH_NEAR)
+            join = got is not None and got[0] == SAME
+            others = sum(1 for (sid, a, b) in pending if sid != s.id and a <= d <= b and compat(s.id, sid)[0] == SAME)
             return (-join, -others, abs((d - t).days), d)
 
         last_ok = max(end, s.period_end - DAY)
-        span = [(after if after != datetime.date.min else today) + DAY * i
-                for i in range(1, (last_ok - (after if after != datetime.date.min else today)).days + 1)]
-        day = None
-        # 폭 안(같이 가기 좋은 곳만) → 폭 안(가까운 다른 시·군도) → 마감까지(좋은 곳만) → 마감까지(가까운 곳도) → 마감까지 아무 데나
+        start = after if after != datetime.date.min else today
+        span = [start + DAY * i for i in range(1, (last_ok - start).days + 1)]
+        day = allow_used = None
+        # 폭 안(같은 지역·빈 사람만) → 폭 안(가까운 다른 시·군도) → 마감까지(좋은 곳만) → 마감까지(가까운 곳도)
         for days_, allow, by_score in ((window, STRICT, True), (window, WITH_NEAR, True), (span, STRICT, False),
                                        (span, WITH_NEAR, False)):
             cands = [d for d in days_ if ok_day(s, d, after, allow)]
             if cands:
                 day = min(cands, key=score) if by_score else min(cands, key=lambda d: (abs((d - t).days), d))
+                allow_used = allow
                 break
         if day is None:
-            # 먼 현장과 섞어야만 갈 수 있는 회차 — 섞지 않고(속초·파주 한날 같은 것, 2026-10-01) 담당 없이 "⚠ 대타 필요"로 넣는다.
-            # 사람이 달력 [일정 변경] → [대신 갈 요원]으로 정한다(수동 대타 — 사용자 결정). 아예 갈 날이 없으면 그냥 부족.
-            # 대타는 다른 요원이 가므로 회차 순서·담당 요원 한도와 상관없이, 이 현장 방문이 아직 없는 가장 가까운 평일
-            all_days = [today + DAY * i for i in range(1, (last_ok - today).days + 1)]
-            cands = [d for d in all_days if d not in blocked and d not in site_days[s.id]]
-            if not cands:
-                continue
-            day = min(cands, key=lambda d: (abs((d - t).days), d))
-            placed.append(Placed(s.id, None, day, need_sub=True))
-            site_days[s.id].add(day)
-            results[s.id].need_sub += 1
-            continue
-        placed.append(Placed(s.id, s.staff_id, day))
+            continue  # 갈 날이 없음 → 아래에서 "넣을 날 부족"
+        _, who = choose(s, day, allow_used)
+        placed.append(Placed(s.id, who, day))
         last_by_site[s.id] = day
-        site_days[s.id].add(day)
         results[s.id].placed += 1
-        if s.staff_id is not None:
-            busy[(s.staff_id, day)].add(s.id)
+        busy[(who, day)].add(s.id)
+        on_day[day].add(s.id)
+
+    # 3) 새로 만든 출장 묶음(그날 그 사람에게 원래 일정이 없던 것)은 그 현장들의 1순위 중 가장 많은 사람이 가게(동점이면 순서) —
+    #    그 사람이 그날 비어 있을 때만 바꾼다(사용자 2026-10-02: 포천 7곳 중 1곳만 맡은 사람이 7곳 다 가면 이상함).
+    first_of = {s.id: s.staff_id for s in sites}
+    rank = {x: i for i, x in enumerate(people)}
+    groups: dict[tuple[int, datetime.date], list[Placed]] = defaultdict(list)
+    for p in placed:
+        groups[(p.staff_id, p.date)].append(p)
+    for (who, d), group in sorted(groups.items(), key=lambda kv: (kv[0][1], -len(kv[1]))):
+        if busy[(who, d)] != {p.site_id for p in group}:
+            continue  # 원래 있던 출장(사람이 정한 예정·보고서)에 붙인 것 — 그 사람 그대로
+        votes: dict[int, int] = defaultdict(int)
+        for p in group:
+            if first_of.get(p.site_id) is not None:
+                votes[first_of[p.site_id]] += 1
+        if not votes:
+            continue
+        best = max(votes, key=lambda x: (votes[x], -rank.get(x, 99)))
+        if best != who and not busy[(best, d)]:
+            busy[(best, d)] = busy.pop((who, d))
+            for p in group:
+                p.staff_id = best
 
     for r in results.values():
-        notes = []
-        if r.need_sub:
-            notes.append(f"거리가 멀어 담당 요원이 갈 날이 없는 회차 {r.need_sub}건은 '⚠ 대타 필요'로 넣었습니다 — "
-                         "달력에서 [일정 변경] → [대신 갈 요원]으로 정해 주세요")
-        short = r.needed - r.placed - r.need_sub
-        if r.needed and short > 0:
-            notes.append(f"넣을 날이 부족합니다 — {r.needed}회 중 {r.needed - short}회만 배치(주말·공휴일·하루 4곳 한도)")
-        if notes and not r.note:
-            r.note = " / ".join(notes)
+        short = r.needed - r.placed
+        if r.needed and short > 0 and not r.note:
+            r.note = f"넣을 날이 부족합니다 — {r.needed}회 중 {r.placed}회만 배치(주말·공휴일·회사 하루 {day_cap}곳 한도·한 사람 하루 한 지역)"
     placed.sort(key=lambda p: (p.date, p.site_id))
     return placed, list(results.values())

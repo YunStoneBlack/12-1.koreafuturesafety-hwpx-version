@@ -17,6 +17,7 @@ from server.api.report_defaults import apply_new_report_defaults, record_site_ha
 from server.api.deps import get_current_user, get_db
 from server.schemas.report import JobOut, ReportIn, ReportOut, SignoffStatus
 from server.k2b.advice import advice
+from server.api.report_staff import free_names, paper_load, staff_order
 
 router = APIRouter(tags=["reports"])
 
@@ -129,17 +130,12 @@ def update_report(
         db.refresh(report)
     if "hazard_factor_checks" in fields:
         record_site_hazard_checks(db, report)  # 다음 회차 기본값(데스크톱 저장 로직과 동일)
-    # 담당요원은 보고서 ↔ 현장 연동(2026-09-29 사용자 요청) — 보고서에서 정하면 현장 담당요원도 같은 사람으로
-    # (현장 목록 "담당"과 다음 회차 자동 배정이 따라온다). 반대 방향은 sites.update_site.
-    if "assigned_staff_id" in fields and report.site and report.site.assigned_staff_id != report.assigned_staff_id:
-        report.site.assigned_staff_id = report.assigned_staff_id
-        db.commit()
-        db.refresh(report)
+    # 보고서 담당요원을 바꿔도 현장 담당요원(계약 당시 요원)은 그대로(2026-10-02 — 예전 "보고서 ↔ 현장 연동"을 끊음, server/api/report_staff.py)
     return report
 
 
 def check_staff_limit(db: Session, report, fields: dict) -> None:
-    """담당요원 하루 4현장 한도(core/staff_load.py, 데스크톱 report_wizard_staff_limit.py와 같은 규칙).
+    """보고서 담당요원 하루 4현장 한도(core/staff_load.py, 데스크톱 report_wizard_staff_limit.py와 같은 규칙 — 출장은 한도 없음, 2026-10-02).
     요원이나 지도일을 **바꿀 때만** 검사한다 — 예전 데이터가 이미 4곳을 넘어도 열고 저장할 수 있어야 해서
     (데스크톱도 저장된 보고서를 다시 열 땐 검사 안 함)."""
     if "assigned_staff_id" not in fields and "guidance_date" not in fields:
@@ -151,10 +147,13 @@ def check_staff_limit(db: Session, report, fields: dict) -> None:
     names = other_site_names(db, staff_id, date, report.site_id)
     if is_full(names):
         staff = db.get(Staff, staff_id)
+        company_id = report.site.company_id if report.site else None
+        free = free_names(db, paper_load(db, company_id, date), staff_order(db, company_id), staff_id) if company_id else ""
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            f"{staff.name if staff else '이'} 담당요원은 {date:%Y-%m-%d}에 이미 {MAX_SITES_PER_STAFF_PER_DAY}개 현장"
-            f"({', '.join(names)})을 맡고 있어 더 맡을 수 없습니다. 다른 담당요원을 고르거나 지도일을 바꿔 주세요.",
+            f"{staff.name if staff else '이'} 담당요원은 {date:%Y-%m-%d}에 이미 보고서 {MAX_SITES_PER_STAFF_PER_DAY}곳"
+            f"({', '.join(names)})을 맡고 있어 더 맡을 수 없습니다(보고서는 한 사람 하루 {MAX_SITES_PER_STAFF_PER_DAY}곳). "
+            + (f"여유 있는 사람: {free}." if free else "그날 모두 4곳이 찼습니다 — 지도일을 바꿔 주세요."),
         )
 
 
