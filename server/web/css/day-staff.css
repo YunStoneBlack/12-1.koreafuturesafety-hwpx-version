@@ -33,3 +33,5 @@
 .main .ds-toast button, .ds-toast button { margin: 0; padding: 5px 12px; font-size: 12.5px; font-weight: 700; border-radius: 8px; border: none;
   background: var(--surface); color: var(--ink); cursor: pointer; white-space: nowrap; }
 .ds-toast span { white-space: nowrap; } /* 폰에서 "2곳/을"로 끊기지 않게 */
+.cal-group-region { font-size: 12.5px; font-weight: 700; color: var(--ink); } /* 그날 가는 시·군 "📍포천·연천" */
+.cal-group-region:empty { display: none; }

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import datetime
+import re
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -34,6 +35,7 @@ from server.api.site_label import site_label
 from server.api.site_status import is_active
 from server.api.routers.staff_groupware import my_staff_id
 from server.api.submission import report_states
+from server.api.visit_scheduler import region_of
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
@@ -115,6 +117,8 @@ def calendar(
         # 현장별 [📞 전화]·[📍 지도](현장책임자 연락처, 지도 방문 주소 — 없으면 현장 주소) + 진행 막대(pace)
         "site_links": {
             s.id: {"phone": (s.manager_phone or "").strip(), "map_address": map_addr[s.id],
+                   # 시·군("포천시" → "포천") — 그날 요원 상자 머리줄 "📍포천·연천"(폰은 주소가 안 보여 어디 가는지 모름, 2026-10-02 사용자)
+                   "region": short_region(map_addr[s.id]),
                    "pace": pace_dict(s, last_nos.get(s.id))}
             for s in sites.values()
         },
@@ -133,6 +137,18 @@ def calendar(
         "plans": plans,
         "day_load": day_load,
     }
+
+
+_METROS = ("서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종")
+
+
+def short_region(address: str) -> str:
+    """주소 → 짧은 시·군 이름("경기 포천시 …" → "포천", "서울특별시 …"·"서울 강남구" → "서울"). 못 찾으면 ""."""
+    region = region_of(address)
+    for metro in _METROS:
+        if region.startswith(metro) or (not region and (address or "").strip().startswith(metro)):
+            return metro
+    return re.sub(r"(시|군)$", "", region)
 
 
 def _require_plan(db: Session, user: User, plan_id: int) -> VisitPlan:

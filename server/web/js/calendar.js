@@ -319,9 +319,12 @@ function renderDay() {
   for (const g of [...groups.values()].sort((a, b) => order(a.key) - order(b.key))) {
     const box = document.createElement("section");
     box.className = `cal-group${g.key === "sub" ? " sub" : ""}`;
-    box.innerHTML = '<div class="cal-group-head"><b></b><span class="cal-group-n"></span></div>';
+    box.innerHTML = '<div class="cal-group-head"><b></b><span class="cal-group-n"></span><span class="cal-group-region"></span></div>';
     box.querySelector("b").textContent = g.key === "sub" ? "⚠ 대타 필요" : g.key === "none" ? "담당요원 없음" : `👤 ${staffMap[g.key]?.name || ""}`;
     box.querySelector(".cal-group-n").textContent = `${g.sites.size}곳`;
+    // 그날 가는 시·군 "📍포천·연천"(폰은 주소가 안 보여 어디 가는지 몰랐음 — 2026-10-02 사용자, 서버 site_links.region)
+    const regions = [...new Set([...g.sites].map((id) => data.site_links?.[id]?.region).filter(Boolean))];
+    box.querySelector(".cal-group-region").textContent = regions.length ? `📍${regions.join("·")}` : "";
     // [출장 담당자 변경] — 그날 이 사람(또는 출장자 없는 예정)의 예정 여러 곳을 한 번에 다른 사람에게(휴가·병가, js/day-staff.js).
     // 예전 "하루 4곳 다 참" 자리(출장은 한 사람 한도 없음 — 2026-10-02). 현장 하나만은 카드의 [📅 일정 변경] → 대신 갈 요원.
     const movable = g.plans.filter((p) => p.state === "planned");
