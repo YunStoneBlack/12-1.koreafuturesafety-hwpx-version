@@ -25,7 +25,8 @@ function openMoveTraveler(date, fromId, fromName, items, staff, onDone) {
     <label class="ds-field">누구에게 넘길까요?<select class="ds-to">${others.map((s) => `<option value="${s.id}">${apEsc(s.name)}</option>`).join("")}</select></label>
     <div class="ds-hint">넘길 현장 — 출장만 바뀌고 <b>보고서 담당자는 그대로</b>입니다. 넘긴 예정은 📌 고정(자동 배치가 안 바꿈).</div>
     <div class="ds-list">${items.map((it) => `<label class="ds-row"><input type="checkbox" value="${it.planId}" checked />
-      <b>${apEsc(it.siteName)}</b><span>보고서: ${apEsc(it.reportName || "미정")}</span></label>`).join("")}</div>
+      <span class="ds-site"><b>${apEsc(it.siteName)}</b>${it.address ? `<small>📍 ${apEsc(it.address)}</small>` : ""}</span>
+      <span>보고서: ${apEsc(it.reportName || "미정")}</span></label>`).join("")}</div>
     <div class="mail-msg bad ds-msg" hidden></div>
     <div class="mail-foot"><button type="button" class="ds-cancel">취소</button><button type="button" class="mail-primary ds-go">바꾸기</button></div>`;
   body.querySelector(".ds-cancel").addEventListener("click", close);
@@ -39,6 +40,16 @@ function openMoveTraveler(date, fromId, fromName, items, staff, onDone) {
       await apiPost(`/calendar/day/${date}/move`, { from_staff_id: fromId, to_staff_id: to, plan_ids: ids });
       close();
       if (onDone) onDone();
+      // 바로 되돌리기(사용자 2026-10-02 — 잘못 넘긴 건 대부분 바로 알아챔): 받은 사람 → 원래 사람으로 같은 예정만
+      const toName = staff.find((s) => s.id === to)?.name || "";
+      dsToast(`${toName}에게 ${ids.length}곳을 넘겼습니다`, "되돌리기", async () => {
+        try {
+          await apiPost(`/calendar/day/${date}/move`, { from_staff_id: to, to_staff_id: fromId, plan_ids: ids });
+          if (onDone) onDone();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
     } catch (err) {
       msg.hidden = false;
       msg.textContent = err.message;
@@ -81,4 +92,17 @@ async function openRedistribute(date, onDone) {
       ev.target.disabled = false;
     }
   });
+}
+
+// 화면 아래 잠깐 뜨는 알림 + 버튼 하나(10초 뒤 사라짐, 버튼을 누르면 바로 사라지고 onClick)
+function dsToast(text, buttonText, onClick) {
+  document.querySelector(".ds-toast")?.remove();
+  const t = document.createElement("div");
+  t.className = "ds-toast";
+  t.innerHTML = "<span></span><button type=\"button\"></button>";
+  t.querySelector("span").textContent = text;
+  t.querySelector("button").textContent = buttonText;
+  const timer = setTimeout(() => t.remove(), 10000);
+  t.querySelector("button").addEventListener("click", () => { clearTimeout(timer); t.remove(); onClick(); });
+  document.body.appendChild(t);
 }

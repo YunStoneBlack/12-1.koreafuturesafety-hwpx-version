@@ -21,3 +21,15 @@
 .main .cal-day-tools button { margin: 0; padding: 5px 10px; font-size: 12px; }
 .cal-report-staff { font-size: 12.5px; color: var(--ink); margin-top: 2px; }
 .cal-report-staff em { font-style: normal; color: var(--muted); }
+
+/* 출장 담당자 변경 창 — 현장명 아래 주소(어느 현장인지 가늠, 2026-10-02 사용자), 바꾼 뒤 [되돌리기] 알림 */
+.ds-row .ds-site { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ds-row .ds-site b { flex: none; }
+.ds-row .ds-site small { font-size: 12px; color: var(--muted); font-weight: 400; white-space: normal; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ds-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 2000; display: flex; align-items: center; gap: 12px;
+  max-width: calc(100% - 32px); padding: 10px 14px; border-radius: 10px; background: var(--ink); color: var(--surface); font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18); }
+.main .ds-toast button, .ds-toast button { margin: 0; padding: 5px 12px; font-size: 12.5px; font-weight: 700; border-radius: 8px; border: none;
+  background: var(--surface); color: var(--ink); cursor: pointer; white-space: nowrap; }
+.ds-toast span { white-space: nowrap; } /* 폰에서 "2곳/을"로 끊기지 않게 */

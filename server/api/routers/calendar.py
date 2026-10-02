@@ -244,13 +244,14 @@ def redistribute_day(date: datetime.date, body: RedistributeIn, user: User = Dep
 
 class MoveIn(BaseModel):
     from_staff_id: int | None = None  # 지금 출장자(None = "⚠ 대타 필요"처럼 요원 없는 예정)
-    to_staff_id: int
+    to_staff_id: int | None = None  # None = 출장자 없음(창의 [되돌리기]로 "⚠ 대타 필요"였던 예정을 되돌릴 때)
     plan_ids: list[int]
 
 
 @router.post("/day/{date}/move")
 def move_day(date: datetime.date, body: MoveIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """[출장 담당자 변경] — 그날 한 사람의 예정 여러 곳을 다른 사람에게(휴가·병가 대타). 출장자만 바뀌고 보고서 담당자는 그대로, 📌 고정."""
+    """[출장 담당자 변경] — 그날 한 사람의 예정 여러 곳을 다른 사람에게(휴가·병가 대타). 출장자만 바뀌고 보고서 담당자는 그대로, 📌 고정.
+    창의 [되돌리기]도 이것으로(받은 사람 → 원래 사람)."""
     _check_refs(db, user, None, body.to_staff_id)
     plans = db.query(VisitPlan).filter(VisitPlan.company_id == user.company_id, VisitPlan.plan_date == date,
                                        VisitPlan.id.in_(body.plan_ids or [-1])).all()

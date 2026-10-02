@@ -332,7 +332,8 @@ function renderDay() {
       mv.textContent = "출장 담당자 변경";
       const fromId = typeof g.key === "number" ? g.key : null;
       mv.addEventListener("click", () => openMoveTraveler(selected, fromId, fromId ? staffMap[fromId]?.name : "",
-        movable.map((p) => ({ planId: p.id, siteName: p.site_name, reportName: staffMap[p.report_staff_id]?.name })), data.staff, reload));
+        movable.map((p) => ({ planId: p.id, siteName: p.site_name, reportName: staffMap[p.report_staff_id]?.name,
+          address: data.site_links?.[p.site_id]?.map_address || "" })), data.staff, reload));
       box.querySelector(".cal-group-head").appendChild(mv);
     }
     if (typeof g.key === "number") { // [🚗 동선 짜기] — 회사 → 이 요원의 그날 현장들(최적 순서) → 회사(js/route-plan.js)
