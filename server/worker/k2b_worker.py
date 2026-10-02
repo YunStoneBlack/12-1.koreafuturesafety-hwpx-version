@@ -38,6 +38,9 @@ def _manual(options: dict | None, job_id: int) -> tuple[ManualFields, bool]:
         bad_site_files=files,
         major_hazard_works=[MajorHazardWork(**h) for h in (o.get("major_hazard_works") or [])],
         prev_guidance=o.get("prev_guidance", ""),
+        ceo_notice_quarter=o.get("ceo_notice_quarter") or None,
+        ceo_notice_date=o.get("ceo_notice_date") or "",
+        owner_notice_date=o.get("owner_notice_date") or "",
     )
     return manual, bool(o.get("allow_round_mismatch"))
 

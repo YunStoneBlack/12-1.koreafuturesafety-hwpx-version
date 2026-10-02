@@ -69,6 +69,13 @@ async function openK2bModal(reportId, titleText, onDone) {
           <select class="kb-prev"><option value="">고르세요</option><option>이행</option><option>불이행</option><option>해당없음</option></select>
           <span class="mail-note ${s.prev_guidance_default ? "" : "kb-warn"}">${mailEsc(s.prev_guidance_reason)}</span>
           <span class="mail-note">해당없음은 K2B 1차수에서만 됩니다</span></label>
+        <div class="kb-field kb-wide"><span>경영책임자(건설업체 본사) 통보일 <span class="mail-note">— 40억 이상 공사만, 안 쓰면 비워 두세요</span></span>
+          <div class="kb-radios kb-ceo">${[1, 2, 3, 4].map((q) => `<label><input type="radio" name="kb-ceo-q" value="${q}" /> ${q}분기</label>`).join("")}
+            <input type="date" class="kb-ceo-date" aria-label="경영책임자 통보일" />
+            <button type="button" class="kb-ceo-clear">비우기</button></div>
+          ${s.site_amount >= 4e9 ? `<span class="mail-note kb-warn">이 현장은 공사금액 ${Math.floor(s.site_amount / 1e8).toLocaleString()}억 원 — 경영책임자 통보일을 확인하세요</span>` : ""}</div>
+        <div class="kb-field kb-wide"><span>건설공사 발주자 통보일 <span class="mail-note">— 이전 기술지도 이행여부가 '불이행'일 때만(K2B 규칙)</span></span>
+          <div class="kb-radios"><input type="date" class="kb-owner-date" aria-label="건설공사 발주자 통보일" /></div></div>
         <div class="kb-field"><span>비계 사용 <em>필수</em></span>
           <div class="kb-radios"><label><input type="radio" name="kb-scaffold" value="미사용" /> 미사용</label>
             <label><input type="radio" name="kb-scaffold" value="사용" /> 사용</label>
@@ -98,6 +105,20 @@ async function openK2bModal(reportId, titleText, onDone) {
       $(".kb-msg").className = "mail-msg kb-msg bad";
       $(".kb-msg").textContent = "K2B 차수가 2 이상이라 '해당없음'은 안 됩니다 — 이전 기술지도 이행여부를 '이행' 또는 '불이행'으로 고르세요.";
     }
+    // 경영책임자·발주자 통보일 — 기본은 비움(사용자: 40억 이상 공사만이라 거의 빔), [다시 제출]로 왔을 때만 앞 값.
+    // 발주자 통보일은 K2B가 이행여부 '불이행'일 때만 받아서 그때만 켬(바꾸면 비움).
+    const ceoQs = [...box.querySelectorAll('input[name="kb-ceo-q"]')];
+    ceoQs.forEach((r) => { r.checked = !!prefill && Number(r.value) === prefill.ceo_notice_quarter; });
+    $(".kb-ceo-date").value = (prefill && prefill.ceo_notice_date) || "";
+    $(".kb-ceo-clear").addEventListener("click", () => { ceoQs.forEach((r) => { r.checked = false; }); $(".kb-ceo-date").value = ""; });
+    const ownerDate = $(".kb-owner-date");
+    ownerDate.value = (prefill && prefill.owner_notice_date) || "";
+    const syncOwner = () => {
+      ownerDate.disabled = $(".kb-prev").value !== "불이행";
+      if (ownerDate.disabled) ownerDate.value = "";
+    };
+    $(".kb-prev").addEventListener("change", syncOwner);
+    syncOwner();
     const radios = [...box.querySelectorAll('input[name="kb-scaffold"]')];
     const types = [...box.querySelectorAll(".kb-type")];
     const syncTypes = () => {
@@ -151,6 +172,9 @@ async function openK2bModal(reportId, titleText, onDone) {
       const options = {
         current_process: $(".kb-process").value,
         prev_guidance: $(".kb-prev").value,
+        ceo_notice_quarter: Number(ceoQs.find((r) => r.checked)?.value) || null,
+        ceo_notice_date: $(".kb-ceo-date").value,
+        owner_notice_date: ownerDate.value,
         scaffold_usage: radios.find((r) => r.checked)?.value || "",
         scaffold_types: types.filter((t) => t.checked).map((t) => t.value),
         major_hazard_works: [...hazards.querySelectorAll(".kb-hazard")].map((r) => ({
@@ -163,6 +187,7 @@ async function openK2bModal(reportId, titleText, onDone) {
       };
       if (!options.current_process) return show("bad", "현재 작업공종을 고르세요(K2B 필수).");
       if (!options.prev_guidance) return show("bad", "이전 기술지도 이행여부를 고르세요(K2B 필수).");
+      if (!options.ceo_notice_quarter !== !options.ceo_notice_date) return show("bad", "경영책임자(본사) 통보일은 분기와 날짜를 같이 고르세요(안 쓰면 [비우기]).");
       if (!options.scaffold_usage) return show("bad", "비계 사용 여부를 고르세요(K2B 필수).");
       if (!confirm(`K2B에 ${info.summary.site_name} ${info.summary.visit_no}회차를 새 차수로 저장합니다. 진행할까요?`)) return;
       const fd = new FormData();

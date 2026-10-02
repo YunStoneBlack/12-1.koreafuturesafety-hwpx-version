@@ -113,6 +113,29 @@ class FieldsMixin(K2BClientBase):
         self._scroll_into_view(checkbox)
         checkbox.click()
 
+    def _set_calendar(self, name: str, label: str, target: datetime.date) -> None:
+        self.log(f"{label}을 {target.isoformat()}로 입력 중...")
+        ids = sel.calendar_ids(name)
+        button = self.page.locator(ids["button"])
+        self._scroll_into_view(button)
+        button.click()
+        self._pick_date_in_open_calendar(target, ids["year"], ids["month"], ids["prev"], ids["next"], ids["days"])
+
+    def set_ceo_notice(self, quarter: int | None, date: datetime.date | None) -> None:
+        """경영책임자(건설업체 본사) 통보일 — 분기 하나 + 날짜(40억 이상 공사, 제출 창에서 고른 것만 — 사용자 2026-10-02)."""
+        if quarter:
+            self.log(f"경영책임자 통보 {quarter}분기 체크 중...")
+            box = self.page.locator(sel.CEO_NOTICE_QUARTER_CHECKBOX_IDS[quarter])
+            self._scroll_into_view(box)
+            box.click()
+        if date:
+            self._set_calendar(sel.CEO_NOTICE_CALENDAR, "경영책임자 통보일", date)
+
+    def set_owner_notice(self, date: datetime.date | None) -> None:
+        """건설공사 발주자 통보일 — K2B가 이전 기술지도 이행여부 '불이행'일 때만 켜 준다(실측: 이행·처음엔 disabled) → 이행여부를 고른 뒤에 부를 것."""
+        if date:
+            self._set_calendar(sel.OWNER_NOTICE_CALENDAR, "건설공사 발주자 통보일", date)
+
     def fill_counts(self, guidance: int | None, education: int | None, materials: int | None) -> None:
         """지도건수(8번 지적사항 개수)·교육인원(10번 TBM 인원)·배포자료건수(11번 제공자료 개수) — None이면 그 칸은 그대로 비워 둔다."""
         for label, locator_str, value in (("지도건수", sel.GUIDANCE_COUNT_INPUT_ID, guidance),

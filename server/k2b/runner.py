@@ -108,11 +108,14 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
             c.select_current_process(m.current_process)
         if sub.notification_method:
             c.check_notification_method(sub.notification_method)
+        c.set_ceo_notice(m.ceo_notice_quarter, datetime.date.fromisoformat(m.ceo_notice_date) if m.ceo_notice_date else None)
         if m.scaffold_usage:
             c.set_scaffold_usage(m.scaffold_usage == "사용", m.scaffold_types)
         # K2B 필수 — 창에서 고른 값(manual.prev_guidance), 없으면 4번 결과로 미리 고른 값(submission.prev_guidance_auto)
         if prev_choice:
             c.check_prev_guidance_implemented(prev_choice)
+        if m.owner_notice_date and prev_choice == "불이행":  # K2B가 불이행일 때만 칸을 켜 줌
+            c.set_owner_notice(datetime.date.fromisoformat(m.owner_notice_date))
         c.fill_counts(sub.guidance_count, sub.education_count, sub.material_count)
         if m.bad_site_notify:
             c.notify_bad_site(m.bad_site_content, m.bad_site_files)

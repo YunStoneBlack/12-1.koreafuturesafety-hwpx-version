@@ -278,6 +278,28 @@ SAVE_DONE_TEXT = "정상적으로 저장"
 # 키보드 입력·Enter 줄바꿈이 그대로 들어감 — 다른 줄의 번호 칸을 누르면 값이 셀에 확정(CONFIRMED). 단 저장 뒤 목록엔 첫 줄만 보여서 "제목 / 내용" 한 줄로 넣음.
 PROBLEM_ADD_BUTTON = "[id$='tabpage1_btn_reqAddTextBoxElement']"
 
+# --- 경영책임자(건설업체 본사) 통보일·건설공사 발주자 통보일(2026-10-02 실측, 저장 없이) ---
+# 경영책임자: 분기 체크 chk20_1~4(통보방법 chk01_*과 같은 모양) + 달력 cal_MNGER_DSPTH_DY. 발주자: 달력 cal_CNTWRK_ORDER_MAN_DSPTH_DY만.
+# 두 달력은 기술지도일 달력(cal_TCHGUD_YMD)과 같은 구조 — calendar_ids(이름)로 셀렉터를 만든다.
+# 발주자 통보일 달력은 이전 기술지도 이행여부가 '불이행'일 때만 켜짐(이행·처음엔 disabled, CONFIRMED).
+CEO_NOTICE_QUARTER_CHECKBOX_IDS = {q: _modal(f"_chk20_{q}_chkimg") + " > div" for q in (1, 2, 3, 4)}
+CEO_NOTICE_CALENDAR = "MNGER_DSPTH_DY"
+OWNER_NOTICE_CALENDAR = "CNTWRK_ORDER_MAN_DSPTH_DY"
+
+
+def calendar_ids(name: str) -> dict[str, str]:
+    """상세 모달 달력(cal_{name})의 단추·팝업 셀렉터 — 기술지도일 달력 GUIDANCE_DATE_CALENDAR_*와 같은 규칙."""
+    p = f"_cal_{name}"
+    return {
+        "button": _modal(f"{p}_dropbuttonAlignImageElement"),
+        "input": _modal(f"{p}_calendaredit_input"),
+        "year": _modal(f"{p}_popupcalendar_header_yearStatic"),
+        "month": _modal(f"{p}_popupcalendar_header_monthStatic"),
+        "prev": _modal(f"{p}_popupcalendar_header_prevbutton"),
+        "next": _modal(f"{p}_popupcalendar_header_nextbutton"),
+        "days": _modal(f"{p}_popupcalendar_body_daystatic"),
+    }
+
 
 def problem_cell(row: int, col: int) -> str:
     return f"[id$='tabpage1_grd_DS_EBP0110_R03_body_gridrow_{row}_cell_{row}_{col}']"

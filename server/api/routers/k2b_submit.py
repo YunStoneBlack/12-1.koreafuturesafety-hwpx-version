@@ -88,6 +88,7 @@ def k2b_info(report_id: int, user: User = Depends(get_current_user), db: Session
             "prev_guidance_default": sub.prev_guidance_auto,
             "prev_guidance_reason": sub.prev_guidance_reason,
             "special_note": sub.special_note,
+            "site_amount": report.site.amount,  # 40억 이상이면 창에서 "경영책임자 통보일 확인" 안내(값은 비워 둠)
             "counts": {"지도건수": sub.guidance_count, "교육인원": sub.education_count, "배포자료건수": sub.material_count},
             "problems": len(sub.problem_texts),
             "photos": {"현장전경": len(sub.overview_photo_paths), "현장점검": len(sub.inspection_photo_paths), "현장개선": len(sub.improvement_photo_paths)},
@@ -123,6 +124,19 @@ async def k2b_submit(
         problems.append("현재 작업공종을 고르세요(K2B 필수).")
     if o.get("prev_guidance") not in ("이행", "불이행", "해당없음"):
         problems.append("이전 기술지도 이행여부를 고르세요(K2B 필수).")
+    q, ceo_date, owner_date = o.get("ceo_notice_quarter"), o.get("ceo_notice_date") or "", o.get("owner_notice_date") or ""
+    if q not in (None, 1, 2, 3, 4):
+        problems.append("경영책임자 통보 분기를 다시 고르세요.")
+    elif bool(q) != bool(ceo_date):
+        problems.append("경영책임자(본사) 통보일은 분기와 날짜를 같이 고르세요(안 쓰면 둘 다 비움).")
+    if owner_date and o.get("prev_guidance") != "불이행":
+        problems.append("건설공사 발주자 통보일은 이전 기술지도 이행여부가 '불이행'일 때만 넣을 수 있습니다(K2B 규칙).")
+    for label, d in (("경영책임자(본사) 통보일", ceo_date), ("건설공사 발주자 통보일", owner_date)):
+        if d:
+            try:
+                datetime.date.fromisoformat(d)
+            except ValueError:
+                problems.append(f"{label} 날짜를 다시 고르세요.")
     if o.get("scaffold_usage") not in ("사용", "미사용"):
         problems.append("비계 사용 여부를 고르세요(K2B 필수).")
     elif o["scaffold_usage"] == "사용" and not o.get("scaffold_types"):
@@ -147,7 +161,8 @@ async def k2b_submit(
     if busy:
         raise HTTPException(status.HTTP_409_CONFLICT, "이 보고서는 지금 K2B에 제출하는 중입니다 — 끝날 때까지 기다리세요.")
     keep = {k: o.get(k) for k in ("current_process", "scaffold_usage", "scaffold_types", "bad_site_notify",
-                                  "bad_site_content", "major_hazard_works", "allow_round_mismatch", "prev_guidance")}
+                                  "bad_site_content", "major_hazard_works", "allow_round_mismatch", "prev_guidance",
+                                  "ceo_notice_quarter", "ceo_notice_date", "owner_notice_date")}
     job = K2bSubmission(company_id=user.company_id, report_id=report_id, staff_id=report.assigned_staff_id,
                         status="queued", options=keep, created_by=user.display_name or "")
     db.add(job)

@@ -62,3 +62,8 @@ a.k2b-sent:hover { text-decoration: underline; }
 #k2b-panel .rk-older ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.6; }
 #k2b-panel .rk-actions { margin-top: 10px; }
 #k2b-panel .rk-actions button { margin-top: 0; }
+/* 경영책임자(본사)·발주자 통보일(2026-10-02) — 한 줄 전체, 발주자 칸은 이행여부 '불이행'일 때만 켜짐 */
+.kb-grid .kb-field.kb-wide { grid-column: 1 / -1; }
+.kb-box button.kb-ceo-clear { margin: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.kb-box input[type="date"]:disabled { background: var(--paper); color: var(--faint); cursor: not-allowed; }
