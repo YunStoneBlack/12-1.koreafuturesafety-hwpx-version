@@ -60,11 +60,16 @@ def paper_load(db: Session, company_id: int, date: datetime.date, exclude_plan_i
     return load
 
 
+def has_room(load: dict[int, set[int]], staff_id: int, site_id: int) -> bool:
+    """그날 이 사람이 이 현장 보고서를 더 맡을 수 있는지 — 4곳 미만이거나 이미 이 현장을 맡음."""
+    here = load.get(staff_id, set())
+    return site_id in here or len(here) < LIMIT
+
+
 def pick(preferred: int | None, load: dict[int, set[int]], order: list[int], site_id: int) -> int | None:
     """1순위가 그날 4곳 미만(또는 이미 이 현장을 맡음)이면 그 사람, 아니면 순서대로 여유 있는 사람. 모두 차면 None."""
     for staff_id in ([preferred] if preferred else []) + [x for x in order if x != preferred]:
-        here = load.get(staff_id, set())
-        if site_id in here or len(here) < LIMIT:
+        if has_room(load, staff_id, site_id):
             return staff_id
     return None
 
@@ -76,24 +81,41 @@ def free_names(db: Session, load: dict[int, set[int]], order: list[int], exclude
     return "·".join(out)
 
 
+def _share_out(todo: list[VisitPlan], load: dict[int, set[int]], pref: dict[int, int | None],
+               order: list[int]) -> list[tuple[VisitPlan, int | None]]:
+    """한 날짜의 예정들에 보고서 담당을 고른다(load에 더해 감) — 새 예정 채우기·다시 나누기가 같은 순서를 쓴다(2026-10-02 리팩토링:
+    예전엔 순서가 달라 채운 직후 [다시 나누기]가 24건을 바꾸려 했음). 1순위가 같은 현장끼리 모아(그 사람 4곳을 먼저 채움) 보고서 담당 순서대로,
+    같은 1순위 안에서는 지금 이미 1순위로 맞게 된 예정을 먼저 — 규칙에 맞는 지금 나눔은 그대로 남게(넘칠 땐 누구를 돌려도 규칙엔 맞음)."""
+    rank = {x: i for i, x in enumerate(order)}
+    out = []
+    for p in sorted(todo, key=lambda x: (rank.get(pref.get(x.site_id), 99),
+                                         0 if x.report_staff_id is not None and x.report_staff_id == pref.get(x.site_id) else 1, x.id)):
+        staff_id = pick(pref.get(p.site_id), load, order, p.site_id)
+        if staff_id:
+            load[staff_id].add(p.site_id)
+        out.append((p, staff_id))
+    return out
+
+
+def _pref_for(db: Session, plans: list[VisitPlan]) -> dict[int, int | None]:
+    sites = db.query(Site).filter(Site.id.in_({p.site_id for p in plans})).all() if plans else []
+    return preferred_map(db, sites)
+
+
 def assign_new_plans(db: Session, company_id: int, plans: list[VisitPlan]) -> None:
     """보고서 담당자가 비어 있는 예정에 규칙대로 채운다(자동 배치·예정 추가 뒤). 날짜마다 그날 다른 예정·보고서를 센다. commit은 부르는 쪽."""
     todo = [p for p in plans if p.report_staff_id is None]
     if not todo:
         return
     db.flush()
-    sites = {s.id: s for s in db.query(Site).filter(Site.id.in_({p.site_id for p in todo}))}
-    pref = preferred_map(db, list(sites.values()))
-    order = staff_order(db, company_id)
+    pref, order = _pref_for(db, todo), staff_order(db, company_id)
     by_date: dict[datetime.date, list[VisitPlan]] = defaultdict(list)
     for p in todo:
         by_date[p.plan_date].append(p)
     for date, day_plans in by_date.items():
         load = paper_load(db, company_id, date, exclude_plan_ids={p.id for p in day_plans})
-        for p in sorted(day_plans, key=lambda x: x.id):
-            p.report_staff_id = pick(pref.get(p.site_id), load, order, p.site_id)
-            if p.report_staff_id:
-                load[p.report_staff_id].add(p.site_id)
+        for p, staff_id in _share_out(day_plans, load, pref, order):
+            p.report_staff_id = staff_id
 
 
 def redistribute(db: Session, company_id: int, date: datetime.date) -> list[tuple[VisitPlan, int | None]]:
@@ -103,19 +125,7 @@ def redistribute(db: Session, company_id: int, date: datetime.date) -> list[tupl
         Site.company_id == company_id, Report.guidance_date == date)}
     todo = [p for p in plans if p.site_id not in reported]
     load = paper_load(db, company_id, date, exclude_plan_ids={p.id for p in todo})
-    sites = {s.id: s for s in db.query(Site).filter(Site.id.in_({p.site_id for p in todo}))} if todo else {}
-    pref = preferred_map(db, list(sites.values()))
-    order = staff_order(db, company_id)
-    out = []
-    # 1순위가 같은 현장끼리 모아(그 사람 4곳을 먼저 채움) 순서대로 — 같은 1순위 안에서는 지금 이미 1순위로 맞게 된 예정을 먼저 넣어
-    # 규칙에 맞는 지금 나눔은 그대로 남게(넘칠 땐 누구를 돌려도 규칙엔 맞으니 공연히 바꾸지 않음)
-    for p in sorted(todo, key=lambda x: (order.index(pref[x.site_id]) if pref.get(x.site_id) in order else 99,
-                                         0 if x.report_staff_id == pref.get(x.site_id) else 1, x.id)):
-        staff_id = pick(pref.get(p.site_id), load, order, p.site_id)
-        if staff_id:
-            load[staff_id].add(p.site_id)
-        out.append((p, staff_id))
-    return out
+    return _share_out(todo, load, _pref_for(db, todo), staff_order(db, company_id))
 
 
 def travelers(db: Session, company_id: int, start: datetime.date, end: datetime.date) -> dict[tuple[int, datetime.date], int]:

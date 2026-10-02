@@ -28,7 +28,8 @@ from core.models_db import Report, Site, Staff
 from core.models_web import User, VisitPlan
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
 from server.api import repo
-from server.api.report_staff import assign_new_plans, day_cap, free_names, paper_load, redistribute, staff_order, travelers
+from server.api.report_staff import (assign_new_plans, day_cap, free_names, has_room, paper_load, redistribute, staff_order,
+                                     travelers)
 from server.api.deps import get_current_user, get_db
 from server.api.site_pace_out import done_counts, pace_dict
 from server.api.geocode import map_addresses
@@ -174,8 +175,7 @@ def _check_report_staff(db: Session, user: User, plan: VisitPlan, staff_id: int 
         return
     _check_refs(db, user, None, staff_id)
     load = paper_load(db, user.company_id, plan.plan_date, exclude_plan_ids={plan.id} if plan.id else None)
-    mine = load.get(staff_id, set())
-    if plan.site_id not in mine and len(mine) >= MAX_SITES_PER_STAFF_PER_DAY:
+    if not has_room(load, staff_id, plan.site_id):
         name = db.query(Staff.name).filter(Staff.id == staff_id).scalar() or ""
         free = free_names(db, load, staff_order(db, user.company_id), staff_id)
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
@@ -218,8 +218,7 @@ def update_plan(plan_id: int, body: PlanIn, user: User = Depends(get_current_use
         plan.report_staff_id = fields["report_staff_id"]
     elif moved and plan.report_staff_id is not None:
         # 다른 날·현장으로 옮겼는데 그날 그 사람이 이미 보고서 4곳이면 규칙대로 다시 고른다
-        mine = paper_load(db, user.company_id, plan.plan_date, exclude_plan_ids={plan.id}).get(plan.report_staff_id, set())
-        if plan.site_id not in mine and len(mine) >= MAX_SITES_PER_STAFF_PER_DAY:
+        if not has_room(paper_load(db, user.company_id, plan.plan_date, exclude_plan_ids={plan.id}), plan.report_staff_id, plan.site_id):
             plan.report_staff_id = None
             assign_new_plans(db, user.company_id, [plan])
     if "memo" in fields:
