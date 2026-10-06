@@ -218,9 +218,7 @@ function renderMaterials(items) {
     container.appendChild(card);
     document.getElementById(`mat-title-${slot}`).value = data.title;
 
-    document.getElementById(`mat-thumb-${slot}`).addEventListener("click", () => {
-      window.open(data.material_id ? `${BASE}/api/material-library/${data.material_id}/file` : `${matBase}/${slot}/photo`, "_blank");
-    });
+    // 그림을 누르면 크게 보기(js/photo-viewer.js — 다른 사진 칸과 같게, 2026-10-07). 예전엔 새 탭으로 원본
     document.getElementById(`mat-pick-${slot}`).addEventListener("click", () => openMaterialPicker(slot));
     const rotBtn = document.getElementById(`mat-rot-${slot}`); // 직접 올린 이미지만(라이브러리 자료는 공용 파일)
     if (rotBtn) rotBtn.addEventListener("click", () => rotatePhoto(rotBtn, `${matBase}/${slot}/photo/rotate`, () => {
