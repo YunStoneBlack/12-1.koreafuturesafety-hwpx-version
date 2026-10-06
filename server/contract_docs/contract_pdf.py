@@ -75,7 +75,8 @@ def _parse_g2b(text: str) -> dict:
     out["client"] = _after(text, r"기\s*관\s*명", r"계약관|주\s*소|전\s*화|$")
     out["title"] = _after(text, r"계약건명")
     out["contract_no"] = _after(text, r"계약번호", r"관리번호|$").replace(" ", "")
-    m = re.search(r"계약금액\s*:.*?\\\s*([\d,]+)", text)
+    # 금액 = 총용역부기금액(계약 전체, 사용자 10/6 확정) — 장기계속이면 계약금액(금차)과 다름. 없으면 계약금액
+    m = re.search(r"총용역부기금액\s*:.*?\\\s*([\d,]+)", text) or re.search(r"계약금액\s*:.*?\\\s*([\d,]+)", text)
     out["amount"] = int(m[1].replace(",", "")) if m else None
     out["contract_date"] = _date(_after(text, r"계약일자"))
     out["start_date"] = _date(_after(text, r"착수일자", r"금차|총완수|$"))
