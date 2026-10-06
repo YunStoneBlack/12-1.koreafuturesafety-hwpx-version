@@ -99,3 +99,9 @@
 .mail-box.cd-box.drop-over { background-color: var(--surface); outline-offset: -6px; } /* 창 전체가 받을 땐 테두리만 */
 .cd-drop-hint { font-size: 11.5px; }
 @media (hover: none) { .cd-drop-hint { display: none; } } /* 폰·태블릿엔 끌어다 놓기가 없으니 안내도 숨김 */
+/* 아래 버튼 줄 — [닫기] [엑셀 받기] [PDF 보기] [PDF 받기] [착수계 만들기](받기 버튼은 만들기 옆, 10/6 사용자). 폰은 줄바꿈 */
+.mail-foot.cd-foot { flex-wrap: wrap; }
+.mail-foot.cd-foot a { color: var(--blue); border-color: var(--blue); background: var(--blue-soft); }
+@media (max-width: 760px) {
+  .mail-foot.cd-foot > * { flex: 1 1 auto; text-align: center; padding: 9px 10px; }
+}

@@ -108,8 +108,10 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
         <label><input type="radio" name="cd-seal" value="0" /> 빼기 <span class="mail-note">(원본 — 인쇄 뒤 직접 날인)</span></label>
       </div>
       ${result || ""}
-      ${made.at && !result ? `<div class="cd-made">지난번 만든 것 ${mailEsc(made.at)} — ${dl("xlsx", "엑셀")}${made.pdf ? ` · ${dl("pdf", "PDF 보기", true)} · ${dl("pdf", "PDF 받기")}` : ""}</div>` : ""}
-      <div class="mail-foot"><button type="button" class="cd-close">닫기</button><button type="button" class="mail-primary cd-make">${label} 만들기</button></div>`;
+      ${made.at && !result ? `<div class="cd-made">지난번 만든 것 ${mailEsc(made.at)} — 아래 버튼으로 받기</div>` : ""}
+      <div class="mail-foot cd-foot"><button type="button" class="cd-close">닫기</button>
+        ${made.xlsx ? dl("xlsx", "엑셀 받기") : ""}${made.pdf ? dl("pdf", "PDF 보기", true) + dl("pdf", "PDF 받기") : ""}
+        <button type="button" class="mail-primary cd-make">${label} ${made.at ? "다시 " : ""}만들기</button></div>`;
     box.querySelector(".cd-close").addEventListener("click", close);
     box.querySelector(".cd-make").addEventListener("click", make);
     box.querySelector(".cd-link-btn").addEventListener("click", async () => { await ensure(); openLinkSite(contractId, async () => {
@@ -220,7 +222,9 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   }
 
   function dl(ext, text, inline = false) {
-    return `<a href="${BASE}/api/contracts/${contractId}/docs/${kind}.${ext}${inline ? "?inline=1" : ""}" ${inline ? 'target="_blank" rel="noopener"' : "download"}>${text}</a>`;
+    // 받을 이름 "용역명_착수계.xlsx"를 링크에 직접 — download가 비면 브라우저가 주소 끝(start.xlsx)을 이름으로 쓰기도 함(10/6 실측)
+    const name = `${(st.title || "용역").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40)}_${label}.${ext}`;
+    return `<a href="${BASE}/api/contracts/${contractId}/docs/${kind}.${ext}${inline ? "?inline=1" : ""}" ${inline ? 'target="_blank" rel="noopener"' : `download="${mailEsc(name)}"`}>${text}</a>`;
   }
 
   function personNote(p) {
@@ -338,7 +342,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       st = { ...(await api(`/contracts/${contractId}`)), agent_id: st.agent_id, participant_ids: st.participant_ids };
       const warn = out.warnings.length ? `<div class="mail-msg warn">${out.warnings.map(mailEsc).join("<br>")}</div>` : "";
       const pdfBad = out.pdf_error ? `<div class="mail-msg bad">PDF를 못 만들었습니다 — 엑셀은 받을 수 있습니다.<br>${mailEsc(out.pdf_error)}</div>` : "";
-      draw(`<div class="mail-msg ok">✓ ${label}를 만들었습니다 — ${dl("xlsx", "엑셀 받기")}${out.pdf_error ? "" : ` · ${dl("pdf", "PDF 보기", true)} · ${dl("pdf", "PDF 받기")}`}</div>${pdfBad}${warn}`);
+      draw(`<div class="mail-msg ok">✓ ${label}를 만들었습니다 — 아래 버튼으로 받으세요.</div>${pdfBad}${warn}`); // 받기 버튼은 만들기 옆(10/6 사용자)
     } catch (err) {
       btn.disabled = false;
       btn.textContent = `${label} 만들기`;
