@@ -1,8 +1,8 @@
 """서류 자동화 — 용역 계약과 착수계·완수계(2026-10-06). 계약은 현장 없이 먼저 생기고(착수계가 현장 등록보다 먼저 — 형), 나중에 현장과 연결한다.
 
 - `GET /contracts` — 계약 목록(단계·제출·기한·연결 현장) — 서류 자동화 계약 목록·제출 현황·일정 달력이 같이 씀
-- `POST /contracts` (빈 계약) / `POST /contracts/from-pdf` (용역계약서 PDF로 새 계약)
-- `GET|PUT|DELETE /contracts/{id}` — 창에 필요한 것 전부 / 계약 값 저장 / 지우기(파일까지)
+- `POST /contracts` (빈 계약) / `POST /contracts/from-pdf` (용역계약서 PDF로 새 계약 — 글자 규칙, 못 읽은 칸은 Claude API)
+- `GET|PUT|DELETE /contracts/{id}` — 창에 필요한 것 전부 / 계약 값 저장 / 지우기(파일까지, 삭제 비밀번호)
 - `POST /contracts/{id}/pdf` — 계약서 PDF 다시 올리기(읽은 칸만 덮어씀)
 - `POST /contracts/{id}/link {site_id|null}` — 현장 연결·해제(현장 하나에 계약 하나)
 - `POST /contracts/{id}/docs/{start|done}` — 엑셀 + 합본 PDF(LibreOffice + 붙임 파일), `GET …/docs/{kind}.{xlsx|pdf}` — 받기
@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Literal
 
 import openpyxl
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -27,9 +27,10 @@ from core.models_db import Site
 from core.models_web import ServiceContract, TechPerson, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
+from server.api.security import verify_password
 from server.api.routers.contract_library import company_docs, doc_status, person_docs, persons
 from server.api.site_label import short_mgmt
-from server.contract_docs import attachments, build, contract_pdf, contract_status, files, to_pdf
+from server.contract_docs import attachments, build, contract_ai, contract_pdf, contract_status, files, to_pdf
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 site_router = APIRouter(prefix="/sites/{site_id}", tags=["contracts"])
@@ -111,13 +112,24 @@ def create_contract(user: User = Depends(get_current_user), db: Session = Depend
 def _read_pdf(db: Session, user: User, row: ServiceContract, data: bytes) -> dict:
     if data[:4] != b"%PDF":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "용역계약서 PDF 파일을 올리세요.")
-    try:
-        with tempfile.TemporaryDirectory() as tmp:
-            src = Path(tmp) / "c.pdf"
-            src.write_bytes(data)
+    ai_filled: list[str] = []
+    ai_error = ""
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "c.pdf"
+        src.write_bytes(data)
+        try:
             parsed = contract_pdf.parse_pdf(src)
-    except Exception as err:  # noqa: BLE001 — 글자가 없는 스캔 PDF 등
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "계약서에서 글자를 읽지 못했습니다 — 칸을 직접 채우세요.") from err
+        except Exception:  # noqa: BLE001 — 글자가 없는 스캔 PDF 등 → 전부 AI로
+            parsed = {k: None for k in contract_ai.KEY_FIELDS + ("contract_date",)}
+        # 글자 규칙으로 못 읽은 중요한 칸이 있으면 Claude API로 빈칸만(사용자 10/6) — 키가 없거나 실패해도 계약은 만들고 칸만 빈다
+        if contract_ai.needs_ai(parsed):
+            try:
+                for k, v in contract_ai.read_with_ai(src, user.company_id).items():
+                    if v and not parsed.get(k):
+                        parsed[k] = v
+                        ai_filled.append(k)
+            except Exception as err:  # noqa: BLE001
+                ai_error = str(err).splitlines()[0][:200] if str(err) else type(err).__name__
     found = {k: (_iso(v) if k in DATE_FIELDS else v) for k, v in parsed.items() if v}
     _apply_contract(row, found, user)
     db.flush()
@@ -125,7 +137,7 @@ def _read_pdf(db: Session, user: User, row: ServiceContract, data: bytes) -> dic
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
     row.contract_pdf = str(dest)
-    return {"read": sorted(found), "unread": [k for k in parsed if not parsed[k]]}
+    return {"read": sorted(found), "unread": [k for k in parsed if not parsed[k]], "ai_filled": ai_filled, "ai_error": ai_error}
 
 
 @router.post("/from-pdf")
@@ -217,7 +229,14 @@ def put_contract(contract_id: int, body: ContractIn, user: User = Depends(get_cu
 
 
 @router.delete("/{contract_id}")
-def delete_contract(contract_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_contract(contract_id: int, password: str = Body("", embed=True), user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """계약 지우기(만든 착수계·완수계·붙임 파일까지, 되돌릴 수 없음) — 현장 삭제와 같은 회사 공용 삭제 비밀번호(사용자 10/6)."""
+    password_hash = config.get_site_delete_password_hash(user.company_id)
+    if not password_hash:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "삭제 비밀번호가 아직 없습니다. '설정' 탭에서 먼저 정하세요.")
+    if not verify_password(password, password_hash):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "삭제 비밀번호가 맞지 않습니다.")
     row = _require(db, user, contract_id)
     files.delete_contract_files(row)
     db.delete(row)

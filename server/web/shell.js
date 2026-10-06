@@ -22,6 +22,7 @@ const DOCS_TABS = [
   ["contracts", "계약 목록", "docs.html"],
   ["status", "제출 현황", "docs-status.html"],
   ["calendar", "착수·완수 일정", "docs-calendar.html"],
+  ["settings", "설정", "docs-settings.html"],
 ];
 const isDocsPage = () => !!document.body.dataset.docsTab;
 const SIDEBAR_CACHE_KEY = "kfsc-report:gw-sidebar";

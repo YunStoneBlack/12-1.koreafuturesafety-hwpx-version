@@ -96,6 +96,7 @@ async function openK2bModal(reportId, titleText, onDone) {
       <div class="kb-hint">이 PC가 K2B에 담당요원 계정으로 들어가 <b>새 차수</b>로 입력하고 <b>저장</b>까지 합니다(1~2분). 저장된 K2B 화면을 사진으로 남깁니다.</div>`;
     const $ = (q) => box.querySelector(q);
     const msg = $(".kb-msg");
+    enableFileDrop($(".kb-bad-box"), $(".kb-bad-files"));
     $(".kb-close").addEventListener("click", close);
     $(".kb-process").value = last.current_process || "";
     $(".kb-prev").value = prefill && prefill.prev_needs_choice ? "" : (prefill && prefill.prev_guidance) || s.prev_guidance_default || "";

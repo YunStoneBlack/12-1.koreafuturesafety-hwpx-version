@@ -76,6 +76,11 @@ def greeting_word(client: str) -> str:
     for end in ("청", "시", "군", "구", "도"):
         if c.endswith(end):
             return end
+    # "경기도 포천시 건설교통국"처럼 뒤에 부서가 붙으면 — 띄어 쓴 마디를 뒤에서부터 보고 시·군·구·청 단위(10/6 기산7리 계약)
+    for word in reversed(c.split()[:-1]):
+        for end in ("청", "시", "군", "구"):
+            if word.endswith(end):
+                return end
     return "기관"
 
 

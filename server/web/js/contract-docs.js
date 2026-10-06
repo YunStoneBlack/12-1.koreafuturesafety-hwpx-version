@@ -7,7 +7,7 @@
 
 const CD_LABEL = { start: "착수계", done: "완수계" };
 
-async function openContractDocs(contractId, kind, onDone) {
+async function openContractDocs(contractId, kind, onDone, readInfo) {
   const overlay = document.createElement("div");
   overlay.className = "mail-overlay";
   overlay.innerHTML = '<div class="mail-box cd-box" role="dialog" aria-modal="true"><div class="mail-wait">불러오는 중…</div></div>';
@@ -38,11 +38,26 @@ async function openContractDocs(contractId, kind, onDone) {
     return;
   }
   const typed = {}; // 사람이 직접 고친 칸(문서번호·인사말) — 계약 값이 바뀌어도 덮어쓰지 않음
-  draw();
+  let aiFilled = [];
+  draw(readNote(readInfo));
+
+  // 계약서 읽은 결과 안내 — 글자 규칙으로 못 읽은 칸을 AI가 채웠으면 노란 칸 + "확인하세요"(사용자 10/6)
+  function readNote(info) {
+    if (!info) return "";
+    aiFilled = info.ai_filled || [];
+    const names = { client: "발주처", title: "용역명", contract_no: "계약번호", amount: "계약금액", contract_date: "계약일", start_date: "착수일", end_date: "완수일" };
+    const parts = [];
+    if (aiFilled.length) parts.push(`<div class="mail-msg warn">🤖 AI로 읽은 칸: ${aiFilled.map((k) => names[k] || k).join("·")} — 계약서와 맞는지 확인하세요(노란 칸).</div>`);
+    if (info.ai_error) parts.push(`<div class="mail-msg warn">AI로 읽지 못했습니다(${mailEsc(info.ai_error)}) — 빈 칸은 직접 채우세요.</div>`);
+    const left = (info.unread || []).filter((k) => !aiFilled.includes(k) && names[k]);
+    if (left.length) parts.push(`<div class="mail-msg warn">못 읽은 칸: ${left.map((k) => names[k]).join("·")} — 직접 채우세요.</div>`);
+    if (!parts.length) parts.push('<div class="mail-msg ok">✓ 계약서를 읽었습니다 — 칸을 확인하세요.</div>');
+    return parts.join("");
+  }
 
   function field(key, text, type = "text", wide = false) {
     const v = st.contract[key] ?? "";
-    return `<label class="cd-field${wide ? " cd-wide" : ""}"><span>${text}</span><input class="cd-in" data-key="${key}" type="${type}" value="${mailEsc(v)}" /></label>`;
+    return `<label class="cd-field${wide ? " cd-wide" : ""}${aiFilled.includes(key) ? " cd-ai" : ""}"><span>${text}</span><input class="cd-in" data-key="${key}" type="${type}" value="${mailEsc(v)}" /></label>`;
   }
 
   function draw(result) {
@@ -68,7 +83,7 @@ async function openContractDocs(contractId, kind, onDone) {
         <label class="cd-field"><span>문서번호 <em>KFSC21C_계약번호_${kind === "start" ? "착수일" : "발송일"}(월일)</em></span><input class="cd-docno" value="${mailEsc(typed.docno ?? autoDocNo())}" /></label>
         <label class="cd-field"><span>인사말</span><span class="cd-greet">1. 귀 <input class="cd-greeting" value="${mailEsc(typed.greeting ?? d.greeting)}" /> 의 무궁한 발전을…</span></label>
         ${kind === "done" ? `<label class="cd-field"><span>발송일</span><input class="cd-send" type="date" value="${mailEsc(typed.send ?? d.send_date)}" /></label>` : ""}
-        <div class="cd-field"><span>담당</span><div class="cd-plain">${mailEsc(d.contact_name)} <a href="settings.html#contract-library" class="mail-note">바꾸기(설정 탭)</a></div></div>
+        <div class="cd-field"><span>담당</span><div class="cd-plain">${mailEsc(d.contact_name)} <a href="docs-settings.html#contract-library" class="mail-note">바꾸기(설정 탭)</a></div></div>
       </div>
       ${peopleHtml}
       ${attachBlock()}
@@ -89,6 +104,7 @@ async function openContractDocs(contractId, kind, onDone) {
       draw();
     }));
     box.querySelector(".cd-upload input").addEventListener("change", uploadPdf);
+    enableFileDrop(box.querySelector(".cd-pdf"), box.querySelector(".cd-upload input"));
     box.querySelector(".cd-docno").addEventListener("input", (e) => { typed.docno = e.target.value; });
     box.querySelector(".cd-greeting").addEventListener("input", (e) => { typed.greeting = e.target.value; });
     box.querySelector(".cd-send")?.addEventListener("input", (e) => { typed.send = e.target.value; refreshDocNo(); });
@@ -100,7 +116,7 @@ async function openContractDocs(contractId, kind, onDone) {
   // 붙임 파일(받아 오는 서류 — 산출내역서·완수내역서·기술지도보고서·완료증명서): 올리면 합본 PDF에 갑지 붙임 순서대로 들어감(10/6 형)
   function attachBlock() {
     const slots = st.attachments[kind];
-    return `<div class="mail-label">붙임 서류 <span class="mail-note">— 받아 온 파일을 올리면 합본 PDF에 순서대로 들어갑니다(PDF·그림·엑셀·워드·한글)</span></div>
+    return `<div class="mail-label">붙임 서류 <span class="mail-note">— 받아 온 파일을 올리거나 칸에 끌어다 놓으면 합본 PDF에 순서대로 들어갑니다(PDF·그림·엑셀·워드·한글)</span></div>
       <div class="cd-attach">${slots.map((sl) => `<div class="cd-slot" data-slot="${sl.slot}">
         <div class="cd-slot-head"><b>${mailEsc(sl.label)}</b>
           <label class="cd-add">+ 파일 올리기<input type="file" multiple hidden data-kr-file="skip"
@@ -117,6 +133,7 @@ async function openContractDocs(contractId, kind, onDone) {
     box.querySelectorAll(".cd-slot").forEach((el) => {
       const slot = el.dataset.slot;
       const msg = el.querySelector(".cd-slot-msg");
+      enableFileDrop(el, el.querySelector(".cd-add input"));
       el.querySelector(".cd-add input").addEventListener("change", async (e) => {
         const picked = [...e.target.files];
         if (!picked.length) return;
@@ -185,7 +202,7 @@ async function openContractDocs(contractId, kind, onDone) {
 
   function peopleBlock() {
     if (!st.persons.length) {
-      return `<div class="mail-label">기술자</div><div class="mail-msg warn">기술자 명단이 비어 있습니다 — <a href="settings.html#contract-library">설정 탭 → 착수계·완수계 서류</a>에서 먼저 추가하세요.</div>`;
+      return `<div class="mail-label">기술자</div><div class="mail-msg warn">기술자 명단이 비어 있습니다 — <a href="docs-settings.html#contract-library">설정 탭 → 착수계·완수계 서류</a>에서 먼저 추가하세요.</div>`;
     }
     const agent = st.agent_id ?? st.persons[0].id;
     return `<div class="mail-label">현장대리인(책임기술자) <span class="mail-note">— 1명</span></div>
@@ -194,7 +211,7 @@ async function openContractDocs(contractId, kind, onDone) {
       <div class="cd-people">${st.persons.map((p) => `<label class="cd-person" data-id="${p.id}">
         <input type="checkbox" value="${p.id}" ${st.participant_ids.includes(p.id) ? "checked" : ""} />
         <span><b>${mailEsc(p.name)}</b><span class="mail-note">${personNote(p)}</span></span></label>`).join("")}</div>
-      <div class="mail-note"><a href="settings.html#contract-library">기술자 추가·서류 올리기(설정 탭)</a></div>`;
+      <div class="mail-note"><a href="docs-settings.html#contract-library">기술자 추가·서류 올리기(설정 탭)</a></div>`;
   }
 
   function wirePeople() {
@@ -224,7 +241,7 @@ async function openContractDocs(contractId, kind, onDone) {
         : doc.status === "expired" ? `<span class="cd-bad">⚠ 기간 지남(${mailEsc(doc.valid_until)})</span>` : '<span class="cd-bad">없음</span>';
       return `<div><span>${mailEsc(doc.label)}</span><div>${s}</div></div>`;
     }).join("");
-    return `<div class="mail-label">붙는 회사 서류 <span class="mail-note">— <a href="settings.html#contract-library">설정 탭에서 바꾸기</a></span></div>
+    return `<div class="mail-label">붙는 회사 서류 <span class="mail-note">— <a href="docs-settings.html#contract-library">설정 탭에서 바꾸기</a></span></div>
       <div class="mail-info cd-docs">${rows}</div>`;
   }
 
@@ -253,9 +270,7 @@ async function openContractDocs(contractId, kind, onDone) {
       st.participant_ids = keepParts;
       delete typed.docno; // 계약번호가 바뀌었을 수 있음 — 기본 문서번호를 새로
       delete typed.greeting;
-      draw(out.unread && out.unread.length
-        ? `<div class="mail-msg warn">계약서에서 못 읽은 칸이 있습니다 — 직접 채우세요.</div>`
-        : `<div class="mail-msg ok">✓ 계약서를 읽었습니다 — 칸을 확인하세요.</div>`);
+      draw(readNote(out));
     } catch (err) {
       msg.textContent = err.message;
       msg.classList.add("cd-bad");

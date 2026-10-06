@@ -124,6 +124,53 @@ document.addEventListener("click", (e) => {
   startDownload(link.dataset.download, link.dataset.reportId, link.href);
 });
 
+// ---------- 끌어다 놓기(2026-10-06 사용자: 계약서·서류·사진 올리는 곳은 전부) ----------
+// zone에 파일을 끌어다 놓으면 input에 넣고 change를 일으킨다 — "파일 선택"으로 고른 것과 똑같이 처리됨.
+// accept에 안 맞는 파일은 빼고, multiple이 아니면 첫 파일만. 놓는 중엔 zone에 .drop-over(파란 점선, style.css).
+// shell.js의 보고서 파일·사진 칸, signature.js 서명 칸은 각자 같은 방식으로 이미 됨 — 여기는 서류 자동화·K2B 첨부 등 나머지.
+function fileAccepts(input, file) {
+  const accept = (input.accept || "").trim();
+  if (!accept) return true;
+  const name = file.name.toLowerCase();
+  return accept.split(",").some((a) => {
+    a = a.trim().toLowerCase();
+    if (!a) return false;
+    if (a.startsWith(".")) return name.endsWith(a);
+    if (a.endsWith("/*")) return (file.type || "").startsWith(a.slice(0, -1));
+    return file.type === a;
+  });
+}
+
+function enableFileDrop(zone, input) {
+  if (!zone || !input || zone.dataset.dropOn) return;
+  zone.dataset.dropOn = "1";
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  zone.addEventListener("dragover", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    zone.classList.add("drop-over");
+  });
+  zone.addEventListener("dragleave", (e) => {
+    if (!zone.contains(e.relatedTarget)) zone.classList.remove("drop-over");
+  });
+  zone.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    zone.classList.remove("drop-over");
+    const files = [...e.dataTransfer.files].filter((f) => fileAccepts(input, f));
+    if (!files.length) {
+      alert("이 칸에 맞는 파일 형식이 아닙니다.");
+      return;
+    }
+    const dt = new DataTransfer();
+    (input.multiple ? files : files.slice(0, 1)).forEach((f) => dt.items.add(f));
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
 function showError(el, err) {
   el.textContent = err.message || String(err);
   el.style.display = "block";

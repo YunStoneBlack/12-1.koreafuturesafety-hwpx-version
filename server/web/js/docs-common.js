@@ -29,6 +29,27 @@ function dcDocState(c, kind) {
   return { cls: "idle", text: `미제출 · ${c.due[kind].slice(5).replace("-", "/")}까지` };
 }
 
+// 삭제 비밀번호 묻는 작은 창(설정 탭의 회사 공용 삭제 비밀번호 — 현장 삭제와 같음). 취소하면 null.
+function dcAskPassword(message) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = `<div class="mail-box" role="dialog" aria-modal="true">
+      <div class="mail-head"><b>🗑 용역 계약 삭제</b><span class="mail-sub">${mailEsc(message)}</span></div>
+      <input type="password" class="mail-input" placeholder="삭제 비밀번호" autocomplete="off" />
+      <div class="mail-note"><a href="docs-settings.html">설정 탭</a>에서 정한 삭제 비밀번호(현장 삭제와 같음)</div>
+      <div class="mail-foot"><button type="button" class="dc-cancel">취소</button><button type="button" class="mail-primary dc-ok" style="background:var(--crit);border-color:var(--crit);">삭제</button></div></div>`;
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector("input");
+    const done = (v) => { overlay.remove(); resolve(v); };
+    overlay.querySelector(".dc-cancel").addEventListener("click", () => done(null));
+    overlay.querySelector(".dc-ok").addEventListener("click", () => input.value ? done(input.value) : input.focus());
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter" && input.value) done(input.value); if (e.key === "Escape") done(null); });
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) done(null); });
+    input.focus();
+  });
+}
+
 function dcSearchText(c) {
   return `${c.title} ${c.client} ${c.contract_no} ${c.site_label}`.toLowerCase();
 }

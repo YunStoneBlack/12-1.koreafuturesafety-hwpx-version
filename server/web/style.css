@@ -265,7 +265,7 @@ main.main > section.panel { scroll-margin-top: 60px; }
 }
 
 /* 끌어다 놓기(signature.js 서명 칸, shell.js 파일/사진 칸) — 파일을 올려놓는 중인 곳 강조 */
-.sig-modal-pad.drop-over canvas, .photo-slot.drop-over, .file-pick.drop-over {
+.sig-modal-pad.drop-over canvas, .photo-slot.drop-over, .file-pick.drop-over, [data-drop-on].drop-over {
   outline: 2px dashed var(--blue); outline-offset: 2px; background-color: var(--blue-soft);
 }
 .file-pick.drop-over { border-radius: 8px; }

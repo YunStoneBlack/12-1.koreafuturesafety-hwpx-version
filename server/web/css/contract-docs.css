@@ -89,3 +89,10 @@
   border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
 .cd-pick button.cd-pick-item:hover, .cd-pick button.cd-pick-item.on { border-color: var(--blue); background: var(--blue-soft); }
 .cd-pick-tag { font-size: 11px; font-weight: 700; color: var(--green); }
+
+/* AI로 읽은 칸(계약서 글자 규칙으로 못 읽어 Claude API가 채움) — 확인하라고 노란 테두리 */
+.cd-field.cd-ai input { border-color: #E0A33A !important; background: var(--warn-soft) !important; }
+.cd-field.cd-ai > span::after { content: " 🤖 AI"; font-size: 11px; color: var(--warn); font-weight: 700; }
+
+/* 끌어다 놓는 중(app.js enableFileDrop) — 칸 모양에 맞춰 둥글게 */
+.cd-slot.drop-over, .cl-row.drop-over, .cd-pdf.drop-over { border-radius: 8px; }

@@ -64,12 +64,14 @@
     el.querySelector(".dc-link").addEventListener("click", () => openLinkSite(c.id, load));
     el.querySelector(".dc-del").addEventListener("click", async () => {
       const made = c.made.start.at || c.made.done.at;
-      if (!confirm(`"${c.title || "용역 계약"}"을(를) 지울까요?${made ? "\n만든 착수계·완수계·붙임 파일도 같이 지워집니다." : ""} 되돌릴 수 없습니다.`)) return;
+      const pw = await dcAskPassword(`"${c.title || "용역 계약"}"을(를) 지웁니다.${made ? " 만든 착수계·완수계·붙임 파일도 같이 지워집니다." : ""} 되돌릴 수 없습니다.`);
+      if (pw == null) return;
       try {
-        await api(`/contracts/${c.id}`, { method: "DELETE" });
+        await api(`/contracts/${c.id}`, { method: "DELETE", body: JSON.stringify({ password: pw }) });
         load();
       } catch (err) {
         showError(errorEl, err);
+        errorEl.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     });
     return el;
@@ -83,7 +85,7 @@
     e.target.value = "";
     if (!file) return;
     const msg = document.getElementById("dc-new-msg");
-    msg.textContent = "계약서를 읽는 중…";
+    msg.textContent = "계약서를 읽는 중… (처음 보는 양식이면 AI로 읽느라 20초쯤)";
     msg.className = "status";
     try {
       const fd = new FormData();
@@ -92,12 +94,13 @@
       msg.textContent = out.duplicate_of ? `⚠ 같은 계약번호가 이미 있습니다: ${out.duplicate_of.title} — 필요 없으면 새로 만든 쪽을 지우세요.` : "";
       msg.className = out.duplicate_of ? "status bad" : "status";
       await load();
-      openContractDocs(out.id, "start", load);
+      openContractDocs(out.id, "start", load, out); // 읽은 결과(AI로 채운 칸) 안내와 함께
     } catch (err) {
       msg.textContent = err.message;
       msg.className = "status bad";
     }
   });
+  enableFileDrop(document.querySelector("main.main"), document.getElementById("dc-pdf")); // 화면에 계약서 PDF를 끌어다 놓아도 새 계약
   document.getElementById("dc-blank").addEventListener("click", async () => {
     try {
       const out = await apiPost("/contracts", {});

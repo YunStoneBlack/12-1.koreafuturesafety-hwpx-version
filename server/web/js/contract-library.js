@@ -45,6 +45,7 @@
       </div>`;
     const msg = row.querySelector(".cl-msg");
     const dates = () => ({ issued_on: row.querySelector(".cl-issued").value, valid_until: row.querySelector(".cl-valid").value });
+    enableFileDrop(row, row.querySelector("input[type=file]"));
     row.querySelector("input[type=file]").addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
