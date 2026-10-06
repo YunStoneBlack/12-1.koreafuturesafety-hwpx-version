@@ -1,7 +1,7 @@
 // ---------- 현장 [📑 착수계]·[📑 완수계] 창(2026-10-06 — server/api/routers/contract_docs.py) ----------
 // 1) 용역계약서 PDF 올리기 → 발주처·용역명·계약번호·금액·날짜가 채워짐(고칠 수 있음, 착수계 때 넣으면 완수계 때 그대로)
 // 2) 문서번호·인사말("귀 ○의")·(완수계) 발송일·정산금액·실제준공일 3) (착수계) 현장대리인 1명 + 참여기술자 0~N명
-// 4) 도장 넣기/빼기 → [만들기] → 엑셀·PDF 받기. 빠진 서류·유효기간 지난 서류는 막지 않고 경고(사용자 10/6).
+// 4) 붙임 서류(받아 온 파일) 올리기 5) 도장 넣기/빼기 → [만들기] → 엑셀 + 합본 PDF 받기. 빠진 서류·유효기간 지난 서류는 막지 않고 경고(사용자 10/6).
 // 창 틀은 css/mail.css(mail.js의 mailEsc도 씀), 이 창 규칙은 css/contract-docs.css.
 
 const CD_LABEL = { start: "착수계", done: "완수계" };
@@ -66,6 +66,7 @@ async function openContractDocs(siteId, kind, titleText) {
         <div class="cd-field"><span>담당</span><div class="cd-plain">${mailEsc(d.contact_name)} <a href="settings.html#contract-library" class="mail-note">바꾸기(설정 탭)</a></div></div>
       </div>
       ${peopleHtml}
+      ${attachBlock()}
       <div class="mail-label">대표이사 도장</div>
       <div class="cd-radios">
         <label><input type="radio" name="cd-seal" value="1" checked /> 넣기 <span class="mail-note">(사본 제출용 — "(인)"·원본대조필 칸에)</span></label>
@@ -82,6 +83,69 @@ async function openContractDocs(siteId, kind, titleText) {
     box.querySelector(".cd-send")?.addEventListener("input", (e) => { typed.send = e.target.value; refreshDocNo(); });
     box.querySelectorAll(".cd-in").forEach((el) => el.addEventListener("input", () => { st.contract[el.dataset.key] = el.value; refreshDocNo(); }));
     if (kind === "start") wirePeople();
+    wireAttach();
+  }
+
+  // 붙임 파일(받아 오는 서류 — 산출내역서·완수내역서·기술지도보고서·완료증명서): 올리면 합본 PDF에 갑지 붙임 순서대로 들어감(10/6 형)
+  function attachBlock() {
+    const slots = st.attachments[kind];
+    return `<div class="mail-label">붙임 서류 <span class="mail-note">— 받아 온 파일을 올리면 합본 PDF에 순서대로 들어갑니다(PDF·그림·엑셀·워드·한글)</span></div>
+      <div class="cd-attach">${slots.map((sl) => `<div class="cd-slot" data-slot="${sl.slot}">
+        <div class="cd-slot-head"><b>${mailEsc(sl.label)}</b>
+          <label class="cd-add">+ 파일 올리기<input type="file" multiple hidden data-kr-file="skip"
+            accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.tif,.tiff,.webp,.xlsx,.xls,.xlsm,.docx,.doc,.pptx,.ppt,.hwp,.hwpx" /></label></div>
+        ${sl.files.length ? sl.files.map((f) => `<div class="cd-file">
+          <a href="${BASE}/api/sites/${siteId}/contract-docs/${kind}/attach/${sl.slot}/${encodeURIComponent(f.name)}" target="_blank" rel="noopener">📄 ${mailEsc(f.title)}</a>
+          <span class="mail-note">${f.pages}장</span>
+          <button type="button" class="cd-x" data-name="${mailEsc(f.name)}" title="빼기">✕</button></div>`).join("")
+          : '<div class="mail-note cd-none">아직 없음 — 없으면 빼고 합칩니다</div>'}
+        <div class="mail-note cd-slot-msg"></div></div>`).join("")}</div>`;
+  }
+
+  function wireAttach() {
+    box.querySelectorAll(".cd-slot").forEach((el) => {
+      const slot = el.dataset.slot;
+      const msg = el.querySelector(".cd-slot-msg");
+      el.querySelector(".cd-add input").addEventListener("change", async (e) => {
+        const picked = [...e.target.files];
+        if (!picked.length) return;
+        busy = true;
+        try {
+          for (const [i, file] of picked.entries()) {
+            const hwp = /\.hwpx?$/i.test(file.name);
+            msg.textContent = `올리는 중 ${picked.length > 1 ? `${i + 1}/${picked.length} ` : ""}— ${file.name}${hwp ? " (한글 파일은 PDF로 바꾸느라 1분쯤 걸릴 수 있음)" : ""}`;
+            const fd = new FormData();
+            fd.append("file", file);
+            st.attachments[kind] = await apiUpload(`/sites/${siteId}/contract-docs/${kind}/attach/${slot}`, fd);
+          }
+          redrawAttach();
+        } catch (err) {
+          redrawAttach();
+          const m = box.querySelector(`.cd-slot[data-slot="${slot}"] .cd-slot-msg`);
+          m.textContent = err.message;
+          m.classList.add("cd-bad");
+        } finally {
+          busy = false;
+        }
+      });
+      el.querySelectorAll(".cd-x").forEach((btn) => btn.addEventListener("click", async () => {
+        if (!confirm(`${btn.dataset.name.replace(/^\d+_/, "")} 파일을 뺄까요?`)) return;
+        try {
+          st.attachments[kind] = await api(`/sites/${siteId}/contract-docs/${kind}/attach/${slot}/${encodeURIComponent(btn.dataset.name)}`, { method: "DELETE" });
+          redrawAttach();
+        } catch (err) {
+          msg.textContent = err.message;
+        }
+      }));
+    });
+  }
+
+  function redrawAttach() { // 붙임 칸만 다시 그림(위에 적던 칸 값은 그대로)
+    const old = box.querySelector(".cd-attach");
+    const tmp = document.createElement("div");
+    tmp.innerHTML = attachBlock();
+    old.replaceWith(tmp.querySelector(".cd-attach"));
+    wireAttach();
   }
 
   // 문서번호 = KFSC21C_계약번호_월일(사용자 10/6 회사 확인 — 착수계는 착수일, 완수계는 발송일). server build.default_doc_no와 같은 규칙.

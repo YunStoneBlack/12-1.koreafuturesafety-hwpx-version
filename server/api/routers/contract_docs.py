@@ -3,13 +3,18 @@
 - `GET /sites/{id}/service-contract` — 창에 필요한 것 전부(계약 값, 기본값, 기술자·회사 서류 상태, 만든 파일)
 - `PUT /sites/{id}/service-contract` — 계약 값 저장
 - `POST /sites/{id}/service-contract/pdf` — 용역계약서 PDF 올리기 → 읽은 값으로 채움(읽은 칸만 덮어씀), PDF는 현장 폴더에 보관
-- `POST /sites/{id}/contract-docs/{start|done}` — 엑셀 만들고 PDF로(LibreOffice, 10초 안팎). 경고(빠진 서류·유효기간 지남)는 막지 않고 알림
+- `POST /sites/{id}/contract-docs/{start|done}` — 엑셀 만들고 합본 PDF로(LibreOffice + 붙임 파일, 10초 안팎). 경고(빠진 서류·유효기간 지남)는 막지 않고 알림
+- `POST|GET|DELETE /sites/{id}/contract-docs/{start|done}/attach/{칸}[/{파일}]` — 붙임 파일(산출내역서·완수내역서·기술지도보고서·완료증명서, attachments.py)
 - `GET /sites/{id}/contract-docs/{start|done}.{xlsx|pdf}` — 받기
 """
 from __future__ import annotations
 
 import datetime
+import tempfile
+from pathlib import Path
 from typing import Literal
+
+import openpyxl
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
@@ -21,7 +26,7 @@ from core.models_web import ServiceContract, TechPerson, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.routers.contract_library import company_docs, doc_status, person_docs, persons
-from server.contract_docs import build, contract_pdf, files, to_pdf
+from server.contract_docs import attachments, build, contract_pdf, files, to_pdf
 
 router = APIRouter(prefix="/sites/{site_id}", tags=["contract-docs"])
 
@@ -88,7 +93,14 @@ def _state(db: Session, user: User, site) -> dict:
         "company_docs": [{"kind": k, "label": label, "status": doc_status(docs.get(k)),
                           "valid_until": _iso(docs[k].valid_until) if k in docs else ""} for k, label in build.COMPANY_DOCS],
         "made": _made(db, site, row),
+        "attachments": {kind: _attach_state(db, site, kind) for kind in KIND_LABEL},
     }
+
+
+def _attach_state(db: Session, site, kind: str) -> list[dict]:
+    out_dir = files.site_out_dir(db, site)
+    return [{"slot": key, "label": label, "files": [attachments.file_info(f) for f in attachments.list_files(out_dir, kind, key)]}
+            for key, label, _ in attachments.SLOTS[kind]]
 
 
 def _person_state(db: Session, p: TechPerson) -> dict:
@@ -233,8 +245,12 @@ def make_docs(site_id: int, kind: Literal["start", "done"], body: MakeIn, user: 
         warnings = build.build_done(c, common, {k: d.file for k, d in docs.items() if d.file}, xlsx)
     warnings = _expired_warnings(db, user, kind, chosen, send if kind == "done" else datetime.date.today()) + warnings
     pdf_error = ""
-    try:
-        to_pdf.xlsx_to_pdf(xlsx, pdf)
+    try:  # 시트 PDF → 붙임 파일 끼워 합본 PDF 하나(사용자·형 10/6)
+        with tempfile.TemporaryDirectory() as tmp:
+            sheets = Path(tmp) / "sheets.pdf"
+            to_pdf.xlsx_to_pdf(xlsx, sheets)
+            count = len(openpyxl.load_workbook(xlsx, read_only=True).sheetnames)
+            warnings += attachments.merge(sheets, files.site_out_dir(db, site), kind, count, pdf)
     except Exception as err:  # noqa: BLE001 — 엑셀은 받을 수 있게 두고 PDF 실패만 알림
         pdf.unlink(missing_ok=True)
         pdf_error = str(err)
@@ -255,3 +271,41 @@ def download_docs(site_id: int, kind: Literal["start", "done"], ext: Literal["xl
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"아직 만든 {KIND_LABEL[kind]}가 없습니다.")
     media = "application/pdf" if ext == "pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     return FileResponse(path, media_type=media, filename=path.name, content_disposition_type="inline" if inline else "attachment")
+
+
+def _require_slot(kind: str, slot: str) -> None:
+    if slot not in {key for key, _, _ in attachments.SLOTS[kind]}:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "없는 붙임 칸입니다.")
+
+
+@router.post("/contract-docs/{kind}/attach/{slot}")
+def upload_attachment(site_id: int, kind: Literal["start", "done"], slot: str, file: UploadFile = File(...),
+                      user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """붙임 파일 올리기 — 바로 PDF로 바꿔 둔다(한글은 작업 프로그램이 바꿔서 몇 초~1분). def라 기다리는 동안 다른 요청은 안 막힘."""
+    site = _require_site(db, user, site_id)
+    _require_slot(kind, slot)
+    try:
+        attachments.add_file(files.site_out_dir(db, site), kind, slot, file.file.read(), file.filename or "")
+    except (ValueError, RuntimeError) as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    return _attach_state(db, site, kind)
+
+
+@router.delete("/contract-docs/{kind}/attach/{slot}/{name}")
+def delete_attachment(site_id: int, kind: Literal["start", "done"], slot: str, name: str,
+                      user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    site = _require_site(db, user, site_id)
+    _require_slot(kind, slot)
+    attachments.remove_file(files.site_out_dir(db, site), kind, slot, name)
+    return _attach_state(db, site, kind)
+
+
+@router.get("/contract-docs/{kind}/attach/{slot}/{name}")
+def view_attachment(site_id: int, kind: Literal["start", "done"], slot: str, name: str,
+                    user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    site = _require_site(db, user, site_id)
+    _require_slot(kind, slot)
+    path = attachments.slot_dir(files.site_out_dir(db, site), kind, slot) / Path(name).name
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
+    return FileResponse(path, media_type="application/pdf", filename=path.name, content_disposition_type="inline")

@@ -92,8 +92,19 @@ def run_forever() -> None:
             print(f"[render_worker] job {job_id} (report {report_id}) 렌더링 시작")
             _render(job_id, report_id)
             print(f"[render_worker] job {job_id} 완료")
-        else:
+        elif not _hwp_attachment():
             time.sleep(POLL_INTERVAL_SECONDS)
+
+
+def _hwp_attachment() -> bool:
+    """쉬는 틈에 착수계·완수계 붙임 한글 파일 하나를 PDF로(server/contract_docs/hwp_queue.py — 한글 COM을 이 프로세스 한 곳에서만 쓰게)."""
+    try:
+        from server.contract_docs import hwp_queue
+
+        return hwp_queue.process_pending()
+    except Exception:  # noqa: BLE001 — 붙임 변환 문제로 보고서 작업이 멈추면 안 됨
+        traceback.print_exc()
+        return False
 
 
 if __name__ == "__main__":

@@ -31,10 +31,11 @@ def soffice_path() -> str:
     raise RuntimeError("LibreOffice가 없어 PDF를 만들 수 없습니다 — LibreOffice를 설치하세요(엑셀 파일은 받을 수 있습니다).")
 
 
-def xlsx_to_pdf(src: Path, dest: Path, timeout: int = 120) -> Path:
+def office_to_pdf(src: Path, dest: Path, timeout: int = 120) -> Path:
+    """엑셀·워드 등 LibreOffice가 여는 파일 → PDF(착수계·완수계 엑셀, 붙임 파일)."""
     exe = soffice_path()
     with _LOCK, tempfile.TemporaryDirectory() as tmp:
-        work = Path(tmp) / "doc.xlsx"  # 한글·괄호 든 이름이 명령줄에서 꼬이지 않게 짧은 이름으로
+        work = Path(tmp) / f"doc{src.suffix.lower()}"  # 한글·괄호 든 이름이 명령줄에서 꼬이지 않게 짧은 이름으로
         shutil.copyfile(src, work)
         _PROFILE.mkdir(parents=True, exist_ok=True)
         cmd = [exe, f"-env:UserInstallation={_PROFILE.as_uri()}", "--headless", "--norestore",
@@ -44,7 +45,10 @@ def xlsx_to_pdf(src: Path, dest: Path, timeout: int = 120) -> Path:
         out = Path(tmp) / "doc.pdf"
         if not out.exists():
             msg = (res.stderr or res.stdout or b"").decode("utf-8", "replace").strip()[:300]
-            raise RuntimeError(f"PDF 변환 실패(LibreOffice){': ' + msg if msg else ''}")
+            raise ValueError(f"PDF 변환 실패(LibreOffice){': ' + msg if msg else ''}")
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(out), dest)
     return dest
+
+
+xlsx_to_pdf = office_to_pdf

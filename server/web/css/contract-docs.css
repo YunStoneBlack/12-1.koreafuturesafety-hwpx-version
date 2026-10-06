@@ -34,6 +34,19 @@
 /* 파일 고르기 칸은 글자 단추(label)만 — input에 data-kr-file="skip"(shell.js가 "사진 선택" 단추를 안 붙임) */
 .cd-upload input[type="file"], .cl-file input[type="file"] { display: none !important; }
 .cd-made { font-size: 12.5px; color: var(--muted); }
+/* 붙임 서류 칸 */
+.cd-attach { display: flex; flex-direction: column; gap: 8px; }
+.cd-slot { border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; display: flex; flex-direction: column; gap: 5px; }
+.cd-slot-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.cd-add { display: inline-flex; align-items: center; padding: 4px 10px; border: 1px dashed var(--blue); border-radius: 8px; background: var(--blue-soft);
+  color: var(--blue); font-weight: 600; font-size: 12.5px; cursor: pointer; margin: 0; white-space: nowrap; }
+.cd-add input[type="file"] { display: none !important; }
+.cd-file { display: flex; align-items: center; gap: 8px; font-size: 12.5px; min-width: 0; }
+.cd-file a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; color: var(--ink); }
+.cd-file a:hover { text-decoration: underline; }
+.cd-box button.cd-x { flex: none; width: 26px; height: 26px; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface);
+  color: var(--muted); cursor: pointer; font-size: 12px; }
+.cd-slot-msg:empty { display: none; }
 .cd-made a, .mail-msg a { font-weight: 600; }
 @media (max-width: 760px) {
   .cd-grid { grid-template-columns: 1fr; }
