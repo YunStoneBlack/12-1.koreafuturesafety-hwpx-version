@@ -24,7 +24,6 @@
 .main .dc-actions button.dc-del { color: var(--crit); }
 
 /* 제출 현황 표 */
-.st-cards .st-card.ds-late .n { color: var(--crit); }
 .ds-table { display: flex; flex-direction: column; }
 .ds-head, .ds-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: center; padding: 10px 18px; }
 .ds-head { font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); }
@@ -35,32 +34,28 @@
 .main button.ds-doc:hover { border-color: var(--blue); filter: none; }
 .ds-kl { display: none; }
 
-/* 일정 달력 */
-.dk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
-.main .dk-bar button#dk-today { margin: 0; padding: 6px 12px; font-size: 13px; }
-.dk-legend { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
-.dk-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: -6px; }
-.dk-legend i.start { background: #2563eb; } .dk-legend i.done { background: #7c3aed; }
-.dk-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); }
-.dk-wd { padding: 7px; font-size: 12px; font-weight: 600; text-align: center; color: var(--muted); background: var(--paper); border-bottom: 1px solid var(--line); }
-.dk-wd.sun, .dk-day.sun .dk-n { color: var(--crit); } .dk-wd.sat, .dk-day.sat .dk-n { color: var(--blue); }
-.dk-day { min-height: 96px; padding: 5px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.dk-day:nth-child(7n) { border-right: none; }
-.dk-day.empty { background: var(--paper); }
-.dk-day.today { background: var(--blue-soft); }
-.dk-n { font-size: 12px; font-weight: 600; color: var(--ink); }
-.main button.dk-ev { margin: 0; padding: 3px 6px; border-radius: 5px; border: none; border-left: 3px solid #2563eb; background: #eef4ff; color: var(--ink);
-  font: inherit; font-size: 11.5px; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.main button.dk-ev.done { border-left-color: #7c3aed; background: #f3efff; }
-.main button.dk-ev.ok { opacity: .65; }
-.main button.dk-ev.bad { background: var(--crit-soft); color: var(--crit); }
-.main button.dk-ev b { font-weight: 700; margin-right: 3px; }
-.main button.dk-ev:hover { filter: brightness(.96); }
-.dk-list { display: none; }
+/* 일정 달력 — FullCalendar(.fc 틀·공휴일 .holiday는 그룹웨어 app.css), 여기엔 착수·완수 색만 */
+.fc .dk-start { background: #EEF4FF !important; border: 1px solid #2563eb !important; border-left-width: 4px !important; }
+.fc .dk-done { background: #F3EFFF !important; border: 1px solid #7c3aed !important; border-left-width: 4px !important; }
+.fc .dk-start .fc-event-main, .fc .dk-done .fc-event-main { color: var(--ink) !important; font-weight: 600; }
+.fc .dk-ok { opacity: .6; }
+.fc .fc-daygrid-event { cursor: pointer; }
+.fc .fc-daygrid-event .fc-event-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+.dk-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; }
+.dk-legend i.start { background: #EEF4FF; border: 1px solid #2563eb; border-left-width: 4px; }
+.dk-legend i.done { background: #F3EFFF; border: 1px solid #7c3aed; border-left-width: 4px; }
+.dk-legend i.ok { background: #EEF4FF; border: 1px solid #2563eb; opacity: .6; }
+.dk-list { display: none; margin-top: 12px; }
 .dk-lday { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 5px; }
 .dk-lday.today { border-color: var(--blue); }
 .dk-ldate { font-size: 13px; font-weight: 700; }
-.dk-lday .dk-ev { white-space: normal; font-size: 13px; padding: 6px 8px; }
+.dk-ldate.red { color: var(--crit); }
+.main button.dk-ev { margin: 0; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--line); border-left-width: 4px; font: inherit; font-size: 13px;
+  text-align: left; cursor: pointer; color: var(--ink); white-space: normal; }
+.main button.dk-ev.dk-start { background: #EEF4FF; border-color: #2563eb; }
+.main button.dk-ev.dk-done { background: #F3EFFF; border-color: #7c3aed; }
+.main button.dk-ev.dk-ok { opacity: .65; }
 
 @media (max-width: 760px) {
   .row.dc-row { grid-template-columns: 1fr; }
@@ -70,7 +65,9 @@
   .ds-row { grid-template-columns: 1fr 1fr; padding: 10px 14px; }
   .ds-name { grid-column: 1 / -1; }
   .ds-kl { display: inline; }
-  .dk-grid { display: none; }
-  .dk-list { display: block; }
-  .dk-legend { margin-left: 0; }
+  .dk-list { display: block; } /* 폰: 달력 칸은 색 막대만 → 아래 목록에서 누름 */
+  .fc .fc-daygrid-event .fc-event-main { font-size: 0; }
+  .fc .fc-daygrid-event { height: 6px; margin-top: 2px !important; }
+  .fc .fc-daygrid-day-frame { min-height: 62px; }
+  .fc .fc-toolbar-title { font-size: 14px; }
 }

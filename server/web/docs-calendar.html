@@ -9,8 +9,10 @@
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/contract-docs.css" />
 <link rel="stylesheet" href="css/docs.css" />
+<!-- 달력은 방문 달력과 같은 FullCalendar(그룹웨어 달력과 같은 판) — 공휴일·주말 모양은 그룹웨어 app.css .fc 규칙 -->
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
 </head>
-<!-- 서류 자동화 — 착수·완수 일정 달력(2026-10-06, js/docs-calendar.js). 기한(임시: 착수일·완수일)에 계약을 표시 -->
+<!-- 서류 자동화 — 착수·완수 일정 달력(2026-10-06, js/docs-calendar.js). 계약의 착수일·완수일에 표시(기한 아님) -->
 <body data-docs-tab="calendar">
 <div class="app">
   <aside class="sidebar" id="gw-sidebar"></aside>
@@ -18,14 +20,13 @@
 
 <div id="error" class="error"></div>
 
-<div class="dk-bar">
-  <div class="st-month"><button type="button" id="dk-prev" aria-label="이전 달">‹</button><b id="dk-month"></b><button type="button" id="dk-next" aria-label="다음 달">›</button></div>
-  <button type="button" class="secondary" id="dk-today">이번 달</button>
-  <span class="dk-legend"><i class="start"></i>착수계 <i class="done"></i>완수계 <span class="dc-doc ok">✓ 제출</span> <span class="dc-doc bad">기한 지남</span></span>
-</div>
-<p class="page-sub dc-note">기한은 임시로 착수계 = 착수일, 완수계 = 완수일입니다(회사 규칙 확인 중). 누르면 그 서류 창이 열립니다.</p>
-
-<div class="dk-grid" id="dk-grid"></div>
+<p class="page-sub dc-note">계약의 착수일·완수일을 보여 줍니다(정해진 제출 기한은 없음). ✓는 그 서류를 이미 냈다는 뜻이고, 누르면 그 서류 창이 열립니다.</p>
+<section class="panel">
+  <div class="panel-body">
+    <div id="dk-cal"></div>
+    <div class="dk-legend"><span><i class="start"></i>착수일(착수계)</span><span><i class="done"></i>완수일(완수계)</span><span><i class="ok"></i>✓ 이미 제출함</span></div>
+  </div>
+</section>
 <div class="dk-list" id="dk-list"></div>
 
   </main>

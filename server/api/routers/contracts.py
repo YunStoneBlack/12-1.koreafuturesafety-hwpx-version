@@ -1,6 +1,6 @@
 """서류 자동화 — 용역 계약과 착수계·완수계(2026-10-06). 계약은 현장 없이 먼저 생기고(착수계가 현장 등록보다 먼저 — 형), 나중에 현장과 연결한다.
 
-- `GET /contracts` — 계약 목록(단계·제출·기한·연결 현장) — 서류 자동화 계약 목록·제출 현황·일정 달력이 같이 씀
+- `GET /contracts` — 계약 목록(단계·제출·착수일·완수일·연결 현장) — 서류 자동화 계약 목록·제출 현황·일정 달력이 같이 씀
 - `POST /contracts` (빈 계약) / `POST /contracts/from-pdf` (용역계약서 PDF로 새 계약 — 글자 규칙, 못 읽은 칸은 Claude API)
 - `GET|PUT|DELETE /contracts/{id}` — 창에 필요한 것 전부 / 계약 값 저장 / 지우기(파일까지, 삭제 비밀번호)
 - `POST /contracts/{id}/pdf` — 계약서 PDF 다시 올리기(읽은 칸만 덮어씀)
@@ -89,13 +89,13 @@ def summary(db: Session, row: ServiceContract) -> dict:
     """목록 한 줄(계약 목록·제출 현황·일정 달력)."""
     made = _made(row)
     site = db.get(Site, row.site_id) if row.site_id else None
-    due = contract_status.due_dates(row)
+    dates = contract_status.plan_dates(row)
     return {
         "id": row.id, "title": row.title, "client": row.client, "contract_no": row.contract_no, "amount": row.amount,
         "contract_date": _iso(row.contract_date), "start_date": _iso(row.start_date), "end_date": _iso(row.end_date),
         "site_id": row.site_id, "site_label": _site_label(site),
         "stage": contract_status.stage(made["start"]["submitted"], made["done"]["submitted"]),
-        "made": made, "due": {k: _iso(v) for k, v in due.items()},
+        "made": made, "dates": {k: _iso(v) for k, v in dates.items()},
         "created_at": row.created_at.strftime("%Y-%m-%d") if row.created_at else "",
     }
 
