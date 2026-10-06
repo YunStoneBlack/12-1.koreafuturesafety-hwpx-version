@@ -37,6 +37,8 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     box.querySelector(".cd-close").addEventListener("click", close);
     return;
   }
+  // 창 어디든 계약서 PDF를 끌어다 놓으면 계약서로(붙임 서류 칸에 놓으면 그 칸이 먼저 받음 — 10/6 사용자)
+  enableFileDrop(box, () => box.querySelector(".cd-upload input"));
   const typed = {}; // 사람이 직접 고친 칸(문서번호·인사말) — 계약 값이 바뀌어도 덮어쓰지 않음
   let aiFilled = [];
   draw(readNote(readInfo));
@@ -69,7 +71,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       <div class="mail-label">용역 계약 <span class="mail-note">— 계약서 PDF를 올리면 채워집니다(착수계·완수계 같이 씀)</span></div>
       <div class="cd-pdf">
         <label class="cd-upload">📎 용역계약서 PDF 올리기<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label>
-        <span class="mail-note cd-pdf-msg">${c.has_pdf ? `✓ <a href="${BASE}/api/contracts/${contractId}/pdf" target="_blank" rel="noopener">올린 계약서</a>가 있습니다 — 다시 올리면 읽은 칸만 바뀝니다` : "아직 안 올림 — 직접 적어도 됩니다"}</span>
+        <span class="mail-note cd-pdf-msg">${c.has_pdf ? `✓ <a href="${BASE}/api/contracts/${contractId}/pdf" target="_blank" rel="noopener">올린 계약서</a>가 있습니다 — 다시 올리면 읽은 칸만 바뀝니다` : "아직 안 올림 — 직접 적어도 됩니다"}<br>또는 계약서 PDF를 이 창에 끌어다 놓기</span>
       </div>
       <div class="cd-grid">
         ${field("client", "발주처")}${field("contract_no", "계약번호")}
@@ -104,7 +106,6 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       draw();
     }));
     box.querySelector(".cd-upload input").addEventListener("change", uploadPdf);
-    enableFileDrop(box.querySelector(".cd-pdf"), box.querySelector(".cd-upload input"));
     box.querySelector(".cd-docno").addEventListener("input", (e) => { typed.docno = e.target.value; });
     box.querySelector(".cd-greeting").addEventListener("input", (e) => { typed.greeting = e.target.value; });
     box.querySelector(".cd-send")?.addEventListener("input", (e) => { typed.send = e.target.value; refreshDocNo(); });
@@ -126,6 +127,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
           <span class="mail-note">${f.pages}장</span>
           <button type="button" class="cd-x" data-name="${mailEsc(f.name)}" title="빼기">✕</button></div>`).join("")
           : '<div class="mail-note cd-none">아직 없음 — 없으면 빼고 합칩니다</div>'}
+        <div class="mail-note cd-drop-hint">⬇ 파일을 이 칸에 끌어다 놓아도 됩니다(여러 개 가능)</div>
         <div class="mail-note cd-slot-msg"></div></div>`).join("")}</div>`;
   }
 

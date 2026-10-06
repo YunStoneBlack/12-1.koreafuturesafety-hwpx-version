@@ -40,6 +40,7 @@
         <label class="cl-date">발급일 <input type="date" class="cl-issued" value="${esc(doc.issued_on)}" /></label>
         <label class="cl-date">유효기간 <input type="date" class="cl-valid" value="${esc(doc.valid_until)}" /></label>
         <label class="cl-file">${doc.id ? "바꿔 올리기" : "파일 올리기"}<input type="file" accept="image/*,application/pdf,.pdf" hidden data-kr-file="skip" /></label>
+        <span class="mail-note cd-drop-hint">⬇ 또는 이 줄에 끌어다 놓기</span>
         ${doc.id ? '<button type="button" class="secondary cl-save-dates">날짜 저장</button><button type="button" class="secondary cl-del" style="color:var(--crit);">지우기</button>' : ""}
         <span class="cl-msg mail-note"></span>
       </div>`;

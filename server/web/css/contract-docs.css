@@ -96,3 +96,6 @@
 
 /* 끌어다 놓는 중(app.js enableFileDrop) — 칸 모양에 맞춰 둥글게 */
 .cd-slot.drop-over, .cl-row.drop-over, .cd-pdf.drop-over { border-radius: 8px; }
+.mail-box.cd-box.drop-over { background-color: var(--surface); outline-offset: -6px; } /* 창 전체가 받을 땐 테두리만 */
+.cd-drop-hint { font-size: 11.5px; }
+@media (hover: none) { .cd-drop-hint { display: none; } } /* 폰·태블릿엔 끌어다 놓기가 없으니 안내도 숨김 */

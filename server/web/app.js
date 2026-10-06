@@ -141,8 +141,10 @@ function fileAccepts(input, file) {
   });
 }
 
+// input은 칸 자체 또는 "지금 칸을 찾아 주는 함수"(창을 다시 그려 칸이 바뀌는 곳 — 착수계 창 전체)
 function enableFileDrop(zone, input) {
   if (!zone || !input || zone.dataset.dropOn) return;
+  const getInput = typeof input === "function" ? input : () => input;
   zone.dataset.dropOn = "1";
   const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
   zone.addEventListener("dragover", (e) => {
@@ -159,6 +161,8 @@ function enableFileDrop(zone, input) {
     e.preventDefault();
     e.stopPropagation();
     zone.classList.remove("drop-over");
+    const input = getInput();
+    if (!input) return;
     const files = [...e.dataTransfer.files].filter((f) => fileAccepts(input, f));
     if (!files.length) {
       alert("이 칸에 맞는 파일 형식이 아닙니다.");
@@ -170,6 +174,10 @@ function enableFileDrop(zone, input) {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
+
+// 놓을 수 없는 곳에 파일을 떨어뜨려도 브라우저가 그 파일을 열어 화면을 떠나지 않게(놓는 칸은 각자 먼저 처리함)
+document.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
+document.addEventListener("drop", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
 
 function showError(el, err) {
   el.textContent = err.message || String(err);
