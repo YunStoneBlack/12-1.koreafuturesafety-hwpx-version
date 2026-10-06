@@ -1,5 +1,5 @@
 // ---------- 서류 자동화 — 계약 목록(docs.html, 2026-10-06) ----------
-// 위: 검색 + [+ 새 계약 (계약서 PDF)](읽어서 계약을 만들고 바로 착수계 창) + [직접 입력]. 단계 칸(전체·착수계 전·착수계 제출·완수계 제출)을 누르면 거름.
+// 위: 검색 + [+ 새 계약](빈 착수계 창 — 계약서 PDF를 놓거나 올리거나 직접 적기). 화면에 계약서 PDF를 끌어다 놓으면 바로 읽어서 새 계약. 단계 칸(전체·착수계 전·착수계 제출·완수계 제출)을 누르면 거름.
 // 한 줄: 용역명 · 발주처·계약번호·금액·기간 · 현장(연결/연결 안 됨 [🔗 연결]) · 착수계·완수계 상태 · [📑 착수계][📑 완수계][삭제].
 
 (function () {
@@ -101,15 +101,8 @@
     }
   });
   enableFileDrop(document.querySelector("main.main"), document.getElementById("dc-pdf")); // 화면에 계약서 PDF를 끌어다 놓아도 새 계약
-  document.getElementById("dc-blank").addEventListener("click", async () => {
-    try {
-      const out = await apiPost("/contracts", {});
-      await load();
-      openContractDocs(out.id, "start", load);
-    } catch (err) {
-      showError(errorEl, err);
-    }
-  });
+  // [+ 새 계약] — 빈 착수계 창(계약서 PDF를 끌어다 놓거나 올리거나 직접 적기). 계약은 창에서 처음 무언가 할 때 만들어짐
+  document.getElementById("dc-new-btn").addEventListener("click", () => openContractDocs(null, "start", load));
 
   load();
 })();

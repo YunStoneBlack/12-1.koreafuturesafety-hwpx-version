@@ -41,6 +41,18 @@ CONTRACT_FIELDS = ("client", "title", "contract_no", "amount", "contract_date", 
 DATE_FIELDS = {"contract_date", "start_date", "end_date", "actual_end_date"}
 
 
+class ContractIn(BaseModel):
+    client: str | None = None
+    title: str | None = None
+    contract_no: str | None = None
+    amount: int | None = None
+    contract_date: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    settle_amount: int | None = None
+    actual_end_date: str | None = None
+
+
 def _iso(d) -> str:
     return d.isoformat() if d else ""
 
@@ -103,9 +115,19 @@ def _new(db: Session, user: User) -> ServiceContract:
 
 
 @router.post("")
-def create_contract(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def create_contract(body: ContractIn | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """새 계약 — 창([+ 새 계약])에서 처음 무언가 할 때(붙임 올리기·현장 연결·착수계 만들기) 그때까지 적은 값으로 만든다."""
     row = _new(db, user)
+    if body is not None:
+        _apply_contract(row, body.model_dump(exclude_unset=True), user)
     db.commit()
+    return state(db, user, row)
+
+
+@router.get("/blank")
+def blank_contract(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[+ 새 계약] 창의 빈 화면 — DB에 행을 만들지 않는다(아무것도 안 하고 닫으면 빈 계약이 안 남게, 10/6 사용자). id 0 = 아직 없음."""
+    row = ServiceContract(id=0, company_id=user.company_id, client="", title="", contract_no="", contract_pdf="", participant_ids=[])
     return state(db, user, row)
 
 
@@ -190,18 +212,6 @@ def _person_state(db: Session, p: TechPerson) -> dict:
 @router.get("/{contract_id}")
 def get_contract(contract_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return state(db, user, _require(db, user, contract_id))
-
-
-class ContractIn(BaseModel):
-    client: str | None = None
-    title: str | None = None
-    contract_no: str | None = None
-    amount: int | None = None
-    contract_date: str | None = None
-    start_date: str | None = None
-    end_date: str | None = None
-    settle_amount: int | None = None
-    actual_end_date: str | None = None
 
 
 def _apply_contract(row: ServiceContract, fields: dict, user: User) -> None:

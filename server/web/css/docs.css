@@ -2,10 +2,8 @@
 
 .dc-note { margin: -4px 0 14px; font-size: 12.5px; }
 .dc-count { font-size: 13px; color: var(--muted); }
-.dc-new { display: inline-flex; align-items: center; margin: 0 0 0 auto; padding: 9px 16px; border-radius: 8px; background: var(--blue); color: #fff;
-  font-weight: 600; font-size: 13.5px; cursor: pointer; white-space: nowrap; }
+.main .list-toolbar button.dc-new { margin: 0 0 0 auto; }
 .dc-new input[type="file"] { display: none !important; }
-.main .list-toolbar #dc-blank { margin-left: 0; }
 
 /* 계약 목록 한 줄 */
 .row.dc-row { display: grid; grid-template-columns: minmax(0, 1fr) 230px auto; gap: 8px 16px; align-items: center; }
@@ -67,7 +65,7 @@
 @media (max-width: 760px) {
   .row.dc-row { grid-template-columns: 1fr; }
   .dc-actions { justify-content: flex-start; }
-  .dc-new { margin-left: 0; }
+  .main .list-toolbar button.dc-new { margin-left: 0; }
   .ds-head { display: none; }
   .ds-row { grid-template-columns: 1fr 1fr; padding: 10px 14px; }
   .ds-name { grid-column: 1 / -1; }

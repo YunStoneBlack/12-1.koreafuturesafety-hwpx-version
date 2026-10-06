@@ -1,5 +1,7 @@
 // ---------- 착수계·완수계 창(2026-10-06 — server/api/routers/contracts.py) ----------
 // 용역 계약 하나 기준(계약은 현장보다 먼저 생김 — 형). 서류 자동화 계약 목록(docs.html)과 현장 화면 버튼(연결된 계약)이 연다.
+// contractId가 비면 [+ 새 계약] — 빈 화면(GET /contracts/blank)으로 열고, 처음 무언가 할 때(계약서·붙임 올리기·현장 연결·만들기) 계약을 만든다(ensure)
+// — 아무것도 안 하고 닫으면 빈 계약이 남지 않게(10/6 사용자).
 // 1) 용역계약서 PDF 올리기 → 발주처·용역명·계약번호·금액·날짜가 채워짐(고칠 수 있음, 착수계 때 넣으면 완수계 때 그대로)
 // 2) 문서번호·인사말("귀 ○의")·(완수계) 발송일·정산금액·실제준공일 3) (착수계) 현장대리인 1명 + 참여기술자 0~N명
 // 4) 붙임 서류(받아 온 파일) 올리기 5) 도장 넣기/빼기 → [만들기] → 엑셀 + 합본 PDF 받기. 빠진 서류·유효기간 지난 서류는 막지 않고 경고(사용자 10/6).
@@ -31,12 +33,23 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
 
   let st = null;
   try {
-    st = await api(`/contracts/${contractId}`);
+    st = await api(contractId ? `/contracts/${contractId}` : "/contracts/blank");
   } catch (err) {
     box.innerHTML = `${head()}<div class="mail-msg bad">${mailEsc(err.message)}</div><div class="mail-foot"><button type="button" class="cd-close">닫기</button></div>`;
     box.querySelector(".cd-close").addEventListener("click", close);
     return;
   }
+  // 아직 없는 계약([+ 새 계약])이면 지금까지 적은 값으로 만든다 — 붙임 올리기·현장 연결·만들기 전에
+  async function ensure() {
+    if (contractId) return contractId;
+    const keep = { agent_id: st.agent_id, participant_ids: st.participant_ids };
+    const out = await apiPost("/contracts", contractBody());
+    contractId = out.id;
+    changed = true;
+    st = { ...out, ...keep };
+    return contractId;
+  }
+
   // 창 어디든 계약서 PDF를 끌어다 놓으면 계약서로(붙임 서류 칸에 놓으면 그 칸이 먼저 받음 — 10/6 사용자)
   enableFileDrop(box, () => box.querySelector(".cd-upload input"));
   const typed = {}; // 사람이 직접 고친 칸(문서번호·인사말) — 계약 값이 바뀌어도 덮어쓰지 않음
@@ -99,12 +112,12 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       <div class="mail-foot"><button type="button" class="cd-close">닫기</button><button type="button" class="mail-primary cd-make">${label} 만들기</button></div>`;
     box.querySelector(".cd-close").addEventListener("click", close);
     box.querySelector(".cd-make").addEventListener("click", make);
-    box.querySelector(".cd-link-btn").addEventListener("click", () => openLinkSite(contractId, async () => {
+    box.querySelector(".cd-link-btn").addEventListener("click", async () => { await ensure(); openLinkSite(contractId, async () => {
       const keep = { agent_id: st.agent_id, participant_ids: st.participant_ids };
       st = { ...(await api(`/contracts/${contractId}`)), ...keep };
       changed = true;
       draw();
-    }));
+    }); });
     box.querySelector(".cd-upload input").addEventListener("change", uploadPdf);
     box.querySelector(".cd-docno").addEventListener("input", (e) => { typed.docno = e.target.value; });
     box.querySelector(".cd-greeting").addEventListener("input", (e) => { typed.greeting = e.target.value; });
@@ -141,6 +154,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
         if (!picked.length) return;
         busy = true;
         try {
+          await ensure();
           for (const [i, file] of picked.entries()) {
             const hwp = /\.hwpx?$/i.test(file.name);
             msg.textContent = `올리는 중 ${picked.length > 1 ? `${i + 1}/${picked.length} ` : ""}— ${file.name}${hwp ? " (한글 파일은 PDF로 바꾸느라 1분쯤 걸릴 수 있음)" : ""}`;
@@ -187,8 +201,22 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     return `KFSC21C_${no}${day ? `_${day.slice(5, 7)}${day.slice(8, 10)}` : ""}`;
   }
   function refreshDocNo() {
+    if (typed.greeting === undefined) box.querySelector(".cd-greeting").value = greetingWord(st.contract.client);
     if (typed.docno !== undefined) return;
     box.querySelector(".cd-docno").value = autoDocNo();
+  }
+
+  // "귀 ○의" — 발주처를 손으로 적을 때도 따라 바뀌게. 규칙은 server/contract_docs/build.py greeting_word와 같음(바꾸면 둘 다)
+  function greetingWord(client) {
+    const c = (client || "").trim();
+    if (/(사단|여단|군단|연대|대대|부대|사령부)$/.test(c)) return "부대";
+    if (c.slice(-4).includes("공사")) return "사";
+    if (c.endsWith("공단")) return "공단";
+    for (const end of ["청", "시", "군", "구", "도"]) if (c.endsWith(end)) return end;
+    for (const word of c.split(/\s+/).slice(0, -1).reverse()) {
+      for (const end of ["청", "시", "군", "구"]) if (word.endsWith(end)) return end;
+    }
+    return "기관";
   }
 
   function dl(ext, text, inline = false) {
@@ -264,7 +292,8 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const out = await apiUpload(`/contracts/${contractId}/pdf`, fd);
+      const out = await apiUpload(contractId ? `/contracts/${contractId}/pdf` : "/contracts/from-pdf", fd);
+      if (!contractId) contractId = out.id;
       const keepAgent = st.agent_id, keepParts = st.participant_ids;
       st = out;
       changed = true;
@@ -293,6 +322,14 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     busy = true;
     btn.disabled = true;
     let sec = 0;
+    try {
+      await ensure();
+    } catch (err) {
+      busy = false;
+      btn.disabled = false;
+      alert(err.message);
+      return;
+    }
     btn.textContent = "만드는 중…";
     const timer = setInterval(() => { btn.textContent = `만드는 중… ${++sec}초`; }, 1000);
     try {
