@@ -287,15 +287,18 @@ class SiteDistance(Base):
 
 
 class ServiceContract(Base):
-    """웹판 전용 — 현장의 용역 계약(발주처와 맺은 기술지도 용역, 2026-10-06, alembic 0017). 착수계·완수계 서류(server/contract_docs)에 들어가는 값.
+    """웹판 전용 — 용역 계약(발주처와 맺은 기술지도 용역, 2026-10-06, alembic 0017·0018). 착수계·완수계 서류(server/contract_docs)에 들어가는 값.
     현장 정보의 공사금액·공사기간(시공사 공사)과는 다른 것 — 용역금액·용역 착수일·완수일. 계약서 PDF를 올리면 읽어서 채우고(사람이 고칠 수 있음),
     착수계 때 한 번 넣으면 완수계 때 다시 쓴다. 정산금액·실제준공일이 비면 계약금액·준공기한(사용자 10/6: 보통 그대로, 다를 때만 고침).
-    agent_id·participant_ids = 지난번 착수계에서 고른 기술자(다음에 그대로 골라 둠). 현장이 지워지면 같이 지워진다."""
+    실제 순서(형 10/6) = 용역계약 → 착수계 → 현장 등록 → … → 완수계 — 현장 등록 서류가 착수계 제출일보다 늦게 오는 일이 많아 계약은 현장 없이 먼저 생기고,
+    현장을 등록한 뒤 site_id로 연결한다(0018, 현장 하나에 계약 하나). 현장이 지워져도 계약은 남는다(연결만 끊김).
+    agent_id·participant_ids = 지난번 착수계에서 고른 기술자(다음에 그대로 골라 둠). start_made_at·done_made_at = 합본 PDF를 만든 때(= 제출로 봄, contract_status)."""
 
     __tablename__ = "service_contract"
 
-    site_id: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"))
+    id: Mapped[int] = mapped_column(primary_key=True)
+    site_id: Mapped[int | None] = mapped_column(ForeignKey("site.id", ondelete="SET NULL"), default=None, unique=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
     client: Mapped[str] = mapped_column(Text, default="")
     title: Mapped[str] = mapped_column(Text, default="")
     contract_no: Mapped[str] = mapped_column(Text, default="")
@@ -312,6 +315,7 @@ class ServiceContract(Base):
     done_made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     updated_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)
 
 
 class TechPerson(Base):

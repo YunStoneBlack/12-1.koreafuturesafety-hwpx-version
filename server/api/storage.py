@@ -40,7 +40,6 @@ PREVIEW_DIR = SYSTEM_DIR / "previews"
 SIGNATURE_DIR = DATA_DIR / "_서명"
 LIBRARY_DIR = DATA_DIR / "_자료실"
 PHOTO_SUBDIR = "사진"
-CONTRACT_SUBDIR = "착수계·완수계"  # 현장 폴더 안 착수계·완수계 서류(server/contract_docs/files.py)
 # 예전 구조(2026-10-01 전) — 옮기기 전 파일도 계속 읽히고, 삭제할 때도 같이 정리한다
 OLD_PHOTO_DIR = DATA_DIR / "photos"
 OLD_REPORTS_DIR = DATA_DIR / "reports"
@@ -331,21 +330,4 @@ def relocate_after_site_change(db: Session, site: Site, old_base: str) -> int:
                if s.id == site.id or base_site_name(s).casefold() in (old_base.casefold(), new_base.casefold())]
     moved = sum(len(relocate_site(db, s)) for s in targets)
     db.commit()
-    _move_contract_dir(db, site, old_base)
     return moved
-
-
-def _move_contract_dir(db: Session, site: Site, old_base: str) -> None:
-    """착수계·완수계 폴더(보고서 파일이 아니라 relocate_report가 안 옮김)를 새 현장 폴더로. 안의 파일 이름은 그대로 —
-    받기는 "…_착수계.xlsx" 중 최근 것을 찾는다(contract_docs/files.find_out)."""
-    new = site_dir(db, site) / CONTRACT_SUBDIR
-    for old_name in (old_base, f"{old_base}_{site.id}"):
-        old = DATA_DIR / old_name / CONTRACT_SUBDIR
-        if old.exists() and old != new and not new.exists():
-            try:
-                new.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(old), str(new))
-                _remove_empty_parents(old.parent)
-            except OSError as err:
-                print(f"[storage] 착수계·완수계 폴더 옮기기 실패(예전 폴더에 둠): {err}")
-            return

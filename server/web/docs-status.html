@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>제출 현황 - 서류 자동화</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/contract-docs.css" />
+<link rel="stylesheet" href="css/docs.css" />
+</head>
+<!-- 서류 자동화 — 제출 현황(2026-10-06, js/docs-status.js). 합본 PDF를 만들었으면 제출로 봄(사용자) -->
+<body data-docs-tab="status">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<div class="st-cards" id="ds-cards"></div>
+<p class="page-sub dc-note">착수계·완수계 <b>합본 PDF를 만들면 제출</b>로 봅니다. 기한은 임시로 착수계 = 착수일, 완수계 = 완수일입니다(회사 규칙 확인 중).</p>
+
+<section class="panel">
+  <div class="panel-head"><h2 id="ds-title">전체</h2><span class="dc-count" id="ds-count"></span></div>
+  <div class="ds-table" id="ds-list"><div class="empty-note">불러오는 중...</div></div>
+</section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="mail.js"></script>
+<script src="js/contract-docs.js"></script>
+<script src="shell.js"></script>
+<script src="js/docs-common.js"></script>
+<script src="js/docs-status.js"></script>
+</body>
+</html>

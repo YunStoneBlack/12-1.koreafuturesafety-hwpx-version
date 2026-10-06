@@ -78,3 +78,14 @@
 @media (max-width: 760px) {
   .cl-row, .cl-person .cl-row { grid-template-columns: 1fr; }
 }
+
+/* 창 머리 "현장: ○○ [바꾸기]"·현장 연결 창(js/contract-docs.js openLinkSite·openSiteContract) */
+.cd-site-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cd-box button.cd-link-btn { margin: 0; padding: 2px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--blue);
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.mail-box.cd-pick { width: min(520px, 100%); }
+.cd-pick-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
+.cd-pick button.cd-pick-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; margin: 0; padding: 9px 12px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+.cd-pick button.cd-pick-item:hover, .cd-pick button.cd-pick-item.on { border-color: var(--blue); background: var(--blue-soft); }
+.cd-pick-tag { font-size: 11px; font-weight: 700; color: var(--green); }

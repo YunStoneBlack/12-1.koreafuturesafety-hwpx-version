@@ -1,4 +1,5 @@
-// ---------- 현장 [📑 착수계]·[📑 완수계] 창(2026-10-06 — server/api/routers/contract_docs.py) ----------
+// ---------- 착수계·완수계 창(2026-10-06 — server/api/routers/contracts.py) ----------
+// 용역 계약 하나 기준(계약은 현장보다 먼저 생김 — 형). 서류 자동화 계약 목록(docs.html)과 현장 화면 버튼(연결된 계약)이 연다.
 // 1) 용역계약서 PDF 올리기 → 발주처·용역명·계약번호·금액·날짜가 채워짐(고칠 수 있음, 착수계 때 넣으면 완수계 때 그대로)
 // 2) 문서번호·인사말("귀 ○의")·(완수계) 발송일·정산금액·실제준공일 3) (착수계) 현장대리인 1명 + 참여기술자 0~N명
 // 4) 붙임 서류(받아 온 파일) 올리기 5) 도장 넣기/빼기 → [만들기] → 엑셀 + 합본 PDF 받기. 빠진 서류·유효기간 지난 서류는 막지 않고 경고(사용자 10/6).
@@ -6,29 +7,33 @@
 
 const CD_LABEL = { start: "착수계", done: "완수계" };
 
-async function openContractDocs(siteId, kind, titleText) {
+async function openContractDocs(contractId, kind, onDone) {
   const overlay = document.createElement("div");
   overlay.className = "mail-overlay";
   overlay.innerHTML = '<div class="mail-box cd-box" role="dialog" aria-modal="true"><div class="mail-wait">불러오는 중…</div></div>';
   document.body.appendChild(overlay);
   const box = overlay.querySelector(".mail-box");
   let busy = false;
+  let changed = false;
   const close = () => {
     if (busy) return;
     overlay.remove();
     document.removeEventListener("keydown", onKey);
+    if (changed && onDone) onDone();
   };
   const onKey = (e) => { if (e.key === "Escape") close(); };
   document.addEventListener("keydown", onKey);
   overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
   const label = CD_LABEL[kind];
-  const head = `<div class="mail-head"><b>📑 ${label}</b><span class="mail-sub">${mailEsc(titleText)}</span></div>`;
+  const head = () => `<div class="mail-head"><b>📑 ${label}</b><span class="mail-sub">${mailEsc(st?.title || "새 용역 계약")}</span>
+    ${st ? `<span class="mail-sub cd-site-line">현장: ${st.site_label ? `<a href="site.html?id=${st.site_id}">${mailEsc(st.site_label)}</a>` : "아직 연결 안 됨"}
+      <button type="button" class="cd-link-btn">${st.site_label ? "바꾸기" : "현장 연결"}</button></span>` : ""}</div>`;
 
-  let st;
+  let st = null;
   try {
-    st = await api(`/sites/${siteId}/service-contract`);
+    st = await api(`/contracts/${contractId}`);
   } catch (err) {
-    box.innerHTML = `${head}<div class="mail-msg bad">${mailEsc(err.message)}</div><div class="mail-foot"><button type="button" class="cd-close">닫기</button></div>`;
+    box.innerHTML = `${head()}<div class="mail-msg bad">${mailEsc(err.message)}</div><div class="mail-foot"><button type="button" class="cd-close">닫기</button></div>`;
     box.querySelector(".cd-close").addEventListener("click", close);
     return;
   }
@@ -45,11 +50,11 @@ async function openContractDocs(siteId, kind, titleText) {
     const d = st.defaults;
     const made = st.made[kind];
     const peopleHtml = kind === "start" ? peopleBlock() : companyBlock();
-    box.innerHTML = `${head}
+    box.innerHTML = `${head()}
       <div class="mail-label">용역 계약 <span class="mail-note">— 계약서 PDF를 올리면 채워집니다(착수계·완수계 같이 씀)</span></div>
       <div class="cd-pdf">
         <label class="cd-upload">📎 용역계약서 PDF 올리기<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label>
-        <span class="mail-note cd-pdf-msg">${c.has_pdf ? "✓ 올린 계약서가 있습니다 — 다시 올리면 읽은 칸만 바뀝니다" : "아직 안 올림 — 직접 적어도 됩니다"}</span>
+        <span class="mail-note cd-pdf-msg">${c.has_pdf ? `✓ <a href="${BASE}/api/contracts/${contractId}/pdf" target="_blank" rel="noopener">올린 계약서</a>가 있습니다 — 다시 올리면 읽은 칸만 바뀝니다` : "아직 안 올림 — 직접 적어도 됩니다"}</span>
       </div>
       <div class="cd-grid">
         ${field("client", "발주처")}${field("contract_no", "계약번호")}
@@ -77,6 +82,12 @@ async function openContractDocs(siteId, kind, titleText) {
       <div class="mail-foot"><button type="button" class="cd-close">닫기</button><button type="button" class="mail-primary cd-make">${label} 만들기</button></div>`;
     box.querySelector(".cd-close").addEventListener("click", close);
     box.querySelector(".cd-make").addEventListener("click", make);
+    box.querySelector(".cd-link-btn").addEventListener("click", () => openLinkSite(contractId, async () => {
+      const keep = { agent_id: st.agent_id, participant_ids: st.participant_ids };
+      st = { ...(await api(`/contracts/${contractId}`)), ...keep };
+      changed = true;
+      draw();
+    }));
     box.querySelector(".cd-upload input").addEventListener("change", uploadPdf);
     box.querySelector(".cd-docno").addEventListener("input", (e) => { typed.docno = e.target.value; });
     box.querySelector(".cd-greeting").addEventListener("input", (e) => { typed.greeting = e.target.value; });
@@ -95,7 +106,7 @@ async function openContractDocs(siteId, kind, titleText) {
           <label class="cd-add">+ 파일 올리기<input type="file" multiple hidden data-kr-file="skip"
             accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.tif,.tiff,.webp,.xlsx,.xls,.xlsm,.docx,.doc,.pptx,.ppt,.hwp,.hwpx" /></label></div>
         ${sl.files.length ? sl.files.map((f) => `<div class="cd-file">
-          <a href="${BASE}/api/sites/${siteId}/contract-docs/${kind}/attach/${sl.slot}/${encodeURIComponent(f.name)}" target="_blank" rel="noopener">📄 ${mailEsc(f.title)}</a>
+          <a href="${BASE}/api/contracts/${contractId}/docs/${kind}/attach/${sl.slot}/${encodeURIComponent(f.name)}" target="_blank" rel="noopener">📄 ${mailEsc(f.title)}</a>
           <span class="mail-note">${f.pages}장</span>
           <button type="button" class="cd-x" data-name="${mailEsc(f.name)}" title="빼기">✕</button></div>`).join("")
           : '<div class="mail-note cd-none">아직 없음 — 없으면 빼고 합칩니다</div>'}
@@ -116,7 +127,7 @@ async function openContractDocs(siteId, kind, titleText) {
             msg.textContent = `올리는 중 ${picked.length > 1 ? `${i + 1}/${picked.length} ` : ""}— ${file.name}${hwp ? " (한글 파일은 PDF로 바꾸느라 1분쯤 걸릴 수 있음)" : ""}`;
             const fd = new FormData();
             fd.append("file", file);
-            st.attachments[kind] = await apiUpload(`/sites/${siteId}/contract-docs/${kind}/attach/${slot}`, fd);
+            st.attachments[kind] = await apiUpload(`/contracts/${contractId}/docs/${kind}/attach/${slot}`, fd);
           }
           redrawAttach();
         } catch (err) {
@@ -131,7 +142,7 @@ async function openContractDocs(siteId, kind, titleText) {
       el.querySelectorAll(".cd-x").forEach((btn) => btn.addEventListener("click", async () => {
         if (!confirm(`${btn.dataset.name.replace(/^\d+_/, "")} 파일을 뺄까요?`)) return;
         try {
-          st.attachments[kind] = await api(`/sites/${siteId}/contract-docs/${kind}/attach/${slot}/${encodeURIComponent(btn.dataset.name)}`, { method: "DELETE" });
+          st.attachments[kind] = await api(`/contracts/${contractId}/docs/${kind}/attach/${slot}/${encodeURIComponent(btn.dataset.name)}`, { method: "DELETE" });
           redrawAttach();
         } catch (err) {
           msg.textContent = err.message;
@@ -162,7 +173,7 @@ async function openContractDocs(siteId, kind, titleText) {
   }
 
   function dl(ext, text, inline = false) {
-    return `<a href="${BASE}/api/sites/${siteId}/contract-docs/${kind}.${ext}${inline ? "?inline=1" : ""}" ${inline ? 'target="_blank" rel="noopener"' : "download"}>${text}</a>`;
+    return `<a href="${BASE}/api/contracts/${contractId}/docs/${kind}.${ext}${inline ? "?inline=1" : ""}" ${inline ? 'target="_blank" rel="noopener"' : "download"}>${text}</a>`;
   }
 
   function personNote(p) {
@@ -234,9 +245,10 @@ async function openContractDocs(siteId, kind, titleText) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const out = await apiUpload(`/sites/${siteId}/service-contract/pdf`, fd);
+      const out = await apiUpload(`/contracts/${contractId}/pdf`, fd);
       const keepAgent = st.agent_id, keepParts = st.participant_ids;
       st = out;
+      changed = true;
       st.agent_id = keepAgent ?? st.agent_id;
       st.participant_ids = keepParts;
       delete typed.docno; // 계약번호가 바뀌었을 수 있음 — 기본 문서번호를 새로
@@ -267,9 +279,9 @@ async function openContractDocs(siteId, kind, titleText) {
     btn.textContent = "만드는 중…";
     const timer = setInterval(() => { btn.textContent = `만드는 중… ${++sec}초`; }, 1000);
     try {
-      const out = await apiPost(`/sites/${siteId}/contract-docs/${kind}`, body);
-      st.made = out.made;
-      st = { ...(await api(`/sites/${siteId}/service-contract`)), agent_id: st.agent_id, participant_ids: st.participant_ids };
+      const out = await apiPost(`/contracts/${contractId}/docs/${kind}`, body);
+      changed = true;
+      st = { ...(await api(`/contracts/${contractId}`)), agent_id: st.agent_id, participant_ids: st.participant_ids };
       const warn = out.warnings.length ? `<div class="mail-msg warn">${out.warnings.map(mailEsc).join("<br>")}</div>` : "";
       const pdfBad = out.pdf_error ? `<div class="mail-msg bad">PDF를 못 만들었습니다 — 엑셀은 받을 수 있습니다.<br>${mailEsc(out.pdf_error)}</div>` : "";
       draw(`<div class="mail-msg ok">✓ ${label}를 만들었습니다 — ${dl("xlsx", "엑셀 받기")}${out.pdf_error ? "" : ` · ${dl("pdf", "PDF 보기", true)} · ${dl("pdf", "PDF 받기")}`}</div>${pdfBad}${warn}`);
@@ -284,4 +296,91 @@ async function openContractDocs(siteId, kind, titleText) {
       busy = false;
     }
   }
+}
+
+// ---------- 현장 연결 창 — 용역 계약 → 현장(아직 계약이 없는 현장, 용역명과 비슷한 순). 현장 하나에 계약 하나 ----------
+async function openLinkSite(contractId, onDone) {
+  const overlay = document.createElement("div");
+  overlay.className = "mail-overlay";
+  overlay.style.zIndex = 1200; // 착수계 창 위에
+  overlay.innerHTML = '<div class="mail-box cd-pick" role="dialog" aria-modal="true"><div class="mail-wait">불러오는 중…</div></div>';
+  document.body.appendChild(overlay);
+  const box = overlay.querySelector(".mail-box");
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey, true); };
+  const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+  document.addEventListener("keydown", onKey, true);
+  overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+  let list = [];
+  let cur = null;
+  try {
+    [list, cur] = await Promise.all([api(`/contracts/${contractId}/site-candidates`), api(`/contracts/${contractId}`)]);
+  } catch (err) {
+    box.innerHTML = `<div class="mail-msg bad">${mailEsc(err.message)}</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="mail-head"><b>🔗 현장 연결</b><span class="mail-sub">${mailEsc(cur.title || "용역 계약")}</span></div>
+    <input type="search" class="mail-input cd-pick-q" placeholder="현장명·주소로 찾기" autocomplete="off" />
+    <div class="cd-pick-list"></div>
+    <div class="mail-foot">${cur.site_id ? '<button type="button" class="cd-unlink">연결 끊기</button>' : ""}<button type="button" class="cd-pick-close">닫기</button></div>`;
+  const listEl = box.querySelector(".cd-pick-list");
+  const draw = (q) => {
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const shown = list.filter((s) => words.every((w) => `${s.label} ${s.address}`.toLowerCase().includes(w))).slice(0, 40);
+    listEl.innerHTML = shown.length ? shown.map((s) => `<button type="button" class="cd-pick-item${s.id === cur.site_id ? " on" : ""}" data-id="${s.id}">
+        <b>${mailEsc(s.label)}</b>${!q && s.score >= 0.5 ? '<span class="cd-pick-tag">이름 비슷함</span>' : ""}<span class="mail-note">${mailEsc(s.address)}</span></button>`).join("")
+      : '<div class="mail-note">맞는 현장이 없습니다 — 현장을 먼저 등록하세요(이미 다른 계약이 연결된 현장은 안 보임).</div>';
+    listEl.querySelectorAll(".cd-pick-item").forEach((b) => b.addEventListener("click", () => link(Number(b.dataset.id))));
+  };
+  const link = async (siteId) => {
+    try {
+      await apiPost(`/contracts/${contractId}/link`, { site_id: siteId });
+      close();
+      if (onDone) onDone();
+    } catch (err) {
+      listEl.insertAdjacentHTML("afterbegin", `<div class="mail-msg bad">${mailEsc(err.message)}</div>`);
+    }
+  };
+  box.querySelector(".cd-pick-q").addEventListener("input", (e) => draw(e.target.value));
+  box.querySelector(".cd-pick-close").addEventListener("click", close);
+  box.querySelector(".cd-unlink")?.addEventListener("click", () => { if (confirm("현장 연결을 끊을까요? (서류는 그대로)")) link(null); });
+  draw("");
+}
+
+// ---------- 현장 화면 [📑 착수계]·[📑 완수계] — 연결된 계약을 열고, 없으면 연결할 계약을 고른다(계약은 서류 자동화에서 먼저 만듦) ----------
+async function openSiteContract(siteId, kind) {
+  let info;
+  try {
+    info = await api(`/sites/${siteId}/contract`);
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  if (info.contract_id) return openContractDocs(info.contract_id, kind);
+  const overlay = document.createElement("div");
+  overlay.className = "mail-overlay";
+  overlay.innerHTML = '<div class="mail-box cd-pick" role="dialog" aria-modal="true"></div>';
+  document.body.appendChild(overlay);
+  const box = overlay.querySelector(".mail-box");
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+  const c = info.candidates;
+  box.innerHTML = `<div class="mail-head"><b>📑 ${CD_LABEL[kind]} — 용역 계약 연결</b>
+      <span class="mail-sub">이 현장에 연결된 용역 계약이 없습니다. 착수계 때 만든 계약을 고르세요(이름 비슷한 순).</span></div>
+    <div class="cd-pick-list">${c.length ? c.map((r) => `<button type="button" class="cd-pick-item" data-id="${r.id}">
+        <b>${mailEsc(r.title || "(용역명 없음)")}</b>${r.score >= 0.5 ? '<span class="cd-pick-tag">이름 비슷함</span>' : ""}
+        <span class="mail-note">${mailEsc([r.client, r.contract_no, r.start_date && `${r.start_date} ~ ${r.end_date}`].filter(Boolean).join(" · "))}</span></button>`).join("")
+      : '<div class="mail-note">연결할 계약이 없습니다 — <a href="docs.html">서류 자동화 → 계약 목록</a>에서 계약서 PDF로 먼저 만드세요.</div>'}</div>
+    <div class="mail-foot"><a href="docs.html">서류 자동화로</a><button type="button" class="cd-pick-close">닫기</button></div>`;
+  box.querySelector(".cd-pick-close").addEventListener("click", close);
+  box.querySelectorAll(".cd-pick-item").forEach((b) => b.addEventListener("click", async () => {
+    try {
+      await apiPost(`/contracts/${b.dataset.id}/link`, { site_id: Number(siteId) });
+      close();
+      openContractDocs(Number(b.dataset.id), kind);
+    } catch (err) {
+      alert(err.message);
+    }
+  }));
 }

@@ -3,28 +3,31 @@
     저장소\\
      ├ _서류\\회사\\국세 완납증명서.jpg …                 완수계에 붙는 회사 서류
      ├ _서류\\기술자\\권만중_3\\자격증.jpg …               착수계 기술자 서류(이름_번호 — 같은 이름이 있어도 안 겹치게)
-     └ 26-1)_현장명\\착수계·완수계\\26-1)_현장명_착수계.xlsx / .pdf, …_완수계.xlsx / .pdf, …_용역계약서.pdf
+     └ _용역계약\\007_2025 한탄강 생태경관단지…\\           용역 계약 하나(번호_용역명 — 현장보다 먼저 생기므로 현장 폴더 밖, 2026-10-06)
+          ├ 착수계.xlsx / 착수계.pdf(합본) / 완수계.xlsx / 완수계.pdf / 용역계약서.pdf
+          └ 붙임\\산출내역서\\01_….pdf …                    받아 온 붙임 파일(attachments.py)
 
+용역명이 바뀌면 폴더 이름도 다음에 열 때 맞춘다(번호로 찾음). 받을 때 파일 이름은 "용역명_착수계.pdf".
 올린 서류는 그림(JPG·PNG 등)이든 PDF든 받아서 JPG 한 장으로 둔다 — PDF는 첫 장(정부24·홈택스 완납증명서는 보통 PDF 한 장).
 """
 from __future__ import annotations
 
 import io
+import shutil
 from pathlib import Path
 
 import pymupdf
 from fastapi import HTTPException, status
 from PIL import Image, ImageOps
-from sqlalchemy.orm import Session
 
 from core.db import DATA_DIR
-from core.models_db import Site
 from server.api import storage
 
 DOC_DIR = DATA_DIR / "_서류"
-OUT_SUBDIR = storage.CONTRACT_SUBDIR
+CONTRACT_ROOT = DATA_DIR / "_용역계약"
 MAX_SIDE = 2000
 PDF_DPI = 200
+NAME_MAX = 40
 
 
 def company_doc_path(label: str) -> Path:
@@ -35,23 +38,35 @@ def person_doc_path(person_id: int, name: str, label: str) -> Path:
     return DOC_DIR / "기술자" / f"{storage._clean(name) or '기술자'}_{person_id}" / f"{storage._clean(label)}.jpg"
 
 
-def site_out_dir(db: Session, site: Site) -> Path:
-    return storage.site_dir(db, site) / OUT_SUBDIR
+def contract_dir(contract) -> Path:
+    """계약 폴더 "007_용역명". 예전 이름(용역명이 바뀜) 폴더가 있으면 지금 이름으로 바꾼다(실패하면 예전 폴더 그대로 씀)."""
+    prefix = f"{contract.id:03d}_"
+    want = CONTRACT_ROOT / (prefix + (storage._clean(storage._clean(contract.title or "")[:NAME_MAX]) or "용역"))
+    if want.exists():
+        return want
+    old = next((p for p in CONTRACT_ROOT.glob(f"{prefix}*") if p.is_dir()), None) if CONTRACT_ROOT.exists() else None
+    if old is not None:
+        try:
+            old.rename(want)
+        except OSError:
+            return old
+    return want
 
 
-def site_out_path(db: Session, site: Site, kind_label: str, suffix: str) -> Path:
-    """kind_label = "착수계" | "완수계" | "용역계약서", suffix = ".xlsx" | ".pdf"."""
-    return site_out_dir(db, site) / f"{storage.site_folder_name(db, site)}_{kind_label}{suffix}"
+def out_path(contract, name: str) -> Path:
+    """name = "착수계.xlsx" | "착수계.pdf" | "완수계.xlsx" | "완수계.pdf" | "용역계약서.pdf"."""
+    return contract_dir(contract) / name
 
 
-def find_out(db: Session, site: Site, kind_label: str, suffix: str) -> Path | None:
-    """만든 파일 찾기 — 지금 이름이 없으면 같은 폴더의 "…_착수계.xlsx"(현장명이 바뀌기 전 이름) 중 최근 것."""
-    exact = site_out_path(db, site, kind_label, suffix)
-    if exact.exists():
-        return exact
-    folder = site_out_dir(db, site)
-    found = sorted(folder.glob(f"*_{kind_label}{suffix}"), key=lambda p: p.stat().st_mtime) if folder.exists() else []
-    return found[-1] if found else None
+def download_name(contract, name: str) -> str:
+    title = storage._clean((contract.title or "용역")[:NAME_MAX]) or "용역"
+    return f"{title}_{name}"
+
+
+def delete_contract_files(contract) -> None:
+    d = contract_dir(contract)
+    if d.exists():
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def to_jpeg(data: bytes, filename: str) -> bytes:

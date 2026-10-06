@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>계약 목록 - 서류 자동화</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/contract-docs.css" />
+<link rel="stylesheet" href="css/docs.css" />
+</head>
+<!-- 서류 자동화 — 계약 목록(2026-10-06, js/docs-list.js). 용역계약서 PDF로 계약을 만들고 바로 착수계, 현장 등록 뒤 연결, 끝나면 완수계 -->
+<body data-docs-tab="contracts">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<div class="list-toolbar">
+  <input id="dc-search" type="search" placeholder="용역명·발주처·계약번호·현장으로 검색" autocomplete="off" />
+  <label class="dc-new">+ 새 계약 (계약서 PDF)<input id="dc-pdf" type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label>
+  <button type="button" class="secondary" id="dc-blank">직접 입력</button>
+</div>
+<div id="dc-new-msg" class="status"></div>
+
+<div class="st-cards" id="dc-cards"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>용역 계약</h2><span class="dc-count" id="dc-count"></span></div>
+  <div class="rows" id="dc-list"><div class="empty-note">불러오는 중...</div></div>
+</section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="mail.js"></script>
+<script src="js/contract-docs.js"></script>
+<script src="shell.js"></script>
+<script src="js/docs-common.js"></script>
+<script src="js/docs-list.js"></script>
+</body>
+</html>

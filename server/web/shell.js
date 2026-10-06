@@ -16,20 +16,31 @@ const REPORT_TABS = [
   ["staff", "담당요원", "staff.html"],
   ["settings", "설정", "settings.html"],
 ];
+// 서류 자동화(2026-10-06) — 그룹웨어 왼쪽 메뉴 "서류 자동화"(보고서 자동화 아래)가 여는 화면들. <body data-docs-tab="contracts|status|calendar">.
+// 같은 보고서 앱 안의 페이지라 로그인·DB를 같이 쓰고, 사이드바는 같은 그룹웨어 조각에서 "서류 자동화" 줄을 켜 준다(isDocsPage).
+const DOCS_TABS = [
+  ["contracts", "계약 목록", "docs.html"],
+  ["status", "제출 현황", "docs-status.html"],
+  ["calendar", "착수·완수 일정", "docs-calendar.html"],
+];
+const isDocsPage = () => !!document.body.dataset.docsTab;
 const SIDEBAR_CACHE_KEY = "kfsc-report:gw-sidebar";
 
 function renderReportHeader() {
   const main = document.querySelector("main.main");
-  const active = document.body.dataset.reportTab;
+  const docs = isDocsPage();
+  const active = docs ? document.body.dataset.docsTab : document.body.dataset.reportTab;
   if (!main || !active) return;
   const head = document.createElement("div");
   head.className = "report-head";
-  head.innerHTML = `
+  head.innerHTML = docs ? `
+    <h1>서류 자동화</h1>
+    <p class="page-sub">용역 계약별 착수계·완수계를 만들고 제출 현황·일정을 봅니다.</p>` : `
     <h1>보고서 자동화</h1>
     <p class="page-sub">현장별 기술지도 결과보고서를 작성하고 PDF로 만듭니다.</p>`;
   const nav = document.createElement("nav");
   nav.className = "report-tabs";
-  for (const [key, label, href] of REPORT_TABS) {
+  for (const [key, label, href] of docs ? DOCS_TABS : REPORT_TABS) {
     const a = document.createElement("a");
     a.href = href;
     a.textContent = label;
@@ -43,7 +54,8 @@ function renderReportHeader() {
 function renderFallbackSidebar(aside) {
   aside.innerHTML = `
     <a class="brand" href="dashboard.html"><img src="img/logo-white.png" alt="한국미래안전" /></a>
-    <nav class="nav"><a class="nav-item active" href="dashboard.html">보고서 자동화</a></nav>
+    <nav class="nav"><a class="nav-item ${isDocsPage() ? "" : "active"}" href="dashboard.html">보고서 자동화</a>
+      <a class="nav-item ${isDocsPage() ? "active" : ""}" href="docs.html">서류 자동화</a></nav>
     <div class="sidebar-foot">
       <div class="avatar" id="fallback-avatar">-</div>
       <div><div class="who" id="fallback-name">-</div><div class="role">직원</div></div>
@@ -70,6 +82,12 @@ function mountSidebar(html) {
   const fetched = new DOMParser().parseFromString(html, "text/html").querySelector("aside.sidebar");
   if (!fetched) return false;
   fetched.id = "gw-sidebar";
+  // 서류 자동화 화면이면 그룹웨어가 켜 준 "보고서 자동화" 대신 "서류 자동화" 줄을 켠다(그룹웨어 조각은 보고서 기준 하나뿐)
+  const docsItem = fetched.querySelector('.nav-item[href*="docs.html"]');
+  if (isDocsPage() && docsItem) {
+    fetched.querySelectorAll(".nav-item.active").forEach((a) => a.classList.remove("active"));
+    docsItem.classList.add("active");
+  }
   current.replaceWith(fetched);
   // 폰에선 사이드바가 가로 메뉴 줄로 접히는데(style.css), "보고서 자동화"가 오른쪽 끝이라 화면 밖에 숨는다 → 보이게 스크롤
   const active = fetched.querySelector(".nav-item.active");

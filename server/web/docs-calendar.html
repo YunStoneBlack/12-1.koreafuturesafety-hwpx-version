@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>착수·완수 일정 - 서류 자동화</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/contract-docs.css" />
+<link rel="stylesheet" href="css/docs.css" />
+</head>
+<!-- 서류 자동화 — 착수·완수 일정 달력(2026-10-06, js/docs-calendar.js). 기한(임시: 착수일·완수일)에 계약을 표시 -->
+<body data-docs-tab="calendar">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<div class="dk-bar">
+  <div class="st-month"><button type="button" id="dk-prev" aria-label="이전 달">‹</button><b id="dk-month"></b><button type="button" id="dk-next" aria-label="다음 달">›</button></div>
+  <button type="button" class="secondary" id="dk-today">이번 달</button>
+  <span class="dk-legend"><i class="start"></i>착수계 <i class="done"></i>완수계 <span class="dc-doc ok">✓ 제출</span> <span class="dc-doc bad">기한 지남</span></span>
+</div>
+<p class="page-sub dc-note">기한은 임시로 착수계 = 착수일, 완수계 = 완수일입니다(회사 규칙 확인 중). 누르면 그 서류 창이 열립니다.</p>
+
+<div class="dk-grid" id="dk-grid"></div>
+<div class="dk-list" id="dk-list"></div>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="mail.js"></script>
+<script src="js/contract-docs.js"></script>
+<script src="shell.js"></script>
+<script src="js/docs-common.js"></script>
+<script src="js/docs-calendar.js"></script>
+</body>
+</html>
