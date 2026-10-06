@@ -9,6 +9,7 @@
   const err = document.getElementById("error");
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   let lib = null;
+  const autoNote = {}; // 완납증명서 올린 뒤 "AI가 읽음: 발급일 …" 안내(종류별, 이 화면에 있는 동안)
 
   async function load() {
     try {
@@ -25,6 +26,7 @@
   function stateHtml(doc) {
     if (doc.status === "ok") return `<span class="cd-ok">✓ ${doc.valid_until ? `${esc(doc.valid_until)}까지` : "있음"}</span>`;
     if (doc.status === "expired") return `<span class="cd-bad">⚠ 기간 지남(${esc(doc.valid_until)})</span>`;
+    if (doc.status === "nodate") return '<span class="cd-bad">⚠ 발급일을 적어 주세요</span>';
     return '<span class="cd-bad">없음</span>';
   }
 
@@ -37,28 +39,36 @@
       <div class="cl-state">${stateHtml(doc)}${doc.updated_at ? `<div class="mail-note">${esc(doc.updated_at)} 올림</div>` : ""}</div>
       <div class="cl-actions">
         ${doc.id ? `<a href="${BASE}/api/contract-docs/docs/${doc.id}/image?ts=${doc.ts}" target="_blank" rel="noopener"><img class="cl-thumb" alt="${esc(doc.label)}" src="${BASE}/api/contract-docs/docs/${doc.id}/image?ts=${doc.ts}" /></a>` : ""}
-        <label class="cl-date">발급일 <input type="date" class="cl-issued" value="${esc(doc.issued_on)}" /></label>
-        <label class="cl-date">유효기간 <input type="date" class="cl-valid" value="${esc(doc.valid_until)}" /></label>
+        ${doc.dated ? `<label class="cl-date">발급일 <input type="date" class="cl-issued" value="${esc(doc.issued_on)}" /></label>
+        <label class="cl-date">유효기간 <input type="date" class="cl-valid" value="${esc(doc.valid_until)}" /></label>` : '<span class="mail-note">유효기간 없음</span>'}
         <label class="cl-file">${doc.id ? "바꿔 올리기" : "파일 올리기"}<input type="file" accept="image/*,application/pdf,.pdf" hidden data-kr-file="skip" /></label>
         <span class="drop-box drop-xs cl-drop"><span class="drop-pc">⬇ 여기에 끌어다 놓기</span></span>
-        ${doc.id ? '<button type="button" class="secondary cl-save-dates">날짜 저장</button><button type="button" class="secondary cl-del" style="color:var(--crit);">지우기</button>' : ""}
+        ${doc.id && doc.dated ? '<button type="button" class="secondary cl-save-dates">날짜 저장</button>' : ""}${doc.id ? '<button type="button" class="secondary cl-del" style="color:var(--crit);">지우기</button>' : ""}
         <span class="cl-msg mail-note"></span>
+        ${autoNote[doc.kind] ? `<div class="cl-auto${autoNote[doc.kind].startsWith("⚠") ? " bad" : ""}">${esc(autoNote[doc.kind])}</div>` : ""}
       </div>`;
     const msg = row.querySelector(".cl-msg");
-    const dates = () => ({ issued_on: row.querySelector(".cl-issued").value, valid_until: row.querySelector(".cl-valid").value });
+    const dates = () => ({ issued_on: row.querySelector(".cl-issued")?.value || "", valid_until: row.querySelector(".cl-valid")?.value || "" });
     enableFileDrop(row, row.querySelector("input[type=file]"));
     row.querySelector(".cl-drop").addEventListener("click", () => row.querySelector("input[type=file]").click());
     row.querySelector("input[type=file]").addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      msg.textContent = "올리는 중…";
+      msg.textContent = doc.dated ? "올리는 중… (발급일을 읽느라 몇 초 더)" : "올리는 중…";
       try {
         const fd = new FormData();
         fd.append("file", file);
         const d = dates();
         fd.append("issued_on", d.issued_on);
         fd.append("valid_until", d.valid_until);
-        await apiUpload(base, fd);
+        const out = await apiUpload(base, fd);
+        if (out.auto) { // 완납증명서 — 발급일을 어떻게 넣었는지 알림(다시 그린 뒤 그 줄에)
+          const a = out.auto;
+          const how = a.source === "ai" ? "🤖 AI가 읽음" : a.source === "text" ? "증명서 글자에서 읽음" : "";
+          autoNote[doc.kind] = a.issued_found || a.valid_found
+            ? `${how}: 발급일 ${out.issued_on || "?"}${out.valid_until ? ` · 유효기간 ${out.valid_until}까지` : ""} — 맞는지 확인하고, 틀리면 고쳐서 [날짜 저장]`
+            : `⚠ 발급일을 찾지 못했습니다${a.error ? `(${a.error})` : ""} — 발급일을 적고 [날짜 저장]을 누르세요`;
+        }
         onChanged();
       } catch (e2) {
         msg.textContent = e2.message;

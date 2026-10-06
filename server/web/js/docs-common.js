@@ -11,10 +11,11 @@ function dcMoney(n) {
   return n == null || n === "" ? "" : `${Number(n).toLocaleString("ko-KR")}원`;
 }
 
-// 착수계·완수계 한 칸 상태: ✓ 제출(만든 날) / 미제출 — 기한은 없음(사용자 10/6: 회사 규칙 없음)
+// 착수계·완수계 한 칸 상태: ✓ 10/07 E-mail · 10/08 우편(제출 기록, 여러 방식) / PDF 만듦·미제출 / 미제출 — 기한은 없음(사용자 10/6)
 function dcDocState(c, kind) {
   const m = c.made[kind];
-  if (m.submitted) return { cls: "ok", text: `✓ ${m.at.slice(5, 10).replace("-", "/")} 제출` };
+  if (m.submitted) return { cls: "ok", text: "✓ " + m.submits.map((r) => `${r.date.slice(5).replace("-", "/")} ${r.label}`).join(" · ") + " 제출" };
+  if (m.pdf) return { cls: "idle", text: "PDF 만듦 · 미제출" };
   if (kind === "done" && !c.made.start.submitted) return { cls: "idle", text: "착수계 먼저" };
   return { cls: "idle", text: "미제출" };
 }

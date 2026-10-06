@@ -17,8 +17,17 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   const box = overlay.querySelector(".mail-box");
   let busy = false;
   let changed = false;
-  const close = () => {
+  let dirty = false; // 칸을 고쳤는데 아직 저장 안 함 — 닫을 때 저장(이미 있는 계약만, 10/6: 담당자만 적고 닫아도 남게)
+  const close = async () => {
     if (busy) return;
+    if (dirty && contractId) {
+      try {
+        await api(`/contracts/${contractId}`, { method: "PUT", body: JSON.stringify(contractBody()) });
+        changed = true;
+      } catch (err) {
+        if (!confirm(`고친 칸을 저장하지 못했습니다(${err.message}). 그래도 닫을까요?`)) return;
+      }
+    }
     overlay.remove();
     document.removeEventListener("keydown", onKey);
     if (changed && onDone) onDone();
@@ -62,12 +71,18 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     aiFilled = info.ai_filled || [];
     const names = { client: "발주처", title: "용역명", contract_no: "계약번호", amount: "계약금액", contract_date: "계약일", start_date: "착수일", end_date: "완수일" };
     const parts = [];
-    if (aiFilled.length) parts.push(`<div class="mail-msg warn">🤖 AI로 읽은 칸: ${aiFilled.map((k) => names[k] || k).join("·")} — 계약서와 맞는지 확인하세요(노란 칸).</div>`);
+    const contactNames = { client_manager: "계약 담당자", client_phone: "담당자 연락처", client_email: "담당자 이메일" }; // 못 읽어도 안내 안 함(없는 계약서가 많음)
+    if (aiFilled.length) parts.push(`<div class="mail-msg warn">🤖 AI로 읽은 칸: ${aiFilled.map((k) => names[k] || contactNames[k] || k).join("·")} — 계약서와 맞는지 확인하세요(노란 칸).</div>`);
     if (info.ai_error) parts.push(`<div class="mail-msg warn">AI로 읽지 못했습니다(${mailEsc(info.ai_error)}) — 빈 칸은 직접 채우세요.</div>`);
     const left = (info.unread || []).filter((k) => !aiFilled.includes(k) && names[k]);
     if (left.length) parts.push(`<div class="mail-msg warn">못 읽은 칸: ${left.map((k) => names[k]).join("·")} — 직접 채우세요.</div>`);
     if (!parts.length) parts.push('<div class="mail-msg ok">✓ 계약서를 읽었습니다 — 칸을 확인하세요.</div>');
     return parts.join("");
+  }
+
+  // 계약 담당자 칸 — 서류 값(st.contract)이 아니라 계약 자체 값(st.client_*)이라 따로(관리번호와 같음)
+  function top(key, text, type = "text") {
+    return `<label class="cd-field${aiFilled.includes(key) ? " cd-ai" : ""}"><span>${text}</span><input class="cd-in" data-key="${key}" type="${type}" value="${mailEsc(st[key] || "")}" /></label>`;
   }
 
   function field(key, text, type = "text", wide = false) {
@@ -92,7 +107,8 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       <div class="cd-grid">
         <label class="cd-field"><span>관리번호 <em>목록에 "26-3)_용역명"으로 보임</em></span>
           <span class="cd-mgmt"><input class="cd-in" data-key="management_no" value="${mailEsc(st.management_no || "")}" /><button type="button" class="cd-mgmt-auto">자동생성</button></span></label>
-        <div></div>
+        ${top("client_manager", "계약 담당자 <em>발주처 쪽</em>")}
+        ${top("client_phone", "담당자 연락처", "tel")}${top("client_email", "담당자 이메일", "email")}
         ${field("client", "발주처")}${field("contract_no", "계약번호")}
         ${field("title", "용역명", "text", true)}
         ${field("amount", "계약금액(원)", "number")}${field("contract_date", "계약일", "date")}
@@ -114,6 +130,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
         <label><input type="radio" name="cd-seal" value="0" /> 빼기 <span class="mail-note">(원본 — 인쇄 뒤 직접 날인)</span></label>
       </div>
       ${result || ""}
+      ${submitBlock()}
       ${made.at && !result ? `<div class="cd-made">지난번 만든 것 ${mailEsc(made.at)} — 아래 버튼으로 받기</div>` : ""}
       <div class="mail-foot cd-foot"><button type="button" class="cd-close">닫기</button>
         ${made.xlsx ? dl("xlsx", "엑셀 받기") : ""}${made.pdf ? dl("pdf", "PDF 보기", true) + dl("pdf", "PDF 받기") : ""}
@@ -141,12 +158,92 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     box.querySelector(".cd-greeting").addEventListener("input", (e) => { typed.greeting = e.target.value; });
     box.querySelector(".cd-send")?.addEventListener("input", (e) => { typed.send = e.target.value; refreshDocNo(); });
     box.querySelectorAll(".cd-in").forEach((el) => el.addEventListener("input", () => {
-      if (el.dataset.key === "management_no") st.management_no = el.value;
+      dirty = true;
+      if (["management_no", "client_manager", "client_phone", "client_email"].includes(el.dataset.key)) st[el.dataset.key] = el.value;
       else st.contract[el.dataset.key] = el.value;
       refreshDocNo();
     }));
     if (kind === "start") wirePeople();
     wireAttach();
+    wireSubmit();
+  }
+
+  // ---------- 제출(사용자 10/6) — E-mail(합본 PDF를 바로 보냄)·직접 제출·우편 제출, 여러 방식 함께. 기록이 있으면 제출 ----------
+  function submitBlock() {
+    const m = st.made[kind];
+    if (!contractId || !(m.pdf || m.submits.length)) return '<div class="cd-submit-wrap"></div>';
+    const recs = m.submits.map((r) => `<div class="cd-sub-rec"><span class="cd-ok">✓ ${mailEsc(r.date.slice(5).replace("-", "/"))} ${mailEsc(r.label)} 제출</span>
+      ${r.to ? `<span class="mail-note">→ ${mailEsc(r.to)}</span>` : ""}<button type="button" class="cd-x cd-sub-del" data-id="${r.id}" title="이 기록 지우기">✕</button></div>`).join("");
+    return `<div class="cd-submit-wrap"><div class="mail-label">제출 <span class="mail-note">— 여러 방식을 함께 기록할 수 있어요(E-mail은 합본 PDF를 바로 보냄)</span></div>
+      ${recs || `<div class="mail-note">아직 제출 기록 없음 — 아래에서 고르세요</div>`}
+      <div class="cd-sub-btns">${m.pdf ? '<button type="button" data-m="email">📧 E-mail로 보내기</button>' : ""}
+        <button type="button" data-m="direct">🏢 직접 제출</button><button type="button" data-m="post">📮 우편 제출</button></div>
+      <div class="cd-sub-form"></div><div class="cd-sub-msg"></div></div>`;
+  }
+
+  function wireSubmit() {
+    const wrap = box.querySelector(".cd-submit-wrap");
+    if (!wrap) return;
+    const form = wrap.querySelector(".cd-sub-form");
+    const msg = wrap.querySelector(".cd-sub-msg");
+    const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    wrap.querySelectorAll(".cd-sub-btns button").forEach((b) => b.addEventListener("click", () => {
+      wrap.querySelectorAll(".cd-sub-btns button").forEach((x) => x.classList.toggle("on", x === b));
+      const m = b.dataset.m;
+      form.innerHTML = m === "email"
+        ? `<input class="cd-sub-to" type="email" placeholder="받는 메일(여러 곳은 쉼표로)" value="${mailEsc(st.client_email || "")}" />
+           <button type="button" class="mail-primary cd-sub-go">보내기</button>`
+        : `<label class="cd-sub-date">${m === "direct" ? "직접 제출" : "우편 제출"}일 <input type="date" class="cd-sub-day" value="${today}" /></label>
+           <button type="button" class="mail-primary cd-sub-go">저장</button>`;
+      form.querySelector(".cd-sub-go").addEventListener("click", () => save(m));
+    }));
+    wrap.querySelectorAll(".cd-sub-del").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("이 제출 기록을 지울까요? (E-mail은 이미 보낸 메일이 되돌려지지는 않습니다)")) return;
+      try {
+        const out = await api(`/contracts/${contractId}/submit/${b.dataset.id}`, { method: "DELETE" });
+        st.made = out.made;
+        changed = true;
+        redrawSubmit();
+      } catch (err) {
+        msg.textContent = err.message;
+      }
+    }));
+    async function save(m) {
+      const go = form.querySelector(".cd-sub-go");
+      const body = { method: m };
+      if (m === "email") {
+        body.to = form.querySelector(".cd-sub-to").value.trim();
+        if (!body.to) { msg.textContent = "받는 메일을 적으세요."; return; }
+        if (!confirm(`${label} 합본 PDF를 ${body.to}(으)로 보낼까요?`)) return;
+      } else {
+        body.submitted_on = form.querySelector(".cd-sub-day").value;
+      }
+      go.disabled = true;
+      go.textContent = m === "email" ? "보내는 중…" : "저장 중…";
+      busy = true;
+      try {
+        const out = await apiPost(`/contracts/${contractId}/submit/${kind}`, body);
+        st.made = out.made;
+        if (m === "email" && !st.client_email && !body.to.includes(",")) st.client_email = body.to;
+        changed = true;
+        redrawSubmit(m === "email" ? "✓ 보냈습니다" : "✓ 저장했습니다");
+      } catch (err) {
+        go.disabled = false;
+        go.textContent = m === "email" ? "보내기" : "저장";
+        msg.textContent = err.message;
+        msg.className = "cd-sub-msg cd-bad";
+      } finally {
+        busy = false;
+      }
+    }
+  }
+
+  function redrawSubmit(note) {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = submitBlock();
+    box.querySelector(".cd-submit-wrap").replaceWith(tmp.firstElementChild);
+    wireSubmit();
+    if (note) { const m = box.querySelector(".cd-sub-msg"); if (m) { m.textContent = note; m.className = "cd-sub-msg cd-ok"; } }
   }
 
   // 붙임 파일(받아 오는 서류 — 산출내역서·완수내역서·기술지도보고서·완료증명서): 올리면 합본 PDF에 갑지 붙임 순서대로 들어감(10/6 형)
@@ -252,6 +349,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     const bits = [];
     if (p.missing.length) bits.push(`<span class="cd-bad">${mailEsc(p.missing.join("·"))} 없음</span>`);
     if (p.expired.length) bits.push(`<span class="cd-bad">${mailEsc(p.expired.join("·"))} 기간 지남</span>`);
+    if ((p.nodate || []).length) bits.push(`<span class="cd-bad">${mailEsc(p.nodate.join("·"))} 발급일 모름</span>`);
     return [mailEsc([p.qualification.replace(/\n/g, "·"), p.grade].filter(Boolean).join(" · ")), ...bits].filter(Boolean).join(" · ");
   }
 
@@ -293,7 +391,8 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   function companyBlock() {
     const rows = st.company_docs.map((doc) => {
       const s = doc.status === "ok" ? `<span class="cd-ok">✓${doc.valid_until ? ` ${mailEsc(doc.valid_until)}까지` : ""}</span>`
-        : doc.status === "expired" ? `<span class="cd-bad">⚠ 기간 지남(${mailEsc(doc.valid_until)})</span>` : '<span class="cd-bad">없음</span>';
+        : doc.status === "expired" ? `<span class="cd-bad">⚠ 기간 지남(${mailEsc(doc.valid_until)})</span>`
+        : doc.status === "nodate" ? '<span class="cd-bad">⚠ 발급일 모름</span>' : '<span class="cd-bad">없음</span>';
       return `<div><span>${mailEsc(doc.label)}</span><div>${s}</div></div>`;
     }).join("");
     return `<div class="mail-label">붙는 회사 서류 <span class="mail-note">— <a href="docs-settings.html#contract-library">설정 탭에서 바꾸기</a></span></div>
@@ -301,7 +400,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   }
 
   function contractBody() {
-    const body = { management_no: st.management_no || "" };
+    const body = { management_no: st.management_no || "", client_manager: st.client_manager || "", client_phone: st.client_phone || "", client_email: st.client_email || "" };
     for (const [k, v] of Object.entries(st.contract)) {
       if (k === "has_pdf") continue;
       body[k] = ["amount", "settle_amount"].includes(k) ? (v === "" || v == null ? null : Number(v)) : (v || "");
@@ -360,6 +459,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     try {
       const out = await apiPost(`/contracts/${contractId}/docs/${kind}`, body);
       changed = true;
+      dirty = false;
       st = { ...(await api(`/contracts/${contractId}`)), agent_id: st.agent_id, participant_ids: st.participant_ids };
       const warn = out.warnings.length ? `<div class="mail-msg warn">${out.warnings.map(mailEsc).join("<br>")}</div>` : "";
       const pdfBad = out.pdf_error ? `<div class="mail-msg bad">PDF를 못 만들었습니다 — 엑셀은 받을 수 있습니다.<br>${mailEsc(out.pdf_error)}</div>` : "";

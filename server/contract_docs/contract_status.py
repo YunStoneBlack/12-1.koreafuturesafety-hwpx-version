@@ -1,6 +1,7 @@
 """용역 계약의 제출 판정·일정 날짜·현장 이름 비슷한 정도 — 판정은 이 한 곳에서만(보고서 제출 현황 server/api/submission.py와 같은 원칙).
 
-- 제출됨(사용자 10/6): 착수계·완수계 **합본 PDF를 만들었으면** 제출로 본다(start_made_at·done_made_at + 파일 있음).
+- 제출됨(사용자 10/6 저녁 바꿈): **제출 기록(contract_submit)이 하나라도 있으면** — E-mail(합본 PDF를 바로 보냄)·직접 제출·우편 제출, 여러 방식 함께.
+  (그 전 낮에는 "합본 PDF를 만들면 제출"이었음)
 - 단계: 착수계 전 → 착수계 제출 → 완수계 제출(끝). 현장 연결은 단계와 따로.
 - 기한: **없음**(사용자 10/6 — 회사에 정해진 규칙이 없음). "기한 지남" 같은 경고는 안 하고, 일정 달력엔 계약의 착수일·완수일만(plan_dates).
 """
@@ -13,9 +14,12 @@ from difflib import SequenceMatcher
 STAGES = [("before", "착수계 전"), ("started", "착수계 제출"), ("finished", "완수계 제출")]
 
 
-def submitted(contract, kind: str, pdf_exists: bool) -> bool:
-    at = contract.start_made_at if kind == "start" else contract.done_made_at
-    return bool(at) and pdf_exists
+METHODS = {"email": "E-mail", "direct": "직접", "post": "우편"}
+
+
+def submitted(records: list) -> bool:
+    """그 서류(착수계 또는 완수계)의 제출 기록들 → 제출했는지."""
+    return bool(records)
 
 
 def stage(start_done: bool, done_done: bool) -> str:

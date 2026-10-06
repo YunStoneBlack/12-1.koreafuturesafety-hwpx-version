@@ -36,7 +36,7 @@ def read_text(path: str | Path) -> str:
 def parse_text(text: str) -> dict:
     """계약서 글자 → {client, title, contract_no, amount, contract_date, start_date, end_date}(못 읽으면 빈 값).
     나라장터(조달청·지자체 전자계약) 양식을 먼저 보고, 못 읽은 칸은 국방조달(국방전자조달) 양식으로 채운다(10/6 — 수도기계화보병사단 계약서)."""
-    out = _parse_g2b(text)
+    out = _parse_g2b(text) | _contact(text)
     for k, v in _parse_defense(text).items():
         if not out.get(k) and v:
             out[k] = v
@@ -65,6 +65,26 @@ def _parse_defense(text: str) -> dict:
         m = re.search(label + r"\s*:?\s*(\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일)", text)
         if m:
             out[key] = _date(m[1])
+    return out
+
+
+def _contact(text: str) -> dict:
+    """발주처 계약 담당자 — 나라장터 "담당부서: 회계과 담당: 오성혜(Tel:031-538-2453)"(첫 번째 = 발주처),
+    국방조달은 "재무관 담 당 자 … (031-589-6509)"(이름은 계급·이름이 다른 줄에 섞여 못 읽으면 빈 칸)."""
+    out = {"client_manager": "", "client_phone": "", "client_email": ""}
+    m = re.search(r"담\s*당\s*:\s*([가-힣]{2,4})\s*\(\s*Tel\s*:\s*([\d\-]+)", text)
+    if m:
+        out["client_manager"], out["client_phone"] = m[1], m[2]
+    else:
+        m = re.search(r"담\s*당\s*자[^\n]*\n?[^\n(]*\(\s*(0\d{1,2}-\d{3,4}-\d{4})\s*\)", text)
+        if m:
+            out["client_phone"] = m[1]
+        m = re.search(r"(?:중위|소위|대위|소령|중령|대령|주무관|담당)\s+([가-힣]{2,4})\s*$", text, re.M)
+        if m and out["client_phone"]:
+            out["client_manager"] = m[1]
+    m = re.search(r"[\w.\-]+@[\w\-]+\.[\w.\-]+", text)
+    if m and "kfsc" not in m[0].lower():  # 우리 회사 메일은 빼고
+        out["client_email"] = m[0]
     return out
 
 

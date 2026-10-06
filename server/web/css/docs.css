@@ -69,3 +69,5 @@
   .fc .fc-daygrid-day-frame { min-height: 62px; }
   .fc .fc-toolbar-title { font-size: 14px; }
 }
+.dc-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.dc-contact .site-links { margin: 0; }

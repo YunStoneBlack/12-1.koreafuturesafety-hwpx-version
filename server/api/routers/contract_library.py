@@ -21,15 +21,35 @@ from sqlalchemy.orm import Session
 from core import config
 from core.models_web import SubmitDoc, TechPerson, User
 from server.api.deps import get_current_user, get_db
-from server.contract_docs import files
+from server.contract_docs import doc_dates, files
 from server.contract_docs.build import COMPANY_DOCS, PERSON_DOCS
 
 router = APIRouter(prefix="/contract-docs", tags=["contract-docs"])
 
 COMPANY_LABELS = dict(COMPANY_DOCS)
 PERSON_LABELS = dict(PERSON_DOCS)
-DEFAULT_VALID_DAYS = 30
-VALID_DEFAULT_KINDS = {"ins_health", "ins_employ", "tax_national", "tax_local"}  # 완납증명서 — 유효기간 안 적혀 있으면 발급일 + 30일
+# 유효기간이 있는 서류와 "유효기간이 안 적혀 있을 때" 규칙(사용자 10/2·10/6) — 여기 없는 서류(사업자등록증·통장·자격증·교육수료증)는 유효기간 없음
+VALID_RULES = {
+    "ins_health": ("days", 30), "ins_employ": ("days", 30), "tax_national": ("days", 30), "tax_local": ("days", 30),  # 완납증명서: 발급일 + 30일
+    "career": ("months", 3),  # 경력증명서: 발급일 + 3개월
+}
+
+
+def default_valid_until(kind: str, issued: datetime.date) -> datetime.date | None:
+    rule = VALID_RULES.get(kind)
+    if rule is None:
+        return None
+    unit, n = rule
+    if unit == "days":
+        return issued + datetime.timedelta(days=n)
+    month = issued.month - 1 + n
+    year, month = issued.year + month // 12, month % 12 + 1
+    for day in (issued.day, 30, 29, 28):  # 31일 → 그달 마지막 날
+        try:
+            return datetime.date(year, month, day)
+        except ValueError:
+            continue
+    return None
 
 
 def _date(text: str | None) -> datetime.date | None:
@@ -52,17 +72,19 @@ def _drop_doc(db: Session, row: SubmitDoc | None) -> None:
 
 
 def doc_status(doc: SubmitDoc | None, on: datetime.date | None = None) -> str:
-    """"" 없음 | ok | expired(유효기간 지남). on = 기준일(서류 내는 날, 기본 오늘)."""
+    """"" 없음 | ok | expired(유효기간 지남) | nodate(완납증명서인데 발급일·유효기간을 모름 — 경고, 사용자 10/6). on = 기준일(서류 내는 날, 기본 오늘)."""
     if doc is None or not doc.file:
         return ""
     if doc.valid_until and doc.valid_until < (on or datetime.date.today()):
         return "expired"
+    if doc.kind in VALID_RULES and not doc.valid_until:
+        return "nodate"
     return "ok"
 
 
 def doc_out(doc: SubmitDoc | None, kind: str, label: str) -> dict:
     return {
-        "kind": kind, "label": label, "id": doc.id if doc else None, "status": doc_status(doc),
+        "kind": kind, "label": label, "id": doc.id if doc else None, "status": doc_status(doc), "dated": kind in VALID_RULES,
         "issued_on": doc.issued_on.isoformat() if doc and doc.issued_on else "",
         "valid_until": doc.valid_until.isoformat() if doc and doc.valid_until else "",
         "updated_at": doc.updated_at.strftime("%Y-%m-%d") if doc and doc.updated_at else "",
@@ -99,7 +121,7 @@ def library(user: User = Depends(get_current_user), db: Session = Depends(get_db
         "contact_name": config.get_doc_contact_name(user.company_id),
         "company_docs": [doc_out(docs.get(k), k, label) for k, label in COMPANY_DOCS],
         "persons": [person_out(db, p) for p in persons(db, user.company_id)],
-        "valid_default_kinds": sorted(VALID_DEFAULT_KINDS),
+        "dated_kinds": sorted(VALID_RULES),
     }
 
 
@@ -131,20 +153,39 @@ def _save_doc(db: Session, user: User, row: SubmitDoc | None, person_id: int | N
 def _set_dates(row: SubmitDoc, issued_on: str | None, valid_until: str | None) -> None:
     row.issued_on = _date(issued_on)
     row.valid_until = _date(valid_until)
-    if row.valid_until is None and row.issued_on and row.kind in VALID_DEFAULT_KINDS and row.person_id is None:
-        row.valid_until = row.issued_on + datetime.timedelta(days=DEFAULT_VALID_DAYS)
+    if row.valid_until is None and row.issued_on:
+        row.valid_until = default_valid_until(row.kind, row.issued_on)
 
 
 @router.post("/company/{kind}")
-async def upload_company_doc(kind: str, file: UploadFile = File(...), issued_on: str = Form(""), valid_until: str = Form(""),
-                             user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def upload_company_doc(kind: str, file: UploadFile = File(...), issued_on: str = Form(""), valid_until: str = Form(""),
+                       user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """회사 서류 올리기 — 완납증명서는 날짜를 안 적었으면 증명서에서 발급일·유효기간을 읽어 넣는다(글자 → 못 찾으면 AI, 사용자 10/6).
+    못 찾아도 올라감(줄에 "⚠ 발급일을 적어 주세요"). def라 AI를 기다리는 동안 다른 요청은 안 막힘."""
     if kind not in COMPANY_LABELS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "없는 서류 종류입니다.")
-    if kind in VALID_DEFAULT_KINDS and not issued_on and not valid_until:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "완납증명서는 발급일을 적으세요(유효기간을 몰라도 발급일 + 30일로 봅니다).")
-    path = files.save_jpeg(await file.read(), file.filename or "", files.company_doc_path(COMPANY_LABELS[kind]))
-    row = _save_doc(db, user, company_docs(db, user.company_id).get(kind), None, kind, path, issued_on, valid_until)
-    return doc_out(row, kind, COMPANY_LABELS[kind])
+    return _upload_dated(db, user, file, kind, COMPANY_LABELS[kind], files.company_doc_path(COMPANY_LABELS[kind]),
+                         company_docs(db, user.company_id).get(kind), None, issued_on, valid_until)
+
+
+def _upload_dated(db: Session, user: User, file: UploadFile, kind: str, label: str, path: Path, row: SubmitDoc | None,
+                  person_id: int | None, issued_on: str, valid_until: str) -> dict:
+    """서류 그림 저장 + 유효기간이 있는 서류(VALID_RULES)면 날짜를 안 적었을 때 증명서에서 읽음(글자 → 못 찾으면 AI). 못 찾아도 올라감."""
+    data = file.file.read()
+    jpeg = files.to_jpeg(data, file.filename or "")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(jpeg)
+    auto = None
+    if kind in VALID_RULES and not issued_on and not valid_until:
+        auto = doc_dates.read_dates(data, file.filename or "", jpeg, user.company_id)
+        issued_on = auto["issued_on"].isoformat() if auto["issued_on"] else ""
+        valid_until = auto["valid_until"].isoformat() if auto["valid_until"] else ""
+    row = _save_doc(db, user, row, person_id, kind, path, issued_on, valid_until)
+    out = doc_out(row, kind, label)
+    if auto is not None:
+        out["auto"] = {"source": auto["source"], "error": auto["error"],
+                       "issued_found": bool(auto["issued_on"]), "valid_found": bool(auto["valid_until"])}
+    return out
 
 
 @router.delete("/company/{kind}")
@@ -214,14 +255,14 @@ def delete_person(person_id: int, user: User = Depends(get_current_user), db: Se
 
 
 @router.post("/persons/{person_id}/docs/{kind}")
-async def upload_person_doc(person_id: int, kind: str, file: UploadFile = File(...), issued_on: str = Form(""),
-                            valid_until: str = Form(""), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def upload_person_doc(person_id: int, kind: str, file: UploadFile = File(...), issued_on: str = Form(""),
+                      valid_until: str = Form(""), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """기술자 서류 올리기 — 경력증명서는 발급일을 읽어 넣는다(유효기간 = 발급일 + 3개월, 사용자 10/6). 자격증·교육수료증은 유효기간 없음."""
     p = _require_person(db, user, person_id)
     if kind not in PERSON_LABELS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "없는 서류 종류입니다.")
-    path = files.save_jpeg(await file.read(), file.filename or "", files.person_doc_path(p.id, p.name, PERSON_LABELS[kind]))
-    row = _save_doc(db, user, person_docs(db, p.id).get(kind), p.id, kind, path, issued_on, valid_until)
-    return doc_out(row, kind, PERSON_LABELS[kind])
+    return _upload_dated(db, user, file, kind, PERSON_LABELS[kind], files.person_doc_path(p.id, p.name, PERSON_LABELS[kind]),
+                         person_docs(db, p.id).get(kind), p.id, issued_on, valid_until)
 
 
 @router.delete("/persons/{person_id}/docs/{kind}")

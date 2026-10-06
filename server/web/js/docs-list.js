@@ -50,6 +50,7 @@
       <div class="dc-main">
         <div class="dc-title">${mailEsc(c.title ? c.label : "(용역명 없음 — 계약 정보를 채우세요)")}</div>
         <div class="dc-meta">${mailEsc(meta)}</div>
+        ${c.client_manager || c.client_phone || c.client_email ? `<div class="dc-meta dc-contact">발주처 담당 <b>${mailEsc(c.client_manager || "-")}</b>${c.client_email ? ` · <a href="mailto:${mailEsc(c.client_email)}">${mailEsc(c.client_email)}</a>` : ""}</div>` : ""}
         <div class="dc-site">${c.site_id ? `현장 <a href="site.html?id=${c.site_id}">${mailEsc(c.site_label)}</a>` : '<span class="dc-nosite">현장 연결 안 됨</span>'}
           <button type="button" class="dc-link">${c.site_id ? "바꾸기" : "🔗 현장 연결"}</button></div>
       </div>
@@ -59,6 +60,8 @@
         <button type="button" class="secondary dc-done">📑 완수계</button>
         <button type="button" class="secondary dc-del" title="계약 지우기">삭제</button>
       </div>`;
+    const call = siteLinkButtons(c.client_phone, ""); // 📞 전화(폰은 바로 걸기, PC는 번호 복사)
+    if (call) el.querySelector(".dc-contact")?.appendChild(call) ?? el.querySelector(".dc-main").appendChild(call);
     el.querySelector(".dc-start").addEventListener("click", () => openContractDocs(c.id, "start", load));
     el.querySelector(".dc-done").addEventListener("click", () => openContractDocs(c.id, "done", load));
     el.querySelector(".dc-link").addEventListener("click", () => openLinkSite(c.id, load));

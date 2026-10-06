@@ -7,6 +7,7 @@
 - `POST /contracts/{id}/link {site_id|null}` — 현장 연결·해제(현장 하나에 계약 하나)
 - `POST /contracts/{id}/docs/{start|done}` — 엑셀 + 합본 PDF(LibreOffice + 붙임 파일), `GET …/docs/{kind}.{xlsx|pdf}` — 받기
 - `POST|GET|DELETE /contracts/{id}/docs/{kind}/attach/{칸}[/{파일}]` — 붙임 파일(attachments.py)
+- `POST /contracts/{id}/submit/{kind}` {method: email|direct|post} — 제출 기록(E-mail은 합본 PDF를 바로 보냄), `DELETE …/submit/{기록}`
 - `GET /sites/{id}/contract` — 현장 화면 버튼: 연결된 계약, 없으면 연결할 후보(비슷한 이름 순)
 """
 from __future__ import annotations
@@ -24,8 +25,8 @@ from sqlalchemy.orm import Session
 
 from core import config
 from core.models_db import Site
-from core.models_web import ServiceContract, TechPerson, User
-from server.api import repo
+from core.models_web import ContractSubmit, ServiceContract, TechPerson, User
+from server.api import mailer, repo
 from server.api.deps import get_current_user, get_db
 from server.api.security import verify_password
 from server.api.routers.contract_library import company_docs, doc_status, person_docs, persons
@@ -39,10 +40,14 @@ KIND_LABEL = {"start": "착수계", "done": "완수계"}
 CONTRACT_FIELDS = ("client", "title", "contract_no", "amount", "contract_date", "start_date", "end_date", "settle_amount",
                    "actual_end_date")
 DATE_FIELDS = {"contract_date", "start_date", "end_date", "actual_end_date"}
+CONTACT_FIELDS = ("client_manager", "client_phone", "client_email")  # 발주처 계약 담당자(서류엔 안 들어감)
 
 
 class ContractIn(BaseModel):
     management_no: str | None = None
+    client_manager: str | None = None
+    client_phone: str | None = None
+    client_email: str | None = None
     client: str | None = None
     title: str | None = None
     contract_no: str | None = None
@@ -71,13 +76,25 @@ def _contract_values(row: ServiceContract) -> build.Contract:
     return build.Contract(**{k: getattr(row, k) for k in CONTRACT_FIELDS})
 
 
-def _made(row: ServiceContract) -> dict:
+def _submits(db: Session, row: ServiceContract) -> dict[str, list[dict]]:
+    """서류별 제출 기록(오래된 것부터) — {"start": [{id, method, label, date, to}], "done": [...]}."""
+    out: dict[str, list[dict]] = {k: [] for k in KIND_LABEL}
+    if not row.id:
+        return out
+    for r in db.query(ContractSubmit).filter(ContractSubmit.contract_id == row.id).order_by(ContractSubmit.submitted_on, ContractSubmit.id):
+        out.setdefault(r.kind, []).append({"id": r.id, "method": r.method, "label": contract_status.METHODS.get(r.method, r.method),
+                                           "date": r.submitted_on.isoformat(), "to": r.to_addr})
+    return out
+
+
+def _made(db: Session, row: ServiceContract) -> dict:
     out = {}
+    subs = _submits(db, row)
     for kind, label in KIND_LABEL.items():
         at = row.start_made_at if kind == "start" else row.done_made_at
         pdf = files.out_path(row, f"{label}.pdf").exists()
         out[kind] = {"at": at.strftime("%Y-%m-%d %H:%M") if at else "", "xlsx": files.out_path(row, f"{label}.xlsx").exists(),
-                     "pdf": pdf, "submitted": contract_status.submitted(row, kind, pdf)}
+                     "pdf": pdf, "submits": subs[kind], "submitted": contract_status.submitted(subs[kind])}
     return out
 
 
@@ -102,11 +119,12 @@ def contract_label(row: ServiceContract) -> str:
 
 def summary(db: Session, row: ServiceContract) -> dict:
     """목록 한 줄(계약 목록·제출 현황·일정 달력)."""
-    made = _made(row)
+    made = _made(db, row)
     site = db.get(Site, row.site_id) if row.site_id else None
     dates = contract_status.plan_dates(row)
     return {
-        "id": row.id, "title": row.title, "management_no": row.management_no or "", "label": contract_label(row), "client": row.client, "contract_no": row.contract_no, "amount": row.amount,
+        "id": row.id, "title": row.title, "management_no": row.management_no or "", "label": contract_label(row),
+        **{k: getattr(row, k) or "" for k in CONTACT_FIELDS}, "client": row.client, "contract_no": row.contract_no, "amount": row.amount,
         "contract_date": _iso(row.contract_date), "start_date": _iso(row.start_date), "end_date": _iso(row.end_date),
         "site_id": row.site_id, "site_label": site_label(site) if site else "",
         "stage": contract_status.stage(made["start"]["submitted"], made["done"]["submitted"]),
@@ -227,7 +245,8 @@ def _person_state(db: Session, p: TechPerson) -> dict:
     docs = person_docs(db, p.id)
     return {"id": p.id, "name": p.name, "qualification": p.qualification, "grade": p.grade,
             "missing": [label for k, label in build.PERSON_DOCS if not doc_status(docs.get(k))],
-            "expired": [label for k, label in build.PERSON_DOCS if doc_status(docs.get(k)) == "expired"]}
+            "expired": [label for k, label in build.PERSON_DOCS if doc_status(docs.get(k)) == "expired"],
+            "nodate": [label for k, label in build.PERSON_DOCS if doc_status(docs.get(k)) == "nodate"]}
 
 
 @router.get("/{contract_id}")
@@ -236,8 +255,9 @@ def get_contract(contract_id: int, user: User = Depends(get_current_user), db: S
 
 
 def _apply_contract(row: ServiceContract, fields: dict, user: User) -> None:
-    if "management_no" in fields:  # 서류 값(build.Contract)이 아니라 화면 이름용이라 따로
-        row.management_no = (fields["management_no"] or "").strip()
+    for key in ("management_no",) + CONTACT_FIELDS:  # 서류 값(build.Contract)이 아니라 화면·연락용이라 따로
+        if key in fields:
+            setattr(row, key, (fields[key] or "").strip())
     for k, v in fields.items():
         if k not in CONTRACT_FIELDS:
             continue
@@ -342,6 +362,8 @@ def _expired_warnings(db: Session, user: User, kind: str, chosen: list[TechPerso
             d = docs.get(k)
             if doc_status(d, on) == "expired":
                 out.append(f"⚠ {label} 유효기간 지남({d.valid_until}) — 새로 발급받아 설정 탭에서 바꾸세요.")
+            elif doc_status(d, on) == "nodate":
+                out.append(f"⚠ {label} 발급일을 모릅니다 — 유효기간을 확인할 수 없으니 설정 탭에서 발급일을 적으세요.")
     else:
         for p in chosen:
             docs = person_docs(db, p.id)
@@ -349,6 +371,8 @@ def _expired_warnings(db: Session, user: User, kind: str, chosen: list[TechPerso
                 d = docs.get(k)
                 if doc_status(d, on) == "expired":
                     out.append(f"⚠ {p.name} {label} 유효기간 지남({d.valid_until}) — 새로 발급받아 설정 탭에서 바꾸세요.")
+                elif doc_status(d, on) == "nodate":
+                    out.append(f"⚠ {p.name} {label} 발급일을 모릅니다 — 유효기간(발급일 + 3개월)을 확인할 수 없으니 설정 탭에서 발급일을 적으세요.")
     return out
 
 
@@ -397,7 +421,7 @@ def make_docs(contract_id: int, kind: Literal["start", "done"], body: MakeIn, us
     else:
         row.done_made_at = datetime.datetime.now()
     db.commit()
-    return {"warnings": warnings, "pdf_error": pdf_error, "made": _made(row)}
+    return {"warnings": warnings, "pdf_error": pdf_error, "made": _made(db, row)}
 
 
 @router.get("/{contract_id}/docs/{kind}.{ext}")
@@ -480,3 +504,64 @@ def site_contract(site_id: int, user: User = Depends(get_current_user), db: Sess
     scored = sorted(((contract_status.similarity(r.title, site.name), r) for r in free), key=lambda x: (-x[0], -x[1].id))
     return {"contract_id": None, "title": "",
             "candidates": [summary(db, r) | {"score": round(score, 2)} for score, r in scored]}
+
+
+
+class SubmitIn(BaseModel):
+    method: Literal["email", "direct", "post"]
+    submitted_on: str = ""   # 직접·우편 제출일(비면 오늘). E-mail은 보낸 날
+    to: str = ""             # E-mail 받는 사람(쉼표로 여러 곳) — 비면 계약 담당자 메일
+
+
+@router.post("/{contract_id}/submit/{kind}")
+def submit_docs(contract_id: int, kind: Literal["start", "done"], body: SubmitIn, user: User = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    """제출 기록(사용자 10/6) — E-mail은 합본 PDF를 바로 보내고 기록, 직접·우편은 고른 날짜로 기록. 여러 방식 함께 가능."""
+    row = _require(db, user, contract_id)
+    label = KIND_LABEL[kind]
+    to_addr = ""
+    if body.method == "email":
+        pdf = files.out_path(row, f"{label}.pdf")
+        if not pdf.exists():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"먼저 {label}를 만드세요(합본 PDF를 보냅니다).")
+        if not mailer.is_configured():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 메일 설정이 없어 보낼 수 없습니다.")
+        addrs = [a.strip() for a in (body.to or row.client_email or "").replace(";", ",").split(",") if a.strip()]
+        bad = [a for a in addrs if not mailer.valid_email(a)]
+        if not addrs or bad:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 메일 주소를 확인하세요{': ' + ', '.join(bad) if bad else ''}.")
+        title = row.title or "용역"
+        subject = f"[{mailer.settings.MAIL_FROM_NAME}] {title} {label} 제출"
+        text = (f"안녕하세요{(' ' + row.client_manager + '님') if row.client_manager else ''}.\n\n"
+                f"{title} {label}를 첨부하여 제출합니다.\n\n{mailer.settings.MAIL_FROM_NAME} 드림")
+        try:
+            refused = mailer.send_pdf(addrs, "", subject, text, pdf, files.download_name(row, f"{label}.pdf"))
+        except mailer.MailError as err:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+        if refused:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"메일 서버가 거부한 주소: {', '.join(refused)} — 나머지에겐 보냈습니다.")
+        to_addr = ", ".join(addrs)
+        day = datetime.date.today()
+        if not row.client_email and len(addrs) == 1:
+            row.client_email = addrs[0]  # 처음 보낸 주소를 담당자 메일로 기억
+    else:
+        try:
+            day = datetime.date.fromisoformat(body.submitted_on[:10]) if body.submitted_on else datetime.date.today()
+        except ValueError as err:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "제출일 형식이 아닙니다.") from err
+    db.add(ContractSubmit(company_id=user.company_id, contract_id=row.id, kind=kind, method=body.method, submitted_on=day,
+                          to_addr=to_addr, created_by=user.display_name or ""))
+    db.commit()
+    return {"made": _made(db, row)}
+
+
+@router.delete("/{contract_id}/submit/{submit_id}")
+def undo_submit(contract_id: int, submit_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """제출 기록 지우기(잘못 누름) — E-mail은 이미 간 메일을 되돌리진 못하고 기록만 지운다."""
+    row = _require(db, user, contract_id)
+    rec = db.get(ContractSubmit, submit_id)
+    if rec is None or rec.contract_id != row.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "제출 기록을 찾을 수 없습니다.")
+    db.delete(rec)
+    db.commit()
+    return {"made": _made(db, row)}

@@ -301,6 +301,10 @@ class ServiceContract(Base):
     company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
     # 관리번호 "2026-0000003"(화면엔 "26-3)") — 현장 관리번호와 같은 모양, 계약끼리 따로 셈(사용자 10/6 가안). 만들 때 자동, 고칠 수 있음. alembic 0019
     management_no: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # 발주처 계약 담당자(사용자 10/6, alembic 0020) — 계약서에 있으면 읽어서 채움(contract_pdf), 손으로 고칠 수 있음. 서류엔 안 들어감(연락용)
+    client_manager: Mapped[str] = mapped_column(Text, default="", server_default="")
+    client_phone: Mapped[str] = mapped_column(Text, default="", server_default="")
+    client_email: Mapped[str] = mapped_column(Text, default="", server_default="")
     client: Mapped[str] = mapped_column(Text, default="")
     title: Mapped[str] = mapped_column(Text, default="")
     contract_no: Mapped[str] = mapped_column(Text, default="")
@@ -356,3 +360,21 @@ class SubmitDoc(Base):
     valid_until: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     updated_by: Mapped[str] = mapped_column(Text, default="")
+
+
+class ContractSubmit(Base):
+    """웹판 전용 — 착수계·완수계 제출 기록(2026-10-06 사용자, alembic 0021). method = email(합본 PDF를 바로 보냄, to_addr) | direct(직접 제출) |
+    post(우편 제출) — 여러 방식을 함께 쓸 수 있어 기록을 쌓는다(되돌리기 = 행 삭제). 기록이 하나라도 있으면 제출(server/contract_docs/contract_status.py).
+    계약이 지워지면 같이 지워진다."""
+
+    __tablename__ = "contract_submit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    contract_id: Mapped[int] = mapped_column(ForeignKey("service_contract.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(Text)            # start | done
+    method: Mapped[str] = mapped_column(Text)          # email | direct | post
+    submitted_on: Mapped[datetime.date] = mapped_column(Date)
+    to_addr: Mapped[str] = mapped_column(Text, default="", server_default="")
+    created_by: Mapped[str] = mapped_column(Text, default="", server_default="")
+    created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)
