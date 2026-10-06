@@ -24,6 +24,8 @@ from server.api.routers import (
     auth,
     auto_plan,
     calendar,
+    contract_docs,
+    contract_library,
     findings,
     jobs,
     k2b_submit,
@@ -93,6 +95,8 @@ web_app.include_router(calendar.router, prefix="/api")
 web_app.include_router(auto_plan.router, prefix="/api")
 web_app.include_router(plan_change.router, prefix="/api")
 web_app.include_router(route_plan.router, prefix="/api")
+web_app.include_router(contract_library.router, prefix="/api")  # 착수계·완수계 자료실(설정 탭)
+web_app.include_router(contract_docs.router, prefix="/api")  # 현장 [📑 착수계]·[📑 완수계]
 
 
 @web_app.get("/api/health")

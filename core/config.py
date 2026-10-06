@@ -211,6 +211,19 @@ def set_report_staff_order(staff_ids: list[int], company_id: int | None = None) 
     _set_setting(_KEY_REPORT_STAFF_ORDER, ",".join(str(int(x)) for x in staff_ids), company_id)
 
 
+# 착수계·완수계 갑지 "담당"(2026-10-06 사용자: 기본 유현경, 퇴사 대비 설정 탭에서 바꿈 — server/contract_docs)
+_KEY_DOC_CONTACT_NAME = "doc_contact_name"
+DEFAULT_DOC_CONTACT_NAME = "유현경"
+
+
+def get_doc_contact_name(company_id: int | None = None) -> str:
+    return (_get_setting(_KEY_DOC_CONTACT_NAME, company_id) or DEFAULT_DOC_CONTACT_NAME).strip()
+
+
+def set_doc_contact_name(value: str, company_id: int | None = None) -> None:
+    _set_setting(_KEY_DOC_CONTACT_NAME, value.strip(), company_id)
+
+
 def get_ai_enabled() -> bool:
     stored = _get_setting(_KEY_AI_ENABLED)
     if stored is None:

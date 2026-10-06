@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/k2b-submit.css" />
 <link rel="stylesheet" href="css/auto-plan.css" />
+<link rel="stylesheet" href="css/contract-docs.css" />
 </head>
 <body>
 <div class="app">
@@ -44,6 +45,18 @@
 </div>
 <button type="button" id="new-report-btn">+ 새 보고서 작성</button>
 
+<!-- 착수계·완수계 서류(2026-10-06, js/contract-docs.js) — 용역계약서 PDF로 회사 엑셀 양식을 채워 엑셀·PDF로 -->
+<section class="panel">
+  <div class="panel-head"><h2>착수계·완수계</h2></div>
+  <div class="panel-body">
+    <p class="page-sub" style="margin:0 0 10px;">용역계약서 PDF를 올리면 회사 양식을 채워 엑셀·PDF로 만듭니다. 착수계 때 넣은 계약 정보는 완수계 때 그대로 씁니다.</p>
+    <div class="cd-buttons">
+      <button type="button" class="secondary" id="cd-start-btn">📑 착수계</button>
+      <button type="button" class="secondary" id="cd-done-btn">📑 완수계</button>
+    </div>
+  </div>
+</section>
+
 <section class="panel danger-zone">
   <div class="panel-head"><h2>현장 삭제</h2></div>
   <div class="panel-body">
@@ -63,6 +76,7 @@
 <script src="mail.js"></script>
 <script src="js/k2b-submit.js"></script>
 <script src="js/auto-plan.js"></script>
+<script src="js/contract-docs.js"></script>
 <script src="shell.js"></script>
 <script>
 const errorEl = document.getElementById("error");
@@ -431,6 +445,9 @@ api("/settings/delete-password").then((st) => {
   if (st.is_set) return;
   document.getElementById("del-pw-hint").innerHTML = '삭제 비밀번호가 아직 없습니다 — <a href="settings.html">설정 탭</a>에서 먼저 정하세요.';
 }).catch(() => {});
+
+document.getElementById("cd-start-btn").addEventListener("click", () => openContractDocs(siteId, "start", currentSite ? siteLabel(currentSite) : ""));
+document.getElementById("cd-done-btn").addEventListener("click", () => openContractDocs(siteId, "done", currentSite ? siteLabel(currentSite) : ""));
 
 loadSite();
 loadReports();

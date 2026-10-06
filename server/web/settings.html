@@ -6,6 +6,7 @@
 <title>설정 - 기술지도 보고서</title>
 <link rel="stylesheet" href="/css/app.css" />
 <link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/contract-docs.css" />
 </head>
 <body data-report-tab="settings">
 <div class="app">
@@ -102,12 +103,33 @@
   </div>
 </section>
 
+<!-- 착수계·완수계 서류(2026-10-06, js/contract-library.js) — 갑지 담당, 완수계 회사 서류, 착수계 기술자 명단 -->
+<section class="panel" id="contract-library">
+  <div class="panel-head"><h2>착수계·완수계 서류</h2></div>
+  <div class="panel-body">
+    <p class="page-sub" style="margin:0 0 12px;">현장 화면 [📑 착수계]·[📑 완수계]에 들어가는 자료입니다. 그림(JPG·PNG)이나 PDF(첫 장)를 올리세요.
+      유효기간이 지난 서류는 서류를 만들 때 경고합니다 — 새로 발급받아 바꿔 올리세요.</p>
+    <div class="cl-foot" style="margin:0 0 16px;">
+      <label for="cl-contact" style="margin:0;">갑지 담당</label>
+      <input id="cl-contact" style="max-width:160px; margin:0;" />
+      <button type="button" class="secondary" id="cl-contact-save">저장</button>
+      <span class="status" id="cl-contact-msg" style="margin:0;"></span>
+    </div>
+    <h3 style="font-size:14px; margin:0 0 8px;">완수계 회사 서류 <span style="font-weight:400; color:var(--muted); font-size:12.5px;">— 완납증명서는 발급일을 적으세요(유효기간이 안 적혀 있으면 발급일 + 30일로 봅니다)</span></h3>
+    <div class="cl-table" id="cl-company"><div class="empty-note">불러오는 중...</div></div>
+    <h3 style="font-size:14px; margin:20px 0 8px;">착수계 기술자 명단 <span style="font-weight:400; color:var(--muted); font-size:12.5px;">— 현장대리인·참여기술자로 고르는 사람(담당요원과 따로)</span></h3>
+    <div id="cl-persons"></div>
+    <button type="button" class="secondary" id="cl-person-add">+ 기술자 추가</button>
+  </div>
+</section>
+
   </main>
 </div>
 
 <script src="app.js"></script>
 <script src="shell.js"></script>
 <script src="signature.js"></script>
+<script src="js/contract-library.js"></script>
 <script>
 const errorEl = document.getElementById("error");
 

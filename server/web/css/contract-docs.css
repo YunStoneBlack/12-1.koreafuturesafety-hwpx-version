@@ -1,0 +1,67 @@
+/* 착수계·완수계(2026-10-06) — 현장 화면 창(js/contract-docs.js, 틀은 css/mail.css)과 설정 탭 자료실(js/contract-library.js) */
+
+/* 현장 화면 버튼 줄 */
+.cd-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.main .cd-buttons button { margin-top: 0; }
+
+/* 창 */
+.mail-box.cd-box { width: min(640px, 100%); }
+.cd-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 14px; }
+.cd-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--ink); margin: 0; min-width: 0; }
+.cd-field.cd-wide { grid-column: 1 / -1; }
+.cd-field em { font-style: normal; font-size: 11px; color: var(--faint); font-weight: 500; margin-left: 4px; }
+.cd-box input:not([type="checkbox"]):not([type="radio"]), .cd-box select {
+  margin: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px;
+  background: var(--surface); color: var(--ink); min-width: 0; width: 100%; box-sizing: border-box; }
+.cd-greet { display: flex; align-items: center; gap: 6px; font-weight: 500; white-space: nowrap; }
+.cd-box .cd-greet input.cd-greeting { width: 64px; text-align: center; }
+.cd-plain { font-weight: 500; padding: 7px 0; }
+.cd-pdf { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.cd-upload { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px dashed var(--blue); border-radius: 8px;
+  background: var(--blue-soft); color: var(--blue); font-weight: 600; font-size: 13px; cursor: pointer; margin: 0; }
+.cd-radios { display: flex; flex-direction: column; gap: 6px; }
+.cd-radios label { display: flex; align-items: center; gap: 6px; font-weight: 500; margin: 0; cursor: pointer; }
+.cd-people { display: flex; flex-direction: column; gap: 6px; }
+.cd-person { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; margin: 0; font-weight: 500; }
+.cd-person:has(input:checked) { border-color: var(--blue); background: var(--blue-soft); }
+.cd-person.is-agent { opacity: .55; cursor: default; }
+.cd-person.is-agent b::after { content: " (현장대리인)"; font-weight: 400; color: var(--muted); }
+.cd-person input { margin: 3px 0 0; accent-color: var(--blue); }
+.cd-person > span { display: flex; flex-direction: column; gap: 2px; }
+.cd-docs > div { grid-template-columns: 170px minmax(0, 1fr); }
+.cd-ok, .mail-info .cd-ok { color: var(--green); font-weight: 600; }
+.cd-bad, .mail-info .cd-bad { color: var(--crit); font-weight: 600; }
+/* 파일 고르기 칸은 글자 단추(label)만 — input에 data-kr-file="skip"(shell.js가 "사진 선택" 단추를 안 붙임) */
+.cd-upload input[type="file"], .cl-file input[type="file"] { display: none !important; }
+.cd-made { font-size: 12.5px; color: var(--muted); }
+.cd-made a, .mail-msg a { font-weight: 600; }
+@media (max-width: 760px) {
+  .cd-grid { grid-template-columns: 1fr; }
+  .cd-box input:not([type="checkbox"]):not([type="radio"]), .cd-box select { font-size: 16px; } /* 아이폰 확대 방지 */
+  .cd-docs > div { grid-template-columns: 1fr; gap: 0; }
+}
+
+/* 설정 탭 자료실 */
+.cl-table { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.cl-row { display: grid; grid-template-columns: 190px 150px minmax(0, 1fr); gap: 8px 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
+.cl-row:first-child { border-top: none; }
+.cl-name { font-weight: 600; font-size: 13.5px; }
+.cl-state { font-size: 12.5px; }
+.cl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12.5px; }
+.cl-actions label.cl-date { display: inline-flex; align-items: center; gap: 4px; margin: 0; font-weight: 400; color: var(--muted); }
+.cl-actions input[type="date"] { width: auto; margin: 0; padding: 5px 7px; font-size: 12.5px; }
+.main .cl-actions button, .main .cl-actions .cl-file { margin: 0; padding: 5px 10px; font-size: 12.5px; }
+.cl-file { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; font-weight: 600; color: var(--ink); }
+.cl-thumb { width: 36px; height: 48px; object-fit: cover; border: 1px solid var(--line); border-radius: 4px; vertical-align: middle; }
+.cl-person { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.cl-person.inactive { opacity: .6; }
+.cl-person-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.cl-person-head b { font-size: 15px; }
+.cl-person textarea { min-height: 52px; resize: vertical; }
+.cl-person .cl-table { margin-top: 10px; }
+.cl-person .cl-row { grid-template-columns: 110px 150px minmax(0, 1fr); }
+.cl-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.main .cl-foot button { margin-top: 0; }
+@media (max-width: 760px) {
+  .cl-row, .cl-person .cl-row { grid-template-columns: 1fr; }
+}

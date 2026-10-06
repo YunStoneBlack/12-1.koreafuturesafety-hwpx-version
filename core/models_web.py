@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
@@ -284,3 +284,69 @@ class SiteDistance(Base):
     coords: Mapped[str] = mapped_column(Text, default="")
     road_km: Mapped[float | None] = mapped_column(Float, default=None)
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
+class ServiceContract(Base):
+    """웹판 전용 — 현장의 용역 계약(발주처와 맺은 기술지도 용역, 2026-10-06, alembic 0017). 착수계·완수계 서류(server/contract_docs)에 들어가는 값.
+    현장 정보의 공사금액·공사기간(시공사 공사)과는 다른 것 — 용역금액·용역 착수일·완수일. 계약서 PDF를 올리면 읽어서 채우고(사람이 고칠 수 있음),
+    착수계 때 한 번 넣으면 완수계 때 다시 쓴다. 정산금액·실제준공일이 비면 계약금액·준공기한(사용자 10/6: 보통 그대로, 다를 때만 고침).
+    agent_id·participant_ids = 지난번 착수계에서 고른 기술자(다음에 그대로 골라 둠). 현장이 지워지면 같이 지워진다."""
+
+    __tablename__ = "service_contract"
+
+    site_id: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"))
+    client: Mapped[str] = mapped_column(Text, default="")
+    title: Mapped[str] = mapped_column(Text, default="")
+    contract_no: Mapped[str] = mapped_column(Text, default="")
+    amount: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    contract_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    start_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    end_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    settle_amount: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    actual_end_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    contract_pdf: Mapped[str] = mapped_column(StoredPath, default="")
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("tech_person.id", ondelete="SET NULL"), default=None)
+    participant_ids: Mapped[list | None] = mapped_column(JSON, default=None)
+    start_made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    done_made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    updated_by: Mapped[str] = mapped_column(Text, default="")
+
+
+class TechPerson(Base):
+    """웹판 전용 — 착수계 기술자 명단(2026-10-06, alembic 0017). 현장대리인(책임기술자 1명)·참여기술자(0~N명)로 고르는 사람.
+    담당요원(staff)과 따로 둔 이유: 현장대리인이 담당요원이 아닐 수 있음(예: 권만중). 자격증·교육수료증·경력증명서 그림은 SubmitDoc(person_id)."""
+
+    __tablename__ = "tech_person"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    name: Mapped[str] = mapped_column(Text)
+    address: Mapped[str] = mapped_column(Text, default="")
+    birth_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    position: Mapped[str] = mapped_column(Text, default="")       # 직책(재직증명서)
+    join_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    qualification: Mapped[str] = mapped_column(Text, default="")  # 기술자격(여러 개면 줄바꿈)
+    grade: Mapped[str] = mapped_column(Text, default="")          # 기술등급(특급·고급…)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
+class SubmitDoc(Base):
+    """웹판 전용 — 착수계·완수계에 붙는 서류 그림(2026-10-06, alembic 0017). person_id가 비면 회사 서류(완납증명서 4·사업자등록증·통장),
+    있으면 그 기술자의 서류(자격증·교육수료증·경력증명서). 종류(kind)는 server/contract_docs/build.py의 COMPANY_DOCS·PERSON_DOCS.
+    valid_until = 유효기간 — 지나면 서류 만들 때 경고(사용자 10/6: 새로 발급받아 바꿔 올리게). 완납증명서는 비우면 발급일 + 30일.
+    PDF로 올려도 첫 장을 그림으로 바꿔 둔다(file = 저장소 _서류 폴더의 JPG)."""
+
+    __tablename__ = "submit_doc"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    person_id: Mapped[int | None] = mapped_column(ForeignKey("tech_person.id", ondelete="CASCADE"), default=None, index=True)
+    kind: Mapped[str] = mapped_column(Text)
+    file: Mapped[str] = mapped_column(StoredPath, default="")
+    issued_on: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    valid_until: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    updated_by: Mapped[str] = mapped_column(Text, default="")
