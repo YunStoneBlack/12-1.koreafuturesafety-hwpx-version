@@ -27,7 +27,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   document.addEventListener("keydown", onKey);
   overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
   const label = CD_LABEL[kind];
-  const head = () => `<div class="mail-head"><b>📑 ${label}</b><span class="mail-sub">${mailEsc(st?.title || "새 용역 계약")}</span>
+  const head = () => `<div class="mail-head"><b>📑 ${label}</b><span class="mail-sub">${mailEsc(st?.title ? st.label : "새 용역 계약")}</span>
     ${st ? `<span class="mail-sub cd-site-line">현장: ${st.site_label ? `<a href="site.html?id=${st.site_id}">${mailEsc(st.site_label)}</a>` : "아직 연결 안 됨"}
       <button type="button" class="cd-link-btn">${st.site_label ? "바꾸기" : "현장 연결"}</button></span>` : ""}</div>`;
 
@@ -87,6 +87,9 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
         <span class="mail-note cd-pdf-msg">${c.has_pdf ? `✓ <a href="${BASE}/api/contracts/${contractId}/pdf" target="_blank" rel="noopener">올린 계약서</a>가 있습니다 — 다시 올리면 읽은 칸만 바뀝니다` : "아직 안 올림 — 직접 적어도 됩니다"}<br>또는 계약서 PDF를 이 창에 끌어다 놓기</span>
       </div>
       <div class="cd-grid">
+        <label class="cd-field"><span>관리번호 <em>목록에 "26-3)_용역명"으로 보임</em></span>
+          <span class="cd-mgmt"><input class="cd-in" data-key="management_no" value="${mailEsc(st.management_no || "")}" /><button type="button" class="cd-mgmt-auto">자동생성</button></span></label>
+        <div></div>
         ${field("client", "발주처")}${field("contract_no", "계약번호")}
         ${field("title", "용역명", "text", true)}
         ${field("amount", "계약금액(원)", "number")}${field("contract_date", "계약일", "date")}
@@ -114,6 +117,16 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
         <button type="button" class="mail-primary cd-make">${label} ${made.at ? "다시 " : ""}만들기</button></div>`;
     box.querySelector(".cd-close").addEventListener("click", close);
     box.querySelector(".cd-make").addEventListener("click", make);
+    box.querySelector(".cd-mgmt-auto").addEventListener("click", async () => {
+      try {
+        const out = await api("/contracts/next-management-no");
+        const inp = box.querySelector('.cd-in[data-key="management_no"]');
+        inp.value = out.management_no;
+        st.management_no = out.management_no;
+      } catch (err) {
+        alert(err.message);
+      }
+    });
     box.querySelector(".cd-link-btn").addEventListener("click", async () => { await ensure(); openLinkSite(contractId, async () => {
       const keep = { agent_id: st.agent_id, participant_ids: st.participant_ids };
       st = { ...(await api(`/contracts/${contractId}`)), ...keep };
@@ -124,7 +137,11 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     box.querySelector(".cd-docno").addEventListener("input", (e) => { typed.docno = e.target.value; });
     box.querySelector(".cd-greeting").addEventListener("input", (e) => { typed.greeting = e.target.value; });
     box.querySelector(".cd-send")?.addEventListener("input", (e) => { typed.send = e.target.value; refreshDocNo(); });
-    box.querySelectorAll(".cd-in").forEach((el) => el.addEventListener("input", () => { st.contract[el.dataset.key] = el.value; refreshDocNo(); }));
+    box.querySelectorAll(".cd-in").forEach((el) => el.addEventListener("input", () => {
+      if (el.dataset.key === "management_no") st.management_no = el.value;
+      else st.contract[el.dataset.key] = el.value;
+      refreshDocNo();
+    }));
     if (kind === "start") wirePeople();
     wireAttach();
   }
@@ -280,7 +297,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   }
 
   function contractBody() {
-    const body = {};
+    const body = { management_no: st.management_no || "" };
     for (const [k, v] of Object.entries(st.contract)) {
       if (k === "has_pdf") continue;
       body[k] = ["amount", "settle_amount"].includes(k) ? (v === "" || v == null ? null : Number(v)) : (v || "");
@@ -427,7 +444,7 @@ async function openSiteContract(siteId, kind) {
   box.innerHTML = `<div class="mail-head"><b>📑 ${CD_LABEL[kind]} — 용역 계약 연결</b>
       <span class="mail-sub">이 현장에 연결된 용역 계약이 없습니다. 착수계 때 만든 계약을 고르세요(이름 비슷한 순).</span></div>
     <div class="cd-pick-list">${c.length ? c.map((r) => `<button type="button" class="cd-pick-item" data-id="${r.id}">
-        <b>${mailEsc(r.title || "(용역명 없음)")}</b>${r.score >= 0.5 ? '<span class="cd-pick-tag">이름 비슷함</span>' : ""}
+        <b>${mailEsc(r.label)}</b>${r.score >= 0.5 ? '<span class="cd-pick-tag">이름 비슷함</span>' : ""}
         <span class="mail-note">${mailEsc([r.client, r.contract_no, r.start_date && `${r.start_date} ~ ${r.end_date}`].filter(Boolean).join(" · "))}</span></button>`).join("")
       : '<div class="mail-note">연결할 계약이 없습니다 — <a href="docs.html">서류 자동화 → 계약 목록</a>에서 계약서 PDF로 먼저 만드세요.</div>'}</div>
     <div class="mail-foot"><a href="docs.html">서류 자동화로</a><button type="button" class="cd-pick-close">닫기</button></div>`;

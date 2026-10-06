@@ -1,6 +1,6 @@
 """서류 자동화 — 용역 계약과 착수계·완수계(2026-10-06). 계약은 현장 없이 먼저 생기고(착수계가 현장 등록보다 먼저 — 형), 나중에 현장과 연결한다.
 
-- `GET /contracts` — 계약 목록(단계·제출·착수일·완수일·연결 현장) — 서류 자동화 계약 목록·제출 현황·일정 달력이 같이 씀
+- `GET /contracts` — 계약 목록(관리번호·단계·제출·착수일·완수일·연결 현장), `GET /contracts/next-management-no` — 관리번호 자동생성 — 서류 자동화 계약 목록·제출 현황·일정 달력이 같이 씀
 - `POST /contracts` (빈 계약) / `POST /contracts/from-pdf` (용역계약서 PDF로 새 계약 — 글자 규칙, 못 읽은 칸은 Claude API)
 - `GET|PUT|DELETE /contracts/{id}` — 창에 필요한 것 전부 / 계약 값 저장 / 지우기(파일까지, 삭제 비밀번호)
 - `POST /contracts/{id}/pdf` — 계약서 PDF 다시 올리기(읽은 칸만 덮어씀)
@@ -42,6 +42,7 @@ DATE_FIELDS = {"contract_date", "start_date", "end_date", "actual_end_date"}
 
 
 class ContractIn(BaseModel):
+    management_no: str | None = None
     client: str | None = None
     title: str | None = None
     contract_no: str | None = None
@@ -85,19 +86,44 @@ def _made(row: ServiceContract) -> dict:
     return out
 
 
+def next_management_no(db: Session, company_id: int, year: int | None = None) -> str:
+    """계약 관리번호 자동생성 — "{연도}-{7자리 일련번호}", 이 회사 계약 중 그 연도의 가장 큰 번호 + 1.
+    현장 관리번호(sites.next_management_no)와 같은 모양이지만 계약끼리 따로 센다(사용자 10/6 가안)."""
+    prefix = f"{year or datetime.date.today().year}-"
+    max_seq = 0
+    for (no,) in db.query(ServiceContract.management_no).filter(ServiceContract.company_id == company_id):
+        suffix = (no or "")[len(prefix):] if (no or "").startswith(prefix) else ""
+        if suffix.isdigit():
+            max_seq = max(max_seq, int(suffix))
+    return f"{prefix}{max_seq + 1:07d}"
+
+
+def contract_label(row: ServiceContract) -> str:
+    """화면 이름 "26-3)_용역명"(현장 이름과 같은 모양 — site_label)."""
+    short = short_mgmt(row.management_no)
+    title = row.title or "(용역명 없음)"
+    return f"{short})_{title}" if short else title
+
+
 def summary(db: Session, row: ServiceContract) -> dict:
     """목록 한 줄(계약 목록·제출 현황·일정 달력)."""
     made = _made(row)
     site = db.get(Site, row.site_id) if row.site_id else None
     dates = contract_status.plan_dates(row)
     return {
-        "id": row.id, "title": row.title, "client": row.client, "contract_no": row.contract_no, "amount": row.amount,
+        "id": row.id, "title": row.title, "management_no": row.management_no or "", "label": contract_label(row), "client": row.client, "contract_no": row.contract_no, "amount": row.amount,
         "contract_date": _iso(row.contract_date), "start_date": _iso(row.start_date), "end_date": _iso(row.end_date),
         "site_id": row.site_id, "site_label": _site_label(site),
         "stage": contract_status.stage(made["start"]["submitted"], made["done"]["submitted"]),
         "made": made, "dates": {k: _iso(v) for k, v in dates.items()},
         "created_at": row.created_at.strftime("%Y-%m-%d") if row.created_at else "",
     }
+
+
+@router.get("/next-management-no")
+def get_next_management_no(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[자동생성] — 저장은 안 함."""
+    return {"management_no": next_management_no(db, user.company_id)}
 
 
 @router.get("")
@@ -108,6 +134,7 @@ def list_contracts(user: User = Depends(get_current_user), db: Session = Depends
 
 def _new(db: Session, user: User) -> ServiceContract:
     row = ServiceContract(company_id=user.company_id, client="", title="", contract_no="", contract_pdf="", updated_by=user.display_name or "",
+                          management_no=next_management_no(db, user.company_id),  # 만들 때 자동(고칠 수 있음)
                           created_at=datetime.datetime.now(), updated_at=datetime.datetime.now())
     db.add(row)
     db.flush()
@@ -127,7 +154,8 @@ def create_contract(body: ContractIn | None = None, user: User = Depends(get_cur
 @router.get("/blank")
 def blank_contract(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """[+ 새 계약] 창의 빈 화면 — DB에 행을 만들지 않는다(아무것도 안 하고 닫으면 빈 계약이 안 남게, 10/6 사용자). id 0 = 아직 없음."""
-    row = ServiceContract(id=0, company_id=user.company_id, client="", title="", contract_no="", contract_pdf="", participant_ids=[])
+    row = ServiceContract(id=0, company_id=user.company_id, client="", title="", contract_no="", contract_pdf="", participant_ids=[],
+                          management_no=next_management_no(db, user.company_id))  # 미리 보여 주기만(만들 때 다시 셈)
     return state(db, user, row)
 
 
@@ -215,6 +243,8 @@ def get_contract(contract_id: int, user: User = Depends(get_current_user), db: S
 
 
 def _apply_contract(row: ServiceContract, fields: dict, user: User) -> None:
+    if "management_no" in fields:  # 서류 값(build.Contract)이 아니라 화면 이름용이라 따로
+        row.management_no = (fields["management_no"] or "").strip()
     for k, v in fields.items():
         if k not in CONTRACT_FIELDS:
             continue

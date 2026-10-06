@@ -48,7 +48,7 @@
     }).join("");
     el.innerHTML = `
       <div class="dc-main">
-        <div class="dc-title">${mailEsc(c.title || "(용역명 없음 — 계약 정보를 채우세요)")}</div>
+        <div class="dc-title">${mailEsc(c.title ? c.label : "(용역명 없음 — 계약 정보를 채우세요)")}</div>
         <div class="dc-meta">${mailEsc(meta)}</div>
         <div class="dc-site">${c.site_id ? `현장 <a href="site.html?id=${c.site_id}">${mailEsc(c.site_label)}</a>` : '<span class="dc-nosite">현장 연결 안 됨</span>'}
           <button type="button" class="dc-link">${c.site_id ? "바꾸기" : "🔗 현장 연결"}</button></div>

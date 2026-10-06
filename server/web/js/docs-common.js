@@ -41,5 +41,5 @@ function dcAskPassword(message) {
 }
 
 function dcSearchText(c) {
-  return `${c.title} ${c.client} ${c.contract_no} ${c.site_label}`.toLowerCase();
+  return `${c.label} ${c.title} ${c.client} ${c.contract_no} ${c.site_label}`.toLowerCase();
 }

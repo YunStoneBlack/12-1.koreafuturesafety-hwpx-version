@@ -299,6 +299,8 @@ class ServiceContract(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     site_id: Mapped[int | None] = mapped_column(ForeignKey("site.id", ondelete="SET NULL"), default=None, unique=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    # 관리번호 "2026-0000003"(화면엔 "26-3)") — 현장 관리번호와 같은 모양, 계약끼리 따로 셈(사용자 10/6 가안). 만들 때 자동, 고칠 수 있음. alembic 0019
+    management_no: Mapped[str] = mapped_column(Text, default="", server_default="")
     client: Mapped[str] = mapped_column(Text, default="")
     title: Mapped[str] = mapped_column(Text, default="")
     contract_no: Mapped[str] = mapped_column(Text, default="")

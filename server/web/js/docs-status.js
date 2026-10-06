@@ -40,7 +40,7 @@
     }
     list.innerHTML = `<div class="ds-head"><span>용역 계약</span><span>착수계</span><span>완수계</span></div>` + shown.map((c) => `
       <div class="ds-row" data-id="${c.id}">
-        <div class="ds-name"><b>${mailEsc(c.title || "(용역명 없음)")}</b>
+        <div class="ds-name"><b>${mailEsc(c.label)}</b>
           <span class="mail-note">${mailEsc([c.client, c.site_label ? `현장 ${c.site_label}` : "현장 연결 안 됨"].join(" · "))}</span></div>
         ${DC_KINDS.map(([k, kl]) => {
           const s = dcDocState(c, k);

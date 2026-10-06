@@ -34,9 +34,9 @@
         if (!day) continue;
         const s = dcDocState(c, k);
         out.push({
-          title: `${s.cls === "ok" ? "✓ " : ""}${label} · ${c.title || "(용역명 없음)"}`,
+          title: `${s.cls === "ok" ? "✓ " : ""}${label} · ${c.label}`,
           start: day, allDay: true, classNames: [`dk-${k}`, s.cls === "ok" ? "dk-ok" : "dk-wait"],
-          extendedProps: { id: c.id, kind: k, text: `${label} · ${c.title} — ${s.text}` },
+          extendedProps: { id: c.id, kind: k, text: `${label} · ${c.label} — ${s.text}` },
         });
       }
     }
