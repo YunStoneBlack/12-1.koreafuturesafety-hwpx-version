@@ -60,7 +60,7 @@ async function openContractDocs(siteId, kind, titleText) {
       </div>
       <div class="mail-label">갑지</div>
       <div class="cd-grid">
-        <label class="cd-field"><span>문서번호 <em>규칙 확인 중 — 고칠 수 있음</em></span><input class="cd-docno" value="${mailEsc(typed.docno ?? (kind === "start" ? d.doc_no_start : d.doc_no_done))}" /></label>
+        <label class="cd-field"><span>문서번호 <em>KFSC21C_계약번호_${kind === "start" ? "착수일" : "발송일"}(월일)</em></span><input class="cd-docno" value="${mailEsc(typed.docno ?? autoDocNo())}" /></label>
         <label class="cd-field"><span>인사말</span><span class="cd-greet">1. 귀 <input class="cd-greeting" value="${mailEsc(typed.greeting ?? d.greeting)}" /> 의 무궁한 발전을…</span></label>
         ${kind === "done" ? `<label class="cd-field"><span>발송일</span><input class="cd-send" type="date" value="${mailEsc(typed.send ?? d.send_date)}" /></label>` : ""}
         <div class="cd-field"><span>담당</span><div class="cd-plain">${mailEsc(d.contact_name)} <a href="settings.html#contract-library" class="mail-note">바꾸기(설정 탭)</a></div></div>
@@ -79,9 +79,22 @@ async function openContractDocs(siteId, kind, titleText) {
     box.querySelector(".cd-upload input").addEventListener("change", uploadPdf);
     box.querySelector(".cd-docno").addEventListener("input", (e) => { typed.docno = e.target.value; });
     box.querySelector(".cd-greeting").addEventListener("input", (e) => { typed.greeting = e.target.value; });
-    box.querySelector(".cd-send")?.addEventListener("input", (e) => { typed.send = e.target.value; });
-    box.querySelectorAll(".cd-in").forEach((el) => el.addEventListener("input", () => { st.contract[el.dataset.key] = el.value; }));
+    box.querySelector(".cd-send")?.addEventListener("input", (e) => { typed.send = e.target.value; refreshDocNo(); });
+    box.querySelectorAll(".cd-in").forEach((el) => el.addEventListener("input", () => { st.contract[el.dataset.key] = el.value; refreshDocNo(); }));
     if (kind === "start") wirePeople();
+  }
+
+  // 문서번호 = KFSC21C_계약번호_월일(사용자 10/6 회사 확인 — 착수계는 착수일, 완수계는 발송일). server build.default_doc_no와 같은 규칙.
+  // 손으로 고친 뒤엔 그대로 두고, 아니면 계약번호·날짜를 고칠 때 따라 바뀐다.
+  function autoDocNo() {
+    const no = (st.contract.contract_no || "").trim();
+    if (!no) return "";
+    const day = kind === "start" ? st.contract.start_date : (typed.send ?? st.defaults.send_date);
+    return `KFSC21C_${no}${day ? `_${day.slice(5, 7)}${day.slice(8, 10)}` : ""}`;
+  }
+  function refreshDocNo() {
+    if (typed.docno !== undefined) return;
+    box.querySelector(".cd-docno").value = autoDocNo();
   }
 
   function dl(ext, text, inline = false) {

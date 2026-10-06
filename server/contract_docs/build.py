@@ -78,7 +78,7 @@ def greeting_word(client: str) -> str:
 
 
 def default_doc_no(contract: Contract, day: datetime.date | None) -> str:
-    """문서번호 기본값 — 규칙은 회사에 물어보는 중(10/6). 지금은 제안안 KFSC21C_계약번호_월일, 화면에서 고칠 수 있다."""
+    """문서번호 = KFSC21C_계약번호_월일(사용자 10/6 회사 확인 — 착수계는 착수일, 완수계는 발송일). 화면(js/contract-docs.js autoDocNo)도 같은 규칙."""
     if not contract.contract_no:
         return ""
     return f"KFSC21C_{contract.contract_no}" + (f"_{day:%m%d}" if day else "")
