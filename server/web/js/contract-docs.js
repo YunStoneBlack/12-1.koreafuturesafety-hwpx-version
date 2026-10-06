@@ -83,8 +83,11 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     box.innerHTML = `${head()}
       <div class="mail-label">용역 계약 <span class="mail-note">— 계약서 PDF를 올리면 채워집니다(착수계·완수계 같이 씀)</span></div>
       <div class="cd-pdf">
-        <label class="cd-upload">📎 용역계약서 PDF 올리기<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label>
-        <span class="mail-note cd-pdf-msg">${c.has_pdf ? `✓ <a href="${BASE}/api/contracts/${contractId}/pdf" target="_blank" rel="noopener">올린 계약서</a>가 있습니다 — 다시 올리면 읽은 칸만 바뀝니다` : "아직 안 올림 — 직접 적어도 됩니다"}<br>또는 계약서 PDF를 이 창에 끌어다 놓기</span>
+        <label class="drop-box cd-upload"><span class="drop-ico">📎</span>
+          <span class="drop-txt"><b class="drop-pc">용역계약서 PDF를 여기에 끌어다 놓으세요</b><b class="drop-touch">눌러서 용역계약서 PDF 고르기</b>
+            <span class="drop-pc">눌러서 고를 수도 있어요(창 어디에 놓아도 됨)</span></span>
+          <input type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label>
+        <span class="mail-note cd-pdf-msg">${c.has_pdf ? `✓ <a href="${BASE}/api/contracts/${contractId}/pdf" target="_blank" rel="noopener">올린 계약서</a>가 있습니다 — 다시 올리면 읽은 칸만 바뀝니다` : "아직 안 올림 — 직접 적어도 됩니다"}</span>
       </div>
       <div class="cd-grid">
         <label class="cd-field"><span>관리번호 <em>목록에 "26-3)_용역명"으로 보임</em></span>
@@ -159,7 +162,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
           <span class="mail-note">${f.pages}장</span>
           <button type="button" class="cd-x" data-name="${mailEsc(f.name)}" title="빼기">✕</button></div>`).join("")
           : '<div class="mail-note cd-none">아직 없음 — 없으면 빼고 합칩니다</div>'}
-        <div class="mail-note cd-drop-hint">⬇ 파일을 이 칸에 끌어다 놓아도 됩니다(여러 개 가능)</div>
+        <div class="drop-box drop-sm cd-slot-drop"><b class="drop-pc">⬇ 여기에 끌어다 놓기</b><b class="drop-touch">눌러서 파일 고르기</b><span class="drop-pc">(여러 개 가능 · 눌러서 고르기)</span></div>
         <div class="mail-note cd-slot-msg"></div></div>`).join("")}</div>`;
   }
 
@@ -168,6 +171,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       const slot = el.dataset.slot;
       const msg = el.querySelector(".cd-slot-msg");
       enableFileDrop(el, el.querySelector(".cd-add input"));
+      el.querySelector(".cd-slot-drop").addEventListener("click", () => el.querySelector(".cd-add input").click());
       el.querySelector(".cd-add input").addEventListener("change", async (e) => {
         const picked = [...e.target.files];
         if (!picked.length) return;

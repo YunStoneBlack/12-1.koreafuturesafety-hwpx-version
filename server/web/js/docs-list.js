@@ -31,7 +31,7 @@
     document.getElementById("dc-count").textContent = `${shown.length}건`;
     const list = document.getElementById("dc-list");
     if (!shown.length) {
-      list.innerHTML = `<div class="empty-note">${all.length ? "맞는 계약이 없습니다." : "아직 용역 계약이 없습니다 — 위 [+ 새 계약 (계약서 PDF)]로 시작하세요."}</div>`;
+      list.innerHTML = `<div class="empty-note">${all.length ? "맞는 계약이 없습니다." : "아직 용역 계약이 없습니다 — 위 점선 상자에 계약서 PDF를 끌어다 놓거나 [+ 새 계약]으로 시작하세요."}</div>`;
       return;
     }
     list.innerHTML = "";

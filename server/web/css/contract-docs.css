@@ -17,7 +17,7 @@
 .cd-box .cd-greet input.cd-greeting { width: 64px; text-align: center; }
 .cd-plain { font-weight: 500; padding: 7px 0; }
 .cd-pdf { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.cd-upload { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px dashed var(--blue); border-radius: 8px;
+.cd-upload:not(.drop-box) { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px dashed var(--blue); border-radius: 8px;
   background: var(--blue-soft); color: var(--blue); font-weight: 600; font-size: 13px; cursor: pointer; margin: 0; }
 .cd-radios { display: flex; flex-direction: column; gap: 6px; }
 .cd-radios label { display: flex; align-items: center; gap: 6px; font-weight: 500; margin: 0; cursor: pointer; }
@@ -97,8 +97,6 @@
 /* 끌어다 놓는 중(app.js enableFileDrop) — 칸 모양에 맞춰 둥글게 */
 .cd-slot.drop-over, .cl-row.drop-over, .cd-pdf.drop-over { border-radius: 8px; }
 .mail-box.cd-box.drop-over { background-color: var(--surface); outline-offset: -6px; } /* 창 전체가 받을 땐 테두리만 */
-.cd-drop-hint { font-size: 11.5px; }
-@media (hover: none) { .cd-drop-hint { display: none; } } /* 폰·태블릿엔 끌어다 놓기가 없으니 안내도 숨김 */
 /* 아래 버튼 줄 — [닫기] [엑셀 받기] [PDF 보기] [PDF 받기] [착수계 만들기](받기 버튼은 만들기 옆, 10/6 사용자). 폰은 줄바꿈 */
 .mail-foot.cd-foot { flex-wrap: wrap; }
 .mail-foot.cd-foot a { color: var(--blue); border-color: var(--blue); background: var(--blue-soft); }
@@ -109,3 +107,30 @@
 .cd-mgmt { display: flex; gap: 6px; }
 .cd-box button.cd-mgmt-auto { flex: none; margin: 0; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
   color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+
+/* ---------- 끌어다 놓는 곳 = 점선 상자(10/6 사용자 "크롭선으로 된 상자") — 계약 목록·착수계 창·붙임 칸·설정 서류 줄 ----------
+   파일을 끌고 오면(app.js enableFileDrop이 놓는 곳에 .drop-over) 파랗게. 누르면 파일 고르기. 폰·태블릿(끌어다 놓기 없음)은 "눌러서 고르기" 글자만. */
+.drop-box { display: flex; align-items: center; gap: 12px; padding: 16px 18px; margin: 0; border: 2px dashed #B9C3D3; border-radius: 12px;
+  background: var(--paper); color: var(--muted); font-size: 13px; font-weight: 500; cursor: pointer; transition: background .12s, border-color .12s; }
+.drop-box:hover { border-color: var(--blue); color: var(--ink); }
+.drop-box .drop-ico { font-size: 24px; line-height: 1; }
+.drop-box .drop-txt { display: flex; flex-direction: column; gap: 2px; }
+.drop-box b { color: var(--ink); font-size: 14px; font-weight: 700; }
+.drop-box.drop-sm { justify-content: center; gap: 6px; padding: 10px 12px; font-size: 12.5px; border-radius: 8px; }
+.drop-box.drop-sm b { font-size: 12.5px; }
+.drop-box.drop-xs { display: inline-flex; padding: 4px 10px; border-radius: 8px; font-size: 12px; border-width: 1.5px; }
+.drop-box .drop-touch { display: none; }
+@media (hover: none) {
+  .drop-box .drop-pc { display: none; }
+  .drop-box .drop-touch { display: inline; }
+  .drop-box.drop-xs { display: none; } /* 설정 줄은 [파일 올리기] 버튼이 있으니 폰에선 숨김 */
+}
+/* 끌고 오는 중 — 놓는 곳이 넓어도(화면·창 전체) 점선 상자가 파랗게 */
+.drop-box.drop-over, .drop-over .drop-box, main.main.drop-over .dc-drop { border-color: var(--blue) !important; background: var(--blue-soft) !important; color: var(--blue); }
+main.main.drop-over, .mail-box.cd-box.drop-over, .cd-slot.drop-over, .cl-row.drop-over { outline: none !important; background-color: inherit !important; }
+.mail-box.cd-box.drop-over .cd-slot .drop-box { border-color: #B9C3D3 !important; background: var(--paper) !important; color: var(--muted); } /* 창 전체로 받을 땐 계약서 칸만 파랗게 */
+.mail-box.cd-box.drop-over .cd-slot.drop-over .drop-box { border-color: var(--blue) !important; background: var(--blue-soft) !important; }
+.dc-drop { margin: -4px 0 16px; }
+.cd-pdf { flex-direction: column; align-items: stretch; gap: 6px; }
+.main .drop-box { display: flex; } .main .drop-box.drop-xs { display: inline-flex; } /* 그룹웨어 app.css의 .main label{display:block}보다 우선 */
+@media (hover: none) { .main .drop-box.drop-xs { display: none; } }
