@@ -94,6 +94,18 @@
 - 담당요원: 그룹웨어 직원정보 연동(위), 목록에 서명 미리보기, 보고서 ↔ 현장 담당 연동, 선택칸 "9/29 N/4곳 (마감)"(하루 4현장 한도)
 - 서버: 보고서 마지막 수정 시각 기록(`server/api/edit_tracking.py` → `report_edit`, alembic 0003), 화면 파일 `Cache-Control: no-cache`
 
+### 서류 자동화(그룹웨어 "서류 자동화" 메뉴 — 착수계·완수계, 2026-10-06)
+
+- 화면: `docs.html`(계약 목록) · `docs-status.html`(제출 현황) · `docs-calendar.html`(착수·완수 일정 — FullCalendar + 그룹웨어 공휴일) · `docs-settings.html`(설정 —
+  보고서 설정과 같은 회사 값: Claude API 키·삭제 비밀번호·착수계·완수계 서류). `<body data-docs-tab>`이면 shell.js가 "서류 자동화" 머리·탭을 그리고 사이드바 줄을 켠다.
+- 흐름: 용역계약(나라장터·국방조달) → [+ 새 계약](계약서 PDF 끌어다 놓기·올리기·직접 적기) → **착수계** → 현장 등록 뒤 [🔗 현장 연결] → … → **완수계**.
+  현장 화면 [📑 착수계]·[📑 완수계]는 연결된 계약을 연다(없으면 연결할 계약 고르기).
+- 서버: `server/api/routers/contracts.py`(계약·연결·서류 만들기·붙임), `contract_library.py`(설정 자료실), `server/contract_docs/`
+  (`contract_pdf`·`contract_ai` 계약서 읽기 — 글자 규칙 먼저, 못 읽은 칸만 Claude API / `build`·`sheet_tools` 양식 채우기·도장 / `attachments`·`hwp_queue` 붙임 합본 /
+  `to_pdf` LibreOffice / `contract_status` 제출·단계·날짜 판정 한 곳 / `files` 저장 자리 `_용역계약\번호_용역명\`·`_서류\`). DB alembic 0017~0019
+  (`service_contract`·`tech_person`·`submit_doc`). 양식 `data/templates/착수계_양식.xlsx`·`완수계_양식.xlsx`(git 밖 — PC 옮길 때 data 째).
+- 규칙: 제출 = 합본 PDF를 만듦, 기한 없음, 금액 = 총용역부기금액, 문서번호 `KFSC21C_계약번호_월일`, 관리번호는 계약끼리 따로(26-N), 계약 삭제는 삭제 비밀번호.
+
 ## 설치 및 실행
 
 ```bash

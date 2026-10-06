@@ -29,7 +29,7 @@ from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.security import verify_password
 from server.api.routers.contract_library import company_docs, doc_status, person_docs, persons
-from server.api.site_label import short_mgmt
+from server.api.site_label import short_mgmt, site_label
 from server.contract_docs import attachments, build, contract_ai, contract_pdf, contract_status, files, to_pdf
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
@@ -65,11 +65,6 @@ def _require(db: Session, user: User, contract_id: int) -> ServiceContract:
     return row
 
 
-def _site_label(site: Site | None) -> str:
-    if site is None:
-        return ""
-    mg = short_mgmt(site.management_no)
-    return f"{mg})_{site.name}" if mg else site.name
 
 
 def _contract_values(row: ServiceContract) -> build.Contract:
@@ -113,7 +108,7 @@ def summary(db: Session, row: ServiceContract) -> dict:
     return {
         "id": row.id, "title": row.title, "management_no": row.management_no or "", "label": contract_label(row), "client": row.client, "contract_no": row.contract_no, "amount": row.amount,
         "contract_date": _iso(row.contract_date), "start_date": _iso(row.start_date), "end_date": _iso(row.end_date),
-        "site_id": row.site_id, "site_label": _site_label(site),
+        "site_id": row.site_id, "site_label": site_label(site) if site else "",
         "stage": contract_status.stage(made["start"]["submitted"], made["done"]["submitted"]),
         "made": made, "dates": {k: _iso(v) for k, v in dates.items()},
         "created_at": row.created_at.strftime("%Y-%m-%d") if row.created_at else "",
@@ -209,7 +204,6 @@ def state(db: Session, user: User, row: ServiceContract) -> dict:
     c = _contract_values(row)
     today = datetime.date.today()
     docs = company_docs(db, user.company_id)
-    out_dir = files.contract_dir(row)
     return summary(db, row) | {
         "contract": {k: (_iso(v) if k in DATE_FIELDS else v) for k, v in vars(c).items()}
         | {"has_pdf": files.out_path(row, "용역계약서.pdf").exists()},
@@ -225,8 +219,7 @@ def state(db: Session, user: User, row: ServiceContract) -> dict:
         "persons": [_person_state(db, p) for p in persons(db, user.company_id) if p.active],
         "company_docs": [{"kind": k, "label": label, "status": doc_status(docs.get(k)),
                           "valid_until": _iso(docs[k].valid_until) if k in docs else ""} for k, label in build.COMPANY_DOCS],
-        "attachments": {kind: [{"slot": key, "label": label, "files": [attachments.file_info(f) for f in attachments.list_files(out_dir, kind, key)]}
-                               for key, label, _ in attachments.SLOTS[kind]] for kind in KIND_LABEL},
+        "attachments": {kind: _attach_list(row, kind) for kind in KIND_LABEL},
     }
 
 
@@ -321,7 +314,7 @@ def site_candidates(contract_id: int, user: User = Depends(get_current_user), db
     taken = {sid for (sid,) in db.query(ServiceContract.site_id).filter(ServiceContract.site_id.isnot(None), ServiceContract.id != row.id)}
     sites = [s for s in db.query(Site).filter(Site.company_id == user.company_id).all() if s.id not in taken]
     scored = sorted(((contract_status.similarity(row.title, s.name), s) for s in sites), key=lambda x: (-x[0], -x[1].id))
-    return [{"id": s.id, "label": _site_label(s), "address": s.address or "", "score": round(score, 2)} for score, s in scored]
+    return [{"id": s.id, "label": site_label(s), "address": s.address or "", "score": round(score, 2)} for score, s in scored]
 
 
 class MakeIn(BaseModel):
@@ -393,7 +386,7 @@ def make_docs(contract_id: int, kind: Literal["start", "done"], body: MakeIn, us
     try:  # 시트 PDF → 붙임 파일 끼워 합본 PDF 하나(사용자·형 10/6)
         with tempfile.TemporaryDirectory() as tmp:
             sheets = Path(tmp) / "sheets.pdf"
-            to_pdf.xlsx_to_pdf(xlsx, sheets)
+            to_pdf.office_to_pdf(xlsx, sheets)
             count = len(openpyxl.load_workbook(xlsx, read_only=True).sheetnames)
             warnings += attachments.merge(sheets, files.contract_dir(row), kind, count, pdf)
     except Exception as err:  # noqa: BLE001 — 엑셀은 받을 수 있게 두고 PDF 실패만 알림(PDF가 없으면 제출로 안 봄)

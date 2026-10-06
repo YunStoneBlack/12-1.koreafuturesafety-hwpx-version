@@ -6,6 +6,7 @@
 - build.py: 착수계(기술자 서류 사람 수만큼)·완수계(회사 고정 서류) 엑셀 만들기 — DB 모름, 값만 받음(시험하기 쉽게)
 - attachments.py: 받아 온 붙임 파일(산출내역서·완수내역서·기술지도보고서·완료증명서)을 PDF로 바꿔 두고 합본 PDF에 갑지 붙임 순서대로
 - hwp_queue.py: 한글 붙임 파일 → PDF(작업 프로그램이 쉴 때, 폴더 대기열)
+- contract_pdf.py·contract_ai.py: 계약서 읽기(글자 규칙 → 못 읽은 칸만 Claude API), contract_status.py: 제출·단계·일정 날짜 판정 한 곳
 - to_pdf.py: LibreOffice로 PDF(이 PC의 Excel은 정품 인증이 안 돼 자동화가 막힘 — 10/6 확인)
 
 원칙(사용자 10/6): 엑셀 양식 그대로 따라간다 — 디자인·수정은 사용자가 말할 때.

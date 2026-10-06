@@ -11,7 +11,6 @@ COM 전용 처리(`_fix_char_shape`)도 포팅 완료 — 표3 담당요원 칸/
 
 from __future__ import annotations
 
-from copy import deepcopy
 
 from hwpx.form_fit import DEFAULT_SAFETY, estimate_text_width
 

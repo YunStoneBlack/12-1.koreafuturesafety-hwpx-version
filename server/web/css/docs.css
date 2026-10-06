@@ -17,8 +17,6 @@
 .dc-doc { font-size: 12.5px; color: var(--muted); }
 .dc-doc b { color: var(--ink); margin-right: 4px; }
 .dc-doc.ok { color: var(--green); font-weight: 600; }
-.dc-doc.warn { color: var(--warn); font-weight: 600; }
-.dc-doc.bad { color: var(--crit); font-weight: 600; }
 .dc-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .main .dc-actions button { margin: 0; padding: 7px 12px; font-size: 13px; }
 .main .dc-actions button.dc-del { color: var(--crit); }

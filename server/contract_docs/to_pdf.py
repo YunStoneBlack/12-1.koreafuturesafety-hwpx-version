@@ -50,5 +50,3 @@ def office_to_pdf(src: Path, dest: Path, timeout: int = 120) -> Path:
         shutil.move(str(out), dest)
     return dest
 
-
-xlsx_to_pdf = office_to_pdf

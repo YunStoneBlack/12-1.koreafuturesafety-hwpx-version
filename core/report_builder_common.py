@@ -9,7 +9,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Image, Paragraph, Table, TableStyle
+from reportlab.platypus import Image, Paragraph, TableStyle
 
 FONT_REGULAR = "MalgunGothic"
 FONT_BOLD = "MalgunGothic-Bold"

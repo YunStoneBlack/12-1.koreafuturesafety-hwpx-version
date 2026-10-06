@@ -58,7 +58,6 @@ from pathlib import Path
 
 from core import config
 from core.models_db import Report, Site
-from core.thumbnail_generator import render_pdf_pages, resolve_material_path
 
 _SIGNATURE_WIDTH_MM = 14
 _SIGNATURE_HEIGHT_MM = 6
