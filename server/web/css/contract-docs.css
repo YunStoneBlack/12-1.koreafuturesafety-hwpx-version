@@ -153,3 +153,14 @@ main.main.drop-over, .mail-box.cd-box.drop-over, .cd-slot.drop-over, .cl-row.dro
   font-size: 13px; font-weight: 600; cursor: pointer; }
 .cd-sub-msg { font-size: 12.5px; }
 .cd-sub-msg:empty { display: none; }
+/* 발주처 담당자 두 줄(계약·사업) — [라벨][이름][연락처][이메일] */
+.cd-contacts { display: grid; grid-template-columns: 88px minmax(0, .8fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 6px 8px; align-items: center; font-size: 12.5px; }
+.cd-contacts > b { font-size: 12.5px; }
+.cd-ct-h { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.cd-box .cd-contacts input.cd-ai-in { border-color: #E0A33A; background: var(--warn-soft); }
+@media (max-width: 760px) {
+  .cd-contacts { grid-template-columns: 1fr 1fr; }
+  .cd-contacts > span { display: none; }
+  .cd-contacts > b { grid-column: 1 / -1; margin-top: 4px; }
+  .cd-contacts input[data-key$="_email"] { grid-column: 1 / -1; }
+}

@@ -71,7 +71,8 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     aiFilled = info.ai_filled || [];
     const names = { client: "발주처", title: "용역명", contract_no: "계약번호", amount: "계약금액", contract_date: "계약일", start_date: "착수일", end_date: "완수일" };
     const parts = [];
-    const contactNames = { client_manager: "계약 담당자", client_phone: "담당자 연락처", client_email: "담당자 이메일" }; // 못 읽어도 안내 안 함(없는 계약서가 많음)
+    const contactNames = { client_manager: "계약 담당자", client_phone: "계약 담당 연락처", client_email: "계약 담당 이메일",
+      biz_manager: "사업 담당자", biz_phone: "사업 담당 연락처", biz_email: "사업 담당 이메일" }; // 못 읽어도 안내 안 함(없는 계약서가 많음)
     if (aiFilled.length) parts.push(`<div class="mail-msg warn">🤖 AI로 읽은 칸: ${aiFilled.map((k) => names[k] || contactNames[k] || k).join("·")} — 계약서와 맞는지 확인하세요(노란 칸).</div>`);
     if (info.ai_error) parts.push(`<div class="mail-msg warn">AI로 읽지 못했습니다(${mailEsc(info.ai_error)}) — 빈 칸은 직접 채우세요.</div>`);
     const left = (info.unread || []).filter((k) => !aiFilled.includes(k) && names[k]);
@@ -80,9 +81,10 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     return parts.join("");
   }
 
-  // 계약 담당자 칸 — 서류 값(st.contract)이 아니라 계약 자체 값(st.client_*)이라 따로(관리번호와 같음)
-  function top(key, text, type = "text") {
-    return `<label class="cd-field${aiFilled.includes(key) ? " cd-ai" : ""}"><span>${text}</span><input class="cd-in" data-key="${key}" type="${type}" value="${mailEsc(st[key] || "")}" /></label>`;
+  // 발주처 담당자 칸(계약·사업) — 서류 값(st.contract)이 아니라 계약 자체 값(st.client_*·st.biz_*)이라 따로(관리번호와 같음)
+  const CONTACT_KEYS = ["client_manager", "client_phone", "client_email", "biz_manager", "biz_phone", "biz_email"];
+  function ct(key, ph, type = "text") {
+    return `<input class="cd-in${aiFilled.includes(key) ? " cd-ai-in" : ""}" data-key="${key}" type="${type}" placeholder="${ph}" value="${mailEsc(st[key] || "")}" aria-label="${ph}" />`;
   }
 
   function field(key, text, type = "text", wide = false) {
@@ -107,8 +109,15 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       <div class="cd-grid">
         <label class="cd-field"><span>관리번호 <em>목록에 "26-3)_용역명"으로 보임</em></span>
           <span class="cd-mgmt"><input class="cd-in" data-key="management_no" value="${mailEsc(st.management_no || "")}" /><button type="button" class="cd-mgmt-auto">자동생성</button></span></label>
-        ${top("client_manager", "계약 담당자 <em>발주처 쪽</em>")}
-        ${top("client_phone", "담당자 연락처", "tel")}${top("client_email", "담당자 이메일", "email")}
+        <div></div>
+      </div>
+      <div class="mail-label">발주처 담당자 <span class="mail-note">— 사업 담당자 메일이 착수계·완수계 E-mail 기본 받는 곳</span></div>
+      <div class="cd-contacts">
+        <span></span><span class="cd-ct-h">이름</span><span class="cd-ct-h">연락처</span><span class="cd-ct-h">이메일</span>
+        <b>계약 담당자</b>${ct("client_manager", "계약부서")}${ct("client_phone", "연락처", "tel")}${ct("client_email", "이메일", "email")}
+        <b>사업 담당자</b>${ct("biz_manager", "사업부서")}${ct("biz_phone", "연락처", "tel")}${ct("biz_email", "이메일", "email")}
+      </div>
+      <div class="cd-grid">
         ${field("client", "발주처")}${field("contract_no", "계약번호")}
         ${field("title", "용역명", "text", true)}
         ${field("amount", "계약금액(원)", "number")}${field("contract_date", "계약일", "date")}
@@ -159,7 +168,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     box.querySelector(".cd-send")?.addEventListener("input", (e) => { typed.send = e.target.value; refreshDocNo(); });
     box.querySelectorAll(".cd-in").forEach((el) => el.addEventListener("input", () => {
       dirty = true;
-      if (["management_no", "client_manager", "client_phone", "client_email"].includes(el.dataset.key)) st[el.dataset.key] = el.value;
+      if (el.dataset.key === "management_no" || CONTACT_KEYS.includes(el.dataset.key)) st[el.dataset.key] = el.value;
       else st.contract[el.dataset.key] = el.value;
       refreshDocNo();
     }));
@@ -192,7 +201,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       wrap.querySelectorAll(".cd-sub-btns button").forEach((x) => x.classList.toggle("on", x === b));
       const m = b.dataset.m;
       form.innerHTML = m === "email"
-        ? `<input class="cd-sub-to" type="email" placeholder="받는 메일(여러 곳은 쉼표로)" value="${mailEsc(st.client_email || "")}" />
+        ? `<input class="cd-sub-to" type="email" placeholder="받는 메일(여러 곳은 쉼표로)" value="${mailEsc(st.biz_email || st.client_email || "")}" />
            <button type="button" class="mail-primary cd-sub-go">보내기</button>`
         : `<label class="cd-sub-date">${m === "direct" ? "직접 제출" : "우편 제출"}일 <input type="date" class="cd-sub-day" value="${today}" /></label>
            <button type="button" class="mail-primary cd-sub-go">저장</button>`;
@@ -225,7 +234,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       try {
         const out = await apiPost(`/contracts/${contractId}/submit/${kind}`, body);
         st.made = out.made;
-        if (m === "email" && !st.client_email && !body.to.includes(",")) st.client_email = body.to;
+        if (m === "email" && !st.biz_email && !st.client_email && !body.to.includes(",")) st.biz_email = body.to;
         changed = true;
         redrawSubmit(m === "email" ? "✓ 보냈습니다" : "✓ 저장했습니다");
       } catch (err) {
@@ -401,7 +410,8 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   }
 
   function contractBody() {
-    const body = { management_no: st.management_no || "", client_manager: st.client_manager || "", client_phone: st.client_phone || "", client_email: st.client_email || "" };
+    const body = { management_no: st.management_no || "" };
+    for (const k of CONTACT_KEYS) body[k] = st[k] || "";
     for (const [k, v] of Object.entries(st.contract)) {
       if (k === "has_pdf") continue;
       body[k] = ["amount", "settle_amount"].includes(k) ? (v === "" || v == null ? null : Number(v)) : (v || "");

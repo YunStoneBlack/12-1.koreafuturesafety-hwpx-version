@@ -24,12 +24,13 @@ PROMPT = """당신은 관급 용역계약서(나라장터·국방전자조달·�
 - contract_no = 계약번호 그대로(차수 표기 포함, 예: R25TA00551412-00, 2026LNRA190(00)).
 - amount = 계약 전체 금액(총용역부기금액이 있으면 그것), 숫자만.
 - start_date = 착수일, end_date = 완수일·준공일·준공기한(장기계속이면 총완수일), contract_date = 계약일. 날짜는 YYYY-MM-DD.
-- client_manager·client_phone·client_email = 발주처 쪽 계약 담당자 이름·전화·메일(계약상대자 한국미래안전 쪽 아님).
+- client_manager·client_phone·client_email = 발주처 계약부서(계약 담당) 이름·전화·메일(계약상대자 한국미래안전 쪽 아님).
+- biz_manager·biz_phone·biz_email = 발주처 사업부서(수요기관·사업 담당) 이름·전화·메일 — 따로 적혀 있을 때만.
 - 문서에 없거나 불확실하면 절대 추측하지 말고 "" 또는 null.
 
 아래 JSON 객체만 답하세요(다른 설명 없이):
 {"client": "", "title": "", "contract_no": "", "amount": null, "contract_date": "", "start_date": "", "end_date": "",
- "client_manager": "", "client_phone": "", "client_email": ""}"""
+ "client_manager": "", "client_phone": "", "client_email": "", "biz_manager": "", "biz_phone": "", "biz_email": ""}"""
 
 
 def needs_ai(parsed: dict) -> bool:
@@ -59,4 +60,7 @@ def read_with_ai(pdf_path: Path, company_id: int) -> dict:
         "client_manager": str(data.get("client_manager") or "").strip(),
         "client_phone": str(data.get("client_phone") or "").strip(),
         "client_email": str(data.get("client_email") or "").strip(),
+        "biz_manager": str(data.get("biz_manager") or "").strip(),
+        "biz_phone": str(data.get("biz_phone") or "").strip(),
+        "biz_email": str(data.get("biz_email") or "").strip(),
     }

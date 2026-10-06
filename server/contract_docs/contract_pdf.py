@@ -69,7 +69,7 @@ def _parse_defense(text: str) -> dict:
 
 
 def _contact(text: str) -> dict:
-    """발주처 계약 담당자 — 나라장터 "담당부서: 회계과 담당: 오성혜(Tel:031-538-2453)"(첫 번째 = 발주처),
+    """발주처 계약 담당자(+ 사업 담당자) — 나라장터 "담당부서: 회계과 담당: 오성혜(Tel:031-538-2453)"(첫 번째 = 발주처),
     국방조달은 "재무관 담 당 자 … (031-589-6509)"(이름은 계급·이름이 다른 줄에 섞여 못 읽으면 빈 칸)."""
     out = {"client_manager": "", "client_phone": "", "client_email": ""}
     m = re.search(r"담\s*당\s*:\s*([가-힣]{2,4})\s*\(\s*Tel\s*:\s*([\d\-]+)", text)
@@ -85,6 +85,17 @@ def _contact(text: str) -> dict:
     m = re.search(r"[\w.\-]+@[\w\-]+\.[\w.\-]+", text)
     if m and "kfsc" not in m[0].lower():  # 우리 회사 메일은 빼고
         out["client_email"] = m[0]
+    # 사업 담당자(형 10/6) — 나라장터 <수요기관> 칸의 "담 당 자 ○○○"·"전 화 번 호 …"(사업을 맡은 부서). 없으면 빈 칸(손으로)
+    out |= {"biz_manager": "", "biz_phone": "", "biz_email": ""}
+    i = text.find("<수요기관>")
+    if i >= 0:
+        part = text[i:i + 400]
+        m = re.search(r"담\s*당\s*자\s+([가-힣]{2,4})", part)
+        if m:
+            out["biz_manager"] = m[1]
+        m = re.search(r"전\s*화\s*번\s*호\s+(0\d{1,2}-\d{3,4}-\d{4})", part)
+        if m:
+            out["biz_phone"] = m[1]
     return out
 
 

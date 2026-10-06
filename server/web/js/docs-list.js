@@ -38,6 +38,13 @@
     for (const c of shown) list.appendChild(row(c));
   }
 
+  // 발주처 담당자 한 줄 — "계약 담당 오성혜 · 메일 [📞]"(형 10/6: 계약·사업 담당 모두)
+  function contactLine(c, who, label) {
+    const name = c[`${who}_manager`], phone = c[`${who}_phone`], mail = c[`${who}_email`];
+    if (!name && !phone && !mail) return "";
+    return `<div class="dc-meta dc-contact" data-who="${who}">${label} <b>${mailEsc(name || "-")}</b>${mail ? ` · <a href="mailto:${mailEsc(mail)}">${mailEsc(mail)}</a>` : ""}</div>`;
+  }
+
   function row(c) {
     const el = document.createElement("div");
     el.className = "row dc-row";
@@ -50,7 +57,7 @@
       <div class="dc-main">
         <div class="dc-title">${mailEsc(c.title ? c.label : "(용역명 없음 — 계약 정보를 채우세요)")}</div>
         <div class="dc-meta">${mailEsc(meta)}</div>
-        ${c.client_manager || c.client_phone || c.client_email ? `<div class="dc-meta dc-contact">발주처 담당 <b>${mailEsc(c.client_manager || "-")}</b>${c.client_email ? ` · <a href="mailto:${mailEsc(c.client_email)}">${mailEsc(c.client_email)}</a>` : ""}</div>` : ""}
+        ${contactLine(c, "client", "계약 담당")}${contactLine(c, "biz", "사업 담당")}
         <div class="dc-site">${c.site_id ? `현장 <a href="site.html?id=${c.site_id}">${mailEsc(c.site_label)}</a>` : '<span class="dc-nosite">현장 연결 안 됨</span>'}
           <button type="button" class="dc-link">${c.site_id ? "바꾸기" : "🔗 현장 연결"}</button></div>
       </div>
@@ -60,8 +67,10 @@
         <button type="button" class="secondary dc-done">📑 완수계</button>
         <button type="button" class="secondary dc-del" title="계약 지우기">삭제</button>
       </div>`;
-    const call = siteLinkButtons(c.client_phone, ""); // 📞 전화(폰은 바로 걸기, PC는 번호 복사)
-    if (call) el.querySelector(".dc-contact")?.appendChild(call) ?? el.querySelector(".dc-main").appendChild(call);
+    el.querySelectorAll(".dc-contact").forEach((line) => { // 📞 전화(폰은 바로 걸기, PC는 번호 복사 — 현장 목록과 같은 버튼)
+      const call = siteLinkButtons(c[`${line.dataset.who}_phone`], "");
+      if (call) line.appendChild(call);
+    });
     el.querySelector(".dc-start").addEventListener("click", () => openContractDocs(c.id, "start", load));
     el.querySelector(".dc-done").addEventListener("click", () => openContractDocs(c.id, "done", load));
     el.querySelector(".dc-link").addEventListener("click", () => openLinkSite(c.id, load));

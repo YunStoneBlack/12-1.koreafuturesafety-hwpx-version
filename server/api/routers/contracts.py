@@ -40,7 +40,8 @@ KIND_LABEL = {"start": "착수계", "done": "완수계"}
 CONTRACT_FIELDS = ("client", "title", "contract_no", "amount", "contract_date", "start_date", "end_date", "settle_amount",
                    "actual_end_date")
 DATE_FIELDS = {"contract_date", "start_date", "end_date", "actual_end_date"}
-CONTACT_FIELDS = ("client_manager", "client_phone", "client_email")  # 발주처 계약 담당자(서류엔 안 들어감)
+CONTACT_FIELDS = ("client_manager", "client_phone", "client_email",  # 발주처 계약 담당자(계약부서)
+                  "biz_manager", "biz_phone", "biz_email")  # 발주처 사업 담당자(사업부서 — E-mail 기본 받는 사람). 서류엔 안 들어감
 
 
 class ContractIn(BaseModel):
@@ -48,6 +49,9 @@ class ContractIn(BaseModel):
     client_manager: str | None = None
     client_phone: str | None = None
     client_email: str | None = None
+    biz_manager: str | None = None
+    biz_phone: str | None = None
+    biz_email: str | None = None
     client: str | None = None
     title: str | None = None
     contract_no: str | None = None
@@ -510,7 +514,7 @@ def site_contract(site_id: int, user: User = Depends(get_current_user), db: Sess
 class SubmitIn(BaseModel):
     method: Literal["email", "direct", "post"]
     submitted_on: str = ""   # 직접·우편 제출일(비면 오늘). E-mail은 보낸 날
-    to: str = ""             # E-mail 받는 사람(쉼표로 여러 곳) — 비면 계약 담당자 메일
+    to: str = ""             # E-mail 받는 사람(쉼표로 여러 곳) — 비면 사업 담당자 메일(없으면 계약 담당자)
 
 
 @router.post("/{contract_id}/submit/{kind}")
@@ -526,13 +530,14 @@ def submit_docs(contract_id: int, kind: Literal["start", "done"], body: SubmitIn
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"먼저 {label}를 만드세요(합본 PDF를 보냅니다).")
         if not mailer.is_configured():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 메일 설정이 없어 보낼 수 없습니다.")
-        addrs = [a.strip() for a in (body.to or row.client_email or "").replace(";", ",").split(",") if a.strip()]
+        addrs = [a.strip() for a in (body.to or row.biz_email or row.client_email or "").replace(";", ",").split(",") if a.strip()]
         bad = [a for a in addrs if not mailer.valid_email(a)]
         if not addrs or bad:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 메일 주소를 확인하세요{': ' + ', '.join(bad) if bad else ''}.")
         title = row.title or "용역"
         subject = f"[{mailer.settings.MAIL_FROM_NAME}] {title} {label} 제출"
-        text = (f"안녕하세요{(' ' + row.client_manager + '님') if row.client_manager else ''}.\n\n"
+        who = row.biz_manager if row.biz_email and row.biz_email in addrs else row.client_manager if row.client_email in addrs else ""
+        text = (f"안녕하세요{(' ' + who + '님') if who else ''}.\n\n"
                 f"{title} {label}를 첨부하여 제출합니다.\n\n{mailer.settings.MAIL_FROM_NAME} 드림")
         try:
             refused = mailer.send_pdf(addrs, "", subject, text, pdf, files.download_name(row, f"{label}.pdf"))
@@ -542,8 +547,8 @@ def submit_docs(contract_id: int, kind: Literal["start", "done"], body: SubmitIn
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"메일 서버가 거부한 주소: {', '.join(refused)} — 나머지에겐 보냈습니다.")
         to_addr = ", ".join(addrs)
         day = datetime.date.today()
-        if not row.client_email and len(addrs) == 1:
-            row.client_email = addrs[0]  # 처음 보낸 주소를 담당자 메일로 기억
+        if not row.biz_email and not row.client_email and len(addrs) == 1:
+            row.biz_email = addrs[0]  # 처음 보낸 주소를 사업 담당자 메일로 기억
     else:
         try:
             day = datetime.date.fromisoformat(body.submitted_on[:10]) if body.submitted_on else datetime.date.today()

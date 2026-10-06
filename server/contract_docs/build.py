@@ -115,6 +115,39 @@ def _fill_cover(ws: Worksheet, c: Contract, common: Common, greet_default: str) 
         ws["B34"] = common.contact_name
 
 
+_DIGITS = "영일이삼사오육칠팔구"
+
+
+def korean_amount(n: int | None) -> str:
+    """금액 → 한글("이천삼백오십오만사천팔백") — 양식의 한글 숫자 서식([DBNum4], "일"을 빼지 않음: 일백만·일천일백)과 같게(10/6 실측)."""
+    if not n:
+        return "영" if n == 0 else ""
+    out = []
+    for gi, unit in enumerate(["", "만", "억", "조"]):
+        group = (n // 10000 ** gi) % 10000
+        if not group:
+            continue
+        words = "".join(_DIGITS[d] + u for d, u in zip((group // 1000 % 10, group // 100 % 10, group // 10 % 10, group % 10), ("천", "백", "십", "")) if d)
+        out.append(words + unit)
+    return "".join(reversed(out))
+
+
+def _amount_line(ws: Worksheet, cell: str, amount: int | None) -> None:
+    """"팔십삼만육천 원 ( ₩836,000 )" 줄을 글자 하나로 — 양식은 한글 숫자 서식 칸 + 옆 칸 "원 ( ₩… )"이라 금액이 길면(2,300만 원 이상 등)
+    칸을 넘쳐 ###로 나왔음(10/6 형). 글자는 옆 빈칸으로 이어서 보이므로 오른쪽 칸들(원·괄호·숫자)을 비우고 한 칸에 넣는다. 병합 칸이면 풀어서 넘치게."""
+    col_row = ws[cell]
+    r, c0 = col_row.row, col_row.column
+    merged = [rng for rng in ws.merged_cells.ranges if cell in rng]
+    for rng in merged:
+        ws.unmerge_cells(str(rng))
+    for col in range(c0 + 1, c0 + 6):  # 원 ( 숫자 ) 칸
+        ws.cell(r, col).value = None
+    col_row.value = f"{korean_amount(amount)}원 ( ₩{amount:,} )" if amount is not None else ""
+    col_row.number_format = "General"
+    if merged:  # 청구서처럼 합친 칸이었으면 오른쪽 칸까지 넓혀 다시 합침(합친 칸 글자는 넘쳐 보이지 않음 — 표 선은 그대로)
+        ws.merge_cells(start_row=r, start_column=c0, end_row=r, end_column=c0 + 5)
+
+
 def _date_text(d: datetime.date | None) -> str:
     return f"{d:%Y}년  {d:%m}월  {d:%d}일" if d else "      년      월      일"
 
@@ -210,6 +243,7 @@ def build_start(contract: Contract, common: Common, agent: Person, participants:
     for s in ws[1:]:
         st.clear_outside_print(s)
 
+    _amount_line(start, "H7", contract.amount)  # 착수계 "계 약 금 액" 줄
     agent_ws["H7"] = agent.address
     agent_ws["H8"] = agent.name
     agent_ws["H9"] = agent.birth_date
@@ -252,7 +286,12 @@ def build_done(contract: Contract, common: Common, company_docs: dict[str, str],
     _fill_cover(cover, contract, common, greeting_word(contract.client))
     cover["S11"] = contract.actual_end_date or contract.end_date
     cover["S12"] = contract.settle_amount if contract.settle_amount is not None else contract.amount
-    cover["H35"] = common.send_date or datetime.date.today()  # 양식은 =TODAY() — 열 때마다 바뀌지 않게 만든 날 값으로
+    cover["H35"] = common.send_date or datetime.date.today()
+    settle = contract.settle_amount if contract.settle_amount is not None else contract.amount
+    for sheet in (ws[1], ws[2]):  # 완수계·완수검사원 "계약금액"·"정산금액" 줄
+        _amount_line(sheet, "H7", contract.amount)
+        _amount_line(sheet, "H8", settle)
+    _amount_line(ws[3], "G7", settle)  # 청구서 "청구 금액"  # 양식은 =TODAY() — 열 때마다 바뀌지 않게 만든 날 값으로
     for s in ws[1:]:
         st.clear_outside_print(s)
     for s, (kind, label) in zip(ws[4:10], COMPANY_DOCS):
