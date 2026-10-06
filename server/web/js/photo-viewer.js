@@ -129,7 +129,7 @@
       const ts = Date.now();
       openItems(shots.map((s) => {
         const url = `${BASE}/api/k2b-jobs/${jobId}/shot?n=${s.n}&ts=${ts}`;
-        return { src: url, orig: url, caption: `${title ? title + " · " : ""}K2B ${s.label}` };
+        return { src: url, orig: url, caption: `${title ? title + " · " : ""}${s.label === "K2B 화면" ? s.label : `K2B ${s.label}`}` };
       }));
     } catch (err) {
       alert(err.message);
