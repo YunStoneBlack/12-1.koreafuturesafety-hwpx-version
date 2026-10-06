@@ -1,8 +1,9 @@
-// ---------- 사진 크게 보기(2026-10-07 사용자) — 보고서 화면의 사진 칸 미리보기(<img class="thumb" src="…?thumb=1">)를 누르면 화면 위에 크게 ----------
-// 모든 사진 칸(3 전경·점검, 4 이전지적·이행완료, 8 지적사항, 10 TBM·계측, 11 제공자료…)이 같은 모양이라 문서 전체에서 한 번에 잡는다(클릭 위임).
-// - 보기용 크기(서버 ?view=1, 긴 쪽 1400px — 보고서 PDF에 넣는 크기)로 빠르게, [원본 보기]만 원본(폰 원본은 5~10MB라 데이터로 느림)
-// - 같은 번호 칸(같은 <section class="panel">) 사진끼리 ◀ ▶·키보드 ←→·폰은 옆으로 밀기, 사진을 누르면 원래 크기로 확대(다시 누르면 맞춤)
-// - 닫기: ✕·바깥·ESC. 화면 규칙은 css/photo-viewer.css.
+// ---------- 사진 크게 보기(2026-10-07 사용자) — 화면 위에 크게, ◀▶로 넘기기 ----------
+// 1) 보고서 화면 사진 칸 미리보기(<img class="thumb" src="…?thumb=1">)를 누르면 — 모든 사진 칸(3 전경·점검, 4 이전지적·이행완료, 8 지적사항,
+//    10 TBM·계측, 11 제공자료…)이 같은 모양이라 문서 전체에서 한 번에 잡는다(클릭 위임). 같은 번호 칸(같은 <section class="panel">)끼리 넘김.
+//    보기용 크기(서버 ?view=1, 긴 쪽 1400px — 보고서 PDF에 넣는 크기)로 빠르게, [원본 보기]만 원본(폰 원본은 5~10MB라 데이터로 느림).
+// 2) openPhotoViewer(items, start) — 다른 곳에서도(K2B 제출 화면 구역별 여러 장 openK2bShots, 10/7). items = [{src, orig, caption}]
+// 사진을 누르면 원래 크기로 확대(다시 누르면 맞춤), ←→·폰 밀기, 닫기: ✕·바깥·ESC. 화면 규칙은 css/photo-viewer.css.
 
 (function () {
   const isThumb = (el) => el instanceof HTMLImageElement && el.classList.contains("thumb") && /[?&]thumb=1/.test(el.getAttribute("src") || "");
@@ -23,10 +24,11 @@
 
   let overlay = null, list = [], idx = 0;
 
-  function open(img) {
-    const section = img.closest("section.panel") || document;
-    list = [...section.querySelectorAll("img.thumb")].filter((x) => isThumb(x) && shown(x));
-    idx = Math.max(0, list.indexOf(img));
+  function openItems(items, start = 0) {
+    if (!items.length) return;
+    list = items;
+    idx = Math.min(Math.max(0, start), items.length - 1);
+    overlay?.remove();
     overlay = document.createElement("div");
     overlay.className = "pv-overlay";
     overlay.innerHTML = `
@@ -61,15 +63,14 @@
   }
 
   function show() {
-    const img = list[idx];
-    if (!img) return close();
-    const src = img.getAttribute("src");
+    const it = list[idx];
+    if (!it) return close();
     overlay.classList.add("pv-loading");
     overlay.classList.remove("pv-zoom");
     overlay.querySelector(".pv-msg").textContent = "";
-    overlay.querySelector(".pv-img").src = withParam(src, "thumb", "view");
-    overlay.querySelector(".pv-orig").href = withParam(withParam(src, "thumb"), "view");
-    overlay.querySelector(".pv-cap").textContent = caption(img);
+    overlay.querySelector(".pv-img").src = it.src;
+    overlay.querySelector(".pv-orig").href = it.orig || it.src;
+    overlay.querySelector(".pv-cap").textContent = it.caption || "";
     overlay.querySelector(".pv-count").textContent = list.length > 1 ? `${idx + 1} / ${list.length}` : "";
     overlay.querySelectorAll(".pv-nav").forEach((b) => { b.hidden = list.length < 2; });
   }
@@ -93,11 +94,45 @@
     else if (e.key === "ArrowRight") go(1);
   }
 
+  // 보고서 사진 칸 → 같은 번호 칸 사진들
+  function openThumb(img) {
+    const section = img.closest("section.panel") || document;
+    const thumbs = [...section.querySelectorAll("img.thumb")].filter((x) => isThumb(x) && shown(x));
+    const items = thumbs.map((t) => {
+      const src = t.getAttribute("src");
+      return { src: withParam(src, "thumb", "view"), orig: withParam(withParam(src, "thumb"), "view"), caption: caption(t) };
+    });
+    openItems(items, Math.max(0, thumbs.indexOf(img)));
+  }
+
   document.addEventListener("click", (e) => {
     const img = e.target;
     if (!isThumb(img) || !shown(img)) return;
     e.preventDefault();
     e.stopPropagation(); // 칸의 다른 클릭(예전 제공자료 새 탭 열기)보다 먼저
-    open(img);
+    openThumb(img);
   }, true);
+
+  window.openPhotoViewer = openItems;
+
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest("a[data-k2b-job]");
+    if (!a || a.closest(".report-row")) return; // 현장 화면 보고서 줄은 site.html이 회차 제목을 붙여 직접 엶
+    e.preventDefault();
+    window.openK2bShots(a.dataset.k2bJob, "");
+  });
+
+  // K2B 제출 화면(구역별 여러 장 — 상세내용·불량사업장/대형사고·사진·문제점, 10/7)
+  window.openK2bShots = async (jobId, title) => {
+    try {
+      const shots = await api(`/k2b-jobs/${jobId}/shots`);
+      const ts = Date.now();
+      openItems(shots.map((s) => {
+        const url = `${BASE}/api/k2b-jobs/${jobId}/shot?n=${s.n}&ts=${ts}`;
+        return { src: url, orig: url, caption: `${title ? title + " · " : ""}K2B ${s.label}` };
+      }));
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 })();

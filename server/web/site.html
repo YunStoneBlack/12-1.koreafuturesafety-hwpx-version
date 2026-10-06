@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="css/k2b-submit.css" />
 <link rel="stylesheet" href="css/auto-plan.css" />
 <link rel="stylesheet" href="css/contract-docs.css" />
+<link rel="stylesheet" href="css/photo-viewer.css" />
 </head>
 <body>
 <div class="app">
@@ -78,6 +79,7 @@
 <script src="js/k2b-submit.js"></script>
 <script src="js/auto-plan.js"></script>
 <script src="js/contract-docs.js"></script>
+<script src="js/photo-viewer.js"></script>
 <script src="shell.js"></script>
 <script>
 const errorEl = document.getElementById("error");
@@ -366,7 +368,7 @@ async function loadReports() {
         // 마지막 K2B 제출(js/k2b-submit.js) — 성공은 누르면 저장된 K2B 화면, 실패는 이유(마우스 올림)
         (report.k2b ? (() => {
           const k = report.k2b;
-          if (k.status === "done") return `<a class="k2b-sent" href="${BASE}/api/k2b-jobs/${k.id}/shot" target="_blank" rel="noopener" title="눌러서 저장된 K2B 화면 보기">✓ K2B ${k.at}${k.round_no ? ` · ${k.round_no}차` : ""}</a>`;
+          if (k.status === "done") return `<a class="k2b-sent" href="${BASE}/api/k2b-jobs/${k.id}/shot" data-k2b-job="${k.id}" title="눌러서 저장된 K2B 화면 보기(구역별 여러 장)">✓ K2B ${k.at}${k.round_no ? ` · ${k.round_no}차` : ""}</a>`;
           if (k.status === "failed") return `<span class="k2b-sent bad" title="${`${k.message}\n→ ${k.hint}`.replace(/"/g, "&quot;")}">✗ K2B 실패 ${k.at}</span>`;
           return `<span class="k2b-sent wait">K2B 제출 중…</span>`;
         })() : "") +
@@ -383,6 +385,10 @@ async function loadReports() {
             : `<a class="status-pill approved pdf-pill" data-download="pdf" data-report-id="${report.id}" href="${BASE}/api/reports/${report.id}/pdf" title="눌러서 PDF 받기">PDF 생성됨 ↓</a>`) +
         `<a class="secondary-link" data-download="hwpx" data-report-id="${report.id}" href="${BASE}/api/reports/${report.id}/hwpx">↓ 한글</a>` +
         `<button type="button" class="secondary rp-del" style="margin-top:0; color:var(--crit);">삭제</button>`;
+      row.querySelector("[data-k2b-job]")?.addEventListener("click", (e) => { // 구역별 K2B 화면(js/photo-viewer.js)
+        e.preventDefault();
+        openK2bShots(e.currentTarget.dataset.k2bJob, `${report.visit_no}회차`);
+      });
       row.querySelector(".rp-k2b")?.addEventListener("click", () => {
         openK2bModal(report.id, `${currentSite ? currentSite.name + " " : ""}${report.visit_no}회차`, loadReports);
       });

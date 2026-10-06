@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from core.models_db import Report
 from core.models_web import K2bSubmission, StaffK2bAccount, User
+from core.stored_path import to_full
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.routers.reports import pdf_outdated_map
@@ -35,10 +36,16 @@ def _job_out(j: K2bSubmission) -> dict:
     return {
         "id": j.id, "status": j.status, "round_no": j.round_no, "message": j.message, "options": j.options or {},
         "hint": advice(j.message, j.log) if j.status == "failed" else "",  # 실패면 "이렇게 하세요" 한 줄(server/k2b/advice.py)
-        "has_shot": bool(j.screenshot and Path(j.screenshot).exists()), "created_by": j.created_by,
+        "has_shot": bool(j.screenshot and Path(j.screenshot).exists()), "shots": len(_shot_paths(j)), "created_by": j.created_by,
         "created_at": j.created_at.strftime("%Y-%m-%d %H:%M") if j.created_at else None,
         "finished_at": j.finished_at.strftime("%Y-%m-%d %H:%M") if j.finished_at else None,
     }
+
+
+def _shot_paths(j: K2bSubmission) -> list[str]:
+    """구역별 화면들(10/7부터), 예전 제출은 한 장(screenshot)."""
+    paths = [to_full(p) for p in (j.screenshots or [])] or ([j.screenshot] if j.screenshot else [])
+    return [p for p in paths if Path(p).exists()]
 
 
 def _report(db: Session, user: User, report_id: int) -> Report:
@@ -194,8 +201,17 @@ def k2b_job(job_id: int, user: User = Depends(get_current_user), db: Session = D
 
 
 @router.get("/k2b-jobs/{job_id}/shot")
-def k2b_job_shot(job_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    job = _job(db, user, job_id)
-    if not job.screenshot or not Path(job.screenshot).exists():
+def k2b_job_shot(job_id: int, n: int = 1, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """n번째 화면(1부터 — 구역별 여러 장, 10/7). 예전 제출은 한 장."""
+    paths = _shot_paths(_job(db, user, job_id))
+    if not 1 <= n <= len(paths):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "화면 사진이 없습니다.")
-    return FileResponse(job.screenshot, media_type="image/png", headers={"Cache-Control": "no-store"})
+    return FileResponse(paths[n - 1], media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/k2b-jobs/{job_id}/shots")
+def k2b_job_shots(job_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """화면 목록 — 크게 보기 창(js/photo-viewer.js openPhotoViewer)이 넘겨 보게. 이름 = 파일 이름 끝 구역 이름."""
+    paths = _shot_paths(_job(db, user, job_id))
+    return [{"n": i, "label": (Path(p).stem.split("_K2B제출", 1)[-1].lstrip("_").split("_", 1)[-1].replace("_", "·") or "K2B 화면")}
+            for i, p in enumerate(paths, 1)]

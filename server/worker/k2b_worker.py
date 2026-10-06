@@ -17,6 +17,7 @@ from core import models_web  # noqa: F401 — 회사·사용자 표 정의(DB �
 from core.db import DATA_DIR, SessionLocal
 from core.models_db import Report
 from core.models_web import K2bSubmission, StaffK2bAccount
+from core.stored_path import to_stored
 from server.api import k2b_secret, storage
 from server.k2b.runner import run
 from server.k2b.submission import MajorHazardWork, ManualFields, build_submission
@@ -69,13 +70,19 @@ def _process(job_id: int) -> None:
             with tempfile.TemporaryDirectory() as tmp:
                 result = run(sub, acc.k2b_id, k2b_secret.decrypt(acc.password_enc), Path(tmp), save=True,
                              allow_round_mismatch=allow)
-                if result.screenshot and Path(result.screenshot).exists():
+                shots = [p for p in (result.screenshots or [result.screenshot]) if p and Path(p).exists()]
+                if shots:
                     folder = storage.report_dir(db, report)
                     folder.mkdir(parents=True, exist_ok=True)
-                    name = f"{storage.report_base(db, report)}_K2B제출{'' if result.saved else '실패'}.png"
-                    dest = folder / name
-                    shutil.copyfile(result.screenshot, dest)
-                    job.screenshot = str(dest)
+                    base = f"{storage.report_base(db, report)}_K2B제출{'' if result.saved else '실패'}"
+                    saved: list[str] = []
+                    for i, src in enumerate(shots, 1):  # 구역별 여러 장(10/7) — "…_K2B제출_1_상세내용.png"
+                        section = Path(src).stem.split("_", 2)[-1] if len(shots) > 1 else ""
+                        dest = folder / (f"{base}_{i}_{section}.png" if section else f"{base}.png")
+                        shutil.copyfile(src, dest)
+                        saved.append(str(dest))
+                    job.screenshot = saved[0]
+                    job.screenshots = [to_stored(p) for p in saved]
             job.status = "done" if result.saved else "failed"
             job.message = result.message
             job.round_no = result.round_no

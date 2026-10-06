@@ -209,6 +209,7 @@ class K2bSubmission(Base):
     round_no: Mapped[int | None] = mapped_column(default=None)
     message: Mapped[str] = mapped_column(Text, default="")
     screenshot: Mapped[str] = mapped_column(StoredPath, default="")
+    screenshots: Mapped[list | None] = mapped_column(JSON, default=None)  # 구역별 화면들(저장소 기준 경로, 2026-10-07 alembic 0023) — [0] = screenshot
     log: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)

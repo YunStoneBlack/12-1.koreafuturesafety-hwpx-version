@@ -242,8 +242,8 @@ async function openK2bModal(reportId, titleText, onDone) {
     box.innerHTML = `${head}
       <div class="mail-msg ${ok ? "ok" : "bad"}">${ok ? "✓ " : "✗ "}${mailEsc(job.message)}</div>
       ${job.hint ? `<div class="kb-hint-do"><b>이렇게 하세요</b> ${mailEsc(job.hint)}</div>` : ""}
-      ${job.has_shot ? `<a class="kb-shot" href="${BASE}/api/k2b-jobs/${job.id}/shot?ts=${Date.now()}" target="_blank" rel="noopener">
-        <img src="${BASE}/api/k2b-jobs/${job.id}/shot?ts=${Date.now()}" alt="K2B 화면" /><span>눌러서 크게 보기</span></a>` : ""}
+      ${job.has_shot ? `<a class="kb-shot" href="${BASE}/api/k2b-jobs/${job.id}/shot?ts=${Date.now()}" data-k2b-job="${job.id}">
+        <img src="${BASE}/api/k2b-jobs/${job.id}/shot?ts=${Date.now()}" alt="K2B 화면" /><span>눌러서 크게 보기${job.shots > 1 ? ` (구역별 ${job.shots}장)` : ""}</span></a>` : ""}
       <div class="mail-foot"><button type="button" class="kb-close">닫기</button>
         ${ok ? "" : `<button type="button" class="mail-primary kb-retry">${mismatch ? "차수가 달라도 저장하고 다시 제출" : "고쳐서 다시 제출"}</button>`}</div>`;
     box.querySelector(".kb-close").addEventListener("click", close);

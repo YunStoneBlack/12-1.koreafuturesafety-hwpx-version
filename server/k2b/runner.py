@@ -24,6 +24,17 @@ class RunResult:
     screenshot: str = ""
     log: list[str] = field(default_factory=list)
     round_no: int | None = None  # K2B가 매긴 새 차수 번호
+    screenshots: list[str] = field(default_factory=list)  # 구역별 화면(성공·점검 모드) — [0]이 screenshot과 같음(2026-10-07)
+
+
+# 저장 뒤 구역별로 찍는 곳(사용자 10/7: 항목이 제대로 들어갔는지 스크롤 아래까지 확인) — (이름, 그 구역 맨 위 근처 요소)
+SECTION_SHOTS = [
+    ("상세내용", sel.DETAIL_SAVE_BUTTON),
+    ("불량사업장_대형사고", sel.BAD_SITE_NOTIFY_CHECKBOX_ID),
+    ("사진_전경점검", sel.PHOTO_ATTACH_BUTTON_IDS["현장전경"]),
+    ("사진_개선_보고서", sel.PHOTO_ATTACH_BUTTON_IDS["현장개선"]),
+    ("문제점_개선요청", sel.PROBLEM_ADD_BUTTON),
+]
 
 
 def _wait_popup(page, timeout_s: int = 20):
@@ -56,6 +67,34 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
         path = shot_dir / f"{step[0]:02d}_{name}.png"
         page.screenshot(path=str(path))
         return str(path)
+
+    def section_snaps(page, c, tag: str) -> list[str]:
+        """상세 모달을 구역마다 위쪽으로 끌어올려 한 장씩(Nexacro라 마우스 휠로 — base._scroll_into_view). 화면이 안 움직여 앞 장과 같으면 뺀다."""
+        out: list[str] = []
+        last = b""
+        for name, selector in SECTION_SHOTS:
+            try:
+                loc = page.locator(selector).first
+                c._scroll_into_view(loc)
+                # 구역 머리가 화면 위쪽(90~170px)에 오게 — Nexacro는 휠 한 번에 일정 만큼만 내려가서(10/7 실측) 조금씩 반복, 더 안 움직이면 멈춤
+                prev_y = None
+                for _ in range(40):
+                    box = loc.bounding_box()
+                    if not box or box["y"] <= 170 or (prev_y is not None and abs(box["y"] - prev_y) < 2):
+                        break
+                    prev_y = box["y"]
+                    page.mouse.wheel(0, min(box["y"] - 90, 300))
+                    page.wait_for_timeout(120)
+                page.wait_for_timeout(600)
+                path = snap(page, f"{tag}_{name}")
+                data = Path(path).read_bytes()
+                if data == last:
+                    continue
+                last = data
+                out.append(path)
+            except Exception as err:  # noqa: BLE001 — 한 구역을 못 찍어도 나머지는 찍음
+                log(f"구역 화면 실패({name}): {err}")
+        return out
 
     playwright = browser = None
     page = None
@@ -142,7 +181,8 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
         before_save = snap(page, "저장직전")
         if not save:
             log("저장하지 않고 끝냄(점검 모드)")
-            return RunResult(True, False, "K2B에 입력까지 했습니다(저장 안 함 — 점검 모드).", before_save, lines, round_no)
+            shots_ = section_snaps(page, c, "점검") or [before_save]
+            return RunResult(True, False, "K2B에 입력까지 했습니다(저장 안 함 — 점검 모드).", shots_[0], lines, round_no, shots_)
         log("저장 누름")
         save_btn = page.locator(sel.DETAIL_SAVE_BUTTON)
         c._scroll_into_view(save_btn)
@@ -165,10 +205,12 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
             shot = snap(page, "저장확인안됨")
             return RunResult(False, False, "K2B에서 '정상적으로 저장되었습니다' 창을 못 봤습니다 — 화면을 확인하세요.", shot, lines, round_no)
         page.wait_for_timeout(2000)
-        c._scroll_into_view(page.locator(sel.DETAIL_SAVE_BUTTON))  # 새 차수 정보(상세내용) 위쪽이 보이게
-        page.wait_for_timeout(800)
-        saved_shot = snap(page, "저장완료")
-        return RunResult(True, True, f"K2B {round_no}차수로 저장했습니다.", saved_shot, lines, round_no)
+        shots_ = section_snaps(page, c, "저장완료")  # 상세내용 → 불량사업장·대형사고 → 사진 → 문제점(구역별, 10/7)
+        if not shots_:
+            c._scroll_into_view(page.locator(sel.DETAIL_SAVE_BUTTON))  # 새 차수 정보(상세내용) 위쪽이 보이게
+            page.wait_for_timeout(800)
+            shots_ = [snap(page, "저장완료")]
+        return RunResult(True, True, f"K2B {round_no}차수로 저장했습니다.", shots_[0], lines, round_no, shots_)
     except Exception as err:  # noqa: BLE001 — 어느 단계에서 멈췄는지 화면과 함께 돌려준다
         shot = ""
         if page is not None:

@@ -18,8 +18,8 @@ async function loadK2bPanel() {
   }
   const [last, ...older] = info.jobs;
   const shot = (j) => (j.has_shot
-    ? `<a class="kb-shot rk-shot" href="${BASE}/api/k2b-jobs/${j.id}/shot?ts=${Date.now()}" target="_blank" rel="noopener">
-        <img src="${BASE}/api/k2b-jobs/${j.id}/shot?ts=${Date.now()}" alt="K2B 화면" loading="lazy" /><span>눌러서 크게 보기</span></a>` : "");
+    ? `<a class="kb-shot rk-shot" href="${BASE}/api/k2b-jobs/${j.id}/shot?ts=${Date.now()}" data-k2b-job="${j.id}">
+        <img src="${BASE}/api/k2b-jobs/${j.id}/shot?ts=${Date.now()}" alt="K2B 화면" loading="lazy" /><span>눌러서 크게 보기${j.shots > 1 ? ` (구역별 ${j.shots}장)` : ""}</span></a>` : "");
   const when = (j) => mailEsc((j.finished_at || j.created_at || "").slice(5).replace("-", "/"));
   const who = (j) => (j.created_by ? ` · ${mailEsc(j.created_by)}` : "");
   let html;
