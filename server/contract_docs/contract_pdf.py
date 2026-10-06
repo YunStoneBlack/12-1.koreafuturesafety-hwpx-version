@@ -34,7 +34,42 @@ def read_text(path: str | Path) -> str:
 
 
 def parse_text(text: str) -> dict:
-    """계약서 글자 → {client, title, contract_no, amount, contract_date, start_date, end_date}(못 읽으면 빈 값)."""
+    """계약서 글자 → {client, title, contract_no, amount, contract_date, start_date, end_date}(못 읽으면 빈 값).
+    나라장터(조달청·지자체 전자계약) 양식을 먼저 보고, 못 읽은 칸은 국방조달(국방전자조달) 양식으로 채운다(10/6 — 수도기계화보병사단 계약서)."""
+    out = _parse_g2b(text)
+    for k, v in _parse_defense(text).items():
+        if not out.get(k) and v:
+            out[k] = v
+    return out
+
+
+def _parse_defense(text: str) -> dict:
+    """국방조달 용역계약서 — "라벨 값"(쌍점 없음), 표가 글자로 풀려 줄이 섞여 나온다.
+        계약번호 제 2026LNRA190 (00) 호 / 기 관 상호 수도기계화보병사단 재무관 … / 계약명 26-A-00부대 기계공사(1267)_재해예방기술지도
+        총용역부기금액 금 삼백오십육만구천 원정 ₩3,569,000 / 착수일자 2026년 09월 11일 / 준공일자 2027년 06월 07일 / 계약일자 : 2026년 9월 9일
+    금액은 총용역부기금액(계약 전체)을 먼저 — 장기계속이라 "계 … ₩100,000"(금차)과 다를 수 있다. 없으면 계약금액 합계."""
+    out: dict = {}
+    m = re.search(r"계약번호\s*제?\s*([0-9A-Za-z\-]+)\s*(?:\(\s*(\d+)\s*\))?", text)
+    if m:
+        out["contract_no"] = f"{m[1]}({m[2]})" if m[2] else m[1]
+    m = re.search(r"기\s*관\s+상\s*호\s+(\S+)", text)
+    if m:
+        out["client"] = m[1]
+    m = re.search(r"계약명\s+(.+)", text)
+    if m:
+        out["title"] = m[1].strip()
+    m = re.search(r"총용역부기금액[^₩\\\n]*[₩\\]\s*([\d,]+)", text) or re.search(r"\n\s*액?\s*계\s+금[^₩\\\n]*[₩\\]\s*([\d,]+)", text)
+    if m:
+        out["amount"] = int(m[1].replace(",", ""))
+    for key, label in (("start_date", r"착수일자"), ("end_date", r"준공일자"), ("contract_date", r"계약일자")):
+        m = re.search(label + r"\s*:?\s*(\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일)", text)
+        if m:
+            out[key] = _date(m[1])
+    return out
+
+
+def _parse_g2b(text: str) -> dict:
+    """나라장터(조달청·지자체 전자계약) 용역계약서 — "라벨 : 값"."""
     out: dict = {}
     # 발주처 = <발주처> 아래 "기관명 : 경기도 포천시"(수요기관도 같은 라벨이라 첫 번째)
     out["client"] = _after(text, r"기\s*관\s*명", r"계약관|주\s*소|전\s*화|$")
