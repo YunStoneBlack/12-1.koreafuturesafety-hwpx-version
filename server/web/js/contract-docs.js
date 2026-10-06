@@ -171,11 +171,12 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   // ---------- 제출(사용자 10/6) — E-mail(합본 PDF를 바로 보냄)·직접 제출·우편 제출, 여러 방식 함께. 기록이 있으면 제출 ----------
   function submitBlock() {
     const m = st.made[kind];
-    if (!contractId || !(m.pdf || m.submits.length)) return '<div class="cd-submit-wrap"></div>';
+    if (!contractId) return '<div class="cd-submit-wrap"></div>'; // 저장된 계약이면 착수계·완수계 창 모두 늘 보임(10/6 사용자)
     const recs = m.submits.map((r) => `<div class="cd-sub-rec"><span class="cd-ok">✓ ${mailEsc(r.date.slice(5).replace("-", "/"))} ${mailEsc(r.label)} 제출</span>
       ${r.to ? `<span class="mail-note">→ ${mailEsc(r.to)}</span>` : ""}<button type="button" class="cd-x cd-sub-del" data-id="${r.id}" title="이 기록 지우기">✕</button></div>`).join("");
     return `<div class="cd-submit-wrap"><div class="mail-label">제출 <span class="mail-note">— 여러 방식을 함께 기록할 수 있어요(E-mail은 합본 PDF를 바로 보냄)</span></div>
       ${recs || `<div class="mail-note">아직 제출 기록 없음 — 아래에서 고르세요</div>`}
+      ${m.pdf ? "" : `<div class="mail-note">${label} PDF를 만들면 E-mail로도 바로 보낼 수 있어요</div>`}
       <div class="cd-sub-btns">${m.pdf ? '<button type="button" data-m="email">📧 E-mail로 보내기</button>' : ""}
         <button type="button" data-m="direct">🏢 직접 제출</button><button type="button" data-m="post">📮 우편 제출</button></div>
       <div class="cd-sub-form"></div><div class="cd-sub-msg"></div></div>`;
