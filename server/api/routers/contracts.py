@@ -6,6 +6,8 @@
 - `POST /contracts/{id}/pdf` — 계약서 PDF 다시 올리기(읽은 칸만 덮어씀)
 - `POST /contracts/{id}/link {site_id|null}` — 현장 연결·해제(현장 하나에 계약 하나)
 - `POST /contracts/{id}/docs/{start|done}` — 엑셀 + 합본 PDF(LibreOffice + 붙임 파일), `GET …/docs/{kind}.{xlsx|pdf}` — 받기
+  완수계는 붙임에 완수내역서가 있을 때만 "검사 및 납품조서"(한글 양식, inspection.py)도 — 표 값은 완수내역서에서 읽어 계약에 둠,
+  `GET …/docs/done.hwpx` — 한글 받기
 - `POST|GET|DELETE /contracts/{id}/docs/{kind}/attach/{칸}[/{파일}]` — 붙임 파일(attachments.py)
 - `POST /contracts/{id}/submit/{kind}` {method: email|direct|post} — 제출 기록(E-mail은 합본 PDF를 바로 보냄), `DELETE …/submit/{기록}`
 - `GET /sites/{id}/contract` — 현장 화면 버튼: 연결된 계약, 없으면 연결할 후보(비슷한 이름 순)
@@ -31,12 +33,13 @@ from server.api.deps import get_current_user, get_db
 from server.api.security import verify_password
 from server.api.routers.contract_library import company_docs, doc_status, person_docs, persons
 from server.api.site_label import short_mgmt, site_label
-from server.contract_docs import attachments, build, contract_ai, contract_pdf, contract_status, files, to_pdf
+from server.contract_docs import attachments, build, contract_ai, contract_pdf, contract_status, files, hwp_queue, inspection, to_pdf
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 site_router = APIRouter(prefix="/sites/{site_id}", tags=["contracts"])
 
 KIND_LABEL = {"start": "착수계", "done": "완수계"}
+INSP_NAME = "검사및납품조서"  # 완수계 붙임 5번 — 계약 폴더에 .hwpx(받기)·.pdf(합본에 들어감)
 CONTRACT_FIELDS = ("client", "title", "contract_no", "amount", "contract_date", "start_date", "end_date", "settle_amount",
                    "actual_end_date")
 DATE_FIELDS = {"contract_date", "start_date", "end_date", "actual_end_date"}
@@ -61,6 +64,7 @@ class ContractIn(BaseModel):
     end_date: str | None = None
     settle_amount: int | None = None
     actual_end_date: str | None = None
+    inspection: dict | None = None  # 검사 및 납품조서 표(inspection.KEYS)
 
 
 def _iso(d) -> str:
@@ -98,7 +102,8 @@ def _made(db: Session, row: ServiceContract) -> dict:
         at = row.start_made_at if kind == "start" else row.done_made_at
         pdf = files.out_path(row, f"{label}.pdf").exists()
         out[kind] = {"at": at.strftime("%Y-%m-%d %H:%M") if at else "", "xlsx": files.out_path(row, f"{label}.xlsx").exists(),
-                     "pdf": pdf, "submits": subs[kind], "submitted": contract_status.submitted(subs[kind])}
+                     "pdf": pdf, "submits": subs[kind], "submitted": contract_status.submitted(subs[kind]),
+                     "hwpx": kind == "done" and files.out_path(row, f"{INSP_NAME}.hwpx").exists()}
     return out
 
 
@@ -242,7 +247,24 @@ def state(db: Session, user: User, row: ServiceContract) -> dict:
         "company_docs": [{"kind": k, "label": label, "status": doc_status(docs.get(k)),
                           "valid_until": _iso(docs[k].valid_until) if k in docs else ""} for k, label in build.COMPANY_DOCS],
         "attachments": {kind: _attach_list(row, kind) for kind in KIND_LABEL},
+        "inspection": inspection.normalize(row.inspection) if row.inspection else None,
     }
+
+
+def _done_list_files(row: ServiceContract) -> list[Path]:
+    return attachments.list_files(files.contract_dir(row), "done", "done_list") if row.id else []
+
+
+def _read_inspection(row: ServiceContract, overwrite_settle: bool) -> bool:
+    """붙임 완수내역서에서 검사 및 납품조서 표 값을 읽어 계약에 둔다. 준공 계 = 정산금액(사용자 10/8 — 완수계 서류끼리 같은 값)."""
+    found = inspection.read_done_list(_done_list_files(row))
+    if not found:
+        return False
+    row.inspection = found
+    total = inspection.normalize(found)["done_total"]
+    if total is not None and (overwrite_settle or row.settle_amount is None):
+        row.settle_amount = total
+    return True
 
 
 def _person_state(db: Session, p: TechPerson) -> dict:
@@ -255,7 +277,10 @@ def _person_state(db: Session, p: TechPerson) -> dict:
 
 @router.get("/{contract_id}")
 def get_contract(contract_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return state(db, user, _require(db, user, contract_id))
+    row = _require(db, user, contract_id)
+    if row.inspection is None and _read_inspection(row, overwrite_settle=False):  # 이 기능 전에 올린 완수내역서(10/8)
+        db.commit()
+    return state(db, user, row)
 
 
 def _apply_contract(row: ServiceContract, fields: dict, user: User) -> None:
@@ -273,6 +298,12 @@ def _apply_contract(row: ServiceContract, fields: dict, user: User) -> None:
         elif isinstance(v, str):
             v = v.strip()
         setattr(row, k, v)
+    if "inspection" in fields:
+        ins = fields["inspection"] or {}
+        try:
+            row.inspection = {k: (None if ins.get(k) in (None, "") else int(ins[k])) for k in inspection.KEYS} if ins else None
+        except (TypeError, ValueError) as err:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "검사 및 납품조서 칸에는 숫자만 적으세요.") from err
     row.updated_at = datetime.datetime.now()
     row.updated_by = user.display_name or ""
 
@@ -410,13 +441,14 @@ def make_docs(contract_id: int, kind: Literal["start", "done"], body: MakeIn, us
         docs = company_docs(db, user.company_id)
         warnings = build.build_done(c, common, {k: d.file for k, d in docs.items() if d.file}, xlsx)
     warnings = _expired_warnings(db, user, kind, chosen, send if kind == "done" else datetime.date.today()) + warnings
+    extra = _make_inspection(row, c, common, warnings) if kind == "done" else {}
     pdf_error = ""
     try:  # 시트 PDF → 붙임 파일 끼워 합본 PDF 하나(사용자·형 10/6)
         with tempfile.TemporaryDirectory() as tmp:
             sheets = Path(tmp) / "sheets.pdf"
             to_pdf.office_to_pdf(xlsx, sheets)
             count = len(openpyxl.load_workbook(xlsx, read_only=True).sheetnames)
-            warnings += attachments.merge(sheets, files.contract_dir(row), kind, count, pdf)
+            warnings += attachments.merge(sheets, files.contract_dir(row), kind, count, pdf, extra)
     except Exception as err:  # noqa: BLE001 — 엑셀은 받을 수 있게 두고 PDF 실패만 알림(PDF가 없으면 제출로 안 봄)
         pdf.unlink(missing_ok=True)
         pdf_error = str(err)
@@ -428,15 +460,48 @@ def make_docs(contract_id: int, kind: Literal["start", "done"], body: MakeIn, us
     return {"warnings": warnings, "pdf_error": pdf_error, "made": _made(db, row)}
 
 
+def _make_inspection(row: ServiceContract, c: build.Contract, common: build.Common, warnings: list[str]) -> dict[str, list[Path]]:
+    """완수계 붙임 5번 검사 및 납품조서 — 붙임에 완수내역서가 있을 때만(사용자 10/8). 한글 양식 채워 .hwpx, 이 PC 한글로 .pdf →
+    합본에서 완수내역서 다음(extra). 못 만들면 경고만."""
+    hwpx, pdf = files.out_path(row, f"{INSP_NAME}.hwpx"), files.out_path(row, f"{INSP_NAME}.pdf")
+    pdf.unlink(missing_ok=True)
+    if not _done_list_files(row):
+        hwpx.unlink(missing_ok=True)
+        return {}
+    if row.inspection is None:
+        _read_inspection(row, overwrite_settle=row.settle_amount is None)
+    d = inspection.normalize(row.inspection)
+    lack = inspection.missing(d)
+    if lack:
+        hwpx.unlink(missing_ok=True)
+        warnings.append(f"검사 및 납품조서 — {'·'.join(lack)}을(를) 몰라 뺐습니다(완수내역서에서 못 읽음 — 칸을 직접 채우세요).")
+        return {}
+    settle = c.settle_amount if c.settle_amount is not None else c.amount
+    if settle != d["done_total"]:
+        warnings.append(f"⚠ 정산금액({settle or 0:,}원)과 검사 및 납품조서 준공 금액({d['done_total']:,}원)이 다릅니다 — 확인하세요.")
+    try:
+        inspection.build(hwpx, title=c.title, contract_no=c.contract_no, client=c.client, due=c.actual_end_date or c.end_date,
+                         made=common.send_date or datetime.date.today(), seal=common.seal, ins=d)
+        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx"))
+    except Exception as err:  # noqa: BLE001 — 완수계(엑셀·나머지 PDF)는 만들고 이것만 뺌
+        pdf.unlink(missing_ok=True)
+        warnings.append(f"검사 및 납품조서를 PDF로 못 만들어 뺐습니다: {err}")
+        return {}
+    return {"done_list": [pdf]}
+
+
 @router.get("/{contract_id}/docs/{kind}.{ext}")
-def download_docs(contract_id: int, kind: Literal["start", "done"], ext: Literal["xlsx", "pdf"], inline: bool = False,
+def download_docs(contract_id: int, kind: Literal["start", "done"], ext: Literal["xlsx", "pdf", "hwpx"], inline: bool = False,
                   user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     row = _require(db, user, contract_id)
-    name = f"{KIND_LABEL[kind]}.{ext}"
+    if ext == "hwpx" and kind != "done":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "한글 파일은 완수계(검사 및 납품조서)만 있습니다.")
+    name = f"{INSP_NAME}.hwpx" if ext == "hwpx" else f"{KIND_LABEL[kind]}.{ext}"
     path = files.out_path(row, name)
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"아직 만든 {KIND_LABEL[kind]}가 없습니다.")
-    media = "application/pdf" if ext == "pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    media = {"pdf": "application/pdf", "hwpx": "application/haansofthwpx",
+             "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}[ext]
     return FileResponse(path, media_type=media, filename=files.download_name(row, name),
                         content_disposition_type="inline" if inline else "attachment")
 
@@ -472,6 +537,8 @@ def upload_attachment(contract_id: int, kind: Literal["start", "done"], slot: st
         attachments.add_file(files.contract_dir(row), kind, slot, file.file.read(), file.filename or "")
     except (ValueError, RuntimeError) as err:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    if (kind, slot) == ("done", "done_list") and _read_inspection(row, overwrite_settle=True):  # 새 완수내역서 → 표·정산금액(10/8)
+        db.commit()
     return _attach_list(row, kind)
 
 

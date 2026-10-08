@@ -113,8 +113,10 @@ def remove_file(out_dir: Path, kind: str, slot: str, name: str) -> None:
         pass
 
 
-def merge(sheet_pdf: Path, out_dir: Path, kind: str, sheet_count: int, dest: Path) -> list[str]:
-    """시트 PDF에 붙임 파일을 끼워 합본 PDF(dest). 경고(빠진 칸·시트 장수가 안 맞음)를 돌려준다."""
+def merge(sheet_pdf: Path, out_dir: Path, kind: str, sheet_count: int, dest: Path,
+          extra: dict[str, list[Path]] | None = None) -> list[str]:
+    """시트 PDF에 붙임 파일을 끼워 합본 PDF(dest). 경고(빠진 칸·시트 장수가 안 맞음)를 돌려준다.
+    extra = 칸 키 → 그 칸 파일들 바로 뒤에 넣을 우리가 만든 PDF(완수계 검사 및 납품조서 — 완수내역서 다음, inspection.py)."""
     warnings: list[str] = []
     base = pymupdf.open(sheet_pdf)
     aligned = base.page_count == sheet_count
@@ -126,7 +128,7 @@ def merge(sheet_pdf: Path, out_dir: Path, kind: str, sheet_count: int, dest: Pat
         files = list_files(out_dir, kind, key)
         if not files:
             warnings.append(f"{label} — 올린 파일이 없어 빼고 합쳤습니다.")
-        by_pos.setdefault(after if aligned else base.page_count - 1, []).extend(files)
+        by_pos.setdefault(after if aligned else base.page_count - 1, []).extend(files + (extra or {}).get(key, []))
     for i in range(base.page_count):
         out.insert_pdf(base, from_page=i, to_page=i)
         for f in by_pos.get(i, []):

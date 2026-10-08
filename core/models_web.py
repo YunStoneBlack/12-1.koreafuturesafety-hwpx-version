@@ -319,6 +319,9 @@ class ServiceContract(Base):
     end_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     settle_amount: Mapped[int | None] = mapped_column(BigInteger, default=None)
     actual_end_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    # 완수계 "검사 및 납품조서" 표(2026-10-08 형·사용자, alembic 0024) — {qty, supply, vat, total, done_qty, done_supply, done_vat, done_total}.
+    # 붙임 완수내역서 PDF에서 읽어 채우고(contract_docs/inspection.py) 화면에서 고칠 수 있음. 준공 total = 정산금액
+    inspection: Mapped[dict | None] = mapped_column(JSON, default=None)
     contract_pdf: Mapped[str] = mapped_column(StoredPath, default="")
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("tech_person.id", ondelete="SET NULL"), default=None)
     participant_ids: Mapped[list | None] = mapped_column(JSON, default=None)

@@ -5,6 +5,7 @@
 // 1) 용역계약서 PDF 올리기 → 발주처·용역명·계약번호·금액·날짜가 채워짐(고칠 수 있음, 착수계 때 넣으면 완수계 때 그대로)
 // 2) 문서번호·인사말("귀 ○의")·(완수계) 발송일·정산금액·실제준공일 3) (착수계) 현장대리인 1명 + 참여기술자 0~N명
 // 4) 붙임 서류(받아 온 파일) 올리기 5) 도장 넣기/빼기 → [만들기] → 엑셀 + 합본 PDF 받기. 빠진 서류·유효기간 지난 서류는 막지 않고 경고(사용자 10/6).
+// 완수계: 붙임에 완수내역서가 있을 때만 "검사 및 납품조서"(한글 양식) 표 칸이 보이고 합본에 들어감 — 값은 완수내역서에서 읽음(10/8 형·사용자).
 // 창 틀은 css/mail.css(mail.js의 mailEsc도 씀), 이 창 규칙은 css/contract-docs.css.
 
 const CD_LABEL = { start: "착수계", done: "완수계" };
@@ -133,6 +134,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       </div>
       ${peopleHtml}
       ${attachBlock()}
+      ${kind === "done" ? `<div class="cd-insp-wrap">${inspBlock()}</div>` : ""}
       <div class="mail-label">대표이사 도장</div>
       <div class="cd-radios">
         <label><input type="radio" name="cd-seal" value="1" checked /> 넣기 <span class="mail-note">(사본 제출용 — "(인)"·원본대조필 칸에)</span></label>
@@ -142,7 +144,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       ${submitBlock()}
       ${made.at && !result ? `<div class="cd-made">지난번 만든 것 ${mailEsc(made.at)} — 아래 버튼으로 받기</div>` : ""}
       <div class="mail-foot cd-foot"><button type="button" class="cd-close">닫기</button>
-        ${made.xlsx ? dl("xlsx", "엑셀 받기") : ""}${made.pdf ? dl("pdf", "PDF 보기", true) + dl("pdf", "PDF 받기") : ""}
+        ${made.xlsx ? dl("xlsx", "엑셀 받기") : ""}${made.hwpx ? dl("hwpx", "한글 받기") : ""}${made.pdf ? dl("pdf", "PDF 보기", true) + dl("pdf", "PDF 받기") : ""}
         <button type="button" class="mail-primary cd-make">${label} ${made.at ? "다시 " : ""}만들기</button></div>`;
     box.querySelector(".cd-close").addEventListener("click", close);
     box.querySelector(".cd-make").addEventListener("click", make);
@@ -174,7 +176,63 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     }));
     if (kind === "start") wirePeople();
     wireAttach();
+    wireInsp();
     wireSubmit();
+  }
+
+  // ---------- 검사 및 납품조서(완수계 붙임 5번, 10/8) — 완수내역서가 있을 때만. 값은 완수내역서 그대로(원래 서류와 1원도 안 틀리게) ----------
+  // 준공 횟수를 바꾸면 준공 금액 = 횟수 × 단가로 다시 계산(형) — 부가세 10% 버림, 계는 10원 미만 버림, 손으로 고칠 수 있음.
+  // 준공 계 = 정산금액(완수계 서류끼리 같은 값). 서버 규칙은 server/contract_docs/inspection.py
+  // 함수 선언으로(창을 열 때 draw가 먼저 부르므로 const 화살표 함수는 아직 없음 — 10/8)
+  function insKeys() { return ["qty", "supply", "vat", "total", "done_qty", "done_supply", "done_vat", "done_total"]; }
+  function hasDoneList() { return (st.attachments.done.find((s) => s.slot === "done_list")?.files || []).length > 0; }
+  function insNum(v) { return v === "" || v == null || Number.isNaN(Number(v)) ? null : Number(v); }
+  function won(n) { return n == null ? "" : n.toLocaleString("ko-KR"); }
+  function inspBlock() {
+    if (!hasDoneList()) return "";
+    const d = st.inspection || {};
+    const ph = { qty: "횟수", supply: "공급가액", vat: "부가세", total: "계" };
+    const inp = (k) => `<label class="cd-ins-f"><span>${ph[k.replace("done_", "")]}</span><input class="cd-ins" data-ins="${k}" type="number"
+      inputmode="numeric" value="${d[k] ?? ""}" aria-label="${k.startsWith("done_") ? "준공" : "계약"} ${ph[k.replace("done_", "")]}" /></label>`;
+    return `<div class="mail-label">검사 및 납품조서 <span class="mail-note">— 완수내역서에서 읽은 값(고칠 수 있음) · 합본 PDF에서 완수내역서 다음</span></div>
+      <div class="cd-contacts cd-insp">
+        <span></span><span class="cd-ct-h">횟수</span><span class="cd-ct-h">공급가액</span><span class="cd-ct-h">부가세</span><span class="cd-ct-h">계(단수조정)</span>
+        <b>계약</b>${inp("qty")}${inp("supply")}${inp("vat")}${inp("total")}
+        <b>준공</b>${inp("done_qty")}${inp("done_supply")}${inp("done_vat")}${inp("done_total")}
+      </div>
+      <div class="mail-note cd-insp-note">${inspNote()}</div>`;
+  }
+  function inspNote() {
+    const d = st.inspection || {};
+    if (d.qty == null || d.total == null) return '<span class="cd-bad">완수내역서에서 횟수·금액을 못 읽었습니다 — 칸을 채우세요(비면 이 서류는 빠짐)</span>';
+    const unit = d.supply != null && d.qty ? Math.round(d.supply / d.qty) : null;
+    const dq = (d.done_qty ?? d.qty) - d.qty, dt = (d.done_total ?? d.total) - d.total;
+    return `단가 ${won(unit)}원 · ${dq || dt ? `증감 ${dq ? `${dq > 0 ? "+" : ""}${dq}회, ` : ""}${won(dt)}원` : "증감 없음(공란)"} · 준공 계는 정산금액으로 들어갑니다`;
+  }
+  function wireInsp() {
+    box.querySelectorAll(".cd-ins").forEach((el) => el.addEventListener("input", () => {
+      st.inspection = { ...(st.inspection || {}), [el.dataset.ins]: insNum(el.value) };
+      const d = st.inspection;
+      if (el.dataset.ins === "done_qty" && d.done_qty != null && d.qty && d.supply != null) { // 준공 횟수 → 금액 다시 계산(형)
+        d.done_supply = d.done_qty * Math.round(d.supply / d.qty);
+        d.done_vat = Math.floor(d.done_supply / 10);
+        d.done_total = Math.floor((d.done_supply + d.done_vat) / 10) * 10;
+        for (const k of ["done_supply", "done_vat", "done_total"]) box.querySelector(`.cd-ins[data-ins="${k}"]`).value = d[k];
+      }
+      if (["done_qty", "done_total"].includes(el.dataset.ins) && d.done_total != null) { // 준공 계 = 정산금액
+        st.contract.settle_amount = d.done_total;
+        const s = box.querySelector('.cd-in[data-key="settle_amount"]');
+        if (s) s.value = d.done_total;
+      }
+      dirty = true;
+      box.querySelector(".cd-insp-note").innerHTML = inspNote();
+    }));
+  }
+  function redrawInsp() {
+    const wrap = box.querySelector(".cd-insp-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = inspBlock();
+    wireInsp();
   }
 
   // ---------- 제출(사용자 10/6) — E-mail(합본 PDF를 바로 보냄)·직접 제출·우편 제출, 여러 방식 함께. 기록이 있으면 제출 ----------
@@ -292,6 +350,13 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
             fd.append("file", file);
             st.attachments[kind] = await apiUpload(`/contracts/${contractId}/docs/${kind}/attach/${slot}`, fd);
           }
+          if (slot === "done_list") { // 새 완수내역서 → 서버가 읽은 표 값·정산금액(10/8)
+            const fresh = await api(`/contracts/${contractId}`);
+            st.inspection = fresh.inspection;
+            st.contract.settle_amount = fresh.contract.settle_amount;
+            const s = box.querySelector('.cd-in[data-key="settle_amount"]');
+            if (s) s.value = st.contract.settle_amount ?? "";
+          }
           redrawAttach();
         } catch (err) {
           redrawAttach();
@@ -320,6 +385,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     tmp.innerHTML = attachBlock();
     old.replaceWith(tmp.querySelector(".cd-attach"));
     wireAttach();
+    redrawInsp(); // 완수내역서를 올리거나 빼면 검사 및 납품조서 칸도 보이거나 숨음
   }
 
   // 문서번호 = KFSC21C_계약번호_월일(사용자 10/6 회사 확인 — 착수계는 착수일, 완수계는 발송일). server build.default_doc_no와 같은 규칙.
@@ -351,7 +417,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
 
   function dl(ext, text, inline = false) {
     // 받을 이름 "용역명_착수계.xlsx"를 링크에 직접 — download가 비면 브라우저가 주소 끝(start.xlsx)을 이름으로 쓰기도 함(10/6 실측)
-    const name = `${(st.title || "용역").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40)}_${label}.${ext}`;
+    const name = `${(st.title || "용역").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40)}_${ext === "hwpx" ? "검사및납품조서" : label}.${ext}`;
     return `<a href="${BASE}/api/contracts/${contractId}/docs/${kind}.${ext}${inline ? "?inline=1" : ""}" ${inline ? 'target="_blank" rel="noopener"' : `download="${mailEsc(name)}"`}>${text}</a>`;
   }
 
@@ -416,6 +482,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       if (k === "has_pdf") continue;
       body[k] = ["amount", "settle_amount"].includes(k) ? (v === "" || v == null ? null : Number(v)) : (v || "");
     }
+    if (kind === "done" && st.inspection) body.inspection = Object.fromEntries(insKeys().map((k) => [k, insNum(st.inspection[k])]));
     return body;
   }
 
