@@ -106,10 +106,11 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
         c.login(k2b_id, password)
         c.go_to_guidance_menu()
         page.wait_for_timeout(1500)
-        c.search_site(sub.site_name)
-        page.wait_for_timeout(1500)
-        c.select_result_row(sub.site_name)
-        page.wait_for_timeout(1000)
+        picked = c.find_and_select_site(sub.site_key())  # 화면 뒤 검색 결과 데이터로 고르고 확인(10/8, site_match.py)
+        k2b_name = picked.row["ENTRPS_NM"]
+        # 이름이 달라도 번호·금액·주소+기간으로 골랐으면 결과에 K2B 쪽 이름을 남김(사용자 10/8 (가))
+        other = f" (K2B에는 '{k2b_name}'로 등록된 현장 — {'·'.join(picked.reasons)} 일치)" if "".join(k2b_name.split()) != "".join(sub.site_name.split()) else ""
+        page.wait_for_timeout(500)
         if shots:
             snap(page, "현장선택")
         c.open_detail()
@@ -129,7 +130,8 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
         if round_no != sub.visit_no and not allow_round_mismatch:
             shot = snap(page, "차수다름")
             return RunResult(False, False, f"K2B 새 차수는 {round_text}차인데 웹 보고서는 {sub.visit_no}회차라 저장하지 않았습니다 — "
-                             "K2B에 이미 올렸거나 회차가 어긋났는지 확인하세요(그래도 올리려면 '차수가 달라도 저장'을 켜고 다시).", shot, lines, round_no)
+                             "K2B에 이미 올렸거나 회차가 어긋났는지 확인하세요(그래도 올리려면 '차수가 달라도 저장'을 켜고 다시)."
+                             f" K2B에서 고른 현장: '{k2b_name}'", shot, lines, round_no)
         if shots:
             snap(page, "차수추가")
         if sub.guidance_date:
@@ -182,7 +184,7 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
         if not save:
             log("저장하지 않고 끝냄(점검 모드)")
             shots_ = section_snaps(page, c, "점검") or [before_save]
-            return RunResult(True, False, "K2B에 입력까지 했습니다(저장 안 함 — 점검 모드).", shots_[0], lines, round_no, shots_)
+            return RunResult(True, False, f"K2B에 입력까지 했습니다(저장 안 함 — 점검 모드).{other}", shots_[0], lines, round_no, shots_)
         log("저장 누름")
         save_btn = page.locator(sel.DETAIL_SAVE_BUTTON)
         c._scroll_into_view(save_btn)
@@ -210,7 +212,7 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
             c._scroll_into_view(page.locator(sel.DETAIL_SAVE_BUTTON))  # 새 차수 정보(상세내용) 위쪽이 보이게
             page.wait_for_timeout(800)
             shots_ = [snap(page, "저장완료")]
-        return RunResult(True, True, f"K2B {round_no}차수로 저장했습니다.", shots_[0], lines, round_no, shots_)
+        return RunResult(True, True, f"K2B {round_no}차수로 저장했습니다.{other}", shots_[0], lines, round_no, shots_)
     except Exception as err:  # noqa: BLE001 — 어느 단계에서 멈췄는지 화면과 함께 돌려준다
         shot = ""
         if page is not None:

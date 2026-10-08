@@ -117,3 +117,42 @@ class NavigationMixin(K2BClientBase):
         필드들이 활성화된다(현장에 등록된 차수가 없을 때 실기록으로 확인됨)."""
         self.log("차수 추가 중...")
         self.page.locator(sel.ADD_ROUND_BUTTON_ID).get_by_text(sel.ADD_ROUND_BUTTON_TEXT).click()
+
+    # ---------- 화면 뒤 검색 결과 데이터로 현장 고르기(2026-10-08 — server/k2b/site_match.py 설명) ----------
+    def find_and_select_site(self, key) -> "site_match.Pick":
+        """검색어를 점점 짧게 바꿔 가며 검색 → 결과 데이터 전부에서 점수로 고름 → 데이터 줄 위치를 옮겨 선택 → 선택된 현장 데이터로 확인.
+        맞는 게 안 되면 다음 후보·다음 검색어로 계속(사용자: 멈추지 말고 다시 찾아서 진행). 끝까지 못 찾을 때만 예외."""
+        from server.k2b import site_match as sm
+        page = self.page
+        seen: list[str] = []
+        for q in sm.queries(key.name):
+            self.log(f"현장명 '{key.name}' 검색 중... (검색어: '{q}')")
+            if not page.evaluate(sm.HELPERS_JS):
+                raise RuntimeError("K2B 검색 화면의 데이터를 찾지 못했습니다(화면 구조가 바뀌었을 수 있음).")
+            page.evaluate(f"() => {{ const d = __k2bDs('{sm.LIST_DS}'); if (d) d.clearData(); }}")
+            self._type_into(sel.SEARCH_SITE_NAME_INPUT, q)
+            page.locator(sel.SEARCH_BUTTON_CONTAINER_ID).get_by_text(sel.SEARCH_BUTTON_TEXT).click()
+            rows: list = []
+            for _ in range(16):  # 결과가 데이터에 들어올 때까지(0건이면 8초 뒤 다음 검색어)
+                page.wait_for_timeout(500)
+                rows = page.evaluate(f"(cols) => __k2bRows('{sm.LIST_DS}', cols)", sm.COLS) or []
+                if rows:
+                    page.wait_for_timeout(500)
+                    rows = page.evaluate(f"(cols) => __k2bRows('{sm.LIST_DS}', cols)", sm.COLS) or rows
+                    break
+            self.log(f"검색 결과 {len(rows)}건")
+            seen += [r[0] for r in rows[:5]]
+            for p in sm.rank(key, rows):
+                page.evaluate(f"(i) => __k2bDs('{sm.LIST_DS}').set_rowposition(i)", p.index)
+                page.wait_for_timeout(1500)
+                picked = page.evaluate(f"(cols) => __k2bRows('{sm.PICKED_DS}', cols)", sm.COLS) or []
+                got = dict(zip(sm.COLS, picked[0])) if picked else {}
+                if got and sm._plain(got.get("ENTRPS_NM")) == sm._plain(p.row["ENTRPS_NM"]) \
+                        and sm._digits(got.get("BPLC_MNG_NO")) == sm._digits(p.row["BPLC_MNG_NO"]):
+                    self.log(f"K2B 현장 선택: '{p.row['ENTRPS_NM']}' (공사금액 {int(sm._digits(p.row['CSTRN_AMT']) or 0):,}원 · "
+                             f"맞은 것: {'·'.join(p.reasons)})")
+                    return p
+                self.log(f"'{p.row['ENTRPS_NM']}'을 골랐는데 선택이 바뀌지 않아 다음 후보로")
+        names = ", ".join(f"'{n}'" for n in dict.fromkeys(seen)) or "없음"
+        raise RuntimeError(f"K2B에서 '{key.name}' 현장을 찾지 못했습니다 — 이름·사업장 번호·공사금액·주소·공사 기간이 맞는 현장이 없음"
+                           f"(검색된 현장 예: {names}). 웹 현장 정보와 K2B 등록 정보를 확인하세요.")

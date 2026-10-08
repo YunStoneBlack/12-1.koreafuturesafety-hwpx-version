@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -74,6 +76,18 @@ class K2BSubmission:
     improvement_photo_paths: list[str] = field(default_factory=list)
     report_pdf_path: str = ""
     manual: ManualFields = field(default_factory=ManualFields)
+    # K2B에서 현장 고를 때 같이 비교(2026-10-08 — site_match.py): 주소·공사금액·공사 기간(YYYYMMDD)·사업장관리번호·개시번호(숫자만)
+    site_address: str = ""
+    site_amount: int | None = None
+    site_start: str = ""
+    site_end: str = ""
+    site_mgmt_no: str = ""
+    site_start_no: str = ""
+
+    def site_key(self):
+        from server.k2b.site_match import SiteKey
+        return SiteKey(self.site_name, self.site_address, self.site_amount, self.site_start, self.site_end,
+                       self.site_mgmt_no, self.site_start_no)
 
 
 def _paths(rows, attr: str = "photo_path") -> list[str]:
@@ -119,6 +133,12 @@ def build_submission(db: Session, report: Report, manual: ManualFields | None = 
                                                   if m.material_id or m.custom_photo_path or (m.title or "").strip()]
     return K2BSubmission(
         site_name=site.name,
+        site_address=site.address or "",
+        site_amount=site.amount,
+        site_start=site.period_start.strftime("%Y%m%d") if site.period_start else "",
+        site_end=site.period_end.strftime("%Y%m%d") if site.period_end else "",
+        site_mgmt_no=re.sub(r"\D", "", site.site_mgmt_no or ""),
+        site_start_no=re.sub(r"\D", "", site.biz_start_no or ""),
         visit_no=report.visit_no,
         guidance_date=report.guidance_date.isoformat() if report.guidance_date else None,
         staff_id=report.assigned_staff_id,
