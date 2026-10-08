@@ -11,12 +11,14 @@
 from __future__ import annotations
 
 import datetime
+import io
 import re
 import zipfile
 from pathlib import Path
 
 import pymupdf
 from lxml import etree
+from PIL import Image
 
 from core.db import BASE_DIR
 
@@ -104,6 +106,19 @@ def missing(d: dict) -> list[str]:
 
 
 # ---------- 한글 양식 채우기 ----------
+def _darker_seal(img: Image.Image) -> Image.Image:
+    """도장 진하게(10/8 사용자 — 한글 화면처럼). 사용인감 PNG는 획이 반투명(알파 절반쯤)한 연분홍(233,118,121)이라 PDF에선 연하게 나옴 →
+    획은 불투명하게, 색은 짙은 인주색으로."""
+    px = img.load()
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = px[x, y]
+            if a > 24:
+                k = min(1.0, a / 160)  # 가장자리(아주 옅은 알파)는 조금만
+                px[x, y] = (int(r * 0.93), int(g * 0.35), int(b * 0.38), int(a + (255 - a) * k))
+    return img
+
+
 def _fmt(n: int | None, unit: str = "") -> str:
     return "" if n is None else f"{n:,}{unit}"
 
@@ -160,6 +175,9 @@ def build(out: Path, *, title: str, contract_no: str, client: str, due: datetime
         for pic in head[(3, 3)].findall(".//hp:pic", NS):
             pic.getparent().remove(pic)
         head[(3, 3)].find("hp:subList", NS).set("vertAlign", "TOP")
+    else:  # 흰 배경 JPG가 "(인)" 글자를 가리지 않게 글 뒤로(보고서 서명과 같음)
+        for pic in head[(3, 3)].findall(".//hp:pic", NS):
+            pic.set("textWrap", "BEHIND_TEXT")
 
     sub, dsub = (None if d["supply"] is None else d["supply"] + d["vat"]), (None if d["done_supply"] is None else d["done_supply"] + d["done_vat"])
     rows = {  # 줄: (계약 금액, 준공 금액)
@@ -187,11 +205,32 @@ def build(out: Path, *, title: str, contract_no: str, client: str, due: datetime
     plain = "\r\n".join("".join(t.text or "" for t in p.iter(f"{{{HP}}}t")) for p in root.iter(f"{{{HP}}}p"))
     parts = {sec_name: etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True),
              "Preview/PrvText.txt": plain.encode("utf-8")}
+    # 도장(사용인감 PNG — 완수계 엑셀 시트 도장과 같은 그림)은 흰 배경 JPG로 — 한글 2018/2024는 PDF로 내보낼 때 PNG만 96dpi로 줄여
+    # 흐리고 연해짐(10/8 사용자 "도장이 연하다", core/report_builder_hwpx_jpeg.py와 같은 이유·같은 처리)
+    renames = {}
+    for info, data in items:
+        if info.filename.startswith("BinData/") and info.filename.lower().endswith(".png"):
+            rgba = _darker_seal(Image.open(io.BytesIO(data)).convert("RGBA"))
+            flat = Image.new("RGB", rgba.size, (255, 255, 255))
+            flat.paste(rgba, mask=rgba.getchannel("A"))
+            buf = io.BytesIO()
+            flat.save(buf, "JPEG", quality=95, subsampling=0, dpi=(72, 72))
+            new = info.filename[:-4] + ".jpg"
+            renames[info.filename] = new
+            parts[new] = buf.getvalue()
+    hpf = dict((i.filename, b) for i, b in items)["Contents/content.hpf"].decode("utf-8")
+    for old, new in renames.items():
+        hpf = hpf.replace(f'href="{old}" media-type="image/png"', f'href="{new}" media-type="image/jpg"')
+    parts["Contents/content.hpf"] = hpf.encode("utf-8")
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(".tmp")
     with zipfile.ZipFile(tmp, "w") as zout:
         for info, data in items:
             if info.filename == "Preview/PrvImage.png":
+                continue
+            if info.filename in renames:
+                info = zipfile.ZipInfo(renames[info.filename], date_time=info.date_time)
+                zout.writestr(info, parts[info.filename], compress_type=zipfile.ZIP_STORED)
                 continue
             zout.writestr(info, parts.get(info.filename, data), compress_type=info.compress_type)
     tmp.replace(out)
