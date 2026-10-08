@@ -89,7 +89,10 @@
 <!-- 공사 상태별 현장 수 카드(2026-10-01 사용자 B안) — 화면 위에 붙어 다님, 누르면 그 상태만 목록에(전체 = 거르기 없음) -->
 <div class="sc-cards" id="sc-cards" role="group" aria-label="공사 상태별 현장 수"></div>
 <div class="panel">
-  <div class="panel-head"><h2>현장 목록</h2><span class="panel-count" id="site-count"></span></div>
+  <!-- 정렬(10/8 사용자): 최근 열람순(로그인한 사람이 현장·보고서 화면을 연 때) / 번호순(처음 큰 번호 위, 다시 누르면 ▲). 고른 것은 이 기기에 기억 -->
+  <div class="panel-head site-list-head"><h2>현장 목록</h2>
+    <span class="site-sort" role="group" aria-label="정렬"><button type="button" data-sort="viewed">최근 열람순</button><button type="button" data-sort="no">번호순</button></span>
+    <span class="panel-count" id="site-count"></span></div>
   <div class="rows" id="site-list"><div class="empty-note">불러오는 중...</div></div>
 </div>
 
@@ -184,13 +187,51 @@ function renderStatusCards() {
   }));
 }
 
+// ---------- 정렬(10/8) ----------
+const SORT_KEY = "kfsc-report:site-sort";
+let siteSort = { mode: "no", desc: true }; // 처음엔 지금과 같은 번호순(큰 번호 위)
+try { siteSort = { ...siteSort, ...JSON.parse(localStorage.getItem(SORT_KEY) || "{}") }; } catch { /* 기억 못 하면 기본 */ }
+// 관리번호 "2026-0000065" → 정렬 값(연도·일련번호). 번호 없는 현장은 맨 뒤
+function mgmtKey(site) {
+  const m = String(site.management_no || "").match(/^(\d{2}|\d{4})-0*(\d+)$/);
+  return m ? Number(m[1].slice(-2)) * 1e7 + Number(m[2]) : null;
+}
+function byNumber(a, b, desc) {
+  const x = mgmtKey(a), y = mgmtKey(b);
+  if (x === null || y === null) return x === null ? (y === null ? b.id - a.id : 1) : -1;
+  return desc ? y - x : x - y;
+}
+function sortSites(list) {
+  if (siteSort.mode === "viewed") { // 최근 연 현장 위, 한 번도 안 연 현장은 아래에 번호순(큰 번호 위)
+    return list.sort((a, b) => (b.viewed_at || "").localeCompare(a.viewed_at || "") || byNumber(a, b, true));
+  }
+  return list.sort((a, b) => byNumber(a, b, siteSort.desc));
+}
+function drawSortButtons() {
+  document.querySelectorAll(".site-sort button").forEach((b) => {
+    const on = b.dataset.sort === siteSort.mode;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on);
+    if (b.dataset.sort === "no") b.textContent = `번호순 ${on ? (siteSort.desc ? "▼" : "▲") : ""}`.trim();
+  });
+}
+document.querySelectorAll(".site-sort button").forEach((b) => b.addEventListener("click", () => {
+  if (b.dataset.sort === "no" && siteSort.mode === "no") siteSort.desc = !siteSort.desc; // 번호순을 한 번 더 → 방향 바꿈
+  else if (b.dataset.sort === "no") siteSort.desc = true;
+  siteSort.mode = b.dataset.sort;
+  try { localStorage.setItem(SORT_KEY, JSON.stringify(siteSort)); } catch { /* 기억 못 해도 지금은 바뀜 */ }
+  renderSites();
+}));
+
 function renderSites() {
   renderStatusCards();
+  drawSortButtons();
   const listEl = document.getElementById("site-list");
   const q = document.getElementById("site-search").value.trim().replace(/\s+/g, "").toLowerCase();
   const shown = allSites.filter((s) => (!statusFilter || s.status === statusFilter) &&
-    (!q || [s.name, s.address, s.hq_company, s.staff_name, s.manager_name, s.management_no]
+    (!q || [s.name, s.address, s.hq_company, s.staff_name, s.manager_name, s.management_no, shortMgmt(s.management_no)]
       .some((v) => (v || "").replace(/\s+/g, "").toLowerCase().includes(q))));
+  sortSites(shown);
   document.getElementById("site-count").textContent = q || statusFilter ? `${shown.length} / ${allSites.length}건` : `${allSites.length}건`;
   if (!allSites.length) {
     listEl.innerHTML = '<div class="empty-note">아직 등록된 현장이 없습니다. 위의 "+ 새 현장 등록"을 눌러 추가하세요.</div>';
@@ -216,7 +257,16 @@ function renderSites() {
         <span class="meta" data-k="date"></span>
       </span>`;
     // 사용자 입력 값은 textContent로(따옴표·꺾쇠가 들어간 현장명도 안전하게)
-    row.querySelector(".site-name").textContent = siteLabel(site); // "26-12)_현장명"(app.js)
+    // 번호는 이름 앞 번호표로 따로(10/8 사용자 — 목차처럼), 이름은 "26-12)_" 없이
+    const no = shortMgmt(site.management_no);
+    const nameEl = row.querySelector(".site-name");
+    nameEl.textContent = site.name || "";
+    if (no) {
+      const badge = document.createElement("span");
+      badge.className = "site-no";
+      badge.textContent = no;
+      nameEl.prepend(badge);
+    }
     row.querySelector(".site-sub").textContent = [site.address, site.hq_company].filter(Boolean).join(" · ");
     const pace = sitePaceBox(site.pace); // 진행 막대(공기 경과 vs 지도 수행 — 데스크톱 현장 카드와 같음)
     if (pace) row.querySelector(".title").appendChild(pace);

@@ -48,5 +48,6 @@ class SiteListItem(SiteOut):
     last_visit_no: int | None = None
     last_guidance_date: datetime.date | None = None
     staff_name: str = ""
+    viewed_at: datetime.datetime | None = None  # 로그인한 사람이 이 현장을 마지막으로 연 때(최근 열람순, 10/8)
     # [📍 지도] 버튼이 여는 주소(지도 방문 주소, 없으면 현장 주소 — server/api/routers/site_contacts.py)
     map_address: str = ""

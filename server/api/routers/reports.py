@@ -12,7 +12,7 @@ from core import config
 from core.models_db import Staff
 from core.models_web import K2bSubmission, ReportEdit, ReportJob, ReportMail, User
 from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY, is_full, other_site_names
-from server.api import repo, storage
+from server.api import repo, site_views, storage
 from server.api.report_defaults import apply_new_report_defaults, record_site_hazard_checks
 from server.api.deps import get_current_user, get_db
 from server.schemas.report import JobOut, ReportIn, ReportOut, SignoffStatus
@@ -97,6 +97,7 @@ def get_report(report_id: int, user: User = Depends(get_current_user), db: Sessi
     report = repo.get_report(db, user.company_id, report_id)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
+    site_views.mark(db, user.id, report.site_id)  # 보고서를 열어도 그 현장을 연 걸로(현장 목록 "최근 열람순", 10/8)
     return report
 
 

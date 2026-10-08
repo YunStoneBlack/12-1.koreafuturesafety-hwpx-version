@@ -12,7 +12,7 @@ from core import config
 from core.contract_analyzer import extract_site_info
 from core.models_db import Finding, PreviousFinding, Report, Site, SiteProcessDefault, Staff
 from core.models_web import ReportJob, User
-from server.api import repo, storage
+from server.api import repo, site_views, storage
 from server.api.deps import get_current_user, get_db
 from server.api.geocode import map_addresses
 from server.api.site_pace_out import done_counts, pace_dict
@@ -38,6 +38,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
     staff_names = dict(db.query(Staff.id, Staff.name).filter(Staff.id.in_(staff_ids))) if staff_ids else {}
     map_addr = map_addresses(db, sites)
     done = done_counts(db, ids)  # 다녀온 횟수(첫 지도 회차 반영) — 진행 막대
+    viewed = site_views.viewed_map(db, user.id)  # 최근 열람순(로그인한 사람 기준, 10/8)
     out = []
     for site in sites:
         count, last_no, last_date = stats.get(site.id, (0, None, None))
@@ -48,6 +49,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
         item.staff_name = staff_names.get(site.assigned_staff_id, "")
         item.map_address = map_addr[site.id]
         item.pace = pace_dict(site, done.get(site.id))
+        item.viewed_at = viewed.get(site.id)
         out.append(item)
     return out
 
@@ -108,6 +110,7 @@ def get_site(site_id: int, user: User = Depends(get_current_user), db: Session =
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
     out = SiteOut.model_validate(site)
     out.pace = pace_dict(site, done_counts(db, [site.id]).get(site.id))
+    site_views.mark(db, user.id, site.id)  # 현장 목록 "최근 열람순"
     return out
 
 

@@ -263,7 +263,7 @@ document.getElementById("site-edit-form").addEventListener("submit", async (e) =
 
 function applySite(site) {
   document.getElementById("site-name").textContent = siteLabel(site); // "26-12)_현장명"(app.js)
-  document.getElementById("site-name-h1").textContent = siteLabel(site);
+  document.getElementById("site-name-h1").textContent = site.name || ""; // 큰 제목은 번호 없이(10/8 사용자 — 관리번호는 현장 정보 칸에)
   // 현장명 밑 [📞 전화] [📍 지도] — 지도는 지도 방문 주소(없으면 현장 주소)
   const top = document.getElementById("site-name-h1").parentElement;
   top.querySelectorAll(".site-links, .st-wrap, .pace, .site-plan").forEach((el) => el.remove());

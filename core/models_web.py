@@ -386,3 +386,14 @@ class ContractSubmit(Base):
     to_addr: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_by: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class SiteView(Base):
+    """웹판 전용 — 사람마다 현장을 마지막으로 연 때(2026-10-08 사용자, alembic 0025). 현장 목록 "최근 열람순" — 로그인한 사람 기준
+    (형이 연 현장이 직원 목록 위로 오지 않게), 폰·PC 같이. 현장 화면·보고서 화면을 열면 기록(server/api/site_views.py)."""
+
+    __tablename__ = "site_view"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), primary_key=True)
+    viewed_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
