@@ -16,7 +16,7 @@ from pathlib import Path
 import pymupdf
 from PIL import Image, ImageOps
 
-from server.contract_docs import hwp_queue, to_pdf
+from server.contract_docs import hwp_queue, pdf_shrink, to_pdf
 
 # 칸: (kind, 칸 키, 이름, 끼울 자리 = 이 시트 번호(0부터) 뒤). 갑지 붙임 순서 그대로.
 SLOTS = {
@@ -26,6 +26,7 @@ SLOTS = {
 OFFICE_EXTS = (".xlsx", ".xls", ".xlsm", ".docx", ".doc", ".pptx", ".ppt", ".odt", ".ods", ".rtf")
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".webp")
 A4 = (595, 842)  # pt
+SHRINK_OVER = 10_000_000  # 이보다 큰 PDF는 올릴 때 사진을 줄여 둠(10/8 — 보고서 40회차 합본 199MB, pdf_shrink.py)
 _BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
 
@@ -94,6 +95,8 @@ def _image_pdf(data: bytes) -> bytes:
 
 def add_file(out_dir: Path, kind: str, slot: str, data: bytes, filename: str) -> Path:
     pdf = to_pdf_bytes(data, filename)
+    if len(pdf) > SHRINK_OVER:
+        pdf = pdf_shrink.shrink_bytes(pdf)
     d = slot_dir(out_dir, kind, slot)
     d.mkdir(parents=True, exist_ok=True)
     nums = [int(p.name[:2]) for p in d.glob("*.pdf") if p.name[:2].isdigit()]

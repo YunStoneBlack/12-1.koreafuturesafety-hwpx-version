@@ -36,6 +36,7 @@ from server.api.routers import (
     route_plan,
     previous_findings,
     process_entries,
+    report_bundle,
     report_mail,
     submission,
     report_manage,
@@ -90,6 +91,7 @@ web_app.include_router(ai.router, prefix="/api")
 web_app.include_router(materials.router, prefix="/api")
 web_app.include_router(report_manage.router, prefix="/api")
 web_app.include_router(report_mail.router, prefix="/api")
+web_app.include_router(report_bundle.router, prefix="/api")  # 현장 보고서 합본(사진 150dpi, 완수계 붙임으로)
 web_app.include_router(submission.router, prefix="/api")
 web_app.include_router(calendar.router, prefix="/api")
 web_app.include_router(auto_plan.router, prefix="/api")
