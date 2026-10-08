@@ -66,7 +66,7 @@
 
 /* 현장 목록 위 공사 상태별 현장 수 카드 5개(dashboard.html renderStatusCards, 2026-10-01 사용자 B안) — 화면 위에 붙어 다님(보고서 목차 줄처럼,
    폰은 body.has-toc로 그룹웨어 머리줄을 붙지 않게). 숫자·비율 막대는 상태 색, 고른 카드는 그 색으로 꽉 채움. 누르면 그 상태만 목록에. */
-.sc-cards { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;
+.sc-cards { position: sticky; top: var(--tabs-h, 0px); z-index: 5; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;
   margin: 0 -40px 12px; padding: 10px 40px; background: rgba(244, 246, 251, 0.94); backdrop-filter: blur(6px); }
 .sc-card[data-s=""] { --c: #1B1E2E; --soft: #EEF0F5; }
 .sc-card[data-s="착공전"] { --c: #6B7280; --soft: #F1F2F4; }

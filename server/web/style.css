@@ -31,8 +31,11 @@
 
 /* 목록 화면 머리 — 그룹웨어 화면과 같은 "큰 제목 + 회색 설명" 아래에 보고서 안의 하위 메뉴(현장 목록/담당요원/설정) 탭
    (그룹웨어 사이드바엔 "보고서 자동화" 한 칸뿐이라 하위 메뉴는 본문 위 탭으로 둔다) */
-.report-head { margin-bottom: 22px; }
-.report-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-top: 18px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; } /* 폰은 옆으로 밀기, 스크롤 막대·화살표는 숨김 */
+.report-head { margin-bottom: 0; }
+/* 하위 메뉴 탭 줄 — 스크롤해도 화면 위에 붙어 있음(10/8 사용자, shell.js). 폰은 옆으로 밀기, 스크롤 막대·화살표는 숨김 */
+.report-tabs { position: sticky; top: 0; z-index: 7; display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; margin: 18px -40px 22px; padding: 0 40px; background: var(--paper); }
+.report-tabs.tabs-only { margin-top: -30px; padding-top: 6px; margin-bottom: 16px; } /* 현장·보고서 화면: 제목 없이 맨 위에 */
 .report-tabs::-webkit-scrollbar { display: none; }
 .report-tabs a { padding: 9px 14px; font-size: 13.5px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
 .report-tabs a:hover { color: var(--ink); }
@@ -52,8 +55,11 @@
   .sidebar-foot { margin-left: auto; padding: 0; border: none; flex: none; }
   .sidebar-foot .avatar, .sidebar-foot > div { display: none; }
   .main { padding: 16px 16px 40px; }
-  /* 보고서 화면은 목차 줄이 위에 붙어 다니므로 가로 메뉴 줄은 같이 붙지 않고 스크롤되게 */
-  body.has-toc .sidebar { position: static; }
+  /* 폰: 그룹웨어 가로 메뉴 줄은 스크롤되고, 보고서 탭 줄이 위에 붙음(10/8 — 둘 다 붙으면 화면이 너무 좁아짐) */
+  .sidebar { position: static; }
+  .report-tabs { margin: 14px -16px 16px; padding: 0 16px; }
+  .report-tabs a { padding: 8px 11px; font-size: 13px; }
+  .report-tabs.tabs-only { margin-top: -16px; padding-top: 2px; }
 }
 
 /* 사이드바가 없는 대체 화면(그룹웨어를 거치지 않은 접속 안내 등) 전용 중앙 정렬 */
@@ -210,7 +216,7 @@ label + .field-grid { margin-top: 4px; }
 
 /* ---------- 보고서 화면: 섹션 목차 줄(위에 붙어 다님) + 자동 저장 상태 ---------- */
 .report-toc {
-  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px;
+  position: sticky; top: var(--tabs-h, 0px); z-index: 5; display: flex; align-items: center; gap: 12px;
   margin: 0 -40px 16px; padding: 8px 40px; background: rgba(244, 246, 251, 0.94);
   backdrop-filter: blur(6px); border-bottom: 1px solid var(--line);
 }

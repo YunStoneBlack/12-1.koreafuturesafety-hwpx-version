@@ -5,7 +5,9 @@
 //    — 매 화면마다 빈 사이드바가 잠깐 보였다가 채워지면 그룹웨어의 다른 메뉴와 달리 "다른 사이트로 넘어가는" 느낌이 났다.
 //    그룹웨어를 거치지 않은 접속(사무실 LAN 직접 접속 등)이면 로고+보고서 메뉴만 있는 대체 사이드바를 그린다.
 // 2) 본문 머리: 목록 화면(<body data-report-tab="sites|status|calendar|staff|settings">)은 그룹웨어 화면처럼 "큰 제목 + 회색 설명" 아래
-//    하위 메뉴 탭(현장 목록/제출 현황/담당요원/설정)을 두고, 상세 화면(data-report-tab 없음)은 각 페이지의 경로 표시(crumb)를 쓴다.
+//    하위 메뉴 탭(현장 목록/제출 현황/담당요원/설정)을 두고, 상세 화면(현장·보고서 — <body data-report-tab="sites" data-tabs-only>)은 큰 제목 없이
+//    탭 줄만 + 각 페이지의 경로 표시(crumb). 탭 줄은 스크롤해도 화면 위에 붙어 있다(10/8 사용자) — 그 아래 붙는 줄(현장 목록 상태 카드·보고서 목차)은
+//    CSS 변수 --tabs-h(탭 줄 높이)만큼 내려 붙는다.
 //    탭 아래엔 지도 기한 임박·초과 현장이 있으면 알림 띠("⏰ 임박 N곳 · ⚠ 초과 N곳 → 제출 현황")를 띄운다(제출 현황 탭 자체는 숫자 칸이 있어 생략).
 // 페이지마다 <aside class="sidebar" id="gw-sidebar"></aside> 빈 자리와 <main class="main">이 있어야 한다.
 
@@ -32,6 +34,7 @@ function renderReportHeader() {
   const docs = isDocsPage();
   const active = docs ? document.body.dataset.docsTab : document.body.dataset.reportTab;
   if (!main || !active) return;
+  const tabsOnly = document.body.dataset.tabsOnly !== undefined;
   const head = document.createElement("div");
   head.className = "report-head";
   head.innerHTML = docs ? `
@@ -40,7 +43,7 @@ function renderReportHeader() {
     <h1>보고서 자동화</h1>
     <p class="page-sub">현장별 기술지도 결과보고서를 작성하고 PDF로 만듭니다.</p>`;
   const nav = document.createElement("nav");
-  nav.className = "report-tabs";
+  nav.className = `report-tabs${tabsOnly ? " tabs-only" : ""}`;
   for (const [key, label, href] of docs ? DOCS_TABS : REPORT_TABS) {
     const a = document.createElement("a");
     a.href = href;
@@ -48,8 +51,12 @@ function renderReportHeader() {
     if (key === active) a.className = "active";
     nav.appendChild(a);
   }
-  head.appendChild(nav);
-  main.prepend(head);
+  // 탭 줄은 머리(제목) 안이 아니라 본문 바로 아래 자식으로 — position: sticky는 부모 안에서만 붙어 있어서, 제목 칸 안에 두면 제목과 같이 올라가 버림
+  main.prepend(nav);
+  if (!tabsOnly) main.prepend(head);
+  const setH = () => document.documentElement.style.setProperty("--tabs-h", `${nav.offsetHeight}px`);
+  setH();
+  if (window.ResizeObserver) new ResizeObserver(setH).observe(nav);
 }
 
 function renderFallbackSidebar(aside) {
