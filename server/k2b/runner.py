@@ -52,6 +52,19 @@ def _wait_popup(page, timeout_s: int = 20):
 
 def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bool = False,
         shots: bool = False, headless: bool = True, allow_round_mismatch: bool = False) -> RunResult:
+    """K2B 화면 맨 앞에 "현장 선택" 한 장(형 10/8 — 로그인한 사람·고른 현장 줄이 보이게, 상세보기 열기 전). 성공·점검은 맨 앞,
+    실패는 멈춘 화면 다음(제출 창 미리보기엔 멈춘 화면이 보이게)."""
+    first: list[str] = []
+    res = _run(sub, k2b_id, password, shot_dir, save, shots, headless, allow_round_mismatch, first)
+    if first and Path(first[0]).exists():
+        rest = [x for x in (res.screenshots or ([res.screenshot] if res.screenshot else [])) if x != first[0]]
+        res.screenshots = first + rest if res.ok else rest + first
+        res.screenshot = res.screenshots[0]
+    return res
+
+
+def _run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bool, shots: bool, headless: bool,
+         allow_round_mismatch: bool, first: list[str]) -> RunResult:
     """allow_round_mismatch: K2B가 매긴 새 차수 번호가 웹 회차(sub.visit_no)와 달라도 저장할지. 기본은 다르면 저장하지 않고 멈춘다
     (사용자 2026-10-01: 실제 업무에선 웹 회차 = K2B 차수 — 다르면 이미 올렸거나 회차가 어긋난 것)."""
     lines: list[str] = []
@@ -111,8 +124,13 @@ def run(sub: K2BSubmission, k2b_id: str, password: str, shot_dir: Path, save: bo
         # 이름이 달라도 번호·금액·주소+기간으로 골랐으면 결과에 K2B 쪽 이름을 남김(사용자 10/8 (가))
         other = f" (K2B에는 '{k2b_name}'로 등록된 현장 — {'·'.join(picked.reasons)} 일치)" if "".join(k2b_name.split()) != "".join(sub.site_name.split()) else ""
         page.wait_for_timeout(500)
-        if shots:
-            snap(page, "현장선택")
+        try:  # 현장 선택 화면 — 고른 줄이 표에 보이게, 화면 맨 위(로그인한 사람 이름)부터
+            c.show_selected_row()
+            page.mouse.wheel(0, -3000)
+            page.wait_for_timeout(600)
+            first.append(snap(page, "현장선택"))
+        except Exception as err:  # noqa: BLE001 — 못 찍어도 제출은 계속
+            log(f"현장 선택 화면 실패: {err}")
         c.open_detail()
         page.wait_for_timeout(2500)
         if shots:

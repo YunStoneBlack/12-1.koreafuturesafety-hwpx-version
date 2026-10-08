@@ -156,3 +156,19 @@ class NavigationMixin(K2BClientBase):
         names = ", ".join(f"'{n}'" for n in dict.fromkeys(seen)) or "없음"
         raise RuntimeError(f"K2B에서 '{key.name}' 현장을 찾지 못했습니다 — 이름·사업장 번호·공사금액·주소·공사 기간이 맞는 현장이 없음"
                            f"(검색된 현장 예: {names}). 웹 현장 정보와 K2B 등록 정보를 확인하세요.")
+
+    def show_selected_row(self) -> None:
+        """현장 선택 화면용(10/8) — 고른 줄(rowposition)이 결과 표에 보이게 표를 그 줄까지 내리고, 옆으로는 맨 왼쪽(현장명 칸)으로."""
+        from server.k2b import site_match as sm
+        self.page.evaluate(f"""() => {{
+            const f = __k2bForm(); if (!f) return;
+            const d = __k2bDs('{sm.LIST_DS}'); if (!d) return;
+            const kids = (o) => (o && o.all) ? Object.keys(o.all).map(k => o.all[k]).filter(x => x && typeof x === 'object') : [];
+            const walk = (o, depth) => depth > 4 ? [] : kids(o).flatMap(x => [x, ...walk(x, depth + 1)]);
+            const grid = walk(f, 0).find(x => x.binddataset === '{sm.LIST_DS}' || (x._binddataset && x._binddataset.id === '{sm.LIST_DS}'));
+            if (!grid) return;
+            try {{ if (grid.scrollTo) grid.scrollTo(0, 0); }} catch (e) {{}}
+            try {{ if (grid.setCellPos) grid.setCellPos(0); }} catch (e) {{}}
+            try {{ if (grid.scrollToRow) grid.scrollToRow(d.rowposition); else if (grid.vscrollbar) grid.vscrollbar.set_pos(Math.max(0, d.rowposition - 1) * 24); }} catch (e) {{}}
+        }}""")
+        self.page.wait_for_timeout(500)
