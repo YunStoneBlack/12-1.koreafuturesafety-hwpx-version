@@ -11,7 +11,7 @@
 - `GET  /sites/{id}/report-bundle` — 합본 정보 + 회차 현황(plan)
 - `POST /sites/{id}/report-bundle` — 만들기
 - `GET  /sites/{id}/report-bundle.pdf[?inline=1]` — 받기·보기
-- `POST /sites/{id}/report-bundle/old` (파일 하나) — 예전 보고서 올리기 → 회차 읽어 저장
+- `POST /sites/{id}/report-bundle/old` (파일 하나[, visit_no]) — 예전 보고서 올리기 → 회차 읽어 저장(창의 회차 칸을 눌러 올리면 visit_no — 그 회차로 통째로)
 - `POST /sites/{id}/report-bundle/old/{이름}/visit {visit_no}` — 못 읽은 파일 회차 정하기, `DELETE …/old/{이름}`, `GET …/old/{이름}` 보기
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ import shutil
 from pathlib import Path
 
 import pymupdf
-from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -101,7 +101,7 @@ def plan(db: Session, user: User, site: Site) -> dict:
             kind = "old"
         else:
             kind = "nopdf" if r else "missing"
-        rows.append({"visit_no": n, "kind": kind, "old": old[n].name if n in old else "",
+        rows.append({"visit_no": n, "kind": kind, "old": old[n].name if n in old else "", "report_id": r.id if has_pdf else None,
                      "old_title": _title(old[n]) if n in old else "", "old_pages": _pages(old[n]) if n in old else 0,
                      "old_hidden": n in old and has_pdf})  # 겹치면 시스템 것(사용자 (가)) — 올린 쪽은 안 들어감
     first_system = min(system) if system else None
@@ -198,9 +198,13 @@ def split_by_visit(doc: pymupdf.Document) -> list[tuple[int | None, int, int]]:
 
 
 @router.post("/sites/{site_id}/report-bundle/old")
-def upload_old(site_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """예전 보고서 올리기(파일 하나 — 여러 개는 창이 하나씩). PDF·한글·그림 등(완수계 붙임과 같은 변환), 큰 PDF는 사진을 줄여 둠."""
+def upload_old(site_id: int, file: UploadFile = File(...), visit_no: int | None = Form(None), user: User = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    """예전 보고서 올리기(파일 하나 — 여러 개는 창이 하나씩). PDF·한글·그림 등(완수계 붙임과 같은 변환), 큰 PDF는 사진을 줄여 둠.
+    visit_no가 있으면(창의 회차 칸을 눌러 올림 — 10/8 사용자) 내용을 읽지 않고 파일 전체를 그 회차로."""
     site = _site(db, user, site_id)
+    if visit_no is not None and not 1 <= visit_no <= 999:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "회차가 맞지 않습니다.")
     name = file.filename or "보고서.pdf"
     try:
         data = attachments.to_pdf_bytes(file.file.read(), name)
@@ -214,7 +218,8 @@ def upload_old(site_id: int, file: UploadFile = File(...), user: User = Depends(
     found: list[int] = []
     unknown = False
     with pymupdf.open(stream=data, filetype="pdf") as src:
-        for n, a, b in split_by_visit(src):
+        chunks = [(visit_no, 0, src.page_count - 1)] if visit_no else split_by_visit(src)
+        for n, a, b in chunks:
             part = pymupdf.open()
             part.insert_pdf(src, from_page=a, to_page=b)
             if n is None:
