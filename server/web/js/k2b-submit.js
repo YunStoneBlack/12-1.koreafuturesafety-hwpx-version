@@ -43,7 +43,8 @@ async function openK2bModal(reportId, titleText, onDone) {
     const accText = acc.k2b_id
       ? `${mailEsc(s.staff_name)} · ${mailEsc(acc.k2b_id)} ${acc.check_status === "ok" ? "✓ 로그인 확인" : acc.check_status === "fail" ? "✗ 로그인 실패" : "(확인 전)"}`
       : `${mailEsc(s.staff_name || "담당요원 없음")} · K2B 계정 없음`;
-    const photos = Object.entries(s.photos).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(" · ") || "없음";
+    const photos = s.no_photo ? "사진촬영 불가 — 사진은 K2B에 올리지 않습니다(특이사항에 표시)"  // 형 10/8
+      : Object.entries(s.photos).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(" · ") || "없음";
     const counts = Object.entries(s.counts).map(([k, n]) => `${k} ${n ?? "비움"}`).join(" · ");
     box.innerHTML = `${head}
       ${info.blockers.length ? `<div class="mail-msg bad">${info.blockers.map(mailEsc).join("<br>")}</div>` : ""}

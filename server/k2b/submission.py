@@ -83,6 +83,7 @@ class K2BSubmission:
     site_end: str = ""
     site_mgmt_no: str = ""
     site_start_no: str = ""
+    no_photo: bool = False  # 보고서 "사진촬영 불가(보안 등)" — 사진은 K2B에 안 올림(형 10/8)
 
     def site_key(self):
         from server.k2b.site_match import SiteKey
@@ -120,6 +121,17 @@ def _problem_text(f: Finding) -> str:
     return " / ".join(x for x in parts if x)
 
 
+NO_PHOTO_NOTE = "사진촬영 불가(보안 등)"
+
+
+def special_note(report: Report) -> str:
+    """K2B 특이사항 — "사진촬영 불가"가 체크돼 있으면 그 문구를 앞에(형 10/8, 이미 있으면 그대로)."""
+    note = (report.special_note or "").strip()
+    if not report.misc_no_photo or "".join(NO_PHOTO_NOTE.split()) in "".join(note.split()):
+        return note
+    return f"{NO_PHOTO_NOTE} / {note}" if note else NO_PHOTO_NOTE
+
+
 def build_submission(db: Session, report: Report, manual: ManualFields | None = None) -> K2BSubmission:
     site: Site = report.site
     rid = report.id
@@ -146,7 +158,8 @@ def build_submission(db: Session, report: Report, manual: ManualFields | None = 
         site_manager_name=site.manager_name or "",
         site_manager_phone=site.manager_phone or "",
         progress_rate=report.progress_rate,
-        special_note=report.special_note or "",
+        special_note=special_note(report),
+        no_photo=bool(report.misc_no_photo),
         notification_method=report.notification_method or "",
         prev_guidance_auto=prev_value,
         prev_guidance_reason=prev_reason,
@@ -154,9 +167,10 @@ def build_submission(db: Session, report: Report, manual: ManualFields | None = 
         education_count=(tbm.attendee_count or None) if tbm else None,
         material_count=len(materials) or None,
         problem_texts=[_problem_text(f) for f in findings],
-        overview_photo_paths=_paths(by_slot(OverviewPhoto)),
-        inspection_photo_paths=_paths(by_slot(InspectionPhoto)),
-        improvement_photo_paths=_paths(previous, "completion_photo_path"),
+        # "사진촬영 불가"면 사진이 올라가 있어도 K2B엔 안 붙임(형 10/8 — 보고서 PDF도 사진 대신 안내 그림), 보고서 PDF는 그대로
+        overview_photo_paths=[] if report.misc_no_photo else _paths(by_slot(OverviewPhoto)),
+        inspection_photo_paths=[] if report.misc_no_photo else _paths(by_slot(InspectionPhoto)),
+        improvement_photo_paths=[] if report.misc_no_photo else _paths(previous, "completion_photo_path"),
         report_pdf_path=report.pdf_path if report.pdf_path and Path(report.pdf_path).exists() else "",
         manual=manual or ManualFields(),
     )
