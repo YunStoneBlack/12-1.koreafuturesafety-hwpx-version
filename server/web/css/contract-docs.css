@@ -164,6 +164,7 @@ main.main.drop-over, .mail-box.cd-box.drop-over, .cd-slot.drop-over, .cl-row.dro
 .cd-ins-f { display: block; min-width: 0; }
 .cd-ins-f > span { display: none; }
 .cd-insp-note { margin-top: 4px; }
+.cd-box .cd-insp-reread { margin-top: 6px; padding: 5px 12px; font-size: 12.5px; }
 @media (max-width: 760px) {
   .cd-contacts { grid-template-columns: 1fr 1fr; }
   .cd-contacts > span { display: none; }

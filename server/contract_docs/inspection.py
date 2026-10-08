@@ -25,7 +25,7 @@ from core.db import BASE_DIR
 TEMPLATE = BASE_DIR / "data" / "templates" / "검사납품조서_양식.hwpx"
 HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
 NS = {"hp": HP}
-KEYS = ("qty", "supply", "vat", "total", "done_qty", "done_supply", "done_vat", "done_total")
+KEYS = ("qty", "supply", "vat", "sub", "total", "done_qty", "done_supply", "done_vat", "done_sub", "done_total")  # sub = 소계(산출금액 총계)
 _NUM = re.compile(r"-?\d{1,3}(?:,\d{3})+")
 _QTY = re.compile(r"기술지도\s*횟수\s*([\d,]+)\s*회")
 
@@ -35,16 +35,48 @@ def _int(s: str) -> int:
     return int(s.replace(",", ""))
 
 
+# "산출근거" 장의 줄 이름 → 칸(10/8 형 "준공내역서에 있는 값 그대로" — 완수시 장의 공급가액·부가세·산출금액 총계·최종금액(단수조정))
+_DETAIL_ROWS = (("최종금액", "total"), ("산출금액", "sub"), ("부가세", "vat"), ("공급가액", "supply"))
+
+
+def _detail_values(page) -> dict:
+    """산출근거 장에서 줄마다 이름과 그 줄 맨 오른쪽 금액을 짝지음(글자 위치로 같은 줄 — 표라서 get_text 순서는 섞임)."""
+    rows: dict[int, list] = {}
+    for w in page.get_text("words"):
+        rows.setdefault(round((w[1] + w[3]) / 2 / 3), []).append((w[0], w[4]))
+    out: dict = {}
+    for y in sorted(rows):
+        words = [t for _, t in sorted(rows[y])]
+        text = " ".join(words)
+        nums = [t for t in words if _NUM.fullmatch(t)]
+        if not nums:
+            continue
+        for label, key in _DETAIL_ROWS:  # "공급가액의 10%"는 부가세 줄이라 부가세를 먼저 봄
+            if label in text and key not in out:
+                out[key] = _int(nums[-1])
+                break
+    return out
+
+
 def read_done_list(paths: list[Path]) -> dict | None:
-    """완수내역서 PDF(들) → 표 값. 하나도 못 읽으면 None. 못 읽은 칸은 None(normalize가 채움)."""
+    """완수내역서 PDF(들) → 표 값. 하나도 못 읽으면 None. 못 읽은 칸은 None(normalize가 채움).
+    "산출근거(계약서)"·"(완수시)" 장에 적힌 값을 먼저(소계까지 그대로), 없으면 앞장 산출내역서 요약표."""
     pages: list[str] = []
+    details: dict[str, dict] = {}
     for p in paths:
         try:
             with pymupdf.open(p) as doc:
-                pages += [pg.get_text() for pg in doc]
+                for pg in doc:
+                    text = pg.get_text()
+                    pages.append(text)
+                    if "산출근거" in text and ("완수시" in text or "계약서" in text):
+                        details.setdefault("done_" if "완수시" in text else "", _detail_values(pg))
         except Exception:  # noqa: BLE001 — 깨진 파일은 건너뜀
             continue
     out: dict = {k: None for k in KEYS}
+    for pre, vals in details.items():
+        for k, v in vals.items():
+            out[pre + k] = v
     # 산출내역서 표: 용역비(계약·완수) → 부가세(계약·완수) → 합계(계약·완수). 공급가 + 부가세 ≈ 합계(단수조정 10원 안쪽)로 맞는 6개를 찾는다
     for text in pages:
         if "완수금액" not in text or "계약금액" not in text:
@@ -53,9 +85,11 @@ def read_done_list(paths: list[Path]) -> dict | None:
         for i in range(len(nums) - 5):
             s, ds, v, dv, t, dt = nums[i:i + 6]
             if abs(s + v - t) <= 10 and abs(ds + dv - dt) <= 10 and v * 9 < s < v * 11:
-                out.update(supply=s, done_supply=ds, vat=v, done_vat=dv, total=t, done_total=dt)
+                for k, val in (("supply", s), ("done_supply", ds), ("vat", v), ("done_vat", dv), ("total", t), ("done_total", dt)):
+                    if out[k] is None:  # 산출근거 장에서 못 읽은 칸만
+                        out[k] = val
                 break
-        if out["supply"] is not None:
+        if out["supply"] is not None and out["done_supply"] is not None:
             break
     # 횟수: "<산출근거>(계약서)" 장 / "(완수시)" 장
     for text in pages:
@@ -89,8 +123,11 @@ def normalize(ins: dict | None) -> dict:
             t = s + v
         d[pre + "supply"], d[pre + "vat"], d[pre + "total"] = s, v, t
     if all(d["done_" + k] is None for k in ("qty", "supply", "vat", "total")):
-        for k in ("qty", "supply", "vat", "total"):
+        for k in ("qty", "supply", "vat", "sub", "total"):
             d["done_" + k] = d[k]
+    for pre in ("", "done_"):  # 소계 = 내역서 "산출금액 총계"(없으면 공급가 + 부가세)
+        if d[pre + "sub"] is None and d[pre + "supply"] is not None and d[pre + "vat"] is not None:
+            d[pre + "sub"] = d[pre + "supply"] + d[pre + "vat"]
     if d["done_qty"] is None:
         d["done_qty"] = d["qty"]
     return d
@@ -179,7 +216,7 @@ def build(out: Path, *, title: str, contract_no: str, client: str, due: datetime
         for pic in head[(3, 3)].findall(".//hp:pic", NS):
             pic.set("textWrap", "BEHIND_TEXT")
 
-    sub, dsub = (None if d["supply"] is None else d["supply"] + d["vat"]), (None if d["done_supply"] is None else d["done_supply"] + d["done_vat"])
+    sub, dsub = d["sub"], d["done_sub"]
     rows = {  # 줄: (계약 금액, 준공 금액)
         2: (d["supply"], d["done_supply"]), 3: (d["vat"], d["done_vat"]), 4: (sub, dsub), 5: (d["total"], d["done_total"]),
     }

@@ -308,6 +308,17 @@ def _apply_contract(row: ServiceContract, fields: dict, user: User) -> None:
     row.updated_by = user.display_name or ""
 
 
+@router.post("/{contract_id}/inspection/reread")
+def reread_inspection(contract_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[완수내역서에서 다시 읽기](10/8 형) — 손으로 잘못 고친 검사 및 납품조서 표를 내역서 값으로 되돌림(정산금액도)."""
+    row = _require(db, user, contract_id)
+    if not _read_inspection(row, overwrite_settle=True):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "완수내역서에서 값을 읽지 못했습니다 — 완수내역서 칸에 PDF가 있는지 확인하세요.")
+    row.updated_at = datetime.datetime.now()
+    db.commit()
+    return state(db, user, row)
+
+
 @router.put("/{contract_id}")
 def put_contract(contract_id: int, body: ContractIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     row = _require(db, user, contract_id)

@@ -181,10 +181,10 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   }
 
   // ---------- 검사 및 납품조서(완수계 붙임 5번, 10/8) — 완수내역서가 있을 때만. 값은 완수내역서 그대로(원래 서류와 1원도 안 틀리게) ----------
-  // 준공 횟수를 바꾸면 준공 금액 = 횟수 × 단가로 다시 계산(형) — 부가세 10% 버림, 계는 10원 미만 버림, 손으로 고칠 수 있음.
+  // 다시 계산하지 않음(형 10/8 — 횟수 × 단가는 단수 차이로 내역서와 몇 원 어긋남). 고친 칸만 바뀌고, [완수내역서에서 다시 읽기]로 되돌림.
   // 준공 계 = 정산금액(완수계 서류끼리 같은 값). 서버 규칙은 server/contract_docs/inspection.py
   // 함수 선언으로(창을 열 때 draw가 먼저 부르므로 const 화살표 함수는 아직 없음 — 10/8)
-  function insKeys() { return ["qty", "supply", "vat", "total", "done_qty", "done_supply", "done_vat", "done_total"]; }
+  function insKeys() { return ["qty", "supply", "vat", "sub", "total", "done_qty", "done_supply", "done_vat", "done_sub", "done_total"]; }
   function hasDoneList() { return (st.attachments.done.find((s) => s.slot === "done_list")?.files || []).length > 0; }
   function insNum(v) { return v === "" || v == null || Number.isNaN(Number(v)) ? null : Number(v); }
   function won(n) { return n == null ? "" : n.toLocaleString("ko-KR"); }
@@ -200,7 +200,8 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
         <b>계약</b>${inp("qty")}${inp("supply")}${inp("vat")}${inp("total")}
         <b>준공</b>${inp("done_qty")}${inp("done_supply")}${inp("done_vat")}${inp("done_total")}
       </div>
-      <div class="mail-note cd-insp-note">${inspNote()}</div>`;
+      <div class="mail-note cd-insp-note">${inspNote()}</div>
+      <button type="button" class="cd-insp-reread">↻ 완수내역서에서 다시 읽기</button>`;
   }
   function inspNote() {
     const d = st.inspection || {};
@@ -213,13 +214,8 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
     box.querySelectorAll(".cd-ins").forEach((el) => el.addEventListener("input", () => {
       st.inspection = { ...(st.inspection || {}), [el.dataset.ins]: insNum(el.value) };
       const d = st.inspection;
-      if (el.dataset.ins === "done_qty" && d.done_qty != null && d.qty && d.supply != null) { // 준공 횟수 → 금액 다시 계산(형)
-        d.done_supply = d.done_qty * Math.round(d.supply / d.qty);
-        d.done_vat = Math.floor(d.done_supply / 10);
-        d.done_total = Math.floor((d.done_supply + d.done_vat) / 10) * 10;
-        for (const k of ["done_supply", "done_vat", "done_total"]) box.querySelector(`.cd-ins[data-ins="${k}"]`).value = d[k];
-      }
-      if (["done_qty", "done_total"].includes(el.dataset.ins) && d.done_total != null) { // 준공 계 = 정산금액
+      if (/supply|vat/.test(el.dataset.ins)) d[el.dataset.ins.startsWith("done_") ? "done_sub" : "sub"] = null; // 소계는 공급가+부가세로 다시
+      if (el.dataset.ins === "done_total" && d.done_total != null) { // 준공 계 = 정산금액
         st.contract.settle_amount = d.done_total;
         const s = box.querySelector('.cd-in[data-key="settle_amount"]');
         if (s) s.value = d.done_total;
@@ -227,6 +223,23 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       dirty = true;
       box.querySelector(".cd-insp-note").innerHTML = inspNote();
     }));
+    box.querySelector(".cd-insp-reread")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        const fresh = await apiPost(`/contracts/${contractId}/inspection/reread`, {});
+        st.inspection = fresh.inspection;
+        st.contract.settle_amount = fresh.contract.settle_amount;
+        const s = box.querySelector('.cd-in[data-key="settle_amount"]');
+        if (s) s.value = st.contract.settle_amount ?? "";
+        changed = true;
+        redrawInsp();
+        box.querySelector(".cd-insp-note").insertAdjacentHTML("afterbegin", "✓ 완수내역서 값으로 되돌렸습니다 · ");
+      } catch (err) {
+        btn.disabled = false;
+        alert(err.message);
+      }
+    });
   }
   function redrawInsp() {
     const wrap = box.querySelector(".cd-insp-wrap");
