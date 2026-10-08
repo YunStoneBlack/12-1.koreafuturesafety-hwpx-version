@@ -1,0 +1,27 @@
+/* 보고서 합본 창(js/report-bundle.js, 10/8) — 창 틀은 css/mail.css, 끌어다 놓기 상자는 css/contract-docs.css .drop-box */
+.mail-box.rb-box { width: min(680px, 100%); }
+.rb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px; }
+.rb-chip { display: flex; flex-direction: column; align-items: center; padding: 6px 2px; border-radius: 8px; border: 1px solid var(--line); line-height: 1.2; }
+.rb-chip b { font-size: 14px; }
+.rb-chip small { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.rb-chip.rb-sys { background: var(--green-soft); border-color: transparent; }
+.rb-chip.rb-old { background: var(--blue-soft); border-color: transparent; }
+.rb-chip.rb-outdated { background: var(--warn-soft); border-color: transparent; }
+.rb-chip.rb-nopdf { border-style: dashed; }
+.rb-chip.rb-missing { border: 1px dashed var(--crit); }
+.rb-chip.rb-missing small, .rb-chip.rb-missing b { color: var(--crit); }
+.rb-drop { margin-top: 6px; }
+.rb-files { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.rb-file { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.rb-file a { text-decoration: none; }
+.rb-visit { display: inline-flex; align-items: center; gap: 4px; }
+.rb-visit input { width: 64px; padding: 4px 6px; }
+.rb-visit button { padding: 4px 10px; margin: 0; }
+.rb-msg-in .mail-msg { margin-top: 8px; }
+.rb-foot { align-items: center; flex-wrap: wrap; }
+.rb-ask { flex: 1 1 auto; font-size: 13.5px; }
+@media (max-width: 760px) {
+  .rb-grid { grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); }
+  .rb-ask { flex-basis: 100%; }
+  .rb-visit input { font-size: 16px; }
+}

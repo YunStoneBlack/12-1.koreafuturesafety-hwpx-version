@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="css/auto-plan.css" />
 <link rel="stylesheet" href="css/contract-docs.css" />
 <link rel="stylesheet" href="css/photo-viewer.css" />
+<link rel="stylesheet" href="css/report-bundle.css" />
 </head>
 <body>
 <div class="app">
@@ -41,7 +42,7 @@
 </section>
 
 <div class="panel">
-  <!-- 보고서 합본(10/8 사용자) — PDF 있는 회차를 순서대로 합치고 사진만 150dpi로 줄임, 연결된 계약의 완수계 붙임으로(server/api/routers/report_bundle.py) -->
+  <!-- 보고서 합본(10/8 사용자) — 누르면 창(js/report-bundle.js): 회차 현황·예전 보고서 올리기 → [합본 만들기]. 사진만 150dpi, 연결된 계약의 완수계 붙임으로 -->
   <div class="panel-head rb-head"><h2>보고서 목록</h2>
     <div class="rb-tools"><span class="rb-info" id="rb-info"></span><button type="button" class="secondary" id="rb-make">📚 보고서 합본 만들기</button></div></div>
   <div class="rb-msg" id="rb-msg" hidden></div>
@@ -83,6 +84,7 @@
 <script src="js/auto-plan.js"></script>
 <script src="js/contract-docs.js"></script>
 <script src="js/photo-viewer.js"></script>
+<script src="js/report-bundle.js"></script>
 <script src="shell.js"></script>
 <script>
 const errorEl = document.getElementById("error");
@@ -465,33 +467,23 @@ function bundleInfo(info) {
     : "";
 }
 api(`/sites/${siteId}/report-bundle`).then(bundleInfo).catch(() => {});
-document.getElementById("rb-make").addEventListener("click", async (e) => {
-  const btn = e.currentTarget;
+document.getElementById("rb-make").addEventListener("click", () => {
+  document.getElementById("rb-msg").hidden = true;
+  openReportBundle(siteId, currentSite ? currentSite.name : "", bundleDone); // 바로 만들지 않고 창부터(10/8 사용자)
+});
+function bundleDone(out) {
   const msg = document.getElementById("rb-msg");
-  btn.disabled = true;
-  let sec = 0;
-  btn.textContent = "합치는 중…";
-  const timer = setInterval(() => { btn.textContent = `합치는 중… ${++sec}초`; }, 1000);
-  msg.hidden = true;
-  try {
-    const out = await apiPost(`/sites/${siteId}/report-bundle`, {});
+  {
     bundleInfo(out);
     const notes = [`✓ ${out.count}개 회차를 합쳤습니다 — ${out.pages}쪽, ${out.raw_mb}MB → ${out.size_mb}MB(사진 150dpi)`];
-    if (out.skipped.length) notes.push(`PDF가 없어 빠진 회차: ${out.skipped.join("·")}회차`);
+    if (out.skipped.length) notes.push(`빠진 회차(보고서·PDF 없음): ${out.skipped.join("·")}회차`);
     if (out.outdated.length) notes.push(`⚠ 수정 전 버전 PDF로 들어간 회차: ${out.outdated.join("·")}회차 (보고서 화면에서 PDF를 다시 만든 뒤 합본을 다시 만들면 최신)`);
     notes.push(out.contract ? `완수계 붙임 "기술지도보고서"에 넣었습니다 — ${mailEsc(out.contract.title || "용역 계약")}` : "이 현장에 연결된 용역 계약이 없어 완수계에는 안 넣었습니다(아래 [📑 완수계]에서 연결).");
     msg.className = `rb-msg${out.skipped.length || out.outdated.length ? " warn" : ""}`;
     msg.innerHTML = notes.join("<br>");
-  } catch (err) {
-    msg.className = "rb-msg bad";
-    msg.textContent = err.message;
-  } finally {
-    clearInterval(timer);
-    msg.hidden = false;
-    btn.disabled = false;
-    btn.textContent = "📚 보고서 합본 만들기";
   }
-});
+  msg.hidden = false;
+}
 
 document.getElementById("cd-start-btn").addEventListener("click", () => openSiteContract(siteId, "start"));
 document.getElementById("cd-done-btn").addEventListener("click", () => openSiteContract(siteId, "done"));
