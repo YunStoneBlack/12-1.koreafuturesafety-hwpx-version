@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""K2BClient: 로그인 -> 메뉴 이동 -> 현장 검색/선택 -> 상세보기/차수 추가.
+"""K2BClient: 로그인 -> 메뉴 이동 -> 현장 검색/선택(find_and_select_site — 화면 뒤 검색 결과 데이터로, site_match.py) -> 상세보기/차수 추가.
+예전의 화면 글자 찾아 누르기(search_site·select_result_row)는 보이는 줄만 그려지는 그리드라 못 찾거나 다른 현장을 골라 10/8에 뺐다.
 
 `core/k2b_client.py`의 600줄 초과 문제로 기능별 분리한 파일 중 하나(2026-09-16).
 내용/셀렉터/실기록 주석은 원본에서 그대로 옮겼다."""
@@ -27,85 +28,6 @@ class NavigationMixin(K2BClientBase):
         사이드바 트리에도 나타나 모호할 수 있음)."""
         self.log("재해예방기관 기술지도 화면으로 이동 중...")
         self.page.get_by_text(sel.MENU_GUIDANCE_ITEM_TEXT, exact=True).click()
-
-    def search_site(self, site_name: str) -> None:
-        """현장명으로 검색한다.
-
-        주의(실기록, 2026-09-16): K2B의 현장명 검색은 부분(substring) 일치는 지원하지만
-        띄어쓰기 차이엔 전혀 관대하지 않다(실측 CONFIRMED: 원래 등록된 이름에서 공백을
-        하나만 추가/제거/이동해도 결과 0건). 12-1과 K2B는 사람이 각각 따로 입력한 별개
-        시스템이라 같은 현장이라도 이름 중간의 띄어쓰기가 서로 다르게 저장돼 있을 수 있다
-        -- 전체 이름을 그대로 검색어로 쓰면 그 차이 때문에 검색 자체가 0건이 될 위험이
-        있다. 대신 이름의 **첫 단어(공백 앞부분)만** 검색어로 써서 이 위험을 피한다 --
-        짧은 substring도 정상적으로 결과를 찾아줌을 실측 확인(예: "태봉근린공원 조성사업
-        (2단계) 토목공사" 전체 대신 "태봉근린공원"만 넣어도 같은 결과가 뜸). 최종적으로
-        정확한 행을 고르는 건 `select_result_row()`가 전체 이름으로 다시 검증한다."""
-        query = site_name.split()[0] if site_name.split() else site_name
-        self.log(f"현장명 '{site_name}' 검색 중... (검색어: '{query}')")
-        page = self.page
-        self._type_into(sel.SEARCH_SITE_NAME_INPUT, query)
-        page.locator(sel.SEARCH_BUTTON_CONTAINER_ID).get_by_text(sel.SEARCH_BUTTON_TEXT).click()
-
-    def select_result_row(self, site_name: str) -> None:
-        """검색 결과 그리드에서 현장명이 일치하는 행을 클릭해 선택한다(CONFIRMED, 체크박스
-        불필요 -- 행 클릭만으로 아래 "재해예방 전문지도 기관"/"건설공사 발주자 등" 패널에
-        해당 행 데이터가 로드됨을 실제 화면에서 확인).
-
-        주의(실기록, 2026-09-16): 정확히 같은 문자열(`exact=True`)이 아니라 **양쪽 다
-        공백을 전부 제거하고 비교**해서 고른다 -- 12-1/K2B 간 띄어쓰기 차이(위 `search_site`
-        참고)에 안전하려는 목적. 공백만 무시하고 다른 글자 차이(오타 등)는 여전히 다른
-        문자열로 구분됨을 실측 확인(예: "조성사업" vs "조선사업"은 공백을 지워도 여전히
-        다름) -- 즉 진짜 같은 현장만 관대하게 봐주고, 비슷해 보이는 다른 현장을 잘못
-        고르지는 않는다. 후보가 0개면 못 찾았다는 뜻이고, 2개 이상이면(예: K2B에 완전히
-        동일한 이름이 중복 등록됨) 사람이 판단해야 하므로 둘 다 명확한 예외로 멈춘다."""
-        self.log(f"검색결과에서 '{site_name}' 행 선택 중...")
-        normalized_target = "".join(site_name.split())
-        find_js = r"""
-            (normalizedTarget) => {
-                const all = [...document.querySelectorAll('div, span, td')];
-                const results = [];
-                for (const el of all) {
-                    const txt = (el.textContent || '');
-                    const normalized = txt.replace(/\s+/g, '');
-                    if (normalized !== normalizedTarget) continue;
-                    const hasElementChildWithText = [...el.children].some(
-                        c => (c.textContent || '').trim()
-                    );
-                    if (hasElementChildWithText) continue;  // 텍스트를 가진 가장 안쪽(leaf) 요소만
-                    const rect = el.getBoundingClientRect();
-                    if (rect.width <= 0 || rect.height <= 0) continue;
-                    results.push({
-                        x: rect.x + rect.width / 2,
-                        y: rect.y + rect.height / 2,
-                        text: txt.trim(),
-                    });
-                }
-                return results;
-            }
-            """
-        # 주의(실기록, 2026-09-16): get_by_text().click()과 달리 page.evaluate()는 그 순간의
-        # DOM 스냅샷만 한 번 검사하고 끝나서 Playwright의 자동 대기(actionability auto-wait)가
-        # 적용되지 않는다 -- 검색 버튼 클릭 직후 결과 그리드가 아직 갱신되기 전에 검사하면
-        # 0건으로 오판할 수 있다(실측으로 재현됨). 그리드 갱신을 기다리며 최대 10초간 재시도한다.
-        candidates: list[dict] = []
-        for _ in range(20):
-            candidates = self.page.evaluate(find_js, normalized_target)
-            if candidates:
-                break
-            self.page.wait_for_timeout(500)
-        if not candidates:
-            raise RuntimeError(
-                f"검색결과에서 '{site_name}'와 일치하는 현장을 찾지 못했습니다 "
-                f"(띄어쓰기를 무시하고 비교했는데도 못 찾음 -- 12-1과 K2B에 등록된 "
-                f"이름 자체가 다를 수 있습니다. K2B 화면에서 직접 확인해보세요)."
-            )
-        if len(candidates) > 1:
-            texts = ", ".join(f"'{c['text']}'" for c in candidates)
-            raise RuntimeError(
-                f"검색결과에서 '{site_name}'와 일치하는 행이 {len(candidates)}개 있어 "
-                f"자동으로 고를 수 없습니다: {texts}. K2B 화면에서 직접 골라 진행하세요."
-            )
-        self.page.mouse.click(candidates[0]["x"], candidates[0]["y"])
 
     def open_detail(self) -> None:
         """선택된 행의 상세보기를 연다(CONFIRMED)."""
