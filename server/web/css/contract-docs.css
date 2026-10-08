@@ -127,7 +127,8 @@
 }
 /* 끌고 오는 중 — 놓는 곳이 넓어도(화면·창 전체) 점선 상자가 파랗게 */
 .drop-box.drop-over, .drop-over .drop-box, main.main.drop-over .dc-drop { border-color: var(--blue) !important; background: var(--blue-soft) !important; color: var(--blue); }
-main.main.drop-over, .mail-box.cd-box.drop-over, .cd-slot.drop-over, .cl-row.drop-over { outline: none !important; background-color: inherit !important; }
+main.main.drop-over, .cd-slot.drop-over, .cl-row.drop-over { outline: none !important; background-color: inherit !important; }
+.mail-box.cd-box.drop-over { outline: none !important; background-color: var(--surface) !important; } /* inherit면 부모(반투명 검은 막)를 따라가 창이 비침(10/8) */
 .mail-box.cd-box.drop-over .cd-slot .drop-box { border-color: #B9C3D3 !important; background: var(--paper) !important; color: var(--muted); } /* 창 전체로 받을 땐 계약서 칸만 파랗게 */
 .mail-box.cd-box.drop-over .cd-slot.drop-over .drop-box { border-color: var(--blue) !important; background: var(--blue-soft) !important; }
 .dc-drop { margin: -4px 0 16px; }

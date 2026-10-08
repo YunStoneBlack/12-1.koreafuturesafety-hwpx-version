@@ -178,6 +178,12 @@ function enableFileDrop(zone, input) {
 // 놓을 수 없는 곳에 파일을 떨어뜨려도 브라우저가 그 파일을 열어 화면을 떠나지 않게(놓는 칸은 각자 먼저 처리함)
 document.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
 document.addEventListener("drop", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
+// 놓기가 끝나면(어느 칸에 놓았든·끌다 말았든) 화면의 "받는 중" 표시를 전부 지움 — 안쪽 칸이 놓기를 받으면(stopPropagation) 바깥 칸(완수계 창 전체)엔
+// 신호가 안 가서 .drop-over가 남아 창이 반투명해졌음(10/8 형). 붙잡기 단계(capture)라 안쪽 칸이 막아도 먼저 들어옴.
+function clearDropMarks() { document.querySelectorAll(".drop-over").forEach((el) => el.classList.remove("drop-over")); }
+window.addEventListener("drop", () => setTimeout(clearDropMarks, 0), true);
+window.addEventListener("dragend", clearDropMarks, true);
+document.addEventListener("dragleave", (e) => { if (!e.relatedTarget) clearDropMarks(); }, true); // 창 밖으로 끌고 나감
 
 function showError(el, err) {
   el.textContent = err.message || String(err);
