@@ -65,6 +65,8 @@ class FacilityIn(BaseModel):
     total_area: float | None = None
     building_area: float | None = None
     memo: str | None = None
+    base_wall: float | None = None  # 면적률 기준 면적(㎡) — ledger JSON에 보관(10/11)
+    base_slab: float | None = None
 
 
 class ContractIn(BaseModel):
@@ -136,9 +138,21 @@ def _check(field: str, value, allowed) -> None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{field}은(는) {'·'.join(allowed)} 중 하나입니다.")
 
 
+BASE_WALL, BASE_SLAB = 24.5, 49.0  # 기준 면적 기본값 — 벽 한 면 = 기둥간격 7m × 층고 3.5m, 슬래브 한 칸 = 7m × 7m
+
+
+def base_areas(f: SitokFacility) -> tuple[float, float]:
+    """면적률 기준 면적(벽, 슬래브) — 시설물마다 한 번 정해 계속 씀(인수인계 10/10, 사용자: 현장에서 일일이 못 잼). 안 넣었으면 기본값."""
+    led = f.ledger or {}
+    return float(led.get("base_wall") or BASE_WALL), float(led.get("base_slab") or BASE_SLAB)
+
+
 def _apply_facility(row: SitokFacility, body: FacilityIn) -> None:
     data = body.model_dump(exclude_unset=True)
     _check("보고서 틀", data.get("template"), TEMPLATES)
+    bases = {k: data.pop(k) for k in ("base_wall", "base_slab") if k in data}
+    if bases:
+        row.ledger = {**(row.ledger or {}), **bases}
     for k, v in data.items():
         setattr(row, k, v.strip() if isinstance(v, str) else v)
 
@@ -164,6 +178,7 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
                  .order_by(SitokContract.start_date.desc().nullslast(), SitokContract.id.desc()).all())
     out = {"id": f.id, **{k: _iso(getattr(f, k)) for k in FAC_FIELDS}, "ledger": f.ledger or {},
            "has_ledger_pdf": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()),
+           "base_wall": (f.ledger or {}).get("base_wall"), "base_slab": (f.ledger or {}).get("base_slab"),
            "latest": _contract_out(contracts[0]) if contracts else None, "contract_count": len(contracts)}
     if with_contracts:
         out["contracts"] = [_contract_out(c) for c in contracts]

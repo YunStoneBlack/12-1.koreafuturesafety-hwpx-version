@@ -24,6 +24,8 @@
     ["completion_date", "준공일", "date", ""], ["structure", "구조형식", "text", "예: 철근콘크리트구조"],
     ["floors_above", "지상 층수", "int", ""], ["floors_below", "지하 층수", "int", ""], ["floors_roof", "옥탑 층수", "int", ""],
     ["max_height", "최고높이(m)", "num", ""], ["total_area", "연면적(㎡)", "num", ""], ["building_area", "건축면적(㎡)", "num", ""],
+    ["base_wall", "면적률 기준 — 벽 한 면(㎡)", "num", "비우면 24.5(기둥간격 7m × 층고 3.5m)"],
+    ["base_slab", "면적률 기준 — 슬래브 한 칸(㎡)", "num", "비우면 49(7m × 7m)"],
     ["memo", "메모", "text", "보고서엔 안 나감"],
   ];
   const CON = [

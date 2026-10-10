@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from core.models_web import SitokDefect, SitokFacility, SitokReport, User
 from server.api.deps import get_current_user, get_db
+from server.api.routers.sitok import base_areas
 from server.api.routers.sitok_reports import _order, _report_dir, _require as _require_report
 from server.contract_docs import files
 from server.sitok import album_read
@@ -51,6 +52,22 @@ def calc_qty(dtype: str, count: str, width: str, length: str) -> str:
     if is_area(dtype):
         return f"{w * ln * n:.2f}" if w is not None else ""
     return f"{ln * n:.2f}"
+
+
+SLAB_WORDS = ("슬라브", "슬래브", "보", "바닥", "천장", "천정", "지붕")
+
+
+def calc_ratio(dtype: str, member: str, count: str, width: str, length: str, bases: tuple[float, float]) -> str:
+    """면적률(%) = 결함 면적 ÷ 기준 면적 × 100 — 균열은 길이 × 0.25 × 개수(사용자 10/10), 면적 결함은 폭 × 길이 × 개수.
+    기준 면적은 부재가 슬래브·보·바닥·천장이면 슬래브 한 칸, 아니면 벽 한 면(sitok.base_areas)."""
+    n, w, ln = _num(count), _num(width), _num(length)
+    if n is None or ln is None:
+        return ""
+    area = (w * ln * n if w is not None else None) if is_area(dtype) else ln * 0.25 * n
+    if area is None:
+        return ""
+    base = bases[1] if any(x in (member or "") for x in SLAB_WORDS) else bases[0]
+    return f"{area / base * 100:.1f}".rstrip("0").rstrip(".") if base else ""
 
 
 def floor_key(floor: str) -> tuple:
@@ -241,7 +258,7 @@ def _require(db: Session, user: User, defect_id: int) -> tuple[SitokDefect, Sito
     return d, _require_report(db, user, d.report_id)
 
 
-def _apply(d: SitokDefect, body: DefectIn, user: User) -> None:
+def _apply(d: SitokDefect, body: DefectIn, user: User, bases: tuple[float, float] | None = None) -> None:
     data = body.model_dump(exclude_unset=True)
     if "check" in data and data["check"] not in CHECKS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "확인 값이 올바르지 않습니다.")
@@ -256,6 +273,8 @@ def _apply(d: SitokDefect, body: DefectIn, user: User) -> None:
         d.count = d.width = d.length = d.qty = d.area_ratio = ""
     else:
         d.qty = calc_qty(d.dtype, d.count, d.width, d.length) or d.qty
+        if bases is not None and d.check in ("grew", "new"):  # 크기를 새로 잰 것만 다시(그대로·전회차 값은 전회차 면적률 유지)
+            d.area_ratio = calc_ratio(d.dtype, d.member, d.count, d.width, d.length, bases) or d.area_ratio
 
 
 @router.post("/reports/{report_id}/defects")
@@ -265,7 +284,7 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "층을 고르세요.")
     last = max((d.seq for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == body.floor.strip())), default=0)
     d = SitokDefect(report_id=r.id, seq=last + 1, check="new", mark="신규")
-    _apply(d, body.model_copy(update={"check": "new"}), user)
+    _apply(d, body.model_copy(update={"check": "new"}), user, base_areas(db.get(SitokFacility, r.facility_id)))
     db.add(d)
     db.commit()
     return _out(d)
@@ -273,8 +292,8 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
 
 @router.patch("/defects/{defect_id}")
 def update_defect(defect_id: int, body: DefectIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    d, _ = _require(db, user, defect_id)
-    _apply(d, body, user)
+    d, r = _require(db, user, defect_id)
+    _apply(d, body, user, base_areas(db.get(SitokFacility, r.facility_id)))
     db.commit()
     return _out(d)
 
