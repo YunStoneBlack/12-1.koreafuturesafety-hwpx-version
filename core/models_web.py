@@ -523,6 +523,7 @@ class SitokReport(Base):
     status: Mapped[str] = mapped_column(Text, default="")
     message: Mapped[str] = mapped_column(Text, default="")
     made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    ai: Mapped[dict | None] = mapped_column(JSON, default=None)  # 6단계 AI 초안(점검자가 고친 값 포함) — 결과표·외관조사 서술·종합결론 등(0031)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
@@ -558,3 +559,20 @@ class SitokDefect(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     checked_by: Mapped[str] = mapped_column(Text, default="")
     checked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
+class SitokUnitPrice(Base):
+    """웹판 전용 — 시특법 개략공사비 보수 단가표(2026-10-11 alembic 0031). 공법(조치 필요사항 문구와 같은 이름)·단위·단가·출처.
+    민재형(10/11): 회사 단가표 없음 → 조달청 표준시장단가·대한건설협회 시중노임단가 등 공개 자료로. 표준시장단가에 없는 공법(균열 주입·표면처리 등)은
+    검색 참고값(확인 필요)으로 넣어 두고 설정 탭에서 고침. 표에 없는 공법은 개략공사비에 "1식"."""
+
+    __tablename__ = "sitok_unit_price"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    method: Mapped[str] = mapped_column(Text, default="")
+    unit: Mapped[str] = mapped_column(Text, default="m")
+    price: Mapped[int | None] = mapped_column(Integer, default=None)  # 원(재료비 포함 여부는 note)
+    source: Mapped[str] = mapped_column(Text, default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    sort: Mapped[int] = mapped_column(Integer, default=0)

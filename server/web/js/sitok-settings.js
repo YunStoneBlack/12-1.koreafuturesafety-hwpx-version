@@ -105,6 +105,32 @@
     }
   }
 
+  function drawPrices() {
+    const box = document.getElementById("ss-prices");
+    box.innerHTML = `<div class="ss-pr ss-eq-head"><span>공법</span><span>단위</span><span>단가(원)</span><span>출처</span><span>비고</span><span></span></div>`;
+    for (const p of data.prices) {
+      const row = document.createElement("div");
+      row.className = `ss-pr${/확인 필요/.test(p.note) ? " check" : ""}`;
+      row.innerHTML = `<input data-k="method" value="${esc(p.method)}" aria-label="공법" /><input data-k="unit" value="${esc(p.unit)}" aria-label="단위" />
+        <input data-k="price" type="number" min="0" value="${p.price ?? ""}" aria-label="단가" /><input data-k="source" value="${esc(p.source)}" aria-label="출처" title="${esc(p.source)}" />
+        <input data-k="note" value="${esc(p.note)}" aria-label="비고" /><button type="button" class="secondary btn-sm ss-del" title="삭제">✕</button>`;
+      row.querySelectorAll("[data-k]").forEach((inp) => inp.addEventListener("change", async () => {
+        const k = inp.dataset.k;
+        try { await apiPatch(`/sitok/settings/prices/${p.id}`, { [k]: k === "price" ? (inp.value === "" ? null : Number(inp.value)) : inp.value }); flash(inp); }
+        catch (x) { err(x); }
+      }));
+      row.querySelector(".ss-del").addEventListener("click", async () => {
+        if (!confirm(`${p.method || "이 공법"} 단가를 지울까요?`)) return;
+        try { await api(`/sitok/settings/prices/${p.id}`, { method: "DELETE" }); load(); } catch (x) { err(x); }
+      });
+      box.appendChild(row);
+    }
+  }
+
+  document.getElementById("ss-add-price").addEventListener("click", async () => {
+    try { await apiPost("/sitok/settings/prices", { method: "새 공법", unit: "m" }); await load(); } catch (x) { err(x); }
+  });
+
   document.getElementById("ss-add-eq").addEventListener("click", async () => {
     try { await apiPost("/sitok/settings/equipment", { grp: "보조기구", name: "새 장비" }); await load(); } catch (x) { err(x); }
   });
@@ -115,6 +141,7 @@
       drawCompany();
       drawPersons();
       drawEquip();
+      drawPrices();
     } catch (e) { err(e); }
   }
   load();

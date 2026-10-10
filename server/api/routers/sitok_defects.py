@@ -139,6 +139,65 @@ def summary_rows(db: Session, report_id: int) -> list:
     return [(k[0], k[1], k[2], groups[k]["types"], groups[k]["acts"]) for k in order]
 
 
+def priority(d: SitokDefect) -> int:
+    """보수 우선순위 기본값(6단계 AI 전까지) — 1은 긴급용으로 비움. 구조체 철근노출·박락·균열폭 0.3mm 이상 = 2, 그 밖 구조체 = 3, 나머지 4."""
+    act = default_action(d.dtype, d.width)
+    if d.part != "구조체" or act == "주의관찰":
+        return 4
+    w = _num(d.width)
+    if any(x in (d.dtype or "") for x in ("철근", "박락")) or ("균열" in (d.dtype or "") and w is not None and w >= 0.3):
+        return 2
+    return 3
+
+
+def _defects_for_cost(db: Session, report_id: int) -> list[SitokDefect]:
+    return [d for d in _rows(db, report_id) if not (d.check == "repaired" or d.mark == "보수" or not d.dtype
+                                                     or d.dtype.rstrip().endswith("현황"))]
+
+
+def priority_rows(db: Session, report_id: int) -> list:
+    """보수물량 및 우선순위 표 줄 [(층, 결함유형, 손상내용, 적용공법, 물량, 단위, 우선순위)] — 층·부재·결함유형별로 물량 합침."""
+    groups: dict = {}
+    for d in _defects_for_cost(db, report_id):
+        key = (d.floor, "구조적결함" if d.part == "구조체" else "비구조적결함", f"{d.member} {d.dtype}".strip())
+        g = groups.setdefault(key, {"qty": 0.0, "act": default_action(d.dtype, d.width), "unit": "㎡" if is_area(d.dtype) else "m", "prio": 4})
+        g["qty"] += _num(d.qty) or 0
+        g["prio"] = min(g["prio"], priority(d))
+        if g["act"] != "에폭시주입보수" and default_action(d.dtype, d.width) == "에폭시주입보수":
+            g["act"] = "에폭시주입보수"  # 한 묶음에 0.3mm 넘는 균열이 있으면 주입
+    out = []
+    for (floor, kind, content), g in groups.items():
+        watch = g["act"] == "주의관찰"
+        out.append((floor, kind, content, g["act"], "-" if watch or not g["qty"] else f"{g['qty']:.2f}", "-" if watch else g["unit"], str(g["prio"])))
+    return out
+
+
+def cost_rows(db: Session, report_id: int, prices: list) -> tuple[list, int]:
+    """개략공사비 줄 [(구분, 결함 내용, 보수방안, 물량, 단위, 단가, 금액)] + 직접공사비 합계 — 구분(구조체/비구조체)·공법별로 물량 합침,
+    단가는 보수 단가표(공법 이름이 같은 것). 주의관찰은 뺌. 단가표에 없는 공법은 "1식", 단가·금액 "-"(점검자가 넣음)."""
+    table = {p.method.replace(" ", ""): p for p in prices}
+    groups: dict = {}
+    for d in _defects_for_cost(db, report_id):
+        act = default_action(d.dtype, d.width)
+        if act == "주의관찰":
+            continue
+        g = groups.setdefault((d.part or "-", act), {"types": [], "qty": 0.0})
+        if d.dtype not in g["types"]:
+            g["types"].append(d.dtype)
+        g["qty"] += _num(d.qty) or 0
+    rows, direct = [], 0
+    for (part, act), g in groups.items():
+        p = table.get(act.replace(" ", ""))
+        desc = "·".join(g["types"][:3]) + (f" 외 {len(g['types']) - 3}" if len(g["types"]) > 3 else "")
+        if p is None or not p.price:
+            rows.append((part, desc, act, "1", "식", "-", "-"))
+            continue
+        amount = round(g["qty"] * p.price)
+        direct += amount
+        rows.append((part, desc, act, f"{g['qty']:.2f}", p.unit, f"{p.price:,}", f"{amount:,}"))
+    return rows, direct
+
+
 def album_floors(db: Session, report_id: int) -> list[tuple[str, list[dict]]]:
     """사진첩용 층별 줄(server/sitok/album_make.py) — 번호 순, 사진번호는 층마다 1부터, 보수 완료는 "보수완료"·크기 "-"."""
     out: list[tuple[str, list[dict]]] = []

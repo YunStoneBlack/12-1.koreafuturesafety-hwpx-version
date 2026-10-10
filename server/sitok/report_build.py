@@ -52,6 +52,8 @@ class Extras:
     positions: dict = field(default_factory=dict)
     history: bool = True  # 1.2.6 기실시 점검결과에 틀(= 직전 회차) 한 칸 추가
     summary: list = field(default_factory=list)  # 9쪽 요약표 줄 [(층, 구분, 부재, [점검결과], [조치])] — 비면 지난 표 그대로
+    priority: list = field(default_factory=list)  # 보수물량 및 우선순위 줄 [(층, 결함유형, 손상내용, 적용공법, 물량, 단위, 우선순위)]
+    cost: tuple | None = None  # 개략공사비 ([(구분, 내용, 방안, 물량, 단위, 단가, 금액)], 직접공사비 합계)
     notes: list = field(default_factory=list)  # 못 한 것 안내
 
 
@@ -390,10 +392,15 @@ def _set_cell(tc, text: str) -> None:
     if not ps:
         return
     ts = [t for t in ps[0].iter(T)]
-    if ts:
-        _clear(ts[0], text)
-        for t in ts[1:]:
-            _clear(t, "")
+    if not ts:  # 빈 칸(글자 자리 없음) — 첫 run 안에 글자 칸을 만듦(10/11 공사비 합계 금액 칸)
+        run = ps[0].find(f"{{{HP}}}run")
+        if run is None:
+            run = etree.SubElement(ps[0], f"{{{HP}}}run", charPrIDRef="0")
+            ps[0].insert(0, run)
+        ts = [etree.SubElement(run, T)]
+    _clear(ts[0], text)
+    for t in ts[1:]:
+        _clear(t, "")
     for q in ps[1:]:
         q.getparent().remove(q)
 
@@ -438,103 +445,191 @@ def _positions(root, positions: dict) -> None:
                     _set_cell(cells[(r, pos_c)], positions[who])
 
 
-SUMMARY_PAGE_H = 56000  # 요약표 한 쪽에 넣을 표 높이(HWPUNIT) — 견본 표(머리줄 포함 60543)가 제목과 한 쪽에 들어감, 조금 여유
+SUMMARY_PAGE_H = 56000  # 표 한 쪽에 넣을 높이(HWPUNIT) — 견본 요약표(머리줄 포함 60543)가 제목과 한 쪽에 들어감, 조금 여유
 
 
-def _fill_summary(tbl, rows: list, tmpl: dict, head_h: int, heights: list) -> None:
-    """요약표 tbl의 데이터 줄을 rows로 — 층·구분 칸은 세로로 합침. 표 높이·테두리 구역·줄 수도 맞춤."""
-    for tr in tbl.findall(f"{{{HP}}}tr")[1:]:
+def _make_cell(tmpl, r: int, lines: list[str], span: int, height: int):
+    """본뜬 칸 하나 — 줄 번호·세로 합침·높이를 정하고 글자를 lines(줄마다 문단 하나)로."""
+    tc = copy.deepcopy(tmpl)
+    tc.find(f"{{{HP}}}cellAddr").set("rowAddr", str(r))
+    tc.find(f"{{{HP}}}cellSpan").set("rowSpan", str(span))
+    tc.find(f"{{{HP}}}cellSz").set("height", str(height))
+    sub = tc.find(f"{{{HP}}}subList")
+    ps = sub.findall(f"{{{HP}}}p")
+    for q in ps[1:]:
+        sub.remove(q)
+    first = ps[0]
+    for el in list(first.iter(f"{{{HP}}}linesegarray")):
+        el.getparent().remove(el)
+    for i, line in enumerate(lines or [""]):
+        q = first if i == 0 else copy.deepcopy(first)
+        ts = list(q.iter(T))
+        if ts:
+            _clear(ts[0], line)
+            for t in ts[1:]:
+                _clear(t, "")
+        if i:
+            sub.append(q)
+    return tc
+
+
+def _fill_rows(tbl, rows: list, tmpl: dict, head_h: int, heights: list, merge: int, keep_tail: list | None = None) -> None:
+    """tbl의 데이터 줄을 rows(줄마다 [칸마다 글줄 목록])로 — 앞 merge칸은 값이 같으면 세로로 합침. keep_tail = 뒤에 그대로 둘 줄(합계 등,
+    줄 번호만 다시). 표 높이·테두리 구역·줄 수도 맞춤."""
+    trs = tbl.findall(f"{{{HP}}}tr")
+    tail = keep_tail or []
+    for tr in trs[1:]:
         tbl.remove(tr)
-
-    def make(col, r, text_lines, span, height):
-        tc = copy.deepcopy(tmpl[col])
-        tc.find(f"{{{HP}}}cellAddr").set("rowAddr", str(r))
-        tc.find(f"{{{HP}}}cellSpan").set("rowSpan", str(span))
-        tc.find(f"{{{HP}}}cellSz").set("height", str(height))
-        sub = tc.find(f"{{{HP}}}subList")
-        ps = sub.findall(f"{{{HP}}}p")
-        for q in ps[1:]:
-            sub.remove(q)
-        first = ps[0]
-        for el in list(first.iter(f"{{{HP}}}linesegarray")):
-            el.getparent().remove(el)
-        for i, line in enumerate(text_lines or [""]):
-            q = first if i == 0 else copy.deepcopy(first)
-            ts = list(q.iter(T))
-            if ts:
-                _clear(ts[0], line)
-                for t in ts[1:]:
-                    _clear(t, "")
-            if i:
-                sub.append(q)
-        return tc
-
     total = head_h
-    for i, (floor, part, member, results, actions) in enumerate(rows):
+    key = lambda i, c: tuple("\n".join(x) for x in rows[i][:c + 1])  # noqa: E731
+    for i, row in enumerate(rows):
         r = i + 1
         tr = etree.SubElement(tbl, f"{{{HP}}}tr")
-        if i == 0 or rows[i - 1][0] != floor:
-            n = next((k for k in range(i, len(rows)) if rows[k][0] != floor), len(rows)) - i
-            tr.append(make(0, r, [floor], n, sum(heights[i:i + n])))
-        if i == 0 or rows[i - 1][:2] != (floor, part):
-            n = next((k for k in range(i, len(rows)) if rows[k][:2] != (floor, part)), len(rows)) - i
-            tr.append(make(1, r, [part], n, sum(heights[i:i + n])))
-        tr.append(make(2, r, [member], 1, heights[i]))
-        tr.append(make(3, r, [f"·{x}" for x in results], 1, heights[i]))
-        tr.append(make(4, r, [f"·{x}" for x in actions], 1, heights[i]))
+        for c, lines in enumerate(row):
+            if c < merge:
+                if i and key(i - 1, c) == key(i, c):
+                    continue
+                n = next((k for k in range(i, len(rows)) if key(k, c) != key(i, c)), len(rows)) - i
+                tr.append(_make_cell(tmpl[c], r, lines, n, sum(heights[i:i + n])))
+            else:
+                tr.append(_make_cell(tmpl[c], r, lines, 1, heights[i]))
         total += heights[i]
+    for k, tr in enumerate(tail):  # 합계 줄 등 — 줄 번호만 새로
+        for tc in tr.findall(f"{{{HP}}}tc"):
+            tc.find(f"{{{HP}}}cellAddr").set("rowAddr", str(len(rows) + 1 + k))
+            total += int(tc.find(f"{{{HP}}}cellSz").get("height")) if tc is tr.findall(f"{{{HP}}}tc")[0] else 0
+        tbl.append(tr)
     old_last = int(tbl.get("rowCnt")) - 1
+    new_last = len(rows) + len(tail)
     for cz in tbl.iter(f"{{{HP}}}cellzone"):  # 표 전체 테두리 구역도 새 줄 수까지
         if int(cz.get("endRowAddr", "0")) >= old_last:
-            cz.set("endRowAddr", str(len(rows)))
-    tbl.set("rowCnt", str(len(rows) + 1))
+            cz.set("endRowAddr", str(new_last))
+    tbl.set("rowCnt", str(new_last + 1))
     tbl.find(f"{{{HP}}}sz").set("height", str(total))
 
 
-def _summary_table(root, rows: list) -> bool:
-    """9쪽 "정기안전점검 실시결과 요약표"(부재(부위) 3칸 | 점검결과 | 조치 필요사항)를 rows로 새로 짬(10/11 5-2).
-    첫 데이터 줄의 칸 모양(글꼴·테두리·폭)을 본뜸. 표는 "글자처럼 취급"이라 한 쪽을 넘으면 통째로 밀리므로, 한 쪽 높이만큼씩 잘라
-    표 여러 개(각각 머리줄 포함)를 쪽마다 하나씩 놓는다(층이 쪽을 넘으면 다음 표에 층 이름을 다시 씀)."""
-    for tbl in root.iter(f"{{{HP}}}tbl"):
-        cells = _cells(tbl)
-        if (0, 0) not in cells or _cell_text(cells[(0, 0)]).replace(" ", "") != "부재(부위)" or int(tbl.get("colCnt")) != 5:
-            continue
-        if not all((1, c) in cells for c in range(5)):
-            return False
-        tmpl = {c: copy.deepcopy(cells[(1, c)]) for c in range(5)}
-        head_h = int(cells[(0, 0)].find(f"{{{HP}}}cellSz").get("height"))
-        # 한 줄 높이 어림 = 글줄 수 × 1450 + 여백(광숭 시험 PDF에서 맞춤 — 1980으로 잡으면 쪽이 60%만 참)
-        heights = [max(3178, 1450 * max(len(r[3]), len(r[4]), 1) + 500) for r in rows]
-        chunks, cur, h = [], [], head_h
-        for row, rh in zip(rows, heights):
-            if cur and h + rh > SUMMARY_PAGE_H:
-                chunks.append(cur)
-                cur, h = [], head_h
-            cur.append((row, rh))
-            h += rh
-        if cur:
+LINE_H = 1450  # 글줄 하나 높이 어림(HWPUNIT, 9pt 안팎 — 광숭 시험 PDF에서 맞춤)
+CHAR_W = 850  # 한글 한 글자 너비 어림(HWPUNIT)
+
+
+def _row_heights(tmpl: dict, rows: list, minimum: int) -> list[int]:
+    """줄마다 높이 어림 — 칸마다 (글줄 수 × 칸 너비에 맞춰 접히는 줄 수)의 최댓값."""
+    out = []
+    for row in rows:
+        lines = 1
+        for c, cell_lines in enumerate(row):
+            width = int(tmpl[c].find(f"{{{HP}}}cellSz").get("width")) - 400
+            per = max(1, width // CHAR_W)
+            n = sum(max(1, -(-len(x) // per)) for x in (cell_lines or [""]))
+            lines = max(lines, n)
+        out.append(max(minimum, LINE_H * lines + 500))
+    return out
+
+
+def _rebuild_paged(root, tbl, rows: list, merge: int, heights: list, page_break_after: bool, first_page_h: int = SUMMARY_PAGE_H) -> None:
+    """글자처럼 취급 표는 한 쪽을 넘으면 통째로 밀리므로 한 쪽 높이만큼씩 잘라 표 여러 개(각각 머리줄)로 쪽마다 하나씩."""
+    cells = _cells(tbl)
+    ncol = int(tbl.get("colCnt"))
+    tmpl = {c: copy.deepcopy(cells[(1, c)]) for c in range(ncol)}
+    head_h = int(cells[(0, 0)].find(f"{{{HP}}}cellSz").get("height"))
+    chunks, cur, h = [], [], head_h
+    for row, rh in zip(rows, heights):
+        if cur and h + rh > (first_page_h if not chunks else SUMMARY_PAGE_H):
             chunks.append(cur)
-        top = tbl
-        while top.getparent() is not None and top.getparent() is not root:
-            top = top.getparent()  # 표가 든 맨 바깥 문단
-        orig = copy.deepcopy(top)
-        _fill_summary(tbl, [r for r, _ in chunks[0]], tmpl, head_h, [h for _, h in chunks[0]])
-        prev = top
-        for chunk in chunks[1:]:
-            para = copy.deepcopy(orig)
-            para.set("pageBreak", "1")
-            t2 = next(para.iter(f"{{{HP}}}tbl"))
-            t2.set("id", str(int(t2.get("id", "0")) + len(chunks) * 7 + chunks.index(chunk)))
-            _fill_summary(t2, [r for r, _ in chunk], tmpl, head_h, [h for _, h in chunk])
-            prev.addnext(para)
-            prev = para
-        nxt = prev.getnext()  # 요약표 다음(위치도 등)은 새 쪽에서 — 원래는 표가 쪽을 꽉 채워 자연히 넘어갔음(광숭)
+            cur, h = [], head_h
+        cur.append((row, rh))
+        h += rh
+    if cur:
+        chunks.append(cur)
+    top = tbl
+    while top.getparent() is not None and top.getparent() is not root:
+        top = top.getparent()  # 표가 든 맨 바깥 문단
+    orig = copy.deepcopy(top)
+    _fill_rows(tbl, [r for r, _ in chunks[0]], tmpl, head_h, [x for _, x in chunks[0]], merge)
+    prev = top
+    for n, chunk in enumerate(chunks[1:], 1):
+        para = copy.deepcopy(orig)
+        para.set("pageBreak", "1")
+        for el in para.iter():  # 같은 문단을 복사하면 앞 글자(제목 등)도 따라오므로 표 말고 글자는 비움
+            if el.tag == T and next(el.iterancestors(f"{{{HP}}}tbl"), None) is None:
+                _clear(el, "")
+        t2 = next(para.iter(f"{{{HP}}}tbl"))
+        t2.set("id", str(int(t2.get("id", "0")) + 1000 + n))
+        _fill_rows(t2, [r for r, _ in chunk], tmpl, head_h, [x for _, x in chunk], merge)
+        prev.addnext(para)
+        prev = para
+    if page_break_after:
+        nxt = prev.getnext()  # 다음(위치도 등)은 새 쪽에서 — 원래는 표가 쪽을 꽉 채워 자연히 넘어갔음(광숭)
         while nxt is not None and nxt.tag != f"{{{HP}}}p":
             nxt = nxt.getnext()
         if nxt is not None:
             nxt.set("pageBreak", "1")
-        return True
-    return False
+
+
+def _find_table(root, head: list[str]):
+    """머리줄 첫 칸들이 head와 같은 표(띄어쓰기·줄바꿈 무시)."""
+    want = [h.replace(" ", "") for h in head]
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        cells = _cells(tbl)
+        got = [re.sub(r"\s", "", _cell_text(cells[(0, c)])) for c in range(len(want)) if (0, c) in cells]
+        if got == want and (1, 0) in cells:
+            return tbl
+    return None
+
+
+def _summary_table(root, rows: list) -> bool:
+    """9쪽 "정기안전점검 실시결과 요약표"(부재(부위) 3칸 | 점검결과 | 조치 필요사항)를 rows[(층, 구분, 부재, [결과], [조치])]로 새로 짬(10/11).
+    층·구분은 세로로 합침, 쪽 단위로 나눔, 다음 문단은 새 쪽."""
+    tbl = _find_table(root, ["부재(부위)", "점검결과", "조치필요사항"])
+    if tbl is None or int(tbl.get("colCnt")) != 5 or not all((1, c) in _cells(tbl) for c in range(5)):
+        return False
+    data = [[[f], [p], [m], [f"·{x}" for x in res], [f"·{x}" for x in act]] for f, p, m, res, act in rows]
+    cells = _cells(tbl)
+    heights = _row_heights({c: cells[(1, c)] for c in range(5)}, data, 3178)
+    _rebuild_paged(root, tbl, data, 2, heights, True)
+    return True
+
+
+def _priority_table(root, rows: list) -> bool:
+    """1.5(3종 1.6) "보수물량 및 우선순위" 표 — rows[(층, 결함유형, 손상내용, 적용공법, 보수물량, 단위, 우선순위)], 층은 세로로 합침, 쪽 단위로 나눔."""
+    tbl = _find_table(root, ["구분", "결함유형", "손상내용", "적용공법"])
+    if tbl is None or int(tbl.get("colCnt")) != 7 or not all((1, c) in _cells(tbl) for c in range(7)):
+        return False
+    data = [[[str(x)] for x in r] for r in rows]
+    cells = _cells(tbl)
+    h = int(cells[(1, 2)].find(f"{{{HP}}}cellSz").get("height"))
+    heights = _row_heights({c: cells[(1, c)] for c in range(7)}, data, h)
+    # 첫 표는 "1.5 보수·보강 개략공사비 산정" 제목·설명과 한 쪽 — 덜 채움
+    _rebuild_paged(root, tbl, data, 1, heights, False, first_page_h=SUMMARY_PAGE_H - 9000)
+    return True
+
+
+def _cost_table(root, rows: list, direct: int) -> bool:
+    """개략공사비 산정 표 — 데이터 줄 rows[(구분, 결함 내용, 보수방안, 물량, 단위, 단가, 금액)]을 넣고(단위 칸이 없는 6칸 표면 단위는 물량에 붙임),
+    직접공사비 합계·제경비(50%)·부대공(10%)·총공사비 줄의 금액 칸을 채움. 데이터 줄이 없으면 "-" 줄 그대로."""
+    tbl = _find_table(root, ["구분", "결함및손상,열화내용", "보수ㆍ보강방안"])
+    if tbl is None:
+        return False
+    cells = _cells(tbl)
+    ncol = int(tbl.get("colCnt"))
+    trs = tbl.findall(f"{{{HP}}}tr")
+    labels = ("직접공사비합계", "제경비", "부대공", "총공사비")
+    tail = [tr for tr in trs[1:] if re.sub(r"\s", "", _cell_text(tr.findall(f"{{{HP}}}tc")[0])) in labels]
+    money = lambda v: f"{v:,}" if v else "-"  # noqa: E731
+    amounts = {"직접공사비합계": direct, "제경비": round(direct * 0.5), "부대공": round(direct * 0.1), "총공사비": round(direct * 1.6)}
+    for tr in tail:
+        tcs = tr.findall(f"{{{HP}}}tc")
+        _set_cell(tcs[-1], money(amounts[re.sub(r"\s", "", _cell_text(tcs[0]))]))
+    if rows and all((1, c) in cells for c in range(ncol)):
+        tmpl = {c: copy.deepcopy(cells[(1, c)]) for c in range(ncol)}
+        head_h = int(cells[(0, 0)].find(f"{{{HP}}}cellSz").get("height"))
+        h = int(cells[(1, 0)].find(f"{{{HP}}}cellSz").get("height"))
+        if ncol == 7:
+            data = [[[str(x)] for x in r] for r in rows]
+        else:  # 평택(6칸): 단위 칸 없음 — 물량에 단위를 붙임
+            data = [[[r[0]], [r[1]], [r[2]], [f"{r[3]} {r[4]}".strip()], [str(r[5])], [str(r[6])]] for r in rows]
+        _fill_rows(tbl, data, tmpl, head_h, [h] * len(data), 0, keep_tail=tail)
+    return True
 
 
 def _add_history(root, old: Values) -> bool:
@@ -610,6 +705,10 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                 if extras.history and _add_history(root, old):
                     changed += 1
                 if is_front and extras.summary and _summary_table(root, extras.summary):
+                    changed += 1
+                if not is_front and extras.priority and _priority_table(root, extras.priority):
+                    changed += 1
+                if not is_front and extras.cost is not None and _cost_table(root, extras.cost[0], extras.cost[1]):
                     changed += 1
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):
                     el.getparent().remove(el)
