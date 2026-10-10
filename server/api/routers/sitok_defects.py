@@ -120,7 +120,45 @@ def default_action(dtype: str, width: str) -> str:
     return "주의관찰"
 
 
-def summary_rows(db: Session, report_id: int) -> list:
+def _wide(dtype: str, width: str) -> bool:
+    w = _num(width)
+    return "균열" in (dtype or "") and w is not None and w >= 0.3
+
+
+def method_key(part: str, member: str, dtype: str, width: str) -> str:
+    """보수공법을 정하는 묶음 — 구분·부재·결함유형(+균열은 폭 0.3mm 이상 여부)."""
+    return "|".join((part or "-", member or "-", (dtype or "").replace(" ", ""), "0.3이상" if _wide(dtype, width) else ""))
+
+
+def method_combos(db: Session, report_id: int) -> list[dict]:
+    """AI에 줄 묶음 [{key, part, member, dtype, wide, count, qty, unit, max_width, causes, default}]."""
+    out: dict = {}
+    for d in _defects_for_cost(db, report_id):
+        k = method_key(d.part, d.member, d.dtype, d.width)
+        g = out.setdefault(k, {"key": k, "part": d.part or "-", "member": d.member or "-", "dtype": d.dtype, "wide": _wide(d.dtype, d.width),
+                               "count": 0, "qty": 0.0, "unit": "㎡" if is_area(d.dtype) else "m", "max_width": None, "causes": [],
+                               "default": default_action(d.dtype, d.width)})
+        g["count"] += 1
+        g["qty"] = round(g["qty"] + (_num(d.qty) or 0), 2)
+        w = _num(d.width)
+        if w is not None:
+            g["max_width"] = w if g["max_width"] is None else max(g["max_width"], w)
+        if d.cause and d.cause not in g["causes"]:
+            g["causes"].append(d.cause)
+    return list(out.values())
+
+
+def method_map(rows: list | None) -> dict:
+    """AI 초안(점검자가 고친) methods → {key: (공법, 1식 금액 또는 None)}."""
+    return {r["key"]: ((r.get("method") or "").strip(), r.get("lump")) for r in rows or [] if r.get("key") and (r.get("method") or "").strip()}
+
+
+def action_of(d: SitokDefect, methods: dict | None) -> str:
+    m = (methods or {}).get(method_key(d.part, d.member, d.dtype, d.width))
+    return m[0] if m else default_action(d.dtype, d.width)
+
+
+def summary_rows(db: Session, report_id: int, methods: dict | None = None) -> list:
     """9쪽 요약표 줄 [(층, 구분, 부재, [결함유형들], [조치들])] — 보수 완료는 뺌, 층은 위층부터, 안에서는 처음 나온 순."""
     groups: dict = {}
     for d in _rows(db, report_id):
@@ -130,7 +168,7 @@ def summary_rows(db: Session, report_id: int) -> list:
         g = groups.setdefault(key, {"types": [], "acts": []})
         if d.dtype.replace(" ", "") not in [x.replace(" ", "") for x in g["types"]]:
             g["types"].append(d.dtype)
-            g["acts"].append(default_action(d.dtype, d.width))
+            g["acts"].append(action_of(d, methods))
     order: list = []  # 층 안에서 구분끼리 모이게
     for key in groups:
         if key not in order:
@@ -139,9 +177,9 @@ def summary_rows(db: Session, report_id: int) -> list:
     return [(k[0], k[1], k[2], groups[k]["types"], groups[k]["acts"]) for k in order]
 
 
-def priority(d: SitokDefect) -> int:
+def priority(d: SitokDefect, methods: dict | None = None) -> int:
     """보수 우선순위 기본값(6단계 AI 전까지) — 1은 긴급용으로 비움. 구조체 철근노출·박락·균열폭 0.3mm 이상 = 2, 그 밖 구조체 = 3, 나머지 4."""
-    act = default_action(d.dtype, d.width)
+    act = action_of(d, methods)
     if d.part != "구조체" or act == "주의관찰":
         return 4
     w = _num(d.width)
@@ -155,16 +193,17 @@ def _defects_for_cost(db: Session, report_id: int) -> list[SitokDefect]:
                                                      or d.dtype.rstrip().endswith("현황"))]
 
 
-def priority_rows(db: Session, report_id: int) -> list:
+def priority_rows(db: Session, report_id: int, methods: dict | None = None) -> list:
     """보수물량 및 우선순위 표 줄 [(층, 결함유형, 손상내용, 적용공법, 물량, 단위, 우선순위)] — 층·부재·결함유형별로 물량 합침."""
     groups: dict = {}
     for d in _defects_for_cost(db, report_id):
         key = (d.floor, "구조적결함" if d.part == "구조체" else "비구조적결함", f"{d.member} {d.dtype}".strip())
-        g = groups.setdefault(key, {"qty": 0.0, "act": default_action(d.dtype, d.width), "unit": "㎡" if is_area(d.dtype) else "m", "prio": 4})
+        act = action_of(d, methods)
+        g = groups.setdefault(key, {"qty": 0.0, "act": act, "unit": "㎡" if is_area(d.dtype) else "m", "prio": 4})
         g["qty"] += _num(d.qty) or 0
-        g["prio"] = min(g["prio"], priority(d))
-        if g["act"] != "에폭시주입보수" and default_action(d.dtype, d.width) == "에폭시주입보수":
-            g["act"] = "에폭시주입보수"  # 한 묶음에 0.3mm 넘는 균열이 있으면 주입
+        g["prio"] = min(g["prio"], priority(d, methods))
+        if _wide(d.dtype, d.width) and g["act"] != act:
+            g["act"] = act  # 한 묶음에 0.3mm 넘는 균열이 있으면 그 공법(주입)
     out = []
     for (floor, kind, content), g in groups.items():
         watch = g["act"] == "주의관찰"
@@ -172,25 +211,35 @@ def priority_rows(db: Session, report_id: int) -> list:
     return out
 
 
-def cost_rows(db: Session, report_id: int, prices: list) -> tuple[list, int]:
+def cost_rows(db: Session, report_id: int, prices: list, methods: dict | None = None) -> tuple[list, int]:
     """개략공사비 줄 [(구분, 결함 내용, 보수방안, 물량, 단위, 단가, 금액)] + 직접공사비 합계 — 구분(구조체/비구조체)·공법별로 물량 합침,
-    단가는 보수 단가표(공법 이름이 같은 것). 주의관찰은 뺌. 단가표에 없는 공법은 "1식", 단가·금액 "-"(점검자가 넣음)."""
+    단가는 보수 단가표(공법 이름이 같은 것). 주의관찰은 뺌. 단가표에 없는 공법은 "1식" — AI 초안이 추정한 1식 금액(점검자가 고친 것)이 있으면 그 금액,
+    없으면 단가·금액 "-"(점검자가 넣음)."""
     table = {p.method.replace(" ", ""): p for p in prices}
     groups: dict = {}
     for d in _defects_for_cost(db, report_id):
-        act = default_action(d.dtype, d.width)
+        act = action_of(d, methods)
         if act == "주의관찰":
             continue
-        g = groups.setdefault((d.part or "-", act), {"types": [], "qty": 0.0})
+        g = groups.setdefault((d.part or "-", act), {"types": [], "qty": 0.0, "lump": 0, "lump_keys": set()})
+        k = method_key(d.part, d.member, d.dtype, d.width)
+        lump = ((methods or {}).get(k) or ("", None))[1]
+        if lump and k not in g["lump_keys"]:  # 1식 금액은 묶음마다 한 번
+            g["lump"] += int(lump)
+            g["lump_keys"].add(k)
         if d.dtype not in g["types"]:
             g["types"].append(d.dtype)
         g["qty"] += _num(d.qty) or 0
     rows, direct = [], 0
     for (part, act), g in groups.items():
         p = table.get(act.replace(" ", ""))
-        desc = "·".join(g["types"][:3]) + (f" 외 {len(g['types']) - 3}" if len(g["types"]) > 3 else "")
+        desc = "·".join(g["types"][:2]) + (f" 외 {len(g['types']) - 2}종" if len(g["types"]) > 2 else "")  # 칸이 좁아 두 줄 안에
         if p is None or not p.price:
-            rows.append((part, desc, act, "1", "식", "-", "-"))
+            if g["lump"]:
+                direct += g["lump"]
+                rows.append((part, desc, act, "1", "식", f"{g['lump']:,}", f"{g['lump']:,}"))
+            else:
+                rows.append((part, desc, act, "1", "식", "-", "-"))
             continue
         amount = round(g["qty"] * p.price)
         direct += amount

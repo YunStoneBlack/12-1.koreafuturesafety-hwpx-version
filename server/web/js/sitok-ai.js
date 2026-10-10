@@ -62,6 +62,8 @@ async function openSitokAi(reportId, title, onSaved) {
       return;
     }
     const lines = (a) => esc((a || []).join("\n"));
+    const priceNames = new Set((ai.prices || []).map((p) => p.replace(/\s/g, "")));
+    const known = (m) => priceNames.has(String(m || "").replace(/\s/g, ""));
     const st = d.stats || {};
     box.innerHTML = `${head}
       <div class="ai-meta">초안 ${esc(d.made_at || "")}${f.edited_at ? ` · ${esc(f.edited_by)} 고침 ${esc(f.edited_at)}` : ""}</div>
@@ -90,6 +92,11 @@ async function openSitokAi(reportId, title, onSaved) {
             <span class="ai-name">${esc(it.name)}</span>
             <select class="ai-has"><option value="0"${it.has ? "" : " selected"}>없다</option><option value="1"${it.has ? " selected" : ""}>있다</option></select>
             <input class="ai-state" value="${esc(it.state)}" placeholder="상태(유형·크기·추정원인)" /><input class="ai-where" value="${esc(it.where)}" placeholder="위치·사진" /></div>`).join("")}</div>` : ""}
+        ${(f.methods || []).length ? `<h4>보수공법 <span class="sk-help">9쪽 조치 필요사항·보수 우선순위·개략공사비에 같이 들어감 — 단가표 공법이면 단가로 계산, 아니면 1식 금액</span></h4>
+          <div class="ai-met">${f.methods.map((m, i) => `<div class="ai-met-row${known(m.method) ? " known" : ""}" data-i="${i}"><span class="ai-name"><small>${esc(m.part)}</small>${esc(m.member)} ${esc(m.dtype)}${m.wide ? " (0.3mm 이상)" : ""}
+              <em>${m.count}개소 · ${m.qty}${esc(m.unit)}</em></span>
+            <input class="ai-method" list="ai-prices" value="${esc(m.method)}" /><input class="ai-lump" inputmode="numeric" value="${m.lump ? Number(m.lump).toLocaleString() : ""}" placeholder="1식 금액(단가표에 없을 때)" /></div>`).join("")}</div>
+          <datalist id="ai-prices">${(ai.prices || []).map((p) => `<option value="${esc(p)}">`).join("")}</datalist>` : ""}
         <h4>종합결론</h4>
         <label>종합결론 글머리 <span class="sk-help">한 줄에 하나</span><textarea data-k="conclusion" data-lines rows="7">${lines(f.conclusion)}</textarea></label>
       </div>
@@ -110,6 +117,7 @@ async function openSitokAi(reportId, title, onSaved) {
       el.textContent = r.grade ? `${SITOK_GRADES[r.grade]} (${r.total}점 — ${Object.entries(r.rows).map(([k, v]) => `${k} ${v[0]}/${v[1]}=${v[2]}`).join(", ")})` : "-";
     };
     box.querySelectorAll(".ai-item select, .ai-item input").forEach((el) => el.addEventListener("change", calc));
+    box.querySelectorAll(".ai-method").forEach((el) => el.addEventListener("input", () => el.closest(".ai-met-row").classList.toggle("known", known(el.value))));
     box.querySelectorAll(".ai-has").forEach((el) => el.addEventListener("change", () => el.closest(".ai-fac-row").classList.toggle("has", el.value === "1")));
     calc();
     box.querySelector(".mail-cancel").addEventListener("click", close);
@@ -122,6 +130,10 @@ async function openSitokAi(reportId, title, onSaved) {
         if (k.startsWith("sections.")) body.sections[k.slice(9)] = v; else body[k] = v;
       });
       if (items.length) { calc(); body.items = items; }
+      if ((f.methods || []).length) {
+        body.methods = [...box.querySelectorAll(".ai-met-row")].map((row) => ({ ...f.methods[Number(row.dataset.i)], method: row.querySelector(".ai-method").value.trim(),
+          lump: Number(row.querySelector(".ai-lump").value.replace(/[^0-9]/g, "")) || null }));
+      }
       if ((f.facility || []).length) {
         body.facility = [...box.querySelectorAll(".ai-fac-row")].map((row) => ({ ...f.facility[Number(row.dataset.i)], has: row.querySelector(".ai-has").value === "1",
           state: row.querySelector(".ai-state").value.trim(), where: row.querySelector(".ai-where").value.trim() }));

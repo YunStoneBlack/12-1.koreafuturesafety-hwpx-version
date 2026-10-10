@@ -148,3 +148,13 @@
 .ai-fac-row.has .ai-has { border-color: #E0A33A; color: #B7791F; font-weight: 700; }
 @media (max-width: 760px) { .ai-fac-row { grid-template-columns: 22px minmax(0, 1fr) 68px; } .ai-fac-row .ai-state, .ai-fac-row .ai-where { grid-column: 2 / -1; } }
 @media (max-width: 760px) { .ai-fac-row:not(.has) .ai-state, .ai-fac-row:not(.has) .ai-where { display: none; } }
+
+/* 보수공법(AI 초안 창) */
+.ai-met { display: flex; flex-direction: column; gap: 4px; }
+.ai-met-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 150px; gap: 6px; align-items: center; font-size: 12.5px; }
+.ai-met-row .ai-name small { display: inline-block; margin-right: 4px; padding: 0 5px; border-radius: 4px; background: var(--paper); color: var(--muted); font-size: 11px; }
+.ai-met-row .ai-name em { font-style: normal; color: var(--faint); margin-left: 6px; font-size: 11.5px; }
+.ai-met-row input { padding: 5px 6px; font-size: 12.5px; }
+@media (max-width: 760px) { .ai-met-row { grid-template-columns: 1fr 1fr; } .ai-met-row .ai-name { grid-column: 1 / -1; } }
+.ai-met-row.known .ai-lump { visibility: hidden; }
+@media (max-width: 760px) { .ai-met-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .ai-met-row.known .ai-lump { display: none; } .ai-met-row.known .ai-method { grid-column: 1 / -1; } }

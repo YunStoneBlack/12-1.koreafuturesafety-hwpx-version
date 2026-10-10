@@ -149,8 +149,19 @@ FACILITY_SPEC = """,
 {defects}"""
 
 
+METHOD_SPEC = """,
+ "methods": [{{"no": 묶음번호, "method": "보수공법", "lump": 단가표에 없는 공법일 때만 그 묶음 전체 1식 금액(원, 정수) 아니면 null}} — 아래 묶음 전부]
+
+[보수공법 — 9쪽 조치 필요사항·보수 우선순위·개략공사비에 같이 씀] 묶음마다 보수공법을 정하세요.
+- 되도록 회사 단가표의 공법 이름 그대로(그래야 단가로 계산됨): {prices}
+- 단가표에 맞는 공법이 없을 때만 새 공법 이름(예: 방수층 부분 재시공, 배수구 정비, 창호 실링 교체)과 그 묶음 전체의 1식 금액(시중 일반 단가 기준 개략)을 넣으세요.
+- 경미하고 진행성이 없어 보수가 필요 없으면 "주의관찰". 균열 0.3mm 미만 = 표면처리, 0.3mm 이상 = 에폭시주입보수가 기본.
+[묶음 — 번호 | 구분 | 부재 | 결함유형 | 개수 | 물량 | 최대 폭 | 원인 | 기본 공법]
+{combos}"""
+
+
 def draft(facility: str, period: str, defects: list, old_text: str, company_id: int, eval_items: list | None = None,
-          fac_items: list | None = None) -> dict:
+          fac_items: list | None = None, combos: list | None = None, price_list: list | None = None) -> dict:
     st = stats(defects)
     lines = []
     for k, _, n in CATEGORIES:
@@ -165,13 +176,20 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
                          if d.get("check") != "repaired" and not (d.get("dtype") or "").rstrip().endswith("현황"))
         spec += FACILITY_SPEC.format(n=len(fac_items), items="\n".join(f"{it['no']}. {it['name']} (지난 {'있다' if it['has'] else '없다'})" for it in fac_items),
                                      defects=rows or "(없음)")
+    if combos:
+        spec += METHOD_SPEC.format(prices=", ".join(f"{m}({u} {p:,}원)" if p else m for m, u, p in price_list or []),
+                                   combos="\n".join(f"{i} | {c['part']} | {c['member']} | {c['dtype']}{' (0.3mm 이상)' if c['wide'] else ''} | {c['count']}개소 | "
+                                                     f"{c['qty']}{c['unit']} | {c['max_width'] if c['max_width'] is not None else '-'} | {', '.join(c['causes']) or '-'} | "
+                                                     f"{c['default']}" for i, c in enumerate(combos, 1)))
     prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), old=old_text[:6000] or "(없음)", items_spec=spec)
     client = Anthropic(api_key=get_api_key(company_id))
-    resp = client.messages.create(model=get_model_name(), max_tokens=12000, messages=[{"role": "user", "content": prompt}])
+    # 3종 18항목·1.4·보수공법까지 쓰면 답이 길어 스트리밍으로(긴 요청은 SDK가 스트리밍을 요구)
+    with client.messages.stream(model=get_model_name(), max_tokens=32000, messages=[{"role": "user", "content": prompt}]) as stream:
+        resp = stream.get_final_message()
     text = "".join(b.text for b in resp.content if b.type == "text")
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
-        raise ValueError("AI 답에서 JSON을 찾지 못했습니다.")
+        raise ValueError(f"AI 답에서 JSON을 찾지 못했습니다(끝난 이유 {resp.stop_reason}).")
     data = json.loads(m.group(0))
     data["sections"] = {k: str((data.get("sections") or {}).get(k) or "").strip() for k, _, _ in CATEGORIES}
     for k in ("findings", "repairs", "conclusion"):
@@ -204,4 +222,19 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
                             for it in fac_items]
     else:
         data.pop("facility", None)
+    if combos:  # 묶음 정보는 프로그램 것, 공법·1식 금액만 AI
+        known = {m.replace(" ", "") for m, _, _ in price_list or []}
+        got = {int(x["no"]): x for x in (data.get("methods") or []) if str(x.get("no", "")).isdigit() or isinstance(x.get("no"), int)}
+        rows = []
+        for i, c in enumerate(combos, 1):
+            g = got.get(i, {})
+            method = str(g.get("method") or "").strip() or c["default"]
+            try:
+                lump = int(float(str(g.get("lump") or 0).replace(",", ""))) if method.replace(" ", "") not in known else None
+            except ValueError:
+                lump = None
+            rows.append({**{k: c[k] for k in ("key", "part", "member", "dtype", "wide", "count", "qty", "unit")}, "method": method, "lump": lump or None})
+        data["methods"] = rows
+    else:
+        data.pop("methods", None)
     return data

@@ -326,10 +326,12 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     from server.api.routers.sitok_overview import photos as overview_photos
     ex.overview = overview_photos(db, r)  # 전경사진(없으면 지난 회차 그대로)
     ex.blank = str(_blank_jpg())
-    ex.summary = summary_rows(db, r.id)  # 현장 조사 결함이 있을 때만 9쪽 요약표·우선순위·개략공사비를 새로
+    from server.api.routers.sitok_defects import method_map
+    methods = method_map((ex.ai or {}).get("methods"))  # AI 초안 보수공법(없으면 결함유형별 기본 공법)
+    ex.summary = summary_rows(db, r.id, methods)  # 현장 조사 결함이 있을 때만 9쪽 요약표·우선순위·개략공사비를 새로
     if ex.summary:
-        ex.priority = priority_rows(db, r.id)
-        ex.cost = cost_rows(db, r.id, prices(db, r.company_id))
+        ex.priority = priority_rows(db, r.id, methods)
+        ex.cost = cost_rows(db, r.id, prices(db, r.company_id), methods)
         from server.api.routers.sitok_defects import rep_photos
         ex.rep_photos = rep_photos(db, r.id)
         ex.blank = str(_blank_jpg())
@@ -446,6 +448,12 @@ def report_file(report_id: int, kind: str, user: User = Depends(get_current_user
                         filename=Path(path).name, content_disposition_type="inline" if kind == "pdf" else "attachment")
 
 
+def _ai_out(db: Session, r: SitokReport) -> dict:
+    """AI 초안 + 단가표 공법 이름(창에서 보수공법 고르기용)."""
+    from server.api.routers.sitok_settings import prices
+    return {**(r.ai or {}), "prices": [p.method for p in prices(db, r.company_id)]}
+
+
 @router.post("/reports/{report_id}/ai/draft")
 def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """AI 초안 새로 — 결과는 draft에, 점검자가 고치기 전 final도 같은 값으로(화면에서 고쳐 저장하면 final만 바뀜)."""
@@ -464,8 +472,11 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
     try:
         src = Path(r.source_hwpx) if r.source_hwpx and Path(r.source_hwpx).exists() else None
         items = rb.read_eval_items(src) if f.template.startswith("3종") and src else []
+        from server.api.routers.sitok_defects import method_combos
+        from server.api.routers.sitok_settings import prices
         data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id,
-                              eval_items=items, fac_items=rb.read_facility_items(src) if src else [])
+                              eval_items=items, fac_items=rb.read_facility_items(src) if src else [],
+                              combos=method_combos(db, r.id), price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)])
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
     data["made_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -474,13 +485,13 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
         final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
     r.ai = {"draft": data, "final": final}
     db.commit()
-    return r.ai
+    return _ai_out(db, r)
 
 
 @router.get("/reports/{report_id}/ai")
 def ai_get(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
-    return r.ai or {}
+    return _ai_out(db, r) if r.ai else {}
 
 
 @router.put("/reports/{report_id}/ai")
@@ -488,7 +499,7 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
     """점검자가 고친 값(final) 저장 — 키는 ai_draft.draft 결과와 같음. 등급은 A~E만."""
     r = _require(db, user, report_id)
     final = {k: body.get(k) for k in ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason",
-                                      "items", "eval_opinion", "facility")}
+                                      "items", "eval_opinion", "facility", "methods")}
     if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선)
         final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
     if final.get("grade") and final["grade"] not in ("A", "B", "C", "D", "E"):
@@ -496,4 +507,4 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
     final["edited_by"], final["edited_at"] = user.display_name or "", datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     r.ai = {**(r.ai or {}), "final": final}
     db.commit()
-    return r.ai
+    return _ai_out(db, r)
