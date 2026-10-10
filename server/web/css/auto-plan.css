@@ -18,6 +18,9 @@
 .mr-tag.delete { color: var(--muted); background: var(--paper); }
 .mr-tag.stuck { color: var(--warn); background: var(--warn-soft); }
 .ap-row .mr-why { display: block; font-size: 12px; color: var(--muted); }
+/* 경고(2026-10-10) — 요원 단위 자동 배치(기존 자동 예정 다시 짬)·채워 넣기 전 지난 일정 남음 */
+.ap-warn { font-size: 12.5px; color: var(--crit); background: #FDECEC; border: 1px solid #F2B8B5; border-radius: 8px; padding: 9px 11px; line-height: 1.55; }
+.main .ap-warn button { display: block; margin: 8px 0 0; padding: 6px 12px; font-size: 12.5px; }
 /* "⚠ 예정이 모자란 현장" 띠(2026-10-10) — 일정 없는 현장 띠(.ap-notice)와 같은 틀, 머리줄 오른쪽에 [모두 채워 넣기] */
 .ap-notice.ap-short .ap-notice-headrow { display: flex; align-items: center; background: var(--warn-soft); }
 .ap-notice.ap-short .ap-notice-headrow .ap-notice-head { flex: 1; min-width: 0; }

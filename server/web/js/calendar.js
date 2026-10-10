@@ -97,9 +97,17 @@ document.getElementById("cal-autoplan").addEventListener("click", () => {
   if (!ids.length) { alert("볼 사람(요원)을 먼저 고르세요."); return; }
   const names = ids.map((id) => staffById()[id]?.name).filter(Boolean);
   const title = names.length === 1 ? `${names[0]}님의 진행 중 현장 전부` : `${names[0]} 외 ${names.length - 1}명의 진행 중 현장 전부`;
-  openAutoPlan({ staffIds: ids }, title, () => {
+  openAutoPlan({ staffIds: ids }, title, async () => {
     reload();
     renderUnplannedNotice(document.getElementById("ap-notice"), () => reload());
+    // 다시 짠 뒤 남은 정리 순서 안내(민재형) — 지난 일정 → 모자란 횟수
+    try {
+      const [{ count }, short] = await Promise.all([api("/calendar/missed"), api("/calendar/short")]);
+      if (count || short.length) {
+        alert(`자동 배치가 끝났습니다.\n지난 일정 ${count}건 · 예정이 모자란 현장 ${short.length}곳이 있습니다.\n\n` +
+          "① [🔁 지난 일정 재배치] → ② 맨 위 안내의 [모두 채워 넣기] 순서로 정리하세요.");
+      }
+    } catch (_) { /* 안내일 뿐 */ }
   });
 });
 document.querySelectorAll(".cal-seg button").forEach((b) => b.addEventListener("click", () => {
@@ -207,6 +215,7 @@ const cal = new FullCalendar.Calendar(document.getElementById("cal"), {
         const [d] = await Promise.all([api(`/calendar?start=${start}&end=${end}`), loadHolidays(info.start, info.end)]);
         data = d;
         dataKey = key;
+        document.getElementById("cal-autoplan").hidden = !data.is_admin; // 요원 단위 자동 배치는 관리자만(2026-10-10)
         renderFilter();
       }
       success(buildEvents());

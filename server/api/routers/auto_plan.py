@@ -15,7 +15,7 @@ from __future__ import annotations
 import datetime
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from core import config
 from core.models_db import Report, Site, Staff
 from core.models_web import User, VisitPlan
-from server.api.deps import get_current_user, get_db
+from server.api.deps import get_current_user, get_db, is_groupware_admin
 from server.api.geocode import RoadDistance, map_addresses, site_coords
 from server.api.report_staff import assign_new_plans, day_cap, preferred_map, staff_order, travelers
 from server.api.site_pace_out import done_counts
@@ -50,6 +50,13 @@ class AutoPlanSettings(BaseModel):
 
 
 _active = is_active  # 진행중 현장만 배치(server/api/site_status.py)
+
+
+def _check_admin(body: AutoPlanIn, request: Request | None) -> None:
+    """요원 단위(달력 [📅 자동 배치])는 그룹웨어 관리자만(2026-10-10 사용자·민재형) — 보고 있는 요원들 현장의 자동 예정을 전부 지우고
+    다시 짜는데, 그새 생긴 규칙(하루 출장 인원 등) 때문에 예정이 크게 줄 수 있다(19건 → 6건 확인). 현장 단위(새 현장)는 누구나."""
+    if body.site_id is None and request is not None and not is_groupware_admin(request):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "요원 단위 자동 배치는 관리자만 할 수 있습니다.")
 
 
 def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.date):
@@ -119,7 +126,8 @@ def _names(db: Session, company_id: int) -> dict[int, str]:
 
 
 @router.post("/calendar/auto-plan/preview")
-def preview(body: AutoPlanIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def preview(body: AutoPlanIn, request: Request = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _check_admin(body, request)
     today = datetime.date.today()
     sites, region, dist, replaced, kept, placed, results, finish = _compute(db, user.company_id, body, today)
     names = _names(db, user.company_id)
@@ -147,7 +155,8 @@ def preview(body: AutoPlanIn, user: User = Depends(get_current_user), db: Sessio
 
 
 @router.post("/calendar/auto-plan/apply")
-def apply(body: AutoPlanIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def apply(body: AutoPlanIn, request: Request = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _check_admin(body, request)
     today = datetime.date.today()
     sites, _, _, replaced, _, placed, results, _ = _compute(db, user.company_id, body, today)
     names = _names(db, user.company_id)

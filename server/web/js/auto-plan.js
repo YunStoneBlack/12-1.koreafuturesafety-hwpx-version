@@ -74,9 +74,14 @@ async function openAutoPlan(target, titleText, onDone) {
   const replaceNote = pv.replace_count
     ? `<div class="ap-sub">지금 자동으로 넣어 둔 예정 ${pv.replace_count}건은 이 일정으로 바뀝니다. 📌 사람이 정한 예정은 그대로 둡니다.</div>`
     : '<div class="ap-sub">📌 사람이 정한 예정은 그대로 두고, 같은 지역 출장이 있는 날에 맞춰 넣었습니다.</div>';
+  // 요원 단위(달력, 관리자만) — 기존 자동 예정을 전부 다시 짜서 줄어들 수 있음(2026-10-10). 빠진 횟수 메우기는 [지난 일정 재배치]·[모두 채워 넣기]로.
+  const staffWarn = target.siteId == null && pv.replace_count
+    ? `<div class="ap-warn">⚠ 기존 자동 예정 <b>${pv.replace_count}건을 전부 지우고</b> 지금 규칙으로 다시 짭니다${pv.plans.length < pv.replace_count ? ` — <b>${pv.replace_count}건 → ${pv.plans.length}건으로 줄어듭니다</b>` : ""}. 이미 알려 준 날짜도 바뀝니다.
+        빠진 횟수만 메우려면 이 창을 닫고 [🔁 지난 일정 재배치] → 맨 위 안내의 [모두 채워 넣기]를 쓰세요.</div>`
+    : "";
 
   box.innerHTML = `${head}
-    <div class="ap-summary">${summary}</div>${pv.plans.length ? replaceNote : ""}${notes}
+    ${staffWarn}<div class="ap-summary">${summary}</div>${pv.plans.length ? replaceNote : ""}${notes}
     ${pv.plans.length ? `<div class="ap-list">${rows}</div>` : ""}
     <div class="mail-msg" hidden></div>
     <div class="mail-foot"><button type="button" class="mail-cancel">취소</button>
@@ -246,6 +251,13 @@ async function openShortFill(siteIds, titleText, onDone) {
     box.querySelector(".mail-cancel").addEventListener("click", close);
     return;
   }
+  let missed = 0;
+  try { missed = (await api("/calendar/missed")).count; } catch (_) { /* 경고일 뿐 */ }
+  // 순서 안내(민재형) — 지난 일정을 먼저 옮기지 않고 채우면 지난 일정이 남아 같은 현장이 겹쳐 보임
+  const missedWarn = missed
+    ? `<div class="ap-warn">⚠ 지난 일정이 <b>${missed}건</b> 남아 있습니다. 먼저 [🔁 지난 일정 재배치]를 하고 채워 넣으세요 — 이대로 넣으면 지난 일정은 그대로 남아 같은 현장이 겹쳐 보일 수 있습니다.
+        <button type="button" class="secondary sf-missed-first">지난 일정 재배치 먼저</button></div>`
+    : "";
   const multi = new Set(pv.items.map((it) => it.site_id)).size > 1;
   const rows = pv.items.map((it) => {
     const withText = it.with.length ? `<span class="ap-with">+ ${apEsc(apWithKm(it.with.slice(0, 3)))}${it.with.length > 3 ? ` 외 ${it.with.length - 3}곳` : ""}와 함께</span>` : "";
@@ -258,13 +270,14 @@ async function openShortFill(siteIds, titleText, onDone) {
     ? `<b>${pv.added}회</b>를 더 넣습니다${pv.stuck ? ` · <b>${pv.stuck}회</b>는 마감 전에 넣을 날이 없습니다` : ""}.`
     : "모자란 횟수가 없습니다.";
   box.innerHTML = `${head}
-    <div class="ap-summary">${summary}</div>
+    ${missedWarn}<div class="ap-summary">${summary}</div>
     ${pv.items.length ? `<div class="ap-sub">지금 있는 예정은 그대로 두고, 그 현장 다른 방문과 간격이 고르게 · 같은 지역 출장이 있는 날에 맞춰 더합니다.</div>
       <div class="ap-list">${rows}</div>` : ""}
     <div class="mail-msg" hidden></div>
     <div class="mail-foot"><button type="button" class="mail-cancel">${pv.added ? "취소" : "닫기"}</button>
       ${pv.added ? '<button type="button" class="mail-primary sf-apply">이대로 넣기</button>' : ""}</div>`;
   box.querySelector(".mail-cancel").addEventListener("click", close);
+  box.querySelector(".sf-missed-first")?.addEventListener("click", () => { close(); openMissedReplan(onDone); });
   const applyBtn = box.querySelector(".sf-apply");
   if (!applyBtn) return;
   applyBtn.addEventListener("click", async () => {

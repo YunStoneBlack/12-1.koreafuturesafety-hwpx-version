@@ -177,7 +177,7 @@ def handover(site_id: int, body: HandoverIn, user: User = Depends(get_current_us
         from server.api.routers.auto_plan import AutoPlanIn
         from server.api.routers.auto_plan import apply as auto_apply
 
-        replanned = auto_apply(AutoPlanIn(site_id=site_id), user, db)
+        replanned = auto_apply(AutoPlanIn(site_id=site_id), user=user, db=db)
     return {"ok": True, "moved": moved, "replanned": replanned}
 
 

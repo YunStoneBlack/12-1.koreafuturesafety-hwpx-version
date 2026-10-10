@@ -19,7 +19,7 @@ import datetime
 import re
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -30,7 +30,7 @@ from core.staff_load import MAX_SITES_PER_STAFF_PER_DAY
 from server.api import repo
 from server.api.report_staff import (assign_new_plans, day_cap, free_names, has_room, paper_load, redistribute, staff_order,
                                      travelers)
-from server.api.deps import get_current_user, get_db
+from server.api.deps import get_current_user, get_db, is_groupware_admin
 from server.api.site_pace_out import done_counts, pace_dict
 from server.api.geocode import map_addresses
 from server.api.site_label import site_label
@@ -63,6 +63,7 @@ def _plan_out(p: VisitPlan, site: Site, state: str) -> dict:
 def calendar(
     start: datetime.date = Query(...),
     end: datetime.date = Query(...),
+    request: Request = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -116,6 +117,7 @@ def calendar(
     map_addr = map_addresses(db, sites)
     return {
         "today": today.isoformat(),
+        "is_admin": is_groupware_admin(request),  # 요원 단위 [📅 자동 배치]는 관리자만(2026-10-10 — 기존 자동 예정을 전부 다시 짜서 줄어들 수 있음)
         # 현장별 [📞 전화]·[📍 지도](현장책임자 연락처, 지도 방문 주소 — 없으면 현장 주소) + 진행 막대(pace)
         "site_links": {
             s.id: {"phone": (s.manager_phone or "").strip(), "map_address": map_addr[s.id],
