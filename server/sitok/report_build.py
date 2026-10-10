@@ -265,11 +265,6 @@ def _sub_parts(text: str, parts: list) -> str:
     return text
 
 
-def _own_runs(p) -> list:
-    """이 문단에 바로 속한 글자 칸(안에 든 표의 글자는 뺌)."""
-    return [t for t in p.iter(T) if next(t.iterancestors(f"{{{HP}}}p"), None) is p]
-
-
 def _cross_runs(root, pairs: list[tuple[str, str]]) -> int:
     """글자 칸 여러 개에 걸쳐 나뉜 값 — 책등 "2","0","2","6"처럼(세로글씨는 글자마다 문단이 따로). 맨 바깥 문단 단위로 그 안의 글자 칸을
     차례로 이어 붙여 찾고, 글자 수가 같은 것만 글자 단위로 맞춰 바꿈(칸 모양은 그대로)."""
@@ -564,16 +559,17 @@ def _add_history(root, old: Values) -> bool:
     tmpl = ps[0]
     for q in ps[1:]:
         q.getparent().remove(q)
-    for i, text in enumerate(old.findings or ["-"]):
-        q = tmpl if i == 0 else copy.deepcopy(tmpl)
+    last = None
+    for text in old.findings or ["-"]:
+        q = tmpl if last is None else copy.deepcopy(tmpl)
         ts = list(q.iter(T))
         if ts:
-            ts[0].text = text if text.startswith("ㆍ") else f"ㆍ{text}"
+            _clear(ts[0], text if text.startswith("ㆍ") else f"ㆍ{text}")
             for t in ts[1:]:
-                t.text = ""
-        if i:
-            prev.addnext(q)
-        prev = q
+                _clear(t, "")
+        if last is not None:
+            last.addnext(q)
+        last = q
     first.addprevious(tbl)
     return True
 

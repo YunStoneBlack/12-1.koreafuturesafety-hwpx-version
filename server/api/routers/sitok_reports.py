@@ -29,6 +29,10 @@ from core.stored_path import to_full
 from server.api.deps import get_current_user, get_db
 from server.api.routers.contract_library import doc_status
 from server.api.routers.sitok import _facility_dir, _require_facility
+
+
+def _iso(d) -> str:
+    return d.isoformat() if d else ""  # sitok._iso는 빈 날짜를 None으로 — 회차 화면은 "" (date 칸 value)
 from server.contract_docs import hwp_queue
 from server.sitok import report_build as rb
 
@@ -46,10 +50,6 @@ class ReportIn(BaseModel):
     report_date: datetime.date | None = None
     chief_id: int | None = None
     participant_ids: list[int] | None = None
-
-
-def _iso(d):
-    return d.isoformat() if d else ""
 
 
 def _report_dir(f: SitokFacility, r: SitokReport) -> Path:
