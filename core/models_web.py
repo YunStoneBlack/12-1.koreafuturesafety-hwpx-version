@@ -358,6 +358,9 @@ class TechPerson(Base):
     join_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     qualification: Mapped[str] = mapped_column(Text, default="")  # 기술자격(여러 개면 줄바꿈)
     grade: Mapped[str] = mapped_column(Text, default="")          # 기술등급(특급·고급…)
+    # 시특법(2026-10-10 alembic 0028) — 참여기술자 명단 "분야"·결과표 "기술등급" 문구(예: 건축분야특급기술자). 같은 사람을 산안법·시특법이 같이 씀
+    sitok_field: Mapped[str] = mapped_column(Text, default="건축")
+    sitok_grade: Mapped[str] = mapped_column(Text, default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
 
@@ -475,3 +478,20 @@ class SitokContract(Base):
     contract_pdf: Mapped[str] = mapped_column(StoredPath, default="")
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class SitokEquipment(Base):
+    """웹판 전용 — 시특법 보고서 공통편 1.6 "사용 장비 및 기기 현황" 표(2026-10-10 alembic 0028). 회사 장비 목록을 한 번 등록해 두고 계속 씀.
+    grp = 구분(콘크리트·변위조사·보조기구), photos = 비고 칸 사진(저장소 _시특법/장비, 1~2장). 처음 13종은 평택 견본 보고서에서 옮김."""
+
+    __tablename__ = "sitok_equipment"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    grp: Mapped[str] = mapped_column(Text, default="")
+    name: Mapped[str] = mapped_column(Text, default="")
+    model: Mapped[str] = mapped_column(Text, default="")
+    purpose: Mapped[str] = mapped_column(Text, default="")
+    photos: Mapped[list | None] = mapped_column(JSON, default=None)  # 저장소 기준 경로들(to_stored)
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)

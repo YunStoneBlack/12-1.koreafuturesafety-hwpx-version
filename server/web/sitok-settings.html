@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>설정 - 시특법</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+</head>
+<!-- 시특법 설정(2026-10-10 3단계) — 보고서 앞부분(등록증·수료증·참여기술자)·부록(책임기술자 자격)·공통편 1.6(사용 장비)에 자동으로 들어가는 것.
+     서버 server/api/routers/sitok_settings.py, 화면 js/sitok-settings.js. 기술자 명단 자체는 서류 자동화 설정과 같이 씀. -->
+<body data-report-tab="settings" data-law="sitok">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<p class="page-sub tab-intro">시특법 보고서에 자동으로 들어가는 서류와 장비입니다. 한 번 올려 두면 모든 보고서에 쓰고, 유효기간이 지나면 보고서를 만들 때 알려 줍니다.</p>
+<div id="error" class="error"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>회사 서류</h2><span class="panel-count">보고서 앞부분</span></div>
+  <div class="panel-body" id="ss-company"></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>기술자</h2><span class="panel-count">참여기술자 명단·결과표·부록 — 사람 추가·이름·직위는 <a href="docs-settings.html">서류 자동화 설정</a>(같은 명단)</span></div>
+  <div class="panel-body" id="ss-persons"></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>사용 장비</h2><button type="button" class="secondary btn-sm" id="ss-add-eq">+ 장비 추가</button></div>
+  <div class="panel-body">
+    <p class="page-sub ss-note">공통편 1.6 "사용 장비 및 기기 현황" 표. 칸을 고치면 바로 저장되고, 위에서부터 이 순서로 들어갑니다(처음 13종은 평택순복음교회 보고서에서 옮겨 둠).</p>
+    <div id="ss-equip"></div>
+  </div>
+</section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/sitok-settings.js"></script>
+</body>
+</html>

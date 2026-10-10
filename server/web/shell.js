@@ -30,7 +30,7 @@ const isDocsPage = () => !!document.body.dataset.docsTab;
 // 산안법 / 시특법(2026-10-10) — 그룹웨어 왼쪽 메뉴 [보고서 자동화]·[서류 자동화] 아래 소메뉴. <body data-law="sitok">이면 시특법 화면(없으면 산안법).
 // 시특법은 아직 메인 하나씩(설계: 바탕화면 "시특법 견본\인수인계.md") — 단계마다 탭을 늘린다.
 const pageLaw = () => (document.body.dataset.law === "sitok" ? "sitok" : "sanan");
-const SITOK_TABS = [["facilities", "시설물 목록", "sitok.html"]];
+const SITOK_TABS = [["facilities", "시설물 목록", "sitok.html"], ["settings", "설정", "sitok-settings.html"]];
 const SITOK_DOCS_TABS = [["contracts", "계약 목록", "sitok-docs.html"]];
 const LAW_LABEL = { sanan: "산안법", sitok: "시특법" };
 const SIDEBAR_CACHE_KEY = "kfsc-report:gw-sidebar";

@@ -32,6 +32,7 @@ from server.api.routers import (
     materials,
     missed_replan,
     sitok,
+    sitok_settings,
     photo_rotate,
     photos,
     plan_change,
@@ -100,6 +101,7 @@ web_app.include_router(auto_plan.router, prefix="/api")
 web_app.include_router(plan_change.router, prefix="/api")
 web_app.include_router(missed_replan.router, prefix="/api")  # 방문 달력 [🔁 지난 일정 재배치]
 web_app.include_router(sitok.router, prefix="/api")  # 시특법 시설물·점검 계약(2026-10-10)
+web_app.include_router(sitok_settings.router, prefix="/api")  # 시특법 설정(회사·기술자 서류, 장비)
 web_app.include_router(route_plan.router, prefix="/api")
 web_app.include_router(contract_library.router, prefix="/api")  # 착수계·완수계 자료실(설정 탭)
 web_app.include_router(contracts.router, prefix="/api")  # 서류 자동화 — 용역 계약·착수계·완수계
