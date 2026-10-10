@@ -20,13 +20,18 @@
 
 <div id="error" class="error"></div>
 
-<p class="page-sub dc-note">계약의 착수일·완수일을 보여 줍니다(정해진 제출 기한은 없음). ✓는 그 서류를 이미 제출했다는 뜻이고, 누르면 그 서류 창이 열립니다.</p>
-<section class="panel">
-  <div class="panel-body">
-    <div id="dk-cal"></div>
-    <div class="dk-legend"><span><i class="start"></i>착수일(착수계)</span><span><i class="done"></i>완수일(완수계)</span><span><i class="ok"></i>✓ 이미 제출함</span></div>
-  </div>
-</section>
+<p class="page-sub dc-note">계약의 착수일·완수일을 보여 줍니다(정해진 제출 기한은 없음). ✓는 그 서류를 이미 제출했다는 뜻이고, 누르면 그 서류 창이 열립니다.<span class="dk-pc-only"> 날짜를 누르면 오른쪽에 그날 계약 상세가 나옵니다.</span></p>
+<div class="dk-wrap">
+  <section class="panel">
+    <div class="panel-body">
+      <div id="dk-cal"></div>
+      <div class="dk-legend"><span><i class="start"></i>착수일(착수계)</span><span><i class="done"></i>완수일(완수계)</span><span><i class="ok"></i>✓ 이미 제출함</span></div>
+    </div>
+  </section>
+  <section class="panel dk-day" id="dk-day">
+    <div class="panel-body" id="dk-day-body"></div>
+  </section>
+</div>
 <div class="dk-list" id="dk-list"></div>
 
   </main>

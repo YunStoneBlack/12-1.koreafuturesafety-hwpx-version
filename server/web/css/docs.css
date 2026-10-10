@@ -45,6 +45,26 @@
 .dk-legend i.done { background: #F3EFFF; border: 1px solid #7c3aed; border-left-width: 4px; }
 .dk-legend i.ok { background: #EEF4FF; border: 1px solid #2563eb; opacity: .6; }
 .dk-list { display: none; margin-top: 12px; }
+/* 그날 상세(2026-10-10) — 방문 달력 .cal-wrap/.cal-day와 같은 배치. 넓은 PC는 상세 칸을 본문(app.css .main 1180px) 오른쪽 빈 곳으로 */
+.dk-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+@media (min-width: 1860px) { .dk-wrap { grid-template-columns: minmax(0, 1fr) 400px; margin-right: -416px; } }
+@media (max-width: 1100px) { .dk-wrap { grid-template-columns: 1fr; } .dk-day { position: static; } }
+.dk-day { position: sticky; top: 12px; }
+.fc .fc-daygrid-day { cursor: pointer; }
+.fc .fc-daygrid-day.dk-selected { box-shadow: inset 0 0 0 2px var(--blue); }
+.main .dk-day-title { color: var(--ink); font-size: 14px; margin: 0 0 8px; }
+.main .dk-day-title.red { color: var(--crit); }
+.dk-item { border: 1px solid var(--line); border-left-width: 4px; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
+.dk-item.dk-start { border-left-color: #2563eb; } .dk-item.dk-done { border-left-color: #7c3aed; }
+.dk-item-kind { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.dk-item.dk-start .dk-item-kind { color: #2563eb; } .dk-item.dk-done .dk-item-kind { color: #7c3aed; }
+.dk-item b { font-weight: 600; }
+.dk-item small { color: var(--muted); font-size: 12px; }
+.dk-item small a { color: var(--blue); }
+.dk-item-state { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-top: 2px; }
+.dk-item-state.ok { color: var(--green); }
+.dk-item-act { display: flex; justify-content: flex-end; margin-top: 4px; }
+.main .dk-item-act button { margin: 0; padding: 6px 12px; font-size: 12.5px; }
 .dk-lday { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 5px; }
 .dk-lday.today { border-color: var(--blue); }
 .dk-ldate { font-size: 13px; font-weight: 700; }
@@ -64,6 +84,7 @@
   .ds-name { grid-column: 1 / -1; }
   .ds-kl { display: inline; }
   .dk-list { display: block; } /* 폰: 달력 칸은 색 막대만 → 아래 목록에서 누름 */
+  .dk-day, .dk-pc-only { display: none; } /* 폰은 아래 목록이 상세를 대신 */
   .fc .fc-daygrid-event .fc-event-main { font-size: 0; }
   .fc .fc-daygrid-event { height: 6px; margin-top: 2px !important; }
   .fc .fc-daygrid-day-frame { min-height: 62px; }
