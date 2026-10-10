@@ -751,8 +751,15 @@ def grade_text_for(letter: str, template: str) -> tuple[str, str]:
     return grade_text(letter, template)
 
 
-def _ai_body(root, ai: dict, template: str) -> int:
-    """1.3 외관조사 항목 서술(제목 다음 문단)·결과의 분석 표·종합결론 글머리·안전등급 줄과 정의."""
+def _letter(grade: str) -> str:
+    """결과표 등급 글(보통·C·C등급) → 글자."""
+    from server.sitok.ai_draft import WORD_TO_LETTER
+    g = (grade or "").replace("등급", "").strip()
+    return WORD_TO_LETTER.get(g, g.upper()[:1] if g[:1].upper() in "ABCDE" else "")
+
+
+def _ai_body(root, ai: dict, template: str, old_grade: str = "") -> int:
+    """1.3 외관조사 항목 서술(제목 다음 문단)·결과의 분석 표·종합결론 글머리·안전등급 줄과 정의·안전등급 변경시 사유."""
     from server.sitok.ai_draft import section_key
 
     n = 0
@@ -811,6 +818,16 @@ def _ai_body(root, ai: dict, template: str) -> int:
             if nxt is not None and _top_text(nxt).startswith("본 시설물은"):
                 _set_para(nxt, f"본 시설물은 {desc}로 판단된다.")
             n += 1
+        if re.match(r"\d\)\s*안전등급\s*변경\s*시\s*사유", t) and ai.get("grade"):  # 지난 회차 사유가 그대로 남지 않게 늘 새로
+            nxt = next((q for q in tops[i + 1:] if _top_text(q)), None)
+            if nxt is not None and _top_text(nxt).startswith("-"):
+                before, now = _letter(old_grade), ai["grade"]
+                if before and before != now:
+                    w = lambda x: grade_text_for(x, template)[0]  # noqa: E731
+                    _set_para(nxt, f"- 전회차 {w(before)}등급 → 금회 {w(now)}등급 : {ai.get('grade_reason') or '외관조사 결과에 따름'}")
+                else:
+                    _set_para(nxt, "- 해당사항 없음")
+                n += 1
     return n
 
 
@@ -1064,7 +1081,7 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                 if not is_front and extras.cost is not None and _cost_table(root, extras.cost[0], extras.cost[1]):
                     changed += 1
                 if extras.ai:
-                    changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template)
+                    changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template, old.grade)
                 if extras.ai and extras.ai.get("items") and not is_front:
                     changed += _apply_eval(root, extras.ai["items"], extras.ai.get("eval_opinion") or "")
                 if extras.rep_photos and not is_front:
