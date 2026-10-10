@@ -331,6 +331,31 @@ def _merge(pdf: Path, f: SitokFacility, c: SitokContract | None) -> list[str]:
     return list(reversed(done))
 
 
+def _insert_album(db: Session, r: SitokReport, pdf: Path) -> bool:
+    """현장 조사 결함이 있으면 외관조사 사진첩(결함현황표·사진표)을 만들어 부록2 간지 뒤에 끼움(10/11 5-2)."""
+    from server.api.routers.sitok_defects import album_floors
+    from server.sitok import album_make
+
+    floors = album_floors(db, r.id)
+    if not floors:
+        return False
+    album = pdf.with_name("외관조사 사진첩.pdf")
+    album_make.make(floors, album)
+    doc = pymupdf.open(pdf)
+    page = next((i for i in range(len(doc)) if "부록.2" in doc[i].get_text() and "사진첩" in doc[i].get_text()
+                 and len(doc[i].get_text().strip()) < 60), None)
+    if page is None:
+        doc.close()
+        return False
+    with pymupdf.open(album) as add:
+        doc.insert_pdf(add, start_at=page + 1)
+    tmp = pdf.with_suffix(".album.pdf")
+    doc.save(tmp, garbage=3, deflate=True)
+    doc.close()
+    tmp.replace(pdf)
+    return True
+
+
 def _run_build(report_id: int) -> None:
     with SessionLocal() as db:
         r = db.get(SitokReport, report_id)
@@ -352,6 +377,8 @@ def _run_build(report_id: int) -> None:
             pdf = folder / f"{base}.pdf"
             pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
             merged = _merge(pdf, f, c)
+            if _insert_album(db, r, pdf):
+                merged.append("외관조사 사진첩")
             r.out_pdf, r.status, r.made_at = str(pdf), "done", datetime.datetime.now()
             pages = pymupdf.open(pdf).page_count
             r.message = " · ".join([f"{pages}쪽, {changed}곳 바꿈" + (f", {'·'.join(merged)} 합본" if merged else "")] + [f"⚠ {w}" for w in warn])

@@ -81,6 +81,22 @@ def _rows(db: Session, report_id: int) -> list[SitokDefect]:
     return sorted(rows, key=lambda d: (floor_key(d.floor), d.floor, d.seq, d.id))
 
 
+def album_floors(db: Session, report_id: int) -> list[tuple[str, list[dict]]]:
+    """사진첩용 층별 줄(server/sitok/album_make.py) — 번호 순, 사진번호는 층마다 1부터, 보수 완료는 "보수완료"·크기 "-"."""
+    out: list[tuple[str, list[dict]]] = []
+    for d in _rows(db, report_id):
+        if not out or out[-1][0] != d.floor:
+            out.append((d.floor, []))
+        rows = out[-1][1]
+        rep = d.check == "repaired" or d.mark == "보수"
+        rows.append({"번호": str(d.seq), "구분": d.part, "부재": d.member, "결함유형": "보수완료" if rep else d.dtype,
+                     "개수": "-" if rep else d.count, "폭": "-" if rep else d.width, "길이": "-" if rep else d.length,
+                     "물량": "-" if rep else d.qty, "면적률": "-" if rep else d.area_ratio, "결함원인": "-" if rep else d.cause,
+                     "진행유무": "-" if rep else d.progress, "비고": d.mark, "사진번호": f"사진{len(rows) + 1}",
+                     "_photo": d.photo if d.photo and Path(d.photo).exists() else d.prev_photo})
+    return out
+
+
 @router.get("/reports/{report_id}/defects")
 def list_defects(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require_report(db, user, report_id)
