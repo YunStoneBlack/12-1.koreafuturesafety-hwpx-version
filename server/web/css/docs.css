@@ -28,10 +28,24 @@
 .ds-row { border-bottom: 1px solid var(--line); }
 .ds-row:last-child { border-bottom: none; }
 .ds-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13.5px; }
-.main button.ds-doc { margin: 0; padding: 6px 10px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 12.5px; cursor: pointer; }
-.main button.ds-doc:hover { border-color: var(--blue); filter: none; }
-.main button.ds-doc { color: var(--muted); } .main button.ds-doc.ok { color: var(--green); } /* 공통 버튼(흰 글씨)을 이겨야 글자가 보임 — 흰 바탕에 흰 글씨였음(10/10) */
-.main button.ds-doc .ds-kl { color: var(--ink); }
+/* 착수계·완수계 상태 배지(10/10 사용자 "너무 조잡하다") — 둥근 배지 + 상태 색, 마우스 올리면 "열기 ›". 공통 버튼(파란 바탕·흰 글씨)을 덮어씀 */
+.ds-cell { min-width: 0; }
+.main button.ds-doc {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin: 0; padding: 5px 12px 5px 10px; border-radius: 999px;
+  border: 1px solid transparent; font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.4; text-align: left; cursor: pointer;
+  transition: box-shadow .12s, border-color .12s;
+}
+.main button.ds-doc::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.main button.ds-doc .ds-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.main button.ds-doc .ds-kl { display: none; color: var(--ink); font-weight: 700; }
+.main button.ds-doc .ds-go { flex: none; max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; font-weight: 500; transition: max-width .15s, opacity .15s; }
+.main button.ds-doc:hover { filter: none; box-shadow: 0 1px 4px rgba(15, 17, 32, .12); }
+.main button.ds-doc:hover .ds-go { max-width: 48px; opacity: .8; }
+.main button.ds-doc.tone-todo { color: var(--warn); background: var(--warn-soft); border-color: #F1D6A8; }
+.main button.ds-doc.tone-pdf { color: var(--blue); background: var(--blue-soft); border-color: #C9DDF7; }
+.main button.ds-doc.tone-ok { color: var(--green); background: var(--green-soft); border-color: #BFE3CC; }
+.main button.ds-doc.tone-ok::before { display: none; } /* 글자에 ✓가 있음 */
+.main button.ds-doc.tone-blocked { color: var(--faint); background: var(--paper); border-color: var(--line); font-weight: 500; }
 .ds-kl { display: none; }
 
 /* 일정 달력 — FullCalendar(.fc 틀·공휴일 .holiday는 그룹웨어 app.css), 여기엔 착수·완수 색만 */
@@ -84,7 +98,8 @@
   .ds-head { display: none; }
   .ds-row { grid-template-columns: 1fr 1fr; padding: 10px 14px; }
   .ds-name { grid-column: 1 / -1; }
-  .ds-kl { display: inline; }
+  .main button.ds-doc .ds-kl { display: inline; } /* 폰: 표 머리줄이 없어 "착수계/완수계" 이름을 배지 안에 */
+  .main button.ds-doc { width: 100%; }
   .dk-list { display: block; } /* 폰: 달력 칸은 색 막대만 → 아래 목록에서 누름 */
   .dk-day, .dk-pc-only { display: none; } /* 폰은 아래 목록이 상세를 대신 */
   .fc .fc-daygrid-event .fc-event-main { font-size: 0; }

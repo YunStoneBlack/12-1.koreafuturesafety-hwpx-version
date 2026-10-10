@@ -44,7 +44,8 @@
           <span class="mail-note">${mailEsc([c.client, c.site_label ? `현장 ${c.site_label}` : "현장 연결 안 됨"].join(" · "))}</span></div>
         ${DC_KINDS.map(([k, kl]) => {
           const s = dcDocState(c, k);
-          return `<button type="button" class="ds-doc dc-doc ${s.cls}" data-kind="${k}" title="${kl} 창 열기"><b class="ds-kl">${kl}</b> ${mailEsc(s.text)}</button>`;
+          return `<div class="ds-cell"><button type="button" class="ds-doc tone-${s.tone}" data-kind="${k}" title="${kl} 창 열기">` +
+            `<b class="ds-kl">${kl}</b><span class="ds-txt">${mailEsc(s.text)}</span><span class="ds-go">열기 ›</span></button></div>`;
         }).join("")}
       </div>`).join("");
     list.querySelectorAll(".ds-row").forEach((r) => r.querySelectorAll(".ds-doc").forEach((b) => b.addEventListener("click", () => {

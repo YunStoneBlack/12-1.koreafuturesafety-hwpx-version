@@ -14,10 +14,11 @@ function dcMoney(n) {
 // 착수계·완수계 한 칸 상태: ✓ 10/07 E-mail · 10/08 우편(제출 기록, 여러 방식) / PDF 만듦·미제출 / 미제출 — 기한은 없음(사용자 10/6)
 function dcDocState(c, kind) {
   const m = c.made[kind];
-  if (m.submitted) return { cls: "ok", text: "✓ " + m.submits.map((r) => `${r.date.slice(5).replace("-", "/")} ${r.label}`).join(" · ") + " 제출" };
-  if (m.pdf) return { cls: "idle", text: "PDF 만듦 · 미제출" };
-  if (kind === "done" && !c.made.start.submitted) return { cls: "idle", text: "착수계 먼저" };
-  return { cls: "idle", text: "미제출" };
+  // tone = 제출 현황 배지 색(10/10): ok 제출 · pdf PDF만 만듦 · todo 미제출 · blocked 착수계 먼저
+  if (m.submitted) return { cls: "ok", tone: "ok", text: "✓ " + m.submits.map((r) => `${r.date.slice(5).replace("-", "/")} ${r.label}`).join(" · ") + " 제출" };
+  if (m.pdf) return { cls: "idle", tone: "pdf", text: "PDF 만듦 · 미제출" };
+  if (kind === "done" && !c.made.start.submitted) return { cls: "idle", tone: "blocked", text: "착수계 먼저" };
+  return { cls: "idle", tone: "todo", text: "미제출" };
 }
 
 // 삭제 비밀번호 묻는 작은 창(설정 탭의 회사 공용 삭제 비밀번호 — 현장 삭제와 같음). 취소하면 null.
