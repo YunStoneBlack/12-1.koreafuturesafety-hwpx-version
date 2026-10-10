@@ -103,12 +103,61 @@ def photo_pages(doc, floor: str, rows: list[dict]) -> None:
                 x += w
 
 
+CHANGE = {"same": "변화 없음", "grew": "진행", "repaired": "보수 완료", "": "확인 전"}
+
+
+def _size(v: dict, keys=("개수", "폭", "길이")) -> str:
+    parts = []
+    for k, unit in zip(keys, ("개", "", "m")):
+        x = v.get(k) or ""
+        if x and x != "-":
+            parts.append(f"{k} {x}{unit}")
+    return " · ".join(parts) or "-"
+
+
+def compare_pages(doc, items: list[tuple[str, dict]]) -> None:
+    """[전회차 비교 사진대장] — 한 쪽 3줄, 줄마다 [전회차 사진 | 이번 사진] + 아래 층·번호·부재·유형, 전회차 크기 → 이번 크기, 변화(사용자 10/10:
+    이 과업의 주된 일 = 전회차 결함 자리에 가서 비교). 넣는 것 = 구조체 전부 + 진행 + ★(sitok_defects.album_floors _compare)."""
+    per = 3
+    for start in range(0, len(items), per):
+        page = doc.new_page(width=W, height=H)
+        _fonts(page)
+        y0 = _title(page, "[전회차 비교 사진대장]", M) + 6
+        slot = (H - M - y0) / per
+        half = (W - 2 * M - 8) / 2
+        for k, (floor, v) in enumerate(items[start:start + per]):
+            y = y0 + k * slot
+            for c, (label, photo) in enumerate((("전회차", v.get("_prev_photo")), ("금회", v.get("_now_photo")))):
+                x0 = M + c * (half + 8)
+                rect = pymupdf.Rect(x0, y + 14, x0 + half, y + slot - 46)
+                _cell(page, pymupdf.Rect(x0, y, x0 + half, y + 14), label, size=7, bold=True, fill=(0.93, 0.93, 0.93))
+                page.draw_rect(rect, color=(0.35, 0.35, 0.35), width=0.4)
+                if photo and Path(photo).exists():
+                    page.insert_image(rect + (1, 1, -1, -1), filename=str(photo), keep_proportion=True)
+                else:
+                    _cell(page, rect, "이번 사진 없음" if c else "전회차 사진 없음", size=7)
+            prev = v.get("_prev") or {}
+            info = f"{floor} {v.get('번호')}번 · {v.get('구분')} · {v.get('부재')} · {v.get('결함유형')}"
+            _cell(page, pymupdf.Rect(M, y + slot - 44, W - M, y + slot - 30), info, size=7, bold=True)
+            cols = [("전회차", _size(prev)), ("금회", _size(v) if v.get("_check") != "repaired" else "보수 완료"),
+                    ("변화", CHANGE.get(v.get("_check") or "", "-"))]
+            x = M
+            widths = [(W - 2 * M) * r for r in (0.4, 0.4, 0.2)]
+            for (name, val), w in zip(cols, widths):
+                _cell(page, pymupdf.Rect(x, y + slot - 30, x + w, y + slot - 16), name, size=6, bold=True, fill=(0.96, 0.96, 0.96))
+                _cell(page, pymupdf.Rect(x, y + slot - 16, x + w, y + slot - 2), val, size=6.5)
+                x += w
+
+
 def make(floors: list[tuple[str, list[dict]]], dest: Path) -> int:
-    """floors = [(층, [줄 값들 — 번호·구분·…·사진번호 + _photo 경로])]. 쪽 수를 돌려준다."""
+    """floors = [(층, [줄 값들 — 번호·구분·…·사진번호 + _photo 경로])]. 쪽 수를 돌려준다. 층별 현황표·사진표 뒤에 전회차 비교 사진대장."""
     doc = pymupdf.open()
     for floor, rows in floors:
         status_pages(doc, floor, rows)
         photo_pages(doc, floor, rows)
+    compare = [(floor, v) for floor, rows in floors for v in rows if v.get("_compare")]
+    if compare:
+        compare_pages(doc, compare)
     dest.parent.mkdir(parents=True, exist_ok=True)
     doc.save(dest, garbage=3, deflate=True)
     n = len(doc)

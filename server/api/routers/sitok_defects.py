@@ -134,7 +134,11 @@ def album_floors(db: Session, report_id: int) -> list[tuple[str, list[dict]]]:
                      "개수": "-" if rep else d.count, "폭": "-" if rep else d.width, "길이": "-" if rep else d.length,
                      "물량": "-" if rep else d.qty, "면적률": "-" if rep else d.area_ratio, "결함원인": "-" if rep else d.cause,
                      "진행유무": "-" if rep else d.progress, "비고": d.mark, "사진번호": f"사진{len(rows) + 1}",
-                     "_photo": d.photo if d.photo and Path(d.photo).exists() else d.prev_photo})
+                     "_photo": d.photo if d.photo and Path(d.photo).exists() else d.prev_photo,
+                     # 전회차 비교 사진대장(album_make.compare_pages)용
+                     "_now_photo": d.photo if d.photo and Path(d.photo).exists() else "", "_prev_photo": d.prev_photo,
+                     "_prev": d.prev or {}, "_check": d.check, "_compare": bool(d.prev) and not (d.dtype or "").rstrip().endswith("현황")
+                     and (d.part == "구조체" or d.check == "grew" or d.starred)})
     return out
 
 
