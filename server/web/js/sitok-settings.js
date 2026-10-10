@@ -11,11 +11,13 @@
   function docRow(d, uploadPath, deletePath, onChanged) {
     const row = document.createElement("div");
     row.className = "ss-doc";
+    // 유효기간은 수료증만(수료일 + 5년, 민재형 10/10) — 서버 contract_library.VALID_RULES. 나머지는 날짜 칸 없음
     const state = !d.id ? '<span class="ss-st none">없음</span>'
-      : d.status === "expired" ? `<span class="ss-st bad">유효기간 지남(${esc(d.valid_until)})</span>`
-        : `<span class="ss-st ok">✓ 올림${d.updated_at ? ` · ${esc(d.updated_at)}` : ""}</span>`;
+      : d.status === "expired" ? `<span class="ss-st bad">⚠ 유효기간 지남(${esc(d.valid_until)}) — 새로 받아 바꿔 올리세요</span>`
+        : d.status === "nodate" ? '<span class="ss-st bad">⚠ 수료일을 적어 주세요</span>'
+          : `<span class="ss-st ok">✓ 올림${d.valid_until ? ` · 유효기간 ~${esc(d.valid_until)}` : ""}</span>`;
     row.innerHTML = `<b>${esc(d.label)}</b>${state}
-      <label class="ss-valid">유효기간 <input type="date" value="${esc(d.valid_until)}"${d.id ? "" : " disabled"} /></label>
+      ${d.dated ? `<label class="ss-valid">수료일 <input type="date" value="${esc(d.issued_on)}"${d.id ? "" : " disabled"} /></label>` : "<span></span>"}
       <span class="ss-acts">${d.id ? `<a class="secondary-link" href="${BASE}/api/contract-docs/docs/${d.id}/image?t=${d.ts}" target="_blank" rel="noopener">보기</a>` : ""}
         <label class="secondary-link">${d.id ? "바꾸기" : "올리기"}<input type="file" accept="image/*,application/pdf,.pdf" hidden data-kr-file="1" /></label>
         ${d.id ? '<button type="button" class="secondary btn-sm ss-del">지우기</button>' : ""}</span>`;
@@ -31,8 +33,8 @@
       } catch (e) { err(e); row.classList.remove("busy"); }
     });
     enableFileDrop(row, file);
-    row.querySelector(".ss-valid input").addEventListener("change", async (e) => {
-      try { await apiPatch(`/contract-docs/docs/${d.id}`, { issued_on: d.issued_on || "", valid_until: e.target.value }); onChanged(); } catch (x) { err(x); }
+    row.querySelector(".ss-valid input")?.addEventListener("change", async (e) => {
+      try { await apiPatch(`/contract-docs/docs/${d.id}`, { issued_on: e.target.value, valid_until: "" }); onChanged(); } catch (x) { err(x); }
     });
     row.querySelector(".ss-del")?.addEventListener("click", async () => {
       if (!confirm(`${d.label}을(를) 지울까요?`)) return;

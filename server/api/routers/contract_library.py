@@ -32,6 +32,7 @@ PERSON_LABELS = dict(PERSON_DOCS)
 VALID_RULES = {
     "ins_health": ("days", 30), "ins_employ": ("days", 30), "tax_national": ("days", 30), "tax_local": ("days", 30),  # 완납증명서: 발급일 + 30일
     "career": ("months", 3),  # 경력증명서: 발급일 + 3개월
+    "sitok_edu": ("months", 60),  # 시특법 정밀안전진단 교육 수료증: 수료일 + 5년(민재형 10/10 — 지나면 알림). 시특법 다른 서류는 유효기간 없음
 }
 
 

@@ -98,7 +98,12 @@ def upload_person_doc(person_id: int, kind: str, file: UploadFile = File(...), i
     if kind not in PERSON_LABELS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "없는 서류 종류입니다.")
     lib._upload_dated(db, user, file, kind, PERSON_LABELS[kind], files.person_doc_path(p.id, p.name, PERSON_LABELS[kind]),
-                      lib.person_docs(db, p.id).get(kind), p.id, issued_on, valid_until)
+                      lib.person_docs(db, p.id).get(kind), p.id, issued_on, "")
+    row = lib.person_docs(db, p.id).get(kind)
+    if row is not None and kind in lib.VALID_RULES:
+        # 수료증은 유효기간이 적혀 있지 않음 — AI가 교육기간 끝을 유효기간으로 읽어도 버리고 항상 수료일 + 5년
+        row.valid_until = lib.default_valid_until(kind, row.issued_on) if row.issued_on else None
+        db.commit()
     return _person_out(db, p)
 
 
