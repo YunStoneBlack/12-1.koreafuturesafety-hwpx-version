@@ -315,6 +315,8 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
         if i == 0 and docs.get("sitok_license"):
             ex.images[("sitok_license", "chief")] = docs["sitok_license"]
     ex.ai = (r.ai or {}).get("final") or None
+    if ex.ai and ex.ai.get("items"):
+        ex.ai = {**ex.ai, "grade": rb.eval_score(ex.ai["items"])["grade"] or ex.ai.get("grade")}
     ex.template = db.get(SitokFacility, r.facility_id).template
     eq = (db.query(SitokEquipment).filter(SitokEquipment.company_id == r.company_id, SitokEquipment.active.is_(True))
           .order_by(SitokEquipment.sort, SitokEquipment.id).all())
@@ -457,11 +459,16 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
     old = rb.old_texts(Path(r.source_hwpx)) if r.source_hwpx and Path(r.source_hwpx).exists() else ""
     facility = f"{f.name} — {f.template} · {f.use_type or f.main_use} · {f.structure} · 지상 {f.floors_above or '-'}층/지하 {f.floors_below or 0}층 · 준공 {_iso(f.completion_date)}"
     try:
-        data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id)
+        items = rb.read_eval_items(Path(r.source_hwpx)) if f.template.startswith("3종") and r.source_hwpx and Path(r.source_hwpx).exists() else []
+        data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id,
+                              eval_items=items)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
     data["made_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    r.ai = {"draft": data, "final": {k: v for k, v in data.items() if k not in ("stats",)}}
+    final = {k: v for k, v in data.items() if k not in ("stats",)}
+    if final.get("items"):
+        final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
+    r.ai = {"draft": data, "final": final}
     db.commit()
     return r.ai
 
@@ -476,7 +483,10 @@ def ai_get(report_id: int, user: User = Depends(get_current_user), db: Session =
 def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """점검자가 고친 값(final) 저장 — 키는 ai_draft.draft 결과와 같음. 등급은 A~E만."""
     r = _require(db, user, report_id)
-    final = {k: body.get(k) for k in ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason")}
+    final = {k: body.get(k) for k in ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason",
+                                      "items", "eval_opinion")}
+    if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선)
+        final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
     if final.get("grade") and final["grade"] not in ("A", "B", "C", "D", "E"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "안전등급은 A~E 중 하나입니다.")
     final["edited_by"], final["edited_at"] = user.display_name or "", datetime.datetime.now().strftime("%Y-%m-%d %H:%M")

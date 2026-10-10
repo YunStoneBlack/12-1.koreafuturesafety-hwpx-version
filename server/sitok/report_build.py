@@ -814,6 +814,147 @@ def _ai_body(root, ai: dict, template: str) -> int:
     return n
 
 
+# ---------- 3종 안전등급 평가(1.5.1·1.5.2, 18항목) ----------
+RATINGS = [("우수", 10), ("양호", 8), ("보통", 5), ("미흡", 2), ("불량", 0), ("해당없음", None)]  # 1.5.1은 "미흡" 자리가 "주의"
+GROUP_WEIGHT = {"주요": 60, "일반": 20, "부대": 20}
+
+
+def _eval_tables(roots) -> tuple:
+    """(1.5.1 표, 1.5.2 표, 점수 표) — 머리줄 "평가항목"·"평가결과"가 있는 11칸·8칸 표와 "평가점수합" 표. 없으면 None."""
+    t1 = t2 = t3 = None
+    for root in roots:
+        # 시설물편 "1.5 안전등급 평가 및 결과" 제목 아래 표만(공통편 3장에 같은 모양의 예시 표가 있음 — 건드리면 안 됨)
+        tables, on = [], False
+        for p in (q for q in root if q.tag == f"{{{HP}}}p"):
+            t = _top_text(p)
+            if re.match(r"1\.\d\s*안전등급\s*평가\s*및\s*결과", t):
+                on = True
+            elif on and re.match(r"1\.\d\s", t) and "안전등급" not in t:
+                on = False
+            if on:
+                tables += [x for x in p.iter(f"{{{HP}}}tbl") if next(x.iterancestors(f"{{{HP}}}tbl"), None) is None]
+        for tbl in tables:
+            cells = _cells(tbl)
+            head = "".join(_cell_text(cells[k]) for k in cells if k[0] == 0).replace(" ", "")
+            if "평가항목" in head and "평가결과" in head:
+                if tbl.get("colCnt") == "11" and t1 is None:
+                    t1 = tbl
+                elif tbl.get("colCnt") == "8" and t2 is None:
+                    t2 = tbl
+            if "평가점수합" in "".join(_cell_text(tc) for tc in cells.values()).replace(" ", "") and t3 is None:
+                t3 = tbl
+    return t1, t2, t3
+
+
+def read_eval_items(hwpx: Path) -> list[dict]:
+    """3종 안전등급 평가 18항목 [{no, name, group(주요·일반·부대), rating(지난 평가)}] — 1.5.2 표에서. 2종이면 []."""
+    with zipfile.ZipFile(hwpx) as z:
+        roots = [etree.fromstring(z.read(n)) for n in _sections(z)]
+    _, t2, _ = _eval_tables(roots)
+    if t2 is None:
+        return []
+    cells = _cells(t2)
+    groups = {}  # 줄 → 영역
+    for (r, c), tc in cells.items():
+        if c == 0 and r >= 2:
+            g = next((k for k in GROUP_WEIGHT if k in _cell_text(tc).replace("\n", "")), None)
+            span = int(tc.find(f"{{{HP}}}cellSpan").get("rowSpan"))
+            for rr in range(r, r + span):
+                groups[rr] = g
+    out = []
+    for r in sorted({k[0] for k in cells if k[0] >= 2}):
+        name = _cell_text(cells.get((r, 1), t2)) if (r, 1) in cells else ""
+        m = re.match(r"(\d+)\.\s*(.+)", name.replace("\n", " "))
+        if not m:
+            continue
+        rating = next((RATINGS[i][0] for i in range(6) if "○" in _cell_text(cells.get((r, 2 + i), t2))), "")
+        out.append({"no": int(m[1]), "name": m[2].strip(), "group": groups.get(r) or "", "rating": rating})
+    return out
+
+
+def eval_score(items: list[dict]) -> dict:
+    """영역별 (점수합 a, 항목 수 b, 상태점수 a/b) → 종합 = Σ(가중치×상태점수)/100, 등급(9·7·5·3 이상 A~D, 아래 E). 해당없음은 뺌.
+    한 영역이 통째로 해당없음이면 그 가중치는 나머지 영역에 비율대로(공통편 3.1.5 "부대시설이 없는 경우")."""
+    score = dict(RATINGS)
+    groups = {}
+    for it in items:
+        pts = score.get(it.get("rating") or "")
+        if pts is None or not it.get("group"):
+            continue
+        g = groups.setdefault(it["group"], [0, 0])
+        g[0] += pts
+        g[1] += 1
+    rows = {g: (a, b, round(a / b, 2)) for g, (a, b) in groups.items() if b}
+    wsum = sum(GROUP_WEIGHT[g] for g in rows)
+    total = round(sum(GROUP_WEIGHT[g] * rows[g][2] for g in rows) / wsum, 2) if wsum else 0
+    letter = "A" if total >= 9 else "B" if total >= 7 else "C" if total >= 5 else "D" if total >= 3 else "E"
+    return {"groups": rows, "total": total, "grade": letter if rows else ""}
+
+
+def _mark_row(cells, r: int, first_col: int, rating: str) -> None:
+    for i, (name, _) in enumerate(RATINGS):
+        if (r, first_col + i) in cells:
+            _set_lines(cells[(r, first_col + i)], ["○" if name == rating else ""])
+
+
+def _apply_eval(roots_or_root, items: list[dict], opinion: str) -> int:
+    """1.5.1(의견·보수필요·평가 ○·평가결과 안전등급 □■·종합의견)·1.5.2(평가 ○)·점수 표(합·개수·상태점수·종합·등급)에 넣음."""
+    roots = roots_or_root if isinstance(roots_or_root, list) else [roots_or_root]
+    t1, t2, t3 = _eval_tables(roots)
+    by_no = {it["no"]: it for it in items}
+    res = eval_score(items)
+    n = 0
+    for tbl, first, op_col in ((t1, 5, 3), (t2, 2, None)):
+        if tbl is None:
+            continue
+        cells = _cells(tbl)
+        for r in sorted({k[0] for k in cells}):
+            name_cell = cells.get((r, 1))
+            m = re.match(r"(\d+)\.", _cell_text(name_cell)) if name_cell is not None else None
+            it = by_no.get(int(m[1])) if m else None
+            if it is None:
+                continue
+            _mark_row(cells, r, first, it.get("rating") or "")
+            if op_col is not None:
+                if (r, op_col) in cells:
+                    _set_lines(cells[(r, op_col)], [it.get("opinion") or "-"])
+                if (r, op_col + 1) in cells:
+                    _set_lines(cells[(r, op_col + 1)], [it.get("repair") or "-"])
+            n += 1
+        if op_col is not None and res["grade"]:  # 평가결과 줄 "◦ 안전등급 : □A ■B …"·종합의견
+            for (r, c), tc in cells.items():
+                txt = _cell_text(tc)
+                if "안전등급" in txt and "□" in txt + "■":
+                    for q in tc.iter(f"{{{HP}}}p"):
+                        line = "".join(_full(x) for x in q.iter(T))
+                        if "안전등급" in line:
+                            marks = "   ".join(("■" if g == res["grade"] else "□") + g for g in "ABCDE")
+                            _set_para(q, re.sub(r"(안전등급\s*:\s*).*", lambda mm: mm.group(1) + marks, line), in_table=True)
+                if re.sub(r"\s", "", _cell_text(cells.get((r, 0), tc))).startswith("종합의견") and c > 0 and opinion:
+                    _set_lines(tc, [f"◦ {opinion}"])
+    if t3 is not None and res["groups"]:
+        cells = _cells(t3)
+        labels = {"①": "주요", "②": "일반", "③": "부대"}
+        for (r, c), tc in cells.items():
+            t = _cell_text(tc)
+            g = next((v for k, v in labels.items() if t.startswith(k)), None)
+            if c == 0 and g in res["groups"]:
+                a, b, s = res["groups"][g]
+                for i, v in enumerate((a, b, s), 1):
+                    if (r, i) in cells:
+                        _set_lines(cells[(r, i)], [f"{v:g}"])
+            elif c == 0 and g and g not in res["groups"]:
+                for i in (1, 2, 3):
+                    if (r, i) in cells:
+                        _set_lines(cells[(r, i)], ["-"])
+            if "/100" in t and "점" in t:
+                _set_lines(tc, [re.sub(r"=\s*[\d.]+\s*점", f"= {res['total']:g}점", t.replace("\n", " "))])
+            if re.fullmatch(r"[A-E]\s*등급", t.strip()):
+                _set_lines(tc, [f"{res['grade']}등급"])
+        n += 1
+    return n
+
+
 REP_PHOTO_KEYS = ("crack", "leak", "spall", "steel", "nonstruct")
 
 
@@ -924,6 +1065,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     changed += 1
                 if extras.ai:
                     changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template)
+                if extras.ai and extras.ai.get("items") and not is_front:
+                    changed += _apply_eval(root, extras.ai["items"], extras.ai.get("eval_opinion") or "")
                 if extras.rep_photos and not is_front:
                     changed += _rep_photos(root, extras.rep_photos, extras.blank, add_image)
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):

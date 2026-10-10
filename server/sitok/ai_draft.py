@@ -127,10 +127,19 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
  "next_focus": "차기 정기점검 시 중점 점검부위(한 줄)",
  "sections": {{"crack": "", "leak": "", "spall": "", "steel": "", "nonstruct": "", "public": "", "other": ""}},
  "conclusion": ["종합결론 글머리 — 항목별 한 개씩(결함 없는 항목도 짧게)"],
- "grade": "A~E 중 하나", "grade_reason": "근거"}}"""
+ "grade": "A~E 중 하나", "grade_reason": "근거"{items_spec}}}"""
+
+ITEMS_SPEC = """,
+ "items": [{{"no": 항목번호, "rating": "우수|양호|보통|미흡|불량|해당없음", "repair": "○ 또는 ×", "opinion": "점검자 의견 15자 안팎(예: 일부 균열 발생)"}} — 아래 18항목 전부],
+ "eval_opinion": "안전등급 평가 종합의견 한두 문장"
+
+3종은 안전등급을 아래 18항목 평가 점수로 프로그램이 계산합니다(우수10·양호8·보통5·미흡2·불량0, 주요60·일반20·부대20, 9·7·5·3점 이상 A~D) — "grade"도 그 계산과 맞게.
+
+[3종 안전등급 평가 항목 — 영역, 지난 평가] 결함이 있는 항목은 그 정도에 맞게(구조체 균열 경미 → 보통, 결함 없음 → 양호), 그 시설에 없는 부위는 해당없음:
+{items}"""
 
 
-def draft(facility: str, period: str, defects: list, old_text: str, company_id: int) -> dict:
+def draft(facility: str, period: str, defects: list, old_text: str, company_id: int, eval_items: list | None = None) -> dict:
     st = stats(defects)
     lines = []
     for k, _, n in CATEGORIES:
@@ -138,7 +147,8 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
         types = ", ".join(f"{t} {c}건" for t, c in list(s["types"].items())[:10]) or "없음"
         lines.append(f"- {n}({k}): 결함 {s['count']}건, 층 {', '.join(s['floors']) or '-'}, 종류 {types}, 최대 폭 {s['max_width'] if s['max_width'] is not None else '-'}, "
                      f"물량 합 {s['qty']}, 진행 {s['grew']} · 신규 {s['new']} · 보수 완료 {s['repaired']}\n  예: " + " / ".join(s["items"][:6]))
-    prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), old=old_text[:6000] or "(없음)")
+    spec = ITEMS_SPEC.format(items="\n".join(f"{it['no']}. [{it['group']}] {it['name']} (지난 {it['rating'] or '-'})" for it in eval_items)) if eval_items else ""
+    prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), old=old_text[:6000] or "(없음)", items_spec=spec)
     client = Anthropic(api_key=get_api_key(company_id))
     resp = client.messages.create(model=get_model_name(), max_tokens=12000, messages=[{"role": "user", "content": prompt}])
     text = "".join(b.text for b in resp.content if b.type == "text")
@@ -154,4 +164,20 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
     g = str(data.get("grade") or "").strip().upper()[:1]
     data["grade"] = g if g in GRADES else ""
     data["stats"] = {k: {x: st[k][x] for x in ("count", "grew", "new", "repaired", "max_width", "qty")} for k in st}
+    if eval_items:  # 항목 이름·영역은 지난 보고서 표 것, 평가만 AI
+        got = {int(x.get("no", 0)): x for x in (data.get("items") or []) if str(x.get("no", "")).isdigit() or isinstance(x.get("no"), int)}
+        ok = {"우수", "양호", "보통", "미흡", "불량", "해당없음"}
+        data["items"] = [{**it, "rating": got.get(it["no"], {}).get("rating") if got.get(it["no"], {}).get("rating") in ok else it["rating"],
+                          "repair": "○" if str(got.get(it["no"], {}).get("repair", "")).strip() in ("○", "O", "o", "유") else "×",
+                          "opinion": str(got.get(it["no"], {}).get("opinion") or "").strip()} for it in eval_items]
+        data["eval_opinion"] = str(data.get("eval_opinion") or "").strip()
+        # 3종 등급은 18항목 점수로 정해짐(AI가 따로 고른 등급과 어긋나지 않게 근거도 점수로)
+        from server.sitok.report_build import eval_score
+        res = eval_score(data["items"])
+        if res["grade"]:
+            data["grade"] = res["grade"]
+            data["grade_reason"] = (f"18항목 평가 종합 {res['total']:g}점("
+                                    + ", ".join(f"{g} {a}/{b}={v:g}" for g, (a, b, v) in res["groups"].items()) + f") → {res['grade']}등급")
+    else:
+        data.pop("items", None)
     return data

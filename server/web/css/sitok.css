@@ -129,3 +129,13 @@
 .ai-form input, .ai-form select { font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); }
 .ai-form textarea { font: inherit; font-size: 13px; line-height: 1.55; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; color: var(--ink); }
 .mail-msg.ok { color: var(--green); }
+
+/* 3종 안전등급 평가 18항목(AI 초안 창) */
+.ai-grade3 { font-size: 13px; color: var(--muted); font-weight: 600; }
+.ai-grade3 b { color: var(--blue); font-size: 14px; margin: 0 6px; }
+.ai-items { display: flex; flex-direction: column; gap: 4px; }
+.ai-item { display: grid; grid-template-columns: 26px minmax(0, 1fr) 92px 52px minmax(0, 0.9fr); gap: 6px; align-items: center; font-size: 12.5px; }
+.ai-no { font-weight: 700; color: var(--muted); text-align: center; }
+.ai-name small { display: inline-block; margin-right: 4px; padding: 0 5px; border-radius: 4px; background: var(--paper); color: var(--muted); font-size: 11px; }
+.ai-item select, .ai-item input { padding: 5px 6px; font-size: 12.5px; }
+@media (max-width: 760px) { .ai-item { grid-template-columns: 22px minmax(0, 1fr) 80px 46px; } .ai-item .ai-op { grid-column: 2 / -1; } }
