@@ -284,6 +284,17 @@ def _new_values(db: Session, r: SitokReport, old: rb.Values) -> tuple[rb.Values,
     return new, warn
 
 
+def _blank_jpg() -> Path:
+    """대표사진 남는 칸에 넣을 흰 그림(한 번 만들어 둠)."""
+    from server.api import storage
+    p = storage.SYSTEM_DIR / "시특법_흰그림.jpg"
+    if not p.exists():
+        from PIL import Image
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (400, 300), "white").save(p, "JPEG")
+    return p
+
+
 def _extras(db: Session, r: SitokReport) -> rb.Extras:
     """설정 값 — 등록증·수료증(앞부분은 기술자 순서, 부록은 책임기술자)·책임기술자 자격, 사용 장비 표, 명단 직위."""
     ex = rb.Extras()
@@ -314,6 +325,9 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     if ex.summary:
         ex.priority = priority_rows(db, r.id)
         ex.cost = cost_rows(db, r.id, prices(db, r.company_id))
+        from server.api.routers.sitok_defects import rep_photos
+        ex.rep_photos = rep_photos(db, r.id)
+        ex.blank = str(_blank_jpg())
     return ex
 
 

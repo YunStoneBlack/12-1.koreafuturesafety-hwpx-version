@@ -56,6 +56,8 @@ class Extras:
     cost: tuple | None = None  # 개략공사비 ([(구분, 내용, 방안, 물량, 단위, 단가, 금액)], 직접공사비 합계)
     ai: dict | None = None  # 6단계 AI 초안(점검자가 고친 것) — server/sitok/ai_draft.py 키(critical·findings·sections·conclusion·grade …)
     template: str = "2종"  # 등급 표기(2종 낱말·3종 글자)
+    rep_photos: dict = field(default_factory=dict)  # 1.3 대표사진 {항목 키: [(사진 경로, 설명)]} — 공중이용·기타는 찍을 대상이 정해진 칸이라 안 바꿈
+    blank: str = ""  # 남는 사진 칸에 넣을 흰 그림
     notes: list = field(default_factory=list)  # 못 한 것 안내
 
 
@@ -812,6 +814,36 @@ def _ai_body(root, ai: dict, template: str) -> int:
     return n
 
 
+REP_PHOTO_KEYS = ("crack", "leak", "spall", "steel", "nonstruct")
+
+
+def _rep_photos(root, rep: dict, blank: str, add_image) -> int:
+    """1.3 항목별 "■ ○○ 현황: 대표사진" 표(사진 칸 바로 아래 칸이 설명) — 그 항목 이번 결함 사진으로. 결함이 없는 항목은 그대로,
+    사진이 칸보다 적으면 남는 칸은 흰 그림·"-"."""
+    from server.sitok.ai_draft import section_key
+
+    n = 0
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        cells = _cells(tbl)
+        head = _cell_text(cells.get((0, 0), tbl))
+        if "대표사진" not in head and "사진 현황" not in head:
+            continue
+        key = section_key(head)
+        photos = rep.get(key) if key in REP_PHOTO_KEYS else None
+        if not photos:
+            continue
+        slots = sorted((k for k, tc in cells.items() if next(tc.iter(f"{{{HP}}}pic"), None) is not None), key=lambda k: (k[0], k[1]))
+        for i, (r, c) in enumerate(slots):
+            img = next(cells[(r, c)].iter("{http://www.hancom.co.kr/hwpml/2011/core}img"), None)
+            path, caption = photos[i] if i < len(photos) else (blank, "-")
+            if img is not None and path and Path(path).exists():
+                img.set("binaryItemIDRef", add_image(path))
+            if (r + 1, c) in cells:
+                _set_lines(cells[(r + 1, c)], [caption])
+        n += 1
+    return n
+
+
 def _add_history(root, old: Values) -> bool:
     """1.2.6 기실시된 점검 및 진단결과 — 맨 위 회차 표를 복사해 틀(= 직전 회차) 한 칸을 위에 붙임(민재형 10/10: 지난 이력 + 전회차 요약).
     점검기간·안전등급·점검 주요결과는 틀의 결과표에서. 이미 그 기간 표가 있으면 안 붙임."""
@@ -892,6 +924,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     changed += 1
                 if extras.ai:
                     changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template)
+                if extras.rep_photos and not is_front:
+                    changed += _rep_photos(root, extras.rep_photos, extras.blank, add_image)
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):
                     el.getparent().remove(el)
                 texts.append("\r\n".join("".join(t.text or "" for t in p.iter(T)) for p in root.iter(f"{{{HP}}}p")))

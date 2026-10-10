@@ -198,6 +198,22 @@ def cost_rows(db: Session, report_id: int, prices: list) -> tuple[list, int]:
     return rows, direct
 
 
+def rep_photos(db: Session, report_id: int, per: int = 4) -> dict:
+    """1.3 대표사진 {항목 키: [(사진, "층 부재 결함유형")]} — ★ → 진행·신규 → 구조체 → 물량 큰 순, 이번 사진(없으면 전회차)."""
+    from server.sitok.ai_draft import category_of
+
+    out: dict = {}
+    for d in sorted(_defects_for_cost(db, report_id),
+                    key=lambda d: (not d.starred, d.check not in ("grew", "new"), d.part != "구조체", -(_num(d.qty) or 0))):
+        photo = d.photo if d.photo and Path(d.photo).exists() else d.prev_photo
+        if not photo or not Path(photo).exists():
+            continue
+        lst = out.setdefault(category_of(d.part, d.member, d.dtype), [])
+        if len(lst) < per:
+            lst.append((photo, f"{d.floor} {d.member} {d.dtype}".strip() + ("(진행)" if d.check == "grew" else "(신규)" if d.check == "new" else "")))
+    return out
+
+
 def album_floors(db: Session, report_id: int) -> list[tuple[str, list[dict]]]:
     """사진첩용 층별 줄(server/sitok/album_make.py) — 번호 순, 사진번호는 층마다 1부터, 보수 완료는 "보수완료"·크기 "-"."""
     out: list[tuple[str, list[dict]]] = []
