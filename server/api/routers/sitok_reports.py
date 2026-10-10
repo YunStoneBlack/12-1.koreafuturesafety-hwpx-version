@@ -303,6 +303,8 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     eq = (db.query(SitokEquipment).filter(SitokEquipment.company_id == r.company_id, SitokEquipment.active.is_(True))
           .order_by(SitokEquipment.sort, SitokEquipment.id).all())
     ex.equipment = [(e.name, e.model, e.purpose, [to_full(x) for x in (e.photos or [])]) for e in eq]
+    from server.api.routers.sitok_defects import summary_rows
+    ex.summary = summary_rows(db, r.id)  # 현장 조사 결함이 있을 때만 9쪽 요약표를 새로
     return ex
 
 

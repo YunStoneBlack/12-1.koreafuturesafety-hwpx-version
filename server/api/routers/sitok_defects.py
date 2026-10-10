@@ -81,6 +81,47 @@ def _rows(db: Session, report_id: int) -> list[SitokDefect]:
     return sorted(rows, key=lambda d: (floor_key(d.floor), d.floor, d.seq, d.id))
 
 
+def default_action(dtype: str, width: str) -> str:
+    """조치 필요사항 기본 문구 — 6단계 AI 초안 전까지·AI 실패 때(민재형 10/10: 고정 문구는 기본값으로만, 실제는 AI → 점검자 확인).
+    견본 9쪽 문구에 맞춤. 균열은 폭 0.3mm 기준 표면처리 / 에폭시주입보수."""
+    t = dtype or ""
+    if any(w in t for w in ("누수", "백태", "백화")):
+        return "마감재 재시공"
+    if "철근" in t:
+        return "단면복구"
+    if "부식" in t:
+        return "표면정리 후 재도장"
+    if any(w in t for w in ("박리", "박락")):
+        return "표면처리"
+    if "이격" in t:
+        return "탄성실링 보수"
+    if any(w in t for w in ("파손", "탈락", "들뜸")):
+        return "마감재 재시공"
+    if "균열" in t:
+        w = _num(width)
+        return "에폭시주입보수" if w is not None and w >= 0.3 else "표면처리"
+    return "주의관찰"
+
+
+def summary_rows(db: Session, report_id: int) -> list:
+    """9쪽 요약표 줄 [(층, 구분, 부재, [결함유형들], [조치들])] — 보수 완료는 뺌, 층은 위층부터, 안에서는 처음 나온 순."""
+    groups: dict = {}
+    for d in _rows(db, report_id):
+        if d.check == "repaired" or d.mark == "보수" or not d.dtype or d.dtype.rstrip().endswith("현황"):
+            continue  # 보수 완료·기록용 사진("실외기 현황" 등)은 결함 아님
+        key = (d.floor, d.part or "-", d.member or "-")
+        g = groups.setdefault(key, {"types": [], "acts": []})
+        if d.dtype.replace(" ", "") not in [x.replace(" ", "") for x in g["types"]]:
+            g["types"].append(d.dtype)
+            g["acts"].append(default_action(d.dtype, d.width))
+    order: list = []  # 층 안에서 구분끼리 모이게
+    for key in groups:
+        if key not in order:
+            same = [k for k in groups if k[:2] == key[:2]]
+            order += [k for k in same if k not in order]
+    return [(k[0], k[1], k[2], groups[k]["types"], groups[k]["acts"]) for k in order]
+
+
 def album_floors(db: Session, report_id: int) -> list[tuple[str, list[dict]]]:
     """사진첩용 층별 줄(server/sitok/album_make.py) — 번호 순, 사진번호는 층마다 1부터, 보수 완료는 "보수완료"·크기 "-"."""
     out: list[tuple[str, list[dict]]] = []

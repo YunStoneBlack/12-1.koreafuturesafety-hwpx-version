@@ -51,6 +51,7 @@ class Extras:
     equipment: list = field(default_factory=list)
     positions: dict = field(default_factory=dict)
     history: bool = True  # 1.2.6 기실시 점검결과에 틀(= 직전 회차) 한 칸 추가
+    summary: list = field(default_factory=list)  # 9쪽 요약표 줄 [(층, 구분, 부재, [점검결과], [조치])] — 비면 지난 표 그대로
     notes: list = field(default_factory=list)  # 못 한 것 안내
 
 
@@ -442,6 +443,105 @@ def _positions(root, positions: dict) -> None:
                     _set_cell(cells[(r, pos_c)], positions[who])
 
 
+SUMMARY_PAGE_H = 56000  # 요약표 한 쪽에 넣을 표 높이(HWPUNIT) — 견본 표(머리줄 포함 60543)가 제목과 한 쪽에 들어감, 조금 여유
+
+
+def _fill_summary(tbl, rows: list, tmpl: dict, head_h: int, heights: list) -> None:
+    """요약표 tbl의 데이터 줄을 rows로 — 층·구분 칸은 세로로 합침. 표 높이·테두리 구역·줄 수도 맞춤."""
+    for tr in tbl.findall(f"{{{HP}}}tr")[1:]:
+        tbl.remove(tr)
+
+    def make(col, r, text_lines, span, height):
+        tc = copy.deepcopy(tmpl[col])
+        tc.find(f"{{{HP}}}cellAddr").set("rowAddr", str(r))
+        tc.find(f"{{{HP}}}cellSpan").set("rowSpan", str(span))
+        tc.find(f"{{{HP}}}cellSz").set("height", str(height))
+        sub = tc.find(f"{{{HP}}}subList")
+        ps = sub.findall(f"{{{HP}}}p")
+        for q in ps[1:]:
+            sub.remove(q)
+        first = ps[0]
+        for el in list(first.iter(f"{{{HP}}}linesegarray")):
+            el.getparent().remove(el)
+        for i, line in enumerate(text_lines or [""]):
+            q = first if i == 0 else copy.deepcopy(first)
+            ts = list(q.iter(T))
+            if ts:
+                _clear(ts[0], line)
+                for t in ts[1:]:
+                    _clear(t, "")
+            if i:
+                sub.append(q)
+        return tc
+
+    total = head_h
+    for i, (floor, part, member, results, actions) in enumerate(rows):
+        r = i + 1
+        tr = etree.SubElement(tbl, f"{{{HP}}}tr")
+        if i == 0 or rows[i - 1][0] != floor:
+            n = next((k for k in range(i, len(rows)) if rows[k][0] != floor), len(rows)) - i
+            tr.append(make(0, r, [floor], n, sum(heights[i:i + n])))
+        if i == 0 or rows[i - 1][:2] != (floor, part):
+            n = next((k for k in range(i, len(rows)) if rows[k][:2] != (floor, part)), len(rows)) - i
+            tr.append(make(1, r, [part], n, sum(heights[i:i + n])))
+        tr.append(make(2, r, [member], 1, heights[i]))
+        tr.append(make(3, r, [f"·{x}" for x in results], 1, heights[i]))
+        tr.append(make(4, r, [f"·{x}" for x in actions], 1, heights[i]))
+        total += heights[i]
+    old_last = int(tbl.get("rowCnt")) - 1
+    for cz in tbl.iter(f"{{{HP}}}cellzone"):  # 표 전체 테두리 구역도 새 줄 수까지
+        if int(cz.get("endRowAddr", "0")) >= old_last:
+            cz.set("endRowAddr", str(len(rows)))
+    tbl.set("rowCnt", str(len(rows) + 1))
+    tbl.find(f"{{{HP}}}sz").set("height", str(total))
+
+
+def _summary_table(root, rows: list) -> bool:
+    """9쪽 "정기안전점검 실시결과 요약표"(부재(부위) 3칸 | 점검결과 | 조치 필요사항)를 rows로 새로 짬(10/11 5-2).
+    첫 데이터 줄의 칸 모양(글꼴·테두리·폭)을 본뜸. 표는 "글자처럼 취급"이라 한 쪽을 넘으면 통째로 밀리므로, 한 쪽 높이만큼씩 잘라
+    표 여러 개(각각 머리줄 포함)를 쪽마다 하나씩 놓는다(층이 쪽을 넘으면 다음 표에 층 이름을 다시 씀)."""
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        cells = _cells(tbl)
+        if (0, 0) not in cells or _cell_text(cells[(0, 0)]).replace(" ", "") != "부재(부위)" or int(tbl.get("colCnt")) != 5:
+            continue
+        if not all((1, c) in cells for c in range(5)):
+            return False
+        tmpl = {c: copy.deepcopy(cells[(1, c)]) for c in range(5)}
+        head_h = int(cells[(0, 0)].find(f"{{{HP}}}cellSz").get("height"))
+        # 한 줄 높이 어림 = 글줄 수 × 1450 + 여백(광숭 시험 PDF에서 맞춤 — 1980으로 잡으면 쪽이 60%만 참)
+        heights = [max(3178, 1450 * max(len(r[3]), len(r[4]), 1) + 500) for r in rows]
+        chunks, cur, h = [], [], head_h
+        for row, rh in zip(rows, heights):
+            if cur and h + rh > SUMMARY_PAGE_H:
+                chunks.append(cur)
+                cur, h = [], head_h
+            cur.append((row, rh))
+            h += rh
+        if cur:
+            chunks.append(cur)
+        top = tbl
+        while top.getparent() is not None and top.getparent() is not root:
+            top = top.getparent()  # 표가 든 맨 바깥 문단
+        orig = copy.deepcopy(top)
+        _fill_summary(tbl, [r for r, _ in chunks[0]], tmpl, head_h, [h for _, h in chunks[0]])
+        prev = top
+        for chunk in chunks[1:]:
+            para = copy.deepcopy(orig)
+            para.set("pageBreak", "1")
+            t2 = next(para.iter(f"{{{HP}}}tbl"))
+            t2.set("id", str(int(t2.get("id", "0")) + len(chunks) * 7 + chunks.index(chunk)))
+            _fill_summary(t2, [r for r, _ in chunk], tmpl, head_h, [h for _, h in chunk])
+            prev.addnext(para)
+            prev = para
+        nxt = prev.getnext()  # 요약표 다음(위치도 등)은 새 쪽에서 — 원래는 표가 쪽을 꽉 채워 자연히 넘어갔음(광숭)
+        while nxt is not None and nxt.tag != f"{{{HP}}}p":
+            nxt = nxt.getnext()
+        if nxt is not None:
+            nxt.set("pageBreak", "1")
+        return True
+    return False
+
+
 def _add_history(root, old: Values) -> bool:
     """1.2.6 기실시된 점검 및 진단결과 — 맨 위 회차 표를 복사해 틀(= 직전 회차) 한 칸을 위에 붙임(민재형 10/10: 지난 이력 + 전회차 요약).
     점검기간·안전등급·점검 주요결과는 틀의 결과표에서. 이미 그 기간 표가 있으면 안 붙임."""
@@ -512,6 +612,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                 if extras.positions:
                     _positions(root, extras.positions)
                 if extras.history and _add_history(root, old):
+                    changed += 1
+                if is_front and extras.summary and _summary_table(root, extras.summary):
                     changed += 1
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):
                     el.getparent().remove(el)
