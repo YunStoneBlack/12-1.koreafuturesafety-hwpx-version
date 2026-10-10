@@ -54,6 +54,8 @@ class Extras:
     summary: list = field(default_factory=list)  # 9쪽 요약표 줄 [(층, 구분, 부재, [점검결과], [조치])] — 비면 지난 표 그대로
     priority: list = field(default_factory=list)  # 보수물량 및 우선순위 줄 [(층, 결함유형, 손상내용, 적용공법, 물량, 단위, 우선순위)]
     cost: tuple | None = None  # 개략공사비 ([(구분, 내용, 방안, 물량, 단위, 단가, 금액)], 직접공사비 합계)
+    ai: dict | None = None  # 6단계 AI 초안(점검자가 고친 것) — server/sitok/ai_draft.py 키(critical·findings·sections·conclusion·grade …)
+    template: str = "2종"  # 등급 표기(2종 낱말·3종 글자)
     notes: list = field(default_factory=list)  # 못 한 것 안내
 
 
@@ -571,7 +573,8 @@ def _find_table(root, head: list[str]):
     want = [h.replace(" ", "") for h in head]
     for tbl in root.iter(f"{{{HP}}}tbl"):
         cells = _cells(tbl)
-        got = [re.sub(r"\s", "", _cell_text(cells[(0, c)])) for c in range(len(want)) if (0, c) in cells]
+        # 머리줄 칸을 열 순서대로(합친 칸은 하나로 — 요약표 "부재(부위)"는 3칸 합침)
+        got = [re.sub(r"\s", "", _cell_text(cells[k])) for k in sorted(k for k in cells if k[0] == 0)][:len(want)]
         if got == want and (1, 0) in cells:
             return tbl
     return None
@@ -630,6 +633,183 @@ def _cost_table(root, rows: list, direct: int) -> bool:
             data = [[[r[0]], [r[1]], [r[2]], [f"{r[3]} {r[4]}".strip()], [str(r[5])], [str(r[6])]] for r in rows]
         _fill_rows(tbl, data, tmpl, head_h, [h] * len(data), 0, keep_tail=tail)
     return True
+
+
+# ---------- 6단계: AI 초안 넣기 ----------
+
+def _top_text(p) -> str:
+    return "".join(_full(t) for t in p.iter(T) if next(t.iterancestors(f"{{{HP}}}tbl"), None) is None).strip()
+
+
+def _set_para(p, text: str, in_table: bool = False) -> None:
+    """문단 글을 text로(첫 글자 칸에, 나머지 비움 — 모양은 첫 칸 것). 기본은 본문 문단(안에 든 표 글자는 안 건드림),
+    in_table이면 표 칸 안 문단(그 문단 자기 글자만)."""
+    if in_table:
+        ts = [t for t in p.iter(T) if next(t.iterancestors(f"{{{HP}}}p"), None) is p]
+    else:
+        ts = [t for t in p.iter(T) if next(t.iterancestors(f"{{{HP}}}tbl"), None) is None]
+    if not ts:
+        return
+    _clear(ts[0], text)
+    for t in ts[1:]:
+        _clear(t, "")
+    for el in list(p.iter(f"{{{HP}}}linesegarray")):
+        el.getparent().remove(el)
+
+
+def _set_lines(tc, lines: list[str]) -> None:
+    """칸 글을 lines(줄마다 문단 하나)로 — 첫 문단 모양을 복사."""
+    ps = [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]
+    if not ps:
+        return
+    first = ps[0]
+    for q in ps[1:]:
+        q.getparent().remove(q)
+    for el in list(first.iter(f"{{{HP}}}linesegarray")):
+        el.getparent().remove(el)
+    last = first
+    for i, line in enumerate(lines or [""]):
+        q = first if i == 0 else copy.deepcopy(first)
+        ts = list(q.iter(T))
+        if not ts:
+            run = q.find(f"{{{HP}}}run")
+            if run is None:
+                continue
+            ts = [etree.SubElement(run, T)]
+        _clear(ts[0], line)
+        for t in ts[1:]:
+            _clear(t, "")
+        if i:
+            last.addnext(q)
+        last = q
+
+
+def old_texts(hwpx: Path) -> str:
+    """지난 보고서의 1.3 외관조사 서술·종합결론 글머리 — AI에 말투 참고로 줌."""
+    out = []
+    with zipfile.ZipFile(hwpx) as z:
+        roots = [etree.fromstring(z.read(n)) for n in _sections(z)]
+    for root in roots[1:]:
+        tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+        on = concl = False
+        for p in tops:
+            t = _top_text(p)
+            if re.match(r"1\.\d\s*외관조사", t):
+                on = True
+                continue
+            if on and re.match(r"1\.\d\s", t) and "외관조사" not in t:
+                on = False
+            if on and t and not re.match(r"^\d\)", t):
+                out.append(t)
+            if re.match(r"\d\)", t):
+                concl = bool(re.match(r"2\)\s*종합결론", t))
+            elif concl and t.startswith("ㆍ"):
+                out.append(t)
+    return "\n".join(dict.fromkeys(out))
+
+
+def _ai_front(root, ai: dict, template: str) -> int:
+    """결과표 — 중대결함·공중이용부위·점검 주요결과(줄 수는 표 그대로, 넘치면 마지막 칸에 이어서)·주요 보수보강·차기 중점부위·안전등급."""
+    cells = _find_result_table([root])
+    if cells is None:
+        return 0
+    n = 0
+    g = lambda r, c: _cell_text(cells[(r, c)]) if (r, c) in cells else ""  # noqa: E731
+    if ai.get("critical") and (8, 1) in cells:
+        _set_lines(cells[(8, 1)], [ai["critical"]]); n += 1  # noqa: E702
+    if ai.get("public") and (9, 1) in cells:
+        _set_lines(cells[(9, 1)], [ai["public"]]); n += 1  # noqa: E702
+    rows = []
+    r = 10
+    while (r, 1) in cells and not re.sub(r"\s", "", g(r, 0)).startswith(("주요보수", "다.")):
+        rows.append(r)
+        r += 1
+    repair_row = r if (r, 1) in cells and re.sub(r"\s", "", g(r, 0)).startswith("주요보수") else None
+    f = [x if x.startswith(("ㆍ", "-", "·")) else f"ㆍ{x}" for x in ai.get("findings") or []]
+    if f and rows:
+        for i, rr in enumerate(rows):
+            part = f[i:i + 1] if i < len(rows) - 1 else f[i:]
+            _set_lines(cells[(rr, 1)], part or [""])
+        n += 1
+    if ai.get("repairs") and repair_row is not None:
+        _set_lines(cells[(repair_row, 1)], ai["repairs"]); n += 1  # noqa: E702
+    if ai.get("next_focus"):
+        for tc in cells.values():
+            for q in tc.iter(f"{{{HP}}}p"):
+                t = "".join(_full(x) for x in q.iter(T))
+                if "중점 점검부위" in t and ":" in t:
+                    _set_para(q, t.split(":")[0].rstrip() + " : " + ai["next_focus"], in_table=True); n += 1  # noqa: E702
+    if ai.get("grade") and (5, 8) in cells:
+        _set_lines(cells[(5, 8)], [grade_text_for(ai["grade"], template)[0]]); n += 1  # noqa: E702
+    return n
+
+
+def grade_text_for(letter: str, template: str) -> tuple[str, str]:
+    from server.sitok.ai_draft import grade_text
+    return grade_text(letter, template)
+
+
+def _ai_body(root, ai: dict, template: str) -> int:
+    """1.3 외관조사 항목 서술(제목 다음 문단)·결과의 분석 표·종합결론 글머리·안전등급 줄과 정의."""
+    from server.sitok.ai_draft import section_key
+
+    n = 0
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    sections = ai.get("sections") or {}
+    in13 = False
+    for i, p in enumerate(tops):
+        t = _top_text(p)
+        if re.match(r"1\.\d\s*외관조사\s*실시결과", t):
+            in13 = True
+            continue
+        if in13 and re.match(r"1\.\d\s", t):
+            in13 = False
+        if in13 and re.match(r"^\d\)", t) and "분석" not in t:
+            key = section_key(t)
+            text = sections.get(key or "", "")
+            nxt = tops[i + 1] if i + 1 < len(tops) else None
+            if key and text and nxt is not None and _top_text(nxt) and not re.match(r"^\d\)", _top_text(nxt)):
+                _set_para(nxt, text)
+                n += 1
+    for tbl in root.iter(f"{{{HP}}}tbl"):  # 외관조사 결과의 분석(조사항목 | 조사결과)
+        cells = _cells(tbl)
+        if re.sub(r"\s", "", _cell_text(cells.get((0, 0), tbl))) != "조사항목":
+            continue
+        for (r, c), tc in cells.items():
+            if c == 0 and r > 0 and (r, 1) in cells:
+                key = section_key(_cell_text(tc))
+                if key and sections.get(key):
+                    _set_lines(cells[(r, 1)], [f"ㆍ{sections[key]}"])
+                    n += 1
+    concl = [x if x.startswith("ㆍ") else f"ㆍ{x}" for x in ai.get("conclusion") or []]
+    for i, p in enumerate(tops):
+        t = _top_text(p)
+        if re.match(r"2\)\s*종합결론", t) and concl:
+            bullets = []
+            for q in tops[i + 1:]:
+                if _top_text(q).startswith("ㆍ"):
+                    bullets.append(q)
+                elif _top_text(q):
+                    break
+            if bullets:
+                for q in bullets[1:]:
+                    q.getparent().remove(q)
+                last = bullets[0]
+                _set_para(last, concl[0])
+                for line in concl[1:]:
+                    q = copy.deepcopy(bullets[0])
+                    _set_para(q, line)
+                    last.addnext(q)
+                    last = q
+                n += 1
+        if re.match(r"1\)\s*시설물의\s*안전등급", t) and ai.get("grade"):
+            word, desc = grade_text_for(ai["grade"], template)
+            _set_para(p, f"1) 시설물의 안전등급 : {word}등급")
+            nxt = tops[i + 1] if i + 1 < len(tops) else None
+            if nxt is not None and _top_text(nxt).startswith("본 시설물은"):
+                _set_para(nxt, f"본 시설물은 {desc}로 판단된다.")
+            n += 1
+    return n
 
 
 def _add_history(root, old: Values) -> bool:
@@ -710,6 +890,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     changed += 1
                 if not is_front and extras.cost is not None and _cost_table(root, extras.cost[0], extras.cost[1]):
                     changed += 1
+                if extras.ai:
+                    changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template)
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):
                     el.getparent().remove(el)
                 texts.append("\r\n".join("".join(t.text or "" for t in p.iter(T)) for p in root.iter(f"{{{HP}}}p")))

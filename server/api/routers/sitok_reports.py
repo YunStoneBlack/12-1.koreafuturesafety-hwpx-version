@@ -7,6 +7,8 @@
 - `POST /sitok/facilities/{id}/reports/past` — 이미 낸 보고서 한글 등록 = 그 회차(연도·반기·기간은 결과표에서)를 "만듦"으로 → 다음 회차의 틀.
 - `POST /sitok/reports/{id}/build` — 만들기 시작(백그라운드: 값 바꾸기 → 한글 PDF(100쪽 넘으면 몇 분) → 관리대장·계약서 합본). 화면은 GET으로 진행을 봄.
 - `GET  /sitok/reports/{id}` · `/sitok/reports/{id}/file/{pdf|hwpx}`.
+- `POST /sitok/reports/{id}/ai/draft` — AI 초안 새로(현장 조사 결함 + 지난 회차 문장 참고, 30~90초), `GET|PUT /sitok/reports/{id}/ai` — 점검자가 고친 값.
+  만들 때 이 값이 결과표·1.3 외관조사 서술·결과의 분석·종합결론·안전등급에 들어감(server/sitok/report_build.py _ai_front·_ai_body).
 값 바꾸기 규칙: server/sitok/report_build.py. 점검기간·용역기간 기본값: 인수인계 10/10(민간·관급).
 """
 
@@ -63,7 +65,8 @@ def _out(r: SitokReport) -> dict:
             "has_source": bool(r.source_hwpx and Path(r.source_hwpx).exists()), "source_note": r.source_note,
             "status": r.status, "message": r.message, "made_at": r.made_at.strftime("%Y-%m-%d %H:%M") if r.made_at else "",
             "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists()),
-            "past": r.status == "done" and not r.source_hwpx}  # 이미 낸 보고서를 등록한 회차(만들기 없음)
+            "past": r.status == "done" and not r.source_hwpx,  # 이미 낸 보고서를 등록한 회차(만들기 없음)
+            "has_ai": bool(r.ai)}
 
 
 def _require(db: Session, user: User, report_id: int) -> SitokReport:
@@ -300,6 +303,8 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
                 ex.images[("sitok_edu", "chief")] = docs["sitok_edu"]
         if i == 0 and docs.get("sitok_license"):
             ex.images[("sitok_license", "chief")] = docs["sitok_license"]
+    ex.ai = (r.ai or {}).get("final") or None
+    ex.template = db.get(SitokFacility, r.facility_id).template
     eq = (db.query(SitokEquipment).filter(SitokEquipment.company_id == r.company_id, SitokEquipment.active.is_(True))
           .order_by(SitokEquipment.sort, SitokEquipment.id).all())
     ex.equipment = [(e.name, e.model, e.purpose, [to_full(x) for x in (e.photos or [])]) for e in eq]
@@ -420,3 +425,47 @@ def report_file(report_id: int, kind: str, user: User = Depends(get_current_user
         raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
     return FileResponse(path, media_type="application/pdf" if kind == "pdf" else "application/octet-stream",
                         filename=Path(path).name, content_disposition_type="inline" if kind == "pdf" else "attachment")
+
+
+@router.post("/reports/{report_id}/ai/draft")
+def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """AI 초안 새로 — 결과는 draft에, 점검자가 고치기 전 final도 같은 값으로(화면에서 고쳐 저장하면 final만 바뀜)."""
+    from core.models_web import SitokDefect
+    from server.sitok import ai_draft
+
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id).all()
+    if not rows:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "현장 조사 결함이 없습니다 — [📱 현장 조사]에서 결함을 먼저 가져오거나 입력하세요.")
+    defects = [{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "count", "width", "length", "qty", "check", "mark", "progress", "cause")}
+               for d in rows]
+    old = rb.old_texts(Path(r.source_hwpx)) if r.source_hwpx and Path(r.source_hwpx).exists() else ""
+    facility = f"{f.name} — {f.template} · {f.use_type or f.main_use} · {f.structure} · 지상 {f.floors_above or '-'}층/지하 {f.floors_below or 0}층 · 준공 {_iso(f.completion_date)}"
+    try:
+        data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
+    data["made_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    r.ai = {"draft": data, "final": {k: v for k, v in data.items() if k not in ("stats",)}}
+    db.commit()
+    return r.ai
+
+
+@router.get("/reports/{report_id}/ai")
+def ai_get(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = _require(db, user, report_id)
+    return r.ai or {}
+
+
+@router.put("/reports/{report_id}/ai")
+def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """점검자가 고친 값(final) 저장 — 키는 ai_draft.draft 결과와 같음. 등급은 A~E만."""
+    r = _require(db, user, report_id)
+    final = {k: body.get(k) for k in ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason")}
+    if final.get("grade") and final["grade"] not in ("A", "B", "C", "D", "E"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "안전등급은 A~E 중 하나입니다.")
+    final["edited_by"], final["edited_at"] = user.display_name or "", datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    r.ai = {**(r.ai or {}), "final": final}
+    db.commit()
+    return r.ai

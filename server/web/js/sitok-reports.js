@@ -31,7 +31,8 @@
     el.innerHTML = `<div class="sk-rep-head"><b>${r.year}년 ${esc(r.half)}</b>
         <span class="sk-rep-src">${r.past ? "이미 낸 보고서" : r.has_source ? `틀: ${esc(r.source_note)}` : '<span class="bad">틀 없음 — 지난 보고서 한글 파일을 올리세요</span>'}</span>
         <label class="secondary-link"${r.past ? " hidden" : ""}>지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
-        ${r.past ? "" : `<a class="secondary-link sk-rep-field" href="sitok-field.html?report=${r.id}">📱 현장 조사</a>`}
+        ${r.past ? "" : `<a class="secondary-link sk-rep-field" href="sitok-field.html?report=${r.id}">📱 현장 조사</a>
+          <button type="button" class="secondary btn-sm sk-rep-ai">🤖 AI 초안${r.has_ai ? " ✓" : ""}</button>`}
         <button type="button" class="secondary btn-sm sk-rep-del">삭제</button></div>
       <div class="sk-rep-grid">
         <label>계약<select data-k="contract_id">${contractOpts}</select></label>
@@ -68,6 +69,7 @@
       if (!confirm(`${r.year}년 ${r.half} 보고서를 지울까요? 만든 한글·PDF도 지워집니다.`)) return;
       try { await api(`/sitok/reports/${r.id}`, { method: "DELETE" }); load(); } catch (e) { err(e); }
     });
+    el.querySelector(".sk-rep-ai")?.addEventListener("click", () => openSitokAi(r.id, `${r.year}년 ${r.half}`, load));
     el.querySelector(".sk-rep-build")?.addEventListener("click", async () => {
       try { await apiPost(`/sitok/reports/${r.id}/build`); load(); } catch (e) { err(e); }
     });
