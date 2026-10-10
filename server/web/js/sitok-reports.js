@@ -31,6 +31,7 @@
     el.innerHTML = `<div class="sk-rep-head"><b>${r.year}년 ${esc(r.half)}</b>
         <span class="sk-rep-src">${r.past ? "이미 낸 보고서" : r.has_source ? `틀: ${esc(r.source_note)}` : '<span class="bad">틀 없음 — 지난 보고서 한글 파일을 올리세요</span>'}</span>
         <label class="secondary-link"${r.past ? " hidden" : ""}>지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
+        ${r.past ? "" : `<a class="secondary-link sk-rep-field" href="sitok-field.html?report=${r.id}">📱 현장 조사</a>`}
         <button type="button" class="secondary btn-sm sk-rep-del">삭제</button></div>
       <div class="sk-rep-grid">
         <label>계약<select data-k="contract_id">${contractOpts}</select></label>

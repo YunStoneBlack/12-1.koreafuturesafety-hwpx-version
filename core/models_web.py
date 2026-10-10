@@ -525,3 +525,36 @@ class SitokReport(Base):
     made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class SitokDefect(Base):
+    """웹판 전용 — 시특법 회차의 결함 한 줄(외관조사 결함현황표·사진대장, 2026-10-10 alembic 0030 — 5단계).
+    회차를 시작할 때 전회차 결함을 가져오고(지난 보고서 PDF의 외관조사 사진첩을 읽거나 직전 회차에서 복사) prev_*에 전회차 값·사진을 둔다.
+    현장에서 같은 자리를 다시 찍고 check = same(그대로 → 비고 "기존") / grew(진행 — 크기 다시) / repaired(보수 완료 → 비고 "보수") / new(새로 찾음 → "신규").
+    check가 빈 줄은 아직 안 본 것. 숫자는 보고서 표 글자 그대로(폭 mm·길이 m — 면적 결함은 둘 다 m, 인수인계 10/10)."""
+
+    __tablename__ = "sitok_defect"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("sitok_report.id", ondelete="CASCADE"), index=True)
+    floor: Mapped[str] = mapped_column(Text, default="")  # 지상2층 · 지하1층 · 옥상층
+    seq: Mapped[int] = mapped_column(Integer, default=0)  # 층 안 번호(외관망도 번호)
+    part: Mapped[str] = mapped_column(Text, default="")  # 구조체 / 비구조체
+    member: Mapped[str] = mapped_column(Text, default="")  # 부재(슬라브·조적벽…)
+    dtype: Mapped[str] = mapped_column(Text, default="")  # 결함유형
+    count: Mapped[str] = mapped_column(Text, default="")
+    width: Mapped[str] = mapped_column(Text, default="")
+    length: Mapped[str] = mapped_column(Text, default="")
+    qty: Mapped[str] = mapped_column(Text, default="")
+    area_ratio: Mapped[str] = mapped_column(Text, default="")
+    cause: Mapped[str] = mapped_column(Text, default="")
+    progress: Mapped[str] = mapped_column(Text, default="")  # 진행성 / 비진행성
+    mark: Mapped[str] = mapped_column(Text, default="")  # 비고: 기존 / 신규 / 보수
+    check: Mapped[str] = mapped_column(Text, default="")
+    photo: Mapped[str] = mapped_column(StoredPath, default="")  # 이번 사진
+    prev: Mapped[dict | None] = mapped_column(JSON, default=None)  # 전회차 값(개수·폭·길이·결함유형…)
+    prev_photo: Mapped[str] = mapped_column(StoredPath, default="")
+    starred: Mapped[bool] = mapped_column(Boolean, default=False)  # 비교 사진대장에 꼭 넣기
+    note: Mapped[str] = mapped_column(Text, default="")
+    checked_by: Mapped[str] = mapped_column(Text, default="")
+    checked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)

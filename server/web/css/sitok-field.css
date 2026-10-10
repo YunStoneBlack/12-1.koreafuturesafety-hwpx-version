@@ -1,0 +1,61 @@
+/* 시특법 현장 조사(sitok-field.html, 2026-10-10 5단계) — 폰 우선. 확인 상태 색: 그대로 초록 · 진행 주황 · 보수 파랑 · 신규 보라 */
+.sf-h { margin: 0 0 6px; font-size: 16px; }
+.sf-import { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: stretch; margin-top: 12px; }
+.main .sf-import button { margin: 0; }
+.sf-sum { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.sf-sum b { color: var(--ink); font-size: 15px; margin-right: 4px; }
+.sf-sum .ok { color: var(--green); } .sf-sum .grew { color: var(--warn); } .sf-sum .rep { color: var(--blue); } .sf-sum .new { color: #7c3aed; }
+.sf-floors { position: sticky; top: var(--tabs-h, 0px); z-index: 5; display: flex; gap: 6px; overflow-x: auto; padding: 8px 0; background: var(--paper); scrollbar-width: none; }
+.sf-floors::-webkit-scrollbar { display: none; }
+.main button.sf-floor { flex: none; margin: 0; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  font-size: 13px; font-weight: 600; display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
+.sf-floor small { font-size: 10.5px; font-weight: 500; color: var(--warn); }
+.main button.sf-floor.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.main button.sf-floor.on small { color: #fff; }
+.sf-card { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 10px 0; }
+.sf-card.c-same { border-left-color: var(--green); } .sf-card.c-grew { border-left-color: #E0A33A; } .sf-card.c-repaired { border-left-color: var(--blue); }
+.sf-card.c-new { border-left-color: #7c3aed; }
+.sf-card.busy { opacity: .5; pointer-events: none; }
+.sf-card-head { display: flex; align-items: center; gap: 8px; }
+.sf-no { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 12.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.sf-card-head b { font-size: 14.5px; }
+.sf-part { font-size: 12px; color: var(--muted); }
+.main .sf-star { margin: 0 0 0 auto; padding: 2px 8px; background: none; border: 1px solid var(--line); color: var(--faint); font-size: 15px; border-radius: 8px; }
+.main .sf-star.on { color: #E0A33A; border-color: #E0A33A; }
+.sf-prev { font-size: 12.5px; color: var(--muted); margin: 6px 0 0 34px; }
+.sf-prev em { font-style: normal; color: var(--faint); }
+.sf-photos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.sf-photos figure { margin: 0; }
+.sf-photos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #fff; display: block; cursor: pointer; }
+.sf-photos figcaption { font-size: 11.5px; color: var(--muted); text-align: center; margin-top: 3px; }
+.sf-nophoto, .sf-shot span { width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; border: 1.5px dashed var(--line); display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: var(--faint); background: var(--paper); }
+.sf-shot { display: block; cursor: pointer; }
+.sf-shot span { color: var(--blue); font-weight: 600; font-size: 15px; border-color: var(--blue); background: var(--blue-soft); }
+.sf-shot.drop-over span { background: #dbe9fb; }
+.sf-acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.main .sf-acts button { margin: 0; padding: 10px 0; font-size: 14px; font-weight: 600; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; }
+.main .sf-acts button[data-c="same"].on { background: var(--green); border-color: var(--green); color: #fff; }
+.main .sf-acts button[data-c="grew"].on { background: #E0A33A; border-color: #E0A33A; color: #fff; }
+.main .sf-acts button[data-c="repaired"].on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.sf-size { display: grid; grid-template-columns: repeat(3, 1fr) auto; gap: 6px; align-items: end; margin-top: 8px; }
+.sf-size[hidden] { display: none; }
+.sf-size label { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.sf-size input { padding: 8px; font-size: 15px; }
+.sf-qty { font-size: 12px; color: var(--muted); padding-bottom: 10px; white-space: nowrap; }
+.sf-by { font-size: 11.5px; color: var(--faint); margin-top: 6px; }
+.main .sf-by button { margin: 0 0 0 4px; padding: 0; background: none; border: 0; color: var(--crit); font-size: 11.5px; text-decoration: underline; }
+.main button.sf-add { position: fixed; right: 20px; bottom: 20px; z-index: 20; margin: 0; padding: 14px 20px; border-radius: 999px; font-size: 15px; font-weight: 700;
+  box-shadow: 0 4px 14px rgba(15, 17, 32, .25); }
+.mail-box.sf-new { width: min(440px, 100%); }
+.sf-new > label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.sf-newphoto { margin-top: 4px; }
+@media (max-width: 760px) {
+  .sf-import { grid-template-columns: 1fr; }
+  .main button.sf-add { right: 14px; bottom: 14px; }
+}
+.main .sf-acts button { text-align: center; justify-content: center; }
+@media (min-width: 900px) { /* PC: 카드 두 줄씩(사진이 너무 커지지 않게) */
+  #sf-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; align-items: start; }
+}
+@media (min-width: 1500px) { #sf-list { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

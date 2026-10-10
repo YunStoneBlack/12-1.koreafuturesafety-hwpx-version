@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>현장 조사 - 시특법</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/sitok-field.css" />
+</head>
+<!-- 시특법 현장 조사(2026-10-10 5단계, 폰 우선) — 전회차 결함 자리에 가서 같은 자리를 다시 찍고 [그대로·진행·보수], 못 보던 건 [+ 신규].
+     서버 server/api/routers/sitok_defects.py, 화면 js/sitok-field.js. ?report=회차 id -->
+<body data-report-tab="facilities" data-law="sitok" data-tabs-only>
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div class="crumb"><a href="sitok.html">시설물 목록</a> › <a id="sf-fac-link" href="#">시설물</a> › <span id="sf-title">현장 조사</span></div>
+<div id="error" class="error"></div>
+
+<div id="sf-empty" class="panel" hidden>
+  <div class="panel-body">
+    <h3 class="sf-h">전회차 결함 가져오기</h3>
+    <p class="page-sub">지난 보고서의 외관조사 사진첩(결함현황표·사진)을 가져와 현장에서 하나씩 다시 확인합니다.</p>
+    <div class="sf-import">
+      <label class="sk-drop"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" id="sf-pdf" />
+        <b>📄 지난 보고서 PDF에서 가져오기</b><span class="sk-drop-msg" id="sf-pdf-msg">사진첩이 든 보고서 PDF — 결함 목록과 사진을 읽습니다(10~30초)</span></label>
+      <button type="button" class="secondary" id="sf-carry">직전 회차 결함 그대로 가져오기</button>
+    </div>
+  </div>
+</div>
+
+<div id="sf-main" hidden>
+  <div class="sf-sum" id="sf-sum"></div>
+  <div class="sf-floors" id="sf-floors"></div>
+  <div id="sf-list"></div>
+  <button type="button" class="sf-add" id="sf-add">+ 신규 결함</button>
+</div>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/sitok-field.js"></script>
+</body>
+</html>
