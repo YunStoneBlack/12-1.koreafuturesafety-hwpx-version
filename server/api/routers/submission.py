@@ -1,9 +1,10 @@
-"""제출 현황(탭 "제출 현황", status.html) + "직접 제출함" 표시.
+"""제출 현황(탭 "제출 현황", status.html) + "직접 제출함"·"K2B 직접 제출함" 표시.
 
 - GET  /submission/overview?year=&month=&staff_id= — 그달(지도일 기준, 지도일이 없으면 만든 날) 보고서와 상태, 숫자 칸,
   그해 월별 제출/미제출, 요원별 현황. 상태 판정은 server/api/submission.py.
   (2026-10-01 "마지막 지도일 + 15일" 지도 기한·임박/초과·맨 위 배너는 없앰 — 실제 규칙이 아니었음. 진행은 진행 막대로 본다.)
 - POST/DELETE /reports/{id}/submit-mark — "직접 제출함" 표시/되돌리기(PDF를 만든 보고서만). 보고서 수정이 아니므로 edit_tracking에서 제외.
+- POST/DELETE /reports/{id}/k2b-mark — "K2B 직접 제출함" 표시/되돌리기(2026-10-10, K2B 사이트에 직접 넣은 보고서). 같은 조건·같은 이유로 제외.
 """
 
 from __future__ import annotations
@@ -14,10 +15,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from core.models_db import Report, Site, Staff
-from core.models_web import ReportSubmitMark, User
+from core.models_web import ReportK2bMark, ReportSubmitMark, User
 from server.api import repo
 from server.api.deps import get_current_user, get_db
-from server.api.submission import report_states
+from server.api.submission import STATES, report_states
 from server.api.site_label import site_label
 
 router = APIRouter(tags=["submission"])
@@ -66,11 +67,12 @@ def overview(
     # 지도일 최근 순 → 같은 날이면 현장 이름 순 → 회차 큰 순(같은 현장끼리 모이게)
     rows.sort(key=lambda x: (-datetime.date.fromisoformat(x["date"]).toordinal(), x["site_name"], -x["visit_no"]))
 
-    count = {s: sum(1 for x in rows if x["state"] == s) for s in ("writing", "outdated", "pdf_ready", "submitted")}
+    count = {s: sum(1 for x in rows if x["state"] == s) for s in STATES}
     cards = {
         "total": len(rows), **count,
         "submitted_mail": sum(1 for x in rows if x["state"] == "submitted" and x["submitted_via"] == "mail"),
         "submitted_manual": sum(1 for x in rows if x["state"] == "submitted" and x["submitted_via"] == "manual"),
+        "k2b_done": sum(1 for x in rows if x["k2b_via"]),
     }
 
     # 요원별 그달 — 제출/전체
@@ -114,5 +116,26 @@ def mark_submitted(report_id: int, user: User = Depends(get_current_user), db: S
 def unmark_submitted(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     _require_report(db, user, report_id)
     db.query(ReportSubmitMark).filter(ReportSubmitMark.report_id == report_id).delete()
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/reports/{report_id}/k2b-mark")
+def mark_k2b(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    report = _require_report(db, user, report_id)
+    if report.status != "final":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF를 만든 보고서만 K2B 제출로 표시할 수 있습니다.")
+    mark = db.get(ReportK2bMark, report_id) or ReportK2bMark(report_id=report_id)
+    mark.marked_at = datetime.datetime.now()
+    mark.marked_by = user.display_name or ""
+    db.add(mark)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/reports/{report_id}/k2b-mark")
+def unmark_k2b(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _require_report(db, user, report_id)
+    db.query(ReportK2bMark).filter(ReportK2bMark.report_id == report_id).delete()
     db.commit()
     return {"ok": True}

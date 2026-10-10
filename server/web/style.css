@@ -469,6 +469,7 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .main .st-only { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin: 0 0 0 auto; font-weight: 500; }
 .main .st-only input { width: auto; margin: 0; }
 .st-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+#st-cards { grid-template-columns: repeat(5, minmax(0, 1fr)); } /* 제출 현황은 K2B 미제출 칸까지 5개(2026-10-10) */
 .main button.st-card {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 0; text-align: left;
   background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow-card);
@@ -513,20 +514,24 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .st-site:hover { color: var(--blue); }
 .st-sub { font-size: 12px; color: var(--muted); font-weight: 400; }
 .st-head, .st-rep {
-  display: grid; grid-template-columns: minmax(0, 2.4fr) 44px 70px 64px 124px minmax(0, 1.3fr) 196px; gap: 10px; align-items: center; padding: 12px 14px;
+  display: grid; grid-template-columns: minmax(0, 2.4fr) 44px 70px 64px 112px minmax(0, 1fr) minmax(0, 1fr) 216px; gap: 10px; align-items: center; padding: 12px 14px;
 }
 .st-head { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--paper); border-bottom: 1px solid var(--line); padding-top: 10px; padding-bottom: 10px; }
 .st-rep { border-bottom: 1px solid var(--line); font-size: 13.5px; }
 .st-rep:last-child { border-bottom: 0; }
+.st-rep { cursor: pointer; transition: background .12s; } .st-rep:hover { background: var(--blue-soft); } /* 행 누르면 보고서 열기(js/status.js) */
 .st-rep .c-meta { display: none; }
 .st-sent { font-size: 12.5px; color: var(--green); font-weight: 600; }
 .st-sent span { display: block; font-weight: 400; color: var(--muted); font-size: 11.5px; }
 .st-mod { display: block; font-style: normal; font-size: 11.5px; color: var(--warn); font-weight: 600; margin-top: 2px; }
-.main button.st-unmark { margin: 2px 0 0; padding: 0; background: none; border: 0; color: var(--muted); font-size: 11.5px; text-decoration: underline; font-weight: 400; }
+.st-sent a.st-k2b-shot { color: inherit; text-decoration: none; } .st-sent a.st-k2b-shot:hover { text-decoration: underline; }
+.st-k2b-miss { font-style: normal; font-size: 12.5px; color: var(--warn); font-weight: 600; } /* 전송은 했는데 K2B 안 됨(2026-10-10) */
+.main button.st-unmark, .main button.st-k2b-unmark { margin: 2px 0 0; padding: 0; background: none; border: 0; color: var(--muted); font-size: 11.5px; text-decoration: underline; font-weight: 400; }
 .st-act { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .main .st-act button, .main .st-act a.secondary-link { margin: 0; padding: 6px 12px; font-size: 12.5px; }
 @media (max-width: 760px) {
-  .st-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .st-cards, #st-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  #st-cards .st-card:first-child { grid-column: 1 / -1; }
   .main button.st-card { padding: 10px 12px; } .st-card .n { font-size: 22px; }
   .main .st-only { margin-left: 0; }
   .st-row2 { grid-template-columns: minmax(0, 1fr); }
@@ -538,7 +543,8 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
   .st-rep .c-site { grid-column: 1; } .st-rep .c-state { grid-column: 2; grid-row: 1; justify-self: end; }
   .st-rep .c-no, .st-rep .c-date, .st-rep .c-staff, .st-rep .st-none { display: none; }
   .st-rep .c-meta { display: block; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
-  .st-rep .c-sent { grid-column: 1; } .st-rep .st-act { grid-column: 2; align-self: end; }
+  .st-rep .c-sent, .st-rep .c-k2b { grid-column: 1; } .st-rep .st-act { grid-column: 2; grid-row: 2 / span 2; align-self: end; }
+  .st-rep.pdf_ready .st-act, .st-rep.k2b_missing .st-act { grid-column: 1 / -1; grid-row: auto; margin-top: 6px; } /* 버튼 두 개 줄은 아래 한 줄로 */
 }
 
 /* 담당요원 탭 — 그룹웨어 직원정보 목록(js/staff-gw.js): [담당요원] 체크 · 이름 + 부서·연락처·메일 · 서명 */

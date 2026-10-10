@@ -8,7 +8,7 @@
 // 데이터: GET /calendar?start=&end= (server/api/routers/calendar.py), 예정 넣기·고치기·지우기: /calendar/plans.
 
 const errorEl = document.getElementById("error");
-const STATE_LABEL = { writing: "작성 중", pdf_ready: "PDF 만듦", outdated: "PDF 다시 만들어야 함", submitted: "제출 완료" };
+const STATE_LABEL = { writing: "작성 중", pdf_ready: "PDF 만듦", outdated: "PDF 다시 만들어야 함", k2b_missing: "전송함·K2B 미제출", submitted: "제출 완료" };
 const PREF_KEY = "kfsc-report:calendar-view";
 const isPhone = () => matchMedia("(max-width: 760px)").matches;
 const pad2 = (n) => String(n).padStart(2, "0");

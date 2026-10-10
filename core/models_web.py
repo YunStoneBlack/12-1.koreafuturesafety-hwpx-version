@@ -130,6 +130,17 @@ class ReportSubmitMark(Base):
     marked_by: Mapped[str] = mapped_column(Text, default="")
 
 
+class ReportK2bMark(Base):
+    """웹판 전용 — "K2B 직접 제출함" 표시(제출 현황 화면, 2026-10-10 alembic 0026). 웹 [K2B 제출] 말고 K2B 사이트에 직접 넣은 보고서
+    (10/2 웹 연동 전 보고서 포함)를 K2B 제출로 치기 위해 사람이 누른 기록. 되돌리기 = 행 삭제. 판정은 server/api/submission.py."""
+
+    __tablename__ = "report_k2b_mark"
+
+    report_id: Mapped[int] = mapped_column(ForeignKey("report.id", ondelete="CASCADE"), primary_key=True)
+    marked_at: Mapped[datetime.datetime] = mapped_column(DateTime)
+    marked_by: Mapped[str] = mapped_column(Text, default="")
+
+
 class StaffContact(Base):
     """웹판 전용 — 담당요원 메일(지도 기한 알림 메일 받는 곳). Staff는 데스크톱(SQLite)과 같이 쓰는 모델이라 칸을 늘리지 않고
     따로 둔다(ReportEdit과 같은 이유). 요원이 지워지면 같이 지워진다(CASCADE)."""
