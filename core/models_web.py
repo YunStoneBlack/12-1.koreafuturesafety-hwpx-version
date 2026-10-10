@@ -495,3 +495,33 @@ class SitokEquipment(Base):
     photos: Mapped[list | None] = mapped_column(JSON, default=None)  # 저장소 기준 경로들(to_stored)
     sort: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class SitokReport(Base):
+    """웹판 전용 — 시특법 정기안전점검 보고서 한 회차(시설물 × 연도 × 반기, 2026-10-10 alembic 0029). 틀(source_hwpx) = 직전 회차가 만든 한글 파일,
+    처음 하는 시설물은 지난 보고서 한글 파일을 올린 것. 만들기(server/sitok/report_build.py) = 틀의 예전 값을 이 회차 값으로 바꿔 out_hwpx → 한글로 PDF →
+    부록 간지 뒤에 관리대장·계약서 PDF를 끼워 out_pdf. status: "" 안 만듦 / running / done / failed(message).
+    점검기간: 민간 = 현장 간 날 ~ 보고서 낸 날(직접), 관급 = 착수일 ~ 상반기 완료일 / 하반기 시작일 ~ 완수일(계약에서 기본값)."""
+
+    __tablename__ = "sitok_report"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    facility_id: Mapped[int] = mapped_column(ForeignKey("sitok_facility.id", ondelete="CASCADE"), index=True)
+    contract_id: Mapped[int | None] = mapped_column(ForeignKey("sitok_contract.id", ondelete="SET NULL"), default=None)
+    year: Mapped[int] = mapped_column(Integer)
+    half: Mapped[str] = mapped_column(Text)  # 상반기 / 하반기
+    period_start: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    period_end: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    report_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)  # 제출일(표지·제출문 연월)
+    chief_id: Mapped[int | None] = mapped_column(ForeignKey("tech_person.id", ondelete="SET NULL"), default=None)  # 책임기술자
+    participant_ids: Mapped[list | None] = mapped_column(JSON, default=None)  # 참여기술자
+    source_hwpx: Mapped[str] = mapped_column(StoredPath, default="")
+    source_note: Mapped[str] = mapped_column(Text, default="")  # 틀이 어디서 왔는지(직전 회차 / 올린 파일 이름)
+    out_hwpx: Mapped[str] = mapped_column(StoredPath, default="")
+    out_pdf: Mapped[str] = mapped_column(StoredPath, default="")
+    status: Mapped[str] = mapped_column(Text, default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)

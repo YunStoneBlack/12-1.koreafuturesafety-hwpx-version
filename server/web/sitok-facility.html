@@ -18,6 +18,12 @@
 <div class="crumb"><a href="sitok.html">시설물 목록</a> › <span id="sk-crumb">새 시설물 등록</span></div>
 <div id="error" class="error"></div>
 
+<section class="panel" id="sk-rep-panel" hidden>
+  <div class="panel-head"><h2>점검 보고서</h2><span class="panel-count">회차(연도·반기)마다 — 지난 보고서를 틀로 이번 값으로 바꿔 한글·PDF를 만듭니다</span></div>
+  <div class="panel-body" id="sk-reps"></div>
+</section>
+
+
 <section class="panel" id="sk-pdfs">
   <div class="panel-head"><h2>PDF로 채우기</h2><span class="panel-count">올리면 AI가 읽어 아래 칸을 채웁니다(10~30초) — 틀린 칸은 고치세요</span></div>
   <div class="panel-body sk-drops">
@@ -52,5 +58,6 @@
 <script src="mail.js"></script>
 <script src="js/docs-common.js"></script>
 <script src="js/sitok-facility.js"></script>
+<script src="js/sitok-reports.js"></script>
 </body>
 </html>
