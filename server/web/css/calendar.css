@@ -15,6 +15,9 @@
 .main .cal-filter .cal-autoplan { margin: 0 0 0 auto; padding: 7px 14px; font-size: 13px; white-space: nowrap; } /* 요원 단위 자동 배치(js/auto-plan.js) */
 .cal-item > i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; box-sizing: border-box; }
 .cal-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+/* 넓은 PC(2026-10-10 형): 그룹웨어 본문 최대 폭(app.css .main 1180px) 오른쪽이 비니 그날 목록(400px)을 그 빈 곳으로 빼고 달력이 본문 폭을 다 쓴다.
+   1860px = 메뉴 232 + 본문 1180 + 목록 400 + 사이 16 + 여유 */
+@media (min-width: 1860px) { .cal-wrap { grid-template-columns: minmax(0, 1fr) 400px; margin-right: -416px; } }
 .cal-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-top: 10px; }
 .cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .cal-legend .lg { width: 18px; height: 10px; border-radius: 3px; display: inline-block; }
