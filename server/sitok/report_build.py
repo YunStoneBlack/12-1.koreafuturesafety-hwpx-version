@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import copy
 import datetime
 import re
 import zipfile
@@ -38,10 +39,61 @@ class Values:
     scale: str = ""           # 시설물 규모 칸 글자 전체
     task_end: datetime.date | None = None  # 과업지시서 "용역기간은 ○○까지"
     persons: list[tuple[str, str]] = field(default_factory=list)  # [(이름, 결과표 기술등급)] 책임 → 참여 순
+    grade: str = ""           # 결과표 안전등급(보통·B 등) — 다음 회차 1.2.6 기실시 점검결과에 씀
+    findings: list[str] = field(default_factory=list)  # 결과표 "점검 주요결과" 글머리들 — 다음 회차 1.2.6에 씀
+
+
+@dataclass
+class Extras:
+    """설정에서 넣는 것(4-2, 2026-10-10). images: (종류, 순번) → 그림 파일 — 종류 sitok_reg/sitok_edu/sitok_license, 순번 = 앞부분 수료증은
+    기술자 순서(0 = 책임), 부록은 "chief". equipment: [(이름, 형식, 용도, [사진 경로])] 표 순서대로. positions: {이름: 직위} 참여기술자 명단."""
+    images: dict = field(default_factory=dict)
+    equipment: list = field(default_factory=list)
+    positions: dict = field(default_factory=dict)
+    history: bool = True  # 1.2.6 기실시 점검결과에 틀(= 직전 회차) 한 칸 추가
+    notes: list = field(default_factory=list)  # 못 한 것 안내
+
+
+class _Piece:
+    """글자 조각 — <hp:t>의 text, 또는 그 안 자식(줄바꿈·탭 등) 뒤의 tail. 한글은 한 글자 칸 안에 줄바꿈이 끼면 뒤 글자를 tail로
+    보관한다(10/10 광숭초 결과표 "용역명" 세 줄·안전등급 "B"). 읽기·바꾸기를 모두 조각 단위로 한다."""
+    __slots__ = ("el", "attr", "t")
+
+    def __init__(self, el, attr, t):
+        self.el, self.attr, self.t = el, attr, t
+
+    @property
+    def text(self) -> str:
+        return getattr(self.el, self.attr) or ""
+
+    @text.setter
+    def text(self, v: str) -> None:
+        setattr(self.el, self.attr, v)
+
+
+def _pieces(t) -> list[_Piece]:
+    out = [_Piece(t, "text", t)]
+    out += [_Piece(c, "tail", t) for c in t]
+    return out
+
+
+def _full(t) -> str:
+    """글자 칸 전체(줄바꿈은 줄바꿈으로)."""
+    s = t.text or ""
+    for c in t:
+        s += ("\n" if c.tag.endswith("lineBreak") else "") + (c.tail or "")
+    return s
+
+
+def _clear(t, text: str) -> None:
+    """글자 칸을 text 하나로(줄바꿈 등 자식은 지움)."""
+    for c in list(t):
+        t.remove(c)
+    t.text = text
 
 
 def _cell_text(tc) -> str:
-    return "\n".join("".join(t.text or "" for t in p.iter(T)) for p in tc.iter(f"{{{HP}}}p")).strip()
+    return "\n".join("".join(_full(t) for t in p.iter(T)) for p in tc.iter(f"{{{HP}}}p")).strip()
 
 
 def _cells(tbl) -> dict[tuple[int, int], object]:
@@ -84,36 +136,43 @@ def read_old(hwpx: Path) -> Values:
     if cells is None:
         raise ValueError("지난 보고서에서 '정기안전점검 결과표'(가. 일반현황 표)를 찾지 못했습니다 — 정기안전점검 보고서 한글 파일인지 확인하세요.")
     g = lambda r, c: _cell_text(cells[(r, c)]) if (r, c) in cells else ""  # noqa: E731
-    v = Values(title=g(1, 1), owner=g(2, 1), rep=g(2, 5), amount_k=g(5, 5), address=g(6, 1), scale=g(6, 5))
+    v = Values(title=" ".join(g(1, 1).split()), owner=g(2, 1), rep=g(2, 5), amount_k=g(5, 5), address=g(6, 1), scale=g(6, 5))
     period = g(1, 5)
     parts = re.split(r"[~∼]", period)
     v.period_start, v.period_end = _d(parts[0]), _d(parts[1]) if len(parts) > 1 else None
     v.completion = _d(g(5, 1))
+    v.grade = g(5, 8)
+    r = 10  # "나. 점검 실시결과 현황" 아래 점검 주요결과 칸들(주요 보수ㆍ보강 줄 전까지)
+    while (r, 1) in cells and not re.sub(r"\s", "", g(r, 0)).startswith(("주요보수", "다.")):
+        txt = " ".join(x.strip() for x in g(r, 1).split("\n") if x.strip()).lstrip(".").strip()
+        if txt:
+            v.findings.append(txt)
+        r += 1
     m = re.search(r"\[(.+?)\]", v.title)
     v.name = m[1].strip() if m else ""
     m = re.search(r"(\d{4})\s*년\s*(?:도\s*)?(상반기|하반기)", v.title)
     if m:
         v.year, v.half = int(m[1]), m[2]
     # 기술자: "다. 책임(참여)기술자 현황" 아래 줄들(구분 | 성명 | 과업 참여기간 | 기술등급)
-    for r in range(15, 30):
+    for r in range(8, 40):
         role, name, grade = g(r, 0).replace(" ", ""), g(r, 2).replace(" ", ""), g(r, 6)
         if role.endswith("기술자") and name and role != "구분":
             v.persons.append((name, grade))
     # 표지 "2026. 04." — 첫 구역에서 연도. 월 모양
     for t in roots[0].iter(T):
-        m = re.fullmatch(r"\s*(\d{4})\.\s*(\d{1,2})\.\s*", t.text or "")
+        m = re.fullmatch(r"\s*(\d{4})\.\s*(\d{1,2})\.\s*", _full(t))
         if m:
             v.report_month = (int(m[1]), int(m[2]))
             break
     if not v.name:  # 용역명에 [시설물명]이 없으면 표지 "○○에 대한"
         for t in roots[0].iter(T):
-            m = re.fullmatch(r"\s*(.+?)에\s*대한\s*", t.text or "")
+            m = re.fullmatch(r"\s*(.+?)에\s*대한\s*", _full(t))
             if m:
                 v.name = m[1].strip()
                 break
     for root in roots:  # 과업지시서 "용역기간은 2026년 06월 30일 까지" — 한 문장이 글자 칸 여러 개로 나뉘어 있음
         for p in root.iter(f"{{{HP}}}p"):
-            m = re.search(r"용역기간은\s*(\d{4}년\s*\d{1,2}월\s*\d{1,2}일)", "".join(t.text or "" for t in p.iter(T)))
+            m = re.search(r"용역기간은\s*(\d{4}년\s*\d{1,2}월\s*\d{1,2}일)", "".join(_full(t) for t in p.iter(T)))
             if m:
                 v.task_end = _d(m[1])
     return v
@@ -133,15 +192,14 @@ def _date_forms(d: datetime.date) -> list[tuple[str, callable]]:
     ]
 
 
-FRONT_ONLY = "front"  # 앞부분(첫 구역: 표지·책등·제출문·결과표·요약표)에서만 쓰는 규칙 표시
-
-
-def replacements(old: Values, new: Values) -> tuple[dict[str, str], list[tuple[str, str]], set[str]]:
-    """(칸 전체가 같을 때만 바꿀 것 {예전: 새}, 글자 속 어디든 바꿀 것 [(예전, 새)] — 긴 것부터, 앞부분에서만 쓸 예전 값들).
+def replacements(old: Values, new: Values) -> tuple[dict[str, str], list, set[str]]:
+    """(칸 전체가 같을 때만 바꿀 것 {예전: 새}, 글자 속 어디든 바꿀 것 [(예전, 새)] — 긴 것부터, 맨 뒤에 (정규식, 바꿀 글),
+    앞부분(첫 구역: 표지·책등·제출문·결과표·요약표)에서만 쓸 예전 값들).
     "상반기"·"2026"처럼 짧은 낱말 칸은 앞부분에서만 — 본문엔 보수·보강 이력처럼 과거 기록이 있어서(10/10)."""
     whole: dict[str, str] = {}
     parts: list[tuple[str, str]] = []
     front: set[str] = set()
+    between: list = []
 
     def both(o, n):
         if o and n is not None and o != n:
@@ -168,6 +226,8 @@ def replacements(old: Values, new: Values) -> tuple[dict[str, str], list[tuple[s
     if old.year and new.year and old.half and new.half and (old.year, old.half) != (new.year, new.half):
         for fmt in ("{y}년도 {h}", "{y}년 {h}", "{y}년도{h}", "{y}년{h}", "{y} {h}"):
             both(fmt.format(y=old.year, h=old.half), fmt.format(y=new.year, h=new.half))
+        # 연도와 반기 사이에 이름이 낀 머리말 "2026년 광숭초등학교 상반기 제3종시설물 정기안전점검 용역"(10/10 광숭) — 정기·점검·용역이 뒤에 올 때만
+        between.append((re.compile(rf"{old.year}(년도?\s+\S{{1,20}}\s+){old.half}(?=.*(정기|점검|용역))"), rf"{new.year}\g<1>{new.half}"))
         both(_spaced(old.half), _spaced(new.half))  # 책등 "상 반 기"
         both(old.half + "정기", new.half + "정기")
         cell(old.half, new.half)  # 표지 "상반기"만 따로 있는 칸
@@ -189,7 +249,19 @@ def replacements(old: Values, new: Values) -> tuple[dict[str, str], list[tuple[s
             both(on, nn)
         cell(og, ng)
     parts.sort(key=lambda x: -len(x[0]))
+    parts += between  # (정규식, 바꿀 글) — 일반 글자 바꾸기 뒤에
     return whole, parts, front
+
+
+def _sub_parts(text: str, parts: list) -> str:
+    """parts = [(예전 글, 새 글) 또는 (정규식, 바꿀 글)] 차례로."""
+    for o, nw in parts:
+        if isinstance(o, str):
+            if o in text:
+                text = text.replace(o, nw)
+        else:
+            text = o.sub(nw, text)
+    return text
 
 
 def _own_runs(p) -> list:
@@ -202,7 +274,7 @@ def _cross_runs(root, pairs: list[tuple[str, str]]) -> int:
     차례로 이어 붙여 찾고, 글자 수가 같은 것만 글자 단위로 맞춰 바꿈(칸 모양은 그대로)."""
     n = 0
     for p in root.findall(f"{{{HP}}}p"):
-        runs = [t for t in p.iter(T) if t.text]
+        runs = [pc for t in p.iter(T) for pc in _pieces(t) if pc.text]
         if len(runs) < 2:
             continue
         joined = "".join(t.text for t in runs)
@@ -230,22 +302,45 @@ def _apply(root, whole: dict[str, str], parts: list[tuple[str, str]], front: set
     if not is_front:
         whole = {k: v for k, v in whole.items() if k not in front}
     n = 0
-    for t in root.iter(T):
-        s = t.text or ""
-        if not s.strip():
-            continue
-        key = s.strip()
-        if key in whole:
-            t.text = s.replace(key, whole[key])
+    for t in list(root.iter(T)):
+        full = _full(t).strip()
+        if len(t) and full in whole:  # 줄바꿈이 낀 칸 전체가 바꿀 값(결과표 시설물 규모 등)
+            _clear(t, whole[full].replace("\n", " "))
             n += 1
             continue
-        out = s
-        for o, nw in parts:
-            if o in out:
-                out = out.replace(o, nw)
-        if out != s:
-            t.text = out
-            n += 1
+        pcs = _pieces(t)
+        if len(pcs) > 1:
+            # 한 글자 칸이 형광펜·줄바꿈 표시로 조각났을 때(10/10 광숭 "2026.06."+형광펜 끝+"12") — 이어 붙여 먼저 바꿈.
+            # 글자 수가 같으면 조각 경계를 지켜 글자 단위로, 다르면 첫 조각에 몰아 넣음(표시 위치만 앞으로 감)
+            joined = "".join(pc.text for pc in pcs)
+            out = whole.get(joined.strip(), None)
+            out = joined.replace(joined.strip(), out) if out is not None else joined
+            if out == joined:
+                out = _sub_parts(out, parts)
+            if out != joined:
+                if len(out) == len(joined):
+                    k = 0
+                    for pc in pcs:
+                        pc.text, k = out[k:k + len(pc.text)], k + len(pc.text)
+                else:
+                    pcs[0].text = out
+                    for pc in pcs[1:]:
+                        pc.text = ""
+                n += 1
+                continue
+        for pc in pcs:
+            s = pc.text
+            if not s.strip():
+                continue
+            key = s.strip()
+            if key in whole:
+                pc.text = s.replace(key, whole[key])
+                n += 1
+                continue
+            out = _sub_parts(s, parts)
+            if out != s:
+                pc.text = out
+                n += 1
     # 칸 하나가 여러 줄(<hp:p> 여럿)로 나뉜 값(결과표 "형식 : … / 연면적 : …")은 칸째 비교
     for tc in root.iter(f"{{{HP}}}tc"):
         txt = _cell_text(tc)
@@ -253,22 +348,146 @@ def _apply(root, whole: dict[str, str], parts: list[tuple[str, str]], front: set
             ps = list(tc.iter(f"{{{HP}}}p"))
             ts = [t for t in ps[0].iter(T)]
             if ts:
-                ts[0].text = whole[txt].replace("\n", " ")
+                _clear(ts[0], whole[txt].replace("\n", " "))
                 for t in ts[1:]:
-                    t.text = ""
+                    _clear(t, "")
                 for p in ps[1:]:
                     for t in p.iter(T):
-                        t.text = ""
+                        _clear(t, "")
                 n += 1
     # 나뉜 칸에 걸친 연도·반기(책등 등) — 앞부분에서만, 한 칸 안에서 못 바꾼 것만 남아 있으므로 글자 수가 같은 짧은 값만
     if is_front:
-        n += _cross_runs(root, [(o, nw) for o, nw in parts if len(o) <= 8] + [(o, nw) for o, nw in whole.items() if len(o) <= 4])
+        n += _cross_runs(root, [(o, nw) for o, nw in parts if isinstance(o, str) and len(o) <= 8]
+                         + [(o, nw) for o, nw in whole.items() if len(o) <= 4])
     return n
 
 
-def build(src: Path, old: Values, new: Values, dest: Path) -> int:
-    """src(지난 hwpx) → dest(새 hwpx). 바꾼 글자 칸 수를 돌려준다."""
+# ---------- 4-2: 설정 값 넣기·이력 추가 ----------
+
+def _tbl_title(tbl) -> str:
+    return "".join(t.text or "" for t in tbl.iter(T)).replace(" ", "")[:40]
+
+
+def _doc_pics(root, is_front: bool) -> list[tuple[object, str, object]]:
+    """서류 그림 자리 [(img 요소, 종류, 순번)] — 제목 글자가 든 표 안의 그림(등록증·수료증·책임기술자 자격)."""
+    out = []
+    edu = 0
+    for pic in root.iter(f"{{{HP}}}pic"):
+        tbl = next(pic.iterancestors(f"{{{HP}}}tbl"), None)
+        img = pic.find(".//{http://www.hancom.co.kr/hwpml/2011/core}img")
+        if tbl is None or img is None:
+            continue
+        title = _tbl_title(tbl)
+        if "전문기관등록증" in title:
+            out.append((img, "sitok_reg", None))
+        elif "교육수료증" in title:
+            out.append((img, "sitok_edu", edu if is_front else "chief"))
+            edu += is_front
+        elif "책임기술자자격" in title:
+            out.append((img, "sitok_license", "chief"))
+    return out
+
+
+def _set_cell(tc, text: str) -> None:
+    """칸 글자를 text 하나로 — 첫 문단 첫 글자 칸에 넣고 나머지 문단은 지움(모양은 첫 문단 것)."""
+    ps = [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]
+    if not ps:
+        return
+    ts = [t for t in ps[0].iter(T)]
+    if ts:
+        _clear(ts[0], text)
+        for t in ts[1:]:
+            _clear(t, "")
+    for q in ps[1:]:
+        q.getparent().remove(q)
+
+
+def _equipment(root, items: list, add_image) -> str:
+    """공통편 1.6 장비 표 — 줄 수가 같으면 장비명·형식·용도·사진을 설정 값으로. 다르면 그대로 두고 안내."""
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        cells = _cells(tbl)
+        head = [_cell_text(cells[(0, c)]).replace(" ", "") for c in range(5) if (0, c) in cells]
+        if head[:4] != ["구분", "장비명", "형식", "용도"]:
+            continue
+        rows = int(tbl.get("rowCnt")) - 1
+        if rows != len(items):
+            return f"사용 장비가 {len(items)}종인데 지난 보고서 표는 {rows}줄이라 장비 표는 그대로 두었습니다"
+        for i, (name, model, purpose, photos) in enumerate(items, start=1):
+            for col, val in ((1, name), (2, model or "-"), (3, purpose)):
+                if (i, col) in cells:
+                    _set_cell(cells[(i, col)], val)
+            if (i, 4) in cells and photos:
+                imgs = list(cells[(i, 4)].iter("{http://www.hancom.co.kr/hwpml/2011/core}img"))
+                for img, ph in zip(imgs, photos):
+                    img.set("binaryItemIDRef", add_image(ph))
+        return ""
+    return ""
+
+
+def _positions(root, positions: dict) -> None:
+    """참여기술자 명단 표(분야·참여세부·성명·직위…) — 성명 칸의 사람 직위를 설정 값으로."""
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        cells = _cells(tbl)
+        head = {c: _cell_text(cells[(0, c)]).replace(" ", "") for c in range(8) if (0, c) in cells}
+        if "참여세부" not in "".join(head.values()):
+            continue
+        name_c = next((c for c, h in head.items() if h.startswith("성명")), None)
+        pos_c = next((c for c, h in head.items() if h.startswith("직위")), None)
+        if name_c is None or pos_c is None:
+            continue
+        for (r, c), tc in cells.items():
+            if c == name_c and r > 0:
+                who = _cell_text(tc).replace(" ", "")
+                if who in positions and (r, pos_c) in cells and positions[who]:
+                    _set_cell(cells[(r, pos_c)], positions[who])
+
+
+def _add_history(root, old: Values) -> bool:
+    """1.2.6 기실시된 점검 및 진단결과 — 맨 위 회차 표를 복사해 틀(= 직전 회차) 한 칸을 위에 붙임(민재형 10/10: 지난 이력 + 전회차 요약).
+    점검기간·안전등급·점검 주요결과는 틀의 결과표에서. 이미 그 기간 표가 있으면 안 붙임."""
+    if not (old.period_start and old.period_end):
+        return False
+    period = f"{old.period_start:%Y.%m.%d}~{old.period_end:%Y.%m.%d}"
+    tables = [t for t in root.iter(f"{{{HP}}}tbl") if _cell_text(_cells(t).get((0, 0), t)).replace(" ", "") == "점검의종류"
+              and int(t.get("rowCnt")) == 4]
+    if not tables or any(period in _cell_text(_cells(t)[(1, 1)]) for t in tables if (1, 1) in _cells(t)):
+        return False
+    first = tables[0]
+    tbl = copy.deepcopy(first)  # 표만 복사 — 회차 표들이 한 묶음(run) 안에 나란히 있어서 묶음째 복사하면 다른 회차도 겹침(10/10)
+    cells = _cells(tbl)
+    _set_cell(cells[(1, 0)], "정기안전점검")
+    _set_cell(cells[(1, 1)], period)
+    _set_cell(cells[(1, 3)], old.grade or "-")
+    _set_cell(cells[(2, 0)], f"【 {old.year}년 {old.half} 정기안전점검 실시결과 】")
+    content = cells[(3, 0)]
+    ps = [q for q in content.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is content]
+    tmpl = ps[0]
+    for q in ps[1:]:
+        q.getparent().remove(q)
+    for i, text in enumerate(old.findings or ["-"]):
+        q = tmpl if i == 0 else copy.deepcopy(tmpl)
+        ts = list(q.iter(T))
+        if ts:
+            ts[0].text = text if text.startswith("ㆍ") else f"ㆍ{text}"
+            for t in ts[1:]:
+                t.text = ""
+        if i:
+            prev.addnext(q)
+        prev = q
+    first.addprevious(tbl)
+    return True
+
+
+def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None = None) -> int:
+    """src(지난 hwpx) → dest(새 hwpx). 바꾼 글자 칸 수를 돌려준다. extras = 설정 값(그림·장비·직위)·이력 추가(못 한 것은 extras.notes)."""
+    extras = extras or Extras(history=False)
     whole, parts, front = replacements(old, new)
+    added: list[tuple[str, bytes]] = []  # 새 그림(BinData 이름, 바이트)
+
+    def add_image(path) -> str:
+        key = f"sitok{len(added) + 1}"
+        added.append((key, Path(path).read_bytes()))
+        return key
     dest.parent.mkdir(parents=True, exist_ok=True)
     changed = 0
     texts: list[str] = []
@@ -279,7 +498,21 @@ def build(src: Path, old: Values, new: Values, dest: Path) -> int:
             data = zin.read(info.filename)
             if info.filename in sections:
                 root = etree.fromstring(data)
-                changed += _apply(root, whole, parts, front, info.filename == ordered[0])
+                is_front = info.filename == ordered[0]
+                changed += _apply(root, whole, parts, front, is_front)
+                for img, kind, idx in _doc_pics(root, is_front):
+                    path = extras.images.get((kind, idx))
+                    if path and Path(path).exists():
+                        img.set("binaryItemIDRef", add_image(path))
+                        changed += 1
+                if extras.equipment:
+                    note = _equipment(root, extras.equipment, add_image)
+                    if note:
+                        extras.notes.append(note)
+                if extras.positions:
+                    _positions(root, extras.positions)
+                if extras.history and _add_history(root, old):
+                    changed += 1
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):
                     el.getparent().remove(el)
                 texts.append("\r\n".join("".join(t.text or "" for t in p.iter(T)) for p in root.iter(f"{{{HP}}}p")))
@@ -288,9 +521,16 @@ def build(src: Path, old: Values, new: Values, dest: Path) -> int:
                 continue
             elif info.filename == "Preview/PrvImage.png":
                 continue  # 지난 회차 첫 쪽 그림 — 새것과 달라 지움
+            elif info.filename == "Contents/content.hpf":
+                hpf = data  # 새 그림 목록을 붙여 맨 뒤에 씀
+                continue
             compress = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
             zout.writestr(info, data, compress_type=compress)
         zout.writestr("Preview/PrvText.txt", "\r\n".join(texts)[:2000].encode("utf-8"))
+        items = "".join(f'<opf:item id="{k}" href="BinData/{k}.jpg" media-type="image/jpg" isEmbeded="1"/>' for k, _ in added)
+        zout.writestr("Contents/content.hpf", hpf.decode("utf-8").replace("</opf:manifest>", items + "</opf:manifest>").encode("utf-8"))
+        for k, b in added:
+            zout.writestr(f"BinData/{k}.jpg", b, compress_type=zipfile.ZIP_STORED)
     dest.with_suffix(".tmp").replace(dest)
     return changed
 

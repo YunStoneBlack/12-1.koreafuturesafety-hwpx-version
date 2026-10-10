@@ -94,7 +94,8 @@
 .sk-rep-new { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0 14px; font-size: 13px; }
 .sk-rep-new input { width: 86px; padding: 6px 8px; }
 .sk-rep-new select { width: auto; padding: 6px 8px; }
-.main .sk-rep-new button { margin: 0; }
+.main .sk-rep-new button, .main .sk-rep-new .secondary-link { margin: 0; padding: 6px 12px; font-size: 12.5px; cursor: pointer; }
+.sk-rep-new.busy { opacity: .6; pointer-events: none; }
 .sk-rep { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-top: 12px; }
 .sk-rep.done { border-left: 4px solid var(--green); } .sk-rep.failed { border-left: 4px solid var(--crit); } .sk-rep.running { border-left: 4px solid var(--blue); }
 .sk-rep.busy { opacity: .6; pointer-events: none; }

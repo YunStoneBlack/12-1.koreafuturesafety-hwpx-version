@@ -29,8 +29,8 @@
       : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`
         : r.status === "done" ? `<span class="sk-rep-st ok">✓ ${esc(r.made_at)} 만듦 — ${esc(r.message)}</span>` : "";
     el.innerHTML = `<div class="sk-rep-head"><b>${r.year}년 ${esc(r.half)}</b>
-        <span class="sk-rep-src">${r.has_source ? `틀: ${esc(r.source_note)}` : '<span class="bad">틀 없음 — 지난 보고서 한글 파일을 올리세요</span>'}</span>
-        <label class="secondary-link">지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
+        <span class="sk-rep-src">${r.past ? "이미 낸 보고서" : r.has_source ? `틀: ${esc(r.source_note)}` : '<span class="bad">틀 없음 — 지난 보고서 한글 파일을 올리세요</span>'}</span>
+        <label class="secondary-link"${r.past ? " hidden" : ""}>지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
         <button type="button" class="secondary btn-sm sk-rep-del">삭제</button></div>
       <div class="sk-rep-grid">
         <label>계약<select data-k="contract_id">${contractOpts}</select></label>
@@ -41,9 +41,9 @@
         <label>참여기술자<select data-k="p0">${personOptions(parts[0])}</select></label>
       </div>
       <div class="sk-rep-foot">${stateText}
-        ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf" target="_blank" rel="noopener">PDF 보기</a>
-          <a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx">한글 받기</a>` : ""}
-        <button type="button" class="sk-rep-build"${r.status === "running" || !r.has_source ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : "보고서 만들기"}</button></div>`;
+        ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf" target="_blank" rel="noopener">PDF 보기</a>` : ""}
+        ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx">한글 받기</a>` : ""}
+        ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" || !r.has_source ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : "보고서 만들기"}</button>`}</div>`;
     el.querySelectorAll("[data-k]").forEach((inp) => inp.addEventListener("change", async () => {
       const k = inp.dataset.k;
       const body = k === "p0" ? { participant_ids: inp.value ? [Number(inp.value)] : [] }
@@ -67,7 +67,7 @@
       if (!confirm(`${r.year}년 ${r.half} 보고서를 지울까요? 만든 한글·PDF도 지워집니다.`)) return;
       try { await api(`/sitok/reports/${r.id}`, { method: "DELETE" }); load(); } catch (e) { err(e); }
     });
-    el.querySelector(".sk-rep-build").addEventListener("click", async () => {
+    el.querySelector(".sk-rep-build")?.addEventListener("click", async () => {
       try { await apiPost(`/sitok/reports/${r.id}/build`); load(); } catch (e) { err(e); }
     });
     if (r.status === "running") poll(r.id);
@@ -93,7 +93,22 @@
       <input type="number" class="nr-year" value="${d.year}" min="2000" max="2100" aria-label="연도" />년
       <select class="nr-half"><option${d.half === "상반기" ? " selected" : ""}>상반기</option><option${d.half === "하반기" ? " selected" : ""}>하반기</option></select>
       <button type="button" class="btn-sm nr-add">+ 회차 만들기</button>
-      <span class="sk-help">직전 회차 보고서가 있으면 그게 틀이 됩니다. 처음이면 지난 보고서 한글 파일을 올리세요.</span>`;
+      <label class="secondary-link nr-past" title="이미 낸 지난 반기 보고서 한글(.hwp·.hwpx) — 연도·반기·점검기간은 결과표에서 읽고, 다음 회차가 이걸 틀로 씁니다">이미 낸 보고서 등록<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
+      <span class="sk-help nr-msg">직전 회차 보고서가 있으면 그게 틀이 됩니다. 처음이면 [이미 낸 보고서 등록]으로 지난 반기 한글 파일을 올려 두세요.</span>`;
+    const past = el.querySelector(".nr-past input");
+    past.addEventListener("change", async () => {
+      if (!past.files[0]) return;
+      const msg = el.querySelector(".nr-msg");
+      el.classList.add("busy");
+      msg.textContent = `${past.files[0].name} 올리는 중…(큰 파일은 몇십 초)`;
+      try {
+        const fd = new FormData();
+        fd.append("file", past.files[0]);
+        await apiUpload(`/sitok/facilities/${fid}/reports/past`, fd);
+        load();
+      } catch (e) { err(e); el.classList.remove("busy"); msg.textContent = ""; }
+    });
+    enableFileDrop(el.querySelector(".nr-past"), past);
     el.querySelector(".nr-add").addEventListener("click", async () => {
       const body = { year: Number(el.querySelector(".nr-year").value), half: el.querySelector(".nr-half").value, contract_id: d.contract_id };
       const chief = data.persons.find((p) => p.sitok_grade.includes("특급")) || data.persons[0];

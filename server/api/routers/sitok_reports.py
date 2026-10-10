@@ -4,6 +4,7 @@
 - `POST /sitok/facilities/{id}/reports` — 새 회차(틀 = 직전 회차 결과 한글이 있으면 자동으로).
 - `PATCH/DELETE /sitok/reports/{id}` — 고치기·지우기.
 - `POST /sitok/reports/{id}/source` — 지난 보고서 한글(hwp·hwpx) 올리기 = 틀(처음 하는 시설물). hwp는 작업 프로그램이 hwpx로 바꿈.
+- `POST /sitok/facilities/{id}/reports/past` — 이미 낸 보고서 한글 등록 = 그 회차(연도·반기·기간은 결과표에서)를 "만듦"으로 → 다음 회차의 틀.
 - `POST /sitok/reports/{id}/build` — 만들기 시작(백그라운드: 값 바꾸기 → 한글 PDF(100쪽 넘으면 몇 분) → 관리대장·계약서 합본). 화면은 GET으로 진행을 봄.
 - `GET  /sitok/reports/{id}` · `/sitok/reports/{id}/file/{pdf|hwpx}`.
 값 바꾸기 규칙: server/sitok/report_build.py. 점검기간·용역기간 기본값: 인수인계 10/10(민간·관급).
@@ -23,7 +24,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.db import SessionLocal
-from core.models_web import SitokContract, SitokFacility, SitokReport, SubmitDoc, TechPerson, User
+from core.models_web import SitokContract, SitokEquipment, SitokFacility, SitokReport, SubmitDoc, TechPerson, User
+from core.stored_path import to_full
 from server.api.deps import get_current_user, get_db
 from server.api.routers.contract_library import doc_status
 from server.api.routers.sitok import _facility_dir, _require_facility
@@ -60,7 +62,8 @@ def _out(r: SitokReport) -> dict:
             "chief_id": r.chief_id, "participant_ids": r.participant_ids or [],
             "has_source": bool(r.source_hwpx and Path(r.source_hwpx).exists()), "source_note": r.source_note,
             "status": r.status, "message": r.message, "made_at": r.made_at.strftime("%Y-%m-%d %H:%M") if r.made_at else "",
-            "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists())}
+            "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists()),
+            "past": r.status == "done" and not r.source_hwpx}  # 이미 낸 보고서를 등록한 회차(만들기 없음)
 
 
 def _require(db: Session, user: User, report_id: int) -> SitokReport:
@@ -164,11 +167,9 @@ def delete_report(report_id: int, user: User = Depends(get_current_user), db: Se
     return {"ok": True}
 
 
-@router.post("/reports/{report_id}/source")
-def upload_source(report_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """지난 보고서 한글 → 틀. hwp는 작업 프로그램이 hwpx로 바꾼다(17MB 보고서 20~40초). 결과표를 못 읽으면 거절."""
-    r = _require(db, user, report_id)
-    f = db.get(SitokFacility, r.facility_id)
+def _read_hwp_upload(file: UploadFile, dest: Path) -> tuple[str, rb.Values]:
+    """올린 지난 보고서 한글 → dest(hwpx)에 저장하고 결과표 값. hwp는 작업 프로그램이 hwpx로 바꾼다(17MB 6초·190MB 12초).
+    결과표를 못 읽으면 400(파일은 지움)."""
     name = file.filename or "지난보고서"
     ext = Path(name).suffix.lower()
     if ext not in (".hwp", ".hwpx"):
@@ -179,14 +180,52 @@ def upload_source(report_id: int, file: UploadFile = File(...), user: User = Dep
             data = hwp_queue.convert_via_worker(data, ".hwp", to="hwpx", wait=170)
         except RuntimeError as err:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(err)) from err
-    dest = _report_dir(f, r) / "틀_지난보고서.hwpx"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
     try:
-        old = rb.read_old(dest)
+        return name, rb.read_old(dest)
     except Exception as err:  # noqa: BLE001
         dest.unlink(missing_ok=True)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+
+
+@router.post("/facilities/{facility_id}/reports/past")
+def register_past(facility_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """이미 낸 보고서 등록(10/10) — 그 회차가 없으면 만들고, 있으면 결과 한글만 이것으로. 상태 "만듦"(PDF는 없음) → 다음 회차가 이걸 틀로."""
+    f = _require_facility(db, user, facility_id)
+    tmp = _facility_dir(f) / "_올림_지난보고서.hwpx"
+    name, old = _read_hwp_upload(file, tmp)
+    if not old.year or old.half not in HALVES:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "보고서의 연도·반기를 결과표 용역명에서 찾지 못했습니다.")
+    r = db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == old.year, SitokReport.half == old.half).first()
+    if r is None:
+        c = _latest_contract(db, f.id)
+        r = SitokReport(company_id=user.company_id, facility_id=f.id, year=old.year, half=old.half, contract_id=c.id if c else None,
+                        created_by=user.display_name or "")
+        db.add(r)
+    elif r.status == "running":
+        raise HTTPException(status.HTTP_409_CONFLICT, "그 회차를 만드는 중입니다.")
+    r.period_start, r.period_end = old.period_start, old.period_end
+    if old.report_month:
+        r.report_date = datetime.date(old.report_month[0], old.report_month[1], 1)
+    dest = _report_dir(f, r) / f"{old.year}년 {old.half} 정기안전점검 보고서_{f.name}(낸 보고서).hwpx"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp.replace(dest)
+    r.out_hwpx, r.out_pdf, r.status, r.made_at = str(dest), "", "done", datetime.datetime.now()
+    r.source_note = r.source_note or "이미 낸 보고서"
+    r.message = f"이미 낸 보고서 등록({name}) — 다음 회차의 틀로 씁니다"
+    db.commit()
+    return _out(r)
+
+
+@router.post("/reports/{report_id}/source")
+def upload_source(report_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """지난 보고서 한글 → 이 회차의 틀(처음 하는 시설물)."""
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    name, old = _read_hwp_upload(file, _report_dir(f, r) / "틀_지난보고서.hwpx")
+    dest = _report_dir(f, r) / "틀_지난보고서.hwpx"
     r.source_hwpx, r.source_note = str(dest), f"올린 파일: {name} ({old.year}년 {old.half} · {old.name})"
     db.commit()
     return _out(r)
@@ -242,6 +281,31 @@ def _new_values(db: Session, r: SitokReport, old: rb.Values) -> tuple[rb.Values,
     return new, warn
 
 
+def _extras(db: Session, r: SitokReport) -> rb.Extras:
+    """설정 값 — 등록증·수료증(앞부분은 기술자 순서, 부록은 책임기술자)·책임기술자 자격, 사용 장비 표, 명단 직위."""
+    ex = rb.Extras()
+    reg = db.query(SubmitDoc).filter(SubmitDoc.company_id == r.company_id, SubmitDoc.person_id.is_(None), SubmitDoc.kind == "sitok_reg").first()
+    if reg is not None:
+        ex.images[("sitok_reg", None)] = reg.file
+    ids = [x for x in [r.chief_id, *(r.participant_ids or [])] if x]
+    for i, pid in enumerate(ids):
+        p = db.get(TechPerson, pid)
+        if p is None:
+            continue
+        ex.positions[p.name.replace(" ", "")] = p.position
+        docs = {d.kind: d.file for d in db.query(SubmitDoc).filter(SubmitDoc.person_id == pid)}
+        if docs.get("sitok_edu"):
+            ex.images[("sitok_edu", i)] = docs["sitok_edu"]
+            if i == 0:
+                ex.images[("sitok_edu", "chief")] = docs["sitok_edu"]
+        if i == 0 and docs.get("sitok_license"):
+            ex.images[("sitok_license", "chief")] = docs["sitok_license"]
+    eq = (db.query(SitokEquipment).filter(SitokEquipment.company_id == r.company_id, SitokEquipment.active.is_(True))
+          .order_by(SitokEquipment.sort, SitokEquipment.id).all())
+    ex.equipment = [(e.name, e.model, e.purpose, [to_full(x) for x in (e.photos or [])]) for e in eq]
+    return ex
+
+
 def _merge(pdf: Path, f: SitokFacility, c: SitokContract | None) -> list[str]:
     """부록 간지 뒤에 관리대장·계약서 PDF를 끼운다(간지 쪽을 글자로 찾음). 끼운 것 이름들."""
     doc = pymupdf.open(pdf)
@@ -279,7 +343,9 @@ def _run_build(report_id: int) -> None:
             folder = _report_dir(f, r)
             base = f"{r.year}년 {r.half} 정기안전점검 보고서_{f.name}"
             hwpx = folder / f"{base}.hwpx"
-            changed = rb.build(src, old, new, hwpx)
+            extras = _extras(db, r)
+            changed = rb.build(src, old, new, hwpx, extras)
+            warn += extras.notes
             r.out_hwpx = str(hwpx)
             r.message = f"한글 만듦({changed}곳 바꿈) — PDF로 바꾸는 중(100쪽 넘으면 몇 분)…"
             db.commit()
