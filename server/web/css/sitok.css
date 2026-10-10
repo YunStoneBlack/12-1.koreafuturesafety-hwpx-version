@@ -1,0 +1,56 @@
+/* 시특법(2026-10-10) — 시설물 목록(sitok.html)·등록/고치기(sitok-facility.html). 틀·입력 칸은 style.css(.panel·.field-grid)·그룹웨어 app.css */
+
+/* 목록 */
+.main .list-toolbar.sk-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+.sk-toolbar input { flex: 1; max-width: 420px; }
+.main a.sk-new { margin-left: auto; display: inline-flex; align-items: center; padding: 8px 16px; border-radius: 8px; background: var(--blue); color: #fff; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.main a.sk-new:hover { filter: brightness(1.05); }
+.sk-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; align-items: center; padding: 13px 18px;
+  border-bottom: 1px solid var(--line); color: var(--ink); transition: background .12s; }
+.sk-row:last-child { border-bottom: 0; }
+.sk-row:hover { background: var(--blue-soft); }
+.sk-name, .sk-where { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13.5px; }
+.sk-name b { font-weight: 600; }
+.sk-name small, .sk-where small { color: var(--muted); font-size: 12px; }
+.sk-contract { font-size: 12.5px; color: var(--muted); }
+.sk-tpl { display: inline-block; width: fit-content; margin-top: 2px; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: var(--paper); color: var(--muted); }
+.sk-tpl.t3종일반 { background: #F3EFFF; color: #7c3aed; }
+.sk-tpl.t3종학교 { background: var(--green-soft); color: var(--green); }
+.sk-sector { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11.5px; font-weight: 700; margin-right: 4px; }
+.sk-sector.pri { background: var(--warn-soft); color: var(--warn); }
+.sk-sector.gov { background: var(--blue-soft); color: var(--blue); }
+.sk-none { color: var(--faint); }
+.sk-next { margin-top: 14px; }
+
+/* PDF 칸 */
+.sk-drops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.sk-drops[hidden], .sk-drop[hidden] { display: none; }
+.sk-drop { display: flex; flex-direction: column; gap: 4px; padding: 16px; border: 1.5px dashed var(--line); border-radius: 10px; cursor: pointer;
+  background: var(--paper); transition: border-color .12s, background .12s; }
+.sk-drop:hover, .sk-drop.drop-over { border-color: var(--blue); background: var(--blue-soft); }
+.sk-drop b { font-size: 14px; }
+.sk-drop-msg, .sk-con-msg { font-size: 12.5px; color: var(--muted); }
+.sk-drop-msg.bad, .sk-con-msg.bad { color: var(--crit); }
+.sk-drop.busy, .sk-con.busy { opacity: .6; pointer-events: none; }
+
+/* 입력 */
+.sk-help { font-weight: 400; color: var(--faint); font-size: 11.5px; }
+.sk-f[hidden] { display: none; }
+.main .sk-filled { background: #FFF8DB; transition: background 1.5s; }
+.sk-file { margin: 12px 0 0; font-size: 13px; }
+.sk-con { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+.sk-con:last-child { margin-bottom: 0; }
+.sk-con-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.sk-con-head b { font-size: 14px; margin-right: auto; }
+.main .sk-con-head .secondary-link { padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
+.main .sk-con-head button { margin: 0; }
+.sk-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.main .sk-actions button { margin: 0; }
+.main .sk-actions #sk-save { margin-left: auto; min-width: 120px; }
+.sk-saved { font-size: 13px; color: var(--green); font-weight: 600; }
+
+@media (max-width: 760px) {
+  .sk-row { grid-template-columns: 1fr; gap: 4px; padding: 12px 14px; }
+  .sk-drops { grid-template-columns: 1fr; }
+  .main a.sk-new { padding: 8px 12px; }
+}

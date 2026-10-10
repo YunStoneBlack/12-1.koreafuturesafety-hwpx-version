@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>시설물 - 시특법</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+</head>
+<!-- 시특법 시설물 등록·고치기(2026-10-10 2단계) — ?id= 없으면 새로 등록. 관리대장·계약서 PDF를 올리면 AI가 읽어 칸을 채움(server/sitok/reader.py).
+     칸 정의·저장은 js/sitok-facility.js, 서버 server/api/routers/sitok.py. -->
+<body data-report-tab="facilities" data-law="sitok" data-tabs-only>
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div class="crumb"><a href="sitok.html">시설물 목록</a> › <span id="sk-crumb">새 시설물 등록</span></div>
+<div id="error" class="error"></div>
+
+<section class="panel" id="sk-pdfs">
+  <div class="panel-head"><h2>PDF로 채우기</h2><span class="panel-count">올리면 AI가 읽어 아래 칸을 채웁니다(10~30초) — 틀린 칸은 고치세요</span></div>
+  <div class="panel-body sk-drops">
+    <label class="sk-drop" data-kind="ledger"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
+      <b>📄 시설물관리대장 PDF</b><span class="sk-drop-msg">FMS에서 출력한 관리대장 — 눌러서 고르거나 끌어다 놓기</span></label>
+    <label class="sk-drop" data-kind="contract"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
+      <b>📄 계약서 PDF</b><span class="sk-drop-msg">민간 표준계약서(스캔도 됨) 또는 나라장터 용역계약서</span></label>
+  </div>
+</section>
+
+<form id="sk-form" autocomplete="off">
+  <section class="panel">
+    <div class="panel-head"><h2>시설물</h2></div>
+    <div class="panel-body" id="sk-fac"></div>
+  </section>
+  <section class="panel" id="sk-con-panel">
+    <div class="panel-head"><h2>점검 용역 계약</h2><button type="button" class="secondary btn-sm" id="sk-add-con" hidden>+ 계약 추가</button></div>
+    <div class="panel-body" id="sk-cons"></div>
+  </section>
+  <div class="sk-actions">
+    <button type="button" class="danger" id="sk-del" hidden>시설물 삭제</button>
+    <span class="sk-saved" id="sk-saved"></span>
+    <button type="submit" id="sk-save">저장</button>
+  </div>
+</form>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="mail.js"></script>
+<script src="js/docs-common.js"></script>
+<script src="js/sitok-facility.js"></script>
+</body>
+</html>

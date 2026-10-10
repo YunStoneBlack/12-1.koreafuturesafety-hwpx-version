@@ -408,3 +408,70 @@ class SiteView(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
     site_id: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), primary_key=True)
     viewed_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+# ---------- 시특법(시설물안전법) 정기안전점검(2026-10-10, alembic 0027) — 설계: 바탕화면 "시특법 견본\인수인계.md" ----------
+
+class SitokFacility(Base):
+    """웹판 전용 — 시특법 점검 대상 시설물(건물 한 동). 시설물관리대장(FMS 출력 PDF)을 올리면 읽어서 채운다(사람이 고칠 수 있음).
+    template = 보고서 틀: "2종" / "3종일반"(+1.5 안전등급 평가) / "3종학교"(+치장벽돌 점검·내진보강 점검표). 반기마다 같은 건물을 보므로
+    시설물 정보는 한 번 넣고 계속 쓴다. ledger = 관리대장에서 읽은 나머지 값(설비·이력 등, 화면엔 안 씀). 파일은 DATA_DIR/_시특법/시설물폴더."""
+
+    __tablename__ = "sitok_facility"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    fms_no: Mapped[str] = mapped_column(Text, default="")  # 시설물번호 AR2004-0004955
+    name: Mapped[str] = mapped_column(Text, default="")  # 시설물명
+    template: Mapped[str] = mapped_column(Text, default="2종")
+    kind: Mapped[str] = mapped_column(Text, default="건축물")  # 시설물 구분(결과표)
+    use_type: Mapped[str] = mapped_column(Text, default="")  # 종류(결과표 — 종교시설·교육연구시설 등)
+    main_use: Mapped[str] = mapped_column(Text, default="")  # 주용도(관리대장)
+    address: Mapped[str] = mapped_column(Text, default="")
+    owner_name: Mapped[str] = mapped_column(Text, default="")  # 관리주체명
+    owner_type: Mapped[str] = mapped_column(Text, default="")  # 관리주체구분(민간·공공)
+    owner_phone: Mapped[str] = mapped_column(Text, default="")
+    completion_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)  # 준공(사용승인)일
+    structure: Mapped[str] = mapped_column(Text, default="")  # 구조형식
+    floors_above: Mapped[int | None] = mapped_column(Integer, default=None)
+    floors_below: Mapped[int | None] = mapped_column(Integer, default=None)
+    floors_roof: Mapped[int | None] = mapped_column(Integer, default=None)  # 옥탑
+    max_height: Mapped[float | None] = mapped_column(Float, default=None)  # m
+    total_area: Mapped[float | None] = mapped_column(Float, default=None)  # 연면적 ㎡
+    building_area: Mapped[float | None] = mapped_column(Float, default=None)  # 건축면적 ㎡
+    ledger: Mapped[dict | None] = mapped_column(JSON, default=None)
+    ledger_pdf: Mapped[str] = mapped_column(StoredPath, default="")
+    memo: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class SitokContract(Base):
+    """웹판 전용 — 시특법 점검 용역 계약(시설물 하나에 여러 해). sector = "민간"(표준계약서, 반기별 금액) / "관급"(나라장터 계약서).
+    점검기간(인수인계 10/10): 민간 = 현장 간 날 ~ 보고서 낸 날(회차에서 정함), 관급 = 착수일 ~ 완수일, 1년 계약이면 상반기 = 착수일 ~ first_half_end,
+    하반기 = second_half_start ~ 완수일. 공동수급·입찰방식·수행분야 = 점검진단실적 제출 사이트와 같은 선택지(민간 기본값: 독자수행 100%·수의계약·건축).
+    amount = VAT 포함 원(민간은 반기 한 번 금액 — 상·하반기 각각), rep_name = 관리주체 대표자(결과표)."""
+
+    __tablename__ = "sitok_contract"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    facility_id: Mapped[int] = mapped_column(ForeignKey("sitok_facility.id", ondelete="CASCADE"), index=True)
+    sector: Mapped[str] = mapped_column(Text, default="민간")
+    title: Mapped[str] = mapped_column(Text, default="")  # 계약건명
+    contract_no: Mapped[str] = mapped_column(Text, default="")
+    contract_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    start_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)  # 계약기간 시작·착수일
+    end_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)  # 계약기간 끝·완수일
+    halves: Mapped[str] = mapped_column(Text, default="연간")  # 상반기 / 하반기 / 연간(상·하반기 둘 다)
+    first_half_end: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    second_half_start: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    amount: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    rep_name: Mapped[str] = mapped_column(Text, default="")
+    joint_type: Mapped[str] = mapped_column(Text, default="독자수행")
+    joint_pct: Mapped[int] = mapped_column(Integer, default=100)
+    bid_method: Mapped[str] = mapped_column(Text, default="수의계약")
+    field: Mapped[str] = mapped_column(Text, default="건축")
+    contract_pdf: Mapped[str] = mapped_column(StoredPath, default="")
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)

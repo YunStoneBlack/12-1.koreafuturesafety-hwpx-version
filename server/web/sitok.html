@@ -6,32 +6,34 @@
 <title>시특법 - 보고서 자동화</title>
 <link rel="stylesheet" href="/css/app.css" />
 <link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/sitok.css" />
 </head>
-<!-- 보고서 자동화 · 시특법(2026-10-10) — 시설물 정기안전점검 결과보고서. 그룹웨어 왼쪽 메뉴 [보고서 자동화] 아래 "시특법" 소메뉴가 여는 메인.
-     지금은 1단계(메뉴·빈 메인)만 — 설계·결정은 바탕화면 "시특법 견본\인수인계.md". 탭은 shell.js SITOK_TABS. -->
+<!-- 보고서 자동화 · 시특법(2026-10-10) — 시설물 정기안전점검. 그룹웨어 왼쪽 메뉴 [보고서 자동화] 아래 "시특법" 소메뉴가 여는 메인 = 시설물 목록.
+     설계·결정은 바탕화면 "시특법 견본\인수인계.md". 서버 server/api/routers/sitok.py, 화면 js/sitok.js, 등록·고치기 sitok-facility.html. -->
 <body data-report-tab="facilities" data-law="sitok">
 <div class="app">
   <aside class="sidebar" id="gw-sidebar"></aside>
   <main class="main">
 
-<section class="panel sitok-soon">
-  <div class="panel-body">
-    <h2>시설물 정기안전점검 보고서 — 준비 중</h2>
-    <p class="page-sub">시특법(시설물의 안전 및 유지관리에 관한 특별법) 정기안전점검 결과보고서를 만드는 곳입니다. 차례로 열립니다.</p>
-    <ol class="sitok-steps">
-      <li><b>시설물·계약 등록</b> — 계약서 PDF와 시설물관리대장 PDF를 올리면 시설물 정보가 채워집니다(민간·관급, 2종·3종 일반·3종 학교).</li>
-      <li><b>시특법 설정</b> — 참여 인원, 등록증·수료증·자격증(유효기간), 사용 장비.</li>
-      <li><b>보고서 뼈대</b> — 표지부터 공통편·시설물편·부록 합본까지, 결함 없이도 PDF가 나오게. 지난 회차 불러오기.</li>
-      <li><b>현장 폰 화면</b> — 전회차 결함 자리 다시 찍기(그대로·진행·보수·신규), 결함현황표·사진대장 자동.</li>
-      <li><b>계산·AI 초안</b> — 물량·면적률 자동, 결과표·요약표·외관조사·종합결론 초안 → 점검자 확인, 전회차 비교 사진대장.</li>
-    </ol>
-  </div>
+<div id="error" class="error"></div>
+
+<div class="list-toolbar sk-toolbar">
+  <input id="sk-search" type="search" placeholder="시설물명·주소·관리주체·시설물번호 검색" />
+  <a class="sk-new" href="sitok-facility.html">+ 시설물 등록</a>
+</div>
+
+<section class="panel">
+  <div class="panel-head"><h2>시설물 목록</h2><span class="panel-count" id="sk-count"></span></div>
+  <div id="sk-list"></div>
 </section>
+
+<p class="page-sub sk-next">다음에 열릴 것: 시특법 설정(참여 인원·등록증·장비) → 보고서 뼈대(PDF) → 현장 폰 화면(전회차 결함 다시 찍기) → AI 초안.</p>
 
   </main>
 </div>
 
 <script src="app.js"></script>
 <script src="shell.js"></script>
+<script src="js/sitok.js"></script>
 </body>
 </html>
