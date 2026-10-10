@@ -30,6 +30,8 @@
 .ds-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13.5px; }
 .main button.ds-doc { margin: 0; padding: 6px 10px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 12.5px; cursor: pointer; }
 .main button.ds-doc:hover { border-color: var(--blue); filter: none; }
+.main button.ds-doc { color: var(--muted); } .main button.ds-doc.ok { color: var(--green); } /* 공통 버튼(흰 글씨)을 이겨야 글자가 보임 — 흰 바탕에 흰 글씨였음(10/10) */
+.main button.ds-doc .ds-kl { color: var(--ink); }
 .ds-kl { display: none; }
 
 /* 일정 달력 — FullCalendar(.fc 틀·공휴일 .holiday는 그룹웨어 app.css), 여기엔 착수·완수 색만 */
