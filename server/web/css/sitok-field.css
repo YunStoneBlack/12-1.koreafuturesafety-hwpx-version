@@ -91,3 +91,13 @@
 @media (max-width: 760px) { .ov-list { grid-template-columns: 1fr; } }
 .ov-btns label.ov-shot { display: inline-flex; margin: 0; align-self: stretch; }
 .ov-title label.ov-plate { display: flex; margin: 0; padding: 0; min-height: 38px; height: auto; align-self: stretch; flex-direction: row; line-height: 1; }
+/* 결함원인(2026-10-11) */
+.sf-cause { display: flex; align-items: end; gap: 8px; margin-top: 8px; }
+.main .sf-cause label { flex: 1; display: flex; flex-direction: column; gap: 3px; margin: 0; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.sf-cause input { padding: 7px 8px; font-size: 14px; }
+.sf-prog { font-size: 12px; color: var(--muted); padding-bottom: 9px; white-space: nowrap; }
+.sf-prog.on { color: #B7791F; font-weight: 700; }
+.main .sf-sum .sf-cause-ai { margin: 0 0 0 auto; padding: 6px 12px; font-size: 13px; }
+.sf-cause-list { max-height: 50vh; overflow: auto; font-size: 13px; line-height: 1.7; }
+.sf-cause-list s { color: var(--faint); }
+.sf-cause-list em { font-style: normal; color: var(--blue); font-weight: 600; }

@@ -9,6 +9,7 @@
   const err = (e) => showError(errorEl, e);
   const MEMBERS = ["슬라브", "보", "기둥", "내력벽", "조적벽", "파라펫", "마감재", "계단", "강재", "난간", "옹벽", "바닥"];
   const TYPES = ["미장균열", "수직균열", "수평균열", "경사균열", "조적균열", "개구부균열", "누수·백태", "누수흔적", "박리", "박락", "도장박리", "철근노출", "부식", "이격", "파손"];
+  const CAUSES = ["건조수축균열", "온도균열", "시공불량", "노후화", "균열부누수", "방수층 노후", "배수불량", "피복두께 부족", "중성화", "동결융해", "외력·충격", "부등침하", "과하중"];
   let data = null;
   let floor = "";
   try { floor = sessionStorage.getItem(`sf-floor-${rid}`) || ""; } catch (_) { /* 기억 못 해도 됨 */ }
@@ -35,7 +36,9 @@
     const s = data.summary;
     document.getElementById("sf-sum").innerHTML = `<b>${esc(data.report.facility)} · ${data.report.year}년 ${esc(data.report.half)}</b>
       <span>확인 ${s.total - s.unchecked} / ${s.total}</span>
-      <span class="ok">그대로 ${s.same}</span><span class="grew">진행 ${s.grew}</span><span class="rep">보수 ${s.repaired}</span><span class="new">신규 ${s.new}</span>`;
+      <span class="ok">그대로 ${s.same}</span><span class="grew">진행 ${s.grew}</span><span class="rep">보수 ${s.repaired}</span><span class="new">신규 ${s.new}</span>
+      <button type="button" class="secondary sf-cause-ai" title="비었거나 결함 종류와 안 맞는 원인만 AI가 채움 — 카드에서 다시 고칠 수 있음">🤖 원인 추천</button>`;
+    document.querySelector(".sf-cause-ai").addEventListener("click", suggestCauses);
   }
 
   function drawFloors() {
@@ -76,6 +79,8 @@
         <label>길이(m)<input inputmode="decimal" data-k="length" value="${esc(d.length)}" /></label>
         <span class="sf-qty">${d.qty ? `물량 ${esc(d.qty)}` : ""}</span>
       </div>
+      ${d.check === "repaired" || /현황s*$/.test(d.dtype || "") ? "" : `<div class="sf-cause"><label>원인<input list="sf-causes" data-k="cause" value="${esc(d.cause)}" placeholder="결함원인" /></label>
+        <span class="sf-prog${d.progress === "진행성" ? " on" : ""}">${esc(d.progress || "")}</span></div>`}
       ${d.check ? `<div class="sf-by">${esc(d.checked_by)} 확인${d.check === "new" ? ' · <button type="button" class="sf-del">지우기</button>' : ""}</div>` : ""}`;
     const save = async (body) => {
       try {
@@ -85,6 +90,7 @@
       } catch (e) { err(e); }
     };
     el.querySelectorAll(".sf-acts button").forEach((b) => b.addEventListener("click", () => save({ check: d.check === b.dataset.c ? "" : b.dataset.c })));
+    el.querySelector(".sf-cause input")?.addEventListener("change", (e) => save({ cause: e.target.value }));
     el.querySelectorAll(".sf-size input").forEach((inp) => inp.addEventListener("change", () => save({ [inp.dataset.k]: inp.value })));
     el.querySelector(".sf-star").addEventListener("click", () => save({ starred: !d.starred }));
     el.querySelector(".sf-del")?.addEventListener("click", async () => {
@@ -150,6 +156,27 @@
       } catch (e) { q(".n-ok").disabled = false; const m = q(".mail-msg"); m.hidden = false; m.className = "mail-msg bad"; m.textContent = e.message; }
     });
   }
+
+  async function suggestCauses(e) {
+    if (!confirm("AI가 결함 목록을 보고 비었거나 결함 종류와 안 맞는 원인을 채웁니다(20~60초). 할까요?")) return;
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = "🤖 추천 중…";
+    try {
+      const r = await apiPost(`/sitok/reports/${rid}/defects/causes`);
+      await refresh();
+      const overlay = document.createElement("div");
+      overlay.className = "mail-overlay";
+      overlay.innerHTML = `<div class="mail-box sf-new" role="dialog" aria-modal="true"><div class="mail-head"><b>🤖 원인 추천 — ${r.changed.length}건 바꿈</b>
+        <span class="mail-sub">맞지 않으면 그 카드의 원인 칸에서 고치세요</span></div>
+        <div class="sf-cause-list">${r.changed.map((c) => `<div><b>${esc(c.floor)} ${c.seq}</b> ${esc(c.what)} — <s>${esc(c.before || "(없음)")}</s> → <em>${esc(c.after)}</em></div>`).join("") || "바꿀 원인이 없습니다."}</div>
+        <div class="mail-foot"><button type="button" class="mail-primary">확인</button></div></div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelector("button").addEventListener("click", () => overlay.remove());
+    } catch (err) { showError(errorEl, err); btn.disabled = false; btn.textContent = "🤖 원인 추천"; }
+  }
+
+  document.body.insertAdjacentHTML("beforeend", `<datalist id="sf-causes">${CAUSES.map((c) => `<option value="${c}">`).join("")}</datalist>`);
 
   async function refresh(redraw = true) {
     try {

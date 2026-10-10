@@ -344,6 +344,10 @@ def _apply(d: SitokDefect, body: DefectIn, user: User, bases: tuple[float, float
         if d.check == "same" and d.prev:  # 그대로 = 전회차 크기
             d.count, d.width, d.length = d.prev.get("개수", d.count), d.prev.get("폭", d.width), d.prev.get("길이", d.length)
         d.checked_by, d.checked_at = user.display_name or "", datetime.datetime.now()
+        if d.check == "grew":  # 크기가 커졌으면 진행성
+            d.progress = "진행성"
+        elif d.prev and d.prev.get("진행유무"):
+            d.progress = d.prev["진행유무"]
     if d.check == "repaired":
         d.count = d.width = d.length = d.qty = d.area_ratio = ""
     else:
@@ -403,3 +407,52 @@ def photo(defect_id: int, which: str, user: User = Depends(get_current_user), db
     if not path or not Path(path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
     return FileResponse(path, media_type="image/jpeg")
+
+
+CAUSES = ["건조수축균열", "온도균열", "시공불량", "노후화", "균열부누수", "방수층 노후", "배수불량", "피복두께 부족", "중성화", "동결융해", "외력·충격", "부등침하", "과하중"]
+CAUSE_PROMPT = """시설물 정기안전점검 외관조사 결함 목록입니다. 각 결함의 "결함원인"을 검토하세요.
+- 원인이 비어 있으면 채우고, 결함 종류와 분명히 맞지 않을 때만(예: 누수·백태인데 "건조수축균열", 이격·탈락인데 "건조수축균열") 바꾸세요.
+  지금 원인이 그 결함에 쓸 수 있는 원인이면(예: 균열의 노후화·균열부누수) 점검자가 고른 것이니 그대로 두고 답에서 빼세요.
+- 원인은 되도록 이 낱말 중에서: {causes}
+- 근거: 결함유형·부재·폭(균열 mm, 면적 결함 m)·진행 여부. 비구조체 미장·조적 균열은 대개 건조수축균열, 창호 주변·이음부 이격은 시공불량, 누수·백태는 균열부누수 또는 방수층 노후,
+  진행성 구조체 균열은 원인을 신중히(온도균열·과하중·부등침하 등).
+JSON 배열 하나로만 답하세요(설명 없이): [{{"id": 번호, "cause": "원인"}}]
+
+[결함 — id | 층 | 구분 | 부재 | 결함유형 | 폭 | 길이 | 진행 | 지금 원인]
+{rows}"""
+
+
+@router.post("/reports/{report_id}/defects/causes")
+def suggest_causes(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """AI 결함원인 추천 — 비었거나 결함 종류와 안 맞는 원인만 바꾸고 바꾼 목록을 돌려줌(점검자가 카드에서 다시 고칠 수 있음)."""
+    import json
+    import re
+
+    from anthropic import Anthropic
+
+    from core.config import get_api_key, get_model_name
+
+    r = _require_report(db, user, report_id)
+    rows = [d for d in _rows(db, r.id) if d.check != "repaired" and not (d.dtype or "").rstrip().endswith("현황")]
+    if not rows:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "결함이 없습니다.")
+    lines = "\n".join(f"{d.id} | {d.floor} | {d.part} | {d.member} | {d.dtype} | {d.width} | {d.length} | {d.progress} | {d.cause or '(없음)'}" for d in rows)
+    try:
+        client = Anthropic(api_key=get_api_key(user.company_id))
+        resp = client.messages.create(model=get_model_name(), max_tokens=12000, messages=[{"role": "user", "content":
+                                      CAUSE_PROMPT.format(causes=", ".join(CAUSES), rows=lines)}])
+        text = "".join(b.text for b in resp.content if b.type == "text")
+        got = json.loads(re.search(r"\[.*\]", text, re.S).group(0))
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"원인을 추천하지 못했습니다: {str(err).splitlines()[0][:150]}") from err
+    by_id = {d.id: d for d in rows}
+    changed = []
+    for g in got:
+        d = by_id.get(int(g.get("id", 0)) if str(g.get("id", "")).isdigit() else 0)
+        cause = str(g.get("cause") or "").strip()
+        if d is None or not cause or cause == d.cause:
+            continue
+        changed.append({"id": d.id, "floor": d.floor, "seq": d.seq, "what": f"{d.member} {d.dtype}".strip(), "before": d.cause, "after": cause})
+        d.cause = cause
+    db.commit()
+    return {"changed": changed}
