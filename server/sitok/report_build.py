@@ -18,6 +18,7 @@ from pathlib import Path
 from lxml import etree
 
 HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+CORE = "http://www.hancom.co.kr/hwpml/2011/core"
 T = f"{{{HP}}}t"
 
 
@@ -58,6 +59,7 @@ class Extras:
     template: str = "2종"  # 등급 표기(2종 낱말·3종 글자)
     rep_photos: dict = field(default_factory=dict)  # 1.3 대표사진 {항목 키: [(사진 경로, 설명)]} — 공중이용·기타는 찍을 대상이 정해진 칸이라 안 바꿈
     blank: str = ""  # 남는 사진 칸에 넣을 흰 그림
+    overview: list = field(default_factory=list)  # 전경사진 [(경로, 제목)] — 10쪽 위치도 아래 첫 장 + 11쪽 6장씩(비면 지난 회차 그대로)
     notes: list = field(default_factory=list)  # 못 한 것 안내
 
 
@@ -973,6 +975,100 @@ def _apply_eval(roots_or_root, items: list[dict], opinion: str) -> int:
 
 
 REP_PHOTO_KEYS = ("crack", "leak", "spall", "steel", "nonstruct")
+OVERVIEW_PER_PAGE = 6
+
+
+def _cropped(path, w: int, h: int) -> bytes:
+    """사진을 칸 비율(w:h)로 가운데 잘라 JPG — 세로 사진이 가로 칸에 찌그러지지 않게."""
+    import io
+
+    from PIL import Image, ImageOps
+
+    img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+    iw, ih = img.size
+    if iw * h > ih * w:  # 칸보다 넓음 → 좌우를 자름
+        nw = ih * w // h
+        img = img.crop(((iw - nw) // 2, 0, (iw - nw) // 2 + nw, ih))
+    else:
+        nh = iw * h // w
+        img = img.crop((0, (ih - nh) // 2, iw, (ih - nh) // 2 + nh))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=88)
+    return buf.getvalue()
+
+
+def _new_ids(el) -> None:
+    """복사한 표·그림에 새 id(한글은 같은 id가 둘이면 하나를 잃을 수 있음)."""
+    import random
+
+    for x in el.iter(f"{{{HP}}}tbl", f"{{{HP}}}pic"):
+        if x.get("id"):
+            x.set("id", str(random.randint(10 ** 9, 2 * 10 ** 9)))
+        if x.get("instid"):
+            x.set("instid", str(random.randint(10 ** 7, 10 ** 8)))
+
+
+def _pic_slots(tbl) -> list:
+    """표의 그림 칸 [((줄, 칸), pic)] — 줄·칸 순."""
+    cells = _cells(tbl)
+    out = []
+    for k in sorted(cells):
+        pic = next(cells[k].iter(f"{{{HP}}}pic"), None)
+        if pic is not None:
+            out.append((k, pic))
+    return out
+
+
+def _put_pic(pic, path, add_image) -> None:
+    img = next(pic.iter(f"{{{CORE}}}img"), None)
+    sz = pic.find(f"{{{HP}}}curSz")
+    if img is None or not path or not Path(path).exists():
+        return
+    w, h = (int(sz.get("width")), int(sz.get("height"))) if sz is not None and int(sz.get("width") or 0) > 0 else (4, 3)
+    img.set("binaryItemIDRef", add_image(_cropped(path, w, h)))
+
+
+def _overview(root, photos: list, blank: str, add_image) -> int:
+    """10쪽 위치도 표의 아래 그림 = 첫 전경사진, 11쪽 "■ 대상 시설물 전경사진" 표 = 한 쪽 6장씩(쪽이 모자라면 표 문단을 복사, 남으면 지움).
+    제목 칸 = 사진 바로 위 칸 "【제목】", 남는 칸 = 흰 그림·"-"."""
+    if not photos:
+        return 0
+
+    def head(p) -> str:
+        t = next((x for x in p.iter(f"{{{HP}}}tbl") if next(x.iterancestors(f"{{{HP}}}tbl"), None) is None), None)
+        return _cell_text(_cells(t).get((0, 0), t)) if t is not None else ""
+
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    pages = [p for p in tops if "전경사진" in head(p)]
+    if not pages:
+        return 0
+    n = 0
+    loc = next((p for p in tops if "위치도" in head(p)), None)
+    if loc is not None:
+        slots = _pic_slots(next(loc.iter(f"{{{HP}}}tbl")))
+        if len(slots) >= 2:
+            _put_pic(slots[-1][1], photos[0][0], add_image)
+            n += 1
+    need = -(-len(photos) // OVERVIEW_PER_PAGE)
+    while len(pages) < need:
+        q = copy.deepcopy(pages[-1])
+        _new_ids(q)
+        q.set("pageBreak", "1")
+        pages[-1].addnext(q)
+        pages.append(q)
+    for q in pages[need:]:
+        q.getparent().remove(q)
+    for k, p in enumerate(pages[:need]):
+        tbl = next(p.iter(f"{{{HP}}}tbl"))
+        cells = _cells(tbl)
+        for i, ((r, c), pic) in enumerate(_pic_slots(tbl)):
+            idx = k * OVERVIEW_PER_PAGE + i
+            path, title = photos[idx] if idx < len(photos) else (blank, None)
+            _put_pic(pic, path, add_image)
+            if (r - 1, c) in cells and r - 1 > 0:
+                _set_lines(cells[(r - 1, c)], ["-" if title is None else f"【{title or '전경사진'}】"])
+        n += 1
+    return n
 
 
 def _rep_photos(root, rep: dict, blank: str, add_image) -> int:
@@ -1045,9 +1141,9 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
     whole, parts, front = replacements(old, new)
     added: list[tuple[str, bytes]] = []  # 새 그림(BinData 이름, 바이트)
 
-    def add_image(path) -> str:
+    def add_image(path_or_bytes) -> str:
         key = f"sitok{len(added) + 1}"
-        added.append((key, Path(path).read_bytes()))
+        added.append((key, path_or_bytes if isinstance(path_or_bytes, bytes) else Path(path_or_bytes).read_bytes()))
         return key
     dest.parent.mkdir(parents=True, exist_ok=True)
     changed = 0
@@ -1074,6 +1170,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     _positions(root, extras.positions)
                 if extras.history and _add_history(root, old):
                     changed += 1
+                if is_front and extras.overview:
+                    changed += _overview(root, extras.overview, extras.blank, add_image)
                 if is_front and extras.summary and _summary_table(root, extras.summary):
                     changed += 1
                 if not is_front and extras.priority and _priority_table(root, extras.priority):

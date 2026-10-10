@@ -59,3 +59,35 @@
   #sf-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; align-items: start; }
 }
 @media (min-width: 1500px) { #sf-list { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* 탭(결함 조사 / 전경사진) + 전경사진(2026-10-11) */
+.sf-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.main button.sf-tab { margin: 0; padding: 9px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 14px; font-weight: 600; }
+.main button.sf-tab.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+#sf-defects[hidden], #sf-overview[hidden] { display: none; }
+.ov-head .page-sub { margin: 0 0 10px; }
+.ov-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.main .ov-btns button { margin: 0; }
+.ov-shot { display: inline-flex; align-items: center; padding: 9px 16px; border-radius: 8px; background: var(--blue); color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; }
+.ov-shot.secondary { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+.ov-head .mail-msg { margin-top: 10px; }
+.ov-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; min-height: 80px; }
+.ov-list.drop-over { outline: 2px dashed var(--blue); outline-offset: 4px; border-radius: 12px; }
+.ov-empty { grid-column: 1 / -1; padding: 28px; text-align: center; color: var(--faint); border: 1.5px dashed var(--line); border-radius: 12px; font-size: 13.5px; }
+.ov-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.ov-card.ai { border-color: #E0A33A; }
+.ov-card.busy { opacity: .5; pointer-events: none; }
+.ov-no { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; color: var(--muted); }
+.ov-no span { font-weight: 500; color: var(--faint); }
+.ov-card img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; display: block; }
+.ov-title { display: flex; gap: 6px; }
+.ov-title input { flex: 1; min-width: 0; padding: 8px; font-size: 14px; }
+.ov-plate { flex: none; display: flex; align-items: center; justify-content: center; width: 40px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 17px; background: var(--paper); }
+.ov-ai { font-size: 12px; color: #B7791F; font-weight: 600; }
+.ov-acts { display: flex; gap: 6px; }
+.main .ov-acts button { margin: 0; padding: 6px 10px; font-size: 12.5px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 7px; }
+.main .ov-acts .ov-del { margin-left: auto; color: var(--crit); }
+@media (max-width: 1100px) { .ov-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .ov-list { grid-template-columns: 1fr; } }
+.ov-btns label.ov-shot { display: inline-flex; margin: 0; align-self: stretch; }
+.ov-title label.ov-plate { display: flex; margin: 0; padding: 0; min-height: 38px; height: auto; align-self: stretch; flex-direction: row; line-height: 1; }

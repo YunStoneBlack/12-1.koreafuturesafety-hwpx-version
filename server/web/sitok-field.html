@@ -20,6 +20,13 @@
 <div class="crumb"><a href="sitok.html">시설물 목록</a> › <a id="sf-fac-link" href="#">시설물</a> › <span id="sf-title">현장 조사</span></div>
 <div id="error" class="error"></div>
 
+<div class="sf-tabs" role="tablist">
+  <button type="button" class="sf-tab on" data-tab="defects">🔍 결함 조사</button>
+  <button type="button" class="sf-tab" data-tab="overview">🏢 전경사진 <span id="ov-count"></span></button>
+</div>
+
+<div id="sf-defects">
+
 <div id="sf-empty" class="panel" hidden>
   <div class="panel-body">
     <h3 class="sf-h">전회차 결함 가져오기</h3>
@@ -38,6 +45,22 @@
   <div id="sf-list"></div>
   <button type="button" class="sf-add" id="sf-add">+ 신규 결함</button>
 </div>
+</div>
+
+<div id="sf-overview" hidden>
+  <div class="ov-head">
+    <p class="page-sub">장수 제한 없이 찍으세요 — 순서대로 보고서 10쪽(첫 장, 위치도 아래)·11쪽(한 쪽 6장씩)에 들어갑니다. 안 찍으면 지난 회차 사진 그대로.
+      제목은 🎤 키보드 음성·직접 입력·지난 제목 고르기, 또는 [🏷 실명판]을 찍으면 AI가 읽어 넣습니다.</p>
+    <div class="ov-btns">
+      <label class="ov-shot">📷 찍기<input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" id="ov-cam" /></label>
+      <label class="ov-shot secondary">🖼 여러 장 올리기<input type="file" accept="image/*" multiple hidden data-kr-file="1" id="ov-files" /></label>
+      <button type="button" class="secondary" id="ov-suggest">🤖 제목 없는 사진 AI 추천</button>
+    </div>
+    <div class="mail-msg" id="ov-msg" hidden></div>
+  </div>
+  <div id="ov-list" class="ov-list"></div>
+  <datalist id="ov-titles"></datalist>
+</div>
 
   </main>
 </div>
@@ -45,5 +68,6 @@
 <script src="app.js"></script>
 <script src="shell.js"></script>
 <script src="js/sitok-field.js"></script>
+<script src="js/sitok-overview.js"></script>
 </body>
 </html>

@@ -323,6 +323,9 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     ex.equipment = [(e.name, e.model, e.purpose, [to_full(x) for x in (e.photos or [])]) for e in eq]
     from server.api.routers.sitok_defects import cost_rows, priority_rows, summary_rows
     from server.api.routers.sitok_settings import prices
+    from server.api.routers.sitok_overview import photos as overview_photos
+    ex.overview = overview_photos(db, r)  # 전경사진(없으면 지난 회차 그대로)
+    ex.blank = str(_blank_jpg())
     ex.summary = summary_rows(db, r.id)  # 현장 조사 결함이 있을 때만 9쪽 요약표·우선순위·개략공사비를 새로
     if ex.summary:
         ex.priority = priority_rows(db, r.id)
