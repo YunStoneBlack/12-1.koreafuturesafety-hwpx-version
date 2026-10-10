@@ -242,6 +242,7 @@ renderUnplannedNotice(document.getElementById("ap-notice"), () => reload());
 const missedBtn = document.getElementById("cal-missed");
 missedBtn.addEventListener("click", () => openMissedReplan(() => { reload(); refreshMissedButton(missedBtn); }));
 refreshMissedButton(missedBtn);
+renderShortNotice(document.getElementById("ap-short"), () => reload());
 
 function refresh() { // 데이터는 그대로, 볼 사람만 바뀜
   renderFilter();
@@ -251,6 +252,7 @@ function reload() { // 서버에서 다시
   dataKey = "";
   cal.refetchEvents();
   refreshMissedButton(document.getElementById("cal-missed")); // 하나씩 옮기거나 지워도 건수가 맞게
+  renderShortNotice(document.getElementById("ap-short"), () => reload()); // 예정이 모자란 현장(2026-10-10)
 }
 
 function selectDay(date) {

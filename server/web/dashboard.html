@@ -86,6 +86,7 @@
 </section>
 
 <div id="ap-notice"></div>
+<div id="ap-short"></div>
 <!-- 공사 상태별 현장 수 카드(2026-10-01 사용자 B안) — 화면 위에 붙어 다님, 누르면 그 상태만 목록에(전체 = 거르기 없음) -->
 <div class="sc-cards" id="sc-cards" role="group" aria-label="공사 상태별 현장 수"></div>
 <div class="panel">
@@ -380,7 +381,11 @@ document.getElementById("site-form").addEventListener("submit", async (e) => {
 loadSites();
 loadStaffOptions();
 // "📅 일정 없는 현장" 띠 — 처음 + 공사 상태를 바꿨을 때(진행중이 아니면 빠지고, 진행중이 되면 들어옴)
-function refreshNotice() { renderUnplannedNotice(document.getElementById("ap-notice"), loadSites); }
+// "⚠ 예정이 모자란 현장" 띠(2026-10-10 민재형) — 남은 횟수보다 앞으로 예정이 적은 현장, [채워 넣기]
+function refreshNotice() {
+  renderUnplannedNotice(document.getElementById("ap-notice"), loadSites);
+  renderShortNotice(document.getElementById("ap-short"), loadSites);
+}
 refreshNotice();
 </script>
 </body>

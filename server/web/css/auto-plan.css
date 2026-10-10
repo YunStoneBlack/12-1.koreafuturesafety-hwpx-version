@@ -18,6 +18,11 @@
 .mr-tag.delete { color: var(--muted); background: var(--paper); }
 .mr-tag.stuck { color: var(--warn); background: var(--warn-soft); }
 .ap-row .mr-why { display: block; font-size: 12px; color: var(--muted); }
+/* "⚠ 예정이 모자란 현장" 띠(2026-10-10) — 일정 없는 현장 띠(.ap-notice)와 같은 틀, 머리줄 오른쪽에 [모두 채워 넣기] */
+.ap-notice.ap-short .ap-notice-headrow { display: flex; align-items: center; background: var(--warn-soft); }
+.ap-notice.ap-short .ap-notice-headrow .ap-notice-head { flex: 1; min-width: 0; }
+.main .ap-notice.ap-short .ap-fill-all { margin: 0 10px 0 0; padding: 6px 12px; font-size: 12.5px; white-space: nowrap; }
+.ap-short-num { flex: none; font-size: 12px; color: var(--warn); font-weight: 700; white-space: nowrap; }
 
 .ap-notice { background: var(--surface); border: 1px solid #F1D6A8; border-radius: 10px; margin: 0 0 12px; overflow: hidden; }
 .ap-notice button.ap-notice-head {
@@ -38,3 +43,11 @@
 .ap-subtag { color: var(--warn); }
 .ap-subnote { display: block; font-size: 12px; color: var(--warn); }
 .ap-subsum { margin-top: 6px; font-size: 12.5px; color: var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 8px 10px; line-height: 1.5; }
+@media (max-width: 760px) { /* 폰: [모두 채워 넣기]는 머리줄 아래로 */
+  .ap-notice.ap-short .ap-notice-headrow { flex-wrap: wrap; }
+  .ap-notice.ap-short .ap-notice-headrow .ap-notice-head { flex-basis: 100%; }
+  .main .ap-notice.ap-short .ap-fill-all { margin: 0 14px 10px auto; }
+  .ap-notice.ap-short .ap-notice-row { flex-wrap: wrap; }
+  .ap-notice.ap-short .ap-notice-row > div { flex-basis: 100%; }
+  .ap-notice.ap-short .ap-short-num { margin-left: auto; }
+}
