@@ -27,6 +27,12 @@ const DOCS_TABS = [
   ["settings", "설정", "docs-settings.html"],
 ];
 const isDocsPage = () => !!document.body.dataset.docsTab;
+// 산안법 / 시특법(2026-10-10) — 그룹웨어 왼쪽 메뉴 [보고서 자동화]·[서류 자동화] 아래 소메뉴. <body data-law="sitok">이면 시특법 화면(없으면 산안법).
+// 시특법은 아직 메인 하나씩(설계: 바탕화면 "시특법 견본\인수인계.md") — 단계마다 탭을 늘린다.
+const pageLaw = () => (document.body.dataset.law === "sitok" ? "sitok" : "sanan");
+const SITOK_TABS = [["facilities", "시설물 목록", "sitok.html"]];
+const SITOK_DOCS_TABS = [["contracts", "계약 목록", "sitok-docs.html"]];
+const LAW_LABEL = { sanan: "산안법", sitok: "시특법" };
 const SIDEBAR_CACHE_KEY = "kfsc-report:gw-sidebar";
 
 function renderReportHeader() {
@@ -37,14 +43,16 @@ function renderReportHeader() {
   const tabsOnly = document.body.dataset.tabsOnly !== undefined;
   const head = document.createElement("div");
   head.className = "report-head";
-  head.innerHTML = docs ? `
-    <h1>서류 자동화</h1>
-    <p class="page-sub">용역 계약별 착수계·완수계를 만들고 제출 현황·일정을 봅니다.</p>` : `
-    <h1>보고서 자동화</h1>
-    <p class="page-sub">현장별 기술지도 결과보고서를 작성하고 PDF로 만듭니다.</p>`;
+  const law = pageLaw();
+  const sub = law === "sitok"
+    ? (docs ? "시설물 점검 용역의 착수계·준공계 등 서류를 만듭니다." : "시설물 정기안전점검 결과보고서를 작성하고 PDF로 만듭니다.")
+    : (docs ? "용역 계약별 착수계·완수계를 만들고 제출 현황·일정을 봅니다." : "현장별 기술지도 결과보고서를 작성하고 PDF로 만듭니다.");
+  head.innerHTML = `<h1>${docs ? "서류 자동화" : "보고서 자동화"}<span class="law-badge ${law}">${LAW_LABEL[law]}</span></h1>
+    <p class="page-sub">${sub}</p>`;
   const nav = document.createElement("nav");
   nav.className = `report-tabs${tabsOnly ? " tabs-only" : ""}`;
-  for (const [key, label, href] of docs ? DOCS_TABS : REPORT_TABS) {
+  const tabs = law === "sitok" ? (docs ? SITOK_DOCS_TABS : SITOK_TABS) : (docs ? DOCS_TABS : REPORT_TABS);
+  for (const [key, label, href] of tabs) {
     const a = document.createElement("a");
     a.href = href;
     a.textContent = label;
@@ -62,12 +70,15 @@ function renderReportHeader() {
 function renderFallbackSidebar(aside) {
   aside.innerHTML = `
     <a class="brand" href="dashboard.html"><img src="img/logo-white.png" alt="한국미래안전" /></a>
-    <nav class="nav"><a class="nav-item ${isDocsPage() ? "" : "active"}" href="dashboard.html">보고서 자동화</a>
-      <a class="nav-item ${isDocsPage() ? "active" : ""}" href="docs.html">서류 자동화</a></nav>
+    <nav class="nav"><a class="nav-item" data-menu="report" href="dashboard.html">보고서 자동화</a>
+      <div class="nav-sub"><a class="nav-subitem" data-law="sanan" href="dashboard.html">산안법</a><a class="nav-subitem" data-law="sitok" href="sitok.html">시특법</a></div>
+      <a class="nav-item" data-menu="docs" href="docs.html">서류 자동화</a>
+      <div class="nav-sub"><a class="nav-subitem" data-law="sanan" href="docs.html">산안법</a><a class="nav-subitem" data-law="sitok" href="sitok-docs.html">시특법</a></div></nav>
     <div class="sidebar-foot">
       <div class="avatar" id="fallback-avatar">-</div>
       <div><div class="who" id="fallback-name">-</div><div class="role">직원</div></div>
     </div>`;
+  markSidebar(aside);
   api("/auth/me").then((me) => {
     const name = me.display_name || me.email || "?";
     document.getElementById("fallback-name").textContent = name;
@@ -83,6 +94,21 @@ function writeSidebarCache(html) {
   try { sessionStorage.setItem(SIDEBAR_CACHE_KEY, html); } catch { /* 저장 못 해도 매번 받아오면 그만 */ }
 }
 
+// 지금 화면에 맞는 메뉴 줄 켜기 — 그룹웨어 조각은 늘 "보고서 자동화"를 켜서 주므로 서류 화면이면 "서류 자동화"로 바꾸고,
+// 그 아래 소메뉴(산안법/시특법) 중 이 화면 쪽을 켠다. 예전 조각(data-menu 없음)이면 주소로 찾는다.
+function markSidebar(aside) {
+  const want = isDocsPage() ? "docs" : "report";
+  const parent = aside.querySelector(`.nav-item[data-menu="${want}"]`)
+    || aside.querySelector(want === "docs" ? '.nav-item[href$="docs.html"]' : '.nav-item[href$="/report/"]');
+  if (!parent) return;
+  aside.querySelectorAll(".nav-item.active, .nav-subitem.active").forEach((a) => a.classList.remove("active"));
+  parent.classList.add("active");
+  const subs = parent.nextElementSibling;
+  if (subs && subs.classList.contains("nav-sub")) {
+    subs.querySelector(`.nav-subitem[data-law="${pageLaw()}"]`)?.classList.add("active");
+  }
+}
+
 // 받아온 조각 HTML에서 <aside class="sidebar">를 꺼내 지금 자리(#gw-sidebar)와 바꾼다. 성공하면 true.
 function mountSidebar(html) {
   const current = document.getElementById("gw-sidebar");
@@ -90,12 +116,7 @@ function mountSidebar(html) {
   const fetched = new DOMParser().parseFromString(html, "text/html").querySelector("aside.sidebar");
   if (!fetched) return false;
   fetched.id = "gw-sidebar";
-  // 서류 자동화 화면이면 그룹웨어가 켜 준 "보고서 자동화" 대신 "서류 자동화" 줄을 켠다(그룹웨어 조각은 보고서 기준 하나뿐)
-  const docsItem = fetched.querySelector('.nav-item[href*="docs.html"]');
-  if (isDocsPage() && docsItem) {
-    fetched.querySelectorAll(".nav-item.active").forEach((a) => a.classList.remove("active"));
-    docsItem.classList.add("active");
-  }
+  markSidebar(fetched);
   current.replaceWith(fetched);
   // 폰에선 사이드바가 가로 메뉴 줄로 접히는데(style.css), "보고서 자동화"가 오른쪽 끝이라 화면 밖에 숨는다 → 보이게 스크롤
   const active = fetched.querySelector(".nav-item.active");
