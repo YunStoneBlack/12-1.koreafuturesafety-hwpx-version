@@ -238,6 +238,10 @@ const cal = new FullCalendar.Calendar(document.getElementById("cal"), {
 });
 cal.render();
 renderUnplannedNotice(document.getElementById("ap-notice"), () => reload());
+// [🔁 지난 일정 재배치 N] — 자동 배치 왼쪽, 지난 예정이 있을 때만(js/auto-plan.js)
+const missedBtn = document.getElementById("cal-missed");
+missedBtn.addEventListener("click", () => openMissedReplan(() => { reload(); refreshMissedButton(missedBtn); }));
+refreshMissedButton(missedBtn);
 
 function refresh() { // 데이터는 그대로, 볼 사람만 바뀜
   renderFilter();
@@ -246,6 +250,7 @@ function refresh() { // 데이터는 그대로, 볼 사람만 바뀜
 function reload() { // 서버에서 다시
   dataKey = "";
   cal.refetchEvents();
+  refreshMissedButton(document.getElementById("cal-missed")); // 하나씩 옮기거나 지워도 건수가 맞게
 }
 
 function selectDay(date) {

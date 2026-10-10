@@ -105,6 +105,85 @@ async function openAutoPlan(target, titleText, onDone) {
   });
 }
 
+// [🔁 지난 일정 재배치](2026-10-10 사용자·민재형) — 날짜가 지났는데 보고서가 없는 예정. 현장마다 남은 횟수보다 앞으로 예정이 모자라면
+// 지난 예정을 새 날짜로 옮기고(📌 고정), 넉넉하면 지운다. 넣을 날이 없으면 그대로 둔다. 서버: server/api/routers/missed_replan.py.
+async function openMissedReplan(onDone) {
+  const overlay = document.createElement("div");
+  overlay.className = "mail-overlay";
+  overlay.innerHTML = '<div class="mail-box ap-box" role="dialog" aria-modal="true"><div class="mail-wait">지난 일정을 계산하는 중…</div></div>';
+  document.body.appendChild(overlay);
+  const box = overlay.querySelector(".mail-box");
+  let busy = false;
+  const close = () => { if (!busy) { overlay.remove(); document.removeEventListener("keydown", onKey); } };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  const head = '<div class="mail-head"><b>🔁 지난 일정 재배치</b><span class="mail-sub">날짜가 지났는데 보고서가 없는 방문 예정</span></div>';
+
+  let pv;
+  try {
+    pv = await apiPost("/calendar/missed/replan", { dry_run: true });
+  } catch (err) {
+    box.innerHTML = `${head}<div class="mail-msg bad">${apEsc(err.message)}</div>
+      <div class="mail-foot"><button type="button" class="mail-cancel">닫기</button></div>`;
+    box.querySelector(".mail-cancel").addEventListener("click", close);
+    return;
+  }
+  const c = pv.counts;
+  const TAG = { move: "옮김", delete: "지움", stuck: "넣을 날 부족" };
+  const rows = pv.items.map((it) => {
+    const to = it.action === "move" ? ` → <b>${apDay(it.new_date)}</b>` : "";
+    const withText = it.with.length ? `<span class="ap-with">+ ${apEsc(apWithKm(it.with))}와 함께</span>` : "";
+    return `<div class="ap-row"><span class="ap-date">${apDay(it.old_date)}</span>
+      <span class="ap-what">${it.staff_name ? `<b class="ap-who">${apEsc(it.staff_name)}</b> ` : ""}${apEsc(apShort(it.site_name))}${to}${withText}
+        <span class="mr-why">${apEsc(it.reason)}</span></span><span class="mr-tag ${it.action}">${TAG[it.action]}</span></div>`;
+  }).join("");
+  const actionable = c.move + c.delete;
+  const summary = pv.items.length
+    ? `지난 일정 <b>${pv.items.length}건</b> — 새 날짜로 옮김 <b>${c.move}</b> · 지움 <b>${c.delete}</b>${c.stuck ? ` · 넣을 날 부족 <b>${c.stuck}</b>(그대로 둠)` : ""}`
+    : "지난 일정이 없습니다.";
+  box.innerHTML = `${head}
+    <div class="ap-summary">${summary}</div>
+    ${pv.items.length ? `<div class="ap-sub">현장마다 남은 횟수와 앞으로의 예정 수를 비교해, 모자란 만큼만 옮기고(📌 고정) 넉넉하면 지웁니다. 다른 예정은 건드리지 않습니다.</div>
+      <div class="ap-list">${rows}</div>` : ""}
+    <div class="mail-msg" hidden></div>
+    <div class="mail-foot"><button type="button" class="mail-cancel">${actionable ? "취소" : "닫기"}</button>
+      ${actionable ? '<button type="button" class="mail-primary mr-apply">이대로 정리</button>' : ""}</div>`;
+  box.querySelector(".mail-cancel").addEventListener("click", close);
+  const applyBtn = box.querySelector(".mr-apply");
+  if (!applyBtn) return;
+  applyBtn.addEventListener("click", async () => {
+    const msg = box.querySelector(".mail-msg");
+    busy = true;
+    applyBtn.disabled = true;
+    applyBtn.textContent = "정리하는 중…";
+    try {
+      const res = await apiPost("/calendar/missed/replan", { dry_run: false });
+      busy = false;
+      close();
+      if (onDone) onDone(res);
+    } catch (err) {
+      busy = false;
+      applyBtn.disabled = false;
+      applyBtn.textContent = "이대로 정리";
+      msg.hidden = false;
+      msg.className = "mail-msg bad";
+      msg.textContent = err.message;
+    }
+  });
+}
+
+// [🔁 지난 일정 재배치] 버튼에 건수 — 0이면 숨김
+async function refreshMissedButton(btn) {
+  try {
+    const { count } = await api("/calendar/missed");
+    btn.hidden = !count;
+    btn.innerHTML = `🔁 지난 일정 재배치<b>${count}</b>`;
+  } catch (_) {
+    btn.hidden = true; // 안내일 뿐 — 실패하면 조용히 숨김
+  }
+}
+
 // "📅 일정 없는 현장 N곳" — 누르면 펼쳐져 현장마다 [자동 배치]. 없으면 아무것도 안 그린다. onChanged: 넣은 뒤 화면 새로고침.
 async function renderUnplannedNotice(container, onChanged) {
   let list;

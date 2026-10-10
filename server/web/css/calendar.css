@@ -13,6 +13,10 @@
 .main .cal-chip.on { border-color: var(--blue); color: var(--ink); background: var(--blue-soft); font-weight: 600; }
 .cal-chip input { margin: 0; }
 .main .cal-filter .cal-autoplan { margin: 0 0 0 auto; padding: 7px 14px; font-size: 13px; white-space: nowrap; } /* 요원 단위 자동 배치(js/auto-plan.js) */
+/* [🔁 지난 일정 재배치 N](2026-10-10, js/auto-plan.js openMissedReplan) — 자동 배치 왼쪽, 지난 예정이 있을 때만 */
+.main .cal-filter .cal-missed { margin: 0 0 0 auto; padding: 7px 14px; font-size: 13px; white-space: nowrap; color: var(--crit); border-color: #F2B8B5; }
+.main .cal-filter .cal-missed:not([hidden]) + .cal-autoplan { margin-left: 0; }
+.cal-missed b { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px; background: var(--crit); color: #fff; font-size: 11.5px; }
 .cal-item > i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; box-sizing: border-box; }
 .cal-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
 /* 넓은 PC(2026-10-10 형): 그룹웨어 본문 최대 폭(app.css .main 1180px) 오른쪽이 비니 그날 목록(400px)을 그 빈 곳으로 빼고 달력이 본문 폭을 다 쓴다.
