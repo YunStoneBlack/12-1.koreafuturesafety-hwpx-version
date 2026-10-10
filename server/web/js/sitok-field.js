@@ -79,7 +79,7 @@
         <label>길이(m)<input inputmode="decimal" data-k="length" value="${esc(d.length)}" /></label>
         <span class="sf-qty">${d.qty ? `물량 ${esc(d.qty)}` : ""}</span>
       </div>
-      ${d.check === "repaired" || /현황s*$/.test(d.dtype || "") ? "" : `<div class="sf-cause"><label>원인<input list="sf-causes" data-k="cause" value="${esc(d.cause)}" placeholder="결함원인" /></label>
+      ${d.check === "repaired" || /현황\s*$/.test(d.dtype || "") ? "" : `<div class="sf-cause"><label>원인<input list="sf-causes" data-k="cause" value="${esc(d.cause)}" placeholder="결함원인" /></label>
         <span class="sf-prog${d.progress === "진행성" ? " on" : ""}">${esc(d.progress || "")}</span></div>`}
       ${d.check ? `<div class="sf-by">${esc(d.checked_by)} 확인${d.check === "new" ? ' · <button type="button" class="sf-del">지우기</button>' : ""}</div>` : ""}`;
     const save = async (body) => {
