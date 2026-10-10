@@ -139,3 +139,12 @@
 .ai-name small { display: inline-block; margin-right: 4px; padding: 0 5px; border-radius: 4px; background: var(--paper); color: var(--muted); font-size: 11px; }
 .ai-item select, .ai-item input { padding: 5px 6px; font-size: 12.5px; }
 @media (max-width: 760px) { .ai-item { grid-template-columns: 22px minmax(0, 1fr) 80px 46px; } .ai-item .ai-op { grid-column: 2 / -1; } }
+
+/* 1.4 기타 부대시설 상태조사(AI 초안 창) */
+.ai-fac { display: flex; flex-direction: column; gap: 4px; }
+.ai-fac-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) 72px minmax(0, 1fr) minmax(0, .8fr); gap: 6px; align-items: center; font-size: 12.5px; }
+.ai-fac-row select, .ai-fac-row input { padding: 5px 6px; font-size: 12.5px; }
+.ai-fac-row:not(.has) .ai-state, .ai-fac-row:not(.has) .ai-where { opacity: .4; }
+.ai-fac-row.has .ai-has { border-color: #E0A33A; color: #B7791F; font-weight: 700; }
+@media (max-width: 760px) { .ai-fac-row { grid-template-columns: 22px minmax(0, 1fr) 68px; } .ai-fac-row .ai-state, .ai-fac-row .ai-where { grid-column: 2 / -1; } }
+@media (max-width: 760px) { .ai-fac-row:not(.has) .ai-state, .ai-fac-row:not(.has) .ai-where { display: none; } }

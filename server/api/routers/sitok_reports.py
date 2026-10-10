@@ -457,14 +457,15 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
     rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id).all()
     if not rows:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "현장 조사 결함이 없습니다 — [📱 현장 조사]에서 결함을 먼저 가져오거나 입력하세요.")
-    defects = [{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "count", "width", "length", "qty", "check", "mark", "progress", "cause")}
+    defects = [{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause")}
                for d in rows]
     old = rb.old_texts(Path(r.source_hwpx)) if r.source_hwpx and Path(r.source_hwpx).exists() else ""
     facility = f"{f.name} — {f.template} · {f.use_type or f.main_use} · {f.structure} · 지상 {f.floors_above or '-'}층/지하 {f.floors_below or 0}층 · 준공 {_iso(f.completion_date)}"
     try:
-        items = rb.read_eval_items(Path(r.source_hwpx)) if f.template.startswith("3종") and r.source_hwpx and Path(r.source_hwpx).exists() else []
+        src = Path(r.source_hwpx) if r.source_hwpx and Path(r.source_hwpx).exists() else None
+        items = rb.read_eval_items(src) if f.template.startswith("3종") and src else []
         data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id,
-                              eval_items=items)
+                              eval_items=items, fac_items=rb.read_facility_items(src) if src else [])
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
     data["made_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -487,7 +488,7 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
     """점검자가 고친 값(final) 저장 — 키는 ai_draft.draft 결과와 같음. 등급은 A~E만."""
     r = _require(db, user, report_id)
     final = {k: body.get(k) for k in ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason",
-                                      "items", "eval_opinion")}
+                                      "items", "eval_opinion", "facility")}
     if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선)
         final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
     if final.get("grade") and final["grade"] not in ("A", "B", "C", "D", "E"):

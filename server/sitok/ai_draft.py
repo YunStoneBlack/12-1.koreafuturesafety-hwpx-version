@@ -139,7 +139,18 @@ ITEMS_SPEC = """,
 {items}"""
 
 
-def draft(facility: str, period: str, defects: list, old_text: str, company_id: int, eval_items: list | None = None) -> dict:
+FACILITY_SPEC = """,
+ "facility": [{{"no": 항목번호, "has": true 또는 false, "state": "있으면 상태(유형·크기·추정원인) — 표 칸이 좁아 20자 이내(예: 창대 몰탈 탈락, 시공불량)", "where": "있으면 층·결함 번호만(외관망도·사진대장 번호 같음, 예: 지상1층 4번 / 옥상 16·22번)"}} — 아래 {n}항목 전부]
+
+[1.4 기타 부대시설 상태조사 항목 — 지난 회차 있다/없다] 아래 결함 목록에 해당하는 결함이 있을 때만 있다(true), 없으면 false(지어내지 말 것):
+{items}
+
+[결함 목록 — 층 번호 | 구분 | 부재 | 결함유형 | 개수 | 폭 | 길이 | 원인 | 진행]
+{defects}"""
+
+
+def draft(facility: str, period: str, defects: list, old_text: str, company_id: int, eval_items: list | None = None,
+          fac_items: list | None = None) -> dict:
     st = stats(defects)
     lines = []
     for k, _, n in CATEGORIES:
@@ -148,6 +159,12 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
         lines.append(f"- {n}({k}): 결함 {s['count']}건, 층 {', '.join(s['floors']) or '-'}, 종류 {types}, 최대 폭 {s['max_width'] if s['max_width'] is not None else '-'}, "
                      f"물량 합 {s['qty']}, 진행 {s['grew']} · 신규 {s['new']} · 보수 완료 {s['repaired']}\n  예: " + " / ".join(s["items"][:6]))
     spec = ITEMS_SPEC.format(items="\n".join(f"{it['no']}. [{it['group']}] {it['name']} (지난 {it['rating'] or '-'})" for it in eval_items)) if eval_items else ""
+    if fac_items:
+        rows = "\n".join(f"{d.get('floor')} {d.get('seq')}번 | {d.get('part')} | {d.get('member')} | {d.get('dtype')} | {d.get('count')} | {d.get('width')} | "
+                         f"{d.get('length')} | {d.get('cause')} | {d.get('progress')}" for d in defects
+                         if d.get("check") != "repaired" and not (d.get("dtype") or "").rstrip().endswith("현황"))
+        spec += FACILITY_SPEC.format(n=len(fac_items), items="\n".join(f"{it['no']}. {it['name']} (지난 {'있다' if it['has'] else '없다'})" for it in fac_items),
+                                     defects=rows or "(없음)")
     prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), old=old_text[:6000] or "(없음)", items_spec=spec)
     client = Anthropic(api_key=get_api_key(company_id))
     resp = client.messages.create(model=get_model_name(), max_tokens=12000, messages=[{"role": "user", "content": prompt}])
@@ -180,4 +197,11 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
                                     + ", ".join(f"{g} {a}/{b}={v:g}" for g, (a, b, v) in res["groups"].items()) + f") → {res['grade']}등급")
     else:
         data.pop("items", None)
+    if fac_items:  # 항목 이름은 지난 보고서 표 것
+        got = {int(x["no"]): x for x in (data.get("facility") or []) if str(x.get("no", "")).isdigit() or isinstance(x.get("no"), int)}
+        data["facility"] = [{"no": it["no"], "name": it["name"], "has": bool(got.get(it["no"], {}).get("has")),
+                             "state": str(got.get(it["no"], {}).get("state") or "").strip(), "where": str(got.get(it["no"], {}).get("where") or "").strip()}
+                            for it in fac_items]
+    else:
+        data.pop("facility", None)
     return data

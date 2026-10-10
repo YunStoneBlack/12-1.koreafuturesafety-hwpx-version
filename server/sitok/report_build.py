@@ -974,6 +974,51 @@ def _apply_eval(roots_or_root, items: list[dict], opinion: str) -> int:
     return n
 
 
+# ---------- 1.4 기타 부대시설 상태조사 결과표(고정 22항목 — 없다/있다·상태·위치) ----------
+
+def _facility_table(roots):
+    """머리줄에 "점검결과"·"해당동호"가 있는 5칸 표."""
+    for root in roots:
+        for tbl in root.iter(f"{{{HP}}}tbl"):
+            cells = _cells(tbl)
+            head = "".join(_cell_text(cells[k]) for k in cells if k[0] == 0).replace(" ", "")
+            if tbl.get("colCnt") == "5" and "점검결과" in head and "해당동호" in head:
+                return tbl
+    return None
+
+
+def read_facility_items(hwpx: Path) -> list[dict]:
+    """[{no, name, has(지난 회차 있다?)}] — 표가 없으면 []."""
+    with zipfile.ZipFile(hwpx) as z:
+        roots = [etree.fromstring(z.read(n)) for n in _sections(z)]
+    tbl = _facility_table(roots)
+    if tbl is None:
+        return []
+    cells = _cells(tbl)
+    out = []
+    for r in sorted({k[0] for k in cells if k[0] >= 2}):
+        name = _cell_text(cells[(r, 0)]).replace("\n", " ").strip() if (r, 0) in cells else ""
+        if name:
+            out.append({"no": len(out) + 1, "name": name, "has": "○" in _cell_text(cells.get((r, 2), tbl))})
+    return out
+
+
+def _apply_facility(root, rows: list[dict]) -> int:
+    """rows = [{no, has, state, where}] 순서대로 표 줄에."""
+    tbl = _facility_table([root])
+    if tbl is None or not rows:
+        return 0
+    cells = _cells(tbl)
+    body = [r for r in sorted({k[0] for k in cells if k[0] >= 2}) if (r, 0) in cells and _cell_text(cells[(r, 0)]).strip()]
+    for r, it in zip(body, rows):
+        has = bool(it.get("has"))
+        vals = ((1, "" if has else "○"), (2, "○" if has else ""), (3, (it.get("state") or "") if has else ""), (4, (it.get("where") or "") if has else ""))
+        for c, v in vals:
+            if (r, c) in cells:
+                _set_lines(cells[(r, c)], [v])
+    return 1
+
+
 REP_PHOTO_KEYS = ("crack", "leak", "spall", "steel", "nonstruct")
 OVERVIEW_PER_PAGE = 6
 
@@ -1180,6 +1225,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     changed += 1
                 if extras.ai:
                     changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template, old.grade)
+                if extras.ai and extras.ai.get("facility") and not is_front:
+                    changed += _apply_facility(root, extras.ai["facility"])
                 if extras.ai and extras.ai.get("items") and not is_front:
                     changed += _apply_eval(root, extras.ai["items"], extras.ai.get("eval_opinion") or "")
                 if extras.rep_photos and not is_front:

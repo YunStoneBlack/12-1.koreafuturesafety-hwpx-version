@@ -85,6 +85,11 @@ async function openSitokAi(reportId, title, onSaved) {
             <select class="ai-repair"><option${it.repair === "×" ? " selected" : ""}>×</option><option${it.repair === "○" ? " selected" : ""}>○</option></select>
             <input class="ai-op" value="${esc(it.opinion)}" placeholder="점검자 의견" /></div>`).join("")}</div>
           <label>안전등급 평가 종합의견<textarea data-k="eval_opinion" rows="2">${esc(f.eval_opinion)}</textarea></label>` : ""}
+        ${(f.facility || []).length ? `<h4>1.4 기타 부대시설 상태조사 결과표</h4>
+          <div class="ai-fac">${f.facility.map((it, i) => `<div class="ai-fac-row${it.has ? " has" : ""}" data-i="${i}"><span class="ai-no">${it.no}</span>
+            <span class="ai-name">${esc(it.name)}</span>
+            <select class="ai-has"><option value="0"${it.has ? "" : " selected"}>없다</option><option value="1"${it.has ? " selected" : ""}>있다</option></select>
+            <input class="ai-state" value="${esc(it.state)}" placeholder="상태(유형·크기·추정원인)" /><input class="ai-where" value="${esc(it.where)}" placeholder="위치·사진" /></div>`).join("")}</div>` : ""}
         <h4>종합결론</h4>
         <label>종합결론 글머리 <span class="sk-help">한 줄에 하나</span><textarea data-k="conclusion" data-lines rows="7">${lines(f.conclusion)}</textarea></label>
       </div>
@@ -105,6 +110,7 @@ async function openSitokAi(reportId, title, onSaved) {
       el.textContent = r.grade ? `${SITOK_GRADES[r.grade]} (${r.total}점 — ${Object.entries(r.rows).map(([k, v]) => `${k} ${v[0]}/${v[1]}=${v[2]}`).join(", ")})` : "-";
     };
     box.querySelectorAll(".ai-item select, .ai-item input").forEach((el) => el.addEventListener("change", calc));
+    box.querySelectorAll(".ai-has").forEach((el) => el.addEventListener("change", () => el.closest(".ai-fac-row").classList.toggle("has", el.value === "1")));
     calc();
     box.querySelector(".mail-cancel").addEventListener("click", close);
     box.querySelector(".ai-redo").addEventListener("click", () => { if (confirm("AI가 처음부터 다시 씁니다. 고친 글은 사라집니다. 할까요?")) makeDraft(); });
@@ -116,6 +122,10 @@ async function openSitokAi(reportId, title, onSaved) {
         if (k.startsWith("sections.")) body.sections[k.slice(9)] = v; else body[k] = v;
       });
       if (items.length) { calc(); body.items = items; }
+      if ((f.facility || []).length) {
+        body.facility = [...box.querySelectorAll(".ai-fac-row")].map((row) => ({ ...f.facility[Number(row.dataset.i)], has: row.querySelector(".ai-has").value === "1",
+          state: row.querySelector(".ai-state").value.trim(), where: row.querySelector(".ai-where").value.trim() }));
+      }
       const msg = box.querySelector(".mail-msg");
       try {
         await api(`/sitok/reports/${reportId}/ai`, { method: "PUT", body: JSON.stringify(body) });
