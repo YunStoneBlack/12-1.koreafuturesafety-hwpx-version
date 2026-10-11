@@ -289,7 +289,7 @@ def list_defects(report_id: int, user: User = Depends(get_current_user), db: Ses
     f = db.get(SitokFacility, r.facility_id)
     rows = _rows(db, r.id)
     return {"report": {"id": r.id, "year": r.year, "half": r.half, "facility": f.name, "facility_id": f.id},
-            "defects": [_out(d) for d in rows],
+            "defects": [_out(d) for d in rows], "floors": facility_floors(f), "members": MEMBERS, "types": TYPES,
             "summary": {"total": len(rows), "unchecked": sum(1 for d in rows if not d.check),
                         **{k: sum(1 for d in rows if d.check == k) for k in CHECKS if k}}}
 
@@ -505,3 +505,79 @@ def suggest_causes(report_id: int, user: User = Depends(get_current_user), db: S
         d.cause = cause
     db.commit()
     return {"changed": changed}
+
+
+# ---------- 전회차 없이 시작·사진 AI 분석(2026-10-11) ----------
+MEMBERS = ["슬라브", "보", "기둥", "내력벽", "벽체", "조적벽", "파라펫", "마감재", "계단", "강재", "난간", "옹벽", "바닥", "천장", "창호"]
+TYPES = ["미장균열", "수직균열", "수평균열", "경사균열", "조적균열", "개구부균열", "누수·백태", "누수흔적", "박리", "박락", "도장박리", "철근노출", "부식",
+         "이격", "파손", "들뜸", "탈락", "체수"]
+WIDTH_BANDS = ["0.1", "0.2", "0.3", "0.5", "1.0"]
+
+
+def facility_floors(f: SitokFacility) -> list[str]:
+    """관리대장 층수로 층 목록(옥상 → 지상 위층부터 → 지하) — 전회차 결함이 없는 층도 고를 수 있게."""
+    out = ["옥상층"] + [f"지상{n}층" for n in range(int(f.floors_above or 0), 0, -1)] + [f"지하{n}층" for n in range(1, int(f.floors_below or 0) + 1)]
+    return out if len(out) > 1 else []
+
+
+ANALYZE = """시설물 정기안전점검 현장에서 점검자가 찍은 결함 사진입니다({where}). 사진을 보고 결함현황표 한 줄의 초안을 JSON 객체 하나로만 답하세요(설명 없이).
+{{"is_defect": 결함이면 true, 결함이 아니라 전경·설비·상태 기록용 사진이면 false,
+ "part": "구조체" 또는 "비구조체"(조적벽·미장·마감재·파라펫 조적은 비구조체, 철근콘크리트 슬라브·보·기둥·내력벽은 구조체),
+ "member": 부재 — 되도록 이 중에서: {members} (벽에 난 균열·누수는 "벽체", 벽돌 줄눈이 보이면 "조적벽", "마감재"는 타일·도장·몰딩처럼 마감 자체가 들뜨거나 떨어질 때만),
+ "dtype": 결함유형 — 되도록 이 중에서: {types} (기록용이면 "○○ 현황", 예: "실외기 현황"),
+ "cause": 추정원인 — 되도록 이 중에서: {causes},
+ "width": 균열이면 폭 구간(mm) "0.1"·"0.2"·"0.3"·"0.5"·"1.0" 중 하나(1.0은 1mm 이상), 균열이 아니면 null,
+ "count": 사진에 보이는 같은 결함 개수(정수, 보통 1),
+ "note": "사진에서 본 것 한 줄(점검자 참고용)"}}
+폭은 사진만으로는 어림이므로 보이는 굵기로 가장 가까운 구간을 고르세요(머리카락 굵기 ≈ 0.1, 연필 선 ≈ 0.3, 뚜렷이 벌어짐 ≥ 0.5)."""
+
+GREW = """같은 결함 자리를 전회차와 이번에 찍은 사진입니다(첫째 = 전회차, 둘째 = 이번). 전회차 기록: {prev}.
+JSON 객체 하나로만 답하세요(설명 없이): {{"grew": 이번이 전회차보다 커졌으면(길어짐·넓어짐·개수 늘어남) true, 아니면 false,
+ "width": 균열이면 이번 폭 구간 "0.1"·"0.2"·"0.3"·"0.5"·"1.0" 중 하나, 균열이 아니면 null, "note": "달라진 점 한 줄"}}"""
+
+
+def _analysis(raw: dict) -> dict:
+    w = str(raw.get("width") or "").strip()
+    try:
+        cnt = str(int(float(raw.get("count") or 1)))
+    except (TypeError, ValueError):
+        cnt = "1"
+    return {"is_defect": bool(raw.get("is_defect", True)), "part": raw.get("part") if raw.get("part") in ("구조체", "비구조체") else "비구조체",
+            "member": str(raw.get("member") or "").strip(), "dtype": str(raw.get("dtype") or "").strip(), "cause": str(raw.get("cause") or "").strip(),
+            "width": w if w in WIDTH_BANDS else "", "count": cnt, "note": str(raw.get("note") or "").strip()}
+
+
+@router.post("/reports/{report_id}/defects/analyze")
+def analyze_new(report_id: int, file: UploadFile = File(...), floor: str = "", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[+ 신규]에서 사진을 찍으면 — AI가 구분·부재·결함유형·원인·폭 구간 초안(저장은 안 함, 점검자가 확인하고 [추가])."""
+    from server.sitok import vision
+
+    _require_report(db, user, report_id)
+    jpg = files.to_jpeg(file.file.read(), file.filename or "")
+    prompt = ANALYZE.format(where=f"층: {floor}" if floor else "층 미상", members=", ".join(MEMBERS), types=", ".join(TYPES), causes=", ".join(CAUSES))
+    try:
+        return _analysis(vision.ask_json(user.company_id, [jpg], prompt))
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"사진을 분석하지 못했습니다: {str(err).splitlines()[0][:150]}") from err
+
+
+@router.post("/defects/{defect_id}/analyze")
+def analyze_again(defect_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """전회차 결함을 이번에 다시 찍은 뒤 — 전회차 사진과 비교해 진행 여부·이번 폭 구간 추천(저장은 안 함)."""
+    from server.sitok import vision
+
+    d, _ = _require(db, user, defect_id)
+    if not d.photo or not Path(d.photo).exists():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "이번 사진을 먼저 찍으세요.")
+    imgs = [Path(d.prev_photo).read_bytes()] if d.prev_photo and Path(d.prev_photo).exists() else []
+    prev = ", ".join(f"{k} {v}" for k, v in (d.prev or {}).items() if k in ("결함유형", "개수", "폭", "길이") and v) or "없음"
+    try:
+        if imgs:
+            raw = vision.ask_json(user.company_id, imgs + [Path(d.photo).read_bytes()], GREW.format(prev=prev))
+            w = str(raw.get("width") or "").strip()
+            return {"grew": bool(raw.get("grew")), "width": w if w in WIDTH_BANDS else "", "note": str(raw.get("note") or "").strip()}
+        a = _analysis(vision.ask_json(user.company_id, [Path(d.photo).read_bytes()],
+                                      ANALYZE.format(where=f"층: {d.floor}", members=", ".join(MEMBERS), types=", ".join(TYPES), causes=", ".join(CAUSES))))
+        return {"grew": None, "width": a["width"], "note": a["note"]}
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"사진을 분석하지 못했습니다: {str(err).splitlines()[0][:150]}") from err

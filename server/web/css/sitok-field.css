@@ -101,3 +101,31 @@
 .sf-cause-list { max-height: 50vh; overflow: auto; font-size: 13px; line-height: 1.7; }
 .sf-cause-list s { color: var(--faint); }
 .sf-cause-list em { font-style: normal; color: var(--blue); font-weight: 600; }
+
+/* 전회차 없이 시작·사진 AI(2026-10-11) */
+.sf-fresh-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.main .sf-fresh-row button { margin: 0; flex: none; }
+.sf-fresh-row .page-sub { margin: 0; }
+.sf-none { padding: 26px; text-align: center; color: var(--faint); border: 1.5px dashed var(--line); border-radius: 12px; font-size: 13.5px; margin: 10px 0; grid-column: 1 / -1; }
+.sf-ai { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.main .sf-ai .sf-ai-btn { margin: 0; padding: 5px 10px; font-size: 12.5px; }
+.main .sf-ai .link-btn { margin: 0 0 0 4px; padding: 0; background: none; border: 0; color: var(--blue); font-size: 12.5px; font-weight: 600; text-decoration: underline; }
+.sf-newshot { display: block; cursor: pointer; margin: 0; }
+.sf-newshot .n-preview { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; border: 1.5px dashed var(--blue);
+  background: var(--blue-soft); color: var(--blue); font-weight: 700; font-size: 16px; overflow: hidden; }
+.sf-newshot .n-preview img { width: 100%; height: 100%; object-fit: cover; }
+.n-ai { font-size: 12.5px; color: var(--blue); background: var(--blue-soft); border-radius: 8px; padding: 7px 10px; }
+.n-ai.busy { color: var(--muted); background: var(--paper); }
+.n-ai.warn { color: #B7791F; background: #FFF7E6; }
+.sf-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.main .sf-two label, .sf-new .sf-two label { display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.n-bands { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.n-bands span { margin-right: 2px; }
+.sf-new .n-bands button { margin: 0; padding: 7px 12px; font-size: 13.5px; font-weight: 600; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; }
+.sf-new .n-bands button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.mail-box.sf-new { max-height: 92vh; overflow: auto; }
+@media (max-width: 760px) { .sf-fresh-row { flex-direction: column; align-items: flex-start; } }
+.sf-new input:not([type=file]), .sf-new select { width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+.sf-new > label, .sf-new .sf-two label, .sf-new .sf-size label { min-width: 0; }
+.sf-new .sf-size { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mail-box.sf-new { display: flex; flex-direction: column; gap: 10px; }
