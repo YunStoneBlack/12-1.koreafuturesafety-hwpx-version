@@ -1347,6 +1347,9 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template, old.grade)
                 if extras.survey and not is_front:
                     changed += _apply_survey(root, extras.survey)
+                if extras.survey and extras.survey.get("detail") and not is_front:
+                    from server.sitok import detail as _detail
+                    changed += _detail.apply(root, extras.survey["detail"])
                 if extras.ai and extras.ai.get("facility") and not is_front:
                     changed += _apply_facility(root, extras.ai["facility"])
                 if extras.ai and extras.ai.get("items") and not is_front:

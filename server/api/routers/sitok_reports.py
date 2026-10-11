@@ -66,7 +66,8 @@ def _out(r: SitokReport) -> dict:
             "status": r.status, "message": r.message, "made_at": r.made_at.strftime("%Y-%m-%d %H:%M") if r.made_at else "",
             "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists()),
             "past": r.status == "done" and not r.source_hwpx,  # 이미 낸 보고서를 등록한 회차(만들기 없음)
-            "has_ai": bool(r.ai), "has_survey": bool(r.survey)}
+            "has_ai": bool(r.ai), "has_survey": bool((r.survey or {}).get("repairs") or (r.survey or {}).get("changes")),
+            "has_detail": bool((r.survey or {}).get("detail"))}
 
 
 def _require(db: Session, user: User, report_id: int) -> SitokReport:
@@ -527,6 +528,76 @@ def survey_save(report_id: int, body: dict, user: User = Depends(get_current_use
     repairs = [{k: str(x.get(k) or "").strip() for k in keys} for x in body.get("repairs") or []]
     changes = {str(k): {f: str((v or {}).get(f) or "").strip() for f in ("before", "after", "where", "note")}
                for k, v in (body.get("changes") or {}).items() if str((v or {}).get("after") or "").strip()}
-    r.survey = {"repairs": [x for x in repairs if x["method"] or x["kind"]], "changes": changes}
+    r.survey = {**(r.survey or {}), "repairs": [x for x in repairs if x["method"] or x["kind"]], "changes": changes}  # 시설물 현황(detail)은 그대로
     db.commit()
     return survey_get(report_id, user, db)
+
+
+# ---------- 시설물 현황(1.1 건축물 현황표·1.2.1~1.2.4 체크·구조·용도현황) — server/sitok/detail.py ----------
+
+def _detail_out(db: Session, r: SitokReport, override: dict | None = None) -> dict:
+    from server.sitok import detail
+
+    if not r.source_hwpx or not Path(r.source_hwpx).exists():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "틀(지난 보고서 한글)이 없습니다.")
+    base = detail.read(Path(r.source_hwpx))
+    saved = override or (r.survey or {}).get("detail") or {}
+    f = db.get(SitokFacility, r.facility_id)
+    for x in base["fields"]:
+        if x["key"] in (saved.get("fields") or {}):
+            x["value"] = saved["fields"][x["key"]]
+    for c in base["checks"]:
+        if c["key"] in (saved.get("checks") or {}):
+            c["selected"] = saved["checks"][c["key"]]
+    if saved.get("uses") is not None:
+        base["uses"] = saved["uses"]
+    if saved.get("uses_total"):
+        base["uses_total"] = saved["uses_total"]
+    reg = _facility_dir(f) / "건축물대장.pdf"
+    return {**base, "saved": bool((r.survey or {}).get("detail")), "has_ledger": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()),
+            "has_register": reg.exists()}
+
+
+@router.get("/reports/{report_id}/detail")
+def detail_get(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _detail_out(db, _require(db, user, report_id))
+
+
+@router.post("/reports/{report_id}/detail/ai")
+def detail_ai(report_id: int, file: UploadFile | None = File(None), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """AI 초안(저장 안 함) — 관리대장 PDF(시설물 등록 때 올린 것) + 건축물대장 PDF(여기서 올리면 시설물 폴더에 둠, 층별 용도·면적)."""
+    from server.sitok import detail
+
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    reg = _facility_dir(f) / "건축물대장.pdf"
+    if file is not None and file.filename:
+        data = file.file.read()
+        if not data.startswith(b"%PDF"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "건축물대장은 PDF로 올려 주세요.")
+        reg.parent.mkdir(parents=True, exist_ok=True)
+        reg.write_bytes(data)
+    cur = _detail_out(db, r)
+    facility = (f"{f.name} / 시설물번호 {f.fms_no} / {f.address} / 관리주체 {f.owner_name} / 준공 {_iso(f.completion_date)} / 구조 {f.structure} / "
+                f"지상 {f.floors_above}층·지하 {f.floors_below}층·옥탑 {f.floors_roof} / 최고높이 {f.max_height} / 연면적 {f.total_area} / 건축면적 {f.building_area} / "
+                f"주용도 {f.main_use}")
+    pdfs = [Path(p) for p in (f.ledger_pdf, str(reg)) if p and Path(p).exists()]
+    try:
+        got = detail.fill_ai(cur, facility, pdfs, user.company_id)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI가 채우지 못했습니다: {str(err).splitlines()[0][:150]}") from err
+    keep = {c["key"]: c["selected"] for c in cur["checks"]}
+    return {**_detail_out(db, r, {"fields": got["fields"], "checks": keep, "uses": got["uses"] if got["uses"] else None,
+                                   "uses_total": got["uses_total"]}), "ai": True}
+
+
+@router.put("/reports/{report_id}/detail")
+def detail_save(report_id: int, body: dict, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = _require(db, user, report_id)
+    d = {"fields": {str(k): str(v or "").strip() or "-" for k, v in (body.get("fields") or {}).items()},
+         "checks": {str(k): (int(v) if v is not None and str(v).isdigit() else None) for k, v in (body.get("checks") or {}).items()},
+         "uses": [[str(x or "").strip() for x in (row + ["", "", "", ""])[:4]] for row in body.get("uses") or [] if any(str(x or "").strip() for x in row)],
+         "uses_total": str(body.get("uses_total") or "").strip()}
+    r.survey = {**(r.survey or {}), "detail": d}
+    db.commit()
+    return _detail_out(db, r)
