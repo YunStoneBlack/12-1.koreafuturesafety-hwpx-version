@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import datetime
+import threading
+import traceback
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -289,7 +291,7 @@ def list_defects(report_id: int, user: User = Depends(get_current_user), db: Ses
     f = db.get(SitokFacility, r.facility_id)
     rows = _rows(db, r.id)
     return {"report": {"id": r.id, "year": r.year, "half": r.half, "facility": f.name, "facility_id": f.id},
-            "defects": [_out(d) for d in rows], "floors": facility_floors(f), "members": MEMBERS, "types": TYPES,
+            "defects": [_out(d) for d in rows], "floors": facility_floors(f), "members": MEMBERS, "types": TYPES, "importing": IMPORTS.get(r.id),
             "summary": {"total": len(rows), "unchecked": sum(1 for d in rows if not d.check),
                         **{k: sum(1 for d in rows if d.check == k) for k in CHECKS if k}}}
 
@@ -307,8 +309,47 @@ def import_pdf(report_id: int, file: UploadFile = File(...), user: User = Depend
     if not data.startswith(b"%PDF"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "지난 보고서 PDF(외관조사 사진첩이 든 것)를 올려 주세요.")
     album = album_read.read(data)
-    if not album.rows:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF에서 '[○○층 결함 현황표]'를 찾지 못했습니다 — 외관조사 사진첩이 든 PDF인지 확인하세요.")
+    if not album.rows:  # 우리 사진첩이 아님 → 타회사 양식: AI가 결함현황표·사진대장을 읽음(1~3분이라 백그라운드)
+        import pymupdf
+
+        from server.sitok import foreign_read
+
+        if not foreign_read.defect_tables(pymupdf.open(stream=data, filetype="pdf")):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF에서 결함현황표를 찾지 못했습니다 — 외관조사 결과(결함 표)가 든 보고서 PDF인지 확인하세요.")
+        if IMPORTS.get(r.id, {}).get("state") == "running":
+            raise HTTPException(status.HTTP_409_CONFLICT, "이미 읽는 중입니다.")
+        IMPORTS[r.id] = {"state": "running", "msg": "타회사 양식 — AI가 결함현황표·사진대장을 읽는 중(1~3분)"}
+        threading.Thread(target=_import_foreign, args=(r.id, data, user.company_id), daemon=True).start()
+        return {**list_defects(report_id, user, db), "importing": IMPORTS[r.id]}
+    _save_album(db, r, album)
+    return list_defects(report_id, user, db)
+
+
+IMPORTS: dict[int, dict] = {}  # 회차 id → 타회사 PDF 읽기 상태 {state: running/failed, msg}
+
+
+def _import_foreign(report_id: int, data: bytes, company_id: int) -> None:
+    from core.db import SessionLocal
+    from server.sitok import foreign_read
+
+    db = SessionLocal()
+    try:
+        album = foreign_read.read(data, company_id)
+        r = db.get(SitokReport, report_id)
+        if not album.rows:
+            raise ValueError("결함 줄을 하나도 읽지 못했습니다")
+        if db.query(SitokDefect).filter(SitokDefect.report_id == report_id).first():
+            raise ValueError("그 사이 결함이 들어와 있어 넣지 않았습니다")
+        _save_album(db, r, album)
+        IMPORTS.pop(report_id, None)
+    except Exception as err:  # noqa: BLE001 — 이유를 화면에
+        traceback.print_exc()
+        IMPORTS[report_id] = {"state": "failed", "msg": f"타회사 PDF를 읽지 못했습니다: {str(err).splitlines()[0][:150]}"}
+    finally:
+        db.close()
+
+
+def _save_album(db: Session, r: SitokReport, album) -> None:
     folder = _photo_dir(db, r)
     folder.mkdir(parents=True, exist_ok=True)
     for row in album.rows:
@@ -322,7 +363,6 @@ def import_pdf(report_id: int, file: UploadFile = File(...), user: User = Depend
             d.prev_photo = str(p)
         db.add(d)
     db.commit()
-    return list_defects(report_id, user, db)
 
 
 @router.post("/reports/{report_id}/defects/carry")

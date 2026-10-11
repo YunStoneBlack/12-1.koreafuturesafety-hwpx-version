@@ -248,6 +248,19 @@
 
   document.body.insertAdjacentHTML("beforeend", `<datalist id="sf-causes">${CAUSES.map((c) => `<option value="${c}">`).join("")}</datalist>`);
 
+  function pollImport() { // 타회사 PDF는 AI가 1~3분 — 4초마다 확인
+    const msg = document.getElementById("sf-pdf-msg");
+    const tick = async () => {
+      try {
+        const d = await api(`/sitok/reports/${rid}/defects`);
+        if (d.importing && d.importing.state === "running") { msg.textContent = `${d.importing.msg} …`; setTimeout(tick, 4000); return; }
+        if (d.importing && d.importing.state === "failed") { msg.textContent = d.importing.msg; return; }
+        refresh();
+      } catch (e) { msg.textContent = e.message; }
+    };
+    setTimeout(tick, 4000);
+  }
+
   async function refresh(redraw = true) {
     try {
       data = await api(`/sitok/reports/${rid}/defects`);
@@ -258,7 +271,13 @@
       const empty = !data.defects.length && !started;
       document.getElementById("sf-empty").hidden = !empty;
       document.getElementById("sf-main").hidden = empty;
-      if (empty) return;
+      if (empty) {
+        if (data.importing) {
+          document.getElementById("sf-pdf-msg").textContent = data.importing.msg;
+          if (data.importing.state === "running") pollImport();
+        }
+        return;
+      }
       drawSummary();
       drawFloors();
       if (redraw) drawList();
@@ -280,8 +299,8 @@
     try {
       const fd = new FormData();
       fd.append("file", pdf.files[0]);
-      await apiUpload(`/sitok/reports/${rid}/defects/import`, fd);
-      refresh();
+      const r = await apiUpload(`/sitok/reports/${rid}/defects/import`, fd);
+      if (r.importing) { msg.textContent = r.importing.msg; pollImport(); } else refresh();
     } catch (e) { msg.textContent = `읽지 못했습니다: ${e.message}`; }
   });
   enableFileDrop(pdf.closest(".sk-drop"), pdf);
