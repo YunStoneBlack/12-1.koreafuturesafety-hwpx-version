@@ -514,12 +514,7 @@ JSON 배열 하나로만 답하세요(설명 없이): [{{"id": 번호, "cause": 
 @router.post("/reports/{report_id}/defects/causes")
 def suggest_causes(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """AI 결함원인 추천 — 비었거나 결함 종류와 안 맞는 원인만 바꾸고 바꾼 목록을 돌려줌(점검자가 카드에서 다시 고칠 수 있음)."""
-    import json
-    import re
-
-    from anthropic import Anthropic
-
-    from core.config import get_api_key, get_model_name
+    from server.sitok import vision
 
     r = _require_report(db, user, report_id)
     rows = [d for d in _rows(db, r.id) if d.check != "repaired" and not (d.dtype or "").rstrip().endswith("현황")]
@@ -527,11 +522,9 @@ def suggest_causes(report_id: int, user: User = Depends(get_current_user), db: S
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "결함이 없습니다.")
     lines = "\n".join(f"{d.id} | {d.floor} | {d.part} | {d.member} | {d.dtype} | {d.width} | {d.length} | {d.progress} | {d.cause or '(없음)'}" for d in rows)
     try:
-        client = Anthropic(api_key=get_api_key(user.company_id))
-        resp = client.messages.create(model=get_model_name(), max_tokens=12000, messages=[{"role": "user", "content":
-                                      CAUSE_PROMPT.format(causes=", ".join(CAUSES), rows=lines)}])
-        text = "".join(b.text for b in resp.content if b.type == "text")
-        got = json.loads(re.search(r"\[.*\]", text, re.S).group(0))
+        got = vision.ask_json(user.company_id, [], CAUSE_PROMPT.format(causes=", ".join(CAUSES), rows=lines), max_tokens=12000)
+        if not isinstance(got, list):
+            raise ValueError("AI 답이 목록이 아닙니다")
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"원인을 추천하지 못했습니다: {str(err).splitlines()[0][:150]}") from err
     by_id = {d.id: d for d in rows}

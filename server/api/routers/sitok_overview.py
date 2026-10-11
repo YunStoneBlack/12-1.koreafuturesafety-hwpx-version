@@ -14,8 +14,6 @@
 
 from __future__ import annotations
 
-import base64
-import io
 import re
 import uuid
 import zipfile
@@ -24,7 +22,6 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from lxml import etree
-from PIL import Image
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -136,20 +133,10 @@ def photo(report_id: int, pid: str, user: User = Depends(get_current_user), db: 
 
 
 def _ask(company_id: int, jpg: bytes, prompt: str) -> str:
-    """사진 한 장 + 질문 → 짧은 답(한 줄)."""
-    from anthropic import Anthropic
+    """사진 한 장 + 질문 → 짧은 답(마지막 줄)."""
+    from server.sitok import vision
 
-    from core.config import get_api_key, get_model_name
-
-    img = Image.open(io.BytesIO(jpg)).convert("RGB")
-    img.thumbnail((1000, 1000))
-    buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=85)
-    client = Anthropic(api_key=get_api_key(company_id))
-    resp = client.messages.create(model=get_model_name(), max_tokens=4000, messages=[{"role": "user", "content": [
-        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": base64.b64encode(buf.getvalue()).decode()}},
-        {"type": "text", "text": prompt}]}])
-    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    text = vision.ask(company_id, [jpg], prompt, max_tokens=4000)
     return text.splitlines()[-1].strip().strip('"“”【】 ') if text else ""
 
 

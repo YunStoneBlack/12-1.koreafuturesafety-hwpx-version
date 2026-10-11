@@ -1,4 +1,6 @@
-"""시특법 사진 AI(2026-10-11) — 사진 한 장(또는 몇 장) + 질문 → 답 글. 전경사진 제목·실명판(sitok_overview), 현장 결함 사진 분석(sitok_defects)이 같이 씀."""
+"""시특법 AI 호출 한 곳(2026-10-11) — 그림 몇 장(없어도 됨) + 질문 → 답 글/JSON. 스트리밍(긴 답은 SDK가 요구).
+쓰는 곳: AI 초안(ai_draft), 결함 사진 분석·원인 추천(sitok_defects), 전경사진 제목·실명판(sitok_overview), 타회사 PDF 결함표(foreign_read),
+시설물 현황 채우기(detail). 관리대장·계약서 PDF 읽기는 core.contract_analyzer(server/sitok/reader.py)."""
 from __future__ import annotations
 
 import base64
@@ -21,8 +23,10 @@ def ask(company_id: int, images: list[bytes], prompt: str, max_tokens: int = 800
     """그림들 + 질문 → 답 글 전부."""
     from anthropic import Anthropic
 
-    from core.config import get_api_key, get_model_name
+    from core.config import get_api_key, get_model_name, has_api_key
 
+    if not has_api_key(company_id):
+        raise RuntimeError("Claude API 키가 없습니다 — 보고서 자동화 설정 탭에서 등록하세요.")
     content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": _jpeg(b)}} for b in images]
     content.append({"type": "text", "text": prompt})
     client = Anthropic(api_key=get_api_key(company_id))

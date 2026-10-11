@@ -10,9 +10,6 @@ from __future__ import annotations
 import json
 import re
 
-from anthropic import Anthropic
-
-from core.config import get_api_key, get_model_name
 
 CATEGORIES = [  # (키, 1.3 제목에 들어 있는 낱말, 이름)
     ("crack", ("균열",), "콘크리트 구조체 균열"),
@@ -185,14 +182,12 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
                                                      f"{c['qty']}{c['unit']} | {c['max_width'] if c['max_width'] is not None else '-'} | {', '.join(c['causes']) or '-'} | "
                                                      f"{c['default']}" for i, c in enumerate(combos, 1)))
     prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), old=old_text[:6000] or "(없음)", items_spec=spec)
-    client = Anthropic(api_key=get_api_key(company_id))
-    # 3종 18항목·1.4·보수공법까지 쓰면 답이 길어 스트리밍으로(긴 요청은 SDK가 스트리밍을 요구)
-    with client.messages.stream(model=get_model_name(), max_tokens=32000, messages=[{"role": "user", "content": prompt}]) as stream:
-        resp = stream.get_final_message()
-    text = "".join(b.text for b in resp.content if b.type == "text")
+    from server.sitok import vision
+
+    text = vision.ask(company_id, [], prompt, max_tokens=32000)  # 3종 18항목·1.4·보수공법까지 쓰면 답이 김
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
-        raise ValueError(f"AI 답에서 JSON을 찾지 못했습니다(끝난 이유 {resp.stop_reason}).")
+        raise ValueError("AI 답에서 JSON을 찾지 못했습니다.")
     data = json.loads(m.group(0))
     data["sections"] = {k: str((data.get("sections") or {}).get(k) or "").strip() for k, _, _ in CATEGORIES}
     for k in ("findings", "repairs", "conclusion"):
