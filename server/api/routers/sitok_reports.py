@@ -476,10 +476,14 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
     try:
         src = Path(r.source_hwpx) if r.source_hwpx and Path(r.source_hwpx).exists() else None
         items = rb.read_eval_items(src) if f.template.startswith("3종") and src else []
+        fac_items = rb.read_facility_items(src) if src else []
+        if (r.survey or {}).get("base"):  # 회사 기본 틀 — 틀의 평가·있다/없다는 다른 시설물 것이라 "지난 평가"로 주지 않음
+            items = [{**it, "rating": ""} for it in items]
+            fac_items = [{**it, "has": False} for it in fac_items]
         from server.api.routers.sitok_defects import method_combos
         from server.api.routers.sitok_settings import prices
         data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id,
-                              eval_items=items, fac_items=rb.read_facility_items(src) if src else [],
+                              eval_items=items, fac_items=fac_items,
                               combos=method_combos(db, r.id), price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)])
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
