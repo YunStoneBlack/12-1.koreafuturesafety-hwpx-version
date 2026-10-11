@@ -59,6 +59,7 @@ class Extras:
     template: str = "2종"  # 등급 표기(2종 낱말·3종 글자)
     rep_photos: dict = field(default_factory=dict)  # 1.3 대표사진 {항목 키: [(사진 경로, 설명)]} — 공중이용·기타는 찍을 대상이 정해진 칸이라 안 바꿈
     blank: str = ""  # 남는 사진 칸에 넣을 흰 그림
+    survey: dict | None = None  # 면담·변경사항 {repairs, changes} — 1.2.7·1.2.8
     overview: list = field(default_factory=list)  # 전경사진 [(경로, 제목)] — 10쪽 위치도 아래 첫 장 + 11쪽 6장씩(비면 지난 회차 그대로)
     notes: list = field(default_factory=list)  # 못 한 것 안내
 
@@ -1019,6 +1020,125 @@ def _apply_facility(root, rows: list[dict]) -> int:
     return 1
 
 
+# ---------- 1.2.7 보수·보강 이력, 1.2.8 변경사항 실태조사 ----------
+
+def _repair_table(roots):
+    for root in roots:
+        for tbl in root.iter(f"{{{HP}}}tbl"):
+            cells = _cells(tbl)
+            head = "".join(_cell_text(cells[k]) for k in cells if k[0] == 0).replace(" ", "")
+            if "보수기간" in head and "공사종류" in head:
+                return tbl
+    return None
+
+
+def _change_tables(roots) -> list:
+    """[(제목, 표)] — 머리줄 "변경사항" + 둘째 줄 "변경전"인 표, 바로 앞 제목 문단("1) 주요 구조부재의 변경사항" 등)과 함께."""
+    out = []
+    for root in roots:
+        title = ""
+        for p in (q for q in root if q.tag == f"{{{HP}}}p"):
+            t = _top_text(p)
+            if re.match(r"\d\)", t):
+                title = t
+            for tbl in p.iter(f"{{{HP}}}tbl"):
+                cells = _cells(tbl)
+                head = "".join(_cell_text(cells[k]) for k in cells if k[0] == 0).replace(" ", "")
+                if "변경사항" in head and "변경전" in _cell_text(cells.get((1, 1), tbl)).replace(" ", ""):
+                    out.append((title, tbl))
+    return out
+
+
+def read_survey(hwpx: Path) -> dict:
+    """지난 보고서의 1.2.7 이력 줄 [[기간, 종류, 방안, 위치, 비고]]과 1.2.8 항목 [{group, label}]."""
+    with zipfile.ZipFile(hwpx) as z:
+        roots = [etree.fromstring(z.read(n)) for n in _sections(z)]
+    rep = []
+    tbl = _repair_table(roots)
+    if tbl is not None:
+        cells = _cells(tbl)
+        for r in sorted({k[0] for k in cells if k[0] >= 1}):
+            row = [_cell_text(cells[(r, c)]).replace("\n", " ").strip() if (r, c) in cells else "" for c in range(5)]
+            if row[0]:
+                rep.append(row)
+    items = []
+    for title, t in _change_tables(roots):
+        cells = _cells(t)
+        for r in sorted({k[0] for k in cells if k[0] >= 2}):
+            label = _cell_text(cells.get((r, 0), t)).strip()
+            if label:
+                items.append({"group": title, "label": label})
+    return {"repairs_old": rep, "change_items": items}
+
+
+def _add_row(tbl) -> None:
+    """표 맨 아래 줄을 복사해 한 줄 더(글자는 지움)."""
+    trs = tbl.findall(f"{{{HP}}}tr")
+    n = int(tbl.get("rowCnt"))
+    last = {int(tc.find(f"{{{HP}}}cellAddr").get("colAddr")): tc for tc in trs[-1].findall(f"{{{HP}}}tc")}
+    h = max(int(tc.find(f"{{{HP}}}cellSz").get("height")) for tc in last.values())
+    for (r, c), tc in _cells(tbl).items():  # 위에서 세로로 합쳐 내려온 칸(평택 "비고")은 그 칸을 본떠 한 칸으로
+        if c not in last and r + int(tc.find(f"{{{HP}}}cellSpan").get("rowSpan")) - 1 >= n - 1:
+            last[c] = tc
+    tr = etree.Element(f"{{{HP}}}tr")
+    for c in sorted(last):
+        tc = copy.deepcopy(last[c])
+        tc.find(f"{{{HP}}}cellAddr").set("rowAddr", str(n))
+        tc.find(f"{{{HP}}}cellSpan").set("rowSpan", "1")
+        tc.find(f"{{{HP}}}cellSz").set("height", str(h))
+        _set_lines(tc, [""])
+        tr.append(tc)
+    if len(trs) > 2:  # 예전 마지막 줄은 이제 가운데 줄 — 아래 굵은 테두리 대신 그 위 줄 테두리 모양으로
+        above = {tc.find(f"{{{HP}}}cellAddr").get("colAddr"): tc.get("borderFillIDRef") for tc in trs[-2].findall(f"{{{HP}}}tc")}
+        for tc in trs[-1].findall(f"{{{HP}}}tc"):
+            b = above.get(tc.find(f"{{{HP}}}cellAddr").get("colAddr"))
+            if b:
+                tc.set("borderFillIDRef", b)
+    trs[-1].addnext(tr)
+    tbl.set("rowCnt", str(n + 1))
+    for cz in tbl.iter(f"{{{HP}}}cellzone"):
+        if int(cz.get("endRowAddr", "0")) >= n - 1:
+            cz.set("endRowAddr", str(n))
+    sz = tbl.find(f"{{{HP}}}sz")
+    if sz is not None and sz.get("height"):
+        sz.set("height", str(int(sz.get("height")) + h))
+
+
+def _apply_survey(root, survey: dict) -> int:
+    n = 0
+    new = [r for r in survey.get("repairs") or [] if (r.get("method") or r.get("kind") or "").strip()]
+    tbl = _repair_table([root])
+    if tbl is not None and new:
+        for row in new:
+            cells = _cells(tbl)
+            free = next((r for r in sorted({k[0] for k in cells if k[0] >= 1}) if not _cell_text(cells.get((r, 0), tbl)).strip()), None)
+            if free is None:
+                _add_row(tbl)
+                cells = _cells(tbl)
+                free = int(tbl.get("rowCnt")) - 1
+            vals = [row.get("period") or "-", row.get("kind") or "-", row.get("method") or "-", row.get("where") or "-", row.get("note") or "-"]
+            for c, v in enumerate(vals):
+                if (free, c) in cells:
+                    _set_lines(cells[(free, c)], [v])
+        n += 1
+    changes = survey.get("changes") or {}
+    for _, t in _change_tables([root]):  # 변경 있는 항목만 쓰고, 나머지는 "변경사항없음"(첫 줄)·"〃"(바로 위도 없음일 때) — 지난 회차 변경이 남지 않게
+        cells = _cells(t)
+        prev_none = False
+        for r in sorted({k[0] for k in cells if k[0] >= 2}):
+            label = _cell_text(cells.get((r, 0), t)).strip()
+            ch = changes.get(label)
+            if ch and (ch.get("after") or "").strip():
+                vals, prev_none = [ch.get("before") or "-", ch["after"], ch.get("where") or "-", ch.get("note") or "-"], False
+            else:
+                vals, prev_none = ["-", "〃" if prev_none else "변경사항없음", "-", "-"], True
+            for c, v in enumerate(vals, 1):
+                if (r, c) in cells:
+                    _set_lines(cells[(r, c)], [v])
+        n += 1
+    return n
+
+
 REP_PHOTO_KEYS = ("crack", "leak", "spall", "steel", "nonstruct")
 OVERVIEW_PER_PAGE = 6
 
@@ -1225,6 +1345,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     changed += 1
                 if extras.ai:
                     changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template, old.grade)
+                if extras.survey and not is_front:
+                    changed += _apply_survey(root, extras.survey)
                 if extras.ai and extras.ai.get("facility") and not is_front:
                     changed += _apply_facility(root, extras.ai["facility"])
                 if extras.ai and extras.ai.get("items") and not is_front:

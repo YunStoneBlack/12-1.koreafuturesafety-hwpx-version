@@ -525,6 +525,7 @@ class SitokReport(Base):
     made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     ai: Mapped[dict | None] = mapped_column(JSON, default=None)  # 6단계 AI 초안(점검자가 고친 값 포함) — 결과표·외관조사 서술·종합결론 등(0031)
     overview: Mapped[list | None] = mapped_column(JSON, default=None)  # 전경사진 [{id, file(회차 폴더 기준), title, ai}] — 10·11쪽(0032)
+    survey: Mapped[dict | None] = mapped_column(JSON, default=None)  # 면담·변경사항 {repairs: 1.2.7에 더할 줄, changes: 1.2.8 변경 항목}(0033)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 

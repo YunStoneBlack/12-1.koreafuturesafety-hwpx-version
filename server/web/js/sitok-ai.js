@@ -82,7 +82,7 @@ async function openSitokAi(reportId, title, onSaved) {
           <textarea data-k="sections.${k}" rows="3">${esc((f.sections || {})[k])}</textarea></label>`).join("")}
         ${(f.items || []).length ? `<h4>안전등급 평가(3종, 18항목)</h4>
           <div class="ai-items">${f.items.map((it, i) => `<div class="ai-item" data-i="${i}"><span class="ai-no">${it.no}</span>
-            <span class="ai-name"><small>${esc(it.group)}</small>${esc(it.name)}</span>
+            <span class="ai-name"><small>${esc(it.group)}</small>${esc(it.name)}${it.basis ? `<em class="ai-basis">근거: ${esc(it.basis)}</em>` : ""}</span>
             <select class="ai-rating">${SITOK_RATINGS.map(([n]) => `<option${it.rating === n ? " selected" : ""}>${n}</option>`).join("")}</select>
             <select class="ai-repair"><option${it.repair === "×" ? " selected" : ""}>×</option><option${it.repair === "○" ? " selected" : ""}>○</option></select>
             <input class="ai-op" value="${esc(it.opinion)}" placeholder="점검자 의견" /></div>`).join("")}</div>

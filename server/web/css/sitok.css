@@ -158,3 +158,27 @@
 @media (max-width: 760px) { .ai-met-row { grid-template-columns: 1fr 1fr; } .ai-met-row .ai-name { grid-column: 1 / -1; } }
 .ai-met-row.known .ai-lump { visibility: hidden; }
 @media (max-width: 760px) { .ai-met-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .ai-met-row.known .ai-lump { display: none; } .ai-met-row.known .ai-method { grid-column: 1 / -1; } }
+
+/* 18항목 AI 근거 */
+.ai-basis { display: block; font-style: normal; font-size: 11.5px; color: var(--faint); margin-top: 1px; }
+/* 면담·변경사항 창(1.2.7·1.2.8) */
+.sv-old { font-size: 12.5px; color: var(--muted); background: var(--paper); border-radius: 8px; padding: 8px 10px; line-height: 1.7; }
+.sv-rep { display: grid; grid-template-columns: 110px 100px minmax(0, 1.4fr) minmax(0, 1fr) 80px 32px; gap: 6px; margin-top: 6px; }
+.sv-rep input, .sv-ch input:not([type=checkbox]) { padding: 6px 7px; font-size: 13px; }
+.main .sv-x, .ai-box .sv-x { margin: 0; padding: 0; background: none; border: 1px solid var(--line); color: var(--crit); border-radius: 7px; }
+.ai-box .sv-add { align-self: flex-start; margin-top: 8px; }
+.sv-group { font-size: 12.5px; font-weight: 700; color: var(--ink); margin: 10px 0 2px; }
+.sv-ch { display: grid; grid-template-columns: 150px repeat(4, minmax(0, 1fr)); gap: 6px; align-items: center; margin-top: 4px; }
+.ai-box .sv-ch label.sv-chk { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); }
+.sv-ch:not(.on) input:not([type=checkbox]) { display: none; }
+@media (max-width: 760px) {
+  .sv-rep { grid-template-columns: 1fr 1fr 32px; } .sv-rep [data-f="method"] { grid-column: 1 / -1; grid-row: 2; }
+  .sv-ch { grid-template-columns: 1fr 1fr; } .sv-ch label.sv-chk { grid-column: 1 / -1; }
+}
+.ai-box .ai-form .sv-ch label.sv-chk { flex-direction: row; justify-content: flex-start; align-items: center; text-align: left; }
+.ai-box .ai-form .sv-ch label.sv-chk input { width: auto; margin: 0; }
+.sv-ch { min-height: 32px; }
+@media (max-width: 760px) {
+  .sv-rep { grid-template-columns: 1fr 1fr; } .sv-rep [data-f="method"] { grid-column: 1 / -1; grid-row: auto; }
+  .sv-rep .sv-x { grid-column: 1 / -1; height: 30px; }
+}

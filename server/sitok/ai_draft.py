@@ -130,7 +130,7 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
  "grade": "A~E 중 하나", "grade_reason": "근거"{items_spec}}}"""
 
 ITEMS_SPEC = """,
- "items": [{{"no": 항목번호, "rating": "우수|양호|보통|미흡|불량|해당없음", "repair": "○ 또는 ×", "opinion": "점검자 의견 15자 안팎(예: 일부 균열 발생)"}} — 아래 18항목 전부],
+ "items": [{{"no": 항목번호, "rating": "우수|양호|보통|미흡|불량|해당없음", "repair": "○ 또는 ×", "opinion": "점검자 의견 15자 안팎(예: 일부 균열 발생)", "basis": "근거 결함 — 아래 결함 목록의 층·번호와 크기(예: 지상5층 2·5번 균열 최대 0.3mm), 걸린 결함이 없으면 빈 글"}} — 아래 18항목 전부],
  "eval_opinion": "안전등급 평가 종합의견 한두 문장"
 
 3종은 안전등급을 아래 18항목 평가 점수로 프로그램이 계산합니다(우수10·양호8·보통5·미흡2·불량0, 주요60·일반20·부대20, 9·7·5·3점 이상 A~D) — "grade"도 그 계산과 맞게.
@@ -143,9 +143,11 @@ FACILITY_SPEC = """,
  "facility": [{{"no": 항목번호, "has": true 또는 false, "state": "있으면 상태(유형·크기·추정원인) — 표 칸이 좁아 20자 이내(예: 창대 몰탈 탈락, 시공불량)", "where": "있으면 층·결함 번호만(외관망도·사진대장 번호 같음, 예: 지상1층 4번 / 옥상 16·22번)"}} — 아래 {n}항목 전부]
 
 [1.4 기타 부대시설 상태조사 항목 — 지난 회차 있다/없다] 아래 결함 목록에 해당하는 결함이 있을 때만 있다(true), 없으면 false(지어내지 말 것):
-{items}
+{items}"""
 
-[결함 목록 — 층 번호 | 구분 | 부재 | 결함유형 | 개수 | 폭 | 길이 | 원인 | 진행]
+DEFECTS_BLOCK = """
+
+[결함 목록(18항목 근거·1.4 표에 씀) — 층 번호 | 구분 | 부재 | 결함유형 | 개수 | 폭 | 길이 | 원인 | 진행]
 {defects}"""
 
 
@@ -171,11 +173,12 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
                      f"물량 합 {s['qty']}, 진행 {s['grew']} · 신규 {s['new']} · 보수 완료 {s['repaired']}\n  예: " + " / ".join(s["items"][:6]))
     spec = ITEMS_SPEC.format(items="\n".join(f"{it['no']}. [{it['group']}] {it['name']} (지난 {it['rating'] or '-'})" for it in eval_items)) if eval_items else ""
     if fac_items:
+        spec += FACILITY_SPEC.format(n=len(fac_items), items="\n".join(f"{it['no']}. {it['name']} (지난 {'있다' if it['has'] else '없다'})" for it in fac_items))
+    if eval_items or fac_items:
         rows = "\n".join(f"{d.get('floor')} {d.get('seq')}번 | {d.get('part')} | {d.get('member')} | {d.get('dtype')} | {d.get('count')} | {d.get('width')} | "
                          f"{d.get('length')} | {d.get('cause')} | {d.get('progress')}" for d in defects
                          if d.get("check") != "repaired" and not (d.get("dtype") or "").rstrip().endswith("현황"))
-        spec += FACILITY_SPEC.format(n=len(fac_items), items="\n".join(f"{it['no']}. {it['name']} (지난 {'있다' if it['has'] else '없다'})" for it in fac_items),
-                                     defects=rows or "(없음)")
+        spec += DEFECTS_BLOCK.format(defects=rows or "(없음)")
     if combos:
         spec += METHOD_SPEC.format(prices=", ".join(f"{m}({u} {p:,}원)" if p else m for m, u, p in price_list or []),
                                    combos="\n".join(f"{i} | {c['part']} | {c['member']} | {c['dtype']}{' (0.3mm 이상)' if c['wide'] else ''} | {c['count']}개소 | "
@@ -204,7 +207,8 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
         ok = {"우수", "양호", "보통", "미흡", "불량", "해당없음"}
         data["items"] = [{**it, "rating": got.get(it["no"], {}).get("rating") if got.get(it["no"], {}).get("rating") in ok else it["rating"],
                           "repair": "○" if str(got.get(it["no"], {}).get("repair", "")).strip() in ("○", "O", "o", "유") else "×",
-                          "opinion": str(got.get(it["no"], {}).get("opinion") or "").strip()} for it in eval_items]
+                          "opinion": str(got.get(it["no"], {}).get("opinion") or "").strip(),
+                          "basis": str(got.get(it["no"], {}).get("basis") or "").strip()} for it in eval_items]
         data["eval_opinion"] = str(data.get("eval_opinion") or "").strip()
         # 3종 등급은 18항목 점수로 정해짐(AI가 따로 고른 등급과 어긋나지 않게 근거도 점수로)
         from server.sitok.report_build import eval_score

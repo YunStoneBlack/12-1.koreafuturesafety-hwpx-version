@@ -66,7 +66,7 @@ def _out(r: SitokReport) -> dict:
             "status": r.status, "message": r.message, "made_at": r.made_at.strftime("%Y-%m-%d %H:%M") if r.made_at else "",
             "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists()),
             "past": r.status == "done" and not r.source_hwpx,  # 이미 낸 보고서를 등록한 회차(만들기 없음)
-            "has_ai": bool(r.ai)}
+            "has_ai": bool(r.ai), "has_survey": bool(r.survey)}
 
 
 def _require(db: Session, user: User, report_id: int) -> SitokReport:
@@ -323,6 +323,7 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     ex.equipment = [(e.name, e.model, e.purpose, [to_full(x) for x in (e.photos or [])]) for e in eq]
     from server.api.routers.sitok_defects import cost_rows, priority_rows, summary_rows
     from server.api.routers.sitok_settings import prices
+    ex.survey = r.survey or {}  # 비어 있어도 1.2.8은 "변경사항없음"으로 새로
     from server.api.routers.sitok_overview import photos as overview_photos
     ex.overview = overview_photos(db, r)  # 전경사진(없으면 지난 회차 그대로)
     ex.blank = str(_blank_jpg())
@@ -508,3 +509,24 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
     r.ai = {**(r.ai or {}), "final": final}
     db.commit()
     return _ai_out(db, r)
+
+
+@router.get("/reports/{report_id}/survey")
+def survey_get(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """면담·변경사항 창 — 지난 보고서 1.2.7 이력·1.2.8 항목 + 이번에 넣은 값."""
+    r = _require(db, user, report_id)
+    base = rb.read_survey(Path(r.source_hwpx)) if r.source_hwpx and Path(r.source_hwpx).exists() else {"repairs_old": [], "change_items": []}
+    return {**base, "repairs": (r.survey or {}).get("repairs") or [], "changes": (r.survey or {}).get("changes") or {},
+            "period": f"{r.year}년 {r.half}"}
+
+
+@router.put("/reports/{report_id}/survey")
+def survey_save(report_id: int, body: dict, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = _require(db, user, report_id)
+    keys = ("period", "kind", "method", "where", "note")
+    repairs = [{k: str(x.get(k) or "").strip() for k in keys} for x in body.get("repairs") or []]
+    changes = {str(k): {f: str((v or {}).get(f) or "").strip() for f in ("before", "after", "where", "note")}
+               for k, v in (body.get("changes") or {}).items() if str((v or {}).get("after") or "").strip()}
+    r.survey = {"repairs": [x for x in repairs if x["method"] or x["kind"]], "changes": changes}
+    db.commit()
+    return survey_get(report_id, user, db)
