@@ -60,6 +60,7 @@ class Extras:
     rep_photos: dict = field(default_factory=dict)  # 1.3 대표사진 {항목 키: [(사진 경로, 설명)]} — 공중이용·기타는 찍을 대상이 정해진 칸이라 안 바꿈
     blank: str = ""  # 남는 사진 칸에 넣을 흰 그림
     survey: dict | None = None  # 면담·변경사항 {repairs, changes} — 1.2.7·1.2.8
+    base: dict | None = None  # 회사 기본 틀로 시작(처음 맡는 시설물) — {map, cover, name, year, floors, area, structure, grade, use}: 틀 시설물 고유 내용을 비우거나 새로
     overview: list = field(default_factory=list)  # 전경사진 [(경로, 제목)] — 10쪽 위치도 아래 첫 장 + 11쪽 6장씩(비면 지난 회차 그대로)
     notes: list = field(default_factory=list)  # 못 한 것 안내
 
@@ -1020,6 +1021,118 @@ def _apply_facility(root, rows: list[dict]) -> int:
     return 1
 
 
+# ---------- 회사 기본 틀(다른 시설물 보고서)로 시작할 때 — 그 시설물 고유 내용 정리(2026-10-11) ----------
+
+def _blank_pics(tbl, blank: str, add_image, captions: bool = True) -> None:
+    cells = _cells(tbl)
+    for (r, c), pic in _pic_slots(tbl):
+        _put_pic(pic, blank, add_image)
+        if captions and (r - 1, c) in cells and r - 1 > 0 and not next(cells[(r - 1, c)].iter(f"{{{HP}}}pic"), None) is not None:
+            _set_lines(cells[(r - 1, c)], ["-"])
+        if captions and (r + 1, c) in cells and next(cells[(r + 1, c)].iter(f"{{{HP}}}pic"), None) is None and "현황" not in _cell_text(cells[(r + 1, c)]):
+            _set_lines(cells[(r + 1, c)], ["-"])
+
+
+def _base_reset(root, is_front: bool, sec: int, base: dict, blank: str, add_image) -> int:
+    """기본 틀의 시설물 고유 내용: 표지 사진·위치도·전경(이번 사진·주소 지도로, 없으면 흰 그림), 공통편 일반현황 표, 1.1 위치도·전경,
+    1.2.6 기실시 점검결과(틀 시설물 이력 → 비움), 1.2.7 보수이력(비움), 1.3 사진 표(이번 결함 사진이 안 들어가는 표는 흰 그림)."""
+    n = 0
+    mp, cover = base.get("map") or blank, base.get("cover") or blank
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    if is_front:
+        first = next((p for p in root.iter(f"{{{HP}}}pic") if int(p.find(f"{{{HP}}}curSz").get("width") or 0) > 30000), None)
+        if first is not None:  # 표지 사진
+            _put_pic(first, cover, add_image)
+            n += 1
+        for tbl in root.iter(f"{{{HP}}}tbl"):
+            head = _cell_text(_cells(tbl).get((0, 0), tbl))
+            if "위치도" in head:
+                slots = _pic_slots(tbl)
+                if slots:
+                    _put_pic(slots[0][1], mp, add_image)
+                if len(slots) > 1:
+                    _put_pic(slots[-1][1], cover, add_image)
+                n += 1
+            elif "전경사진" in head and not base.get("has_overview"):
+                _blank_pics(tbl, blank, add_image)
+                n += 1
+        return n
+    if sec == 1:  # 공통편 — 1.2 대상시설물 현황: 가. 위치도 그림, 나. 일반현황 표
+        on = False
+        for p in tops:
+            t = _top_text(p)
+            if "위치도" in t and re.match(r"^[가-하]\.", t):
+                on = True
+                continue
+            pic = next(p.iter(f"{{{HP}}}pic"), None)
+            if on and pic is not None:
+                _put_pic(pic, mp, add_image)
+                n += 1
+                break
+        for tbl in root.iter(f"{{{HP}}}tbl"):
+            c = _cells(tbl)
+            head = "".join(_cell_text(c[k]) for k in c if k[0] == 0).replace(" ", "")
+            if "건물명" in head and "준공" in head and (1, 1) in c:
+                row = ["1", base.get("short") or base.get("name") or "-", base.get("year") or "-", base.get("floors") or "-", base.get("area") or "-",
+                       base.get("structure") or "-"]
+                for k, v in enumerate(row):
+                    if (1, k) in c:
+                        _set_lines(c[(1, k)], [v])
+                for (r, k), tc in c.items():
+                    if r >= 2 and k == 4:
+                        _set_lines(tc, [base.get("area") or "-"])
+                n += 1
+        return n
+    for tbl in root.iter(f"{{{HP}}}tbl"):  # 1.1 위치도 및 전경(그림 2개 표)
+        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None:
+            continue
+        slots = _pic_slots(tbl)
+        par = next(tbl.iterancestors(f"{{{HP}}}p"), None)
+        prev = par.getprevious() if par is not None else None
+        if len(slots) == 2 and prev is not None and "위치도" in _top_text(prev):
+            _put_pic(slots[0][1], mp, add_image)
+            _put_pic(slots[1][1], cover, add_image)
+            n += 1
+    # 1.2.6 기실시 점검결과 — 틀 시설물 이력 표들을 첫 표 하나("-")로, 머리 문장은 이 시설물로
+    hist = [t for t in root.iter(f"{{{HP}}}tbl") if _cell_text(_cells(t).get((0, 0), t)).replace(" ", "") == "점검의종류"]
+    for t in hist[1:]:
+        par = next(t.iterancestors(f"{{{HP}}}p"), None)
+        if par is not None and par.getparent() is root:
+            root.remove(par)
+    if hist:
+        c = _cells(hist[0])
+        for (r, k), tc in c.items():
+            if r == 1:
+                _set_lines(tc, ["정기안전점검" if k == 0 else "-"])
+            elif r == 2:
+                _set_lines(tc, ["【 기실시 점검 및 진단 결과 】"])
+            elif r >= 3:
+                _set_lines(tc, ["ㆍ당사가 처음 수행하는 점검으로, 이전 점검·진단 결과는 시설물통합정보관리체계(FMS) 이력을 참고한다."])
+        n += 1
+    for p in tops:
+        t = _top_text(p)
+        if t.startswith("본 과업대상 시설물은") and "정기안전점검" in t:
+            _set_para(p, f"본 과업대상 시설물은 제{base.get('grade') or '-'}종에 해당하는 {base.get('use') or '시설물'}로서 「시설물의 안전 및 유지관리에 관한 특별법」에서 "
+                         "규정하고 있는 정기안전점검(1년 2회)을 법적 주기에 따라 실시하여야 하는 시설물이다.")
+            n += 1
+            break
+    tbl = _repair_table([root])  # 1.2.7 — 틀 시설물 이력 지움(이번 면담 줄은 뒤에 _apply_survey가)
+    if tbl is not None:
+        c = _cells(tbl)
+        for (r, k), tc in c.items():
+            if r >= 1:
+                _set_lines(tc, [""] if k == 0 else ["-"])
+        n += 1
+    keys = set((base.get("rep_keys") or []))
+    from server.sitok.ai_draft import section_key
+    for tbl in root.iter(f"{{{HP}}}tbl"):  # 1.3 사진 표 — 이번 결함 사진이 들어갈 표 말고는 흰 그림
+        head = _cell_text(_cells(tbl).get((0, 0), tbl))
+        if ("대표사진" in head or "사진 현황" in head) and section_key(head) not in keys:
+            _blank_pics(tbl, blank, add_image)
+            n += 1
+    return n
+
+
 # ---------- 1.2.7 보수·보강 이력, 1.2.8 변경사항 실태조사 ----------
 
 def _repair_table(roots):
@@ -1306,8 +1419,10 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
     whole, parts, front = replacements(old, new)
     added: list[tuple[str, bytes]] = []  # 새 그림(BinData 이름, 바이트)
 
+    run = datetime.datetime.now().strftime("%y%m%d%H%M%S")  # 틀이 이 프로그램이 만든 한글이면 그 안에 이미 sitok1.jpg… 가 있어 이름이 겹침 → 만들 때마다 다른 이름
+
     def add_image(path_or_bytes) -> str:
-        key = f"sitok{len(added) + 1}"
+        key = f"sitok{run}_{len(added) + 1}"
         added.append((key, path_or_bytes if isinstance(path_or_bytes, bytes) else Path(path_or_bytes).read_bytes()))
         return key
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1322,6 +1437,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                 root = etree.fromstring(data)
                 is_front = info.filename == ordered[0]
                 changed += _apply(root, whole, parts, front, is_front)
+                if extras.base:
+                    changed += _base_reset(root, is_front, ordered.index(info.filename), extras.base, extras.blank, add_image)
                 for img, kind, idx in _doc_pics(root, is_front):
                     path = extras.images.get((kind, idx))
                     if path and Path(path).exists():

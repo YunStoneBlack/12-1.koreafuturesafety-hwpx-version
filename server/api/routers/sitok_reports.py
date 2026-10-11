@@ -66,7 +66,7 @@ def _out(r: SitokReport) -> dict:
             "status": r.status, "message": r.message, "made_at": r.made_at.strftime("%Y-%m-%d %H:%M") if r.made_at else "",
             "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists()),
             "past": r.status == "done" and not r.source_hwpx,  # 이미 낸 보고서를 등록한 회차(만들기 없음)
-            "has_ai": bool(r.ai), "has_survey": bool((r.survey or {}).get("repairs") or (r.survey or {}).get("changes")),
+            "has_ai": bool(r.ai), "base": bool((r.survey or {}).get("base")), "has_survey": bool((r.survey or {}).get("repairs") or (r.survey or {}).get("changes")),
             "has_detail": bool((r.survey or {}).get("detail"))}
 
 
@@ -403,6 +403,8 @@ def _run_build(report_id: int) -> None:
             base = f"{r.year}년 {r.half} 정기안전점검 보고서_{f.name}"
             hwpx = folder / f"{base}.hwpx"
             extras = _extras(db, r)
+            if (r.survey or {}).get("base"):  # 회사 기본 틀(다른 시설물 보고서) — 그 시설물 고유 내용 정리
+                warn += _base_extras(db, r, f, extras)
             changed = rb.build(src, old, new, hwpx, extras)
             warn += extras.notes
             r.out_hwpx = str(hwpx)
@@ -601,3 +603,65 @@ def detail_save(report_id: int, body: dict, user: User = Depends(get_current_use
     r.survey = {**(r.survey or {}), "detail": d}
     db.commit()
     return _detail_out(db, r)
+
+
+# ---------- 회사 기본 틀로 시작(처음 맡는 시설물 — 신축·타회사 인계, 2026-10-11) ----------
+SIMILAR = {"2종": ["2종"], "3종일반": ["3종일반", "3종학교"], "3종학교": ["3종학교", "3종일반"]}
+
+
+def base_template(db: Session, company_id: int, template: str, exclude_facility: int) -> tuple[Path, str] | None:
+    """같은 종별(없으면 비슷한 종별)의 우리 회사 보고서 한글 중 가장 최근 것 — 바탕화면 견본처럼 민재형이 준 우리 양식."""
+    for t in SIMILAR.get(template, [template]):
+        facs = {f.id: f for f in db.query(SitokFacility).filter(SitokFacility.company_id == company_id, SitokFacility.template == t,
+                                                               SitokFacility.id != exclude_facility)}
+        rows = [r for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(facs)).all() if r.out_hwpx and Path(r.out_hwpx).exists()]
+        if rows:
+            r = max(rows, key=lambda x: (_order(x), x.id))
+            return Path(r.out_hwpx), f"{facs[r.facility_id].name} {r.year}년 {r.half}({t})"
+    return None
+
+
+@router.post("/reports/{report_id}/base")
+def use_base(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """틀이 없는 회차 → 회사 기본 틀(다른 시설물의 우리 보고서)을 틀로. 보고서 만들 때 그 시설물 고유 내용은 비우거나 새로(_base_reset)."""
+    import shutil
+
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    got = base_template(db, user.company_id, f.template, f.id)
+    if got is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 기본 틀로 쓸 우리 보고서가 없습니다 — 같은 종별 시설물의 보고서를 먼저 등록하세요.")
+    src, desc = got
+    dest = _report_dir(f, r) / "틀_회사기본틀.hwpx"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dest)
+    r.source_hwpx, r.source_note = str(dest), f"회사 기본 틀 — {desc}"
+    r.survey = {**(r.survey or {}), "base": True}
+    db.commit()
+    return _out(r)
+
+
+def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras) -> list[str]:
+    """기본 틀 회차의 Extras.base 값 + 경고(채워야 할 것)."""
+    from server.sitok import locmap
+
+    warn = []
+    mp = locmap.map_for(f.address, f.name, _facility_dir(f))
+    if mp is None:
+        warn.append("주소로 위치도 지도를 만들지 못해 빈 그림으로 넣었습니다")
+    ov = ex.overview
+    floors = " / ".join(x for x in (f"B{f.floors_below}F" if f.floors_below else "", f"{f.floors_above}F" if f.floors_above else "") if x)
+    ex.base = {"map": str(mp) if mp else "", "cover": ov[0][0] if ov else "", "has_overview": bool(ov), "name": f.name,
+               "short": f.name.split()[-1] if " " in f.name else f.name, "year": f"{f.completion_date.year}년" if f.completion_date else "-",
+               "floors": floors or "-", "area": f"{f.total_area:,.2f}㎡" if f.total_area else "-", "structure": f.structure or "-",
+               "grade": (f.template or "2")[:1], "use": f.use_type or f.main_use or "시설물", "rep_keys": list((ex.rep_photos or {}).keys())}
+    ex.history = False
+    if not ov:
+        warn.append("전경사진을 안 찍어 표지·전경 칸이 빈 그림입니다(현장 조사 → 🏢 전경사진)")
+    if not (r.survey or {}).get("detail"):
+        warn.append("기본 틀 회차 — [🏢 시설물 현황]을 저장하지 않아 1.1·1.2 표가 틀 시설물 값입니다")
+    if not r.ai:
+        warn.append("기본 틀 회차 — [🤖 AI 초안]을 안 만들어 결과표·1.3·1.4·종합결론이 틀 시설물 글입니다")
+    if f.template == "3종학교":
+        warn.append("1.7 치장벽돌·내진보강 점검표는 틀 시설물 값 그대로 — 손으로 확인하세요")
+    return warn
