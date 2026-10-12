@@ -127,6 +127,30 @@
     }
   }
 
+  function drawMaster() { // 회사 원본 템플릿(10/12) — 받기·고친 한글 올리기(서버가 채우는 자리 검사)
+    const box = document.getElementById("ss-master");
+    const m = data.master || {};
+    box.innerHTML = `<div class="ss-master">${m.exists ? `<span class="ss-st ok">✓ ${esc(m.updated)} 바꿈 · ${m.size_mb}MB</span>` : '<span class="ss-st none">없음</span>'}
+      <span class="ss-acts">${m.exists ? `<a class="secondary-link" href="${BASE}/api/sitok/settings/master/file">한글 받기</a>` : ""}
+        <label class="secondary-link">고친 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label></span>
+      <span class="ss-master-msg"></span></div>`;
+    const file = box.querySelector("input[type=file]");
+    const msg = box.querySelector(".ss-master-msg");
+    file.addEventListener("change", async () => {
+      if (!file.files[0]) return;
+      if (!confirm(`${file.files[0].name}을(를) 새 원본으로 할까요? 앞으로 만드는 모든 보고서가 이 원본을 씁니다(지금 원본은 보관).`)) { file.value = ""; return; }
+      msg.textContent = "올리는 중…(한글 .hwp는 바꾸느라 10~30초)";
+      try {
+        const fd = new FormData();
+        fd.append("file", file.files[0]);
+        data.master = await apiUpload("/sitok/settings/master", fd);
+        drawMaster();
+        box.querySelector(".ss-master-msg").textContent = "새 원본으로 바꿨습니다.";
+      } catch (x) { msg.textContent = x.message; file.value = ""; }
+    });
+    enableFileDrop(box.querySelector(".ss-master"), file);
+  }
+
   function drawVocab() { // 결함 부재·결함유형 회사 목록(10/12) — 칩 ✕로 빼기, 칸에 써서 추가
     const box = document.getElementById("ss-vocab");
     box.innerHTML = "";
@@ -165,6 +189,7 @@
       drawCompany();
       drawPersons();
       drawEquip();
+      drawMaster();
       drawVocab();
       drawPrices();
     } catch (e) { err(e); }

@@ -8,6 +8,7 @@
 - `POST /sitok/settings/equipment`, `PATCH|DELETE /sitok/settings/equipment/{id}`, `POST .../{id}/photo`, `GET .../photo/{n}` — 사용 장비(1.6 표).
 - `POST /sitok/settings/prices`, `PATCH|DELETE /sitok/settings/prices/{id}` — 개략공사비 보수 단가표(10/11, 처음 열 때 기본값 채움).
 - `POST /sitok/settings/vocab`, `DELETE /sitok/settings/vocab/{id}` — 결함 부재·결함유형 회사 목록(10/12, 처음 열 때 server/sitok/kinds.py 기본값).
+- `GET /sitok/settings/master/file`, `POST /sitok/settings/master` — 회사 원본 템플릿 받기·고친 한글 올리기(10/12, server/sitok/master.py).
 서류 그림·유효기간 저장은 서류 자동화(contract_library)와 같은 표(SubmitDoc)·같은 함수 — 종류 이름만 시특법 것(SITOK_*).
 """
 from __future__ import annotations
@@ -26,7 +27,7 @@ from server.api.deps import get_current_user, get_db
 from server.api.routers import contract_library as lib
 from server.api.routers.sitok import ROOT
 from server.contract_docs import files
-from server.sitok import kinds
+from server.sitok import kinds, master
 
 router = APIRouter(prefix="/sitok/settings", tags=["sitok"])
 # 서류 종류 — SubmitDoc.kind(서류 자동화의 build.COMPANY_DOCS·PERSON_DOCS와 이름이 겹치지 않게 sitok_ 붙임)
@@ -134,7 +135,47 @@ def get_settings(user: User = Depends(get_current_user), db: Session = Depends(g
         "equipment": [_equip_out(e) for e in equipment(db, user.company_id)],
         "prices": [_price_out(p) for p in prices(db, user.company_id)],
         "vocab": vocab_out(vocab_rows(db, user.company_id)),
+        "master": master.info(),
     }
+
+
+@router.get("/master/file")
+def master_file(user: User = Depends(get_current_user)):
+    p = master.master_path()
+    if not p.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "원본 템플릿이 아직 없습니다.")
+    return FileResponse(p, media_type="application/octet-stream", filename="정기안전점검_원본.hwpx")
+
+
+@router.post("/master")
+def upload_master(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    """형이 한글에서 고친 원본 올리기 — hwp는 작업 프로그램이 hwpx로. 결과표를 못 읽거나 프로그램이 채우는 자리가 없으면 안 받음(옛 원본은 보관)."""
+    import tempfile
+
+    from server.contract_docs import hwp_queue
+    from server.sitok import report_build as rb
+
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in (".hwp", ".hwpx"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "한글 파일(.hwp·.hwpx)을 올려 주세요.")
+    data = file.file.read()
+    if ext == ".hwp":
+        try:
+            data = hwp_queue.convert_via_worker(data, ".hwp", to="hwpx", wait=170)
+        except RuntimeError as err:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(err)) from err
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d) / "원본.hwpx"
+        tmp.write_bytes(data)
+        try:
+            rb.read_old(tmp)
+            missing = master.check(tmp)
+        except Exception as err:  # noqa: BLE001
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"원본으로 쓸 수 없습니다: {str(err).splitlines()[0][:150]}") from err
+    if missing:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "프로그램이 채우는 자리가 없어 안 바꿨습니다: " + ", ".join(missing))
+    master.install(data)
+    return master.info()
 
 
 class VocabIn(BaseModel):
