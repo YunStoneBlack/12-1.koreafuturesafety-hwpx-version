@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>착수·완수 일정 - 서류 자동화 · 시특법</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/contract-docs.css" />
+<link rel="stylesheet" href="css/docs.css" />
+<link rel="stylesheet" href="css/sitok-docs.css" />
+<!-- 달력은 산안법 착수·완수 일정(docs-calendar.html)과 같은 FullCalendar — 공휴일·주말 모양은 그룹웨어 app.css .fc 규칙 -->
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+</head>
+<!-- 서류 자동화 · 시특법 — 관급 착수·완수 일정 달력(2026-10-12 사용자 "관급 캘린더를 산안법과 동일 수준으로, 민간은 필요 없음", js/sitok-docs-calendar.js) -->
+<body data-docs-tab="calendar" data-law="sitok">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<p class="page-sub dc-note">관급 계약의 착수일·완수일을 보여 줍니다(민간은 착수계·완료계가 없어 빠짐). ✓는 그 서류를 이미 만들었다는 뜻이고, 누르면 그 서류 창이 열립니다.<span class="dk-pc-only"> 날짜를 누르면 오른쪽에 그날 계약 상세가 나옵니다.</span></p>
+<div class="dk-wrap">
+  <section class="panel">
+    <div class="panel-body">
+      <div id="dk-cal"></div>
+      <div class="dk-legend"><span><i class="start"></i>착수일(착수계)</span><span><i class="done"></i>완수일(완료계)</span><span><i class="ok"></i>✓ 이미 만듦</span></div>
+    </div>
+  </section>
+  <section class="panel dk-day" id="dk-day">
+    <div class="panel-body" id="dk-day-body"></div>
+  </section>
+</div>
+<div class="dk-list" id="dk-list"></div>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="mail.js"></script>
+<script src="shell.js"></script>
+<script src="js/docs-common.js"></script>
+<script src="js/sitok-docs-gov.js"></script>
+<script src="js/sitok-docs-calendar.js"></script>
+</body>
+</html>
