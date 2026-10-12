@@ -82,7 +82,6 @@ def scan(pdf: Path, hwpx: Path, limit: int = 12, skip: set[int] | None = None) -
     for i, (lines, bottom, foot, over) in enumerate(pages):
         if i in skip or i - 1 in skip and i + 1 in skip:
             continue
-        H = doc[i].rect.height
         span = foot - TOP
         if over or any(y1 > foot + 1 for _, y1, _ in lines):
             out.append(f"{i + 1}쪽: 내용이 쪽 아래(꼬리말)를 넘음 — 표가 잘렸을 수 있음")

@@ -6,9 +6,14 @@
 내용/셀렉터/실기록 주석은 원본에서 그대로 옮겼다."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from server.k2b import selectors as sel
 from server.k2b.selectors import K2B_LOGIN_URL
 from server.k2b.base import K2BClientBase
+
+if TYPE_CHECKING:
+    from server.k2b import site_match
 
 
 class NavigationMixin(K2BClientBase):

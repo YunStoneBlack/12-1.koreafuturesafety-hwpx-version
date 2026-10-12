@@ -447,7 +447,8 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     ex.ai = (r.ai or {}).get("final") or None
     if ex.ai and ex.ai.get("items"):
         ex.ai = {**ex.ai, "grade": rb.eval_score(ex.ai["items"])["grade"] or ex.ai.get("grade")}
-    ex.template = db.get(SitokFacility, r.facility_id).template
+    f = db.get(SitokFacility, r.facility_id)
+    ex.template = f.template
     eq = (db.query(SitokEquipment).filter(SitokEquipment.company_id == r.company_id, SitokEquipment.active.is_(True))
           .order_by(SitokEquipment.sort, SitokEquipment.id).all())
     ex.equipment = [(e.name, e.model, e.purpose, [to_full(x) for x in (e.photos or [])]) for e in eq]
@@ -457,10 +458,9 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     from server.api.routers.sitok_overview import photos as overview_photos
     ex.overview = overview_photos(db, r)  # 전경사진(없으면 지난 회차 그대로)
     from server.sitok import parts as P  # 1.3 6) 공중이용·7) 기타시설 표 = 현장 화면 탭 사진(10/12)
-    ex.parts = P.build_input(r.parts, _report_dir(db.get(SitokFacility, r.facility_id), r))
+    ex.parts = P.build_input(r.parts, _report_dir(f, r))
     from server.sitok import drawings as D  # 첨부 도면이 없으면 1.2.9 "-후면첨부-" → "-"(10/12)
-    _f = db.get(SitokFacility, r.facility_id)
-    ex.has_drawings = bool(D.items(_f, "attach", _facility_dir(_f)))
+    ex.has_drawings = bool(D.items(f, "attach", _facility_dir(f)))
     if not P.recorded(r.parts):
         ex.notes.append("공중이용·기타시설 탭에 사진이 없어 6) 표는 모두 \"해당없음\", 7) 표는 \"-\"입니다(현장 조사 → 🚶 공중이용·🧱 기타시설)")
     ex.blank = str(_blank_jpg())

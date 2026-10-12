@@ -106,19 +106,25 @@
   (`service_contract`·`tech_person`·`submit_doc`). 양식 `data/templates/착수계_양식.xlsx`·`완수계_양식.xlsx`(git 밖 — PC 옮길 때 data 째).
 - 규칙: 제출 = 합본 PDF를 만듦, 기한 없음, 금액 = 총용역부기금액, 문서번호 `KFSC21C_계약번호_월일`, 관리번호는 계약끼리 따로(26-N), 계약 삭제는 삭제 비밀번호.
 
-### 시특법(그룹웨어 "보고서 자동화 › 시특법" — 시설물 정기안전점검, 2026-10-10~11)
+### 시특법(그룹웨어 "보고서 자동화 › 시특법" — 시설물 정기안전점검, 2026-10-10~12)
 
-- 화면: `sitok.html`(시설물 목록) · `sitok-facility.html?id=`(시설물·계약·**점검 보고서 회차**) · `sitok-field.html?report=`(현장 조사 — 폰 우선, 결함 조사 | 전경사진 탭) ·
-  `sitok-settings.html`(등록증·수료증·기술자·장비·보수 단가표) · `sitok-docs.html`(서류 — 7단계 준비 중). `<body data-law="sitok">`이면 shell.js가 시특법 소메뉴를 켠다.
-- 방식: **지난 보고서 한글(hwpx)을 틀로** 이번 값만 바꿔 쓴다(`server/sitok/report_build.py` — 결과표 예전 값 읽기 → 글자 바꾸기 → 표 다시 짜기·그림 바꾸기 → 한글로 PDF →
-  관리대장·계약서·외관조사 사진첩·전회차 비교 사진대장 합본). 처음 맡는 시설물은 같은 종별 우리 보고서를 "회사 기본 틀"로 쓰고 그 시설물 고유 내용(사진·위치도·이력)을 정리.
-- AI(Claude): `server/sitok/vision.py` 한 곳 — AI 초안(`ai_draft.py`: 결과표·1.3 서술·1.4 부대시설·3종 18항목·보수공법·종합결론), 현장 사진 → 결함 내용·폭 구간,
-  전회차와 비교, 원인 추천, 전경사진 제목·실명판, 타회사 PDF 결함표(`foreign_read.py`), 시설물 현황(`detail.py`). 관리대장·계약서 읽기는 `reader.py`.
+- 화면: `sitok.html`(시설물 목록) · `sitok-new.html`(새 점검 대상 등록 — 계약서·이전 회차·동마다 관리대장/건축물대장 한 번에, 법정 외 자체 점검) ·
+  `sitok-facility.html?id=`(시설물·계약·같이 점검하는 동·**점검 보고서 회차**) · `sitok-field.html?report=`(현장 조사 — 폰 우선, 결함 조사 | 전경사진 | 공중이용 | 기타시설 탭) ·
+  `sitok-settings.html`(등록증·수료증·기술자·장비·보수 단가표·결함 목록·회사 원본 템플릿·사진 분류 교정 기록) · `sitok-docs.html`(서류 — 준비 중, 토론 중).
+  `<body data-law="sitok">`이면 shell.js가 시특법 소메뉴를 켠다.
+- 방식: **회사 원본 템플릿 하나**(`server/sitok/master.py` — 학교 보고서, 종별로 1.5·1.7 빼고 번호 다시)에 이번 값과 **전회차 보고서 데이터**(이력·현황·지난 평가)를 넣는다
+  (`report_build.py`). 여러 동은 동마다 한글 → `merge.py`로 한 권. 한글로 PDF → 첨부 도면(1.2.9 뒤, `drawings.py`)·관리대장·계약서·외관조사 사진첩·전회차 비교 사진대장 합본,
+  만든 뒤 자동 쪽 검사(`pagecheck.py` — 제목만 쪽 끝·꼬리말 넘음·넘친 몇 줄). 줄이 느는 표는 쪽에서 나누고(글자처럼 취급 → 자리 차지) 제목은 다음 문단과 함께.
+- AI(Claude): `server/sitok/vision.py` 한 곳 — AI 초안(`ai_draft.py`: 결과표·1.3 서술·1.4 부대시설·3종 18항목·보수공법·종합결론 + 공중이용·기타시설 사진 판단 `parts.py`),
+  현장 사진 → 결함 내용·폭 구간(회사 교정 기록과 비교 `learn.py`), 전회차와 비교, 원인 추천, 전경사진 제목·실명판, 타회사 PDF 결함표(`foreign_read.py`),
+  시설물 현황(`detail.py` — 관리대장·건축물대장·구조일반사항 도면), 1.2.8 건축물대장 변동사항(`changes.py`). 관리대장·계약서 읽기는 `reader.py`.
 - 결함 부재·결함유형은 고정 목록(`server/sitok/kinds.py` 기본값 → 회사 목록 `sitok_vocab`, 설정 탭 "결함 목록" + 회차에만 추가한 것). 상태평가 대상 판정도 `kinds.py` 한 곳.
-- 서버: `server/api/routers/sitok.py`(시설물·계약) · `sitok_reports.py`(회차·만들기·AI 초안·면담·시설물 현황·기본 틀) · `sitok_defects.py`(현장 결함·요약표·우선순위·개략공사비) ·
-  `sitok_overview.py`(전경사진) · `sitok_settings.py`. DB alembic 0027~0033(`sitok_facility`·`sitok_contract`·`sitok_equipment`·`sitok_report`·`sitok_defect`·`sitok_unit_price`).
-- 파일: `data\_시특법\시설물명_id\연도_반기\`(틀·결과 한글/PDF·결함사진·전경사진), 위치도 지도는 시설물 폴더(카카오 좌표 + OpenStreetMap 타일).
-- 설계·결정 기록: 바탕화면 `시특법 견본\인수인계.md`(견본 보고서·민재형 결정·진행).
+- 서버: `server/api/routers/sitok.py`(시설물·계약) · `sitok_onboard.py`(새 등록) · `sitok_reports.py`(회차·만들기·AI 초안·면담·시설물 현황) · `sitok_groups.py`(묶음) ·
+  `sitok_defects.py`(현장 결함·요약표·우선순위·개략공사비) · `sitok_overview.py`(전경사진) · `sitok_parts.py`(공중이용·기타시설) · `sitok_drawings.py`(도면) · `sitok_settings.py`.
+  DB alembic 0027~0039(`sitok_facility`·`sitok_contract`·`sitok_group`·`sitok_equipment`·`sitok_report`·`sitok_defect`·`sitok_vocab`·`sitok_correction`·`sitok_unit_price`).
+- 파일: `data\_시특법\시설물명_id\`(관리대장·건축물대장·계약서·도면\·연도_반기\(틀·결과 한글/PDF·결함사진·전경사진·공중이용_기타시설)), 회사 원본은 `data\_시특법\_회사템플릿\`,
+  교정 사진은 `data\_시특법\_교정사진\`. 위치도 지도는 시설물 폴더(카카오 좌표 + OpenStreetMap 타일).
+- 설계·결정 기록: 바탕화면 `시특법 견본\인수인계.md`(견본 보고서·민재형 결정·진행), 서류 자동화 견본은 `시특법 견본\서류자동화\`.
 
 ## 설치 및 실행
 
