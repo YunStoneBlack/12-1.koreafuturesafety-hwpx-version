@@ -7,6 +7,7 @@
 - `POST|DELETE /sitok/settings/persons/{id}/docs/{kind}` — 기술자 시특법 서류(정밀안전진단 교육 수료증·책임기술자 자격, 유효기간 칸).
 - `POST /sitok/settings/equipment`, `PATCH|DELETE /sitok/settings/equipment/{id}`, `POST .../{id}/photo`, `GET .../photo/{n}` — 사용 장비(1.6 표).
 - `POST /sitok/settings/prices`, `PATCH|DELETE /sitok/settings/prices/{id}` — 개략공사비 보수 단가표(10/11, 처음 열 때 기본값 채움).
+- `POST /sitok/settings/vocab`, `DELETE /sitok/settings/vocab/{id}` — 결함 부재·결함유형 회사 목록(10/12, 처음 열 때 server/sitok/kinds.py 기본값).
 서류 그림·유효기간 저장은 서류 자동화(contract_library)와 같은 표(SubmitDoc)·같은 함수 — 종류 이름만 시특법 것(SITOK_*).
 """
 from __future__ import annotations
@@ -18,13 +19,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.models_web import SitokEquipment, SitokUnitPrice, TechPerson, User
+from core.models_web import SitokEquipment, SitokUnitPrice, SitokVocab, TechPerson, User
 from core.stored_path import to_full, to_stored
 from server.api import storage
 from server.api.deps import get_current_user, get_db
 from server.api.routers import contract_library as lib
 from server.api.routers.sitok import ROOT
 from server.contract_docs import files
+from server.sitok import kinds
 
 router = APIRouter(prefix="/sitok/settings", tags=["sitok"])
 # 서류 종류 — SubmitDoc.kind(서류 자동화의 build.COMPANY_DOCS·PERSON_DOCS와 이름이 겹치지 않게 sitok_ 붙임)
@@ -80,6 +82,49 @@ def _price_out(p: SitokUnitPrice) -> dict:
     return {"id": p.id, "method": p.method, "unit": p.unit, "price": p.price, "source": p.source, "note": p.note}
 
 
+def vocab_rows(db: Session, company_id: int, report_id: int | None = None) -> list[SitokVocab]:
+    """결함 부재·결함유형 목록 — 회사 것(처음이면 기본값 채움) + report_id가 있으면 그 회차에만 추가한 것(뒤에)."""
+    q = db.query(SitokVocab).filter(SitokVocab.company_id == company_id, SitokVocab.report_id.is_(None))
+    rows = q.all()
+    have = {r.kind for r in rows}
+    if have != set(kinds.DEFAULTS):  # 처음(또는 한 종류를 다 지운 뒤) — 기본값
+        for kind, names in kinds.DEFAULTS.items():
+            if kind not in have:
+                db.add_all(SitokVocab(company_id=company_id, kind=kind, name=n, sort=i) for i, n in enumerate(names, 1))
+        db.commit()
+        rows = q.all()
+    rows.sort(key=lambda r: (r.sort, r.id))
+    if report_id:
+        rows += sorted(db.query(SitokVocab).filter(SitokVocab.company_id == company_id, SitokVocab.report_id == report_id).all(), key=lambda r: (r.sort, r.id))
+    return rows
+
+
+def vocab_out(rows: list[SitokVocab]) -> dict:
+    return {kind: [{"id": r.id, "name": r.name, "scope": "report" if r.report_id else "company"} for r in rows if r.kind == kind] for kind in kinds.DEFAULTS}
+
+
+def vocab_names(db: Session, company_id: int, report_id: int | None = None) -> dict[str, list[str]]:
+    rows = vocab_rows(db, company_id, report_id)
+    return {kind: [r.name for r in rows if r.kind == kind] for kind in kinds.DEFAULTS}
+
+
+def add_vocab(db: Session, company_id: int, kind: str, name: str, report_id: int | None = None) -> None:
+    """목록에 하나 더(이미 있으면 그대로). 회사 목록에 넣으면 그 회차에만 넣었던 같은 이름은 지움."""
+    name = " ".join((name or "").split())
+    if kind not in kinds.DEFAULTS or not name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "추가할 이름을 넣어 주세요.")
+    if len(name) > 20:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "이름은 20자 안으로 — 표 칸이 좁습니다.")
+    rows = [r for r in vocab_rows(db, company_id, report_id) if r.kind == kind]
+    if any(r.name == name and (r.report_id is None or report_id) for r in rows):
+        return
+    if report_id is None:
+        db.query(SitokVocab).filter(SitokVocab.company_id == company_id, SitokVocab.kind == kind, SitokVocab.name == name,
+                                    SitokVocab.report_id.isnot(None)).delete(synchronize_session=False)
+    db.add(SitokVocab(company_id=company_id, report_id=report_id, kind=kind, name=name, sort=max((r.sort for r in rows), default=0) + 1))
+    db.commit()
+
+
 @router.get("")
 def get_settings(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     docs = lib.company_docs(db, user.company_id)
@@ -88,7 +133,32 @@ def get_settings(user: User = Depends(get_current_user), db: Session = Depends(g
         "persons": [_person_out(db, p) for p in lib.persons(db, user.company_id)],
         "equipment": [_equip_out(e) for e in equipment(db, user.company_id)],
         "prices": [_price_out(p) for p in prices(db, user.company_id)],
+        "vocab": vocab_out(vocab_rows(db, user.company_id)),
     }
+
+
+class VocabIn(BaseModel):
+    kind: str
+    name: str
+
+
+@router.post("/vocab")
+def post_vocab(body: VocabIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    add_vocab(db, user.company_id, body.kind, body.name)
+    return vocab_out(vocab_rows(db, user.company_id))
+
+
+@router.delete("/vocab/{vocab_id}")
+def delete_vocab(vocab_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """회사 목록에서 빼기 — 이미 그 이름으로 적은 결함은 그대로(새로 고를 때만 안 보임)."""
+    v = db.get(SitokVocab, vocab_id)
+    if v is None or v.company_id != user.company_id or v.report_id is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "목록 항목을 찾을 수 없습니다.")
+    if sum(1 for r in vocab_rows(db, user.company_id) if r.kind == v.kind) <= 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "마지막 하나는 지울 수 없습니다.")
+    db.delete(v)
+    db.commit()
+    return vocab_out(vocab_rows(db, user.company_id))
 
 
 class PriceIn(BaseModel):

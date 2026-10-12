@@ -127,6 +127,30 @@
     }
   }
 
+  function drawVocab() { // 결함 부재·결함유형 회사 목록(10/12) — 칩 ✕로 빼기, 칸에 써서 추가
+    const box = document.getElementById("ss-vocab");
+    box.innerHTML = "";
+    for (const [kind, label] of [["member", "부재"], ["dtype", "결함유형"]]) {
+      const row = document.createElement("div");
+      row.className = "ss-voc";
+      row.innerHTML = `<b>${label}</b><div class="ss-chips">${((data.vocab || {})[kind] || []).map((v) =>
+        `<span class="ss-chip">${esc(v.name)}<button type="button" data-id="${v.id}" data-n="${esc(v.name)}" title="목록에서 빼기">✕</button></span>`).join("")}
+        <span class="ss-chip-add"><input placeholder="+ ${label} 추가" maxlength="20" aria-label="${label} 추가" /><button type="button" class="secondary btn-sm">추가</button></span></div>`;
+      row.querySelectorAll(".ss-chip button").forEach((b) => b.addEventListener("click", async () => {
+        if (!confirm(`"${b.dataset.n}"을(를) 목록에서 뺄까요? 이미 적은 결함은 그대로입니다.`)) return;
+        try { data.vocab = await api(`/sitok/settings/vocab/${b.dataset.id}`, { method: "DELETE" }); drawVocab(); } catch (x) { err(x); }
+      }));
+      const inp = row.querySelector(".ss-chip-add input");
+      const add = async () => {
+        if (!inp.value.trim()) return;
+        try { data.vocab = await apiPost("/sitok/settings/vocab", { kind, name: inp.value }); drawVocab(); } catch (x) { err(x); }
+      };
+      row.querySelector(".ss-chip-add button").addEventListener("click", add);
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+      box.appendChild(row);
+    }
+  }
+
   document.getElementById("ss-add-price").addEventListener("click", async () => {
     try { await apiPost("/sitok/settings/prices", { method: "새 공법", unit: "m" }); await load(); } catch (x) { err(x); }
   });
@@ -141,6 +165,7 @@
       drawCompany();
       drawPersons();
       drawEquip();
+      drawVocab();
       drawPrices();
     } catch (e) { err(e); }
   }

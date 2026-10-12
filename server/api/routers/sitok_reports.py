@@ -469,7 +469,8 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
     rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id).all()
     if not rows:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "현장 조사 결함이 없습니다 — [📱 현장 조사]에서 결함을 먼저 가져오거나 입력하세요.")
-    defects = [{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause")}
+    defects = [{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause",
+                                           "cause_note")}
                for d in rows]
     old = rb.old_texts(Path(r.source_hwpx)) if r.source_hwpx and Path(r.source_hwpx).exists() else ""
     facility = f"{f.name} — {f.template} · {f.use_type or f.main_use} · {f.structure} · 지상 {f.floors_above or '-'}층/지하 {f.floors_below or 0}층 · 준공 {_iso(f.completion_date)}"

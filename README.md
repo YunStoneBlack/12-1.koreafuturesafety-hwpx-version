@@ -114,6 +114,7 @@
   관리대장·계약서·외관조사 사진첩·전회차 비교 사진대장 합본). 처음 맡는 시설물은 같은 종별 우리 보고서를 "회사 기본 틀"로 쓰고 그 시설물 고유 내용(사진·위치도·이력)을 정리.
 - AI(Claude): `server/sitok/vision.py` 한 곳 — AI 초안(`ai_draft.py`: 결과표·1.3 서술·1.4 부대시설·3종 18항목·보수공법·종합결론), 현장 사진 → 결함 내용·폭 구간,
   전회차와 비교, 원인 추천, 전경사진 제목·실명판, 타회사 PDF 결함표(`foreign_read.py`), 시설물 현황(`detail.py`). 관리대장·계약서 읽기는 `reader.py`.
+- 결함 부재·결함유형은 고정 목록(`server/sitok/kinds.py` 기본값 → 회사 목록 `sitok_vocab`, 설정 탭 "결함 목록" + 회차에만 추가한 것). 상태평가 대상 판정도 `kinds.py` 한 곳.
 - 서버: `server/api/routers/sitok.py`(시설물·계약) · `sitok_reports.py`(회차·만들기·AI 초안·면담·시설물 현황·기본 틀) · `sitok_defects.py`(현장 결함·요약표·우선순위·개략공사비) ·
   `sitok_overview.py`(전경사진) · `sitok_settings.py`. DB alembic 0027~0033(`sitok_facility`·`sitok_contract`·`sitok_equipment`·`sitok_report`·`sitok_defect`·`sitok_unit_price`).
 - 파일: `data\_시특법\시설물명_id\연도_반기\`(틀·결과 한글/PDF·결함사진·전경사진), 위치도 지도는 시설물 폴더(카카오 좌표 + OpenStreetMap 타일).

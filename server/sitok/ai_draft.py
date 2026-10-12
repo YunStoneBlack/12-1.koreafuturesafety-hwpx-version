@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import re
 
+from server.sitok import kinds
+
 
 CATEGORIES = [  # (키, 1.3 제목에 들어 있는 낱말, 이름)
     ("crack", ("균열",), "콘크리트 구조체 균열"),
@@ -32,13 +34,13 @@ WORD_TO_LETTER = {w: k for k, (w, _) in GRADES.items()}
 def category_of(part: str, member: str, dtype: str) -> str:
     """결함 하나가 1.3의 어느 항목인지."""
     t, m = dtype or "", member or ""
-    if any(x in m for x in ("난간", "옹벽", "환기구", "점검로", "석축", "비탈")):
+    if any(x in m for x in ("난간", "옹벽", "환기구", "점검로", "석축", "비탈")) or "높이부족" in t:
         return "public"
     if "강재" in m or ("부식" in t and "철근" not in t):
         return "steel"
     if any(x in t for x in ("누수", "백태", "백화", "체수")):
         return "leak"
-    if part == "구조체" and any(x in t for x in ("박리", "박락", "철근", "탈락")):
+    if part == "구조체" and any(x in t for x in ("박리", "박락", "층분리", "재료분리", "철근", "탈락")):
         return "spall"
     if part == "구조체" and "균열" in t:
         return "crack"
@@ -64,18 +66,20 @@ def grade_text(letter: str, template: str) -> tuple[str, str]:
 
 
 def stats(defects: list) -> dict:
-    """항목별 숫자 — defects = [{part, member, dtype, floor, count, width, length, qty, check, mark, progress, cause}]."""
-    out = {k: {"name": n, "count": 0, "floors": [], "types": {}, "max_width": None, "qty": 0.0, "grew": 0, "new": 0, "repaired": 0, "items": []}
+    """항목별 숫자 — defects = [{part, member, dtype, floor, count, width, length, qty, check, mark, progress, cause, cause_note}].
+    rated = 상태평가에 드는 구조 결함 수(구조체라도 미장·마감 균열은 뺌 — kinds.counts_for_rating)."""
+    out = {k: {"name": n, "count": 0, "rated": 0, "floors": [], "types": {}, "max_width": None, "qty": 0.0, "grew": 0, "new": 0, "repaired": 0, "items": []}
            for k, _, n in CATEGORIES}
     for d in defects:
-        if (d.get("dtype") or "").rstrip().endswith("현황"):
+        if kinds.is_record(d.get("dtype")):
             continue
         k = category_of(d.get("part"), d.get("member"), d.get("dtype"))
         s = out[k]
-        if d.get("check") == "repaired" or d.get("mark") == "보수":
+        if d.get("check") == "repaired" or d.get("mark") == "보수" or kinds.is_repaired_type(d.get("dtype")):
             s["repaired"] += 1
             continue
         s["count"] += 1
+        s["rated"] += kinds.counts_for_rating(d.get("part"), d.get("dtype"))
         if d.get("floor") and d["floor"] not in s["floors"]:
             s["floors"].append(d["floor"])
         key = f"{d.get('member', '')} {d.get('dtype', '')}".strip()
@@ -93,7 +97,7 @@ def stats(defects: list) -> dict:
         s["new"] += d.get("check") == "new"
         if len(s["items"]) < 12:
             s["items"].append(f"{d.get('floor')} {d.get('member')} {d.get('dtype')} 개수 {d.get('count')} 폭 {d.get('width')} 길이 {d.get('length')}"
-                              f" 원인 {d.get('cause')} {d.get('progress')} {d.get('mark')}")
+                              f" 원인 {d.get('cause')}{f'(근거: {n})' if (n := d.get('cause_note')) else ''} {d.get('progress')} {d.get('mark')}")
     for s in out.values():
         s["qty"] = round(s["qty"], 2)
     return out
@@ -113,6 +117,8 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 - 사실은 위 집계에 있는 것만. 없는 결함·숫자를 지어내지 말 것. 결함이 0개인 항목은 "조사 결과 특이사항이 없었다/양호" 취지로 짧게.
 - 진행된 결함(진행)·새로 찾은 결함(신규)·보수 완료가 있으면 그 사실을 반영(전회차 대비 변화).
 - 균열폭 0.3mm 미만은 표면처리, 0.3mm 이상은 주입 보수가 일반적. 면적 결함(누수·박리 등)은 마감재 재시공·단면복구 등.
+- 원인은 결함마다 적힌 원인·근거(사진에서 본 것)를 살려 구체적으로 — "건조수축균열·노후화" 같은 한 낱말로 뭉뚱그리지 말 것.
+- 구조체라도 미장균열·마감균열·조적균열은 마감층 결함이라 구조 결함이 아님(집계의 "상태평가 대상"에서 빠짐) — 구조안전성 판단·등급·18항목은 상태평가 대상 결함으로.
 - 문장은 보고서 문어체("~조사되었다", "~권고한다"), 항목마다 2~4문장. 매번 같은 틀이 되지 않게 시설물·층·부재를 구체적으로.
 - 안전등급은 A~E 중 추천 하나와 근거 한두 문장. 등급 이름: A 우수, B 양호, C 보통, D 미흡, E 불량(중대결함 없고 비구조체 위주면 보통 B~C).
 
@@ -144,7 +150,7 @@ FACILITY_SPEC = """,
 
 DEFECTS_BLOCK = """
 
-[결함 목록(18항목 근거·1.4 표에 씀) — 층 번호 | 구분 | 부재 | 결함유형 | 개수 | 폭 | 길이 | 원인 | 진행]
+[결함 목록(18항목 근거·1.4 표에 씀) — 층 번호 | 구분 | 부재 | 결함유형 | 개수 | 폭 | 길이 | 원인(근거) | 진행 | 상태평가]
 {defects}"""
 
 
@@ -166,15 +172,17 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
     for k, _, n in CATEGORIES:
         s = st[k]
         types = ", ".join(f"{t} {c}건" for t, c in list(s["types"].items())[:10]) or "없음"
-        lines.append(f"- {n}({k}): 결함 {s['count']}건, 층 {', '.join(s['floors']) or '-'}, 종류 {types}, 최대 폭 {s['max_width'] if s['max_width'] is not None else '-'}, "
+        lines.append(f"- {n}({k}): 결함 {s['count']}건(상태평가 대상 구조 결함 {s['rated']}건), 층 {', '.join(s['floors']) or '-'}, 종류 {types}, "
+                     f"최대 폭 {s['max_width'] if s['max_width'] is not None else '-'}, "
                      f"물량 합 {s['qty']}, 진행 {s['grew']} · 신규 {s['new']} · 보수 완료 {s['repaired']}\n  예: " + " / ".join(s["items"][:6]))
     spec = ITEMS_SPEC.format(items="\n".join(f"{it['no']}. [{it['group']}] {it['name']} (지난 {it['rating'] or '-'})" for it in eval_items)) if eval_items else ""
     if fac_items:
         spec += FACILITY_SPEC.format(n=len(fac_items), items="\n".join(f"{it['no']}. {it['name']} (지난 {'있다' if it['has'] else '없다'})" for it in fac_items))
     if eval_items or fac_items:
         rows = "\n".join(f"{d.get('floor')} {d.get('seq')}번 | {d.get('part')} | {d.get('member')} | {d.get('dtype')} | {d.get('count')} | {d.get('width')} | "
-                         f"{d.get('length')} | {d.get('cause')} | {d.get('progress')}" for d in defects
-                         if d.get("check") != "repaired" and not (d.get("dtype") or "").rstrip().endswith("현황"))
+                         f"{d.get('length')} | {d.get('cause')}{f'({n})' if (n := d.get('cause_note')) else ''} | {d.get('progress')} | "
+                         f"{'대상' if kinds.counts_for_rating(d.get('part'), d.get('dtype')) else '제외'}" for d in defects
+                         if d.get("check") != "repaired" and not kinds.is_record(d.get("dtype")) and not kinds.is_repaired_type(d.get("dtype")))
         spec += DEFECTS_BLOCK.format(defects=rows or "(없음)")
     if combos:
         spec += METHOD_SPEC.format(prices=", ".join(f"{m}({u} {p:,}원)" if p else m for m, u, p in price_list or []),

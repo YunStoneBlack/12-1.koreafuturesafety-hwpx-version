@@ -5,8 +5,12 @@
 - `POST /sitok/reports/{id}/defects/carry` — 직전 회차 결함을 전회차로 가져오기(이 시스템으로 만든 회차가 있을 때).
 - `POST /sitok/reports/{id}/defects` — 새로 찾은 결함(신규). `PATCH/DELETE /sitok/defects/{id}`, `POST /sitok/defects/{id}/photo`,
   `GET /sitok/defects/{id}/photo/{now|prev}`.
+- `POST /sitok/reports/{id}/vocab` — 부재·결함유형 목록에 추가("이 보고서에만" / "회사 전체 목록에", 10/12).
+- `POST /sitok/reports/{id}/defects/remap/suggest`, `POST .../defects/remap` — 지난 보고서에서 온 목록 밖 이름(수직균열·벽체 등)을 조합별로 한꺼번에(AI 제안 → 점검자 확인).
 현장 확인(check): same 그대로(비고 기존) · grew 진행(크기 다시, 기존) · repaired 보수 완료(비고 보수, 크기 "-") · new 신규.
-물량 자동(인수인계 10/10): 균열류 = 길이 × 개수(m), 면적 결함(누수·백태·박리·박락·철근노출·부식·도장박리 등) = 폭 × 길이 × 개수(㎡, 폭·길이 m).
+물량 자동(인수인계 10/10): 균열류 = 길이 × 개수(m), 면적 결함(누수·백태·박리·박락·층분리·재료분리·철근노출·부식 등) = 폭 × 길이 × 개수(㎡, 폭·길이 m).
+부재·결함유형은 고정 목록(server/sitok/kinds.py 기본값 + 설정 탭 회사 목록 + 그 회차에만 추가한 것)에서만 — 목록 밖 값은 저장 안 받음(10/12).
+원인은 고정 목록 없이 AI가 사진마다 구체적으로(cause) + 근거 한 줄(cause_note, 1.3 본문·종합결론에 씀) — 사용자 10/12 "획일적이면 오히려 안 좋음".
 """
 
 from __future__ import annotations
@@ -25,12 +29,13 @@ from core.models_web import SitokDefect, SitokFacility, SitokReport, User
 from server.api.deps import get_current_user, get_db
 from server.api.routers.sitok import base_areas
 from server.api.routers.sitok_reports import _order, _report_dir, _require as _require_report
+from server.api.routers.sitok_settings import add_vocab, vocab_names, vocab_out, vocab_rows
 from server.contract_docs import files
-from server.sitok import album_read
+from server.sitok import album_read, kinds
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
-AREA_WORDS = ("누수", "백태", "백화", "박리", "박락", "철근노출", "부식", "들뜸", "탈락", "파손", "오염")
-FIELDS = ("floor", "part", "member", "dtype", "count", "width", "length", "area_ratio", "cause", "progress", "note")
+AREA_WORDS = ("누수", "백태", "백화", "박리", "박락", "층분리", "재료분리", "철근노출", "부식", "들뜸", "탈락", "파손", "오염")
+FIELDS = ("floor", "part", "member", "dtype", "count", "width", "length", "area_ratio", "cause", "cause_note", "progress", "note")
 CHECKS = ("", "same", "grew", "repaired", "new")
 MARK = {"same": "기존", "grew": "기존", "repaired": "보수", "new": "신규"}
 FLOOR_ORDER = ("옥상", "옥탑", "지상", "지하")
@@ -102,11 +107,13 @@ def _rows(db: Session, report_id: int) -> list[SitokDefect]:
 
 def default_action(dtype: str, width: str) -> str:
     """조치 필요사항 기본 문구 — 6단계 AI 초안 전까지·AI 실패 때(민재형 10/10: 고정 문구는 기본값으로만, 실제는 AI → 점검자 확인).
-    견본 9쪽 문구에 맞춤. 균열은 폭 0.3mm 기준 표면처리 / 에폭시주입보수."""
+    견본 9쪽 문구에 맞춤. 균열은 폭 0.3mm 기준 표면처리 / 에폭시주입보수 — 미장·마감·조적 균열은 주입 대신 탄성실링(견본: 비구조체 균열 V-Cut 후 탄성씰링)."""
     t = dtype or ""
+    if kinds.is_record(t) or kinds.is_repaired_type(t):
+        return "주의관찰"
     if any(w in t for w in ("누수", "백태", "백화")):
         return "마감재 재시공"
-    if "철근" in t:
+    if any(w in t for w in ("철근", "층분리", "재료분리")):
         return "단면복구"
     if "부식" in t:
         return "표면정리 후 재도장"
@@ -116,9 +123,14 @@ def default_action(dtype: str, width: str) -> str:
         return "탄성실링 보수"
     if any(w in t for w in ("파손", "탈락", "들뜸")):
         return "마감재 재시공"
+    if "높이부족" in t:
+        return "난간 보강"
     if "균열" in t:
         w = _num(width)
-        return "에폭시주입보수" if w is not None and w >= 0.3 else "표면처리"
+        wide = w is not None and w >= 0.3
+        if kinds.is_finish_crack(t):
+            return "탄성실링 보수" if wide else "표면처리"
+        return "에폭시주입보수" if wide else "표면처리"
     return "주의관찰"
 
 
@@ -163,9 +175,7 @@ def action_of(d: SitokDefect, methods: dict | None) -> str:
 def summary_rows(db: Session, report_id: int, methods: dict | None = None) -> list:
     """9쪽 요약표 줄 [(층, 구분, 부재, [결함유형들], [조치들])] — 보수 완료는 뺌, 층은 위층부터, 안에서는 처음 나온 순."""
     groups: dict = {}
-    for d in _rows(db, report_id):
-        if d.check == "repaired" or d.mark == "보수" or not d.dtype or d.dtype.rstrip().endswith("현황"):
-            continue  # 보수 완료·기록용 사진("실외기 현황" 등)은 결함 아님
+    for d in _defects_for_cost(db, report_id):  # 보수 완료·기록용 사진("실외기 현황" 등)은 결함 아님
         key = (d.floor, d.part or "-", d.member or "-")
         g = groups.setdefault(key, {"types": [], "acts": []})
         if d.dtype.replace(" ", "") not in [x.replace(" ", "") for x in g["types"]]:
@@ -180,26 +190,27 @@ def summary_rows(db: Session, report_id: int, methods: dict | None = None) -> li
 
 
 def priority(d: SitokDefect, methods: dict | None = None) -> int:
-    """보수 우선순위 기본값(6단계 AI 전까지) — 1은 긴급용으로 비움. 구조체 철근노출·박락·균열폭 0.3mm 이상 = 2, 그 밖 구조체 = 3, 나머지 4."""
+    """보수 우선순위 기본값(6단계 AI 전까지) — 1은 긴급용으로 비움. 구조 결함 철근노출·박락·층분리·균열폭 0.3mm 이상 = 2, 그 밖 구조 결함 = 3,
+    나머지 4(비구조체, 구조체라도 미장·마감 균열 — 견본 숭의교회 1.5: 내력벽 미장균열 4순위)."""
     act = action_of(d, methods)
-    if d.part != "구조체" or act == "주의관찰":
+    if not kinds.counts_for_rating(d.part, d.dtype) or act == "주의관찰":
         return 4
     w = _num(d.width)
-    if any(x in (d.dtype or "") for x in ("철근", "박락")) or ("균열" in (d.dtype or "") and w is not None and w >= 0.3):
+    if any(x in (d.dtype or "") for x in ("철근", "박락", "층분리")) or ("균열" in (d.dtype or "") and w is not None and w >= 0.3):
         return 2
     return 3
 
 
 def _defects_for_cost(db: Session, report_id: int) -> list[SitokDefect]:
     return [d for d in _rows(db, report_id) if not (d.check == "repaired" or d.mark == "보수" or not d.dtype
-                                                     or d.dtype.rstrip().endswith("현황"))]
+                                                     or kinds.is_record(d.dtype) or kinds.is_repaired_type(d.dtype))]
 
 
 def priority_rows(db: Session, report_id: int, methods: dict | None = None) -> list:
     """보수물량 및 우선순위 표 줄 [(층, 결함유형, 손상내용, 적용공법, 물량, 단위, 우선순위)] — 층·부재·결함유형별로 물량 합침."""
     groups: dict = {}
     for d in _defects_for_cost(db, report_id):
-        key = (d.floor, "구조적결함" if d.part == "구조체" else "비구조적결함", f"{d.member} {d.dtype}".strip())
+        key = (d.floor, "구조적결함" if kinds.counts_for_rating(d.part, d.dtype) else "비구조적결함", f"{d.member} {d.dtype}".strip())
         act = action_of(d, methods)
         g = groups.setdefault(key, {"qty": 0.0, "act": act, "unit": "㎡" if is_area(d.dtype) else "m", "prio": 4})
         g["qty"] += _num(d.qty) or 0
@@ -290,8 +301,11 @@ def list_defects(report_id: int, user: User = Depends(get_current_user), db: Ses
     r = _require_report(db, user, report_id)
     f = db.get(SitokFacility, r.facility_id)
     rows = _rows(db, r.id)
+    voc = vocab_rows(db, r.company_id, r.id)
     return {"report": {"id": r.id, "year": r.year, "half": r.half, "facility": f.name, "facility_id": f.id},
-            "defects": [_out(d) for d in rows], "floors": facility_floors(f), "members": MEMBERS, "types": TYPES, "importing": IMPORTS.get(r.id),
+            "defects": [_out(d) for d in rows], "floors": facility_floors(f), "importing": IMPORTS.get(r.id),
+            "members": [v.name for v in voc if v.kind == "member"], "types": [v.name for v in voc if v.kind == "dtype"], "vocab": vocab_out(voc),
+            "part_of": {**{m: "구조체" for m in kinds.STRUCT_MEMBERS}, **{m: "비구조체" for m in kinds.NONSTRUCT_MEMBERS}},
             "summary": {"total": len(rows), "unchecked": sum(1 for d in rows if not d.check),
                         **{k: sum(1 for d in rows if d.check == k) for k in CHECKS if k}}}
 
@@ -334,7 +348,7 @@ def _import_foreign(report_id: int, data: bytes, company_id: int) -> None:
 
     db = SessionLocal()
     try:
-        album = foreign_read.read(data, company_id)
+        album = foreign_read.read(data, company_id, vocab_names(db, company_id, report_id))
         r = db.get(SitokReport, report_id)
         if not album.rows:
             raise ValueError("결함 줄을 하나도 읽지 못했습니다")
@@ -354,7 +368,7 @@ def _save_album(db: Session, r: SitokReport, album) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     for row in album.rows:
         v = row.values
-        d = SitokDefect(report_id=r.id, floor=row.floor, seq=row.seq, part=v["구분"], member=v["부재"], dtype=v["결함유형"],
+        d = SitokDefect(report_id=r.id, floor=row.floor, seq=row.seq, part=v["구분"], member=v["부재"], dtype=kinds.norm(v["결함유형"]),
                         count=v["개수"], width=v["폭"], length=v["길이"], qty=v["물량"], area_ratio=v["면적률"], cause=v["결함원인"],
                         progress=v["진행유무"], mark=v["비고"], prev=dict(v))
         if row.photo_png:
@@ -409,6 +423,7 @@ class DefectIn(BaseModel):
     length: str | None = None
     area_ratio: str | None = None
     cause: str | None = None
+    cause_note: str | None = None
     progress: str | None = None
     note: str | None = None
     check: str | None = None
@@ -422,10 +437,16 @@ def _require(db: Session, user: User, defect_id: int) -> tuple[SitokDefect, Sito
     return d, _require_report(db, user, d.report_id)
 
 
-def _apply(d: SitokDefect, body: DefectIn, user: User, bases: tuple[float, float] | None = None) -> None:
+def _apply(d: SitokDefect, body: DefectIn, user: User, bases: tuple[float, float] | None = None, allowed: dict | None = None) -> None:
     data = body.model_dump(exclude_unset=True)
     if "check" in data and data["check"] not in CHECKS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "확인 값이 올바르지 않습니다.")
+    for k in ("member", "dtype") if allowed else ():  # 고정 목록(바꿀 때만 — 지난 보고서에서 온 목록 밖 값은 그대로 둘 수 있음)
+        v = (data.get(k) or "").strip()
+        if v and v != (getattr(d, k) or "") and v not in allowed[k] and not (k == "dtype" and kinds.is_record(v)):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"목록에 없는 {kinds.KINDS[k]}입니다: {v} — [+ 새로 추가]로 목록에 먼저 넣으세요.")
+    if "cause" in data and "cause_note" not in data and (data["cause"] or "").strip() != (d.cause or ""):
+        d.cause_note = ""  # 점검자가 원인을 고치면 AI 근거는 안 맞음
     for k, v in data.items():
         setattr(d, k, v.strip() if isinstance(v, str) else v)
     if "check" in data:
@@ -452,7 +473,7 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "층을 고르세요.")
     last = max((d.seq for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == body.floor.strip())), default=0)
     d = SitokDefect(report_id=r.id, seq=last + 1, check="new", mark="신규")
-    _apply(d, body.model_copy(update={"check": "new"}), user, base_areas(db.get(SitokFacility, r.facility_id)))
+    _apply(d, body.model_copy(update={"check": "new"}), user, base_areas(db.get(SitokFacility, r.facility_id)), vocab_names(db, r.company_id, r.id))
     db.add(d)
     db.commit()
     return _out(d)
@@ -461,9 +482,101 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
 @router.patch("/defects/{defect_id}")
 def update_defect(defect_id: int, body: DefectIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     d, r = _require(db, user, defect_id)
-    _apply(d, body, user, base_areas(db.get(SitokFacility, r.facility_id)))
+    _apply(d, body, user, base_areas(db.get(SitokFacility, r.facility_id)), vocab_names(db, r.company_id, r.id))
     db.commit()
     return _out(d)
+
+
+REMAP_PROMPT = """시설물 정기안전점검 결함현황표의 (구분, 부재, 결함유형) 이름을 우리 회사 고정 목록 이름으로 맞추려 합니다(지난 보고서 이름이 제각각).
+조합마다 바꿀 이름을 JSON 배열 하나로만 답하세요(설명 없이): [{{"no": 번호, "part": "구조체" 또는 "비구조체", "member": "부재", "dtype": "결함유형"}}]
+- member는 반드시 이 중 하나 그대로: {members}
+  (벽체는 비구조체면 조적벽, 구조체면 내력벽 / 보는 큰보 / "기둥/벽체"처럼 둘이면 앞의 것 / 창대·몰딩·마감면은 마감재 / 천장·바닥은 슬라브)
+- dtype은 반드시 이 중 하나 그대로: {types}
+  (수직·수평·경사·층간·개구부·창틀하부·"보 균열"처럼 방향·위치가 붙은 균열은 그것을 빼고: 조적벽·파라펫 조적이면 조적균열, 원문에 미장이 있으면 미장균열,
+   마감면이면 마감균열, 구조체 콘크리트(슬라브·보·기둥·내력벽)면 균열 / 마감박락·몰탈 탈락은 박락 / 들뜸은 층분리 / 체수·누수흔적·백화는 누수·백태)
+- part는 바꾼 부재 기준(내력벽·기둥·큰보·작은보·슬라브·계단·강재 = 구조체, 조적벽·파라펫·마감재 = 비구조체).
+- 기록용("○○ 현황")·보수완료 결함유형은 그대로.
+[조합 — 번호 | 구분 | 부재 | 결함유형 | 건수]
+{rows}"""
+
+
+def _off_combos(db: Session, r: SitokReport) -> tuple[list[dict], dict]:
+    allowed = vocab_names(db, r.company_id, r.id)
+    combos: dict = {}
+    for d in _rows(db, r.id):
+        off = (d.member and d.member not in allowed["member"]) or (d.dtype not in allowed["dtype"] and not kinds.is_record(d.dtype)) \
+            or d.part not in ("구조체", "비구조체")
+        if off:
+            k = (d.part or "", d.member or "", d.dtype or "")
+            combos[k] = combos.get(k, 0) + 1
+    return [{"part": p, "member": m, "dtype": t, "count": n} for (p, m, t), n in sorted(combos.items(), key=lambda x: -x[1])], allowed
+
+
+@router.post("/reports/{report_id}/defects/remap/suggest")
+def remap_suggest(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """목록 밖 이름(지난 보고서에서 온 수직균열·벽체 등) — 조합별로 AI가 목록 이름을 제안(저장 안 함, 점검자가 확인하고 [바꾸기])."""
+    from server.sitok import vision
+
+    r = _require_report(db, user, report_id)
+    combos, allowed = _off_combos(db, r)
+    if not combos:
+        return {"combos": []}
+    rows = "\n".join(f"{i} | {c['part']} | {c['member']} | {c['dtype']} | {c['count']}" for i, c in enumerate(combos, 1))
+    try:
+        got = vision.ask_json(user.company_id, [], REMAP_PROMPT.format(members=", ".join(allowed["member"]), types=", ".join(allowed["dtype"]), rows=rows),
+                              max_tokens=8000)
+    except Exception:  # noqa: BLE001 — AI가 안 되면 제안 없이(점검자가 직접 고름)
+        got = []
+    by_no = {int(g["no"]): g for g in got if isinstance(g, dict) and str(g.get("no", "")).isdigit()} if isinstance(got, list) else {}
+    for i, c in enumerate(combos, 1):
+        g = by_no.get(i, {})
+        member, dtype = _text(g.get("member")), _text(g.get("dtype"))
+        member = member if member in allowed["member"] else (c["member"] if c["member"] in allowed["member"] else "")
+        dtype = dtype if dtype in allowed["dtype"] or (kinds.is_record(dtype) and dtype == c["dtype"]) else (c["dtype"] if c["dtype"] in allowed["dtype"] else "")
+        part = g.get("part") if g.get("part") in ("구조체", "비구조체") else (c["part"] if c["part"] in ("구조체", "비구조체") else kinds.default_part(member) or "비구조체")
+        c["to"] = {"part": part, "member": member, "dtype": dtype}
+    return {"combos": combos}
+
+
+class RemapIn(BaseModel):
+    maps: list[dict]  # [{part, member, dtype, to: {part, member, dtype}}]
+
+
+@router.post("/reports/{report_id}/defects/remap")
+def remap(report_id: int, body: RemapIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """조합별로 이름 한꺼번에 바꾸기 — 바꿀 이름은 목록 안(기록용 "○○ 현황"은 그대로 둘 수 있음). 전회차 원래 이름은 prev에 남아 있음."""
+    r = _require_report(db, user, report_id)
+    allowed = vocab_names(db, r.company_id, r.id)
+    plan = {}
+    for m in body.maps:
+        to = m.get("to") or {}
+        tp, tm, tt = (str(to.get(k) or "").strip() for k in ("part", "member", "dtype"))
+        if tp not in ("구조체", "비구조체") or (tm and tm not in allowed["member"]) or not tt \
+                or (tt not in allowed["dtype"] and not (kinds.is_record(tt) and tt == m.get("dtype"))):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"바꿀 이름이 목록에 없습니다: {m.get('member')} {m.get('dtype')} → {tm} {tt}")
+        plan[(m.get("part") or "", m.get("member") or "", m.get("dtype") or "")] = (tp, tm, tt)
+    n = 0
+    for d in _rows(db, r.id):
+        to = plan.get((d.part or "", d.member or "", d.dtype or ""))
+        if to:
+            d.part, d.member, d.dtype = to
+            n += 1
+    db.commit()
+    return {**list_defects(report_id, user, db), "changed": n}
+
+
+class VocabAdd(BaseModel):
+    kind: str  # member / dtype
+    name: str
+    scope: str = "report"  # report = 이 보고서에만 / company = 회사 전체 목록에
+
+
+@router.post("/reports/{report_id}/vocab")
+def add_report_vocab(report_id: int, body: VocabAdd, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """현장에서 목록에 없는 부재·결함유형 추가 — 점검자가 "이 보고서에만 / 회사 전체 목록에" 고름(사용자 10/12)."""
+    r = _require_report(db, user, report_id)
+    add_vocab(db, r.company_id, body.kind, body.name, None if body.scope == "company" else r.id)
+    return vocab_out(vocab_rows(db, r.company_id, r.id))
 
 
 @router.delete("/defects/{defect_id}")
@@ -498,33 +611,58 @@ def photo(defect_id: int, which: str, user: User = Depends(get_current_user), db
     return FileResponse(path, media_type="image/jpeg")
 
 
-CAUSES = ["건조수축균열", "온도균열", "시공불량", "노후화", "균열부누수", "방수층 노후", "배수불량", "피복두께 부족", "중성화", "동결융해", "외력·충격", "부등침하", "과하중"]
-CAUSE_PROMPT = """시설물 정기안전점검 외관조사 결함 목록입니다. 각 결함의 "결함원인"을 검토하세요.
-- 원인이 비어 있으면 채우고, 결함 종류와 분명히 맞지 않을 때만(예: 누수·백태인데 "건조수축균열", 이격·탈락인데 "건조수축균열") 바꾸세요.
-  지금 원인이 그 결함에 쓸 수 있는 원인이면(예: 균열의 노후화·균열부누수) 점검자가 고른 것이니 그대로 두고 답에서 빼세요.
-- 원인은 되도록 이 낱말 중에서: {causes}
-- 근거: 결함유형·부재·폭(균열 mm, 면적 결함 m)·진행 여부. 비구조체 미장·조적 균열은 대개 건조수축균열, 창호 주변·이음부 이격은 시공불량, 누수·백태는 균열부누수 또는 방수층 노후,
-  진행성 구조체 균열은 원인을 신중히(온도균열·과하중·부등침하 등).
-JSON 배열 하나로만 답하세요(설명 없이): [{{"id": 번호, "cause": "원인"}}]
+# 옛 고정 원인 낱말 — 이 중 하나면 "뭉뚱그린 원인"으로 보고 [🤖 원인 추천]이 사진을 보고 구체적으로 바꿈(점검자가 직접 쓴 구체적인 원인은 그대로)
+GENERIC_CAUSES = {"건조수축균열", "건조수축", "온도균열", "시공불량", "노후화", "노후", "균열부누수", "방수층노후", "배수불량", "피복두께부족", "중성화", "동결융해",
+                  "외력·충격", "외력", "충격", "부등침하", "과하중", "누수", "재료분리", "-"}
+CAUSE_RULE = """원인은 구체적으로 — 같은 누수·균열이라도 사진에서 보이는 위치·모양·흔적에 따라 원인이 다릅니다. "노후화"·"건조수축균열"처럼 뻔한 한 낱말로 뭉뚱그리지 말 것.
+- cause: 결함현황표 원인 칸(좁음) — 20자 안팎(예: "창호 상부 실링 노후로 빗물 유입", "상부 배관 이음부 누수", "개구부 모서리 응력집중", "옥상 방수층 들뜸으로 슬라브 누수")
+- cause_note: 그 원인으로 본 근거 한 줄(사진에서 본 위치·모양·흔적, 60자 안팎 — 보고서 1.3 본문·종합결론에 씀)"""
+CAUSE_PROMPT = """시설물 정기안전점검 외관조사 결함 {n}개입니다. 사진은 아래 목록의 "사진 N" 순서대로 붙어 있습니다.
+결함마다 원인을 쓰세요.
+{rule}
+사진이 없는 결함은 결함 정보만으로 조심스럽게(근거에 "사진 없음 — 추정"이라고).
+JSON 배열 하나로만 답하세요(설명 없이): [{{"id": 번호, "cause": "원인", "cause_note": "근거"}}]
 
-[결함 — id | 층 | 구분 | 부재 | 결함유형 | 폭 | 길이 | 진행 | 지금 원인]
+[결함 — id | 층 | 구분 | 부재 | 결함유형 | 폭 | 길이 | 진행 | 지금 원인 | 사진]
 {rows}"""
+
+
+def _photo_of(d: SitokDefect) -> str:
+    return d.photo if d.photo and Path(d.photo).exists() else d.prev_photo if d.prev_photo and Path(d.prev_photo).exists() else ""
+
+
+def _vague(cause: str) -> bool:
+    return not (cause or "").strip() or (cause or "").replace(" ", "") in GENERIC_CAUSES
 
 
 @router.post("/reports/{report_id}/defects/causes")
 def suggest_causes(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """AI 결함원인 추천 — 비었거나 결함 종류와 안 맞는 원인만 바꾸고 바꾼 목록을 돌려줌(점검자가 카드에서 다시 고칠 수 있음)."""
+    """AI 결함원인 추천 — 원인이 비었거나 뭉뚱그린 낱말(노후화·건조수축균열 등)인 결함만, 사진(이번 것, 없으면 전회차)을 보고 구체적인 원인 + 근거.
+    5개씩 묶어 동시에(사진이 많아 한 번에는 못 보냄). 바꾼 목록을 돌려줌(점검자가 카드에서 다시 고칠 수 있음)."""
+    from concurrent.futures import ThreadPoolExecutor
+
     from server.sitok import vision
 
     r = _require_report(db, user, report_id)
-    rows = [d for d in _rows(db, r.id) if d.check != "repaired" and not (d.dtype or "").rstrip().endswith("현황")]
+    rows = [d for d in _defects_for_cost(db, r.id) if _vague(d.cause)]
     if not rows:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "결함이 없습니다.")
-    lines = "\n".join(f"{d.id} | {d.floor} | {d.part} | {d.member} | {d.dtype} | {d.width} | {d.length} | {d.progress} | {d.cause or '(없음)'}" for d in rows)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "원인을 다시 볼 결함이 없습니다 — 비었거나 뭉뚱그린 원인(노후화·건조수축균열 등)만 AI가 바꿉니다.")
+    chunks = [rows[i:i + 5] for i in range(0, len(rows), 5)]
+
+    def one(chunk: list[SitokDefect]) -> list:
+        imgs, lines = [], []
+        for d in chunk:
+            p = _photo_of(d)
+            if p:
+                imgs.append(Path(p).read_bytes())
+            lines.append(f"{d.id} | {d.floor} | {d.part} | {d.member} | {d.dtype} | {d.width} | {d.length} | {d.progress} | {d.cause or '(없음)'} | "
+                         + (f"사진 {len(imgs)}" if p else "사진 없음"))
+        got = vision.ask_json(user.company_id, imgs, CAUSE_PROMPT.format(n=len(chunk), rule=CAUSE_RULE, rows="\n".join(lines)), max_tokens=4000)
+        return [g for g in got if isinstance(g, dict)] if isinstance(got, list) else []
+
     try:
-        got = vision.ask_json(user.company_id, [], CAUSE_PROMPT.format(causes=", ".join(CAUSES), rows=lines), max_tokens=12000)
-        if not isinstance(got, list):
-            raise ValueError("AI 답이 목록이 아닙니다")
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            got = [g for part in pool.map(one, chunks) for g in part]
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"원인을 추천하지 못했습니다: {str(err).splitlines()[0][:150]}") from err
     by_id = {d.id: d for d in rows}
@@ -534,16 +672,14 @@ def suggest_causes(report_id: int, user: User = Depends(get_current_user), db: S
         cause = str(g.get("cause") or "").strip()
         if d is None or not cause or cause == d.cause:
             continue
-        changed.append({"id": d.id, "floor": d.floor, "seq": d.seq, "what": f"{d.member} {d.dtype}".strip(), "before": d.cause, "after": cause})
-        d.cause = cause
+        changed.append({"id": d.id, "floor": d.floor, "seq": d.seq, "what": f"{d.member} {d.dtype}".strip(), "before": d.cause, "after": cause,
+                        "note": str(g.get("cause_note") or "").strip()})
+        d.cause, d.cause_note = cause, str(g.get("cause_note") or "").strip()
     db.commit()
-    return {"changed": changed}
+    return {"changed": changed, "asked": len(rows)}
 
 
-# ---------- 전회차 없이 시작·사진 AI 분석(2026-10-11) ----------
-MEMBERS = ["슬라브", "보", "기둥", "내력벽", "벽체", "조적벽", "파라펫", "마감재", "계단", "강재", "난간", "옹벽", "바닥", "천장", "창호"]
-TYPES = ["미장균열", "수직균열", "수평균열", "경사균열", "조적균열", "개구부균열", "누수·백태", "누수흔적", "박리", "박락", "도장박리", "철근노출", "부식",
-         "이격", "파손", "들뜸", "탈락", "체수"]
+# ---------- 전회차 없이 시작·사진 AI 분석(2026-10-11, 10/12 고정 목록) ----------
 WIDTH_BANDS = ["0.1", "0.2", "0.3", "0.5", "1.0"]
 
 
@@ -555,13 +691,22 @@ def facility_floors(f: SitokFacility) -> list[str]:
 
 ANALYZE = """시설물 정기안전점검 현장에서 점검자가 찍은 결함 사진입니다({where}). 사진을 보고 결함현황표 한 줄의 초안을 JSON 객체 하나로만 답하세요(설명 없이).
 {{"is_defect": 결함이면 true, 결함이 아니라 전경·설비·상태 기록용 사진이면 false,
- "part": "구조체" 또는 "비구조체"(조적벽·미장·마감재·파라펫 조적은 비구조체, 철근콘크리트 슬라브·보·기둥·내력벽은 구조체),
- "member": 부재 — 되도록 이 중에서: {members} (벽에 난 균열·누수는 "벽체", 벽돌 줄눈이 보이면 "조적벽", "마감재"는 타일·도장·몰딩처럼 마감 자체가 들뜨거나 떨어질 때만),
- "dtype": 결함유형 — 되도록 이 중에서: {types} (기록용이면 "○○ 현황", 예: "실외기 현황"),
- "cause": 추정원인 — 되도록 이 중에서: {causes},
+ "part": "구조체" 또는 "비구조체" — 부재 기준(철근콘크리트 내력벽·기둥·큰보·작은보·슬라브·계단·강재 = 구조체, 조적벽·파라펫·마감재 = 비구조체),
+ "member": 부재 — 반드시 이 목록 중 하나 그대로: {members},
+ "dtype": 결함유형 — 반드시 이 목록 중 하나 그대로: {types} (기록용 사진이면 "○○ 현황", 예: "실외기 현황"),
+ "new_member": 목록에 맞는 부재가 정말 없을 때만 제안할 이름(짧게, 이때 member는 ""), 아니면 null,
+ "new_dtype": 목록에 맞는 결함유형이 정말 없을 때만 제안할 이름(짧게, 이때 dtype은 ""), 아니면 null,
+ "cause": 원인(아래 규칙), "cause_note": 근거(아래 규칙),
  "width": 균열이면 폭 구간(mm) "0.1"·"0.2"·"0.3"·"0.5"·"1.0" 중 하나(1.0은 1mm 이상), 균열이 아니면 null,
  "count": 사진에 보이는 같은 결함 개수(정수, 보통 1),
- "note": "사진에서 본 것 한 줄(점검자 참고용)"}}
+ "note": "사진에서 본 것 한 줄(점검자 참고용 — 균열 방향(수직·수평·경사)은 여기에)"}}
+결함유형 고르는 법(구조체 균열만 상태평가 개수에 들어가므로 중요):
+- 균열 = 콘크리트 구조체 자체의 균열(노출 콘크리트, 또는 곧고 길게 이어지거나 개구부 모서리에서 사선으로 뻗는 등 구조 균열 모양).
+  미장균열 = 콘크리트 위 미장(모르타르)층만 갈라진 것(가늘고 불규칙·그물 모양) — 구조체 부재라도 미장층 균열이면 미장균열.
+  마감균열 = 도장·타일·석고보드 등 마감재 균열. 조적균열 = 벽돌·블록·줄눈이 갈라진 것. 수직·수평·경사 같은 방향은 결함유형에 쓰지 말 것.
+- 박리 = 표면이 얇게 벗겨짐, 박락 = 콘크리트 조각이 떨어져 나감, 층분리 = 표층이 들떠 분리(아직 안 떨어짐), 재료분리 = 곰보·골재 노출,
+  이격 = 서로 다른 부재·재료 사이가 벌어짐(기둥-조적벽, 창호 주변), 누수·백태 = 물 흐른 자국·얼룩·백화, 높이부족 = 난간·파라펫 높이 기준 미달.
+{cause_rule}
 폭은 사진만으로는 어림이므로 보이는 굵기로 가장 가까운 구간을 고르세요(머리카락 굵기 ≈ 0.1, 연필 선 ≈ 0.3, 뚜렷이 벌어짐 ≥ 0.5)."""
 
 GREW = """같은 결함 자리를 전회차와 이번에 찍은 사진입니다(첫째 = 전회차, 둘째 = 이번). 전회차 기록: {prev}.
@@ -569,27 +714,46 @@ JSON 객체 하나로만 답하세요(설명 없이): {{"grew": 이번이 전회
  "width": 균열이면 이번 폭 구간 "0.1"·"0.2"·"0.3"·"0.5"·"1.0" 중 하나, 균열이 아니면 null, "note": "달라진 점 한 줄"}}"""
 
 
-def _analysis(raw: dict) -> dict:
-    w = str(raw.get("width") or "").strip()
+def _analyze_prompt(where: str, allowed: dict) -> str:
+    return ANALYZE.format(where=where, members=", ".join(allowed["member"]), types=", ".join(allowed["dtype"]), cause_rule=CAUSE_RULE)
+
+
+def _text(v) -> str:
+    s = str(v or "").strip()
+    return "" if s.lower() in ("null", "none") else s
+
+
+def _analysis(raw: dict, allowed: dict) -> dict:
+    """AI 답 정리 — 부재·결함유형이 목록 밖이면 비우고 "제안"(new_*)으로 돌림(점검자가 목록에서 고르거나 추가)."""
+    w = _text(raw.get("width"))
     try:
         cnt = str(int(float(raw.get("count") or 1)))
     except (TypeError, ValueError):
         cnt = "1"
-    return {"is_defect": bool(raw.get("is_defect", True)), "part": raw.get("part") if raw.get("part") in ("구조체", "비구조체") else "비구조체",
-            "member": str(raw.get("member") or "").strip(), "dtype": str(raw.get("dtype") or "").strip(), "cause": str(raw.get("cause") or "").strip(),
-            "width": w if w in WIDTH_BANDS else "", "count": cnt, "note": str(raw.get("note") or "").strip()}
+    out = {"is_defect": bool(raw.get("is_defect", True)), "cause": _text(raw.get("cause")), "cause_note": _text(raw.get("cause_note")),
+           "width": w if w in WIDTH_BANDS else "", "count": cnt, "note": _text(raw.get("note"))}
+    for k, nk in (("member", "new_member"), ("dtype", "new_dtype")):
+        v, new = _text(raw.get(k)), _text(raw.get(nk))
+        if v and v not in allowed[k] and not (k == "dtype" and kinds.is_record(v)):
+            v, new = "", new or v
+        if not v and new in allowed[k]:
+            v, new = new, ""
+        out[k], out[nk] = v, new
+    part = raw.get("part") if raw.get("part") in ("구조체", "비구조체") else ""
+    out["part"] = part or kinds.default_part(out["member"]) or "비구조체"
+    return out
 
 
 @router.post("/reports/{report_id}/defects/analyze")
 def analyze_new(report_id: int, file: UploadFile = File(...), floor: str = "", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """[+ 신규]에서 사진을 찍으면 — AI가 구분·부재·결함유형·원인·폭 구간 초안(저장은 안 함, 점검자가 확인하고 [추가])."""
+    """[+ 신규]에서 사진을 찍으면 — AI가 구분·부재·결함유형(목록 안에서, 없으면 제안)·원인·근거·폭 구간 초안(저장은 안 함, 점검자가 확인하고 [추가])."""
     from server.sitok import vision
 
-    _require_report(db, user, report_id)
+    r = _require_report(db, user, report_id)
+    allowed = vocab_names(db, r.company_id, r.id)
     jpg = files.to_jpeg(file.file.read(), file.filename or "")
-    prompt = ANALYZE.format(where=f"층: {floor}" if floor else "층 미상", members=", ".join(MEMBERS), types=", ".join(TYPES), causes=", ".join(CAUSES))
     try:
-        return _analysis(vision.ask_json(user.company_id, [jpg], prompt))
+        return _analysis(vision.ask_json(user.company_id, [jpg], _analyze_prompt(f"층: {floor}" if floor else "층 미상", allowed)), allowed)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"사진을 분석하지 못했습니다: {str(err).splitlines()[0][:150]}") from err
 
@@ -599,7 +763,7 @@ def analyze_again(defect_id: int, user: User = Depends(get_current_user), db: Se
     """전회차 결함을 이번에 다시 찍은 뒤 — 전회차 사진과 비교해 진행 여부·이번 폭 구간 추천(저장은 안 함)."""
     from server.sitok import vision
 
-    d, _ = _require(db, user, defect_id)
+    d, r = _require(db, user, defect_id)
     if not d.photo or not Path(d.photo).exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "이번 사진을 먼저 찍으세요.")
     imgs = [Path(d.prev_photo).read_bytes()] if d.prev_photo and Path(d.prev_photo).exists() else []
@@ -607,10 +771,10 @@ def analyze_again(defect_id: int, user: User = Depends(get_current_user), db: Se
     try:
         if imgs:
             raw = vision.ask_json(user.company_id, imgs + [Path(d.photo).read_bytes()], GREW.format(prev=prev))
-            w = str(raw.get("width") or "").strip()
-            return {"grew": bool(raw.get("grew")), "width": w if w in WIDTH_BANDS else "", "note": str(raw.get("note") or "").strip()}
-        a = _analysis(vision.ask_json(user.company_id, [Path(d.photo).read_bytes()],
-                                      ANALYZE.format(where=f"층: {d.floor}", members=", ".join(MEMBERS), types=", ".join(TYPES), causes=", ".join(CAUSES))))
+            w = _text(raw.get("width"))
+            return {"grew": bool(raw.get("grew")), "width": w if w in WIDTH_BANDS else "", "note": _text(raw.get("note"))}
+        allowed = vocab_names(db, r.company_id, r.id)
+        a = _analysis(vision.ask_json(user.company_id, [Path(d.photo).read_bytes()], _analyze_prompt(f"층: {d.floor}", allowed)), allowed)
         return {"grew": None, "width": a["width"], "note": a["note"]}
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"사진을 분석하지 못했습니다: {str(err).splitlines()[0][:150]}") from err

@@ -551,6 +551,7 @@ class SitokDefect(Base):
     qty: Mapped[str] = mapped_column(Text, default="")
     area_ratio: Mapped[str] = mapped_column(Text, default="")
     cause: Mapped[str] = mapped_column(Text, default="")
+    cause_note: Mapped[str] = mapped_column(Text, default="")  # 원인 근거 한 줄(AI가 사진에서 본 것) — 1.3 본문·종합결론에 씀(0034)
     progress: Mapped[str] = mapped_column(Text, default="")  # 진행성 / 비진행성
     mark: Mapped[str] = mapped_column(Text, default="")  # 비고: 기존 / 신규 / 보수
     check: Mapped[str] = mapped_column(Text, default="")
@@ -561,6 +562,20 @@ class SitokDefect(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     checked_by: Mapped[str] = mapped_column(Text, default="")
     checked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
+class SitokVocab(Base):
+    """웹판 전용 — 시특법 결함 부재·결함유형 목록(2026-10-12 alembic 0034). report_id 없음 = 회사 전체 목록(설정 탭, 처음 열 때
+    server/sitok/kinds.py 기본값 — 민재형 시트), 있음 = 그 회차에만 추가한 것(현장에서 "이 보고서에만"). kind: member / dtype."""
+
+    __tablename__ = "sitok_vocab"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    report_id: Mapped[int | None] = mapped_column(ForeignKey("sitok_report.id", ondelete="CASCADE"), default=None, index=True)
+    kind: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+    sort: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class SitokUnitPrice(Base):

@@ -113,7 +113,11 @@ PROMPT = """다른 회사가 쓴 시설물 정기안전점검 보고서의 결�
 우리 결함현황표 칸으로 정리해 JSON 배열 하나로만 답하세요(설명 없이). 표의 결함 줄 하나당 하나, 표 순서 그대로:
 [{{"no": 원래 결함 번호(없으면 null), "floor": 층 — "지하1층"·"지상3층"·"옥상층" 꼴(동 이름 빼기, "1층"→"지상1층", "지붕층·옥탑"→"옥상층", 합쳐진 빈 칸은 위 줄 층),
   "part": "구조체" 또는 "비구조체"(철근콘크리트 슬라브·보·기둥·내력벽 = 구조체, 조적벽·미장·마감·파라펫 조적 = 비구조체),
-  "member": 부재(벽체·슬라브·보·기둥·조적벽·파라펫·계단·마감재 등), "dtype": 결함유형(원문 그대로에 가깝게),
+  "member": 부재 — 되도록 이 목록 중 하나 그대로: {members}
+            (벽체는 철근콘크리트면 내력벽, 벽돌·블록이면 조적벽 / 보는 큰보·작은보 구분이 없으면 큰보 / 천장·바닥은 슬라브),
+  "dtype": 결함유형 — 되도록 이 목록 중 하나 그대로: {types}
+           (수직·수평·경사·망상균열 같은 방향 이름은 빼고: 원문에 미장·마감이란 말이 있으면 미장균열·마감균열, 벽돌·블록·줄눈이면 조적균열, 아니면 균열 /
+            박리박락은 떨어져 나갔으면 박락 / 백화·백태·누수흔적은 누수·백태 / 들뜸은 층분리 / 곰보는 재료분리 — 목록에 정말 맞는 게 없을 때만 원문 그대로),
   "count": 개수(숫자만, 모르면 "1"), "width": 폭, "length": 길이, "qty": 물량(숫자만),
   "cause": 원인(표에 있으면), "progress": 진행유무(표에 있으면 "진행성"/"비진행성"),
   "photo": 사진번호 숫자(비고·사진 칸의 "사진3" → 3, 없으면 null),
@@ -124,7 +128,7 @@ PROMPT = """다른 회사가 쓴 시설물 정기안전점검 보고서의 결�
 {tables}"""
 
 
-def _ai_rows(tables: list, company_id: int) -> list[dict]:
+def _ai_rows(tables: list, company_id: int, allowed: dict) -> list[dict]:
     from server.sitok import vision
 
     from concurrent.futures import ThreadPoolExecutor
@@ -144,7 +148,8 @@ def _ai_rows(tables: list, company_id: int) -> list[dict]:
         chunks.append(cur)
 
     def one(chunk):
-        got = vision.ask_json(company_id, [], PROMPT.format(tables="\n\n[다음 표]\n".join(chunk)), max_tokens=16000)
+        got = vision.ask_json(company_id, [], PROMPT.format(tables="\n\n[다음 표]\n".join(chunk), members=", ".join(allowed["member"]),
+                                                            types=", ".join(allowed["dtype"])), max_tokens=16000)
         return [g for g in got if isinstance(g, dict)]
 
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -156,13 +161,16 @@ def _num(s) -> str:
     return m.group(0) if m else ""
 
 
-def read(pdf_bytes: bytes, company_id: int) -> Album:
+def read(pdf_bytes: bytes, company_id: int, allowed: dict | None = None) -> Album:
+    """allowed = 부재·결함유형 목록 {member: [...], dtype: [...]}(없으면 server/sitok/kinds.py 기본값) — AI가 원문 이름을 우리 목록 이름으로 맞춤(10/12)."""
+    from server.sitok import kinds
+
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     tables = defect_tables(doc)
     album = Album()
     if not tables:
         return album
-    rows = _ai_rows(tables, company_id)
+    rows = _ai_rows(tables, company_id, allowed or kinds.DEFAULTS)
     pics = photos(doc, company_id)
     seqs: dict[str, int] = {}
     for g in rows:

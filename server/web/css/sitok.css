@@ -200,3 +200,16 @@
 .ai-box button.dt-fill, .ai-box button.dt-add, .ai-box button.sv-add { padding: 8px 14px; font-size: 13px; font-weight: 600; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
 .ai-box button.dt-fill { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
 .ai-box button.dt-fill:disabled { opacity: .6; }
+
+/* 결함 목록(부재·결함유형, 2026-10-12) */
+.ss-voc { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.ss-voc:first-child { border-top: 0; }
+.ss-voc > b { padding-top: 6px; }
+.ss-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ss-chip { display: inline-flex; align-items: center; gap: 2px; padding: 4px 4px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 13px; }
+.main .ss-chip button { margin: 0; padding: 0 6px; background: none; border: 0; color: var(--faint); font-size: 12px; line-height: 1.6; }
+.main .ss-chip button:hover { color: var(--crit); }
+.ss-chip-add { display: inline-flex; gap: 4px; align-items: center; }
+.ss-chip-add input { width: 130px; padding: 5px 9px; font-size: 13px; }
+.main .ss-chip-add button { margin: 0; }
+@media (max-width: 760px) { .ss-voc { grid-template-columns: 1fr; gap: 6px; } }
