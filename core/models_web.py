@@ -445,7 +445,22 @@ class SitokFacility(Base):
     ledger: Mapped[dict | None] = mapped_column(JSON, default=None)
     ledger_pdf: Mapped[str] = mapped_column(StoredPath, default="")
     memo: Mapped[str] = mapped_column(Text, default="")
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("sitok_group.id", ondelete="SET NULL"), default=None, index=True)  # 한 보고서로 묶인 동(0035)
+    group_order: Mapped[int] = mapped_column(Integer, default=0)  # 묶음 안 순서(시설물편 제N장) — 0이 대표
     created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class SitokGroup(Base):
+    """웹판 전용 — 한 보고서로 같이 점검하는 동 묶음(2026-10-12 alembic 0035, 숭의교회 본관 + B동). 한 번 묶이면 다음 회차도 계속(사용자 10/12).
+    동마다 회차(SitokReport)는 따로 — 현장 조사·전경·현황·면담·AI 초안은 동별, 만들 때 한 권으로 합침(server/sitok/merge.py).
+    name = 표지·머리글에 쓰는 묶음 이름(예: 숭의교회)."""
+
+    __tablename__ = "sitok_group"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    name: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
 
@@ -526,6 +541,7 @@ class SitokReport(Base):
     ai: Mapped[dict | None] = mapped_column(JSON, default=None)  # 6단계 AI 초안(점검자가 고친 값 포함) — 결과표·외관조사 서술·종합결론 등(0031)
     overview: Mapped[list | None] = mapped_column(JSON, default=None)  # 전경사진 [{id, file(회차 폴더 기준), title, ai}] — 10·11쪽(0032)
     survey: Mapped[dict | None] = mapped_column(JSON, default=None)  # 면담·변경사항 {repairs: 1.2.7에 더할 줄, changes: 1.2.8 변경 항목}(0033)
+    amount_k: Mapped[str] = mapped_column(Text, default="")  # 이 동 점검금액(천원) — 같은 계약서를 여러 동이 같이 쓸 때(0035), 비면 계약 금액
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 

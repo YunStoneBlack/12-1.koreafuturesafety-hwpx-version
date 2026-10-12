@@ -120,14 +120,53 @@ def _cells(tbl) -> dict[tuple[int, int], object]:
 
 
 def _find_result_table(roots) -> dict | None:
-    """결과표 = "용 역 명"·"점검기간"·"관리주체명"이 있는 표."""
+    """결과표 = "용 역 명"·"점검기간"·"관리주체명" 이름칸이 있는 표(칸 위치는 보고서마다 다름 — 숭의 견본은 이름칸이 두 칸)."""
     for root in roots:
         for tbl in root.iter(f"{{{HP}}}tbl"):
             cells = _cells(tbl)
-            texts = {k: _cell_text(v).replace(" ", "") for k, v in cells.items()}
-            if texts.get((1, 0)) == "용역명" and texts.get((1, 4)) == "점검기간" and texts.get((2, 0)) == "관리주체명":
+            texts = {re.sub(r"\s", "", _cell_text(v)) for v in cells.values()}
+            if {"용역명", "점검기간", "관리주체명"} <= texts:
                 return cells
     return None
+
+
+def _n(s: str) -> str:
+    return re.sub(r"\s", "", s or "")
+
+
+def _span(tc, kind: str) -> int:
+    return int(tc.find(f"{{{HP}}}cellSpan").get(kind))
+
+
+def _label(cells: dict, *names: str, starts: bool = False) -> tuple[int, int] | None:
+    """이름칸 위치(띄어쓰기·줄바꿈 무시) — starts면 그 글로 시작하는 칸."""
+    for k in sorted(cells):
+        t = _n(_cell_text(cells[k]))
+        if any(t.startswith(x) if starts else t == x for x in names):
+            return k
+    return None
+
+
+def _row_right(cells: dict, r: int, mincol: int):
+    """줄 r에서 mincol 칸부터 가장 왼쪽 칸(값 칸)."""
+    cols = sorted(c for (rr, c) in cells if rr == r and c >= mincol)
+    return cells[(r, cols[0])] if cols else None
+
+
+def _value(cells: dict, *names: str, starts: bool = False) -> str:
+    """이름칸 오른쪽 값 글."""
+    k = _label(cells, *names, starts=starts)
+    tc = _row_right(cells, k[0], k[1] + _span(cells[k], "colSpan")) if k else None
+    return _cell_text(tc) if tc is not None else ""
+
+
+def _label_rows(cells: dict, *names: str, starts: bool = False) -> list:
+    """이름칸이 세로로 합친 줄마다 값 칸 — "점검 주요결과"(우리 = 한 칸, 숭의 견본 = 6줄)."""
+    k = _label(cells, *names, starts=starts)
+    if not k:
+        return []
+    mincol = k[1] + _span(cells[k], "colSpan")
+    return [tc for r in range(k[0], k[0] + _span(cells[k], "rowSpan")) if (tc := _row_right(cells, r, mincol)) is not None]
 
 
 def _d(text: str) -> datetime.date | None:
@@ -148,29 +187,30 @@ def read_old(hwpx: Path) -> Values:
     cells = _find_result_table(roots)
     if cells is None:
         raise ValueError("지난 보고서에서 '정기안전점검 결과표'(가. 일반현황 표)를 찾지 못했습니다 — 정기안전점검 보고서 한글 파일인지 확인하세요.")
-    g = lambda r, c: _cell_text(cells[(r, c)]) if (r, c) in cells else ""  # noqa: E731
-    v = Values(title=" ".join(g(1, 1).split()), owner=g(2, 1), rep=g(2, 5), amount_k=g(5, 5), address=g(6, 1), scale=g(6, 5))
-    period = g(1, 5)
-    parts = re.split(r"[~∼]", period)
+    # 이름칸 → 오른쪽 값(10/12 — 칸 위치는 보고서마다 다름)
+    v = Values(title=" ".join(_value(cells, "용역명").split()), owner=_value(cells, "관리주체명"), rep=_value(cells, "대표자"),
+               amount_k=_value(cells, "점검금액", starts=True), address=_value(cells, "시설물위치"), scale=_value(cells, "시설물규모"))
+    parts = re.split(r"[~∼]", _value(cells, "점검기간"))
     v.period_start, v.period_end = _d(parts[0]), _d(parts[1]) if len(parts) > 1 else None
-    v.completion = _d(g(5, 1))
-    v.grade = g(5, 8)
-    r = 10  # "나. 점검 실시결과 현황" 아래 점검 주요결과 칸들(주요 보수ㆍ보강 줄 전까지)
-    while (r, 1) in cells and not re.sub(r"\s", "", g(r, 0)).startswith(("주요보수", "다.")):
-        txt = " ".join(x.strip() for x in g(r, 1).split("\n") if x.strip()).lstrip(".").strip()
+    v.completion = _d(_value(cells, "준공일"))
+    v.grade = _value(cells, "안전등급")
+    for tc in _label_rows(cells, "점검주요결과"):  # 점검 주요결과 칸들
+        txt = " ".join(x.strip() for x in _cell_text(tc).split("\n") if x.strip()).lstrip(".").strip()
         if txt:
             v.findings.append(txt)
-        r += 1
     m = re.search(r"\[(.+?)\]", v.title)
     v.name = m[1].strip() if m else ""
     m = re.search(r"(\d{4})\s*년\s*(?:도\s*)?(상반기|하반기)", v.title)
     if m:
         v.year, v.half = int(m[1]), m[2]
-    # 기술자: "다. 책임(참여)기술자 현황" 아래 줄들(구분 | 성명 | 과업 참여기간 | 기술등급)
-    for r in range(8, 40):
-        role, name, grade = g(r, 0).replace(" ", ""), g(r, 2).replace(" ", ""), g(r, 6)
-        if role.endswith("기술자") and name and role != "구분":
-            v.persons.append((name, grade))
+    # 기술자: "다. 책임(참여)기술자 현황" 아래 줄들(구분 | 성명 | 과업 참여기간 | 기술등급) — 줄 첫 칸이 "○○기술자"
+    for r in sorted({k[0] for k in cells}):
+        row = [cells[k] for k in sorted(k for k in cells if k[0] == r)]
+        role = _n(_cell_text(row[0]))
+        if role.endswith("기술자") and role != "구분" and len(row) >= 3:
+            name = _n(_cell_text(row[1]))
+            if name:
+                v.persons.append((name, _cell_text(row[-1])))
     # 표지 "2026. 04." — 첫 구역에서 연도. 월 모양
     for t in roots[0].iter(T):
         m = re.fullmatch(r"\s*(\d{4})\.\s*(\d{1,2})\.\s*", _full(t))
@@ -702,10 +742,10 @@ def old_texts(hwpx: Path) -> str:
         on = concl = False
         for p in tops:
             t = _top_text(p)
-            if re.match(r"1\.\d\s*외관조사", t):
+            if re.match(r"\d\.\d\s*외관조사", t):
                 on = True
                 continue
-            if on and re.match(r"1\.\d\s", t) and "외관조사" not in t:
+            if on and re.match(r"\d\.\d\s", t) and "외관조사" not in t:
                 on = False
             if on and t and not re.match(r"^\d\)", t):
                 out.append(t)
@@ -1333,30 +1373,29 @@ def read_texts(hwpx: Path) -> dict:
         roots = [etree.fromstring(z.read(n)) for n in _sections(z)]
     out: dict = {"sections": {}, "conclusion": [], "findings": [], "from_prior": True}
     cells = _find_result_table(roots)
-    if cells is not None:
-        g = lambda r, k: _cell_text(cells[(r, k)]).replace("\n", " ").strip() if (r, k) in cells else ""  # noqa: E731
-        out["critical"], out["public"] = g(8, 1).lstrip("ㆍ· "), g(9, 1).lstrip("ㆍ· ")
-        r = 10
-        while (r, 1) in cells and not re.sub(r"\s", "", g(r, 0)).startswith(("주요보수", "다.")):
-            out["findings"] += [x.strip() for x in _cell_text(cells[(r, 1)]).split("\n") if x.strip()]
-            r += 1
-        if (r, 1) in cells and re.sub(r"\s", "", g(r, 0)).startswith("주요보수"):
-            out["repairs"] = [x.strip() for x in _cell_text(cells[(r, 1)]).split("\n") if x.strip()]
+    if cells is not None:  # 이름칸 → 오른쪽 값(보고서마다 칸 위치가 다름)
+        out["critical"] = _value(cells, "중대결함", "중대한결함").replace("\n", " ").strip().lstrip("ㆍ·- ")
+        out["public"] = _value(cells, "공중이", starts=True).replace("\n", " ").strip().lstrip("ㆍ·- ")
+        for tc in _label_rows(cells, "점검주요결과"):
+            out["findings"] += [x.strip() for x in _cell_text(tc).split("\n") if x.strip()]
+        rep = _value(cells, "주요보수", starts=True)
+        if rep:
+            out["repairs"] = [x.strip() for x in rep.split("\n") if x.strip()]
         for tc in cells.values():
             for q in tc.iter(f"{{{HP}}}p"):
                 t = "".join(_full(x) for x in q.iter(T))
                 if "중점 점검부위" in t and ":" in t:
                     out["next_focus"] = t.split(":", 1)[1].strip()
-        out["grade"] = _letter(g(5, 8))
+        out["grade"] = _letter(_value(cells, "안전등급"))
     for root in roots[1:]:
         tops = [p for p in root if p.tag == f"{{{HP}}}p"]
         in13 = False
         for i, p in enumerate(tops):
             t = _top_text(p)
-            if re.match(r"1\.\d\s*외관조사\s*실시결과", t):
+            if re.match(r"\d\.\d\s*외관조사\s*실시결과", t):
                 in13 = True
                 continue
-            if in13 and re.match(r"1\.\d\s", t):
+            if in13 and re.match(r"\d\.\d\s", t):
                 in13 = False
             if in13 and re.match(r"^\d\)", t) and "분석" not in t:
                 key = section_key(t)

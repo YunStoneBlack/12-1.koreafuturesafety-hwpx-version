@@ -22,9 +22,11 @@
   function card(r) {
     const el = document.createElement("div");
     el.className = `sk-rep ${r.status}`;
-    const contractOpts = '<option value="">계약 고르기</option>' + contracts.map((c) =>
-      `<option value="${c.id}"${c.id === r.contract_id ? " selected" : ""}>${esc(c.sector)} · ${esc(c.title || "계약")} (${esc(c.start_date)}~${esc(c.end_date)})</option>`).join("");
+    const conList = data.group && data.group_contracts ? data.group_contracts : contracts; // 묶인 동이면 묶음 전체 동의 계약(한 계약서에 여러 동)
+    const contractOpts = '<option value="">계약 고르기</option>' + conList.map((c) =>
+      `<option value="${c.id}"${c.id === r.contract_id ? " selected" : ""}>${c.facility ? `[${esc(c.facility)}] ` : ""}${esc(c.sector)} · ${esc(c.title || "계약")} (${esc(c.start_date)}~${esc(c.end_date)})</option>`).join("");
     const parts = r.participant_ids || [];
+    const g = data.group; // 같이 점검하는 동(10/12) — 만들면 묶음 한 권
     const stateText = r.status === "running" ? `<span class="sk-rep-st run">⏳ ${esc(r.message)}</span>`
       : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`
         : r.status === "done" ? `<span class="sk-rep-st ok">✓ ${esc(r.made_at)} 만듦 — ${esc(r.message)}</span>` : "";
@@ -36,6 +38,8 @@
           <button type="button" class="secondary btn-sm sk-rep-survey">📝 면담·변경사항${r.has_survey ? " ✓" : ""}</button>
           <button type="button" class="secondary btn-sm sk-rep-ai">🤖 AI 초안${r.has_ai ? " ✓" : ""}</button>`}
         <button type="button" class="secondary btn-sm sk-rep-del">삭제</button></div>
+      ${g && !r.past ? `<div class="sk-rep-group">📚 묶음 보고서 <b>${esc(g.name)}</b> — ${g.members.map((m, i) => `제${i + 1}장 ${esc(m.name)}`).join(" · ")}
+        <span class="sk-help">점검기간·제출일·기술자는 묶인 동 회차도 같이 바뀝니다. 현장 조사·현황·AI 초안은 동마다.</span></div>` : ""}
       <div class="sk-rep-grid">
         <label>계약<select data-k="contract_id">${contractOpts}</select></label>
         <label>점검기간 시작 <span class="sk-help">민간 = 현장 간 날</span><input type="date" data-k="period_start" value="${esc(r.period_start)}" /></label>
@@ -43,15 +47,18 @@
         <label>제출일 <span class="sk-help">표지·제출문 연월, 비우면 점검기간 끝</span><input type="date" data-k="report_date" value="${esc(r.report_date)}" /></label>
         <label>책임기술자<select data-k="chief_id">${personOptions(r.chief_id)}</select></label>
         <label>참여기술자<select data-k="p0">${personOptions(parts[0])}</select></label>
+        ${g && !r.past ? `<label>이 동 점검금액(천원) <span class="sk-help">같은 계약서를 여러 동이 같이 쓰면 꼭 — 비면 계약 금액</span>
+          <input data-k="amount_k" inputmode="numeric" value="${esc(r.amount_k)}" placeholder="예: 550" /></label>` : ""}
       </div>
       <div class="sk-rep-foot">${stateText}
         ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf" target="_blank" rel="noopener">PDF 보기</a>` : ""}
         ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx">한글 받기</a>` : ""}
-        ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : "보고서 만들기"}</button>`}</div>`;
+        ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>`;
     el.querySelectorAll("[data-k]").forEach((inp) => inp.addEventListener("change", async () => {
       const k = inp.dataset.k;
       const body = k === "p0" ? { participant_ids: inp.value ? [Number(inp.value)] : [] }
-        : { [k]: k.endsWith("_id") ? (inp.value ? Number(inp.value) : null) : (inp.value || null) };
+        : k === "amount_k" ? { amount_k: inp.value.trim() }
+          : { [k]: k.endsWith("_id") ? (inp.value ? Number(inp.value) : null) : (inp.value || null) };
       try { await apiPatch(`/sitok/reports/${r.id}`, body); inp.classList.add("sk-filled"); setTimeout(() => inp.classList.remove("sk-filled"), 1200); } catch (e) { err(e); }
     }));
     const file = el.querySelector('input[type="file"]');
@@ -138,5 +145,6 @@
       if (!data.reports.length) box.insertAdjacentHTML("beforeend", '<div class="empty-note">아직 회차가 없습니다.</div>');
     } catch (e) { err(e); }
   }
+  window.addEventListener("sitok-group-changed", load); // 같이 점검하는 동이 바뀌면(js/sitok-group.js)
   load();
 })();

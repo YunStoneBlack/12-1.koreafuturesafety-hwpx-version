@@ -180,6 +180,8 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
            "has_ledger_pdf": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()),
            "base_wall": (f.ledger or {}).get("base_wall"), "base_slab": (f.ledger or {}).get("base_slab"),
            "latest": _contract_out(contracts[0]) if contracts else None, "contract_count": len(contracts)}
+    from server.api.routers.sitok_groups import group_out
+    out["group"] = group_out(db, f)  # 한 보고서로 묶인 동(10/12)
     if with_contracts:
         out["contracts"] = [_contract_out(c) for c in contracts]
     return out

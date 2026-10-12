@@ -240,14 +240,48 @@ def _renum(p, old: int, new: int, in_table: bool = False) -> None:
                 return
 
 
-def prepare(src: Path, kind: str, dest: Path) -> list[str]:
+PRIVATE_TERMS = [("학교별 3부", "1부"), ("총괄 보고서(인쇄물) : 3부", "총괄 보고서(인쇄물) : 1부"), ("계약일로부터 3일 이내", "계약일로부터 7일 이내")]
+
+
+def _appendix_terms(root, school: bool, private: bool) -> None:
+    """부록 과업지시서·과업수행계획서 문구(민재형 10/12): 민간 = 보고서 1부·착수계 7일 이내, 적용법규 "제3종시설물 안전등급 평가 매뉴얼"은 학교만."""
+    if private:
+        for t in root.iter(rb.T):
+            for pc in rb._pieces(t):
+                s = pc.text
+                for o, nw in PRIVATE_TERMS:
+                    s = s.replace(o, nw)
+                if s != pc.text:
+                    pc.text = s
+    if not school:
+        for p in _tops(root):
+            t = rb._top_text(p)
+            if re.match(r"^\s*라\.\s*제3종시설물\s*안전등급\s*평가\s*매뉴얼", t):
+                nxt = p.getnext()
+                root.remove(p)
+                if nxt is not None and re.match(r"^\s*마\.\s*기타\s*관련법규", rb._top_text(nxt)):
+                    _sub_once(nxt, r"마\.", "라.")
+                break
+
+
+def _sub_once(p, pat: str, repl: str) -> None:
+    for t in p.iter(rb.T):
+        for pc in rb._pieces(t):
+            if re.search(pat, pc.text):
+                pc.text = re.sub(pat, repl, pc.text, count=1)
+                return
+
+
+def prepare(src: Path, kind: str, dest: Path, private: bool = True) -> list[str]:
     """원본 → 이 시설물 종별의 틀(dest): 학교 전용 절 빼기(2종 = 1.5 18항목 안전등급 평가·1.7 치장벽돌, 3종 일반 = 1.7) → 시설물편 절 번호·
-    목차·장 표지 소목차를 실제 절로 다시, 2종 표지·책등 "3종시설" → "2종시설". 안내(못 한 것)를 돌려줌."""
+    목차·장 표지 소목차를 실제 절로 다시, 2종 표지·책등 "3종시설" → "2종시설", 부록 문구(민간 1부·7일, 평가 매뉴얼은 학교만). 안내를 돌려줌."""
     drop = DROP.get(kind, ())
     notes: list[str] = []
     with zipfile.ZipFile(src) as zin:
         secs = rb._sections(zin)
         roots = {n: etree.fromstring(zin.read(n)) for n in secs}
+        for n in secs[2:]:
+            _appendix_terms(roots[n], kind == "3종학교", private)
         body = roots[secs[2]]
         tops = _tops(body)
         stop = _appendix_start(tops)

@@ -20,8 +20,13 @@
 <div id="error" class="error"></div>
 
 <section class="panel" id="sk-rep-panel" hidden>
-  <div class="panel-head"><h2>점검 보고서</h2><span class="panel-count">회차(연도·반기)마다 — 지난 보고서를 틀로 이번 값으로 바꿔 한글·PDF를 만듭니다</span></div>
+  <div class="panel-head"><h2>점검 보고서</h2><span class="panel-count">회차(연도·반기)마다 — 회사 원본 템플릿에 이번 값과 전회차 데이터를 넣어 한글·PDF를 만듭니다</span></div>
   <div class="panel-body" id="sk-reps"></div>
+</section>
+
+<section class="panel" id="sk-group-panel" hidden>
+  <div class="panel-head"><h2>같이 점검하는 동</h2><span class="panel-count">한 계약에 여러 동이면 보고서 한 권으로(동마다 시설물편 제N장)</span></div>
+  <div class="panel-body" id="sk-group"></div>
 </section>
 
 
@@ -63,5 +68,6 @@
 <script src="js/sitok-survey.js"></script>
 <script src="js/sitok-detail.js"></script>
 <script src="js/sitok-reports.js"></script>
+<script src="js/sitok-group.js"></script>
 </body>
 </html>

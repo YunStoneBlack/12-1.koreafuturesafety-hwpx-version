@@ -55,6 +55,10 @@ class ReportIn(BaseModel):
     report_date: datetime.date | None = None
     chief_id: int | None = None
     participant_ids: list[int] | None = None
+    amount_k: str | None = None  # 이 동 점검금액(천원) — 같은 계약서를 여러 동이 같이 쓸 때
+
+
+SHARED = ("period_start", "period_end", "report_date", "chief_id", "participant_ids")  # 묶인 동끼리 같은 값(회차 고치면 같이)
 
 
 def _report_dir(f: SitokFacility, r: SitokReport) -> Path:
@@ -70,7 +74,13 @@ def _out(r: SitokReport) -> dict:
             "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists()),
             "past": r.status == "done" and not r.source_hwpx,  # 이미 낸 보고서를 등록한 회차(만들기 없음)
             "has_ai": bool(r.ai), "base": bool((r.survey or {}).get("base")), "has_survey": bool((r.survey or {}).get("repairs") or (r.survey or {}).get("changes")),
-            "has_detail": bool((r.survey or {}).get("detail"))}
+            "has_detail": bool((r.survey or {}).get("detail")), "amount_k": r.amount_k or ""}
+
+
+def _data_hwpx(x: SitokReport) -> str:
+    """다음 회차가 데이터를 가져갈 한글 — 묶음으로 만든 회차는 합치기 전 이 동만의 한글(survey.single_hwpx), 아니면 만든 한글."""
+    single = (x.survey or {}).get("single_hwpx")
+    return single if single and Path(single).exists() else x.out_hwpx
 
 
 def _require(db: Session, user: User, report_id: int) -> SitokReport:
@@ -87,7 +97,7 @@ def _order(r: SitokReport) -> tuple:
 def _previous(db: Session, r: SitokReport) -> SitokReport | None:
     """이 회차보다 앞선 회차 중 만든 한글이 있는 가장 최근 것."""
     rows = db.query(SitokReport).filter(SitokReport.facility_id == r.facility_id, SitokReport.id != r.id).all()
-    done = [x for x in rows if _order(x) < _order(r) and x.out_hwpx and Path(x.out_hwpx).exists()]
+    done = [x for x in rows if _order(x) < _order(r) and _data_hwpx(x) and Path(_data_hwpx(x)).exists()]
     return max(done, key=_order) if done else None
 
 
@@ -123,12 +133,56 @@ def list_reports(facility_id: int, user: User = Depends(get_current_user), db: S
     half = "상반기" if today.month <= 6 else "하반기"
     c = _latest_contract(db, f.id)
     persons = db.query(TechPerson).filter(TechPerson.company_id == user.company_id, TechPerson.active.is_(True)).order_by(TechPerson.name).all()
+    from server.api.routers.sitok_groups import group_out
     return {
         "reports": [_out(r) for r in rows],
         "defaults": {"year": today.year, "half": half, "contract_id": c.id if c else None,
                      **{k: _iso(v) for k, v in period_defaults(c, today.year, half).items()}},
         "persons": [{"id": p.id, "name": p.name, "position": p.position, "sitok_grade": p.sitok_grade} for p in persons],
+        "group": group_out(db, f),  # 한 보고서로 묶인 동(10/12)
+        "group_contracts": _group_contracts(db, f),  # 묶인 동이면 묶음 전체 동의 계약에서 고름(한 계약서에 여러 동)
     }
+
+
+def _group_contracts(db: Session, f: SitokFacility) -> list[dict]:
+    from server.api.routers.sitok import _contract_out
+    from server.api.routers.sitok_groups import members
+
+    out = []
+    for m in members(db, f.group_id):
+        for c in db.query(SitokContract).filter(SitokContract.facility_id == m.id).order_by(SitokContract.start_date.desc().nullslast()):
+            out.append({**_contract_out(c), "facility": m.name})
+    return out
+
+
+def _new_report(db: Session, by: str, f: SitokFacility, year: int, half: str, **values) -> SitokReport:
+    r = SitokReport(company_id=f.company_id, facility_id=f.id, year=year, half=half, created_by=by, **values)
+    c = db.get(SitokContract, r.contract_id) if r.contract_id else None
+    if r.period_start is None and r.period_end is None:
+        for k, v in period_defaults(c, r.year, r.half).items():
+            setattr(r, k, v)
+    db.add(r)
+    db.flush()
+    prev = _previous(db, r)
+    if prev is not None:
+        r.source_hwpx, r.source_note = _data_hwpx(prev), f"직전 회차({prev.year}년 {prev.half}) 보고서"
+    return r
+
+
+def _group_reports(db: Session, r: SitokReport, by: str = "") -> list[tuple[SitokFacility, SitokReport]]:
+    """묶음 동마다 같은 반기 회차 [(동, 회차)] 묶음 순서 — 없는 동은 만듦(점검기간·기술자는 r 것, 계약은 그 동 최근 계약)."""
+    from server.api.routers.sitok_groups import members
+
+    f = db.get(SitokFacility, r.facility_id)
+    out = []
+    for m in members(db, f.group_id) or [f]:
+        x = r if m.id == f.id else db.query(SitokReport).filter(SitokReport.facility_id == m.id, SitokReport.year == r.year,
+                                                                  SitokReport.half == r.half).first()
+        if x is None:
+            c = _latest_contract(db, m.id)  # 그 동 계약이 없으면 같이 쓰는 계약서(대표 동 회차의 것)
+            x = _new_report(db, by, m, r.year, r.half, contract_id=c.id if c else r.contract_id, **{k: getattr(r, k) for k in SHARED})
+        out.append((m, x))
+    return out
 
 
 @router.post("/facilities/{facility_id}/reports")
@@ -138,16 +192,10 @@ def create_report(facility_id: int, body: ReportIn, user: User = Depends(get_cur
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "연도와 반기를 고르세요.")
     if db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == body.year, SitokReport.half == body.half).first():
         raise HTTPException(status.HTTP_409_CONFLICT, f"{body.year}년 {body.half} 보고서가 이미 있습니다.")
-    r = SitokReport(company_id=user.company_id, facility_id=f.id, created_by=user.display_name or "", **body.model_dump(exclude_unset=True))
-    c = db.get(SitokContract, r.contract_id) if r.contract_id else None
-    if r.period_start is None and r.period_end is None:
-        for k, v in period_defaults(c, r.year, r.half).items():
-            setattr(r, k, v)
-    db.add(r)
-    db.flush()
-    prev = _previous(db, r)
-    if prev is not None:
-        r.source_hwpx, r.source_note = prev.out_hwpx, f"직전 회차({prev.year}년 {prev.half}) 보고서"
+    vals = body.model_dump(exclude_unset=True, exclude={"year", "half"})
+    r = _new_report(db, user.display_name or "", f, body.year, body.half, **vals)
+    if f.group_id:  # 묶인 동도 같은 반기 회차(사용자 10/12 — 한 번 묶이면 계속)
+        _group_reports(db, r, user.display_name or "")
     db.commit()
     return _out(r)
 
@@ -155,8 +203,16 @@ def create_report(facility_id: int, body: ReportIn, user: User = Depends(get_cur
 @router.patch("/reports/{report_id}")
 def update_report(report_id: int, body: ReportIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
-    for k, v in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    if "amount_k" in data:
+        data["amount_k"] = (data["amount_k"] or "").strip()
+    for k, v in data.items():
         setattr(r, k, v)
+    shared = {k: v for k, v in data.items() if k in SHARED}
+    if shared and db.get(SitokFacility, r.facility_id).group_id:  # 점검기간·제출일·기술자는 묶인 동도 같이
+        for _, x in _group_reports(db, r, user.display_name or ""):
+            for k, v in shared.items():
+                setattr(x, k, v)
     db.commit()
     return _out(r)
 
@@ -196,14 +252,23 @@ def _read_hwp_upload(file: UploadFile, dest: Path) -> tuple[str, rb.Values]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
 
 
-@router.post("/facilities/{facility_id}/reports/past")
-def register_past(facility_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """이미 낸 보고서 등록(10/10) — 그 회차가 없으면 만들고, 있으면 결과 한글만 이것으로. 상태 "만듦"(PDF는 없음) → 다음 회차가 이걸 틀로."""
-    f = _require_facility(db, user, facility_id)
-    tmp = _facility_dir(f) / "_올림_지난보고서.hwpx"
-    name, old = _read_hwp_upload(file, tmp)
+def _chapter_count(hwpx: Path) -> int:
+    """보고서 시설물편 장 수(여러 동 묶음 보고서면 2 이상)."""
+    import zipfile
+
+    from lxml import etree
+
+    from server.sitok import merge
+
+    with zipfile.ZipFile(hwpx) as z:
+        secs = rb._sections(z)
+        return len(merge._chapters(etree.fromstring(z.read(secs[2])))) if len(secs) > 2 else 1
+
+
+def _register_one(db: Session, user: User, f: SitokFacility, src: Path, name: str) -> SitokReport:
+    """한 동 지난 보고서 한글(src) → 그 회차(없으면 만듦)를 "만듦"으로."""
+    old = rb.read_old(src)
     if not old.year or old.half not in HALVES:
-        tmp.unlink(missing_ok=True)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "보고서의 연도·반기를 결과표 용역명에서 찾지 못했습니다.")
     r = db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == old.year, SitokReport.half == old.half).first()
     if r is None:
@@ -218,21 +283,59 @@ def register_past(facility_id: int, file: UploadFile = File(...), user: User = D
         r.report_date = datetime.date(old.report_month[0], old.report_month[1], 1)
     dest = _report_dir(f, r) / f"{old.year}년 {old.half} 정기안전점검 보고서_{f.name}(낸 보고서).hwpx"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp.replace(dest)
+    src.replace(dest)
     r.out_hwpx, r.out_pdf, r.status, r.made_at = str(dest), "", "done", datetime.datetime.now()
     r.source_note = r.source_note or "이미 낸 보고서"
     r.message = f"이미 낸 보고서 등록({name}) — 다음 회차가 이력·시설물 현황 등 데이터를 여기서 가져옵니다"
+    return r
+
+
+@router.post("/facilities/{facility_id}/reports/past")
+def register_past(facility_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """이미 낸 보고서 등록(10/10) — 그 회차가 없으면 만들고, 있으면 결과 한글만 이것으로. 상태 "만듦"(PDF는 없음) → 다음 회차가 이 데이터를 가져감.
+    묶인 시설물이고 여러 동 보고서(시설물편 장 2개 이상)면 동마다 나눠(merge.split, 장 순서 = 묶음 순서) 동마다 등록(10/12)."""
+    from server.api.routers.sitok_groups import members
+    from server.sitok import merge
+
+    f = _require_facility(db, user, facility_id)
+    tmp = _facility_dir(f) / "_올림_지난보고서.hwpx"
+    name, _ = _read_hwp_upload(file, tmp)
+    n = _chapter_count(tmp)
+    ms = members(db, f.group_id)
+    if n >= 2 and len(ms) >= 2:
+        mine = None
+        for k, m in enumerate(ms[:n], 1):
+            part = _facility_dir(m) / f"_올림_지난보고서_{k}.hwpx"
+            part.parent.mkdir(parents=True, exist_ok=True)
+            merge.split(tmp, k, part)
+            x = _register_one(db, user, m, part, f"{name} — {k}장")
+            mine = x if m.id == f.id else mine
+        tmp.unlink(missing_ok=True)
+        if len(ms) != n:
+            mine.message += f" · ⚠ 보고서는 {n}동, 묶음은 {len(ms)}동 — 장 순서대로 앞에서부터 맞췄습니다"
+        db.commit()
+        return _out(mine)
+    r = _register_one(db, user, f, tmp, name)
     db.commit()
     return _out(r)
 
 
 @router.post("/reports/{report_id}/source")
 def upload_source(report_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """지난 보고서 한글 → 이 회차의 틀(처음 하는 시설물)."""
+    """지난 보고서 한글 → 이 회차의 전회차 보고서(데이터). 여러 동 보고서면 이 동 장만 남겨서(묶음 순서 = 장 순서)."""
+    from server.api.routers.sitok_groups import group_out
+    from server.sitok import merge
+
     r = _require(db, user, report_id)
     f = db.get(SitokFacility, r.facility_id)
-    name, old = _read_hwp_upload(file, _report_dir(f, r) / "틀_지난보고서.hwpx")
     dest = _report_dir(f, r) / "틀_지난보고서.hwpx"
+    name, old = _read_hwp_upload(file, dest)
+    g = group_out(db, f)
+    if g and _chapter_count(dest) >= 2:
+        whole = dest.with_name("틀_지난보고서_묶음.hwpx")
+        dest.replace(whole)
+        merge.split(whole, g["index"], dest)
+        old = rb.read_old(dest)
     r.source_hwpx, r.source_note = str(dest), f"올린 파일: {name} ({old.year}년 {old.half} · {old.name})"
     db.commit()
     return _out(r)
@@ -282,6 +385,8 @@ def _new_values(db: Session, r: SitokReport, old: rb.Values, prior: rb.Values | 
             new.amount_k = f"{round(per_half / 1000):,}"
     else:
         warn.append("계약을 고르지 않아 대표자·점검금액은 전회차 보고서 값입니다" if prior else "계약을 고르지 않아 대표자·점검금액이 비었습니다")
+    if (r.amount_k or "").strip():  # 이 동 점검금액(같은 계약서를 여러 동이 같이 쓸 때 — 회차에서 넣음)
+        new.amount_k = r.amount_k.strip()
     new.period_start, new.period_end = r.period_start, r.period_end
     rd = r.report_date or r.period_end or datetime.date.today()
     new.report_month = (rd.year, rd.month)
@@ -362,23 +467,27 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     return ex
 
 
-def _merge(pdf: Path, f: SitokFacility, c: SitokContract | None) -> list[str]:
-    """부록 간지 뒤에 관리대장·계약서 PDF를 끼운다(간지 쪽을 글자로 찾음). 끼운 것 이름들."""
+def _merge(pdf: Path, ledgers: list[str], contracts: list[str]) -> list[str]:
+    """부록 간지 뒤에 관리대장(동마다 차례로)·계약서(계약서마다) PDF를 끼운다(간지 쪽을 글자로 찾음). 끼운 것 이름들."""
     doc = pymupdf.open(pdf)
     done = []
-    plan = [("시설물관리대장", f.ledger_pdf, ("부록.1", "관리대장")), ("계약서", c.contract_pdf if c else "", ("부록", "계 약 서"))]
-    for label, src, keys in reversed(plan):  # 뒤쪽부터 끼워야 앞쪽 쪽 번호가 안 밀림
-        if not src or not Path(src).exists():
+    plan = [("시설물관리대장", ledgers, ("부록.1", "관리대장")), ("계약서", contracts, ("부록", "계 약 서"))]
+    for label, srcs, keys in reversed(plan):  # 뒤쪽부터 끼워야 앞쪽 쪽 번호가 안 밀림
+        srcs = [s for s in srcs if s and Path(s).exists()]
+        if not srcs:
             continue
         page = next((i for i in range(len(doc) - 1, -1, -1)
                      if all(k in doc[i].get_text() for k in keys) and len(doc[i].get_text().strip()) < 80), None)
         if page is None:
             continue
-        with pymupdf.open(src) as add:
-            first = 0  # 올린 PDF가 지난 보고서에서 잘라낸 것이면 첫 장이 같은 간지 — 빼고 끼움(10/10 평택 견본)
-            while first < len(add) - 1 and all(k in add[first].get_text() for k in keys) and len(add[first].get_text().strip()) < 80:
-                first += 1
-            doc.insert_pdf(add, from_page=first, start_at=page + 1)
+        at = page + 1
+        for src in srcs:
+            with pymupdf.open(src) as add:
+                first = 0  # 올린 PDF가 지난 보고서에서 잘라낸 것이면 첫 장이 같은 간지 — 빼고 끼움(10/10 평택 견본)
+                while first < len(add) - 1 and all(k in add[first].get_text() for k in keys) and len(add[first].get_text().strip()) < 80:
+                    first += 1
+                doc.insert_pdf(add, from_page=first, start_at=at)
+                at += len(add) - first
         done.append(label)
     tmp = pdf.with_suffix(".merge.pdf")
     doc.save(tmp, garbage=3, deflate=True)
@@ -387,24 +496,46 @@ def _merge(pdf: Path, f: SitokFacility, c: SitokContract | None) -> list[str]:
     return list(reversed(done))
 
 
-def _insert_album(db: Session, r: SitokReport, pdf: Path) -> bool:
-    """현장 조사 결함이 있으면 외관조사 사진첩(결함현황표·사진표)을 만들어 부록2 간지 뒤에 끼움(10/11 5-2)."""
+def _divider_page(doc, like, text: str) -> None:
+    """묶음 사진첩 앞 간지 "부록2-1. ○○"(견본 모양 — 가운데 큰 글씨) 한 쪽을 doc 끝에."""
+    font = next((p for p in (r"C:\Windows\Fonts\malgunbd.ttf", r"C:\Windows\Fonts\malgun.ttf") if Path(p).exists()), None)
+    page = doc.new_page(width=like.rect.width, height=like.rect.height)
+    box = pymupdf.Rect(40, like.rect.height / 2 - 40, like.rect.width - 40, like.rect.height / 2 + 40)
+    if font:
+        page.insert_textbox(box, text, fontsize=20, fontname="kr", fontfile=font, align=1)
+    else:
+        page.insert_textbox(box, text, fontsize=20, align=1)
+
+
+def _insert_albums(db: Session, reps: list[SitokReport], names: list[str], pdf: Path) -> bool:
+    """현장 조사 결함이 있으면 외관조사 사진첩(결함현황표·사진표)을 만들어 부록2 간지 뒤에 끼움(10/11 5-2). 여러 동이면 동마다
+    "부록2-N. 동 이름" 간지 + 그 동 사진첩(견본 숭의교회)."""
     from server.api.routers.sitok_defects import album_floors
     from server.sitok import album_make
 
-    floors = album_floors(db, r.id)
-    if not floors:
+    books = []
+    for k, (r, name) in enumerate(zip(reps, names), 1):
+        floors = album_floors(db, r.id)
+        if floors:
+            album = pdf.with_name(f"외관조사 사진첩_{k}.pdf" if len(reps) > 1 else "외관조사 사진첩.pdf")
+            album_make.make(floors, album)
+            books.append((k, name, album))
+    if not books:
         return False
-    album = pdf.with_name("외관조사 사진첩.pdf")
-    album_make.make(floors, album)
     doc = pymupdf.open(pdf)
     page = next((i for i in range(len(doc)) if "부록.2" in doc[i].get_text() and "사진첩" in doc[i].get_text()
                  and len(doc[i].get_text().strip()) < 60), None)
     if page is None:
         doc.close()
         return False
-    with pymupdf.open(album) as add:
-        doc.insert_pdf(add, start_at=page + 1)
+    add_all = pymupdf.open()
+    for k, name, album in books:
+        if len(reps) > 1:
+            _divider_page(add_all, doc[page], f"부록2-{k}. {name}")
+        with pymupdf.open(album) as add:
+            add_all.insert_pdf(add)
+    doc.insert_pdf(add_all, start_at=page + 1)
+    add_all.close()
     tmp = pdf.with_suffix(".album.pdf")
     doc.save(tmp, garbage=3, deflate=True)
     doc.close()
@@ -412,43 +543,129 @@ def _insert_album(db: Session, r: SitokReport, pdf: Path) -> bool:
     return True
 
 
+def _build_hwpx(db: Session, r: SitokReport, dest: Path) -> tuple[list[str], int, rb.Values]:
+    """한 동 한글 만들기(회사 원본 → 종별 손질 → 이 회차 값·전회차 데이터) → (경고, 바꾼 곳 수, 새 값)."""
+    f = db.get(SitokFacility, r.facility_id)
+    c = db.get(SitokContract, r.contract_id) if r.contract_id else None
+    folder = _report_dir(f, r)
+    folder.mkdir(parents=True, exist_ok=True)
+    src = folder / "틀_회사원본.hwpx"  # 회사 원본 → 이 시설물 종별(2종·3종 일반은 학교 전용 절 빼고 번호 다시)
+    warn = master.prepare(master.master_path(), f.template, src, private=c is None or c.sector != "관급")
+    prior = _prior(r)
+    pv = rb.read_old(prior) if prior else None
+    old = rb.read_old(src)
+    old.grade = pv.grade if pv else ""  # 1.x 안전등급 변경시 사유 — 전회차 등급과 비교
+    new, w = _new_values(db, r, old, pv)
+    warn += w
+    extras = _extras(db, r)
+    warn += _base_extras(db, r, f, extras, prior, pv)
+    changed = rb.build(src, old, new, dest, extras)
+    return warn + extras.notes, changed, new
+
+
+def _fail(rows: list[SitokReport], err: Exception) -> None:
+    for x in rows:
+        x.status, x.message = "failed", (str(err).splitlines()[0][:300] if str(err) else type(err).__name__)
+    traceback.print_exc()
+
+
 def _run_build(report_id: int) -> None:
     with SessionLocal() as db:
         r = db.get(SitokReport, report_id)
+        f = db.get(SitokFacility, r.facility_id)
+        if f.group_id:
+            return _run_group_build(db, r)
         try:
-            f = db.get(SitokFacility, r.facility_id)
             c = db.get(SitokContract, r.contract_id) if r.contract_id else None
             folder = _report_dir(f, r)
-            folder.mkdir(parents=True, exist_ok=True)
-            src = folder / "틀_회사원본.hwpx"  # 회사 원본 → 이 시설물 종별(2종·3종 일반은 학교 전용 절 빼고 번호 다시)
-            warn = master.prepare(master.master_path(), f.template, src)
-            prior = _prior(r)
-            pv = rb.read_old(prior) if prior else None
-            old = rb.read_old(src)
-            old.grade = pv.grade if pv else ""  # 1.x 안전등급 변경시 사유 — 전회차 등급과 비교
-            new, w = _new_values(db, r, old, pv)
-            warn += w
             base = f"{r.year}년 {r.half} 정기안전점검 보고서_{f.name}"
             hwpx = folder / f"{base}.hwpx"
-            extras = _extras(db, r)
-            warn += _base_extras(db, r, f, extras, prior, pv)
-            changed = rb.build(src, old, new, hwpx, extras)
-            warn += extras.notes
+            warn, changed, _ = _build_hwpx(db, r, hwpx)
             r.out_hwpx = str(hwpx)
             r.message = f"한글 만듦({changed}곳 바꿈) — PDF로 바꾸는 중(100쪽 넘으면 몇 분)…"
             db.commit()
             pdf = folder / f"{base}.pdf"
             pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
-            merged = _merge(pdf, f, c)
-            if _insert_album(db, r, pdf):
+            merged = _merge(pdf, [f.ledger_pdf], [c.contract_pdf] if c else [])
+            if _insert_albums(db, [r], [f.name], pdf):
                 merged.append("외관조사 사진첩")
             r.out_pdf, r.status, r.made_at = str(pdf), "done", datetime.datetime.now()
             pages = pymupdf.open(pdf).page_count
             r.message = " · ".join([f"{pages}쪽, {changed}곳 바꿈" + (f", {'·'.join(merged)} 합본" if merged else "")] + [f"⚠ {w}" for w in warn])
         except Exception as err:  # noqa: BLE001 — 이유를 남김
-            r.status, r.message = "failed", (str(err).splitlines()[0][:300] if str(err) else type(err).__name__)
-            traceback.print_exc()
+            _fail([r], err)
         db.commit()
+
+
+def _group_amounts(pairs: list[tuple[SitokFacility, SitokReport]]) -> None:
+    """같은 계약서를 여러 동이 같이 쓰면 동별 점검금액(회차 amount_k)이 있어야 — 없으면 이상한 것이라 물어봄(사용자 10/12)."""
+    shared: dict[int, list] = {}
+    for m, x in pairs:
+        if x.contract_id:
+            shared.setdefault(x.contract_id, []).append((m, x))
+    missing = [m.name for lst in shared.values() if len(lst) > 1 for m, x in lst if not (x.amount_k or "").strip()]
+    if missing:
+        raise ValueError("같은 계약서를 여러 동이 같이 써서 동별 점검금액을 알 수 없습니다 — 회차의 '이 동 점검금액(천원)'을 넣어 주세요: " + ", ".join(missing))
+
+
+def _run_group_build(db: Session, r: SitokReport) -> None:
+    """묶음 — 동마다 한글을 만들어(합치기 전 것은 survey.single_hwpx, 다음 회차가 이 동 데이터를 여기서) 한 권으로 합친 뒤 PDF·부록."""
+    from core.models_web import SitokGroup
+    from server.sitok import merge
+
+    pairs: list = []
+    try:
+        pairs = _group_reports(db, r)
+        for _, x in pairs:
+            x.status, x.message = "running", "묶음 보고서 만드는 중…"
+        db.commit()
+        _group_amounts(pairs)
+        missing = [m.name for m, x in pairs if not (x.period_start and x.period_end)]
+        if missing:
+            raise ValueError("점검기간이 없는 동: " + ", ".join(missing))
+        parts, warn, total = [], [], 0
+        for k, (m, x) in enumerate(pairs, 1):
+            single = _report_dir(m, x) / f"{x.year}년 {x.half} 정기안전점검 보고서_{m.name}(이 동만).hwpx"
+            w, changed, new = _build_hwpx(db, x, single)
+            total += changed
+            x.survey = {**(x.survey or {}), "single_hwpx": str(single)}
+            floors = " / ".join(s for s in (f"B{m.floors_below}F" if m.floors_below else "", f"{m.floors_above}F" if m.floors_above else "") if s)
+            parts.append({"hwpx": single, "name": m.name, "title": new.title, "area": m.total_area or 0,
+                          "row": [str(k), m.name, f"{m.completion_date.year}년" if m.completion_date else "-", floors or "-",
+                                  f"{m.total_area:,.2f}㎡" if m.total_area else "-", m.structure or "-"]})
+            warn += [f"{m.name}: {s}" for s in w]
+            for _, y in pairs:
+                y.message = f"한글 만드는 중 — {k}/{len(pairs)}동"
+            db.commit()
+        lead, lead_r = pairs[0]
+        g = db.get(SitokGroup, lead.group_id)
+        gname = (g.name if g else "") or lead.name
+        gtitle = parts[0]["title"].replace(lead.name, gname) if lead.name in parts[0]["title"] else parts[0]["title"]
+        folder = _report_dir(lead, lead_r)
+        base = f"{r.year}년 {r.half} 정기안전점검 보고서_{gname}"
+        hwpx = folder / f"{base}.hwpx"
+        warn += merge.merge(parts, hwpx, gname, gtitle)
+        for _, y in pairs:
+            y.out_hwpx, y.message = str(hwpx), f"{len(pairs)}동 한글 합침 — PDF로 바꾸는 중(몇 분)…"
+        db.commit()
+        pdf = folder / f"{base}.pdf"
+        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        contracts = []
+        for _, y in pairs:
+            c = db.get(SitokContract, y.contract_id) if y.contract_id else None
+            if c is not None and c.contract_pdf and c.contract_pdf not in contracts:
+                contracts.append(c.contract_pdf)
+        merged = _merge(pdf, [m.ledger_pdf for m, _ in pairs], contracts)
+        if _insert_albums(db, [y for _, y in pairs], [m.name for m, _ in pairs], pdf):
+            merged.append("외관조사 사진첩")
+        pages = pymupdf.open(pdf).page_count
+        msg = " · ".join([f"{len(pairs)}동 묶음 {pages}쪽, {total}곳 바꿈" + (f", {'·'.join(merged)} 합본" if merged else "")] + [f"⚠ {w}" for w in warn])
+        now = datetime.datetime.now()
+        for _, y in pairs:
+            y.out_pdf, y.status, y.made_at, y.message = str(pdf), "done", now, msg
+    except Exception as err:  # noqa: BLE001
+        _fail([y for _, y in pairs] or [r], err)
+    db.commit()
 
 
 @router.post("/reports/{report_id}/build")
