@@ -278,7 +278,14 @@ JSON 객체 하나로만 답하세요(설명 없이). 자료에 없으면 "-"(�
 {facility}
 
 [자료]
-{docs}"""
+{docs}
+{drawings}"""
+
+DRAWINGS = """
+[구조일반사항·건축개요 도면 — 붙인 그림(쪽 그림)과 아래 글자] 도면 주기·표에서 찾을 것: 콘크리트 설계강도(fck)·철근 종류(SD400 등, MPa)·철골 종류(SS275 등)·
+기초형식(매트기초·독립기초·파일 등)·지하깊이(GL 기준)·기둥 표준간격(스팬)·지하수위·기준층 슬래브 두께·방수공법(지붕층·지하층)·구조형식·최고높이.
+관리대장·건축물대장과 다르면 관리대장·건축물대장 값을 쓰되, 그쪽에 없는 칸만 도면에서.
+{text}"""
 
 
 def _pdf_text(path: Path, limit: int = 15000) -> str:
@@ -288,13 +295,15 @@ def _pdf_text(path: Path, limit: int = 15000) -> str:
         return "\n".join(p.get_text() for p in doc)[:limit]
 
 
-def fill_ai(cur: dict, facility: str, pdfs: list[Path], company_id: int) -> dict:
-    """AI 초안 — fields·uses만(체크 줄은 점검자가)."""
+def fill_ai(cur: dict, facility: str, pdfs: list[Path], company_id: int, drawings: tuple[str, list[bytes]] | None = None) -> dict:
+    """AI 초안 — fields·uses만(체크 줄은 점검자가). drawings = 구조일반사항·건축개요 도면(글자, 쪽 그림들) — server/sitok/drawings.py for_ai(10/12)."""
     from server.sitok import vision
 
     docs = "\n\n".join(f"<{p.name}>\n{_pdf_text(p)}" for p in pdfs if p and Path(p).exists()) or "(없음)"
     spec = "\n".join(f"{f['key']} — {f['label']} (지금: {f['value'][:40]})" for f in cur["fields"])
-    got = vision.ask_json(company_id, [], PROMPT.format(fields=spec, facility=facility, docs=docs), max_tokens=16000)
+    text, imgs = drawings or ("", [])
+    extra = DRAWINGS.format(text=text[:12000] or "(글자 없음 — 그림으로)") if drawings else ""
+    got = vision.ask_json(company_id, imgs, PROMPT.format(fields=spec, facility=facility, docs=docs, drawings=extra), max_tokens=16000)
     fields = {f["key"]: str((got.get("fields") or {}).get(f["key"], "-") or "-").strip() for f in cur["fields"]}
     uses = [[str(x or "").strip() for x in (row + ["", "", "", ""])[:4]] for row in (got.get("uses") or []) if isinstance(row, list)]
     return {"fields": fields, "uses": uses or None, "uses_total": str(got.get("uses_total") or "").strip()}

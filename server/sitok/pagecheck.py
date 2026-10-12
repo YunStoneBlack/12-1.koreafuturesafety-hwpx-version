@@ -70,15 +70,18 @@ def _divider(lines) -> bool:
     return toc >= 3 and len(lines) <= 14 and any(re.match(r"^제\s*\d+\s*장", t) for _, _, t in lines)
 
 
-def scan(pdf: Path, hwpx: Path, limit: int = 12) -> list[str]:
-    """경고 글들(쪽 번호 순, 많으면 limit개까지 + 나머지 개수)."""
+def scan(pdf: Path, hwpx: Path, limit: int = 12, skip: set[int] | None = None) -> list[str]:
+    """경고 글들(쪽 번호 순, 많으면 limit개까지 + 나머지 개수). skip = 안 볼 쪽(0부터 — 끼운 도면 쪽)."""
     import pymupdf
 
     starts = designed_starts(hwpx)
     doc = pymupdf.open(pdf)
     pages = [_body(pg) for pg in doc]
     out = []
+    skip = skip or set()
     for i, (lines, bottom, foot, over) in enumerate(pages):
+        if i in skip or i - 1 in skip and i + 1 in skip:
+            continue
         H = doc[i].rect.height
         span = foot - TOP
         if over or any(y1 > foot + 1 for _, y1, _ in lines):

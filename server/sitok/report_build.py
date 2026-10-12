@@ -61,6 +61,7 @@ class Extras:
     ai: dict | None = None  # 6단계 AI 초안(점검자가 고친 것) — server/sitok/ai_draft.py 키(critical·findings·sections·conclusion·grade …)
     template: str = "2종"  # 등급 표기(2종 낱말·3종 글자)
     rep_photos: dict = field(default_factory=dict)  # 1.3 대표사진 {항목 키: [(사진 경로, 설명)]} — 공중이용·기타는 아래 parts(현장 화면 탭)로
+    has_drawings: bool = True  # 첨부 도면이 있는지(10/12) — 없으면 1.2.9 "-후면첨부-"를 "-"로(server/sitok/drawings.py)
     parts: dict | None = None  # 1.3 6)·7) 사진 표(10/12) {"public": [(항목 이름, 사진 | None)] × 4, "other": [(설명, 사진 | None)] × 4} — server/sitok/parts.py
     blank: str = ""  # 남는 사진 칸에 넣을 흰 그림
     survey: dict | None = None  # 면담·변경사항 {repairs, changes} — 1.2.7·1.2.8
@@ -2033,6 +2034,11 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                         changed += _parts_tables(root, extras.parts, add_image)
                     changed += _finish_repairs(root)
                     changed += _let_split(root, heights)  # 줄이 느는 표·한 쪽을 넘게 커진 표는 쪽에서 나눔(10/12)
+                    if not extras.has_drawings:  # 1.2.9 관련 설계도면 — 붙일 도면이 없으면 "후면첨부"라고 남지 않게
+                        for q in root.iter(f"{{{HP}}}p"):
+                            if re.fullmatch(r"-?\s*후면\s*첨부\s*-?", _top_text(q) or ""):
+                                _set_para(q, "-")
+                                changed += 1
                 if keep is not None and not is_front:
                     keep.apply(root)
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):

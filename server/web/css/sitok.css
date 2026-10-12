@@ -302,3 +302,16 @@
   align-items: center; justify-content: center; font-size: 11px; color: var(--faint); }
 .ss-learn-it figcaption { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 11px; color: var(--muted); margin-top: 3px; }
 .main .ss-learn-it figcaption button { margin: 0; padding: 0 4px; background: none; border: 0; color: var(--crit); font-size: 12px; }
+/* 시설물 현황 창 — 도면(10/12) js/sitok-detail.js drawDwg */
+.dt-dwg { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; background: var(--paper); }
+.dt-dwg-note { margin-bottom: 8px; }
+.dt-dwg-k + .dt-dwg-k { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.dt-dwg-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13.5px; }
+.dt-dwg-h label.secondary-link { margin-left: auto; }
+.dt-dwg-list { margin: 6px 0 0; padding-left: 22px; font-size: 13px; }
+.dt-dwg-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 3px 0; }
+.dt-dwg-list li a { word-break: break-all; }
+.main .dt-dwg-list .link-btn, .dt-dwg-list .link-btn { margin: 0; padding: 0 4px; background: none; border: 0; font-size: 12.5px; color: var(--muted); }
+.dt-dwg-list .dt-dwg-del { color: var(--crit); }
+.dt-dwg-none { margin-top: 4px; }
+@media (max-width: 760px) { .dt-dwg-h label.secondary-link { margin-left: 0; } }

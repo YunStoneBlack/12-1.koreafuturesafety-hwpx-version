@@ -26,8 +26,9 @@ async function openSitokDetail(reportId, title, onSaved) {
       <button type="button" class="sv-x" title="이 줄 지우기">✕</button></div>`;
     box.innerHTML = `<div class="mail-head"><b>🏢 시설물 현황</b><span class="mail-sub">${esc(title)} — 보고서 1.1 건축물 현황표, 1.2.1~1.2.4</span></div>
       <div class="dt-ai"><label class="secondary-link">건축물대장 PDF ${s.has_register ? "(올려 둠 ✓ — 바꾸려면 다시)" : "(있으면 층별 용도·면적까지)"}<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" class="dt-reg" /></label>
-        <button type="button" class="secondary dt-fill">🤖 관리대장·건축물대장으로 채우기</button>
+        <button type="button" class="secondary dt-fill">🤖 관리대장·건축물대장·도면으로 채우기</button>
         <span class="sk-help">${s.saved ? "저장한 값" : `지금 값 = 시설물 칸(관리대장·직접 입력)${s.has_prior ? " + 전회차 보고서 값" : ""}`}${!s.has_ledger && !s.has_register ? " — 관리대장·건축물대장이 없어 나머지 칸은 직접(없으면 \"-\")" : ""}</span></div>
+      <div class="dt-dwg"></div>
       ${s.ai ? '<div class="mail-msg ok">🤖 AI가 채웠습니다 — 확인하고 [저장]. 자료에 없는 칸은 "-"</div>' : ""}
       ${nDiff ? `<div class="mail-msg dt-diffs">⚠ 전회차 보고서와 다른 칸 ${nDiff}개 — 지금 값은 관리대장·건축물대장 쪽입니다. 전회차 값이 맞으면 그 칸의 [이걸로]</div>` : ""}
       <div class="ai-form">
@@ -44,6 +45,7 @@ async function openSitokDetail(reportId, title, onSaved) {
       </div>
       <div class="mail-msg dt-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="mail-cancel">닫기</button><button type="button" class="mail-primary dt-save">저장</button></div>`;
+    drawDwg(box.querySelector(".dt-dwg"));
     const uses = box.querySelector("#dt-uses");
     const bindX = () => uses.querySelectorAll(".sv-x").forEach((b) => { b.onclick = () => b.closest(".dt-use").remove(); });
     bindX();
@@ -68,7 +70,7 @@ async function openSitokDetail(reportId, title, onSaved) {
         const reg = box.querySelector(".dt-reg").files[0];
         if (reg) fd.append("file", reg);
         draw(await apiUpload(`/sitok/reports/${reportId}/detail/ai`, fd));
-      } catch (err) { msg.hidden = false; msg.className = "mail-msg dt-msg bad"; msg.textContent = err.message; e.target.disabled = false; e.target.textContent = "🤖 관리대장·건축물대장으로 채우기"; }
+      } catch (err) { msg.hidden = false; msg.className = "mail-msg dt-msg bad"; msg.textContent = err.message; e.target.disabled = false; e.target.textContent = "🤖 관리대장·건축물대장·도면으로 채우기"; }
     });
     box.querySelector(".dt-reg").addEventListener("change", (e) => { if (e.target.files[0]) e.target.closest("label").firstChild.textContent = `건축물대장 PDF: ${e.target.files[0].name} `; });
     box.querySelector(".dt-save").addEventListener("click", async () => {
@@ -84,6 +86,45 @@ async function openSitokDetail(reportId, title, onSaved) {
         msg.hidden = false; msg.className = "mail-msg dt-msg ok"; msg.textContent = "저장했습니다 — [보고서 만들기]를 누르면 들어갑니다.";
         if (onSaved) onSaved();
       } catch (err) { msg.hidden = false; msg.className = "mail-msg dt-msg bad"; msg.textContent = err.message; }
+    });
+  }
+
+  // 시설물 도면(10/12 사용자) — 시설물에 한 번 올리면 다음 회차에도 그대로, 증축·인테리어 등으로 바뀌면 여기서 바꿈. 서버 routers/sitok_drawings.py
+  async function drawDwg(el, data) {
+    const url = `/sitok/reports/${reportId}/drawings`;
+    try { data = data || await api(url); } catch (e) { el.innerHTML = `<div class="mail-msg bad">${esc(e.message)}</div>`; return; }
+    const KIND = { struct: ["📐 구조일반사항·건축개요 도면", "[🤖 채우기]가 같이 읽음(콘크리트 강도·철근 종류·기초형식·지하깊이·슬래브 두께·방수 등)"],
+      attach: ["🗂 첨부 도면(평·입·단면도)", "보고서 1.2.9 관련 설계도면 쪽 뒤에 이 순서로 붙음 — 없으면 \"-\""] };
+    el.innerHTML = `<div class="dt-dwg-note sk-help">도면은 시설물에 한 번 올리면 다음 회차에도 그대로 씁니다 — 증축·내부 인테리어 등으로 바뀌면 지우고 새로 올리세요(이미 만든 보고서는 그대로).</div>`
+      + Object.entries(KIND).map(([k, [label, help]]) => `<div class="dt-dwg-k" data-k="${k}"><div class="dt-dwg-h"><b>${label}</b> <span class="sk-help">${help}</span>
+        <label class="secondary-link">+ 올리기(PDF·그림, 여러 개)<input type="file" accept="application/pdf,.pdf,image/*" multiple hidden data-kr-file="1" /></label></div>
+        ${(data[k] || []).length ? `<ol class="dt-dwg-list">${data[k].map((d, i) => `<li data-id="${d.id}"><a href="${BASE}/api${url}/${k}/${d.id}/file" target="_blank" rel="noopener">${esc(d.name)}</a>
+          <span class="sk-help">${d.pdf ? `${d.pages}쪽` : "그림"} · ${esc(d.at)}</span>
+          ${k === "attach" ? `<button type="button" class="link-btn" data-m="-1"${i ? "" : " disabled"}>▲</button><button type="button" class="link-btn" data-m="1"${i < data[k].length - 1 ? "" : " disabled"}>▼</button>` : ""}
+          <button type="button" class="link-btn dt-dwg-del" title="지우기">✕</button></li>`).join("")}</ol>` : '<div class="sk-help dt-dwg-none">아직 없음</div>'}</div>`).join("");
+    el.querySelectorAll(".dt-dwg-k").forEach((row) => {
+      const k = row.dataset.k;
+      const inp = row.querySelector("input[type=file]");
+      inp.addEventListener("change", async () => {
+        const files = [...inp.files];
+        for (let i = 0; i < files.length; i++) {
+          row.querySelector(".dt-dwg-h .sk-help").textContent = `올리는 중… ${i + 1} / ${files.length}`;
+          const fd = new FormData();
+          fd.append("kind", k);
+          fd.append("file", files[i]);
+          try { data = await apiUpload(url, fd); } catch (e) { alert(e.message); break; }
+        }
+        drawDwg(el, data);
+      });
+      row.querySelectorAll("li").forEach((li) => {
+        li.querySelector(".dt-dwg-del").addEventListener("click", async () => {
+          if (!confirm("이 도면을 지울까요? 다음에 만드는 보고서부터 빠집니다.")) return;
+          try { drawDwg(el, await api(`${url}/${k}/${li.dataset.id}`, { method: "DELETE" })); } catch (e) { alert(e.message); }
+        });
+        li.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", async () => {
+          try { drawDwg(el, await apiPost(`${url}/${k}/${li.dataset.id}/move`, { step: Number(b.dataset.m) })); } catch (e) { alert(e.message); }
+        }));
+      });
     });
   }
 

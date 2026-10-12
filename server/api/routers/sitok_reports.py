@@ -458,6 +458,9 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     ex.overview = overview_photos(db, r)  # 전경사진(없으면 지난 회차 그대로)
     from server.sitok import parts as P  # 1.3 6) 공중이용·7) 기타시설 표 = 현장 화면 탭 사진(10/12)
     ex.parts = P.build_input(r.parts, _report_dir(db.get(SitokFacility, r.facility_id), r))
+    from server.sitok import drawings as D  # 첨부 도면이 없으면 1.2.9 "-후면첨부-" → "-"(10/12)
+    _f = db.get(SitokFacility, r.facility_id)
+    ex.has_drawings = bool(D.items(_f, "attach", _facility_dir(_f)))
     if not P.recorded(r.parts):
         ex.notes.append("공중이용·기타시설 탭에 사진이 없어 6) 표는 모두 \"해당없음\", 7) 표는 \"-\"입니다(현장 조사 → 🚶 공중이용·🧱 기타시설)")
     ex.blank = str(_blank_jpg())
@@ -596,7 +599,8 @@ def _run_build(report_id: int) -> None:
             db.commit()
             pdf = folder / f"{base}.pdf"
             pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
-            warn = _page_check(pdf, hwpx) + warn  # 합치기 전(본문 쪽 번호 = 최종)
+            drawn = _insert_drawings(pdf, [(1, f)])  # 1.2.9 뒤 첨부 도면(10/12)
+            warn = _page_check(pdf, hwpx, drawn) + warn  # 관리대장·계약서 합치기 전(본문 쪽 번호 = 최종), 도면 쪽은 빼고
             merged = _merge(pdf, [f.ledger_pdf], [c.contract_pdf] if c else [])
             if _insert_albums(db, [r], [f.name], pdf):
                 merged.append("외관조사 사진첩")
@@ -608,12 +612,20 @@ def _run_build(report_id: int) -> None:
         db.commit()
 
 
-def _page_check(pdf: Path, hwpx: Path) -> list[str]:
+def _insert_drawings(pdf: Path, chapters: list[tuple[int, SitokFacility]]) -> list[int]:
+    """시설물편 N장(동)의 N.2.9 관련 설계도면 쪽 뒤에 그 시설물 첨부 도면(server/sitok/drawings.py) → 끼운 쪽 번호(0부터)."""
+    from server.sitok import drawings as D
+
+    plan = [(n, [it["path"] for it in D.items(m, "attach", _facility_dir(m))]) for n, m in chapters]
+    return D.insert(pdf, plan) if any(paths for _, paths in plan) else []
+
+
+def _page_check(pdf: Path, hwpx: Path, skip: list[int] | None = None) -> list[str]:
     """자동 쪽 검사(10/12 사용자 — server/sitok/pagecheck.py) → 경고 한 줄(없으면 []). 검사가 실패해도 보고서는 그대로."""
     from server.sitok import pagecheck
 
     try:
-        found = pagecheck.scan(pdf, hwpx)
+        found = pagecheck.scan(pdf, hwpx, skip=set(skip or []))
     except Exception:  # noqa: BLE001
         return []
     return [f"쪽 확인 — {' / '.join(found)}"] if found else []
@@ -672,7 +684,8 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         db.commit()
         pdf = folder / f"{base}.pdf"
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
-        warn = _page_check(pdf, hwpx) + warn  # 합치기 전(본문 쪽 번호 = 최종)
+        drawn = _insert_drawings(pdf, [(k, m) for k, (m, _) in enumerate(pairs, 1)])  # 동마다 N.2.9 뒤 첨부 도면(10/12)
+        warn = _page_check(pdf, hwpx, drawn) + warn  # 관리대장·계약서 합치기 전(본문 쪽 번호 = 최종), 도면 쪽은 빼고
         contracts = []
         for _, y in pairs:
             c = db.get(SitokContract, y.contract_id) if y.contract_id else None
@@ -906,10 +919,12 @@ def detail_ai(report_id: int, file: UploadFile | None = File(None), user: User =
                 f"지상 {f.floors_above}층·지하 {f.floors_below}층·옥탑 {f.floors_roof} / 최고높이 {f.max_height} / 연면적 {f.total_area} / 건축면적 {f.building_area} / "
                 f"주용도 {f.main_use}")
     pdfs = [Path(p) for p in (f.ledger_pdf, str(reg)) if p and Path(p).exists()]
-    if not pdfs:  # 법정 외(관리대장 없음)·군사보안(건축물대장 없음) 등
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "시설물관리대장·건축물대장 PDF가 없어 AI로 채울 수 없습니다 — 칸에 직접 넣으세요(없는 칸은 \"-\").")
+    from server.sitok import drawings as D  # 구조일반사항·건축개요 도면(10/12) — 글자 + 쪽 그림
+    struct = [it["path"] for it in D.items(f, "struct", _facility_dir(f))]
+    if not pdfs and not struct:  # 법정 외(관리대장 없음)·군사보안(건축물대장 없음) 등
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "시설물관리대장·건축물대장·구조일반사항 도면이 없어 AI로 채울 수 없습니다 — 칸에 직접 넣으세요(없는 칸은 \"-\").")
     try:
-        got = detail.fill_ai(cur, facility, pdfs, user.company_id)
+        got = detail.fill_ai(cur, facility, pdfs, user.company_id, drawings=D.for_ai(struct) if struct else None)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI가 채우지 못했습니다: {str(err).splitlines()[0][:150]}") from err
     keep = {c["key"]: c["selected"] for c in cur["checks"]}
