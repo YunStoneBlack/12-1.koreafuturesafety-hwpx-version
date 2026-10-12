@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import random
 import re
 import zipfile
 from dataclasses import dataclass, field
@@ -668,9 +669,14 @@ def _cost_table(root, rows: list, direct: int) -> bool:
     tail = [tr for tr in trs[1:] if re.sub(r"\s", "", _cell_text(tr.findall(f"{{{HP}}}tc")[0])) in labels]
     money = lambda v: f"{v:,}" if v else "-"  # noqa: E731
     amounts = {"직접공사비합계": direct, "제경비": round(direct * 0.5), "부대공": round(direct * 0.1), "총공사비": round(direct * 1.6)}
+    center = next(cells[(1, 0)].iter(f"{{{HP}}}p")).get("paraPrIDRef") if (1, 0) in cells else None  # 데이터 줄 "-" 칸 모양(가운데)
     for tr in tail:
         tcs = tr.findall(f"{{{HP}}}tc")
-        _set_cell(tcs[-1], money(amounts[re.sub(r"\s", "", _cell_text(tcs[0]))]))
+        v = money(amounts[re.sub(r"\s", "", _cell_text(tcs[0]))])
+        _set_cell(tcs[-1], v)
+        if v == "-" and center:  # "-"는 가운데(10/12 사용자) — 금액 칸의 오른쪽 정렬이 남지 않게
+            for p in tcs[-1].iter(f"{{{HP}}}p"):
+                p.set("paraPrIDRef", center)
     if rows and all((1, c) in cells for c in range(ncol)):
         tmpl = {c: copy.deepcopy(cells[(1, c)]) for c in range(ncol)}
         head_h = int(cells[(0, 0)].find(f"{{{HP}}}cellSz").get("height"))
@@ -1161,14 +1167,7 @@ def _base_reset(root, is_front: bool, sec: int, base: dict, blank: str, add_imag
     n += _set_repairs(root, base.get("repairs") or [])  # 1.2.7 — 전회차 보고서 이력(이번 면담 줄은 뒤에 _apply_survey가)
     if base.get("target"):  # 부록 대상 시설물 표
         n += _set_target_table(root, base["target"], base.get("school", False))
-    keys = set((base.get("rep_keys") or []))
-    from server.sitok.ai_draft import section_key
-    for tbl in root.iter(f"{{{HP}}}tbl"):  # 1.3 사진 표 — 이번 결함 사진이 들어갈 표 말고는 흰 그림
-        head = _cell_text(_cells(tbl).get((0, 0), tbl))
-        if ("대표사진" in head or "사진 현황" in head) and section_key(head) not in keys:
-            _blank_pics(tbl, blank, add_image)
-            n += 1
-    return n
+    return n  # 1.3 사진 표는 build 끝의 _photo_tables(빈칸 규칙)가
 
 
 # ---------- 회사 원본으로 만들 때 전회차 보고서에서 가져오는 것(2026-10-12 — 판 다시 잡기 ③) ----------
@@ -1535,7 +1534,7 @@ def _apply_survey(root, survey: dict) -> int:
     return n
 
 
-REP_PHOTO_KEYS = ("crack", "leak", "spall", "steel", "nonstruct")
+
 OVERVIEW_PER_PAGE = 6
 
 
@@ -1632,31 +1631,91 @@ def _overview(root, photos: list, blank: str, add_image) -> int:
     return n
 
 
-def _rep_photos(root, rep: dict, blank: str, add_image) -> int:
-    """1.3 항목별 "■ ○○ 현황: 대표사진" 표(사진 칸 바로 아래 칸이 설명) — 그 항목 이번 결함 사진으로. 결함이 없는 항목은 그대로,
-    사진이 칸보다 적으면 남는 칸은 흰 그림·"-"."""
+def _photo_slots(tbl) -> list[tuple[tuple[int, int], tuple[int, int] | None]]:
+    """사진 표의 [(사진 칸, 그 아래 설명 칸)] 줄·칸 순 — 머리 다음부터 사진 줄·설명 줄이 번갈아(사진 줄이 더 높음).
+    그림이 없는 칸("해당없음"·"-"만 있던 칸)도 사진 자리로 셈."""
+    cells = _cells(tbl)
+    rows = sorted({r for r, _ in cells if r >= 1})
+    height = {r: max(int(tc.find(f"{{{HP}}}cellSz").get("height") or 0) for (rr, _), tc in cells.items() if rr == r) for r in rows}
+    out = []
+    for i in range(0, len(rows) - 1, 2):
+        pr, cr = rows[i], rows[i + 1]
+        if height[pr] <= height[cr]:  # 사진 줄·설명 줄 모양이 아니면 그 표는 안 건드림
+            return []
+        for c in sorted(c for r, c in cells if r == pr):
+            out.append(((pr, c), (cr, c) if (cr, c) in cells else None))
+    return out
+
+
+def _photo_tables(root, rep: dict, add_image) -> int:
+    """1.3 항목별 사진 표("■ ○○ 현황: 대표사진"·"사진 현황") — 빈칸 규칙(사용자 10/12, 표마다 제각각이던 것 하나로):
+    사진이 있으면 차례로 넣고 설명 = 그 결함, 남는 사진 칸은 비움(그림·글자 없음) + 설명 "-",
+    그 항목 사진이 하나도 없으면(항목 자체 없음 — 강재구조 없음 등) 첫 사진 칸만 "해당없음"."""
     from server.sitok.ai_draft import section_key
 
-    n = 0
+    tables = []
     for tbl in root.iter(f"{{{HP}}}tbl"):
+        head = _cell_text(_cells(tbl).get((0, 0), tbl))
+        if ("대표사진" in head or "사진 현황" in head) and section_key(head):
+            tables.append((tbl, section_key(head)))
+    tpl = next((copy.deepcopy(p) for tbl, _ in tables for p in tbl.iter(f"{{{HP}}}pic")), None)  # 그림 없는 칸에 사진을 넣을 때 본뜰 그림
+    n = 0
+    for tbl, key in tables:
+        slots = _photo_slots(tbl)
+        if not slots:
+            continue
         cells = _cells(tbl)
-        head = _cell_text(cells.get((0, 0), tbl))
-        if "대표사진" not in head and "사진 현황" not in head:
-            continue
-        key = section_key(head)
-        photos = rep.get(key) if key in REP_PHOTO_KEYS else None
-        if not photos:
-            continue
-        slots = sorted((k for k, tc in cells.items() if next(tc.iter(f"{{{HP}}}pic"), None) is not None), key=lambda k: (k[0], k[1]))
-        for i, (r, c) in enumerate(slots):
-            img = next(cells[(r, c)].iter("{http://www.hancom.co.kr/hwpml/2011/core}img"), None)
-            path, caption = photos[i] if i < len(photos) else (blank, "-")
-            if img is not None and path and Path(path).exists():
-                img.set("binaryItemIDRef", add_image(path))
-            if (r + 1, c) in cells:
-                _set_lines(cells[(r + 1, c)], [caption])
+        photos = [(p, cap) for p, cap in (rep.get(key) or []) if p and Path(p).exists()]
+        for i, (pk, ck) in enumerate(slots):
+            tc = cells[pk]
+            if i < len(photos):
+                path, caption = photos[i]
+                pic = next(tc.iter(f"{{{HP}}}pic"), None)
+                if pic is None and tpl is not None:
+                    pic = copy.deepcopy(tpl)
+                    pic.set("id", str(random.randint(1_000_000_000, 2_000_000_000)))
+                    pic.set("instid", str(random.randint(100_000_000, 999_999_999)))
+                    _set_lines(tc, [""])
+                    p = next(q for q in tc.iter(f"{{{HP}}}p"))
+                    run = p.find(f"{{{HP}}}run")
+                    if run is None:
+                        run = etree.SubElement(p, f"{{{HP}}}run", charPrIDRef="0")
+                    run.insert(0, pic)
+                img = next(pic.iter(f"{{{CORE}}}img"), None) if pic is not None else None
+                if img is not None:
+                    img.set("binaryItemIDRef", add_image(path))
+            else:
+                caption = "-"
+                for pic in list(tc.iter(f"{{{HP}}}pic")):
+                    pic.getparent().remove(pic)
+                _set_lines(tc, ["해당없음" if not photos and i == 0 else ""])
+                cap_run = next(cells[ck].iter(f"{{{HP}}}run"), None) if ck is not None else None
+                if cap_run is not None:  # 그림만 있던 칸은 글자 모양이 흰색인 것도 있음(비구조체 표) — 설명 칸 글자 모양으로
+                    for run in tc.iter(f"{{{HP}}}run"):
+                        run.set("charPrIDRef", cap_run.get("charPrIDRef"))
+            if ck is not None:
+                _set_lines(cells[ck], [caption or "-"])
         n += 1
     return n
+
+
+def _finish_repairs(root) -> int:
+    """1.2.7 보수·보강 이력 표 마무리(10/12 사용자: "-"가 가운데 아님·빈칸) — 빈 칸은 "-", 칸 정렬은 칸마다 첫 줄 모양으로
+    (원본 광숭초 표의 7·8줄 보수방안 칸만 양쪽 정렬이었음)."""
+    tbl = _repair_table([root])
+    if tbl is None:
+        return 0
+    cells = _cells(tbl)
+    first = {c: next(tc.iter(f"{{{HP}}}p")).get("paraPrIDRef") for (r, c), tc in cells.items() if r == 1}
+    for (r, c), tc in cells.items():
+        if r < 1:
+            continue
+        if not _cell_text(tc).strip():
+            _set_lines(tc, ["-"])
+        if first.get(c):
+            for p in tc.iter(f"{{{HP}}}p"):
+                p.set("paraPrIDRef", first[c])
+    return 1
 
 
 def _add_history(root, old: Values) -> bool:
@@ -1754,8 +1813,9 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     changed += _apply_facility(root, extras.ai["facility"])
                 if extras.ai and extras.ai.get("items") and not is_front:
                     changed += _apply_eval(root, extras.ai["items"], extras.ai.get("eval_opinion") or "")
-                if extras.rep_photos and not is_front:
-                    changed += _rep_photos(root, extras.rep_photos, extras.blank, add_image)
+                if not is_front:  # 1.3 사진 표(빈칸 규칙 10/12)·1.2.7 마무리 — 회사 원본으로 만들 때 늘
+                    changed += _photo_tables(root, extras.rep_photos or {}, add_image)
+                    changed += _finish_repairs(root)
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):
                     el.getparent().remove(el)
                 texts.append("\r\n".join("".join(t.text or "" for t in p.iter(T)) for p in root.iter(f"{{{HP}}}p")))

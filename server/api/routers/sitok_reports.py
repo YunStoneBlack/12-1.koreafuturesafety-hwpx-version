@@ -975,7 +975,7 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
     ex.base = {"map": str(mp) if mp else "", "cover": ov[0][0] if ov else "", "has_overview": bool(ov), "name": f.name,
                "short": f.name.split()[-1] if " " in f.name else f.name, "year": f"{f.completion_date.year}년" if f.completion_date else "-",
                "floors": floors or "-", "area": f"{f.total_area:,.2f}㎡" if f.total_area else "-", "structure": f.structure or "-",
-               "grade": (f.template or "2")[:1], "use": f.use_type or f.main_use or "시설물", "rep_keys": list((ex.rep_photos or {}).keys()),
+               "grade": (f.template or "2")[:1], "use": f.use_type or f.main_use or "시설물",
                "history": history, "repairs": repairs, "result": result, "school": f.template == "3종학교", "legal": f.legal,
                "target": {"owner": f.owner_name or (pv.owner if pv else "") or "-", "name": f.name, "use": f.use_type or f.main_use or "-",
                           "year": str(f.completion_date.year) if f.completion_date else "-", "area": f"{f.total_area:,.2f}" if f.total_area else "-",

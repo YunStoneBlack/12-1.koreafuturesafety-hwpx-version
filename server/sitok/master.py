@@ -83,9 +83,99 @@ def shrink(data: bytes, side: int = 1800, min_bytes: int = 600_000) -> bytes:
     return out.getvalue()
 
 
-def install(data: bytes) -> Path:
-    """새 원본 넣기(큰 그림은 줄여서) — 지금 원본은 _지난원본/에 날짜 붙여 보관."""
-    data = shrink(data)
+def flatten_metafiles(data: bytes, dpi: int = 300) -> bytes:
+    """원본 안 WMF·EMF 그림(공통편 보수 흐름도 4개)을 JPG로(10/12) — 한글 2020은 PDF로 바꿀 때 WMF를 그린 뒤 그 아래 글자를 오른쪽으로
+    밀어 찍음(쪽 밖으로 잘림, 회사 한글 2024 PDF는 괜찮음 — 같은 hwp로 확인, JPG로 바꾸면 2020도 회사 PDF와 같은 자리).
+    LibreOffice로 그려 그림 칸(orgSz) 비율로 맞춘 고해상도 JPG, 그림 개체의 imgClip(WMF 단위 15000)도 새 그림 크기(픽셀×75)로 —
+    안 바꾸면 그림 일부만 확대돼 보임."""
+    import tempfile
+
+    import pymupdf
+    from PIL import Image, ImageChops
+
+    from server.contract_docs.to_pdf import office_to_pdf
+
+    src = zipfile.ZipFile(io.BytesIO(data))
+    metas = {Path(n).stem: n for n in src.namelist() if n.startswith("BinData/") and Path(n).suffix.lower() in (".wmf", ".emf")}
+    if not metas:
+        return data
+    secs = rb._sections(src)
+    roots = {n: etree.fromstring(src.read(n)) for n in secs}
+    boxes: dict[str, tuple[int, int, int]] = {}  # 그림 id → (orgSz 폭, 높이, 가장 크게 보이는 폭)
+    for root in roots.values():
+        for pic in root.iter(f"{{{HP}}}pic"):
+            img = pic.find(f".//{{{rb.CORE}}}img")
+            ref = img.get("binaryItemIDRef") if img is not None else None
+            if ref in metas:
+                org, cur = pic.find(f"{{{HP}}}orgSz"), pic.find(f"{{{HP}}}curSz")
+                w, h = int(org.get("width")), int(org.get("height"))
+                show = max(w, int(cur.get("width") or 0) if cur is not None else 0, boxes.get(ref, (0, 0, 0))[2])
+                boxes[ref] = (w, h, show)
+    made: dict[str, tuple[str, bytes, int, int]] = {}  # 그림 id → (새 BinData 이름, JPG, 픽셀 폭, 높이)
+    with tempfile.TemporaryDirectory() as tmp:
+        for ref, name in metas.items():
+            if ref not in boxes:
+                continue
+            w, h, show = boxes[ref]
+            f = Path(tmp) / f"m{Path(name).suffix.lower()}"
+            f.write_bytes(src.read(name))
+            page = pymupdf.open(stream=office_to_pdf(f, Path(tmp) / f"{ref}.pdf").read_bytes(), filetype="pdf")[0]  # 파일을 잡고 있지 않게
+            lo = page.get_pixmap(dpi=50, alpha=False)
+            im = Image.frombytes("RGB", (lo.width, lo.height), lo.samples)
+            box = ImageChops.difference(im, Image.new("RGB", im.size, "white")).getbbox()  # 그린 부분
+            if not box:
+                continue
+            k = 72 / 50
+            x0, y0, x1, y1 = (v * k for v in box)
+            pad = 0.02 * max(x1 - x0, y1 - y0)
+            content = pymupdf.Rect(x0 - pad, y0 - pad, x1 + pad, y1 + pad) & page.rect
+            x0, y0, x1, y1 = content
+            if (x1 - x0) / (y1 - y0) < w / h:  # 그림 칸 비율로 넓힘(흰 여백)
+                extra = (y1 - y0) * w / h - (x1 - x0)
+                x0, x1 = x0 - extra / 2, x1 + extra / 2
+            else:
+                extra = (x1 - x0) * h / w - (y1 - y0)
+                y0, y1 = y0 - extra / 2, y1 + extra / 2
+            zoom = min(show / 7200 * dpi / (x1 - x0), 8)
+            pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), clip=content, alpha=False)
+            part = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            canvas = Image.new("RGB", (round((x1 - x0) * zoom), round((y1 - y0) * zoom)), "white")
+            canvas.paste(part, (round((content.x0 - x0) * zoom), round((content.y0 - y0) * zoom)))
+            buf = io.BytesIO()
+            canvas.save(buf, "JPEG", quality=92)
+            made[ref] = (str(Path(name).with_suffix(".jpg")).replace("\\", "/"), buf.getvalue(), canvas.width, canvas.height)
+    if not made:
+        return data
+    for root in roots.values():
+        for pic in root.iter(f"{{{HP}}}pic"):
+            img = pic.find(f".//{{{rb.CORE}}}img")
+            ref = img.get("binaryItemIDRef") if img is not None else None
+            clip = pic.find(f"{{{HP}}}imgClip")
+            if ref in made and clip is not None:
+                _, _, pw, ph = made[ref]
+                clip.attrib.update({"left": "0", "top": "0", "right": str(pw * 75), "bottom": str(ph * 75)})
+    renamed = {metas[ref]: v for ref, v in made.items()}
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in src.infolist():
+            name, b = info.filename, src.read(info.filename)
+            if name in renamed:
+                name, b = renamed[name][0], renamed[name][1]
+            elif name in roots:
+                b = etree.tostring(roots[name], xml_declaration=True, encoding="UTF-8", standalone=True)
+            elif name == "Contents/content.hpf":
+                hpf = b.decode("utf-8")
+                for old, (new, *_rest) in renamed.items():
+                    hpf = re.sub(rf'href="{re.escape(old)}"(\s+media-type=")[^"]*"', f'href="{new}"\\g<1>image/jpg"', hpf)
+                b = hpf.encode("utf-8")
+            zi = zipfile.ZipInfo(name, date_time=info.date_time)
+            zout.writestr(zi, b, compress_type=zipfile.ZIP_STORED if name == "mimetype" or name.startswith("BinData/") else zipfile.ZIP_DEFLATED)
+    return out.getvalue()
+
+
+def install(data: bytes, shrink_images: bool = True) -> Path:
+    """새 원본 넣기(큰 그림은 줄이고 WMF 흐름도는 JPG로) — 지금 원본은 _지난원본/에 날짜 붙여 보관."""
+    data = flatten_metafiles(shrink(data) if shrink_images else data)
     p = master_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     if p.exists():

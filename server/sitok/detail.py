@@ -229,9 +229,9 @@ def apply(root, detail: dict) -> int:
                 lines = [f"ㆍ{x.strip()}" if x.strip() and x.strip() != "-" else (x.strip() or "-") for x in lines]
             if len(cells) == 1:
                 rb._set_lines(cells[0], lines)
-            else:  # 세로로 합친 이름(방수공법) — 칸마다 한 줄
+            else:  # 세로로 합친 이름(방수공법) — 칸마다 한 줄, 줄이 모자라면 "-"(10/12 빈칸 안 남게)
                 for i, tc in enumerate(cells):
-                    rb._set_lines(tc, [lines[i] if i < len(lines) else ""])
+                    rb._set_lines(tc, [lines[i] if i < len(lines) else "-"])
             n += 1
     checks = detail.get("checks") or {}
     se = _seismic(root)
