@@ -6,6 +6,7 @@
 <title>시특법 - 보고서 자동화</title>
 <link rel="stylesheet" href="/css/app.css" />
 <link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/site-info.css" />
 <link rel="stylesheet" href="css/sitok.css" />
 </head>
 <!-- 보고서 자동화 · 시특법(2026-10-10) — 시설물 정기안전점검. 그룹웨어 왼쪽 메뉴 [보고서 자동화] 아래 "시특법" 소메뉴가 여는 메인 = 시설물 목록.
@@ -18,9 +19,15 @@
 <div id="error" class="error"></div>
 
 <div class="list-toolbar sk-toolbar">
-  <input id="sk-search" type="search" placeholder="시설물명·주소·관리주체·시설물번호 검색" />
+  <input id="sk-search" type="search" placeholder="시설물명·번호·주소·관리주체·시설물번호 검색" />
   <a class="sk-new" href="sitok-new.html">+ 점검 대상 등록</a>
 </div>
+<!-- 10/13 사용자: 산안법 현장 목록과 같은 정렬(최근 열람순·번호순 ▼▲) + 민간·관급 거르기, 민재형: 목록함 구분 카드(장기·지속 / 1회성·입찰 / 지속계약 종료) -->
+<div class="sk-subbar">
+  <span class="site-sort sk-sector-f" role="group" aria-label="민간·관급"><button type="button" data-sector="">전체</button><button type="button" data-sector="민간">민간</button><button type="button" data-sector="관급">관급</button></span>
+  <span class="site-sort sk-sort" role="group" aria-label="정렬"><button type="button" data-sort="viewed">최근 열람순</button><button type="button" data-sort="no">번호순</button></span>
+</div>
+<div class="sc-cards sk-cards" id="sk-cards" role="group" aria-label="계약 구분별 시설물 수"></div>
 
 <section class="panel">
   <div class="panel-head"><h2>시설물 목록</h2><span class="panel-count" id="sk-count"></span></div>

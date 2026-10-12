@@ -49,8 +49,26 @@
 .main .sk-actions #sk-save { margin-left: auto; min-width: 120px; }
 .sk-saved { font-size: 13px; color: var(--green); font-weight: 600; }
 
+/* 목록 정렬·거르기·구분 카드·구분 버튼(10/13 — 산안법 현장 목록과 같은 모양: style.css .site-sort, css/site-info.css .sc-card·.st-switch·.site-links) */
+.sk-subbar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 10px; margin: -4px 0 10px; }
+.sc-cards.sk-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.sc-card[data-s="장기"] { --c: #2A7DE1; --soft: #EAF2FD; }
+.sc-card[data-s="1회성"] { --c: #7c3aed; --soft: #F3EFFF; }
+.sc-card[data-s="종료"] { --c: #6B7280; --soft: #F1F2F4; }
+.st-switch.sk-type button[data-s="장기"] { --c: #2A7DE1; --soft: #EAF2FD; }
+.st-switch.sk-type button[data-s="1회성"] { --c: #7c3aed; --soft: #F3EFFF; }
+.st-switch.sk-type button[data-s="종료"] { --c: #6B7280; --soft: #F1F2F4; }
+.sk-row { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.2fr) minmax(0, 1fr) auto; }
+.sk-row .site-no { display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 6px; background: var(--blue-soft); color: var(--blue);
+  font-size: 12px; font-weight: 700; vertical-align: 1px; font-variant-numeric: tabular-nums; }
+.sk-row .site-links { margin-top: 4px; }
+.sk-row.ended .sk-name b, .sk-row.ended .sk-where > span, .sk-row.ended .sk-contract { color: var(--faint); } /* 지속계약 종료 — 흐리게 */
+
 @media (max-width: 760px) {
   .sk-row { grid-template-columns: 1fr; gap: 4px; padding: 12px 14px; }
+  .sk-row .st-switch.sk-type { order: -1; flex-direction: row; width: 100%; margin-bottom: 4px; }
+  .main .sk-row .st-switch.sk-type button { flex: 1; width: auto; min-width: 0; padding: 8px 0; font-size: 13px; }
+  .sk-subbar { justify-content: space-between; margin-top: 0; }
   .sk-drops { grid-template-columns: 1fr; }
   .main a.sk-new { padding: 8px 12px; }
 }

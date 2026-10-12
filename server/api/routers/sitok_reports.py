@@ -721,7 +721,11 @@ def start_build(report_id: int, user: User = Depends(get_current_user), db: Sess
 
 @router.get("/reports/{report_id}")
 def get_report(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return _out(_require(db, user, report_id))
+    from server.api.routers.sitok import mark_view
+
+    r = _require(db, user, report_id)
+    mark_view(db, user.id, r.facility_id)  # 시설물 목록 "최근 열람순"(10/13) — 현장 조사·보고서 화면도
+    return _out(r)
 
 
 @router.get("/reports/{report_id}/file/{kind}")

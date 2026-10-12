@@ -450,8 +450,25 @@ class SitokFacility(Base):
     legal: Mapped[bool] = mapped_column(Boolean, default=True)  # 법정(1·2·3종) 시설물 — False = 자체 점검(관리대장 없음, 결과표 종별 "해당없음", 0036)
     # 도면(0039) {attach: [{id, file(시설물 폴더 기준), name, at}] 1.2.9 뒤에 붙는 평·입·단면도, struct: [...] 구조일반사항·건축개요(시설물 현황 AI가 읽음)}
     drawings: Mapped[dict | None] = mapped_column(JSON, default=None)
+    # 시설물 목록(0042, 사용자·민재형 10/13 — 산안법 현장 목록과 같게): 번호표 "26-4"(새 등록 때 자동, 묶인 동은 같은 번호), 담당자(관리소장 등) 📞,
+    # 계약 구분 장기(장기·지속계약 — 연락·일정 관리 대상) / 1회성(1회성·입찰계약) / 종료(지속계약 종료 — 장기 모음에서 빠짐). 서로 옮길 수 있음
+    mgmt_no: Mapped[str] = mapped_column(Text, default="")
+    contact_name: Mapped[str] = mapped_column(Text, default="")
+    contact_phone: Mapped[str] = mapped_column(Text, default="")
+    contract_type: Mapped[str] = mapped_column(Text, default="1회성")
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class SitokView(Base):
+    """웹판 전용 — 사람마다 시특법 시설물을 마지막으로 연 때(2026-10-13 alembic 0042) — 시설물 목록 "최근 열람순"(산안법 SiteView와 같음).
+    시설물 화면·회차(현장 조사·보고서) 화면을 열면 기록(server/api/routers/sitok.py mark_view)."""
+
+    __tablename__ = "sitok_view"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
+    facility_id: Mapped[int] = mapped_column(ForeignKey("sitok_facility.id", ondelete="CASCADE"), primary_key=True)
+    viewed_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
 
 class SitokGroup(Base):

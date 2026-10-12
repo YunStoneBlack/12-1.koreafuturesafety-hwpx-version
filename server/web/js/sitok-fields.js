@@ -5,12 +5,14 @@ const SitokFields = (() => {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   // [키, 이름, 종류, 도움말]
   const FAC = [
-    ["name", "시설물명", "text", ""], ["fms_no", "시설물번호(FMS)", "text", "예: AR2004-0004955"],
+    ["name", "시설물명", "text", ""], ["mgmt_no", "번호", "text", "목록 번호표(예: 26-4) — 새 등록 때 자동, 묶인 동은 같은 번호"],
+    ["fms_no", "시설물번호(FMS)", "text", "예: AR2004-0004955"],
     ["template", "보고서 틀", "template", "2종 / 3종 일반(+안전등급 평가) / 3종 학교(+치장벽돌·내진보강 점검)"],
     ["legal", "법정 시설물", "legal", "1·2·3종이 아닌 자체 점검이면 '법정 외' — 결과표 종별 해당없음"],
     ["kind", "시설물 구분", "text", "결과표 — 보통 건축물"], ["use_type", "종류", "text", "결과표 — 종교시설·교육연구시설 등"],
     ["main_use", "주용도(관리대장)", "text", ""], ["address", "시설물 위치", "text", ""],
     ["owner_name", "관리주체명", "text", ""], ["owner_type", "관리주체구분", "text", "민간·공공"], ["owner_phone", "관리주체 전화", "text", ""],
+    ["contact_name", "담당자(관리소장 등)", "text", "목록 📞 전화 버튼"], ["contact_phone", "담당자 전화", "text", "비우면 관리주체 전화로 걺"],
     ["completion_date", "준공일", "date", ""], ["structure", "구조형식", "text", "예: 철근콘크리트구조"],
     ["floors_above", "지상 층수", "int", ""], ["floors_below", "지하 층수", "int", ""], ["floors_roof", "옥탑 층수", "int", ""],
     ["max_height", "최고높이(m)", "num", ""], ["total_area", "연면적(㎡)", "num", ""], ["building_area", "건축면적(㎡)", "num", ""],
