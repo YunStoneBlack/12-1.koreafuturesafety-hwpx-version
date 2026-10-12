@@ -1731,6 +1731,87 @@ def _trim_rows(tbl, keep: int) -> None:
         sz.set("height", str(max(int(sz.get("height") or 0) - cut, 0)))
 
 
+def _let_split(root) -> int:
+    """줄이 늘 수 있는 표(1.2.4 용도현황·1.2.7 보수·보강 이력·1.2.8 변경사항) — 원본은 "쪽에서 나누지 않음"이라 한 쪽을 넘으면 표가 통째로
+    다음 쪽으로 가 제목만 남은 쪽이 생김(10/12 동안교회 용도현황 18줄) → 줄 단위로 나눔(머리 줄 반복은 원본 설정 그대로)."""
+    from server.sitok import detail
+
+    n = 0
+    for t in [detail._tables(root)[2], _repair_table([root]), *(tbl for _, tbl in _change_tables([root]))]:
+        if t is None:
+            continue
+        t.set("pageBreak", "CELL")
+        pos = t.find(f"{{{HP}}}pos")
+        if pos is not None and pos.get("treatAsChar") == "1":  # 글자처럼 취급 표는 한글이 쪽에서 안 나눔 → 자리 차지(가운데)로
+            pos.attrib.update({"treatAsChar": "0", "flowWithText": "1", "allowOverlap": "0", "vertRelTo": "PARA", "vertAlign": "TOP", "vertOffset": "0",
+                               "horzRelTo": "COLUMN", "horzAlign": "CENTER", "horzOffset": "0"})
+        t.set("textWrap", "TOP_AND_BOTTOM")
+        t.set("repeatHeader", "1")
+        head_rows = 2 if any(tc is t for _, tc in _change_tables([root])) else 1  # 1.2.8은 머리 2줄(변경사항 / 변경전·변경후)
+        for tc in t.iter(f"{{{HP}}}tc"):
+            addr = tc.find(f"{{{HP}}}cellAddr")
+            if addr is not None and int(addr.get("rowAddr", "99")) < head_rows and next(tc.iterancestors(f"{{{HP}}}tbl")) is t:
+                tc.set("header", "1")  # 다음 쪽에 머리 줄 반복
+        n += 1
+    return n
+
+
+HEAD_RE = re.compile(r"^(\d+(\.\d+)+|\d+\))\s*\S")  # 1.2.4 … / 1) …
+
+
+class _KeepHeads:
+    """제목 문단(1.2.4 대상시설물의 용도현황·1) 주요 구조부재의 변경사항 등)에 "다음 문단과 함께" — 제목만 쪽 끝에 남고 표·글은 다음 쪽으로 가는 것
+    막기(10/12 사용자). 제목 문단 모양(paraPr)을 복사해 keepWithNext만 켠 새 모양으로 바꿈(같은 모양을 쓰는 빈 줄·다른 문단은 그대로),
+    제목 바로 뒤 빈 줄도 같이(빈 줄에만 붙으면 표와 떨어짐). header.xml은 build 끝에 씀."""
+
+    HH = "http://www.hancom.co.kr/hwpml/2011/head"
+
+    def __init__(self, header: bytes):
+        self.root = etree.fromstring(header)
+        self.props = self.root.find(f".//{{{self.HH}}}paraProperties")
+        self.by_id = {p.get("id"): p for p in self.props.findall(f"{{{self.HH}}}paraPr")} if self.props is not None else {}
+        self.next = max((int(i) for i in self.by_id), default=0) + 1
+        self.made: dict[str, str] = {}
+
+    def _keep(self, pid: str) -> str:
+        if pid not in self.made:
+            src = self.by_id.get(pid)
+            if src is None:
+                return pid
+            cp = copy.deepcopy(src)
+            cp.set("id", str(self.next))
+            for bs in cp.iter(f"{{{self.HH}}}breakSetting"):
+                bs.set("keepWithNext", "1")
+            self.props.append(cp)
+            self.made[pid] = str(self.next)
+            self.next += 1
+        return self.made[pid]
+
+    def apply(self, root) -> int:
+        if self.props is None:
+            return 0
+        tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+        blank = lambda q: (not _top_text(q) and next(q.iter(f"{{{HP}}}tbl"), None) is None  # noqa: E731
+                           and next(q.iter(f"{{{HP}}}pic"), None) is None)
+        n = 0
+        for i, p in enumerate(tops):
+            t = _top_text(p)
+            if not HEAD_RE.match(t) or len(t) > 45 or re.search(r"[☑□☐■]", t) or next(p.iter(f"{{{HP}}}tbl"), None) is not None:
+                continue
+            p.set("paraPrIDRef", self._keep(p.get("paraPrIDRef")))
+            n += 1
+            j = i + 1
+            while j < len(tops) and blank(tops[j]):
+                tops[j].set("paraPrIDRef", self._keep(tops[j].get("paraPrIDRef")))
+                j += 1
+        return n
+
+    def header(self) -> bytes:
+        if self.props is not None:
+            self.props.set("itemCnt", str(len(self.props.findall(f"{{{self.HH}}}paraPr"))))
+        return etree.tostring(self.root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
 def _parts_tables(root, parts: dict, add_image) -> int:
     """1.3 6) 공중이용·7) 기타시설 사진 표(10/12 사용자) — 4칸(사진 줄·설명 줄 2쌍)으로 줄이고 현장 화면 탭 사진으로.
     공중이용 = 기준표 4항목 한 칸씩(설명 = 항목 이름, 사진 없으면 "해당없음"), 기타시설 = 윗줄 마감재 2·아랫줄 부착물 등 2(빈 칸 사진·설명 "-")."""
@@ -1831,8 +1912,11 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dest.with_suffix(".tmp"), "w", zipfile.ZIP_DEFLATED) as zout:
         ordered = _sections(zin)
         sections = set(ordered)
+        keep = _KeepHeads(zin.read("Contents/header.xml")) if "Contents/header.xml" in zin.namelist() else None  # 제목 + 다음 문단 함께(10/12)
         for info in zin.infolist():
             data = zin.read(info.filename)
+            if info.filename == "Contents/header.xml" and keep is not None:
+                continue  # 제목 문단 모양을 더해 맨 뒤에 씀
             if info.filename in sections:
                 root = etree.fromstring(data)
                 is_front = info.filename == ordered[0]
@@ -1876,6 +1960,9 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     if extras.parts is not None:
                         changed += _parts_tables(root, extras.parts, add_image)
                     changed += _finish_repairs(root)
+                    changed += _let_split(root)  # 줄이 느는 표는 쪽에서 나눔(10/12)
+                if keep is not None and not is_front:
+                    keep.apply(root)
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):
                     el.getparent().remove(el)
                 texts.append("\r\n".join("".join(t.text or "" for t in p.iter(T)) for p in root.iter(f"{{{HP}}}p")))
@@ -1889,6 +1976,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                 continue
             compress = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
             zout.writestr(info, data, compress_type=compress)
+        if keep is not None:
+            zout.writestr("Contents/header.xml", keep.header())
         zout.writestr("Preview/PrvText.txt", "\r\n".join(texts)[:2000].encode("utf-8"))
         items = "".join(f'<opf:item id="{k}" href="BinData/{k}.jpg" media-type="image/jpg" isEmbeded="1"/>' for k, _ in added)
         zout.writestr("Contents/content.hpf", hpf.decode("utf-8").replace("</opf:manifest>", items + "</opf:manifest>").encode("utf-8"))
