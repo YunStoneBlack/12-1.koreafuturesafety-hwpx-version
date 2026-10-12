@@ -15,8 +15,9 @@ from core.contract_analyzer import _call_claude, _encode_pdf, _parse_json_object
 
 LEDGER_PROMPT = """첨부는 국토안전관리원 FMS에서 출력한 "시설물관리대장(건축물)"입니다. 아래 값을 찾아 JSON 객체 하나로만 답하세요(설명 없이).
 문서에 없거나 불확실하면 "" 또는 null — 절대 추측하지 마세요. 날짜는 YYYY-MM-DD, 숫자는 단위 없이 숫자만.
-주의: 기본현황에 "사업계획 승인일 · 준공(사용승인)일 · 하자담보책임 만료일"이 나란히 있음 — 준공일은 하자담보 만료일보다 앞 날짜이고
-보통 설계/시공의 공사기간 끝 날짜와 같음. 층수는 상세제원의 지상(옥탑제외)·옥탑·지하.
+주의: 기본현황에 "사업계획 승인일 · 준공(사용승인)일 · 하자담보책임 만료일"이 나란히 있음 — 준공일은 "준공(사용승인)일" 칸에 적힌 날짜 그대로
+(하자담보 만료일보다 앞 날짜). 설계/시공의 공사기간 끝 날짜와 다를 수 있으니 공사기간 날짜로 대신하지 말 것(10/12 숭의 B동: 공사 끝 1991-06-15, 준공 1991-06-26).
+층수는 상세제원의 지상(옥탑제외)·옥탑·지하.
 
 {"fms_no": "시설물번호(예: AR2004-0004955)", "name": "시설물명", "kind": "시설물종류(예: 건축물)", "grade": "시설물종별 숫자만(1·2·3)",
  "facility_class": "시설물분류", "main_use": "주용도", "address": "주소(도로명 우선, 없으면 지번) 한 줄",
@@ -68,10 +69,45 @@ def _ask(pdf: Path, prompt: str, company_id: int) -> dict:
     return _parse_json_object(_call_claude(_encode_pdf(pdf), prompt, max_tokens=6000, company_id=company_id))
 
 
-def _completion(d: dict) -> datetime.date | None:
-    """준공일 — 관리대장의 날짜 칸이 표가 돌아간 쪽이라 AI가 하자담보 만료일과 헷갈리기도 한다(10/10 평택: 2004 준공·2005 하자).
-    공사기간 끝 날짜가 있고 AI 준공일이 그보다 300일 넘게 늦거나 하자담보 만료일과 같으면 공사기간 끝을 쓴다."""
+def _text_dates(pdf: Path) -> list[datetime.date]:
+    """관리대장 글자에서 "사업계획 승인일 · 준공(사용승인)일 · 하자담보책임 만료일" 칸 날짜들(FMS 출력은 "5. 첨부자료 목록" 다음, "설계기간" 앞에
+    "1991년 06월 26일" 꼴로 차례로 — 빈 칸은 안 나옴). 못 찾으면 []."""
+    import re
+
+    import pymupdf
+
+    try:
+        with pymupdf.open(pdf) as doc:
+            text = "\n".join(p.get_text() for p in doc)
+    except Exception:  # noqa: BLE001
+        return []
+    m = re.search(r"준공\s*\(사용승인\)\s*일.*?첨부자료\s*목록(.*?)설계기간", text, re.S)
+    if not m:
+        return []
+    out = []
+    for y, mo, dd in re.findall(r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일", m[1]):
+        try:
+            out.append(datetime.date(int(y), int(mo), int(dd)))
+        except ValueError:
+            pass
+    return out
+
+
+def _completion(d: dict, pdf: Path | None = None) -> datetime.date | None:
+    """준공일 — 관리대장의 날짜 칸이 표가 돌아간 쪽이라 AI가 하자담보 만료일(10/10 평택: 2004 준공·2005 하자)이나 공사기간 끝
+    (10/12 숭의 B동: 공사 끝 06-15·준공 06-26)과 헷갈리기도 한다.
+    1) 글자에서 날짜 칸을 찾았으면 그걸로 확인 — AI 날짜가 그 안에 있으면 그대로, 아니면 칸 수로(1개 = 준공, 3개 = 가운데, 2개 = AI 하자담보와 다른 앞의 것).
+    2) 못 찾았으면 공사기간 끝 날짜가 있고 AI 준공일이 하자담보 만료일과 같거나 그보다 300일 넘게 늦을 때만 공사기간 끝."""
     done, built, defect = _date(d.get("completion_date")), _date(d.get("construction_end")), _date(d.get("defect_end"))
+    dates = _text_dates(pdf) if pdf else []
+    if dates:
+        if done in dates and done != defect:
+            return done
+        if len(dates) == 1:
+            return dates[0]
+        if len(dates) == 3:
+            return dates[1]
+        return dates[0] if defect == dates[1] or (dates[1] - dates[0]).days > 300 else dates[1]
     if built and (done is None or done == defect or (done - built).days > 300):
         return built
     return done
@@ -88,7 +124,7 @@ def read_ledger(pdf: Path, company_id: int) -> dict:
         "fms_no": _str(d.get("fms_no")).replace(" ", ""), "name": _str(d.get("name")), "kind": _str(d.get("kind")) or "건축물",
         "grade": _str(d.get("grade"))[:1], "main_use": _str(d.get("main_use")), "use_type": _str(d.get("use_type_guess")),
         "address": _str(d.get("address")), "owner_name": _str(d.get("owner_name")), "owner_type": _str(d.get("owner_type")),
-        "owner_phone": _str(d.get("owner_phone")), "completion_date": _completion(d), "owner_rep": _str(d.get("owner_rep")), "structure": _str(d.get("structure")),
+        "owner_phone": _str(d.get("owner_phone")), "completion_date": _completion(d, pdf), "owner_rep": _str(d.get("owner_rep")), "structure": _str(d.get("structure")),
         "floors_above": _int(d.get("floors_above")), "floors_below": _int(d.get("floors_below")), "floors_roof": _int(d.get("floors_roof")),
         "max_height": _num(d.get("max_height")), "total_area": _num(d.get("total_area")), "building_area": _num(d.get("building_area")),
         "ledger": {"facility_class": _str(d.get("facility_class"))},
