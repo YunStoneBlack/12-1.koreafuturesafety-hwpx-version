@@ -51,8 +51,8 @@
           <input data-k="amount_k" inputmode="numeric" value="${esc(r.amount_k)}" placeholder="예: 550" /></label>` : ""}
       </div>
       <div class="sk-rep-foot">${stateText}
-        ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf" target="_blank" rel="noopener">PDF 보기</a>` : ""}
-        ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx">한글 받기</a>` : ""}
+        ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf?v=${encodeURIComponent(r.made_at || "")}" target="_blank" rel="noopener">PDF 보기</a>` : ""}
+        ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx?v=${encodeURIComponent(r.made_at || "")}">한글 받기</a>` : ""}
         ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>`;
     el.querySelectorAll("[data-k]").forEach((inp) => inp.addEventListener("change", async () => {
       const k = inp.dataset.k;

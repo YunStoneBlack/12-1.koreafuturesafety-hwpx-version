@@ -259,11 +259,10 @@ def apply(root, detail: dict) -> int:
             n += 1
     if yo is not None and detail.get("uses") is not None:
         _set_rows(yo, detail["uses"])
-        if detail.get("uses_total"):
-            c = rb._cells(yo)
-            last = max(k[0] for k in c)
-            if (last, 1) in c:
-                rb._set_lines(c[(last, 1)], [detail["uses_total"]])
+        c = rb._cells(yo)  # 합계 칸 — 값이 없어도 "-"(원본 광숭초 "9,534.1 ㎡"가 남지 않게, 10/12)
+        last = max(k[0] for k in c)
+        if (last, 1) in c:
+            rb._set_lines(c[(last, 1)], [detail.get("uses_total") or "-"])
         n += 1
     return n
 

@@ -705,7 +705,8 @@ def report_file(report_id: int, kind: str, user: User = Depends(get_current_user
     if not path or not Path(path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
     return FileResponse(path, media_type="application/pdf" if kind == "pdf" else "application/octet-stream",
-                        filename=Path(path).name, content_disposition_type="inline" if kind == "pdf" else "attachment")
+                        filename=Path(path).name, content_disposition_type="inline" if kind == "pdf" else "attachment",
+                        headers={"Cache-Control": "no-store"})  # 다시 만든 뒤 예전 PDF가 보이지 않게(10/12 동안교회)
 
 
 def _ai_out(db: Session, r: SitokReport) -> dict:
@@ -950,8 +951,8 @@ def _detail_defaults(prior: Path | None, f: SitokFacility | None = None) -> dict
     fields = {k: fv.get(_norm_key(k)) or v for k, v in prior_fields.items()}
     pc = {c["key"]: c["selected"] for c in (src or {}).get("checks", [])}
     checks = {c["key"]: pc[c["key"]] for c in base["checks"] if c["key"] in pc}
-    return {"fields": fields, "prior_fields": prior_fields, "checks": checks, "uses": (src or {}).get("uses") or [],
-            "uses_total": (src or {}).get("uses_total") or ""}
+    total = (src or {}).get("uses_total") or (f"{f.total_area:,.2f}㎡" if f is not None and f.total_area else "")  # 없으면 시설물 칸 연면적
+    return {"fields": fields, "prior_fields": prior_fields, "checks": checks, "uses": (src or {}).get("uses") or [], "uses_total": total}
 
 
 def _ours(hwpx: Path) -> bool:
