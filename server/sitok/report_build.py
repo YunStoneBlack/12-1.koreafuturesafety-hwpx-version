@@ -269,9 +269,9 @@ def replacements(old: Values, new: Values) -> tuple[dict[str, str], list, set[st
     cell(old.amount_k, new.amount_k)
     cell(old.address, new.address)
     cell(old.scale, new.scale)
-    if old.completion and new.completion:
+    if old.completion:  # 준공일을 모르면 "-"(원본·다른 시설물 날짜가 남지 않게 — 10/12 관리대장 없는 법정 외 자체 점검)
         for o, f in _date_forms(old.completion):
-            cell(o, f(new.completion))
+            cell(o, f(new.completion) if new.completion else "-")
     for od, nd in ((old.period_start, new.period_start), (old.period_end, new.period_end), (old.task_end, new.task_end)):
         if od and nd and od != nd:
             for o, f in _date_forms(od):
@@ -1147,10 +1147,15 @@ def _base_reset(root, is_front: bool, sec: int, base: dict, blank: str, add_imag
     for p in tops:
         t = _top_text(p)
         if t.startswith("본 과업대상 시설물은") and "정기안전점검" in t:
-            tail = ("법적 주기에 따라 적정하게 수행하고 있는 상태이며, 그 점검결과는 다음과 같다." if base.get("history")
-                    else "법적 주기에 따라 실시하여야 하는 시설물이다.")
-            _set_para(p, f"본 과업대상 시설물은 제{base.get('grade') or '-'}종에 해당하는 {base.get('use') or '시설물'}로서 「시설물의 안전 및 유지관리에 관한 특별법」에서 "
-                         f"규정하고 있는 정기안전점검(1년 2회)을 {tail}")
+            if base.get("legal") is False:  # 법정 외 — 관리주체 요청으로 같은 기준 자체 점검(사용자 10/12, 문구는 형 검토)
+                tail = ("실시하고 있으며, 그 점검결과는 다음과 같다." if base.get("history") else "실시하는 시설물이다.")
+                _set_para(p, f"본 과업대상 시설물은 「시설물의 안전 및 유지관리에 관한 특별법」상 제1·2·3종 시설물에 해당하지 않는 {base.get('use') or '시설물'}이나, "
+                             f"관리주체의 요청에 따라 같은 법의 정기안전점검 기준으로 점검을 {tail}")
+            else:
+                tail = ("법적 주기에 따라 적정하게 수행하고 있는 상태이며, 그 점검결과는 다음과 같다." if base.get("history")
+                        else "법적 주기에 따라 실시하여야 하는 시설물이다.")
+                _set_para(p, f"본 과업대상 시설물은 제{base.get('grade') or '-'}종에 해당하는 {base.get('use') or '시설물'}로서 「시설물의 안전 및 유지관리에 관한 특별법」에서 "
+                             f"규정하고 있는 정기안전점검(1년 2회)을 {tail}")
             n += 1
             break
     n += _set_repairs(root, base.get("repairs") or [])  # 1.2.7 — 전회차 보고서 이력(이번 면담 줄은 뒤에 _apply_survey가)

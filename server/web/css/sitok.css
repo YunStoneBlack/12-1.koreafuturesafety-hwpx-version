@@ -261,3 +261,30 @@
 .sg-none { margin: 0 0 10px; }
 .sk-rep-group { font-size: 13px; background: var(--blue-soft); border-radius: 8px; padding: 7px 12px; margin: 4px 0 8px; line-height: 1.6; }
 .sk-rep-group .sk-help { display: block; }
+/* 새 점검 대상 등록(sitok-new.html, 10/12) */
+.nw-b { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: var(--surface); }
+.nw-b-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 14px; }
+.main .nw-b-head .link-btn { margin: 0 0 0 auto; padding: 0; white-space: nowrap; background: none; border: 0; color: var(--crit); font-size: 12.5px; text-decoration: underline; }
+.nw-b-drops { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); gap: 8px; align-items: stretch; }
+.nw-dash { display: flex; align-items: center; justify-content: center; color: var(--faint); font-weight: 700; }
+.nw-fields { margin-top: 10px; }
+.nw-fields summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink); padding: 4px 0; }
+.nw-fields .field-grid { margin-top: 8px; }
+.nw-group { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; font-size: 13px; border-top: 1px dashed var(--line); }
+.nw-group[hidden] { display: none; }
+.nw-group label { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.main .nw-group input { width: 240px; margin: 0; padding: 6px 9px; font-size: 13px; }
+.nw-actions { align-items: center; }
+.nw-round { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; margin-right: auto; }
+.nw-round input { width: 90px; padding: 6px 8px; }
+.nw-round select { padding: 6px 8px; }
+.sk-drop small { font-weight: 500; color: var(--muted); }
+/* 그룹웨어 app.css의 .main label{display:block}·select{width:100%}보다 우선 */
+.main .sk-drop { display: flex; margin: 0; }
+.main .nw-round, .main .nw-group label { display: flex; }
+.main .nw-round input, .main .nw-round select { width: auto; margin: 0; }
+@media (max-width: 760px) {
+  .nw-b-drops { grid-template-columns: 1fr; }
+  .nw-dash { display: none; }
+  .nw-actions { flex-wrap: wrap; }
+}

@@ -39,7 +39,7 @@ JOINT_TYPES = ("독자수행", "공동이행", "분담이행")  # 점검진단�
 BID_METHODS = ("일반경쟁", "제한경쟁", "지명경쟁", "수의계약", "기타")
 FIELDS = ("교량 및 터널", "건축", "항만", "수리시설")
 FAC_FIELDS = ("fms_no", "name", "template", "kind", "use_type", "main_use", "address", "owner_name", "owner_type", "owner_phone",
-              "completion_date", "structure", "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "memo")
+              "completion_date", "structure", "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "memo", "legal")
 CON_FIELDS = ("sector", "title", "contract_no", "contract_date", "start_date", "end_date", "halves", "first_half_end", "second_half_start",
               "amount", "rep_name", "joint_type", "joint_pct", "bid_method", "field")
 DATES = {"completion_date", "contract_date", "start_date", "end_date", "first_half_end", "second_half_start"}
@@ -65,6 +65,7 @@ class FacilityIn(BaseModel):
     total_area: float | None = None
     building_area: float | None = None
     memo: str | None = None
+    legal: bool | None = None  # 법정(1·2·3종) 시설물 — False = 자체 점검(관리대장 없음, 결과표 종별 "해당없음")
     base_wall: float | None = None  # 면적률 기준 면적(㎡) — ledger JSON에 보관(10/11)
     base_slab: float | None = None
 
@@ -112,7 +113,7 @@ def _clean_uploads() -> None:
     if not UPLOAD_DIR.exists():
         return
     old = datetime.datetime.now().timestamp() - 86400
-    for p in UPLOAD_DIR.glob("*.pdf"):
+    for p in UPLOAD_DIR.glob("*.*"):  # PDF·이전 회차 hwpx(10/12)
         if p.stat().st_mtime < old:
             p.unlink(missing_ok=True)
 
@@ -224,8 +225,9 @@ def list_facilities(user: User = Depends(get_current_user), db: Session = Depend
 
 @router.post("/read")
 def read_pdf(kind: str = Form(...), file: UploadFile = File(...), user: User = Depends(get_current_user)):
-    if kind not in ("ledger", "contract"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "kind는 ledger 또는 contract입니다.")
+    """kind = ledger(시설물관리대장, AI로 칸) | contract(계약서, AI로 칸) | register(건축물대장 — 보관만, 시설물 현황·1.2.8 초안이 나중에 읽음)."""
+    if kind not in ("ledger", "contract", "register"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "kind는 ledger·contract·register입니다.")
     data = file.file.read()
     if not data.startswith(b"%PDF"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF 파일을 올려 주세요.")
@@ -234,6 +236,8 @@ def read_pdf(kind: str = Form(...), file: UploadFile = File(...), user: User = D
     token = secrets.token_hex(12)
     path = UPLOAD_DIR / f"{token}.pdf"
     path.write_bytes(data)
+    if kind == "register":
+        return {"token": token, "fields": {}, "error": ""}
     try:
         parsed = reader.read_ledger(path, user.company_id) if kind == "ledger" else reader.read_contract(path, user.company_id)
     except Exception as err:  # noqa: BLE001 — 읽기 실패해도 파일은 붙이고 손으로 채우게

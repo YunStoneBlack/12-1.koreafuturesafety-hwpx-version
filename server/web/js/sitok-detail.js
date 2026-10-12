@@ -1,5 +1,5 @@
 // 시특법 회차 [🏢 시설물 현황] 창(2026-10-11) — 보고서 시설물편 1.1 건축물 현황표·1.2.1~1.2.3 체크·1.2.4 구조 및 마감·용도현황.
-// 칸 이름은 회사 원본, 값은 저장한 것 → 없으면 전회차 보고서 값(10/12). [🤖 관리대장·건축물대장으로 채우기] → 확인 → 저장.
+// 칸 이름은 회사 원본, 값은 저장한 것 → 없으면 시설물 칸(관리대장·직접 입력) → 전회차 보고서 값 → "-"(10/12). [🤖 관리대장·건축물대장으로 채우기] → 확인 → 저장.
 // 관리대장 값과 전회차 보고서 값이 다르면 칸 아래에 둘 다 보여 주고 고르게(사용자 10/12 — 우리 점검자가 잘못 썼을 수 있음, 기본은 관리대장).
 // 서버 server/api/routers/sitok_reports.py /detail, 읽고 쓰기 server/sitok/detail.py.
 
@@ -27,7 +27,7 @@ async function openSitokDetail(reportId, title, onSaved) {
     box.innerHTML = `<div class="mail-head"><b>🏢 시설물 현황</b><span class="mail-sub">${esc(title)} — 보고서 1.1 건축물 현황표, 1.2.1~1.2.4</span></div>
       <div class="dt-ai"><label class="secondary-link">건축물대장 PDF ${s.has_register ? "(올려 둠 ✓ — 바꾸려면 다시)" : "(있으면 층별 용도·면적까지)"}<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" class="dt-reg" /></label>
         <button type="button" class="secondary dt-fill">🤖 관리대장·건축물대장으로 채우기</button>
-        <span class="sk-help">${s.saved ? "저장한 값" : s.has_prior ? "지금 값 = 전회차 보고서 값" : "처음 맡는 시설물 — 관리대장·건축물대장으로 채우세요"}</span></div>
+        <span class="sk-help">${s.saved ? "저장한 값" : `지금 값 = 시설물 칸(관리대장·직접 입력)${s.has_prior ? " + 전회차 보고서 값" : ""}`}${!s.has_ledger && !s.has_register ? " — 관리대장·건축물대장이 없어 나머지 칸은 직접(없으면 \"-\")" : ""}</span></div>
       ${s.ai ? '<div class="mail-msg ok">🤖 AI가 채웠습니다 — 확인하고 [저장]. 자료에 없는 칸은 "-"</div>' : ""}
       ${nDiff ? `<div class="mail-msg dt-diffs">⚠ 전회차 보고서와 다른 칸 ${nDiff}개 — 지금 값은 관리대장·건축물대장 쪽입니다. 전회차 값이 맞으면 그 칸의 [이걸로]</div>` : ""}
       <div class="ai-form">

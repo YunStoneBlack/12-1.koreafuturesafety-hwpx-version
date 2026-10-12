@@ -42,6 +42,34 @@ def _tables(root):
     return hy, gu, yo
 
 
+def _old_table(root):
+    """옛 모양 1.1 표(첫 칸 "시설물명(FMS등록기준)", 한 줄에 이름|값 여럿 — 숭의 2025 하반기) — 전회차 값 읽기만(10/12)."""
+    for t in root.iter(f"{{{HP}}}tbl"):
+        if _key(rb._cell_text(rb._cells(t).get((0, 0), t))).startswith("시설물명"):
+            return t
+    return None
+
+
+OLD_ALIAS = {"시설물위치": "위치", "준공일자": "준공년월일", "건축연면적": "연면적"}  # 옛 모양 이름 → 회사 원본 칸 이름
+
+
+def _old_fields(t) -> list[dict]:
+    """옛 모양 표 → 칸들(줄마다 칸 차례로 이름, 오른쪽 값 — 같은 이름은 처음 것)."""
+    c = rb._cells(t)
+    out, seen = [], set()
+    for r in sorted({k[0] for k in c}):
+        row = [c[k] for k in sorted(k for k in c if k[0] == r)]
+        for a, b in zip(row[::2], row[1::2]):
+            label = rb._cell_text(a).replace("\n", " ").strip()
+            k = re.sub(r"\(.*?\)", "", _key(label))
+            k = OLD_ALIAS.get(k, k)
+            v = rb._cell_text(b).strip()
+            if k and v and k not in seen:
+                seen.add(k)
+                out.append({"key": k, "label": label, "value": v, "group": "건축물 현황표"})
+    return out
+
+
 def _seismic(root):
     """1.2.5 내진설계 여부 표(머리 "내진설계 여부"|"확인결과") → (여부 칸, 확인결과 칸) 또는 None."""
     for t in root.iter(f"{{{HP}}}tbl"):
@@ -123,9 +151,13 @@ def read(hwpx: Path) -> dict:
     """틀의 지금 값 — 창에 보여 줄 모양."""
     with zipfile.ZipFile(hwpx) as z:
         roots = [etree.fromstring(z.read(n)) for n in rb._sections(z)]
-    root = next((r for r in roots if _tables(r)[0] is not None), roots[-1])  # 시설물편 구역
+    root = next((r for r in roots if _tables(r)[0] is not None), None)  # 시설물편 구역
+    if root is None:
+        root = next((r for r in roots if _old_table(r) is not None), roots[-1])
     hy, gu, yo = _tables(root)
     fields = [{"key": _key(n), "label": n, "value": _val_text(v), "group": "건축물 현황표"} for n, v in (_pairs(hy, (0, 2)) if hy is not None else [])]
+    if hy is None and _old_table(root) is not None:
+        fields = _old_fields(_old_table(root))
     fields += [{"key": "구조/" + _key(n), "label": n, "value": "\n".join(x.lstrip("ㆍ·").strip() for x in _val_text(v).split("\n")),
                 "group": "1.2.4 구조 및 마감상태"} for n, v in (_struct_pairs(gu) if gu is not None else [])]
     checks = []

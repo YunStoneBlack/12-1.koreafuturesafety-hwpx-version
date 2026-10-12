@@ -37,6 +37,7 @@ from server.api.routers import (
     sitok_defects,
     sitok_overview,
     sitok_groups,
+    sitok_onboard,
     photo_rotate,
     photos,
     plan_change,
@@ -110,6 +111,7 @@ web_app.include_router(sitok_reports.router, prefix="/api")  # 시특법 보고�
 web_app.include_router(sitok_defects.router, prefix="/api")  # 시특법 현장 결함 조사
 web_app.include_router(sitok_overview.router, prefix="/api")  # 시특법 전경사진(10·11쪽)
 web_app.include_router(sitok_groups.router, prefix="/api")  # 시특법 동 묶음(한 계약 여러 동 — 2026-10-12)
+web_app.include_router(sitok_onboard.router, prefix="/api")  # 시특법 새 점검 대상 한 번에 등록(2026-10-12)
 web_app.include_router(route_plan.router, prefix="/api")
 web_app.include_router(contract_library.router, prefix="/api")  # 착수계·완수계 자료실(설정 탭)
 web_app.include_router(contracts.router, prefix="/api")  # 서류 자동화 — 용역 계약·착수계·완수계

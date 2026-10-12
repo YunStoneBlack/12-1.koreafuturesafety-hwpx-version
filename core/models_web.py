@@ -447,6 +447,7 @@ class SitokFacility(Base):
     memo: Mapped[str] = mapped_column(Text, default="")
     group_id: Mapped[int | None] = mapped_column(ForeignKey("sitok_group.id", ondelete="SET NULL"), default=None, index=True)  # 한 보고서로 묶인 동(0035)
     group_order: Mapped[int] = mapped_column(Integer, default=0)  # 묶음 안 순서(시설물편 제N장) — 0이 대표
+    legal: Mapped[bool] = mapped_column(Boolean, default=True)  # 법정(1·2·3종) 시설물 — False = 자체 점검(관리대장 없음, 결과표 종별 "해당없음", 0036)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 

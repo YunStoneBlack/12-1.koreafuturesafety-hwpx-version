@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>새 점검 대상 등록 - 시특법</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+</head>
+<!-- 시특법 새 점검 대상 등록(2026-10-12 사용자) — 계약서·이전 회차 보고서·동마다 시설물관리대장·건축물대장을 한 번에 올리고 [등록하고 시작].
+     없는 서류는 비워 둠(직접 입력). 화면 js/sitok-new.js, 서버 server/api/routers/sitok_onboard.py. -->
+<body data-report-tab="facilities" data-law="sitok" data-tabs-only>
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div class="crumb"><a href="sitok.html">시설물 목록</a> › <span>새 점검 대상 등록</span></div>
+<p class="page-sub tab-intro">서류를 한 번에 올리고 <b>[등록하고 시작]</b>을 누르면 시설물·계약·이전 회차 보고서가 등록되고 이번 반기 회차까지 만들어집니다.
+  없는 서류는 비워 두세요 — 이전 회차(처음 점검), 건축물대장(군사보안 등), 시설물관리대장(법정 외 자체 점검)이 없으면 그 칸은 직접 넣습니다.</p>
+<div id="error" class="error"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>① 계약서 · 이전 회차 보고서</h2><span class="panel-count">올리면 AI가 읽어 아래 칸을 채웁니다</span></div>
+  <div class="panel-body sk-drops">
+    <label class="sk-drop" id="nw-con-drop"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
+      <b>📄 계약서 PDF</b><span class="sk-drop-msg">민간 표준계약서(스캔도 됨) 또는 나라장터 용역계약서 — 여러 동이면 1번 동에 붙음</span></label>
+    <label class="sk-drop" id="nw-prior-drop"><input type="file" accept=".hwp,.hwpx,application/pdf,.pdf" hidden data-kr-file="1" />
+      <b>📘 이전 회차 보고서 <small>(선택)</small></b><span class="sk-drop-msg">우리 한글(hwp·hwpx) — 이력·시설물 현황 등 데이터를 가져옴, 여러 동 보고서면 동마다 나눔 /
+        타회사 PDF — 첫 회차 현장 조사에 전회차 결함으로</span></label>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>② 동마다 시설물관리대장 · 건축물대장</h2><button type="button" class="secondary btn-sm" id="nw-add">+ 동 추가</button></div>
+  <div class="panel-body" id="nw-buildings"></div>
+  <div class="panel-body nw-group" id="nw-group" hidden>
+    <label>묶음 이름 <input id="nw-group-name" placeholder="예: 숭의교회" /></label>
+    <span class="sk-help">2동 이상이면 보고서 한 권 — 표지·머리글·제출문에 씁니다. 동 순서 = 시설물편 제1장·제2장…</span>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>③ 점검 용역 계약</h2><span class="panel-count">계약서를 올리면 채워집니다 — 없으면 비워 둬도 됩니다</span></div>
+  <div class="panel-body" id="nw-con"></div>
+</section>
+
+<div class="sk-actions nw-actions">
+  <label class="nw-round">이번 회차 <input type="number" id="nw-year" min="2000" max="2100" aria-label="연도" />년
+    <select id="nw-half" aria-label="반기"><option>상반기</option><option>하반기</option></select></label>
+  <span class="sk-saved" id="nw-msg"></span>
+  <button type="button" id="nw-go">등록하고 시작</button>
+</div>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/sitok-fields.js"></script>
+<script src="js/sitok-new.js"></script>
+</body>
+</html>

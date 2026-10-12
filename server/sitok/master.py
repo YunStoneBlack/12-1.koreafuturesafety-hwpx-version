@@ -272,7 +272,7 @@ def _sub_once(p, pat: str, repl: str) -> None:
                 return
 
 
-def prepare(src: Path, kind: str, dest: Path, private: bool = True) -> list[str]:
+def prepare(src: Path, kind: str, dest: Path, private: bool = True, legal: bool = True) -> list[str]:
     """원본 → 이 시설물 종별의 틀(dest): 학교 전용 절 빼기(2종 = 1.5 18항목 안전등급 평가·1.7 치장벽돌, 3종 일반 = 1.7) → 시설물편 절 번호·
     목차·장 표지 소목차를 실제 절로 다시, 2종 표지·책등 "3종시설" → "2종시설", 부록 문구(민간 1부·7일, 평가 매뉴얼은 학교만). 안내를 돌려줌."""
     drop = DROP.get(kind, ())
@@ -333,7 +333,14 @@ def prepare(src: Path, kind: str, dest: Path, private: bool = True) -> list[str]
                 p.getparent().remove(p)
             elif mapping.get(old, old) != old:
                 _renum(p, old, mapping[old])
-        if kind == "2종":  # 책등 "제 / 3종시설" 칸만(용역명 안 "제3종시설물"은 만들 때 용역명째 바뀜 — 여기서 바꾸면 머리글 용역명과 어긋남)
+        if not legal:  # 법정 외(자체 점검) — 책등 "제 / N종시설" 비움
+            for tbl in front.iter(f"{{{HP}}}tbl"):
+                if "︻" in "".join(rb._cell_text(c) for c in rb._cells(tbl).values()):
+                    for t in tbl.iter(rb.T):
+                        for pc in rb._pieces(t):
+                            if re.fullmatch(r"\s*(제|\d종시설물?)\s*", pc.text):
+                                pc.text = ""
+        elif kind == "2종":  # 책등 "제 / 3종시설" 칸만(용역명 안 "제3종시설물"은 만들 때 용역명째 바뀜 — 여기서 바꾸면 머리글 용역명과 어긋남)
             for t in front.iter(rb.T):
                 for pc in rb._pieces(t):
                     if re.fullmatch(r"\s*3종시설\s*", pc.text):

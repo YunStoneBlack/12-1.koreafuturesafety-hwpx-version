@@ -294,12 +294,19 @@ def _register_one(db: Session, user: User, f: SitokFacility, src: Path, name: st
 def register_past(facility_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """이미 낸 보고서 등록(10/10) — 그 회차가 없으면 만들고, 있으면 결과 한글만 이것으로. 상태 "만듦"(PDF는 없음) → 다음 회차가 이 데이터를 가져감.
     묶인 시설물이고 여러 동 보고서(시설물편 장 2개 이상)면 동마다 나눠(merge.split, 장 순서 = 묶음 순서) 동마다 등록(10/12)."""
-    from server.api.routers.sitok_groups import members
-    from server.sitok import merge
-
     f = _require_facility(db, user, facility_id)
     tmp = _facility_dir(f) / "_올림_지난보고서.hwpx"
     name, _ = _read_hwp_upload(file, tmp)
+    r = register_prior_file(db, user, f, tmp, name)
+    db.commit()
+    return _out(r)
+
+
+def register_prior_file(db: Session, user: User, f: SitokFacility, tmp: Path, name: str) -> SitokReport:
+    """지난 보고서 hwpx(tmp) 등록 — 묶인 시설물이고 여러 동 보고서면 동마다 나눠(장 순서 = 묶음 순서). f의 회차를 돌려줌(commit은 부른 쪽)."""
+    from server.api.routers.sitok_groups import members
+    from server.sitok import merge
+
     n = _chapter_count(tmp)
     ms = members(db, f.group_id)
     if n >= 2 and len(ms) >= 2:
@@ -313,11 +320,8 @@ def register_past(facility_id: int, file: UploadFile = File(...), user: User = D
         tmp.unlink(missing_ok=True)
         if len(ms) != n:
             mine.message += f" · ⚠ 보고서는 {n}동, 묶음은 {len(ms)}동 — 장 순서대로 앞에서부터 맞췄습니다"
-        db.commit()
-        return _out(mine)
-    r = _register_one(db, user, f, tmp, name)
-    db.commit()
-    return _out(r)
+        return mine
+    return _register_one(db, user, f, tmp, name)
 
 
 @router.post("/reports/{report_id}/source")
@@ -369,7 +373,7 @@ def _new_values(db: Session, r: SitokReport, old: rb.Values, prior: rb.Values | 
     new.address = f.address or p.address or "-"
     new.completion = f.completion_date or p.completion
     if not new.completion:
-        warn.append("준공일이 없어 원본 날짜 그대로입니다 — 시설물 정보에 넣으세요")
+        warn.append("준공일이 없어 결과표 준공일이 \"-\"입니다 — 알면 시설물 정보에 넣으세요")
     if f.structure and f.total_area:
         floors = f"지상 {f.floors_above}층" if f.floors_above else ""
         if f.floors_below:
@@ -550,7 +554,7 @@ def _build_hwpx(db: Session, r: SitokReport, dest: Path) -> tuple[list[str], int
     folder = _report_dir(f, r)
     folder.mkdir(parents=True, exist_ok=True)
     src = folder / "틀_회사원본.hwpx"  # 회사 원본 → 이 시설물 종별(2종·3종 일반은 학교 전용 절 빼고 번호 다시)
-    warn = master.prepare(master.master_path(), f.template, src, private=c is None or c.sector != "관급")
+    warn = master.prepare(master.master_path(), f.template, src, private=c is None or c.sector != "관급", legal=f.legal)
     prior = _prior(r)
     pv = rb.read_old(prior) if prior else None
     old = rb.read_old(src)
@@ -837,11 +841,11 @@ def _detail_out(db: Session, r: SitokReport, override: dict | None = None) -> di
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 원본 템플릿이 없습니다 — 시특법 설정에서 올리세요.")
     prior = _prior(r)
     base = detail.read(master.master_path())
-    dflt = _detail_defaults(prior)
-    saved = override or (r.survey or {}).get("detail") or {}
     f = db.get(SitokFacility, r.facility_id)
+    dflt = _detail_defaults(prior, f)
+    saved = override or (r.survey or {}).get("detail") or {}
     for x in base["fields"]:
-        x["prior"] = dflt["fields"].get(x["key"], "-") if prior else ""
+        x["prior"] = dflt["prior_fields"].get(x["key"], "-") if prior else ""
         x["value"] = (saved.get("fields") or {}).get(x["key"], dflt["fields"].get(x["key"], "-"))
     for c in base["checks"]:
         c["selected"] = (saved.get("checks") or {}).get(c["key"], dflt["checks"].get(c["key"]))
@@ -869,6 +873,8 @@ def detail_ai(report_id: int, file: UploadFile | None = File(None), user: User =
                 f"지상 {f.floors_above}층·지하 {f.floors_below}층·옥탑 {f.floors_roof} / 최고높이 {f.max_height} / 연면적 {f.total_area} / 건축면적 {f.building_area} / "
                 f"주용도 {f.main_use}")
     pdfs = [Path(p) for p in (f.ledger_pdf, str(reg)) if p and Path(p).exists()]
+    if not pdfs:  # 법정 외(관리대장 없음)·군사보안(건축물대장 없음) 등
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "시설물관리대장·건축물대장 PDF가 없어 AI로 채울 수 없습니다 — 칸에 직접 넣으세요(없는 칸은 \"-\").")
     try:
         got = detail.fill_ai(cur, facility, pdfs, user.company_id)
     except Exception as err:  # noqa: BLE001
@@ -897,18 +903,36 @@ def _norm_key(k: str) -> str:
     return re.sub(r"\(.*?\)|㎡|\s", "", k or "")
 
 
-def _detail_defaults(prior: Path | None) -> dict:
-    """시설물 현황 기본값 = 칸은 회사 원본, 값은 전회차 보고서(없으면 "-") — 원본(다른 시설물) 값이 남지 않게."""
+def _facility_detail(f: SitokFacility | None) -> dict:
+    """시설물 현황 칸 중 시설물 칸(관리대장에서 읽었거나 직접 넣은 것)으로 아는 값 — 칸 이름은 _norm_key로 맞춤.
+    자료가 다르면 기본은 관리대장(사용자 10/12), 관리대장 없는 법정 외 자체 점검은 직접 넣은 시설물 칸(10/12)."""
+    if f is None:
+        return {}
+    d = f.completion_date
+    floors = ", ".join(x for x in (f"지하{f.floors_below}층" if f.floors_below else "", f"지상{f.floors_above}층" if f.floors_above else "") if x)
+    vals = {"시설물명": f.name, "시설물번호": f.fms_no, "준공년월일": f"{d.year}년 {d.month:02d}월 {d.day:02d}일" if d else "",
+            "위치": f.address, "관리주체": f.owner_name, "건축면적": f"{f.building_area:,.2f}㎡" if f.building_area else "",
+            "연면적": f"{f.total_area:,.2f}㎡" if f.total_area else "", "층수": f"1개동({floors})" if floors else "",
+            "주용도": f.use_type or f.main_use, "구조형식": f.structure, "최고높이": f"{f.max_height:g}m" if f.max_height else ""}
+    return {k: str(v).strip() for k, v in vals.items() if v and str(v).strip()}
+
+
+def _detail_defaults(prior: Path | None, f: SitokFacility | None = None) -> dict:
+    """시설물 현황 기본값 = 칸은 회사 원본, 값은 시설물 칸(관리대장·직접 입력) → 전회차 보고서 → "-" — 원본(다른 시설물) 값이 남지 않게.
+    prior_fields = 전회차 보고서 값만(창에서 다르면 둘 다 보여 줌)."""
     from server.sitok import detail
 
     base = detail.read(master.master_path())
     src = detail.read(prior) if prior else None
     pv = {x["key"]: x["value"] for x in (src or {}).get("fields", [])}
     pn = {_norm_key(k): v for k, v in pv.items()}
-    fields = {x["key"]: (pv.get(x["key"]) or pn.get(_norm_key(x["key"])) or "-") for x in base["fields"]}
+    prior_fields = {x["key"]: (pv.get(x["key"]) or pn.get(_norm_key(x["key"])) or "-") for x in base["fields"]}
+    fv = _facility_detail(f)
+    fields = {k: fv.get(_norm_key(k)) or v for k, v in prior_fields.items()}
     pc = {c["key"]: c["selected"] for c in (src or {}).get("checks", [])}
     checks = {c["key"]: pc[c["key"]] for c in base["checks"] if c["key"] in pc}
-    return {"fields": fields, "checks": checks, "uses": (src or {}).get("uses") or [], "uses_total": (src or {}).get("uses_total") or ""}
+    return {"fields": fields, "prior_fields": prior_fields, "checks": checks, "uses": (src or {}).get("uses") or [],
+            "uses_total": (src or {}).get("uses_total") or ""}
 
 
 def _ours(hwpx: Path) -> bool:
@@ -944,14 +968,15 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
         older.sort(key=lambda h: rb._d(h["period"]), reverse=True)  # 보고서마다 이력 순서가 달라(광숭초 오래된 순·숭의 최근 순) 날짜로
         history += older[:1]
         repairs = rb.read_survey(prior)["repairs_old"]
-    result = {"시설물구분": f.kind or "건축물", "종류": f.use_type or f.main_use or "-", "종별": f"{(f.template or '2')[:1]}종"}
+    result = {"시설물구분": f.kind or "건축물", "종류": f.use_type or f.main_use or "-",
+              "종별": f"{(f.template or '2')[:1]}종" if f.legal else "해당없음"}  # 법정 외(자체 점검) = 해당없음(사용자 10/12)
     if c is not None:
         result.update({"공동수급": f"{c.joint_type} {c.joint_pct}%".strip(), "계약방법": c.bid_method})
     ex.base = {"map": str(mp) if mp else "", "cover": ov[0][0] if ov else "", "has_overview": bool(ov), "name": f.name,
                "short": f.name.split()[-1] if " " in f.name else f.name, "year": f"{f.completion_date.year}년" if f.completion_date else "-",
                "floors": floors or "-", "area": f"{f.total_area:,.2f}㎡" if f.total_area else "-", "structure": f.structure or "-",
                "grade": (f.template or "2")[:1], "use": f.use_type or f.main_use or "시설물", "rep_keys": list((ex.rep_photos or {}).keys()),
-               "history": history, "repairs": repairs, "result": result, "school": f.template == "3종학교",
+               "history": history, "repairs": repairs, "result": result, "school": f.template == "3종학교", "legal": f.legal,
                "target": {"owner": f.owner_name or (pv.owner if pv else "") or "-", "name": f.name, "use": f.use_type or f.main_use or "-",
                           "year": str(f.completion_date.year) if f.completion_date else "-", "area": f"{f.total_area:,.2f}" if f.total_area else "-",
                           "floors": (f"-{f.floors_below}/{f.floors_above}" if f.floors_below else str(f.floors_above or "-")),
@@ -960,8 +985,8 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
     if not ov:
         warn.append("전경사진이 없어 표지·전경 칸이 빈 그림입니다(현장 조사 → 🏢 전경사진)")
     if not (r.survey or {}).get("detail"):  # 시설물 현황을 저장 안 했으면 전회차 보고서 값(없으면 "-")
-        ex.survey = {**(ex.survey or {}), "detail": _detail_defaults(prior)}
-        warn.append("[🏢 시설물 현황]을 저장하지 않아 1.1·1.2 표는 " + ("전회차 보고서 값입니다" if prior else "비었습니다(\"-\")"))
+        ex.survey = {**(ex.survey or {}), "detail": _detail_defaults(prior, f)}
+        warn.append("[🏢 시설물 현황]을 저장하지 않아 1.1·1.2 표는 시설물 칸" + (" + 전회차 보고서 값입니다" if prior else " 값 말고는 비었습니다(\"-\")"))
     if not ex.ai:
         if prior is not None:
             ai = rb.read_texts(prior)

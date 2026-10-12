@@ -1,4 +1,4 @@
-// 시특법 시설물 등록·고치기(sitok-facility.html, 2026-10-10 2단계). ?id= 없으면 새 등록(시설물 + 첫 계약을 한 번에 저장).
+// 시특법 시설물 등록·고치기(sitok-facility.html, 2026-10-10 2단계). ?id= 없으면 새 등록 화면(sitok-new.html, 10/12 — 서류 한 번에)으로 감.
 // PDF 칸: 관리대장 → 시설물 칸(+ 보고서 틀 추정, 관리주체 대표자는 계약 칸에), 계약서 → 계약 칸(민간/관급 구분, 비어 있는 시설물 칸도 채움).
 // 민간/관급 기본값(인수인계 10/10): 민간 = 독자수행 100%·수의계약·건축. 관급 1년 계약이면 "상반기 완료일·하반기 시작일"을 직접 정함.
 // 서버 server/api/routers/sitok.py, PDF 읽기 server/sitok/reader.py.
@@ -6,6 +6,7 @@
 (function () {
   const errorEl = document.getElementById("error");
   const id = Number(new URLSearchParams(location.search).get("id")) || null;
+  if (!id) { location.replace("sitok-new.html"); return; } // 새 등록은 한 화면에서(계약서·이전 회차·동마다 관리대장·건축물대장)
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   let opts = null;
   let fac = null; // 저장된 시설물(고치기 화면)
@@ -14,65 +15,11 @@
   const conTokens = {}; // 계약 카드 키 → 올린 계약서 token
   let ownerRep = ""; // 관리대장에서 읽은 관리주체 대표자(민간 계약 대표자 칸이 비면 채움)
 
-  // [키, 이름, 종류, 도움말]
-  const FAC = [
-    ["name", "시설물명", "text", ""], ["fms_no", "시설물번호(FMS)", "text", "예: AR2004-0004955"],
-    ["template", "보고서 틀", "template", "2종 / 3종 일반(+안전등급 평가) / 3종 학교(+치장벽돌·내진보강 점검)"],
-    ["kind", "시설물 구분", "text", "결과표 — 보통 건축물"], ["use_type", "종류", "text", "결과표 — 종교시설·교육연구시설 등"],
-    ["main_use", "주용도(관리대장)", "text", ""], ["address", "시설물 위치", "text", ""],
-    ["owner_name", "관리주체명", "text", ""], ["owner_type", "관리주체구분", "text", "민간·공공"], ["owner_phone", "관리주체 전화", "text", ""],
-    ["completion_date", "준공일", "date", ""], ["structure", "구조형식", "text", "예: 철근콘크리트구조"],
-    ["floors_above", "지상 층수", "int", ""], ["floors_below", "지하 층수", "int", ""], ["floors_roof", "옥탑 층수", "int", ""],
-    ["max_height", "최고높이(m)", "num", ""], ["total_area", "연면적(㎡)", "num", ""], ["building_area", "건축면적(㎡)", "num", ""],
-    ["base_wall", "면적률 기준 — 벽 한 면(㎡)", "num", "비우면 24.5(기둥간격 7m × 층고 3.5m)"],
-    ["base_slab", "면적률 기준 — 슬래브 한 칸(㎡)", "num", "비우면 49(7m × 7m)"],
-    ["memo", "메모", "text", "보고서엔 안 나감"],
-  ];
-  const CON = [
-    ["sector", "계약 구분", "sector", ""], ["title", "계약건명", "text", ""], ["contract_no", "계약번호", "text", "관급(나라장터)"],
-    ["contract_date", "계약일", "date", ""], ["start_date", "계약기간 시작(착수일)", "date", ""], ["end_date", "계약기간 끝(완수일)", "date", ""],
-    ["halves", "점검 반기", "halves", "연간 = 상·하반기 둘 다"],
-    ["first_half_end", "상반기 완료일", "date", "관급 1년 계약 — 직접 정함"], ["second_half_start", "하반기 시작일", "date", "관급 1년 계약 — 직접 정함"],
-    ["amount", "계약금액(원, VAT 포함)", "int", "민간은 반기 한 번 금액"], ["rep_name", "관리주체 대표자", "text", "결과표 대표자"],
-    ["joint_type", "공동수급", "joint_types", ""], ["joint_pct", "지분(%)", "int", ""],
-    ["bid_method", "입찰방식", "bid_methods", ""], ["field", "수행분야", "fields", ""],
-  ];
-  const TEMPLATE_LABEL = { "2종": "2종", "3종일반": "3종 일반", "3종학교": "3종 학교" };
-
-  function input(prefix, [key, label, type, help]) {
-    const idAttr = `${prefix}-${key}`;
-    let field;
-    if (type === "template" || type === "sector" || type === "halves" || type.endsWith("s")) {
-      const list = { template: opts.templates, sector: opts.sectors, halves: opts.halves }[type] || opts[type];
-      field = `<select id="${idAttr}" data-key="${key}">${list.map((v) => `<option value="${esc(v)}">${esc(TEMPLATE_LABEL[v] || v)}</option>`).join("")}</select>`;
-    } else {
-      const t = type === "date" ? "date" : type === "int" || type === "num" ? "number" : "text";
-      field = `<input id="${idAttr}" data-key="${key}" data-type="${type}" type="${t}"${type === "num" ? ' step="any"' : ""} />`;
-    }
-    return `<div class="sk-f sk-f-${key}"><label for="${idAttr}">${esc(label)}${help ? ` <span class="sk-help">${esc(help)}</span>` : ""}</label>${field}</div>`;
-  }
-
-  function setValues(box, data, onlyEmpty) {
-    for (const el of box.querySelectorAll("[data-key]")) {
-      const v = data[el.dataset.key];
-      if (v === undefined || v === null || v === "") continue;
-      if (onlyEmpty && el.value && el.tagName !== "SELECT") continue;
-      el.value = v;
-      el.classList.add("sk-filled");
-      setTimeout(() => el.classList.remove("sk-filled"), 2500);
-    }
-  }
-
-  function values(box) {
-    const out = {};
-    for (const el of box.querySelectorAll("[data-key]")) {
-      const v = el.value.trim();
-      const t = el.dataset.type;
-      out[el.dataset.key] = t === "int" ? (v === "" ? null : parseInt(v, 10)) : t === "num" ? (v === "" ? null : parseFloat(v))
-        : t === "date" ? (v || null) : v;
-    }
-    return out;
-  }
+  // 칸 정의·그리기·읽기는 js/sitok-fields.js(새 등록 화면과 같이 씀, 10/12)
+  const { FAC, CON } = SitokFields;
+  const input = (prefix, f) => SitokFields.input(opts, prefix, f);
+  const setValues = SitokFields.setValues;
+  const values = SitokFields.values;
 
   // ---------- 계약 카드 ----------
   function conCard(c) {
@@ -169,6 +116,7 @@
       (fac?.has_ledger_pdf ? `<p class="sk-file"><a href="${BASE}/api/sitok/files/ledger/${fac.id}" target="_blank" rel="noopener">올린 시설물관리대장 PDF 보기</a></p>` : "");
     if (fac) setValues(facBox, fac);
     facBox.querySelectorAll(".sk-filled").forEach((el) => el.classList.remove("sk-filled"));
+    SitokFields.linkLegal(facBox);
     const cons = document.getElementById("sk-cons");
     cons.innerHTML = "";
     if (fac) {

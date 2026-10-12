@@ -322,21 +322,32 @@ def import_pdf(report_id: int, file: UploadFile = File(...), user: User = Depend
     data = file.file.read()
     if not data.startswith(b"%PDF"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "지난 보고서 PDF(외관조사 사진첩이 든 것)를 올려 주세요.")
+    try:
+        state = start_import(db, r, data, user.company_id)
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    out = list_defects(report_id, user, db)
+    return {**out, "importing": IMPORTS[r.id]} if state == "running" else out
+
+
+def start_import(db: Session, r: SitokReport, data: bytes, company_id: int) -> str:
+    """지난 보고서 PDF → 이 회차 전회차 결함. 우리 사진첩이면 바로("done"), 타회사 양식이면 AI가 결함현황표·사진대장을 읽음(1~3분이라
+    백그라운드 — "running"). 결함표를 못 찾으면 ValueError. 현장 조사 화면·새 등록(10/12 — 이전 회차가 타회사 PDF)이 같이 씀."""
     album = album_read.read(data)
-    if not album.rows:  # 우리 사진첩이 아님 → 타회사 양식: AI가 결함현황표·사진대장을 읽음(1~3분이라 백그라운드)
-        import pymupdf
+    if album.rows:
+        _save_album(db, r, album)
+        return "done"
+    import pymupdf
 
-        from server.sitok import foreign_read
+    from server.sitok import foreign_read
 
-        if not foreign_read.defect_tables(pymupdf.open(stream=data, filetype="pdf")):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF에서 결함현황표를 찾지 못했습니다 — 외관조사 결과(결함 표)가 든 보고서 PDF인지 확인하세요.")
-        if IMPORTS.get(r.id, {}).get("state") == "running":
-            raise HTTPException(status.HTTP_409_CONFLICT, "이미 읽는 중입니다.")
-        IMPORTS[r.id] = {"state": "running", "msg": "타회사 양식 — AI가 결함현황표·사진대장을 읽는 중(1~3분)"}
-        threading.Thread(target=_import_foreign, args=(r.id, data, user.company_id), daemon=True).start()
-        return {**list_defects(report_id, user, db), "importing": IMPORTS[r.id]}
-    _save_album(db, r, album)
-    return list_defects(report_id, user, db)
+    if not foreign_read.defect_tables(pymupdf.open(stream=data, filetype="pdf")):
+        raise ValueError("PDF에서 결함현황표를 찾지 못했습니다 — 외관조사 결과(결함 표)가 든 보고서 PDF인지 확인하세요.")
+    if IMPORTS.get(r.id, {}).get("state") == "running":
+        raise ValueError("이미 읽는 중입니다.")
+    IMPORTS[r.id] = {"state": "running", "msg": "타회사 양식 — AI가 결함현황표·사진대장을 읽는 중(1~3분)"}
+    threading.Thread(target=_import_foreign, args=(r.id, data, company_id), daemon=True).start()
+    return "running"
 
 
 IMPORTS: dict[int, dict] = {}  # 회차 id → 타회사 PDF 읽기 상태 {state: running/failed, msg}
