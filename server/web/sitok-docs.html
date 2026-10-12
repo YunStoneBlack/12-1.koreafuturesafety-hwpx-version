@@ -6,18 +6,51 @@
 <title>시특법 - 서류 자동화</title>
 <link rel="stylesheet" href="/css/app.css" />
 <link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/contract-docs.css" />
+<link rel="stylesheet" href="css/docs.css" />
+<link rel="stylesheet" href="css/sitok-docs.css" />
 </head>
-<!-- 서류 자동화 · 시특법(2026-10-10) — 시설물 점검 용역의 착수계·준공계 등. 그룹웨어 왼쪽 메뉴 [서류 자동화] 아래 "시특법" 소메뉴가 여는 메인.
-     지금은 빈 메인 — 보고서(sitok.html) 쪽부터 만든다. 탭은 shell.js SITOK_DOCS_TABS. -->
+<!-- 서류 자동화 · 시특법 — 계약 목록(2026-10-12, js/sitok-docs.js · API server/api/routers/sitok_docs.py). 산안법(docs.html)처럼 보고서 쪽과 따로, 현장(시설물) 연결.
+     민간 = 우리가 계약서를 작성(회차 줄 · 정기/정밀 · 계약 해지 시까지), 관급 = 나라장터 계약서 → 착수계·완료계(2단계). 탭은 shell.js SITOK_DOCS_TABS. -->
 <body data-docs-tab="contracts" data-law="sitok">
 <div class="app">
   <aside class="sidebar" id="gw-sidebar"></aside>
   <main class="main">
 
-<section class="panel sitok-soon">
+<div id="error" class="error"></div>
+
+<div class="list-toolbar">
+  <input id="sd-search" type="search" placeholder="계약건명·관리주체·시설물·담당자로 검색" autocomplete="off" />
+  <button type="button" class="dc-new" id="sd-new-civil">+ 민간 계약서 만들기</button>
+  <button type="button" class="dc-new secondary" id="sd-new-gov">+ 관급 계약</button>
+</div>
+<!-- 이미 만든(도장 찍은) 민간 계약서 올리기 — 읽어서 새 계약(10/12 사용자 "이미 만들어놓은 계약 건(민간) 올릴수있게") -->
+<label class="drop-box sd-drop">
+  <span class="drop-ico">📄</span>
+  <span class="drop-txt"><b class="drop-pc">이미 만든 민간 계약서를 여기에 끌어다 놓으세요</b><b class="drop-touch">눌러서 이미 만든 민간 계약서 고르기</b>
+    <span>PDF·한글·사진 — 읽어서 새 계약으로 등록합니다(날인본으로 보관)<span class="drop-pc"> · 눌러서 고를 수도 있어요</span></span></span>
+  <input id="sd-existing" type="file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" />
+</label>
+<div id="sd-new-msg" class="status"></div>
+
+<div class="st-cards" id="sd-cards"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>점검 계약</h2><span class="dc-count" id="sd-count"></span></div>
+  <div class="rows" id="sd-list"><div class="empty-note">불러오는 중...</div></div>
+</section>
+
+<section class="panel sd-tpl">
+  <div class="panel-head"><h2>민간 계약서 양식</h2></div>
   <div class="panel-body">
-    <h2>시설물 점검 용역 서류 — 준비 중</h2>
-    <p class="page-sub">시특법 점검 용역의 착수계·준공계 같은 서류를 만드는 곳입니다. 보고서 쪽(<a href="sitok.html">보고서 자동화 · 시특법</a>)을 먼저 만든 뒤 열립니다.</p>
+    <p class="mail-note">계약서 한 장 양식(정기·정밀 같이 씀). 한글에서 문구를 고쳐 다시 올리면 다음 계약서부터 그 양식으로 만듭니다.
+      <b>{시설물명}·{계약금액}</b>처럼 중괄호 자리는 지우지 마세요 — 빠지면 안 받습니다.</p>
+    <div class="sd-tpl-acts">
+      <a class="secondary-link" id="sd-tpl-get" href="#">⬇ 지금 양식 받기</a>
+      <label class="cd-upload">⬆ 고친 양식 올리기<input id="sd-tpl-file" type="file" accept=".hwp,.hwpx" hidden data-kr-file="skip" /></label>
+      <span class="mail-note" id="sd-tpl-msg"></span>
+    </div>
   </div>
 </section>
 
@@ -25,6 +58,9 @@
 </div>
 
 <script src="app.js"></script>
+<script src="mail.js"></script>
 <script src="shell.js"></script>
+<script src="js/docs-common.js"></script>
+<script src="js/sitok-docs.js"></script>
 </body>
 </html>

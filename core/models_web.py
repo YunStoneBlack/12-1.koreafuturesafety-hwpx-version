@@ -587,6 +587,55 @@ class SitokDefect(Base):
     ai_guess: Mapped[dict | None] = mapped_column(JSON, default=None)
 
 
+class SitokDocContract(Base):
+    """웹판 전용 — 서류 자동화 · 시특법 계약(2026-10-12 alembic 0040). 산안법처럼 보고서 쪽 시설물·계약(SitokFacility·SitokContract)과 따로(사용자),
+    facility_id로 "현장 연결"(민간·관급 모두 — 이어 두면 계약서를 그 시설물 계약으로 씀).
+    - 민간: 계약서를 우리가 만들어 업체에 보내 날인(server/sitok/civil.py — 양식 하나, 회차 줄 rounds의 정기/정밀로 "정기·정밀안전점검" 글자).
+      끝이 없는 계약(open_ended) = 계약기간 "~ 계약 해지 시까지" + 매 반기 단가(unit), 총합 없음. 이미 만든 계약서도 올려 등록.
+    - 관급: 나라장터 계약서 → 착수계·완료계(산안법과 같은 방식 — 2단계)."""
+
+    __tablename__ = "sitok_doc_contract"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    facility_id: Mapped[int | None] = mapped_column(ForeignKey("sitok_facility.id", ondelete="SET NULL"), default=None, index=True)  # 현장 연결
+    sector: Mapped[str] = mapped_column(Text, default="민간")  # 민간 / 관급
+    doc_no: Mapped[str] = mapped_column(Text, default="")  # 문서번호 — 민간 KFSC-26-0504(연도·월일), 관급 KFSC21C_계약번호_월일(산안법 규칙)
+    client: Mapped[str] = mapped_column(Text, default="")  # 관리주체(발주처) — 계약서 "갑"
+    client_rep: Mapped[str] = mapped_column(Text, default="")  # 서명 칸 대표자(예: "관리사무소장 김춘화")
+    client_biz_no: Mapped[str] = mapped_column(Text, default="")  # 사업자등록번호(사업자등록증에서)
+    client_address: Mapped[str] = mapped_column(Text, default="")
+    facility_name: Mapped[str] = mapped_column(Text, default="")  # 시설물명 — 계약서 【 】·제2조
+    location: Mapped[str] = mapped_column(Text, default="")  # 위치
+    spec: Mapped[str] = mapped_column(Text, default="")  # 제원(예: "연면적 19,071.7m²")
+    title: Mapped[str] = mapped_column(Text, default="")  # 계약건명(민간 기본 "시설물명 2026~2027년 정기·정밀안전점검")
+    contract_no: Mapped[str] = mapped_column(Text, default="")  # 관급 나라장터 계약번호
+    amount: Mapped[int | None] = mapped_column(BigInteger, default=None)  # 계약금액(관급 총액 · 민간은 rounds 합 — 끝 없는 계약은 비움)
+    rounds: Mapped[list | None] = mapped_column(JSON, default=None)  # 민간 회차 [{year, half, kind(정기|정밀), amount}]
+    open_ended: Mapped[bool] = mapped_column(Boolean, default=False)  # 계약 해지 시까지(평생)
+    unit: Mapped[dict | None] = mapped_column(JSON, default=None)  # 끝 없는 계약의 매 반기 단가 {kind, amount}
+    guarantee: Mapped[str] = mapped_column(Text, default="-")  # 계약보증액
+    delay_rate: Mapped[str] = mapped_column(Text, default="-")  # 지체상금율
+    contract_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    start_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    end_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    # 발주처 담당(산안법처럼) — 계약 담당·현장 담당 이름·연락처·이메일
+    client_manager: Mapped[str] = mapped_column(Text, default="")
+    client_phone: Mapped[str] = mapped_column(Text, default="")
+    client_email: Mapped[str] = mapped_column(Text, default="")
+    site_manager: Mapped[str] = mapped_column(Text, default="")
+    site_phone: Mapped[str] = mapped_column(Text, default="")
+    site_email: Mapped[str] = mapped_column(Text, default="")
+    contract_pdf: Mapped[str] = mapped_column(StoredPath, default="")  # 날인본(민간)·나라장터 계약서(관급) — 올린 것
+    made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)  # 민간 계약서 만든 때
+    report_contract_id: Mapped[int | None] = mapped_column(Integer, default=None)  # 연결한 시설물에 넣은 보고서 쪽 계약(SitokContract.id) — 다시 넣으면 고침
+    memo: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+    updated_by: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
 class SitokCorrection(Base):
     """웹판 전용 — 시특법 결함 사진 분류 교정 기록(2026-10-12 alembic 0038, 사용자 "점검자가 바꾼 걸 학습해서 다음 사진 분석에").
     AI 첫 추천(ai_*) → 점검자가 저장한 값. 다음 사진에서 AI가 같은 추천을 하면 이 기록 사진들을 같이 보여 주고 다시 판단(server/sitok/learn.py).

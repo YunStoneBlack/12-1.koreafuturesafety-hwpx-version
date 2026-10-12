@@ -45,7 +45,7 @@ function renderReportHeader() {
   head.className = "report-head";
   const law = pageLaw();
   const sub = law === "sitok"
-    ? (docs ? "시설물 점검 용역의 착수계·준공계 등 서류를 만듭니다." : "시설물 정기안전점검 결과보고서를 작성하고 PDF로 만듭니다.")
+    ? (docs ? "시설물 점검 계약서(민간)와 착수계·완료계(관급) 등 서류를 만듭니다." : "시설물 정기안전점검 결과보고서를 작성하고 PDF로 만듭니다.")
     : (docs ? "용역 계약별 착수계·완수계를 만들고 제출 현황·일정을 봅니다." : "현장별 기술지도 결과보고서를 작성하고 PDF로 만듭니다.");
   head.innerHTML = `<h1>${docs ? "서류 자동화" : "보고서 자동화"}<span class="law-badge ${law}">${LAW_LABEL[law]}</span></h1>
     <p class="page-sub">${sub}</p>`;
