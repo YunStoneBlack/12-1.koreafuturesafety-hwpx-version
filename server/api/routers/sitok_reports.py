@@ -596,6 +596,7 @@ def _run_build(report_id: int) -> None:
             db.commit()
             pdf = folder / f"{base}.pdf"
             pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+            warn = _page_check(pdf, hwpx) + warn  # 합치기 전(본문 쪽 번호 = 최종)
             merged = _merge(pdf, [f.ledger_pdf], [c.contract_pdf] if c else [])
             if _insert_albums(db, [r], [f.name], pdf):
                 merged.append("외관조사 사진첩")
@@ -605,6 +606,17 @@ def _run_build(report_id: int) -> None:
         except Exception as err:  # noqa: BLE001 — 이유를 남김
             _fail([r], err)
         db.commit()
+
+
+def _page_check(pdf: Path, hwpx: Path) -> list[str]:
+    """자동 쪽 검사(10/12 사용자 — server/sitok/pagecheck.py) → 경고 한 줄(없으면 []). 검사가 실패해도 보고서는 그대로."""
+    from server.sitok import pagecheck
+
+    try:
+        found = pagecheck.scan(pdf, hwpx)
+    except Exception:  # noqa: BLE001
+        return []
+    return [f"쪽 확인 — {' / '.join(found)}"] if found else []
 
 
 def _group_amounts(pairs: list[tuple[SitokFacility, SitokReport]]) -> None:
@@ -660,6 +672,7 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         db.commit()
         pdf = folder / f"{base}.pdf"
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        warn = _page_check(pdf, hwpx) + warn  # 합치기 전(본문 쪽 번호 = 최종)
         contracts = []
         for _, y in pairs:
             c = db.get(SitokContract, y.contract_id) if y.contract_id else None

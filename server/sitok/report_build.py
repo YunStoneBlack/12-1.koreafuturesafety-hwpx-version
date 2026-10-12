@@ -1731,32 +1731,100 @@ def _trim_rows(tbl, keep: int) -> None:
         sz.set("height", str(max(int(sz.get("height") or 0) - cut, 0)))
 
 
-def _let_split(root) -> int:
-    """줄이 늘 수 있는 표(1.2.4 용도현황·1.2.7 보수·보강 이력·1.2.8 변경사항) — 원본은 "쪽에서 나누지 않음"이라 한 쪽을 넘으면 표가 통째로
-    다음 쪽으로 가 제목만 남은 쪽이 생김(10/12 동안교회 용도현황 18줄) → 줄 단위로 나눔(머리 줄 반복은 원본 설정 그대로)."""
+BODY_H = 67000  # 본문 높이(HWPUNIT, ≈236mm) — A4에서 위·아래 여백·머리말·꼬리말 뺀 것(원본 쪽 설정), 한 쪽짜리 표가 이만함
+
+
+def _est_height(tbl) -> int:
+    """표 높이 어림(HWPUNIT) — 줄마다 max(칸 높이, 글 줄 수 × LINE_H)(칸 너비로 접히는 줄 셈). 그림·안쪽 표가 든 칸은 칸 높이."""
+    import math
+
+    rows: dict[int, int] = {}
+    for (r, _), tc in _cells(tbl).items():
+        span = tc.find(f"{{{HP}}}cellSpan")
+        if span is not None and int(span.get("rowSpan") or 1) > 1:
+            continue
+        sz = tc.find(f"{{{HP}}}cellSz")
+        w, h = int(sz.get("width") or 0), int(sz.get("height") or 0)
+        m = tc.find(f"{{{HP}}}cellMargin")
+        mx = (int(m.get("left") or 141) + int(m.get("right") or 141)) if m is not None else 282
+        my = (int(m.get("top") or 141) + int(m.get("bottom") or 141)) if m is not None else 282
+        if next(tc.iter(f"{{{HP}}}pic"), None) is not None or next(tc.iter(f"{{{HP}}}tbl"), None) is not None:
+            est = h
+        else:
+            lines = 0
+            for p in tc.iter(f"{{{HP}}}p"):
+                t = "".join(x.text or "" for x in p.iter(T))
+                lines += max(1, math.ceil(len(t) * CHAR_W / max(w - mx, 1000)))
+            est = min(lines, 200) * LINE_H + my
+        rows[r] = max(rows.get(r, 0), h, est)
+    return sum(rows.values())
+
+
+def table_heights(root) -> dict[str, int]:
+    """본문 표 id → 어림 높이 — 내용 넣기 전에 재 두고 _let_split이 늘어난 만큼을 봄(어림 오차는 앞뒤가 같아 상쇄)."""
+    return {t.get("id"): _est_height(t) for t in root.iter(f"{{{HP}}}tbl") if next(t.iterancestors(f"{{{HP}}}tbl"), None) is None}
+
+
+def _splittable(t, head_rows: int = 1) -> None:
+    """쪽에서 셀 단위로 나뉘게 — 글자처럼 취급 표는 한글이 안 나눔 → 자리 차지(가운데)로, 머리 줄 header 표시(다음 쪽에 반복)."""
+    t.set("pageBreak", "CELL")
+    pos = t.find(f"{{{HP}}}pos")
+    if pos is not None and pos.get("treatAsChar") == "1":
+        pos.attrib.update({"treatAsChar": "0", "flowWithText": "1", "allowOverlap": "0", "vertRelTo": "PARA", "vertAlign": "TOP", "vertOffset": "0",
+                           "horzRelTo": "COLUMN", "horzAlign": "CENTER", "horzOffset": "0"})
+    t.set("textWrap", "TOP_AND_BOTTOM")
+    t.set("repeatHeader", "1")
+    for tc in t.iter(f"{{{HP}}}tc"):
+        addr = tc.find(f"{{{HP}}}cellAddr")
+        if addr is not None and int(addr.get("rowAddr", "99")) < head_rows and next(tc.iterancestors(f"{{{HP}}}tbl")) is t:
+            tc.set("header", "1")
+
+
+def _let_split(root, before: dict | None = None) -> int:
+    """표가 쪽을 넘을 때(10/12 사용자 — 동안교회 용도현황 18줄이 통째로 다음 쪽, 제목만 남은 쪽):
+    - 늘 나눔: 줄이 느는 표(1.2.4 용도현황·1.2.7 보수·보강 이력·1.2.8 변경사항·개략공사비) — 원본은 "나누지 않음 + 글자처럼 취급".
+    - 넘칠 때만 나눔: 나머지 본문 표는 내용을 넣은 뒤 높이를 어림해 한 쪽(BODY_H)을 넘을 것 같으면(1.4·1.5.1·8) 분석·1.2.6 등 글이 길어질 때).
+      한 쪽 안이면 원본대로 통째로(회사 보고서 모양 — 앞 쪽 아래가 비면 제목도 같이 넘어감, _KeepHeads).
+    9쪽 요약표·보수 우선순위표는 프로그램이 쪽 단위로 나눠 넣음(_summary_table·_priority_table)."""
     from server.sitok import detail
 
+    changes = [tbl for _, tbl in _change_tables([root])]
+    always = [detail._tables(root)[2], _repair_table([root]), *changes, _find_table(root, ["구분", "결함및손상,열화내용", "보수ㆍ보강방안"])]
     n = 0
-    for t in [detail._tables(root)[2], _repair_table([root]), *(tbl for _, tbl in _change_tables([root]))]:
-        if t is None:
+    for t in always:
+        if t is not None:
+            _splittable(t, 2 if any(t is c for c in changes) else 1)  # 1.2.8은 머리 2줄(변경사항 / 변경전·변경후)
+            n += 1
+    done = {id(t) for t in always if t is not None}
+    for t in root.iter(f"{{{HP}}}tbl"):
+        if id(t) in done or next(t.iterancestors(f"{{{HP}}}tbl"), None) is not None or t.get("pageBreak") == "CELL" and t.find(f"{{{HP}}}pos").get("treatAsChar") == "0":
             continue
-        t.set("pageBreak", "CELL")
-        pos = t.find(f"{{{HP}}}pos")
-        if pos is not None and pos.get("treatAsChar") == "1":  # 글자처럼 취급 표는 한글이 쪽에서 안 나눔 → 자리 차지(가운데)로
-            pos.attrib.update({"treatAsChar": "0", "flowWithText": "1", "allowOverlap": "0", "vertRelTo": "PARA", "vertAlign": "TOP", "vertOffset": "0",
-                               "horzRelTo": "COLUMN", "horzAlign": "CENTER", "horzOffset": "0"})
-        t.set("textWrap", "TOP_AND_BOTTOM")
-        t.set("repeatHeader", "1")
-        head_rows = 2 if any(tc is t for _, tc in _change_tables([root])) else 1  # 1.2.8은 머리 2줄(변경사항 / 변경전·변경후)
-        for tc in t.iter(f"{{{HP}}}tc"):
-            addr = tc.find(f"{{{HP}}}cellAddr")
-            if addr is not None and int(addr.get("rowAddr", "99")) < head_rows and next(tc.iterancestors(f"{{{HP}}}tbl")) is t:
-                tc.set("header", "1")  # 다음 쪽에 머리 줄 반복
-        n += 1
+        if _grew_past_page(t, (before or {}).get(t.get("id"))):
+            _splittable(t)
+            n += 1
     return n
 
 
-HEAD_RE = re.compile(r"^(\d+(\.\d+)+|\d+\))\s*\S")  # 1.2.4 … / 1) …
+def _grew_past_page(t, est_before: int | None) -> bool:
+    """원래 표 높이(원본 설계) + 내용을 넣으며 늘어난 어림 높이가 한 쪽(BODY_H)을 넘는지 — 늘지 않은 표(한 쪽을 꽉 채우게 설계된 틀 표 등)는 안 걸림."""
+    if est_before is None:
+        return False
+    grew = _est_height(t) - est_before
+    sz = t.find(f"{{{HP}}}sz")
+    designed = int(sz.get("height") or 0) if sz is not None else 0
+    return grew > LINE_H and designed + grew > BODY_H * 0.95
+
+
+HEAD_RE = re.compile(r"^(\d+(\.\d+)+|\d+\)|[가-하]\.)\s*\S")  # 1.2.4 … / 1) … / 가. …
+
+
+def _head_kind(t: str) -> str:
+    """제목 단계 — "1.2.4"는 점 개수, "1)"·"가."는 그 꼴(같은 단계 항목이 바로 이어지면 목록이라 안 묶음)."""
+    m = HEAD_RE.match(t or "")
+    if not m:
+        return ""
+    h = m.group(1)
+    return "num" if h.endswith(")") else "kor" if h.endswith(".") and not h[0].isdigit() else f"dot{h.count('.')}"
 
 
 class _KeepHeads:
@@ -1797,6 +1865,9 @@ class _KeepHeads:
         for i, p in enumerate(tops):
             t = _top_text(p)
             if not HEAD_RE.match(t) or len(t) > 45 or re.search(r"[☑□☐■]", t) or next(p.iter(f"{{{HP}}}tbl"), None) is not None:
+                continue
+            nxt = next((_top_text(q) for q in tops[i + 1:] if not blank(q)), "")
+            if _head_kind(nxt) == _head_kind(t):  # "가. … 나. …"처럼 같은 단계가 바로 이어지면 목록 — 묶으면 줄줄이 붙음
                 continue
             p.set("paraPrIDRef", self._keep(p.get("paraPrIDRef")))
             n += 1
@@ -1920,6 +1991,7 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
             if info.filename in sections:
                 root = etree.fromstring(data)
                 is_front = info.filename == ordered[0]
+                heights = table_heights(root) if not is_front else {}  # 내용 넣기 전 표 높이 어림(_let_split — 늘어난 표만 나눔)
                 changed += _apply(root, whole, parts, front, is_front)
                 if extras.base:
                     changed += _base_reset(root, is_front, ordered.index(info.filename), extras.base, extras.blank, add_image)
@@ -1960,7 +2032,7 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     if extras.parts is not None:
                         changed += _parts_tables(root, extras.parts, add_image)
                     changed += _finish_repairs(root)
-                    changed += _let_split(root)  # 줄이 느는 표는 쪽에서 나눔(10/12)
+                    changed += _let_split(root, heights)  # 줄이 느는 표·한 쪽을 넘게 커진 표는 쪽에서 나눔(10/12)
                 if keep is not None and not is_front:
                     keep.apply(root)
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):
