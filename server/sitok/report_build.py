@@ -60,7 +60,8 @@ class Extras:
     cost: tuple | None = None  # 개략공사비 ([(구분, 내용, 방안, 물량, 단위, 단가, 금액)], 직접공사비 합계)
     ai: dict | None = None  # 6단계 AI 초안(점검자가 고친 것) — server/sitok/ai_draft.py 키(critical·findings·sections·conclusion·grade …)
     template: str = "2종"  # 등급 표기(2종 낱말·3종 글자)
-    rep_photos: dict = field(default_factory=dict)  # 1.3 대표사진 {항목 키: [(사진 경로, 설명)]} — 공중이용·기타는 찍을 대상이 정해진 칸이라 안 바꿈
+    rep_photos: dict = field(default_factory=dict)  # 1.3 대표사진 {항목 키: [(사진 경로, 설명)]} — 공중이용·기타는 아래 parts(현장 화면 탭)로
+    parts: dict | None = None  # 1.3 6)·7) 사진 표(10/12) {"public": [(항목 이름, 사진 | None)] × 4, "other": [(설명, 사진 | None)] × 4} — server/sitok/parts.py
     blank: str = ""  # 남는 사진 칸에 넣을 흰 그림
     survey: dict | None = None  # 면담·변경사항 {repairs, changes} — 1.2.7·1.2.8
     base: dict | None = None  # 회사 기본 틀로 시작(처음 맡는 시설물) — {map, cover, name, year, floors, area, structure, grade, use}: 틀 시설물 고유 내용을 비우거나 새로
@@ -1647,54 +1648,111 @@ def _photo_slots(tbl) -> list[tuple[tuple[int, int], tuple[int, int] | None]]:
     return out
 
 
-def _photo_tables(root, rep: dict, add_image) -> int:
-    """1.3 항목별 사진 표("■ ○○ 현황: 대표사진"·"사진 현황") — 빈칸 규칙(사용자 10/12, 표마다 제각각이던 것 하나로):
-    사진이 있으면 차례로 넣고 설명 = 그 결함, 남는 사진 칸은 비움(그림·글자 없음) + 설명 "-",
-    그 항목 사진이 하나도 없으면(항목 자체 없음 — 강재구조 없음 등) 첫 사진 칸만 "해당없음"."""
+def _photo_table_list(root) -> list:
     from server.sitok.ai_draft import section_key
 
-    tables = []
+    out = []
     for tbl in root.iter(f"{{{HP}}}tbl"):
         head = _cell_text(_cells(tbl).get((0, 0), tbl))
         if ("대표사진" in head or "사진 현황" in head) and section_key(head):
-            tables.append((tbl, section_key(head)))
+            out.append((tbl, section_key(head)))
+    return out
+
+
+def _slot_put(tc, cap_tc, image, text: str, caption: str, tpl, add_image) -> None:
+    """사진 표 한 칸 — image(add_image에 넘길 경로·바이트)가 있으면 그림(칸에 그림이 없으면 tpl을 본떠 넣음), 없으면 그림을 빼고 text.
+    설명 칸 = caption. 글만 넣는 칸은 설명 칸 글자 모양으로(그림만 있던 칸은 흰 글씨인 것도 있음 — 비구조체 표)."""
+    if image is not None:
+        pic = next(tc.iter(f"{{{HP}}}pic"), None)
+        if pic is None and tpl is not None:
+            pic = copy.deepcopy(tpl)
+            pic.set("id", str(random.randint(1_000_000_000, 2_000_000_000)))
+            pic.set("instid", str(random.randint(100_000_000, 999_999_999)))
+            _set_lines(tc, [""])
+            p = next(q for q in tc.iter(f"{{{HP}}}p"))
+            run = p.find(f"{{{HP}}}run")
+            if run is None:
+                run = etree.SubElement(p, f"{{{HP}}}run", charPrIDRef="0")
+            run.insert(0, pic)
+        img = next(pic.iter(f"{{{CORE}}}img"), None) if pic is not None else None
+        if img is not None:
+            img.set("binaryItemIDRef", add_image(image))
+    else:
+        for pic in list(tc.iter(f"{{{HP}}}pic")):
+            pic.getparent().remove(pic)
+        _set_lines(tc, [text])
+        cap_run = next(cap_tc.iter(f"{{{HP}}}run"), None) if cap_tc is not None else None
+        if cap_run is not None:
+            for run in tc.iter(f"{{{HP}}}run"):
+                run.set("charPrIDRef", cap_run.get("charPrIDRef"))
+    if cap_tc is not None:
+        _set_lines(cap_tc, [caption or "-"])
+
+
+def _photo_tables(root, rep: dict, add_image) -> int:
+    """1.3 항목별 사진 표("■ ○○ 현황: 대표사진"·"사진 현황") — 빈칸 규칙(사용자 10/12, 표마다 제각각이던 것 하나로):
+    사진이 있으면 차례로 넣고 설명 = 그 결함, 남는 사진 칸은 비움(그림·글자 없음) + 설명 "-",
+    그 항목 사진이 하나도 없으면(항목 자체 없음 — 강재구조 없음 등) 첫 사진 칸만 "해당없음".
+    6) 공중이용·7) 기타시설은 현장 화면 탭 사진으로(_parts_tables)."""
+    tables = _photo_table_list(root)
     tpl = next((copy.deepcopy(p) for tbl, _ in tables for p in tbl.iter(f"{{{HP}}}pic")), None)  # 그림 없는 칸에 사진을 넣을 때 본뜰 그림
     n = 0
     for tbl, key in tables:
+        if key in ("public", "other"):
+            continue
         slots = _photo_slots(tbl)
         if not slots:
             continue
         cells = _cells(tbl)
         photos = [(p, cap) for p, cap in (rep.get(key) or []) if p and Path(p).exists()]
         for i, (pk, ck) in enumerate(slots):
-            tc = cells[pk]
-            if i < len(photos):
-                path, caption = photos[i]
-                pic = next(tc.iter(f"{{{HP}}}pic"), None)
-                if pic is None and tpl is not None:
-                    pic = copy.deepcopy(tpl)
-                    pic.set("id", str(random.randint(1_000_000_000, 2_000_000_000)))
-                    pic.set("instid", str(random.randint(100_000_000, 999_999_999)))
-                    _set_lines(tc, [""])
-                    p = next(q for q in tc.iter(f"{{{HP}}}p"))
-                    run = p.find(f"{{{HP}}}run")
-                    if run is None:
-                        run = etree.SubElement(p, f"{{{HP}}}run", charPrIDRef="0")
-                    run.insert(0, pic)
-                img = next(pic.iter(f"{{{CORE}}}img"), None) if pic is not None else None
-                if img is not None:
-                    img.set("binaryItemIDRef", add_image(path))
-            else:
-                caption = "-"
-                for pic in list(tc.iter(f"{{{HP}}}pic")):
-                    pic.getparent().remove(pic)
-                _set_lines(tc, ["해당없음" if not photos and i == 0 else ""])
-                cap_run = next(cells[ck].iter(f"{{{HP}}}run"), None) if ck is not None else None
-                if cap_run is not None:  # 그림만 있던 칸은 글자 모양이 흰색인 것도 있음(비구조체 표) — 설명 칸 글자 모양으로
-                    for run in tc.iter(f"{{{HP}}}run"):
-                        run.set("charPrIDRef", cap_run.get("charPrIDRef"))
-            if ck is not None:
-                _set_lines(cells[ck], [caption or "-"])
+            path, caption = photos[i] if i < len(photos) else (None, "-")
+            _slot_put(cells[pk], cells[ck] if ck else None, path, "해당없음" if not photos and i == 0 else "", caption, tpl, add_image)
+        n += 1
+    return n
+
+
+def _trim_rows(tbl, keep: int) -> None:
+    """표를 앞 keep줄만 남김(뒤 줄 지움) — 줄 수·표 높이·테두리 구역도."""
+    trs = tbl.findall(f"{{{HP}}}tr")
+    if len(trs) <= keep:
+        return
+    cut = 0
+    for tr in trs[keep:]:
+        first = tr.find(f"{{{HP}}}tc")
+        cut += int(first.find(f"{{{HP}}}cellSz").get("height")) if first is not None else 0
+        tbl.remove(tr)
+    for cz in tbl.iter(f"{{{HP}}}cellzone"):
+        if int(cz.get("endRowAddr", "0")) >= keep:
+            cz.set("endRowAddr", str(keep - 1))
+    tbl.set("rowCnt", str(keep))
+    sz = tbl.find(f"{{{HP}}}sz")
+    if sz is not None:
+        sz.set("height", str(max(int(sz.get("height") or 0) - cut, 0)))
+
+
+def _parts_tables(root, parts: dict, add_image) -> int:
+    """1.3 6) 공중이용·7) 기타시설 사진 표(10/12 사용자) — 4칸(사진 줄·설명 줄 2쌍)으로 줄이고 현장 화면 탭 사진으로.
+    공중이용 = 기준표 4항목 한 칸씩(설명 = 항목 이름, 사진 없으면 "해당없음"), 기타시설 = 윗줄 마감재 2·아랫줄 부착물 등 2(빈 칸 사진·설명 "-")."""
+    tables = _photo_table_list(root)
+    tpl = next((copy.deepcopy(p) for tbl, _ in tables for p in tbl.iter(f"{{{HP}}}pic")), None)
+    n = 0
+    for tbl, key in tables:
+        if key not in ("public", "other"):
+            continue
+        _trim_rows(tbl, 5)  # 머리 + 사진·설명 2쌍
+        slots = _photo_slots(tbl)
+        cells = _cells(tbl)
+        for i, (pk, ck) in enumerate(slots):
+            name, path = (parts.get(key) or [])[i] if i < len(parts.get(key) or []) else ("-", None)
+            img = None
+            if path and Path(path).exists():
+                pic = next(cells[pk].iter(f"{{{HP}}}pic"), None)
+                pic = tpl if pic is None else pic
+                sz = pic.find(f"{{{HP}}}curSz") if pic is not None else None
+                w, h = (int(sz.get("width")), int(sz.get("height"))) if sz is not None and int(sz.get("width") or 0) > 0 else (4, 3)
+                img = _cropped(path, w, h)
+            _slot_put(cells[pk], cells[ck] if ck else None, img, "해당없음" if key == "public" else "-", name, tpl, add_image)
         n += 1
     return n
 
@@ -1815,6 +1873,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     changed += _apply_eval(root, extras.ai["items"], extras.ai.get("eval_opinion") or "")
                 if not is_front:  # 1.3 사진 표(빈칸 규칙 10/12)·1.2.7 마무리 — 회사 원본으로 만들 때 늘
                     changed += _photo_tables(root, extras.rep_photos or {}, add_image)
+                    if extras.parts is not None:
+                        changed += _parts_tables(root, extras.parts, add_image)
                     changed += _finish_repairs(root)
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):
                     el.getparent().remove(el)

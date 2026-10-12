@@ -23,6 +23,8 @@
 <div class="sf-tabs" role="tablist">
   <button type="button" class="sf-tab on" data-tab="defects">🔍 결함 조사</button>
   <button type="button" class="sf-tab" data-tab="overview">🏢 전경사진 <span id="ov-count"></span></button>
+  <button type="button" class="sf-tab" data-tab="public">🚶 공중이용 <span id="pt-pub-count"></span></button>
+  <button type="button" class="sf-tab" data-tab="other">🧱 기타시설 <span id="pt-oth-count"></span></button>
 </div>
 
 <div id="sf-defects">
@@ -64,12 +66,27 @@
   <datalist id="ov-titles"></datalist>
 </div>
 
+<!-- 공중이용·기타시설(10/12 사용자) — js/sitok-parts.js, 서버 server/api/routers/sitok_parts.py -->
+<div id="sf-public" hidden>
+  <p class="page-sub pt-intro">보고서 1.3 6) 공중이 이용하는 부위 — 항목마다 대표사진 한 장(표 한 칸), 이 시설물에 없는 항목은 [해당없음].
+    [🤖 AI 초안]이 사진을 보고 조사항목·상태평가기준(a~e)으로 판단해 본문을 씁니다.</p>
+  <div class="mail-msg" id="pt-msg" hidden></div>
+  <div id="pt-public" class="pt-grid"></div>
+</div>
+<div id="sf-other" hidden>
+  <p class="page-sub pt-intro">보고서 1.3 7) 기타시설 — 마감재(외장재·내장재·천장재 등) 2장, 부착물 등(난간대·광고판·첨탑·커튼월·캣워크·대형조명 등) 2장.
+    한 장만 찍으면 빈 칸은 "-"로 들어갑니다.</p>
+  <div class="mail-msg" id="pt-msg2" hidden></div>
+  <div id="pt-other"></div>
+</div>
+
   </main>
 </div>
 
 <script src="app.js"></script>
 <script src="shell.js"></script>
 <script src="js/sitok-field.js"></script>
+<script src="js/sitok-parts.js"></script>
 <script src="js/sitok-overview.js"></script>
 </body>
 </html>

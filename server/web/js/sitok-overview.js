@@ -84,11 +84,12 @@
     e.target.disabled = false;
   });
 
-  // 탭 — 결함 조사 / 전경사진
+  // 탭 — 결함 조사 / 전경사진 / 공중이용 / 기타시설(10/12) — 탭 data-tab="x" ↔ 칸 id="sf-x"
+  const tabs = [...document.querySelectorAll(".sf-tab")].map((b) => b.dataset.tab);
   const show = (tab) => {
+    if (!tabs.includes(tab)) tab = "defects";
     document.querySelectorAll(".sf-tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
-    document.getElementById("sf-defects").hidden = tab !== "defects";
-    document.getElementById("sf-overview").hidden = tab !== "overview";
+    tabs.forEach((t) => { const pane = document.getElementById(`sf-${t}`); if (pane) pane.hidden = t !== tab; });
     try { sessionStorage.setItem(`sf-tab-${rid}`, tab); } catch (_) { /* */ }
   };
   document.querySelectorAll(".sf-tab").forEach((b) => b.addEventListener("click", () => show(b.dataset.tab)));

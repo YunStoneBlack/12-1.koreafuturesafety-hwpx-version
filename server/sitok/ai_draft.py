@@ -109,6 +109,7 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 [이번 회차] {period}
 [항목별 결함 집계 — 이번 회차 현장 조사]
 {stats}
+{parts}
 
 [지난 회차 보고서 문장 — 말투·형식 참고용. 같은 문장을 그대로 베끼지 말고, 이번 숫자에 맞게 새로 쓰세요]
 {old}
@@ -120,6 +121,9 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 - 원인은 결함마다 적힌 원인·근거(사진에서 본 것)를 살려 구체적으로 — "건조수축균열·노후화" 같은 한 낱말로 뭉뚱그리지 말 것.
 - 구조체라도 미장균열·마감균열·조적균열은 마감층 결함이라 구조 결함이 아님(집계의 "상태평가 대상"에서 빠짐) — 구조안전성 판단·등급·18항목은 상태평가 대상 결함으로.
 - 문장은 보고서 문어체("~조사되었다", "~권고한다"), 항목마다 2~4문장. 매번 같은 틀이 되지 않게 시설물·층·부재를 구체적으로.
+- 공중이 이용하는 부위·기타시설 현장 사진 판단이 있으면 sections.public·sections.other·결과표 public은 그 판단(항목·상태)을 근거로 구체적으로
+  (해당없음 항목은 "해당없음", 사진이 없는 항목은 언급하지 말 것). 결함 집계의 공중이용·기타 결함도 함께.
+  보고서 글에는 a~e 같은 평가 글자를 쓰지 말고 상태를 말로(예: "전반적으로 양호한 상태로 유지되고 있다", "일부 균열 등이 발생한 것으로 조사되었다").
 - 안전등급은 A~E 중 추천 하나와 근거 한두 문장. 등급 이름: A 우수, B 양호, C 보통, D 미흡, E 불량(중대결함 없고 비구조체 위주면 보통 B~C).
 
 아래 JSON 객체 하나로만 답하세요(설명 없이):
@@ -166,7 +170,7 @@ METHOD_SPEC = """,
 
 
 def draft(facility: str, period: str, defects: list, old_text: str, company_id: int, eval_items: list | None = None,
-          fac_items: list | None = None, combos: list | None = None, price_list: list | None = None) -> dict:
+          fac_items: list | None = None, combos: list | None = None, price_list: list | None = None, parts_facts: str = "") -> dict:
     st = stats(defects)
     lines = []
     for k, _, n in CATEGORIES:
@@ -189,7 +193,7 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
                                    combos="\n".join(f"{i} | {c['part']} | {c['member']} | {c['dtype']}{' (0.3mm 이상)' if c['wide'] else ''} | {c['count']}개소 | "
                                                      f"{c['qty']}{c['unit']} | {c['max_width'] if c['max_width'] is not None else '-'} | {', '.join(c['causes']) or '-'} | "
                                                      f"{c['default']}" for i, c in enumerate(combos, 1)))
-    prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), old=old_text[:6000] or "(없음)", items_spec=spec)
+    prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), parts=parts_facts, old=old_text[:6000] or "(없음)", items_spec=spec)
     from server.sitok import vision
 
     text = vision.ask(company_id, [], prompt, max_tokens=32000)  # 3종 18항목·1.4·보수공법까지 쓰면 답이 김

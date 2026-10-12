@@ -543,6 +543,8 @@ class SitokReport(Base):
     overview: Mapped[list | None] = mapped_column(JSON, default=None)  # 전경사진 [{id, file(회차 폴더 기준), title, ai}] — 10·11쪽(0032)
     survey: Mapped[dict | None] = mapped_column(JSON, default=None)  # 면담·변경사항 {repairs: 1.2.7에 더할 줄, changes: 1.2.8 변경 항목}(0033)
     amount_k: Mapped[str] = mapped_column(Text, default="")  # 이 동 점검금액(천원) — 같은 계약서를 여러 동이 같이 쓸 때(0035), 비면 계약 금액
+    # 공중이용·기타시설 사진(0037) {public: {키: {file} | {none: true}}, other: {finish: [file, file], attach: [file, file]}} — 1.3 6)·7), server/sitok/parts.py
+    parts: Mapped[dict | None] = mapped_column(JSON, default=None)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 

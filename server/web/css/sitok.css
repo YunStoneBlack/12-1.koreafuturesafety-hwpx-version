@@ -288,3 +288,7 @@
   .nw-dash { display: none; }
   .nw-actions { flex-wrap: wrap; }
 }
+/* AI 초안 창 — 공중이용·기타시설 사진 판단(10/12) */
+.ai-fac-row.ai-part { grid-template-columns: minmax(0, 1fr) 90px minmax(0, 2fr); }
+.ai-part .ai-name small { display: block; color: var(--faint); font-size: 11px; }
+@media (max-width: 760px) { .ai-fac-row.ai-part { grid-template-columns: minmax(0, 1fr) 90px; } .ai-part .ai-pnote { grid-column: 1 / -1; } }

@@ -80,6 +80,10 @@ async function openSitokAi(reportId, title, onSaved) {
         <h4>1.3 외관조사 실시결과(항목별 서술 — 결과의 분석 표에도 같은 글)</h4>
         ${SITOK_AI_SECTIONS.map(([k, label]) => `<label>${label} <span class="sk-help">결함 ${st[k]?.count ?? 0}건${st[k]?.grew ? ` · 진행 ${st[k].grew}` : ""}${st[k]?.new ? ` · 신규 ${st[k].new}` : ""}${st[k]?.repaired ? ` · 보수 ${st[k].repaired}` : ""}</span>
           <textarea data-k="sections.${k}" rows="3">${esc((f.sections || {})[k])}</textarea></label>`).join("")}
+        ${(f.parts || []).length ? `<h4>공중이용·기타시설 사진 판단 <span class="sk-help">현장 화면 탭 사진을 AI가 조사항목·상태평가기준(a~e)으로 본 것 — 위 6)·7) 글과 결과표 칸이 이걸로 쓰였음(글은 위에서 고치세요)</span></h4>
+          <div class="ai-fac">${f.parts.map((it, i) => `<div class="ai-fac-row ai-part" data-i="${i}"><span class="ai-name"><small>${it.group === "public" ? "공중이용" : "기타시설"}</small>${esc(it.name)}</span>
+            <select class="ai-pgrade">${["", "a", "b", "c", "d", "e", "해당없음"].map((g) => `<option value="${g}"${it.grade === g ? " selected" : ""}>${g || "-"}</option>`).join("")}</select>
+            <input class="ai-pnote" value="${esc(it.note)}" placeholder="상태 한 줄" /></div>`).join("")}</div>` : ""}
         ${(f.items || []).length ? `<h4>안전등급 평가(3종, 18항목)</h4>
           <div class="ai-items">${f.items.map((it, i) => `<div class="ai-item" data-i="${i}"><span class="ai-no">${it.no}</span>
             <span class="ai-name"><small>${esc(it.group)}</small>${esc(it.name)}${it.basis ? `<em class="ai-basis">근거: ${esc(it.basis)}</em>` : ""}</span>
@@ -133,6 +137,10 @@ async function openSitokAi(reportId, title, onSaved) {
       if ((f.methods || []).length) {
         body.methods = [...box.querySelectorAll(".ai-met-row")].map((row) => ({ ...f.methods[Number(row.dataset.i)], method: row.querySelector(".ai-method").value.trim(),
           lump: Number(row.querySelector(".ai-lump").value.replace(/[^0-9]/g, "")) || null }));
+      }
+      if ((f.parts || []).length) {
+        body.parts = [...box.querySelectorAll(".ai-part")].map((row) => ({ ...f.parts[Number(row.dataset.i)], grade: row.querySelector(".ai-pgrade").value,
+          note: row.querySelector(".ai-pnote").value.trim() }));
       }
       if ((f.facility || []).length) {
         body.facility = [...box.querySelectorAll(".ai-fac-row")].map((row) => ({ ...f.facility[Number(row.dataset.i)], has: row.querySelector(".ai-has").value === "1",

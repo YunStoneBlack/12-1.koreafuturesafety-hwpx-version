@@ -456,6 +456,10 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     ex.survey = r.survey or {}  # 비어 있어도 1.2.8은 "변경사항없음"으로 새로
     from server.api.routers.sitok_overview import photos as overview_photos
     ex.overview = overview_photos(db, r)  # 전경사진(없으면 지난 회차 그대로)
+    from server.sitok import parts as P  # 1.3 6) 공중이용·7) 기타시설 표 = 현장 화면 탭 사진(10/12)
+    ex.parts = P.build_input(r.parts, _report_dir(db.get(SitokFacility, r.facility_id), r))
+    if not P.recorded(r.parts):
+        ex.notes.append("공중이용·기타시설 탭에 사진이 없어 6) 표는 모두 \"해당없음\", 7) 표는 \"-\"입니다(현장 조사 → 🚶 공중이용·🧱 기타시설)")
     ex.blank = str(_blank_jpg())
     from server.api.routers.sitok_defects import method_map
     methods = method_map((ex.ai or {}).get("methods"))  # AI 초안 보수공법(없으면 결함유형별 기본 공법)
@@ -736,9 +740,22 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
         fac_items = [{**it, "has": had.get(_norm_key(it["name"]), False)} for it in rb.read_facility_items(m)]
         from server.api.routers.sitok_defects import method_combos
         from server.api.routers.sitok_settings import prices
+        # 공중이용·기타시설 탭 사진(10/12) — AI가 먼저 사진을 보고 조사항목·상태평가기준(a~e)으로 항목별 판단 → 본 초안에 사실로
+        from server.sitok import parts as P
+        judged: dict = {}
+        facts = ""
+        if P.recorded(r.parts):
+            photos = P.photo_list(r.parts, _report_dir(f, r))
+            if photos:
+                mine = "\n".join(f"{d['floor']} {d['seq']}번 {d['member']} {d['dtype']} {d.get('cause') or ''}" for d in defects
+                                 if ai_draft.category_of(d["part"], d["member"], d["dtype"]) in ("public", "other"))
+                judged = P.evaluate(user.company_id, facility, photos, mine)
+            facts = P.facts(r.parts, judged)
         data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id,
                               eval_items=items, fac_items=fac_items,
-                              combos=method_combos(db, r.id), price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)])
+                              combos=method_combos(db, r.id), price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)],
+                              parts_facts=facts)
+        data["parts"] = P.rows(r.parts, judged)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
     data["made_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -761,7 +778,7 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
     """점검자가 고친 값(final) 저장 — 키는 ai_draft.draft 결과와 같음. 등급은 A~E만."""
     r = _require(db, user, report_id)
     final = {k: body.get(k) for k in ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason",
-                                      "items", "eval_opinion", "facility", "methods")}
+                                      "items", "eval_opinion", "facility", "methods", "parts")}
     if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선)
         final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
     if final.get("grade") and final["grade"] not in ("A", "B", "C", "D", "E"):
