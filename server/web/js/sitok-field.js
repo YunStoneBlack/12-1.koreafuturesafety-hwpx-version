@@ -380,7 +380,8 @@
         if (a.width && !q(".n-width").value.trim()) setBand(a.width);
         if (a.count && q(".n-count").value === "1") q(".n-count").value = a.count;
         box.className = `n-ai${a.is_defect ? "" : " warn"}`;
-        box.textContent = `🤖 ${a.is_defect ? "" : "결함이 아니라 기록용 사진 같습니다 — "}${a.note || "채웠습니다"} · 맞는지 확인하세요`;
+        box.textContent = `🤖 ${a.is_defect ? "" : "결함이 아니라 기록용 사진 같습니다 — "}${a.note || "채웠습니다"} · 맞는지 확인하세요`
+          + (a.learned ? `\n📚 ${a.learned}` : ""); // 회사 교정 기록을 보고 분류를 바꿨으면(10/12)
       } catch (e) { box.className = "n-ai warn"; box.textContent = `AI 분석 실패 — 직접 넣어 주세요 (${e.message})`; }
     });
     enableFileDrop(q(".sf-newshot"), photo);
@@ -389,6 +390,7 @@
       const body = { floor: q(".n-floor").value.trim(), part: q(".n-part").value, member: q(".n-member").value, dtype: q(".n-dtype").value,
         cause: q(".n-cause").value.trim(), count: q(".n-count").value.trim(), width: q(".n-width").value.trim(), length: q(".n-length").value.trim() };
       body.cause_note = ai && ai.cause_note && body.cause === ai.cause ? ai.cause_note : ""; // 원인을 고쳤으면 AI 근거는 안 맞음
+      body.ai_guess = ai && ai.guess ? ai.guess : null; // AI 첫 분류 — 다르게 넣으면 회사 교정 기록(다음 사진 분석에 씀, 10/12)
       if (!body.floor || !body.dtype) { alert("층과 결함유형을 골라 주세요."); return; }
       q(".n-ok").disabled = true;
       try {

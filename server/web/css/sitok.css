@@ -292,3 +292,13 @@
 .ai-fac-row.ai-part { grid-template-columns: minmax(0, 1fr) 90px minmax(0, 2fr); }
 .ai-part .ai-name small { display: block; color: var(--faint); font-size: 11px; }
 @media (max-width: 760px) { .ai-fac-row.ai-part { grid-template-columns: minmax(0, 1fr) 90px; } .ai-part .ai-pnote { grid-column: 1 / -1; } }
+/* 설정 탭 사진 분류 교정 기록(10/12) — js/sitok-learn.js */
+.ss-learn-g { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.ss-learn-h { font-size: 13.5px; margin-bottom: 8px; }
+.ss-learn-ai { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(200, 60, 60, .5); }
+.ss-learn-items { display: flex; flex-wrap: wrap; gap: 8px; }
+.ss-learn-it { margin: 0; width: 120px; }
+.ss-learn-it img, .ss-learn-nophoto { width: 120px; height: 90px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); cursor: pointer; display: flex;
+  align-items: center; justify-content: center; font-size: 11px; color: var(--faint); }
+.ss-learn-it figcaption { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 11px; color: var(--muted); margin-top: 3px; }
+.main .ss-learn-it figcaption button { margin: 0; padding: 0 4px; background: none; border: 0; color: var(--crit); font-size: 12px; }

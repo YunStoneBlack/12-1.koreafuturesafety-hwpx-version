@@ -56,6 +56,15 @@
 </section>
 
 <section class="panel">
+  <div class="panel-head"><h2>사진 분류 교정 기록</h2><span class="panel-count">AI가 추천한 분류를 점검자가 바꿔 등록한 것 — 다음 사진 분석에 씀</span></div>
+  <div class="panel-body">
+    <p class="page-sub ss-note">현장 조사 [+ 신규]에서 AI가 추천한 구분·부재·결함유형을 점검자가 다르게 넣으면 여기에 쌓입니다. 다음에 AI가 같은 추천을 하면
+      이 사진들을 같이 보고, 같은 경우면 점검자가 고친 쪽으로 바꿉니다(원인 추천엔 안 씀). 실수로 쌓인 것은 ✕로 지우세요.</p>
+    <div id="ss-learn"></div>
+  </div>
+</section>
+
+<section class="panel">
   <div class="panel-head"><h2>보수 단가표</h2><button type="button" class="secondary btn-sm" id="ss-add-price">+ 공법 추가</button></div>
   <div class="panel-body">
     <p class="page-sub ss-note">시설물편 개략공사비에 쓰는 단가입니다. 공법 이름은 요약표·보수 우선순위의 "조치 필요사항"과 같아야 계산됩니다(없는 공법은 "1식").
@@ -70,5 +79,6 @@
 <script src="app.js"></script>
 <script src="shell.js"></script>
 <script src="js/sitok-settings.js"></script>
+<script src="js/sitok-learn.js"></script>
 </body>
 </html>

@@ -9,6 +9,7 @@
 - `POST /sitok/settings/prices`, `PATCH|DELETE /sitok/settings/prices/{id}` — 개략공사비 보수 단가표(10/11, 처음 열 때 기본값 채움).
 - `POST /sitok/settings/vocab`, `DELETE /sitok/settings/vocab/{id}` — 결함 부재·결함유형 회사 목록(10/12, 처음 열 때 server/sitok/kinds.py 기본값).
 - `GET /sitok/settings/master/file`, `POST /sitok/settings/master` — 회사 원본 템플릿 받기·고친 한글 올리기(10/12, server/sitok/master.py).
+- `GET /sitok/settings/corrections`, `DELETE .../corrections/{id}`, `GET .../corrections/{id}/photo` — 사진 분류 교정 기록(10/12, server/sitok/learn.py).
 서류 그림·유효기간 저장은 서류 자동화(contract_library)와 같은 표(SubmitDoc)·같은 함수 — 종류 이름만 시특법 것(SITOK_*).
 """
 from __future__ import annotations
@@ -200,6 +201,50 @@ def delete_vocab(vocab_id: int, user: User = Depends(get_current_user), db: Sess
     db.delete(v)
     db.commit()
     return vocab_out(vocab_rows(db, user.company_id))
+
+
+# ---------- 사진 분류 교정 기록(10/12 — server/sitok/learn.py) ----------
+
+@router.get("/corrections")
+def get_corrections(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """(AI 추천 → 점검자 값) 묶음별 — 다음 사진 분석 때 AI에게 같이 보여 주는 회사 판단 기준."""
+    from server.sitok import learn
+
+    return {"groups": learn.groups(db, user.company_id)}
+
+
+def _correction(db: Session, user: User, cid: int):
+    from core.models_web import SitokCorrection
+
+    c = db.get(SitokCorrection, cid)
+    if c is None or c.company_id != user.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "교정 기록을 찾을 수 없습니다.")
+    return c
+
+
+@router.delete("/corrections/{cid}")
+def delete_correction(cid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """잘못 쌓인 기록 지우기(점검자 실수 등) — 결함 자체는 그대로, 그 결함의 AI 추천 기록도 지워 다시 안 쌓이게."""
+    from core.models_web import SitokDefect
+    from server.sitok import learn
+
+    c = _correction(db, user, cid)
+    d = db.get(SitokDefect, c.defect_id) if c.defect_id else None
+    if d is not None:
+        d.ai_guess = None
+    if c.thumb:
+        Path(c.thumb).unlink(missing_ok=True)
+    db.delete(c)
+    db.commit()
+    return {"groups": learn.groups(db, user.company_id)}
+
+
+@router.get("/corrections/{cid}/photo")
+def correction_photo(cid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = _correction(db, user, cid)
+    if not c.thumb or not Path(c.thumb).exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
+    return FileResponse(c.thumb, media_type="image/jpeg")
 
 
 class PriceIn(BaseModel):

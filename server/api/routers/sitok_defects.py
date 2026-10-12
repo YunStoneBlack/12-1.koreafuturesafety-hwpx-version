@@ -31,7 +31,7 @@ from server.api.routers.sitok import base_areas
 from server.api.routers.sitok_reports import _order, _report_dir, _require as _require_report
 from server.api.routers.sitok_settings import add_vocab, vocab_names, vocab_out, vocab_rows
 from server.contract_docs import files
-from server.sitok import album_read, kinds
+from server.sitok import album_read, kinds, learn
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
 AREA_WORDS = ("누수", "백태", "백화", "박리", "박락", "층분리", "재료분리", "철근노출", "부식", "들뜸", "탈락", "파손", "오염")
@@ -439,6 +439,7 @@ class DefectIn(BaseModel):
     note: str | None = None
     check: str | None = None
     starred: bool | None = None
+    ai_guess: dict | None = None  # [+ 신규] 사진 AI 첫 추천 {part, member, dtype, token} — 교정 기록(server/sitok/learn.py, 10/12)
 
 
 def _require(db: Session, user: User, defect_id: int) -> tuple[SitokDefect, SitokReport]:
@@ -450,6 +451,7 @@ def _require(db: Session, user: User, defect_id: int) -> tuple[SitokDefect, Sito
 
 def _apply(d: SitokDefect, body: DefectIn, user: User, bases: tuple[float, float] | None = None, allowed: dict | None = None) -> None:
     data = body.model_dump(exclude_unset=True)
+    data.pop("ai_guess", None)  # 결함 칸이 아님 — add_defect가 따로
     if "check" in data and data["check"] not in CHECKS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "확인 값이 올바르지 않습니다.")
     for k in ("member", "dtype") if allowed else ():  # 고정 목록(바꿀 때만 — 지난 보고서에서 온 목록 밖 값은 그대로 둘 수 있음)
@@ -485,7 +487,10 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
     last = max((d.seq for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == body.floor.strip())), default=0)
     d = SitokDefect(report_id=r.id, seq=last + 1, check="new", mark="신규")
     _apply(d, body.model_copy(update={"check": "new"}), user, base_areas(db.get(SitokFacility, r.facility_id)), vocab_names(db, r.company_id, r.id))
+    d.ai_guess = learn.guess_from(body.ai_guess)
     db.add(d)
+    db.flush()
+    learn.sync(db, d, r.company_id, user.display_name or "")  # AI 추천과 다르게 넣었으면 회사 교정 기록
     db.commit()
     return _out(d)
 
@@ -494,6 +499,7 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
 def update_defect(defect_id: int, body: DefectIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     d, r = _require(db, user, defect_id)
     _apply(d, body, user, base_areas(db.get(SitokFacility, r.facility_id)), vocab_names(db, r.company_id, r.id))
+    learn.sync(db, d, r.company_id, user.display_name or "")  # 나중에 분류를 고쳐도 교정 기록에
     db.commit()
     return _out(d)
 
@@ -764,9 +770,27 @@ def analyze_new(report_id: int, file: UploadFile = File(...), floor: str = "", u
     allowed = vocab_names(db, r.company_id, r.id)
     jpg = files.to_jpeg(file.file.read(), file.filename or "")
     try:
-        return _analysis(vision.ask_json(user.company_id, [jpg], _analyze_prompt(f"층: {floor}" if floor else "층 미상", allowed)), allowed)
+        raw = vision.ask_json(user.company_id, [jpg], _analyze_prompt(f"층: {floor}" if floor else "층 미상", allowed))
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"사진을 분석하지 못했습니다: {str(err).splitlines()[0][:150]}") from err
+    a = _analysis(raw, allowed)
+    first = {k: a[k] for k in ("part", "member", "dtype")}
+    a["guess"] = {**first, "token": learn.save_pending(jpg)}  # [추가] 때 같이 오면 결함에 붙여 교정 기록 비교(10/12)
+    rows = learn.examples(db, r.company_id, first["part"], first["member"], first["dtype"]) if first["dtype"] else []
+    if rows:  # 같은 추천을 점검자가 고친 기록이 있으면 그 사진들과 비교해 다시 판단(분류만 — 원인은 그대로, 사용자 10/12)
+        try:
+            again = learn.recheck(user.company_id, jpg, first, rows, allowed)
+            b = _analysis({**raw, "part": again.get("part"), "member": again.get("member"), "dtype": again.get("dtype"),
+                           "new_member": None, "new_dtype": None}, allowed)
+            if again.get("same_case") and b["dtype"] and (b["part"], b["member"], b["dtype"]) != (first["part"], first["member"], first["dtype"]):
+                a.update({k: b[k] for k in ("part", "member", "dtype")}, new_member="", new_dtype="")
+                a["learned"] = (f"회사 교정 기록 {len(rows)}건(비슷한 사진)을 보고 '{' · '.join(x for x in first.values() if x)}' → "
+                                f"'{' · '.join(x for x in (b['part'], b['member'], b['dtype']) if x)}'로 바꿨습니다 — {_text(again.get('why'))}")
+            else:  # 비교했지만 다른 경우 — 그대로(왜 안 바꿨는지 점검자가 알게)
+                a["learned"] = f"회사 교정 기록 {len(rows)}건과 비교했지만 다른 경우라 AI 판단 그대로 — {_text(again.get('why'))}"
+        except Exception:  # noqa: BLE001 — 다시 판단을 못 하면 첫 추천 그대로
+            pass
+    return a
 
 
 @router.post("/defects/{defect_id}/analyze")

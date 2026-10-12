@@ -581,6 +581,29 @@ class SitokDefect(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     checked_by: Mapped[str] = mapped_column(Text, default="")
     checked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    # 사진 AI 첫 추천 {part, member, dtype, thumb}(0038) — 점검자가 다르게 저장하면 회사 교정 기록(SitokCorrection)으로, server/sitok/learn.py
+    ai_guess: Mapped[dict | None] = mapped_column(JSON, default=None)
+
+
+class SitokCorrection(Base):
+    """웹판 전용 — 시특법 결함 사진 분류 교정 기록(2026-10-12 alembic 0038, 사용자 "점검자가 바꾼 걸 학습해서 다음 사진 분석에").
+    AI 첫 추천(ai_*) → 점검자가 저장한 값. 다음 사진에서 AI가 같은 추천을 하면 이 기록 사진들을 같이 보여 주고 다시 판단(server/sitok/learn.py).
+    원인 추천엔 안 씀(사용자). 결함·회차가 지워져도 남음(사진은 작은 사본 thumb). 설정 탭에서 보고 지움."""
+
+    __tablename__ = "sitok_correction"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    defect_id: Mapped[int | None] = mapped_column(Integer, default=None, index=True)  # 그 결함(지워져도 기록은 남게 FK 없음)
+    ai_part: Mapped[str] = mapped_column(Text, default="")
+    ai_member: Mapped[str] = mapped_column(Text, default="")
+    ai_dtype: Mapped[str] = mapped_column(Text, default="")
+    part: Mapped[str] = mapped_column(Text, default="")
+    member: Mapped[str] = mapped_column(Text, default="")
+    dtype: Mapped[str] = mapped_column(Text, default="")
+    thumb: Mapped[str] = mapped_column(StoredPath, default="")
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
 
 class SitokVocab(Base):
