@@ -72,7 +72,9 @@ def _out(r: SitokReport) -> dict:
             "has_source": _prior(r) is not None, "source_note": r.source_note,
             "status": r.status, "message": r.message, "made_at": r.made_at.strftime("%Y-%m-%d %H:%M") if r.made_at else "",
             "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists()),
-            "past": r.status == "done" and not r.source_hwpx,  # 이미 낸 보고서를 등록한 회차(만들기 없음)
+            # 이미 낸 보고서를 등록한 회차(만들기 없음) = 등록한 한글 "(낸 보고서).hwpx"(_register_one). 예전 조건 "만듦 + 전회차 없음"은 10/12 회사 원본으로
+            # 바꾼 뒤 처음 맡는 시설물 첫 회차를 한 번 만들면 여기 걸려 현장 조사·면담 버튼이 사라졌음(동안교회 — 사용자 10/12)
+            "past": r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"),
             "has_ai": bool(r.ai), "base": bool((r.survey or {}).get("base")), "has_survey": bool((r.survey or {}).get("repairs") or (r.survey or {}).get("changes")),
             "has_detail": bool((r.survey or {}).get("detail")), "amount_k": r.amount_k or ""}
 
