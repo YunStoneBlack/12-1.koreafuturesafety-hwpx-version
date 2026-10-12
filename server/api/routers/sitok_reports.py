@@ -525,7 +525,43 @@ def survey_get(report_id: int, user: User = Depends(get_current_user), db: Sessi
     r = _require(db, user, report_id)
     base = rb.read_survey(Path(r.source_hwpx)) if r.source_hwpx and Path(r.source_hwpx).exists() else {"repairs_old": [], "change_items": []}
     return {**base, "repairs": (r.survey or {}).get("repairs") or [], "changes": (r.survey or {}).get("changes") or {},
-            "period": f"{r.year}년 {r.half}"}
+            "period": f"{r.year}년 {r.half}", "has_register": _register(db.get(SitokFacility, r.facility_id)).exists()}
+
+
+def _register(f: SitokFacility) -> Path:
+    """건축물대장 PDF — 시설물 폴더에 하나(시설물 현황 AI·1.2.8 초안이 같이 씀)."""
+    return _facility_dir(f) / "건축물대장.pdf"
+
+
+def _save_register(f: SitokFacility, file: UploadFile | None) -> Path:
+    reg = _register(f)
+    if file is not None and file.filename:
+        data = file.file.read()
+        if not data.startswith(b"%PDF"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "건축물대장은 PDF로 올려 주세요.")
+        reg.parent.mkdir(parents=True, exist_ok=True)
+        reg.write_bytes(data)
+    return reg
+
+
+@router.post("/reports/{report_id}/survey/changes/ai")
+def survey_changes_ai(report_id: int, file: UploadFile | None = File(None), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """1.2.8 초안(저장 안 함) — 건축물대장 변동사항(준공 이후 전부)을 AI가 줄마다 읽고 항목별로(server/sitok/changes.py). 점검자가 창에서 확인하고 저장."""
+    from server.sitok import changes
+
+    r = _require(db, user, report_id)
+    reg = _save_register(db.get(SitokFacility, r.facility_id), file)
+    if not reg.exists():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "건축물대장 PDF를 올려 주세요(변동사항이 있는 \"을\" 쪽까지).")
+    labels = [it["label"] for it in survey_get(report_id, user, db)["change_items"]]
+    if not labels:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "틀에 1.2.8 변경사항 표가 없습니다.")
+    try:
+        events = changes.read_events(reg, user.company_id)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"건축물대장 변동사항을 읽지 못했습니다: {str(err).splitlines()[0][:150]}") from err
+    drafted, missing = changes.draft(events, labels)
+    return {"changes": drafted, "events": events, "missing": missing}
 
 
 @router.put("/reports/{report_id}/survey")
@@ -560,9 +596,8 @@ def _detail_out(db: Session, r: SitokReport, override: dict | None = None) -> di
         base["uses"] = saved["uses"]
     if saved.get("uses_total"):
         base["uses_total"] = saved["uses_total"]
-    reg = _facility_dir(f) / "건축물대장.pdf"
     return {**base, "saved": bool((r.survey or {}).get("detail")), "has_ledger": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()),
-            "has_register": reg.exists()}
+            "has_register": _register(f).exists()}
 
 
 @router.get("/reports/{report_id}/detail")
@@ -577,13 +612,7 @@ def detail_ai(report_id: int, file: UploadFile | None = File(None), user: User =
 
     r = _require(db, user, report_id)
     f = db.get(SitokFacility, r.facility_id)
-    reg = _facility_dir(f) / "건축물대장.pdf"
-    if file is not None and file.filename:
-        data = file.file.read()
-        if not data.startswith(b"%PDF"):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "건축물대장은 PDF로 올려 주세요.")
-        reg.parent.mkdir(parents=True, exist_ok=True)
-        reg.write_bytes(data)
+    reg = _save_register(f, file)
     cur = _detail_out(db, r)
     facility = (f"{f.name} / 시설물번호 {f.fms_no} / {f.address} / 관리주체 {f.owner_name} / 준공 {_iso(f.completion_date)} / 구조 {f.structure} / "
                 f"지상 {f.floors_above}층·지하 {f.floors_below}층·옥탑 {f.floors_roof} / 최고높이 {f.max_height} / 연면적 {f.total_area} / 건축면적 {f.building_area} / "

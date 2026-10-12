@@ -1245,9 +1245,9 @@ def _apply_survey(root, survey: dict) -> int:
                 vals, prev_none = [ch.get("before") or "-", ch["after"], ch.get("where") or "-", ch.get("note") or "-"], False
             else:
                 vals, prev_none = ["-", "〃" if prev_none else "변경사항없음", "-", "-"], True
-            for c, v in enumerate(vals, 1):
+            for c, v in enumerate(vals, 1):  # 한 항목에 변동이 여러 건(건축물대장 초안)이면 칸 안에서 줄을 나눔
                 if (r, c) in cells:
-                    _set_lines(cells[(r, c)], [v])
+                    _set_lines(cells[(r, c)], str(v).split("\n"))
         n += 1
     return n
 
