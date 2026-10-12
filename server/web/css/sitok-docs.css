@@ -41,6 +41,13 @@
 .sd-total { margin-left: auto; font-weight: 700; font-size: 13px; }
 .sd-msg[hidden] { display: none; }
 
+/* 관급 착수계·완료계 창(js/sitok-docs-gov.js) — 틀은 contract-docs.css */
+.sd-gov select.sd-agent { width: 100%; }
+.sd-cover { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; }
+.sd-cover input[type="file"] { display: none !important; }
+.sd-warn { margin: 6px 0 0; padding-left: 18px; font-weight: 500; }
+.sd-g-msg[hidden] { display: none; }
+
 @media (max-width: 760px) {
   .sd-ups, .sd-ups.two { grid-template-columns: 1fr; }
   .sd-up { flex-direction: row; align-items: center; }

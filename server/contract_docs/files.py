@@ -80,6 +80,10 @@ def to_jpeg(data: bytes, filename: str) -> bytes:
                 img = Image.open(io.BytesIO(pix.tobytes("png")))
         else:
             img = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+        if img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info):  # 투명 PNG(서명 등)는 흰 바탕에(검게 안 되게)
+            rgba = img.convert("RGBA")
+            img = Image.new("RGB", rgba.size, "white")
+            img.paste(rgba, mask=rgba.split()[-1])
         img = img.convert("RGB")
         img.thumbnail((MAX_SIDE, MAX_SIDE))
         buf = io.BytesIO()

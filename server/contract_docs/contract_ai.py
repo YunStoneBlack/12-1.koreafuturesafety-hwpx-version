@@ -44,11 +44,12 @@ def _date(v) -> datetime.date | None:
         return None
 
 
-def read_with_ai(pdf_path: Path, company_id: int) -> dict:
-    """PDF → {client, title, contract_no, amount, contract_date, start_date, end_date}. 키가 없으면 RuntimeError."""
+def read_with_ai(pdf_path: Path, company_id: int, prompt: str = PROMPT) -> dict:
+    """PDF → {client, title, contract_no, amount, contract_date, start_date, end_date}. 키가 없으면 RuntimeError.
+    prompt = 시특법 관급(server/api/routers/sitok_docs.py)은 용역 종류만 바꾼 PROMPT."""
     if not config.has_api_key(company_id):
         raise RuntimeError("Claude API 키가 없습니다 — 서류 자동화 설정 탭에서 등록하세요.")
-    data = _parse_json_object(_call_claude(_encode_pdf(pdf_path), PROMPT, company_id=company_id))
+    data = _parse_json_object(_call_claude(_encode_pdf(pdf_path), prompt, company_id=company_id))
     return {
         "client": str(data.get("client") or "").strip(),
         "title": str(data.get("title") or "").strip(),

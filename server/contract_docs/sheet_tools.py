@@ -201,6 +201,27 @@ def place_seal(ws: Worksheet, seal: bytes, cx: float, cy: float, size: int = SEA
     ws._images.append(img)
 
 
+def anchor_box(ws: Worksheet, img: XLImage) -> tuple[float, float, float, float]:
+    """그림의 (x, y, 너비, 높이) 픽셀 — 한 칸 기준(크기 ext) 그림도."""
+    x, y, w, h = _anchor_box(ws, img)
+    ext = getattr(img.anchor, "ext", None)
+    if not w and ext is not None:
+        w, h = ext.width / 9525, ext.height / 9525
+    return x, y, w, h
+
+
+def place_picture(ws: Worksheet, data: bytes, box: tuple[float, float, float, float]) -> None:
+    """그림(PNG 등 — 투명 그대로)을 칸(x, y, 너비, 높이 픽셀) 안에 비율대로 가운데 맞춰 놓는다(시특법 보안각서 서명, 10/12)."""
+    x, y, w, h = box
+    with PILImage.open(io.BytesIO(data)) as p:
+        pw, ph = p.size
+    k = min(w / pw, h / ph) if pw and ph else 1
+    iw, ih = pw * k, ph * k
+    img = XLImage(io.BytesIO(data))
+    img.anchor = OneCellAnchor(_from=_marker(ws, x + (w - iw) / 2, y + (h - ih) / 2), ext=XDRPositiveSize2D(pixels_to_EMU(iw), pixels_to_EMU(ih)))
+    ws._images.append(img)
+
+
 def merged_right_x(ws: Worksheet, coord: str) -> float:
     """칸(병합이면 병합 범위)의 오른쪽 끝 x 픽셀."""
     cell = ws[coord]

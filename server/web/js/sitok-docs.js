@@ -3,7 +3,8 @@
 // 위: 검색 + [+ 민간 계약서 만들기] [+ 관급 계약] + 이미 만든 민간 계약서를 끌어다 놓기(읽어서 새 계약). 칸(전체·민간·관급·현장 연결 안 됨)을 누르면 거름.
 // 한 줄: 계약건명 · 관리주체·기간·금액 · 계약/현장 담당 · 현장(연결/[🔗 현장 연결]) · 계약서·날인본·보고서 쪽 상태 · [열기][삭제].
 // 창: 서류 올리기(관리대장·사업자등록증·날인본) → 관리주체 → 시설물 → 계약 회차(연도·반기·정기/정밀·금액) 또는 계약 해지 시까지(매 반기 단가)
-//     → 계약(계약일·기간·문서번호·계약건명) → 담당자 → [저장] [📝 계약서 만들기]. 닫으면 고친 내용 저장. 관급 착수계·완료계는 2단계.
+//     → 계약(계약일·기간·문서번호·계약건명) → 담당자 → [저장] [📝 계약서 만들기]. 닫으면 고친 내용 저장.
+// 관급(2단계): 나라장터 계약서를 올리면 읽어서 칸 채움 → [📑 착수계] [📑 완료계] 창(js/sitok-docs-gov.js).
 
 (function () {
   const errorEl = document.getElementById("error");
@@ -20,7 +21,9 @@
   const DATES = ["contract_date", "start_date", "end_date"];
   const LABEL = { client: "관리주체", client_rep: "대표자", client_biz_no: "사업자등록번호", client_address: "주소", facility_name: "시설물명", location: "위치",
     spec: "제원", title: "계약건명", doc_no: "문서번호", rounds: "계약 회차", open_ended: "계약 해지 시까지", unit: "매 반기 금액", guarantee: "계약보증액",
-    delay_rate: "지체상금율", contract_date: "계약일", start_date: "시작일", end_date: "종료일" };
+    delay_rate: "지체상금율", contract_date: "계약일", start_date: "시작일", end_date: "종료일", contract_no: "계약번호", amount: "계약금액",
+    client_manager: "계약 담당", client_phone: "계약 담당 연락처", client_email: "계약 담당 이메일", site_manager: "현장 담당", site_phone: "현장 담당 연락처",
+    site_email: "현장 담당 이메일" };
 
   function moneyText(c) {
     if (c.sector === "관급") return c.amount ? `${won(c.amount)}원` : "";
@@ -76,7 +79,13 @@
     if (c.sector === "민간" && (c.made_at || !c.files["날인본.pdf"])) out.push(line("계약서", !!c.made_at, c.made_at ? `${c.made_at.slice(5)} 만듦` : "아직 안 만듦", c.files["계약서.pdf"] ? fileUrl(c, "계약서.pdf") : ""));
     out.push(line(c.sector === "민간" ? "날인본" : "계약서", c.files["날인본.pdf"], c.files["날인본.pdf"] ? "✓ 올림" : "안 올림", c.files["날인본.pdf"] ? fileUrl(c, "날인본.pdf") : ""));
     if (c.facility) out.push(line("보고서 쪽", !!c.report_contract_id, c.report_contract_id ? "✓ 계약 넣음" : "안 넣음"));
-    if (c.sector === "관급") out.push(line("착수계·완료계", false, "준비 중"));
+    if (c.sector === "관급") {
+      for (const [k, lab] of [["start", "착수계"], ["done", "완료계"]]) {
+        const g = c.gov[k];
+        out.push(line(lab, g.pdf, g.at ? `${g.at.slice(5)} 만듦` : "아직 안 만듦",
+          g.pdf ? `${BASE}/api${P}/contracts/${c.id}/gov/${k}.pdf?inline=true&v=${encodeURIComponent(g.at)}` : ""));
+      }
+    }
     return out.join("");
   }
 
@@ -94,14 +103,16 @@
       </div>
       <div class="dc-docs">${docLines(c)}</div>
       <div class="dc-actions">
-        <button type="button" class="secondary sd-open">${c.sector === "민간" ? "📝 계약서" : "📑 열기"}</button>
+        ${c.sector === "관급" ? '<button type="button" class="secondary sd-gov" data-kind="start">📑 착수계</button><button type="button" class="secondary sd-gov" data-kind="done">📑 완료계</button>' : ""}
+        <button type="button" class="secondary sd-edit">${c.sector === "민간" ? "📝 계약서" : "계약 정보"}</button>
         <button type="button" class="secondary dc-del" title="계약 지우기">삭제</button>
       </div>`;
     el.querySelectorAll(".dc-contact").forEach((line) => {
       const call = siteLinkButtons(c[`${line.dataset.who}_phone`], "");
       if (call) line.appendChild(call);
     });
-    el.querySelector(".sd-open").addEventListener("click", () => openContract(c.id, c.sector));
+    el.querySelector(".sd-edit").addEventListener("click", () => openContract(c.id, c.sector));
+    el.querySelectorAll(".sd-gov").forEach((b) => b.addEventListener("click", () => openSitokGov(c.id, b.dataset.kind, load)));
     el.querySelector(".dc-link").addEventListener("click", () => pickFacility(c, () => load()));
     el.querySelector(".dc-del").addEventListener("click", async () => {
       const pw = await dcAskPassword(`"${c.title || c.auto_title || "점검 계약"}"을(를) 지웁니다. 올린·만든 계약서 파일도 같이 지워집니다(보고서 쪽에 넣은 계약은 그대로). 되돌릴 수 없습니다.`);
@@ -296,7 +307,7 @@
           ${upChip("ledger", "시설물관리대장", "시설물관리대장.pdf", "시설물명·위치·제원·관리주체")}
           ${civil ? upChip("bizreg", "사업자등록증", "사업자등록증.pdf", "관리주체·대표자·번호·주소") : ""}
           ${civil ? upChip(st.made_at ? "signed" : "existing", "날인본(도장 찍은 계약서)", "날인본.pdf", st.made_at ? "도장 찍어 받은 계약서 보관" : "이미 만든 계약서면 계약 칸까지 읽음")
-            : upChip("signed", "나라장터 계약서", "날인본.pdf", "보관(읽기는 착수계와 같이 — 준비 중)")}
+            : upChip("g2b", "나라장터 계약서", "날인본.pdf", "읽어서 계약 칸을 채움(다시 올리면 읽은 칸만 바뀜)")}
         </div>
         <div class="mail-label">${civil ? "관리주체(갑)" : "발주처"}</div>
         <div class="cd-grid">
@@ -335,7 +346,8 @@
           ${civil && st.files && st.files["계약서.pdf"] ? `<a href="${fileUrl(st, "계약서.pdf")}" target="_blank" rel="noopener">PDF 보기</a>` : ""}
           <button type="button" class="sd-close">닫기</button>
           <button type="button" class="sd-save">저장</button>
-          ${civil ? '<button type="button" class="mail-primary sd-make">📝 계약서 만들기</button>' : ""}
+          ${civil ? '<button type="button" class="mail-primary sd-make">📝 계약서 만들기</button>'
+            : '<button type="button" class="sd-to-gov" data-kind="start">📑 착수계</button><button type="button" class="mail-primary sd-to-gov" data-kind="done">📑 완료계</button>'}
         </div>`;
       wire();
       if (clean) snapshot = JSON.stringify(body());
@@ -404,6 +416,10 @@
           busy = false;
         }
       });
+      box.querySelectorAll(".sd-to-gov").forEach((b) => b.addEventListener("click", async () => { // 관급: 저장하고 착수계·완료계 창
+        if (!(await save(true))) return;
+        openSitokGov(st.id, b.dataset.kind, async () => { st = await api(`${P}/contracts/${st.id}`); draw(true); });
+      }));
       const make = box.querySelector(".sd-make");
       if (make) make.addEventListener("click", async () => {
         busy = true;

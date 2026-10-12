@@ -33,7 +33,8 @@ from server.sitok import kinds, master
 router = APIRouter(prefix="/sitok/settings", tags=["sitok"])
 # 서류 종류 — SubmitDoc.kind(서류 자동화의 build.COMPANY_DOCS·PERSON_DOCS와 이름이 겹치지 않게 sitok_ 붙임)
 SITOK_COMPANY_DOCS = [("sitok_reg", "안전진단전문기관 등록증")]
-SITOK_PERSON_DOCS = [("sitok_edu", "정밀안전진단 교육 수료증"), ("sitok_license", "책임기술자 자격")]
+SITOK_PERSON_DOCS = [("sitok_edu", "정밀안전진단 교육 수료증"), ("sitok_license", "책임기술자 자격"),
+                     ("sitok_sign", "서명·도장(관급 보안각서)")]  # 10/12 서류 자동화 관급 착수계 — 사람 보안각서 "(서명)" 위
 COMPANY_LABELS = dict(SITOK_COMPANY_DOCS)
 PERSON_LABELS = dict(SITOK_PERSON_DOCS)
 EQUIP_DIR = ROOT / "장비"

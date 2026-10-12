@@ -592,7 +592,7 @@ class SitokDocContract(Base):
     facility_id로 "현장 연결"(민간·관급 모두 — 이어 두면 계약서를 그 시설물 계약으로 씀).
     - 민간: 계약서를 우리가 만들어 업체에 보내 날인(server/sitok/civil.py — 양식 하나, 회차 줄 rounds의 정기/정밀로 "정기·정밀안전점검" 글자).
       끝이 없는 계약(open_ended) = 계약기간 "~ 계약 해지 시까지" + 매 반기 단가(unit), 총합 없음. 이미 만든 계약서도 올려 등록.
-    - 관급: 나라장터 계약서 → 착수계·완료계(산안법과 같은 방식 — 2단계)."""
+    - 관급: 나라장터 계약서 → 착수계·완료계(산안법과 같은 방식, 양식만 다름 — server/sitok/gov_docs.py, 2단계 0041)."""
 
     __tablename__ = "sitok_doc_contract"
 
@@ -629,6 +629,11 @@ class SitokDocContract(Base):
     contract_pdf: Mapped[str] = mapped_column(StoredPath, default="")  # 날인본(민간)·나라장터 계약서(관급) — 올린 것
     made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)  # 민간 계약서 만든 때
     report_contract_id: Mapped[int | None] = mapped_column(Integer, default=None)  # 연결한 시설물에 넣은 보고서 쪽 계약(SitokContract.id) — 다시 넣으면 고침
+    # 관급 착수계·완료계(0041) — 고른 현장대리인(책임기술자)·참여기술자(TechPerson, 시특법 보고서 설정과 같은 명단), 만든 때
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("tech_person.id", ondelete="SET NULL"), default=None)
+    participant_ids: Mapped[list | None] = mapped_column(JSON, default=None)
+    start_made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    done_made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     memo: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)

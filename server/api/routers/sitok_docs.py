@@ -8,13 +8,18 @@
 - `GET    /sitok/docs/contracts/{id}/candidates`, `POST .../{id}/link` {facility_id|null} — 현장(시설물) 연결.
 - `POST   /sitok/docs/contracts/{id}/to-facility` — 연결한 시설물에 보고서 쪽 계약으로 넣기(날인본/만든 PDF를 계약서로, 다시 누르면 고침).
 - `GET    /sitok/docs/template`, `POST /sitok/docs/template` — 민간 계약서 양식 받기·고친 양식 올리기(자리표시 검사).
+- 관급(2단계, server/sitok/gov_docs.py): 올리기 g2b(나라장터 계약서 — 글자 규칙, 못 읽은 칸만 AI → 읽은 칸 덮어씀)·report_cover(결과보고서 표지),
+  `GET .../{id}/gov` 착수계·완료계 창, `POST .../{id}/gov/{start|done}` 엑셀 + 합본 PDF(붙임 산출내역서·완수내역서), `GET .../{id}/gov/{kind}.{xlsx|pdf}`,
+  `POST|GET|DELETE .../{id}/gov/{kind}/attach/{칸}[/{파일}]` 붙임 파일. 기술자 = 시특법 보고서 설정과 같은 명단(사용자 10/12).
 """
 from __future__ import annotations
 
 import datetime
 import re
 import shutil
+import tempfile
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
@@ -23,11 +28,13 @@ from sqlalchemy.orm import Session
 
 from core import config
 from core.db import DATA_DIR
-from core.models_web import SitokContract, SitokDocContract, SitokFacility, User
+from core.models_web import SitokContract, SitokDocContract, SitokFacility, SitokReport, TechPerson, User
 from server.api import storage
 from server.api.deps import get_current_user, get_db
+from server.api.routers import contract_library as lib
 from server.api.security import verify_password
-from server.sitok import civil
+from server.contract_docs import attachments, build
+from server.sitok import civil, gov_docs
 
 router = APIRouter(prefix="/sitok/docs", tags=["sitok"])
 ROOT = DATA_DIR / "_시특법_계약"
@@ -36,7 +43,12 @@ TEXT = ("sector", "doc_no", "client", "client_rep", "client_biz_no", "client_add
         "guarantee", "delay_rate", "client_manager", "client_phone", "client_email", "site_manager", "site_phone", "site_email", "memo")
 DATES = ("contract_date", "start_date", "end_date")
 FILES = {"계약서.hwpx": "application/octet-stream", "계약서.pdf": "application/pdf", "날인본.pdf": "application/pdf",
-         "시설물관리대장.pdf": "application/pdf", "사업자등록증.pdf": "application/pdf"}
+         "시설물관리대장.pdf": "application/pdf", "사업자등록증.pdf": "application/pdf", "결과보고서_표지.pdf": "application/pdf"}
+GOV = {"start": "착수계", "done": "완료계"}  # 관급 서류 — 계약 폴더 착수계.xlsx·착수계.pdf …
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# 관급 기술자 서류: 착수계 장 종류(build.PERSON_DOCS 이름) ← SubmitDoc 종류 — 교육수료증은 정밀안전진단(견본), 자격증·경력증명서는 산안법과 같은 그림
+GOV_PERSON_DOCS = [("license", "license", "자격증"), ("edu", "sitok_edu", "정밀안전진단 교육 수료증"), ("career", "career", "경력증명서"),
+                   ("sign", "sitok_sign", "서명·도장")]
 
 
 def folder(c: SitokDocContract) -> Path:
@@ -100,6 +112,7 @@ def summary(db: Session, c: SitokDocContract) -> dict:
             "auto_title": civil.default_title(c), "auto_doc_no": civil.default_doc_no(c.contract_date),
             "facility": {"id": f.id, "name": f.name} if f else None, "report_contract_id": c.report_contract_id,
             "files": _files(c), "made_at": c.made_at.strftime("%Y-%m-%d %H:%M") if c.made_at else "",
+            "gov": {k: _gov_made(c, k) for k in GOV},
             "updated": f"{c.updated_at:%Y-%m-%d %H:%M} {c.updated_by}" if c.updated_at else ""}
 
 
@@ -252,7 +265,7 @@ def from_existing(file: UploadFile = File(...), user: User = Depends(get_current
 @router.post("/contracts/{cid}/upload/{kind}")
 def upload(cid: int, kind: str, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _require(db, user, cid)
-    if kind not in ("ledger", "bizreg", "existing", "signed"):
+    if kind not in ("ledger", "bizreg", "existing", "signed", "g2b", "report_cover"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "올릴 서류 종류가 맞지 않습니다.")
     return _store(db, c, kind, _pdf(file), user)
 
@@ -263,7 +276,8 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
 
     base = folder(c)
     base.mkdir(parents=True, exist_ok=True)
-    target = {"ledger": "시설물관리대장.pdf", "bizreg": "사업자등록증.pdf", "existing": "날인본.pdf", "signed": "날인본.pdf"}[kind]
+    target = {"ledger": "시설물관리대장.pdf", "bizreg": "사업자등록증.pdf", "existing": "날인본.pdf", "signed": "날인본.pdf", "g2b": "날인본.pdf",
+              "report_cover": "결과보고서_표지.pdf"}[kind]
     (base / target).write_bytes(pdf)
     if target == "날인본.pdf":
         c.contract_pdf = str(base / target)
@@ -281,6 +295,10 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
             c.sector = "민간"
             filled = _fill(c, got, True)
             c.amount = None if c.open_ended else (civil.total(c.rounds) or None)
+        elif kind == "g2b":
+            c.sector = "관급"
+            got, error = _read_g2b(base / target, user.company_id)
+            filled = _fill(c, got, True)
     except Exception as err:  # noqa: BLE001 — 파일은 붙이고 손으로 채우게
         error = f"자동으로 읽지 못했습니다 — 직접 넣어 주세요. ({str(err).splitlines()[0][:150]})"
     c.updated_at, c.updated_by = datetime.datetime.now(), user.display_name or ""
@@ -439,3 +457,227 @@ def put_template(file: UploadFile = File(...), user: User = Depends(get_current_
         shutil.copyfile(p, old)
     p.write_bytes(data)
     return {"ok": True, "updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
+
+
+# ---------- 관급 착수계·완료계(2단계, server/sitok/gov_docs.py) ----------
+
+def _read_g2b(pdf: Path, company_id: int) -> tuple[dict, str]:
+    """나라장터 계약서 → 계약 칸(글자 규칙, 못 읽은 중요한 칸만 AI — 산안법과 같음, 용역 종류만 바꾼 물음). 사업 담당(수요기관) = 현장 담당."""
+    from server.contract_docs import contract_ai, contract_pdf
+
+    try:
+        text = contract_pdf.read_text(pdf)
+        got = contract_pdf.parse_text(text)
+        # 발주처 기관명이 줄이 나뉘어 꼬리만 읽힌 경우("광" / "숭초등학교" — 광숭초 계약서) → 수요기관 기관명(같은 이름이 온전히 한 줄)
+        m = re.search(r"<수요기관>\s*기\s*관\s*명\s*:?\s*([^\n]+)", text)
+        whole = m[1].strip() if m else ""
+        if got.get("client") and whole != got["client"] and whole.endswith(got["client"]):
+            got["client"] = whole
+    except Exception:  # noqa: BLE001 — 글자 없는 스캔 등 → 전부 AI
+        got = {k: None for k in contract_ai.KEY_FIELDS + ("contract_date",)}
+    error = ""
+    if contract_ai.needs_ai(got):
+        try:
+            prompt = contract_ai.PROMPT.replace("건설재해예방 기술지도 용역", "시설물 정기안전점검 용역")
+            for k, v in contract_ai.read_with_ai(pdf, company_id, prompt).items():
+                if v and not got.get(k):
+                    got[k] = v
+        except Exception as err:  # noqa: BLE001
+            error = f"못 읽은 칸이 있습니다 — 직접 넣어 주세요. ({str(err).splitlines()[0][:150] if str(err) else type(err).__name__})"
+    for a, b in (("biz_manager", "site_manager"), ("biz_phone", "site_phone"), ("biz_email", "site_email")):
+        got[b] = got.pop(a, None)
+    keys = ("client", "title", "contract_no", "amount", "contract_date", "start_date", "end_date", "client_manager", "client_phone", "client_email",
+            "site_manager", "site_phone", "site_email")
+    return {k: got.get(k) for k in keys}, error
+
+
+def _gov_made(c: SitokDocContract, kind: str) -> dict:
+    at = c.start_made_at if kind == "start" else c.done_made_at
+    base = folder(c) if c.id else None
+    return {"at": at.strftime("%Y-%m-%d %H:%M") if at else "", "pdf": bool(base and (base / f"{GOV[kind]}.pdf").exists()),
+            "xlsx": bool(base and (base / f"{GOV[kind]}.xlsx").exists())}
+
+
+def _values(c: SitokDocContract) -> build.Contract:
+    return build.Contract(client=c.client, title=c.title, contract_no=c.contract_no, amount=c.amount, contract_date=c.contract_date,
+                          start_date=c.start_date, end_date=c.end_date)
+
+
+def _person_docs(db: Session, p: TechPerson) -> dict:
+    d = lib.person_docs(db, p.id)
+    return {k: d.get(src) for k, src, _ in GOV_PERSON_DOCS}
+
+
+def _person_state(db: Session, p: TechPerson) -> dict:
+    d = _person_docs(db, p)
+    return {"id": p.id, "name": p.name, "qualification": p.qualification, "grade": gov_docs.grade_text(p.sitok_grade, p.grade),
+            "missing": [label for k, _, label in GOV_PERSON_DOCS if not lib.doc_status(d[k])],
+            "expired": [label for k, _, label in GOV_PERSON_DOCS if lib.doc_status(d[k]) == "expired"]}
+
+
+def _person(db: Session, p: TechPerson) -> gov_docs.Person:
+    d = _person_docs(db, p)
+    return gov_docs.Person(name=p.name, address=p.address, birth_date=p.birth_date, position=p.position, join_date=p.join_date,
+                           qualification=p.qualification, grade=gov_docs.grade_text(p.sitok_grade, p.grade),
+                           docs={k: d[k].file for k in ("license", "edu", "career") if d[k] is not None and d[k].file},
+                           sign=d["sign"].file if d["sign"] is not None and d["sign"].file else "")
+
+
+def _cover_source(db: Session, c: SitokDocContract) -> tuple[Path | None, str]:
+    """결과보고서 장 표지 — 올린 표지 > 연결한 시설물의 만든 보고서(보고서 쪽에 넣은 계약의 회차 먼저, 그다음 최근)."""
+    up = folder(c) / "결과보고서_표지.pdf"
+    if c.id and up.exists():
+        return up, "올린 표지"
+    if c.facility_id:
+        reps = [r for r in db.query(SitokReport).filter(SitokReport.facility_id == c.facility_id).all() if r.out_pdf and Path(r.out_pdf).exists()]
+        reps.sort(key=lambda r: (r.contract_id is not None and r.contract_id == c.report_contract_id, r.made_at or r.created_at), reverse=True)
+        if reps:
+            return Path(reps[0].out_pdf), f"{reps[0].year}년 {reps[0].half} 보고서 표지(연결한 시설물)"
+    return None, ""
+
+
+def _attach_list(c: SitokDocContract, kind: str) -> list[dict]:
+    k = f"sitok_{kind}"
+    return [{"slot": key, "label": label, "files": [attachments.file_info(f) for f in attachments.list_files(folder(c), k, key)]}
+            for key, label, _ in attachments.SLOTS[k]]
+
+
+@router.get("/contracts/{cid}/gov")
+def gov_state(cid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """착수계·완료계 창 — 기본값(문서번호·인사말·담당), 기술자 명단(빠진 서류), 붙임, 결과보고서 표지."""
+    c = _require(db, user, cid)
+    v = _values(c)
+    _, cover = _cover_source(db, c)
+    return summary(db, c) | {
+        "defaults": {"doc_no_start": build.default_doc_no(v, c.start_date), "doc_no_done": build.default_doc_no(v, c.end_date),
+                     "greeting": gov_docs.greeting(c.client), "contact_name": config.get_doc_contact_name(user.company_id)},
+        "agent_id": c.agent_id, "participant_ids": c.participant_ids or [],
+        "persons": [_person_state(db, p) for p in lib.persons(db, user.company_id) if p.active],
+        "attachments": {k: _attach_list(c, k) for k in GOV},
+        "cover": cover,
+    }
+
+
+class GovIn(BaseModel):
+    contract: ContractIn | None = None
+    doc_no: str = ""
+    greeting: str = ""
+    contact: str = ""
+    seal: bool = True
+    agent_id: int | None = None
+    participant_ids: list[int] = []
+
+
+def _doc_warnings(db: Session, chosen: list[TechPerson]) -> list[str]:
+    out = []
+    for p in chosen:
+        d = _person_docs(db, p)
+        for k, _, lab in GOV_PERSON_DOCS:
+            if lib.doc_status(d[k]) == "expired":
+                out.append(f"⚠ {p.name} {lab} 유효기간 지남({d[k].valid_until}) — 새로 발급받아 설정 탭에서 바꾸세요.")
+            elif lib.doc_status(d[k]) == "nodate":
+                out.append(f"⚠ {p.name} {lab} 발급일을 모릅니다 — 유효기간을 확인할 수 없으니 설정 탭에서 발급일을 적으세요.")
+    return out
+
+
+@router.post("/contracts/{cid}/gov/{kind}")
+def make_gov(cid: int, kind: Literal["start", "done"], body: GovIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """착수계·완료계 엑셀(양식 채움) → LibreOffice PDF → 붙임(산출내역서·완수내역서) 끼운 합본 PDF."""
+    import openpyxl
+
+    from server.contract_docs import to_pdf
+
+    c = _require(db, user, cid)
+    if body.contract is not None:
+        _apply(c, body.contract, user)
+    v = _values(c)
+    if not v.client or not v.title:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "발주처·용역명을 먼저 채우세요(나라장터 계약서를 올리면 자동으로 채워집니다).")
+    label = GOV[kind]
+    base = folder(c)
+    xlsx, pdf = base / f"{label}.xlsx", base / f"{label}.pdf"
+    doc_no = body.doc_no.strip() or build.default_doc_no(v, c.start_date if kind == "start" else c.end_date)
+    greet = body.greeting.strip() or gov_docs.greeting(c.client)
+    contact = body.contact.strip() or config.get_doc_contact_name(user.company_id)
+    warnings: list[str] = []
+    try:
+        if kind == "start":
+            mine = {p.id: p for p in lib.persons(db, user.company_id)}
+            if body.agent_id not in mine:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "현장대리인(책임기술자)을 고르세요.")
+            part_ids = [i for i in dict.fromkeys(body.participant_ids) if i in mine and i != body.agent_id]
+            chosen = [mine[body.agent_id]] + [mine[i] for i in part_ids]
+            warnings += _doc_warnings(db, chosen)
+            warnings += gov_docs.build_start(v, doc_no, greet, contact, body.seal, _person(db, chosen[0]), [_person(db, p) for p in chosen[1:]], xlsx)
+            c.agent_id, c.participant_ids = body.agent_id, part_ids
+        else:
+            src, _ = _cover_source(db, c)
+            warnings += gov_docs.build_done(v, doc_no, greet, contact, body.seal, gov_docs.cover_image(src) if src else None, xlsx)
+    except (FileNotFoundError, ValueError) as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    pdf_error = ""
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            sheets = Path(tmp) / "sheets.pdf"
+            to_pdf.office_to_pdf(xlsx, sheets)
+            count = len(openpyxl.load_workbook(xlsx, read_only=True).sheetnames)
+            warnings += attachments.merge(sheets, base, f"sitok_{kind}", count, pdf)
+    except Exception as err:  # noqa: BLE001 — 엑셀은 받을 수 있게 두고 PDF만 실패 알림
+        pdf.unlink(missing_ok=True)
+        pdf_error = str(err)[:300]
+    if kind == "start":
+        c.start_made_at = datetime.datetime.now()
+    else:
+        c.done_made_at = datetime.datetime.now()
+    db.commit()
+    return {"warnings": warnings, "pdf_error": pdf_error, "gov": {k: _gov_made(c, k) for k in GOV}, "doc_no": doc_no}
+
+
+@router.get("/contracts/{cid}/gov/{kind}.{ext}")
+def gov_file(cid: int, kind: Literal["start", "done"], ext: Literal["xlsx", "pdf"], inline: bool = False,
+             user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = _require(db, user, cid)
+    path = folder(c) / f"{GOV[kind]}.{ext}"
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"아직 만든 {GOV[kind]}가 없습니다.")
+    name = re.sub(r'[\\/:*?"<>|]', "_", f"{c.title or c.client or '계약'}_{GOV[kind]}.{ext}")
+    return FileResponse(path, media_type="application/pdf" if ext == "pdf" else XLSX, filename=name,
+                        content_disposition_type="inline" if inline else "attachment", headers={"Cache-Control": "no-store"})
+
+
+def _slot(kind: str, slot: str) -> str:
+    k = f"sitok_{kind}"
+    if slot not in {key for key, _, _ in attachments.SLOTS[k]}:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "없는 붙임 칸입니다.")
+    return k
+
+
+@router.post("/contracts/{cid}/gov/{kind}/attach/{slot}")
+def gov_attach(cid: int, kind: Literal["start", "done"], slot: str, file: UploadFile = File(...), user: User = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    """붙임 파일(산출내역서·완수내역서 — 견적서) 올리기 — 바로 PDF로 바꿔 둠(한글은 작업 PC 한글로)."""
+    c = _require(db, user, cid)
+    k = _slot(kind, slot)
+    try:
+        attachments.add_file(folder(c), k, slot, file.file.read(), file.filename or "")
+    except (ValueError, RuntimeError) as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    return _attach_list(c, kind)
+
+
+@router.delete("/contracts/{cid}/gov/{kind}/attach/{slot}/{name}")
+def gov_attach_delete(cid: int, kind: Literal["start", "done"], slot: str, name: str, user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    c = _require(db, user, cid)
+    attachments.remove_file(folder(c), _slot(kind, slot), slot, name)
+    return _attach_list(c, kind)
+
+
+@router.get("/contracts/{cid}/gov/{kind}/attach/{slot}/{name}")
+def gov_attach_view(cid: int, kind: Literal["start", "done"], slot: str, name: str, user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    c = _require(db, user, cid)
+    path = attachments.slot_dir(folder(c), _slot(kind, slot), slot) / Path(name).name
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
+    return FileResponse(path, media_type="application/pdf", filename=path.name, content_disposition_type="inline")
