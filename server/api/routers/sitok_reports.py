@@ -3,8 +3,10 @@
 - `GET  /sitok/facilities/{id}/reports` — 회차 목록 + 새 회차 기본값.
 - `POST /sitok/facilities/{id}/reports` — 새 회차(틀 = 직전 회차 결과 한글이 있으면 자동으로).
 - `PATCH/DELETE /sitok/reports/{id}` — 고치기·지우기.
-- `POST /sitok/reports/{id}/source` — 지난 보고서 한글(hwp·hwpx) 올리기 = 틀(처음 하는 시설물). hwp는 작업 프로그램이 hwpx로 바꿈.
-- `POST /sitok/facilities/{id}/reports/past` — 이미 낸 보고서 한글 등록 = 그 회차(연도·반기·기간은 결과표에서)를 "만듦"으로 → 다음 회차의 틀.
+- `POST /sitok/reports/{id}/source` — 지난 보고서 한글(hwp·hwpx) 올리기 = 전회차 보고서(데이터용). hwp는 작업 프로그램이 hwpx로 바꿈.
+- `POST /sitok/facilities/{id}/reports/past` — 이미 낸 보고서 한글 등록 = 그 회차(연도·반기·기간은 결과표에서)를 "만듦"으로 → 다음 회차의 전회차 보고서.
+10/12 판 다시 잡기: 보고서는 늘 회사 원본 템플릿(server/sitok/master.py)으로 만들고, 전회차 보고서(source_hwpx — 직전 회차·이미 낸 것·올린 것)에서는
+1.2.6·1.2.7 이력, 시설물 현황 값, 지난 평가, (AI 초안이 없을 때) 결과표·1.3·종합결론 글 같은 데이터만 가져온다(_base_extras).
 - `POST /sitok/reports/{id}/build` — 만들기 시작(백그라운드: 값 바꾸기 → 한글 PDF(100쪽 넘으면 몇 분) → 관리대장·계약서 합본). 화면은 GET으로 진행을 봄.
 - `GET  /sitok/reports/{id}` · `/sitok/reports/{id}/file/{pdf|hwpx}`.
 - `POST /sitok/reports/{id}/ai/draft` — AI 초안 새로(현장 조사 결함 + 지난 회차 문장 참고, 30~90초), `GET|PUT /sitok/reports/{id}/ai` — 점검자가 고친 값.
@@ -15,6 +17,7 @@
 from __future__ import annotations
 
 import datetime
+import re
 import threading
 import traceback
 from pathlib import Path
@@ -36,7 +39,7 @@ from server.api.routers.sitok import _facility_dir, _require_facility
 def _iso(d) -> str:
     return d.isoformat() if d else ""  # sitok._iso는 빈 날짜를 None으로 — 회차 화면은 "" (date 칸 value)
 from server.contract_docs import hwp_queue
-from server.sitok import report_build as rb
+from server.sitok import master, report_build as rb
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
 HALVES = ("상반기", "하반기")
@@ -62,7 +65,7 @@ def _out(r: SitokReport) -> dict:
     return {"id": r.id, "contract_id": r.contract_id, "year": r.year, "half": r.half,
             "period_start": _iso(r.period_start), "period_end": _iso(r.period_end), "report_date": _iso(r.report_date),
             "chief_id": r.chief_id, "participant_ids": r.participant_ids or [],
-            "has_source": bool(r.source_hwpx and Path(r.source_hwpx).exists()), "source_note": r.source_note,
+            "has_source": _prior(r) is not None, "source_note": r.source_note,
             "status": r.status, "message": r.message, "made_at": r.made_at.strftime("%Y-%m-%d %H:%M") if r.made_at else "",
             "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists()),
             "past": r.status == "done" and not r.source_hwpx,  # 이미 낸 보고서를 등록한 회차(만들기 없음)
@@ -218,7 +221,7 @@ def register_past(facility_id: int, file: UploadFile = File(...), user: User = D
     tmp.replace(dest)
     r.out_hwpx, r.out_pdf, r.status, r.made_at = str(dest), "", "done", datetime.datetime.now()
     r.source_note = r.source_note or "이미 낸 보고서"
-    r.message = f"이미 낸 보고서 등록({name}) — 다음 회차의 틀로 씁니다"
+    r.message = f"이미 낸 보고서 등록({name}) — 다음 회차가 이력·시설물 현황 등 데이터를 여기서 가져옵니다"
     db.commit()
     return _out(r)
 
@@ -235,36 +238,51 @@ def upload_source(report_id: int, file: UploadFile = File(...), user: User = Dep
     return _out(r)
 
 
-def _new_values(db: Session, r: SitokReport, old: rb.Values) -> tuple[rb.Values, list[str]]:
-    """이 회차의 새 값 + 경고(빈 칸·수료증 유효기간)."""
+def _prior(r: SitokReport) -> Path | None:
+    """전회차 보고서(데이터만 가져옴, 10/12) — 직전 회차가 만든 한글 / 이미 낸 보고서 / 올린 지난 보고서. 없으면 처음 맡는 시설물.
+    10/11 "회사 기본 틀로 시작" 회차(survey.base)의 source_hwpx는 다른 시설물 보고서라 전회차가 아님."""
+    if (r.survey or {}).get("base"):
+        return None
+    return Path(r.source_hwpx) if r.source_hwpx and Path(r.source_hwpx).exists() else None
+
+
+def _new_values(db: Session, r: SitokReport, old: rb.Values, prior: rb.Values | None) -> tuple[rb.Values, list[str]]:
+    """이 회차의 새 값 + 경고(빈 칸·수료증 유효기간). old = 회사 원본(광숭초) 값 — 바뀌어야 할 것. 값은 시설물(관리대장)·계약 → 없으면 전회차 보고서."""
     f = db.get(SitokFacility, r.facility_id)
     c = db.get(SitokContract, r.contract_id) if r.contract_id else None
     warn: list[str] = []
+    p = prior or rb.Values()
     new = rb.Values(**{k: getattr(old, k) for k in vars(old)})
-    new.name, new.year, new.half = f.name or old.name, r.year, r.half
-    t = old.title
-    for o, n in ((old.name, new.name), (f"{old.year}년도", f"{r.year}년도"), (f"{old.year}년", f"{r.year}년"), (old.half, r.half)):
-        if o:
-            t = t.replace(o, n)
-    new.title = t
-    new.owner = f.owner_name or old.owner
-    new.address = f.address or old.address
-    new.completion = f.completion_date or old.completion
-    if old.scale and f.structure and f.total_area:
+    new.name, new.year, new.half = f.name or p.name or "-", r.year, r.half
+    if p.title:  # 용역명은 전회차 보고서 모양(발주처마다 다름) — 연도·반기·이름만 이번으로
+        t = p.title
+        for o, n in ((p.name, new.name), (f"{p.year}년도", f"{r.year}년도"), (f"{p.year}년", f"{r.year}년"), (p.half, r.half)):
+            if o:
+                t = t.replace(o, n)
+        new.title = t
+    else:
+        new.title = f"{r.year}년도 {r.half} 정기점검[{new.name}]"
+    new.owner = f.owner_name or p.owner or "-"
+    new.address = f.address or p.address or "-"
+    new.completion = f.completion_date or p.completion
+    if not new.completion:
+        warn.append("준공일이 없어 원본 날짜 그대로입니다 — 시설물 정보에 넣으세요")
+    if f.structure and f.total_area:
         floors = f"지상 {f.floors_above}층" if f.floors_above else ""
         if f.floors_below:
             floors += f", 지하 {f.floors_below}층"
         new.scale = f"형식 : {f.structure}, 연면적 : {f.total_area:,.1f} m², {floors}".rstrip(", ")
+    else:
+        new.scale = p.scale or "-"
+    new.rep, new.amount_k = p.rep or "-", p.amount_k or "-"
     if c is not None:
-        new.rep = c.rep_name or old.rep
+        new.rep = c.rep_name or new.rep
         if c.amount:
             per_half = c.amount / 2 if c.sector == "관급" and c.halves == "연간" else c.amount
             new.amount_k = f"{round(per_half / 1000):,}"
     else:
-        warn.append("계약을 고르지 않아 대표자·점검금액은 지난 보고서 그대로입니다")
-    new.period_start, new.period_end = r.period_start or old.period_start, r.period_end or old.period_end
-    if not (r.period_start and r.period_end):
-        warn.append("점검기간이 비어 지난 보고서 기간 그대로입니다 — 회차에서 정하세요")
+        warn.append("계약을 고르지 않아 대표자·점검금액은 전회차 보고서 값입니다" if prior else "계약을 고르지 않아 대표자·점검금액이 비었습니다")
+    new.period_start, new.period_end = r.period_start, r.period_end
     rd = r.report_date or r.period_end or datetime.date.today()
     new.report_month = (rd.year, rd.month)
     new.task_end = task_end(c, r.year, r.half)
@@ -330,13 +348,17 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     ex.blank = str(_blank_jpg())
     from server.api.routers.sitok_defects import method_map
     methods = method_map((ex.ai or {}).get("methods"))  # AI 초안 보수공법(없으면 결함유형별 기본 공법)
-    ex.summary = summary_rows(db, r.id, methods)  # 현장 조사 결함이 있을 때만 9쪽 요약표·우선순위·개략공사비를 새로
+    ex.summary = summary_rows(db, r.id, methods)  # 9쪽 요약표·우선순위·개략공사비·1.3 대표사진 = 현장 조사 결함으로
     if ex.summary:
         ex.priority = priority_rows(db, r.id, methods)
         ex.cost = cost_rows(db, r.id, prices(db, r.company_id), methods)
         from server.api.routers.sitok_defects import rep_photos
         ex.rep_photos = rep_photos(db, r.id)
-        ex.blank = str(_blank_jpg())
+    else:  # 결함이 없으면 원본 표(다른 시설물 것)가 남지 않게 "-" 한 줄
+        ex.summary = [("-", "-", "-", ["특이사항 없음"], ["-"])]
+        ex.priority = [("-", "-", "특이사항 없음", "-", "-", "-", "-")]
+        ex.cost = ([("-", "-", "-", "-", "-", "-", "-")], 0)
+        ex.notes.append("현장 조사 결함이 없어 요약표·우선순위·개략공사비가 \"특이사항 없음\"입니다")
     return ex
 
 
@@ -396,15 +418,20 @@ def _run_build(report_id: int) -> None:
         try:
             f = db.get(SitokFacility, r.facility_id)
             c = db.get(SitokContract, r.contract_id) if r.contract_id else None
-            src = Path(r.source_hwpx)
-            old = rb.read_old(src)
-            new, warn = _new_values(db, r, old)
             folder = _report_dir(f, r)
+            folder.mkdir(parents=True, exist_ok=True)
+            src = folder / "틀_회사원본.hwpx"  # 회사 원본 → 이 시설물 종별(2종·3종 일반은 학교 전용 절 빼고 번호 다시)
+            warn = master.prepare(master.master_path(), f.template, src)
+            prior = _prior(r)
+            pv = rb.read_old(prior) if prior else None
+            old = rb.read_old(src)
+            old.grade = pv.grade if pv else ""  # 1.x 안전등급 변경시 사유 — 전회차 등급과 비교
+            new, w = _new_values(db, r, old, pv)
+            warn += w
             base = f"{r.year}년 {r.half} 정기안전점검 보고서_{f.name}"
             hwpx = folder / f"{base}.hwpx"
             extras = _extras(db, r)
-            if (r.survey or {}).get("base"):  # 회사 기본 틀(다른 시설물 보고서) — 그 시설물 고유 내용 정리
-                warn += _base_extras(db, r, f, extras)
+            warn += _base_extras(db, r, f, extras, prior, pv)
             changed = rb.build(src, old, new, hwpx, extras)
             warn += extras.notes
             r.out_hwpx = str(hwpx)
@@ -429,8 +456,10 @@ def start_build(report_id: int, user: User = Depends(get_current_user), db: Sess
     r = _require(db, user, report_id)
     if r.status == "running":
         raise HTTPException(status.HTTP_409_CONFLICT, "이미 만드는 중입니다.")
-    if not r.source_hwpx or not Path(r.source_hwpx).exists():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "틀이 없습니다 — 지난 보고서 한글 파일을 먼저 올리세요.")
+    if not master.master_path().exists():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 원본 템플릿이 없습니다 — 시특법 설정에서 올리세요.")
+    if not (r.period_start and r.period_end):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "점검기간(시작·끝)을 먼저 정하세요.")
     r.status, r.message = "running", "만드는 중…"
     db.commit()
     threading.Thread(target=_run_build, args=(r.id,), daemon=True).start()
@@ -472,15 +501,16 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
     defects = [{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause",
                                            "cause_note")}
                for d in rows]
-    old = rb.old_texts(Path(r.source_hwpx)) if r.source_hwpx and Path(r.source_hwpx).exists() else ""
+    prior = _prior(r)
+    old = rb.old_texts(prior) if prior else ""
     facility = f"{f.name} — {f.template} · {f.use_type or f.main_use} · {f.structure} · 지상 {f.floors_above or '-'}층/지하 {f.floors_below or 0}층 · 준공 {_iso(f.completion_date)}"
-    try:
-        src = Path(r.source_hwpx) if r.source_hwpx and Path(r.source_hwpx).exists() else None
-        items = rb.read_eval_items(src) if f.template.startswith("3종") and src else []
-        fac_items = rb.read_facility_items(src) if src else []
-        if (r.survey or {}).get("base"):  # 회사 기본 틀 — 틀의 평가·있다/없다는 다른 시설물 것이라 "지난 평가"로 주지 않음
-            items = [{**it, "rating": ""} for it in items]
-            fac_items = [{**it, "has": False} for it in fac_items]
+    try:  # 18항목·1.4 항목 이름은 회사 원본, "지난 평가"·"지난 있다/없다"는 전회차 보고서(없으면 비움)
+        m = master.master_path()
+        items = rb.read_eval_items(m) if f.template.startswith("3종") else []
+        before = {it["no"]: it["rating"] for it in (rb.read_eval_items(prior) if items and prior else [])}
+        items = [{**it, "rating": before.get(it["no"], "")} for it in items]
+        had = {_norm_key(it["name"]): it["has"] for it in (rb.read_facility_items(prior) if prior else [])}
+        fac_items = [{**it, "has": had.get(_norm_key(it["name"]), False)} for it in rb.read_facility_items(m)]
         from server.api.routers.sitok_defects import method_combos
         from server.api.routers.sitok_settings import prices
         data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id,
@@ -521,9 +551,12 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
 
 @router.get("/reports/{report_id}/survey")
 def survey_get(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """면담·변경사항 창 — 지난 보고서 1.2.7 이력·1.2.8 항목 + 이번에 넣은 값."""
+    """면담·변경사항 창 — 1.2.7 지난 이력(전회차 보고서)·1.2.8 항목(회사 원본) + 이번에 넣은 값."""
     r = _require(db, user, report_id)
-    base = rb.read_survey(Path(r.source_hwpx)) if r.source_hwpx and Path(r.source_hwpx).exists() else {"repairs_old": [], "change_items": []}
+    prior = _prior(r)
+    m = master.master_path()
+    base = {"repairs_old": rb.read_survey(prior)["repairs_old"] if prior else [],
+            "change_items": rb.read_survey(m)["change_items"] if m.exists() else []}
     return {**base, "repairs": (r.survey or {}).get("repairs") or [], "changes": (r.survey or {}).get("changes") or {},
             "period": f"{r.year}년 {r.half}", "has_register": _register(db.get(SitokFacility, r.facility_id)).exists()}
 
@@ -579,25 +612,26 @@ def survey_save(report_id: int, body: dict, user: User = Depends(get_current_use
 # ---------- 시설물 현황(1.1 건축물 현황표·1.2.1~1.2.4 체크·구조·용도현황) — server/sitok/detail.py ----------
 
 def _detail_out(db: Session, r: SitokReport, override: dict | None = None) -> dict:
+    """칸은 회사 원본, 값 = 저장한 것(또는 AI 초안 override) → 없으면 전회차 보고서 값(없으면 "-"). 칸마다 prior = 전회차 보고서 값
+    (관리대장·건축물대장 AI 값과 다르면 창이 둘 다 보여 주고 고르게 — 사용자 10/12, 기본은 관리대장)."""
     from server.sitok import detail
 
-    if not r.source_hwpx or not Path(r.source_hwpx).exists():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "틀(지난 보고서 한글)이 없습니다.")
-    base = detail.read(Path(r.source_hwpx))
+    if not master.master_path().exists():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 원본 템플릿이 없습니다 — 시특법 설정에서 올리세요.")
+    prior = _prior(r)
+    base = detail.read(master.master_path())
+    dflt = _detail_defaults(prior)
     saved = override or (r.survey or {}).get("detail") or {}
     f = db.get(SitokFacility, r.facility_id)
     for x in base["fields"]:
-        if x["key"] in (saved.get("fields") or {}):
-            x["value"] = saved["fields"][x["key"]]
+        x["prior"] = dflt["fields"].get(x["key"], "-") if prior else ""
+        x["value"] = (saved.get("fields") or {}).get(x["key"], dflt["fields"].get(x["key"], "-"))
     for c in base["checks"]:
-        if c["key"] in (saved.get("checks") or {}):
-            c["selected"] = saved["checks"][c["key"]]
-    if saved.get("uses") is not None:
-        base["uses"] = saved["uses"]
-    if saved.get("uses_total"):
-        base["uses_total"] = saved["uses_total"]
+        c["selected"] = (saved.get("checks") or {}).get(c["key"], dflt["checks"].get(c["key"]))
+    base["uses"] = saved["uses"] if saved.get("uses") is not None else dflt["uses"]
+    base["uses_total"] = saved.get("uses_total") or dflt["uses_total"]
     return {**base, "saved": bool((r.survey or {}).get("detail")), "has_ledger": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()),
-            "has_register": _register(f).exists()}
+            "has_register": _register(f).exists(), "has_prior": prior is not None}
 
 
 @router.get("/reports/{report_id}/detail")
@@ -639,63 +673,92 @@ def detail_save(report_id: int, body: dict, user: User = Depends(get_current_use
     return _detail_out(db, r)
 
 
-# ---------- 회사 기본 틀로 시작(처음 맡는 시설물 — 신축·타회사 인계, 2026-10-11) ----------
-SIMILAR = {"2종": ["2종"], "3종일반": ["3종일반", "3종학교"], "3종학교": ["3종학교", "3종일반"]}
+# ---------- 회사 원본으로 만들 때 전회차 보고서에서 가져오는 것(2026-10-12 판 다시 잡기 ③ — 지난 보고서는 데이터만) ----------
+
+def _norm_key(k: str) -> str:
+    """시설물 현황 칸 이름 맞추기 — 보고서마다 "건축면적(㎡)"·"건축면적"처럼 달라도 같은 칸."""
+    return re.sub(r"\(.*?\)|㎡|\s", "", k or "")
 
 
-def base_template(db: Session, company_id: int, template: str, exclude_facility: int) -> tuple[Path, str] | None:
-    """같은 종별(없으면 비슷한 종별)의 우리 회사 보고서 한글 중 가장 최근 것 — 바탕화면 견본처럼 민재형이 준 우리 양식."""
-    for t in SIMILAR.get(template, [template]):
-        facs = {f.id: f for f in db.query(SitokFacility).filter(SitokFacility.company_id == company_id, SitokFacility.template == t,
-                                                               SitokFacility.id != exclude_facility)}
-        rows = [r for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(facs)).all() if r.out_hwpx and Path(r.out_hwpx).exists()]
-        if rows:
-            r = max(rows, key=lambda x: (_order(x), x.id))
-            return Path(r.out_hwpx), f"{facs[r.facility_id].name} {r.year}년 {r.half}({t})"
-    return None
+def _detail_defaults(prior: Path | None) -> dict:
+    """시설물 현황 기본값 = 칸은 회사 원본, 값은 전회차 보고서(없으면 "-") — 원본(다른 시설물) 값이 남지 않게."""
+    from server.sitok import detail
+
+    base = detail.read(master.master_path())
+    src = detail.read(prior) if prior else None
+    pv = {x["key"]: x["value"] for x in (src or {}).get("fields", [])}
+    pn = {_norm_key(k): v for k, v in pv.items()}
+    fields = {x["key"]: (pv.get(x["key"]) or pn.get(_norm_key(x["key"])) or "-") for x in base["fields"]}
+    pc = {c["key"]: c["selected"] for c in (src or {}).get("checks", [])}
+    checks = {c["key"]: pc[c["key"]] for c in base["checks"] if c["key"] in pc}
+    return {"fields": fields, "checks": checks, "uses": (src or {}).get("uses") or [], "uses_total": (src or {}).get("uses_total") or ""}
 
 
-@router.post("/reports/{report_id}/base")
-def use_base(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """틀이 없는 회차 → 회사 기본 틀(다른 시설물의 우리 보고서)을 틀로. 보고서 만들 때 그 시설물 고유 내용은 비우거나 새로(_base_reset)."""
-    import shutil
+def _ours(hwpx: Path) -> bool:
+    """우리 회사 보고서인지(표지·제출문에 회사 이름) — 1.2.6 점검기관 칸."""
+    import zipfile
 
-    r = _require(db, user, report_id)
-    f = db.get(SitokFacility, r.facility_id)
-    got = base_template(db, user.company_id, f.template, f.id)
-    if got is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 기본 틀로 쓸 우리 보고서가 없습니다 — 같은 종별 시설물의 보고서를 먼저 등록하세요.")
-    src, desc = got
-    dest = _report_dir(f, r) / "틀_회사기본틀.hwpx"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dest)
-    r.source_hwpx, r.source_note = str(dest), f"회사 기본 틀 — {desc}"
-    r.survey = {**(r.survey or {}), "base": True}
-    db.commit()
-    return _out(r)
+    with zipfile.ZipFile(hwpx) as z:
+        return "한국미래안전" in z.read(rb._sections(z)[0]).decode("utf-8", "ignore")
 
 
-def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras) -> list[str]:
-    """기본 틀 회차의 Extras.base 값 + 경고(채워야 할 것)."""
+def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, prior: Path | None, pv: rb.Values | None) -> list[str]:
+    """회사 원본의 시설물 고유 내용(표지·위치도·전경·일반현황·결과표 고정 칸·1.2.6·1.2.7·1.1/1.2·결과표 글·1.3·1.4)을 이 시설물 것으로 —
+    전회차 보고서가 있으면 그 데이터, 없으면(처음 맡는 시설물) 비우거나 안내. 경고(채워야 할 것)를 돌려줌."""
     from server.sitok import locmap
 
     warn = []
+    c = db.get(SitokContract, r.contract_id) if r.contract_id else None
     mp = locmap.map_for(f.address, f.name, _facility_dir(f))
     if mp is None:
         warn.append("주소로 위치도 지도를 만들지 못해 빈 그림으로 넣었습니다")
+    if not ex.overview and prior is not None:  # 이번에 전경사진을 안 찍었으면 전회차 보고서 사진(표지·10쪽·11쪽)
+        ex.overview = rb.read_overview(prior, _report_dir(f, r) / "전회차_전경")
+        if ex.overview:
+            warn.append(f"전경사진을 안 찍어 전회차 보고서 사진 {len(ex.overview)}장을 넣었습니다")
     ov = ex.overview
     floors = " / ".join(x for x in (f"B{f.floors_below}F" if f.floors_below else "", f"{f.floors_above}F" if f.floors_above else "") if x)
+    history, repairs = [], []
+    if prior is not None and pv is not None:  # 1.2.6 = 전회차 회차 + 그 보고서의 가장 최근 이력(견본들처럼 2개), 1.2.7 = 전회차 이력
+        period = f"{pv.period_start:%Y.%m.%d}~{pv.period_end:%Y.%m.%d}" if pv.period_start and pv.period_end else "-"
+        history.append({"kind": "정기안전점검", "period": period, "org": "(주)한국미래안전" if _ours(prior) else "-", "grade": pv.grade or "-",
+                        "title": f"【 {pv.year}년 {pv.half} 정기안전점검 실시결과 】", "lines": pv.findings or ["-"]})
+        older = [h for h in rb.read_history(prior) if rb._d(h["period"]) and rb._d(h["period"]) != pv.period_start]
+        older.sort(key=lambda h: rb._d(h["period"]), reverse=True)  # 보고서마다 이력 순서가 달라(광숭초 오래된 순·숭의 최근 순) 날짜로
+        history += older[:1]
+        repairs = rb.read_survey(prior)["repairs_old"]
+    result = {"시설물구분": f.kind or "건축물", "종류": f.use_type or f.main_use or "-", "종별": f"{(f.template or '2')[:1]}종"}
+    if c is not None:
+        result.update({"공동수급": f"{c.joint_type} {c.joint_pct}%".strip(), "계약방법": c.bid_method})
     ex.base = {"map": str(mp) if mp else "", "cover": ov[0][0] if ov else "", "has_overview": bool(ov), "name": f.name,
                "short": f.name.split()[-1] if " " in f.name else f.name, "year": f"{f.completion_date.year}년" if f.completion_date else "-",
                "floors": floors or "-", "area": f"{f.total_area:,.2f}㎡" if f.total_area else "-", "structure": f.structure or "-",
-               "grade": (f.template or "2")[:1], "use": f.use_type or f.main_use or "시설물", "rep_keys": list((ex.rep_photos or {}).keys())}
+               "grade": (f.template or "2")[:1], "use": f.use_type or f.main_use or "시설물", "rep_keys": list((ex.rep_photos or {}).keys()),
+               "history": history, "repairs": repairs, "result": result, "school": f.template == "3종학교",
+               "target": {"owner": f.owner_name or (pv.owner if pv else "") or "-", "name": f.name, "use": f.use_type or f.main_use or "-",
+                          "year": str(f.completion_date.year) if f.completion_date else "-", "area": f"{f.total_area:,.2f}" if f.total_area else "-",
+                          "floors": (f"-{f.floors_below}/{f.floors_above}" if f.floors_below else str(f.floors_above or "-")),
+                          "structure": "철콘" if "철근콘크리트" in (f.structure or "") else (f.structure or "-"), "grade": (pv.grade if pv else "") or "-"}}
     ex.history = False
     if not ov:
-        warn.append("전경사진을 안 찍어 표지·전경 칸이 빈 그림입니다(현장 조사 → 🏢 전경사진)")
-    if not (r.survey or {}).get("detail"):
-        warn.append("기본 틀 회차 — [🏢 시설물 현황]을 저장하지 않아 1.1·1.2 표가 틀 시설물 값입니다")
-    if not r.ai:
-        warn.append("기본 틀 회차 — [🤖 AI 초안]을 안 만들어 결과표·1.3·1.4·종합결론이 틀 시설물 글입니다")
+        warn.append("전경사진이 없어 표지·전경 칸이 빈 그림입니다(현장 조사 → 🏢 전경사진)")
+    if not (r.survey or {}).get("detail"):  # 시설물 현황을 저장 안 했으면 전회차 보고서 값(없으면 "-")
+        ex.survey = {**(ex.survey or {}), "detail": _detail_defaults(prior)}
+        warn.append("[🏢 시설물 현황]을 저장하지 않아 1.1·1.2 표는 " + ("전회차 보고서 값입니다" if prior else "비었습니다(\"-\")"))
+    if not ex.ai:
+        if prior is not None:
+            ai = rb.read_texts(prior)
+            if (f.template or "").startswith("3종"):
+                items = rb.read_eval_items(prior)
+                if items:
+                    ai["items"] = items
+            fac = rb.read_facility_items(prior)
+            if fac:
+                ai["facility"] = fac
+            ex.ai = ai
+            warn.append("[🤖 AI 초안]을 안 만들어 결과표·1.3·1.4·종합결론은 전회차 보고서 글 그대로입니다")
+        else:
+            warn.append("[🤖 AI 초안]을 안 만들어 결과표·1.3·1.4·종합결론이 원본(다른 시설물) 글입니다 — 꼭 만드세요")
     if f.template == "3종학교":
-        warn.append("1.7 치장벽돌·내진보강 점검표는 틀 시설물 값 그대로 — 손으로 확인하세요")
+        warn.append("1.7 치장벽돌 안전점검 표는 원본 값 그대로 — 손으로 확인하세요")
     return warn

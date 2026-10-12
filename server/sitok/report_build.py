@@ -5,6 +5,8 @@
    연도·반기·점검기간처럼 문장 속에 들어간 것은 그 부분만. 줄 배치 캐시(linesegarray)는 지움(글자를 바꾸면 한글이 "변조"로 막을 수 있음 —
    server/contract_docs/inspection.py와 같은 이유), 미리보기 글자(Preview/PrvText.txt)도 새로.
 결함·외관조사·종합결론 등 내용은 지난 회차 그대로 두고(5·6단계에서 현장 조사·AI로), 여기선 회차가 바뀌며 달라지는 값만 바꾼다.
+10/12 판 다시 잡기: 틀(src)은 늘 회사 원본(server/sitok/master.py prepare — 종별로 손질), old = 원본(광숭초) 값. 전회차 보고서에서는
+read_history·read_survey·read_texts·read_overview·read_eval_items·read_facility_items로 데이터만 읽어 Extras.base(_base_reset)·Extras.ai로 넣는다.
 """
 from __future__ import annotations
 
@@ -990,7 +992,7 @@ def _facility_table(roots):
 
 
 def read_facility_items(hwpx: Path) -> list[dict]:
-    """[{no, name, has(지난 회차 있다?)}] — 표가 없으면 []."""
+    """[{no, name, has(지난 회차 있다?), state, where}] — 표가 없으면 []."""
     with zipfile.ZipFile(hwpx) as z:
         roots = [etree.fromstring(z.read(n)) for n in _sections(z)]
     tbl = _facility_table(roots)
@@ -1001,7 +1003,8 @@ def read_facility_items(hwpx: Path) -> list[dict]:
     for r in sorted({k[0] for k in cells if k[0] >= 2}):
         name = _cell_text(cells[(r, 0)]).replace("\n", " ").strip() if (r, 0) in cells else ""
         if name:
-            out.append({"no": len(out) + 1, "name": name, "has": "○" in _cell_text(cells.get((r, 2), tbl))})
+            g = lambda c: _cell_text(cells[(r, c)]).replace("\n", " ").strip() if (r, c) in cells else ""  # noqa: E731
+            out.append({"no": len(out) + 1, "name": name, "has": "○" in g(2), "state": g(3), "where": g(4)})
     return out
 
 
@@ -1040,6 +1043,7 @@ def _base_reset(root, is_front: bool, sec: int, base: dict, blank: str, add_imag
     mp, cover = base.get("map") or blank, base.get("cover") or blank
     tops = [p for p in root if p.tag == f"{{{HP}}}p"]
     if is_front:
+        n += _set_result_fields(root, base.get("result") or {})
         first = next((p for p in root.iter(f"{{{HP}}}pic") if int(p.find(f"{{{HP}}}curSz").get("width") or 0) > 30000), None)
         if first is not None:  # 표지 사진
             _put_pic(first, cover, add_image)
@@ -1093,36 +1097,25 @@ def _base_reset(root, is_front: bool, sec: int, base: dict, blank: str, add_imag
             _put_pic(slots[0][1], mp, add_image)
             _put_pic(slots[1][1], cover, add_image)
             n += 1
-    # 1.2.6 기실시 점검결과 — 틀 시설물 이력 표들을 첫 표 하나("-")로, 머리 문장은 이 시설물로
-    hist = [t for t in root.iter(f"{{{HP}}}tbl") if _cell_text(_cells(t).get((0, 0), t)).replace(" ", "") == "점검의종류"]
-    for t in hist[1:]:
-        par = next(t.iterancestors(f"{{{HP}}}p"), None)
-        if par is not None and par.getparent() is root:
-            root.remove(par)
-    if hist:
-        c = _cells(hist[0])
-        for (r, k), tc in c.items():
-            if r == 1:
-                _set_lines(tc, ["정기안전점검" if k == 0 else "-"])
-            elif r == 2:
-                _set_lines(tc, ["【 기실시 점검 및 진단 결과 】"])
-            elif r >= 3:
-                _set_lines(tc, ["ㆍ당사가 처음 수행하는 점검으로, 이전 점검·진단 결과는 시설물통합정보관리체계(FMS) 이력을 참고한다."])
-        n += 1
+    # 1.2.6 기실시 점검결과 — 전회차 보고서에서 읽은 이력(base["history"], 위 = 최근)으로. 없으면(처음 맡는 시설물) 첫 표 하나에 FMS 안내.
+    hist = _hist_tables(root)
+    if hist and base.get("history"):
+        n += _fill_history(root, base["history"])
+    elif hist:
+        n += _fill_history(root, [{"kind": "정기안전점검", "period": "-", "org": "-", "grade": "-", "title": "【 기실시 점검 및 진단 결과 】",
+                                   "lines": ["ㆍ당사가 처음 수행하는 점검으로, 이전 점검·진단 결과는 시설물통합정보관리체계(FMS) 이력을 참고한다."]}])
     for p in tops:
         t = _top_text(p)
         if t.startswith("본 과업대상 시설물은") and "정기안전점검" in t:
+            tail = ("법적 주기에 따라 적정하게 수행하고 있는 상태이며, 그 점검결과는 다음과 같다." if base.get("history")
+                    else "법적 주기에 따라 실시하여야 하는 시설물이다.")
             _set_para(p, f"본 과업대상 시설물은 제{base.get('grade') or '-'}종에 해당하는 {base.get('use') or '시설물'}로서 「시설물의 안전 및 유지관리에 관한 특별법」에서 "
-                         "규정하고 있는 정기안전점검(1년 2회)을 법적 주기에 따라 실시하여야 하는 시설물이다.")
+                         f"규정하고 있는 정기안전점검(1년 2회)을 {tail}")
             n += 1
             break
-    tbl = _repair_table([root])  # 1.2.7 — 틀 시설물 이력 지움(이번 면담 줄은 뒤에 _apply_survey가)
-    if tbl is not None:
-        c = _cells(tbl)
-        for (r, k), tc in c.items():
-            if r >= 1:
-                _set_lines(tc, [""] if k == 0 else ["-"])
-        n += 1
+    n += _set_repairs(root, base.get("repairs") or [])  # 1.2.7 — 전회차 보고서 이력(이번 면담 줄은 뒤에 _apply_survey가)
+    if base.get("target"):  # 부록 대상 시설물 표
+        n += _set_target_table(root, base["target"], base.get("school", False))
     keys = set((base.get("rep_keys") or []))
     from server.sitok.ai_draft import section_key
     for tbl in root.iter(f"{{{HP}}}tbl"):  # 1.3 사진 표 — 이번 결함 사진이 들어갈 표 말고는 흰 그림
@@ -1131,6 +1124,252 @@ def _base_reset(root, is_front: bool, sec: int, base: dict, blank: str, add_imag
             _blank_pics(tbl, blank, add_image)
             n += 1
     return n
+
+
+# ---------- 회사 원본으로 만들 때 전회차 보고서에서 가져오는 것(2026-10-12 — 판 다시 잡기 ③) ----------
+
+def _hist_tables(root) -> list:
+    return [t for t in root.iter(f"{{{HP}}}tbl") if _cell_text(_cells(t).get((0, 0), t)).replace(" ", "") == "점검의종류" and t.get("rowCnt") == "4"]
+
+
+def _cell_lines(tc) -> list[str]:
+    """칸 글을 줄로 — 칸 안에 든 표(평택: 지난 회차 요약표)는 "이름 : 내용" 줄로."""
+    out = []
+    for q in (x for x in tc.iter(f"{{{HP}}}p") if next(x.iterancestors(f"{{{HP}}}tc"), None) is tc):
+        t = "".join(_full(x) for x in q.iter(T) if next(x.iterancestors(f"{{{HP}}}tbl"), None) is next(q.iterancestors(f"{{{HP}}}tbl"), None)).strip()
+        if t:
+            out.append(t)
+        for inner in q.iter(f"{{{HP}}}tbl"):
+            if next(inner.iterancestors(f"{{{HP}}}tbl"), None) is not next(q.iterancestors(f"{{{HP}}}tbl"), None):
+                continue
+            c = _cells(inner)
+            for r in sorted({k[0] for k in c}):
+                row = [" ".join(_cell_text(c[(r, k)]).split()) for k in sorted(k for (rr, k) in c if rr == r)]
+                if row and any(row[1:]):
+                    out.append(f"{row[0]} : {' '.join(row[1:])}")
+    return out
+
+
+def read_history(hwpx: Path) -> list[dict]:
+    """1.2.6 기실시 점검결과 표들 [{kind, period, org, grade, title, lines}] — 위(최근)부터."""
+    with zipfile.ZipFile(hwpx) as z:
+        roots = [etree.fromstring(z.read(n)) for n in _sections(z)]
+    out = []
+    for root in roots:
+        for t in _hist_tables(root):
+            c = _cells(t)
+            g = lambda r, k: " ".join(_cell_text(c[(r, k)]).split()) if (r, k) in c else ""  # noqa: E731
+            out.append({"kind": g(1, 0), "period": g(1, 1), "org": g(1, 2), "grade": g(1, 3), "title": g(2, 0),
+                        "lines": _cell_lines(c[(3, 0)]) if (3, 0) in c else []})
+    return out
+
+
+def _fill_hist_table(tbl, e: dict) -> None:
+    cells = _cells(tbl)
+    for (r, k), key in (((1, 0), "kind"), ((1, 1), "period"), ((1, 2), "org"), ((1, 3), "grade"), ((2, 0), "title")):
+        if (r, k) in cells:
+            _set_cell(cells[(r, k)], e.get(key) or "-")
+    if (3, 0) in cells:
+        content = cells[(3, 0)]
+        for inner in [x for x in content.iter(f"{{{HP}}}tbl")]:  # 칸 안 표(지난 회차 요약표)는 줄 글로 바꿔 넣으므로 지움
+            par = inner.getparent()
+            par.remove(inner)
+        ps = [q for q in content.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is content]
+        tmpl = ps[0]
+        for q in ps[1:]:
+            q.getparent().remove(q)
+        last = None
+        for text in e.get("lines") or ["-"]:
+            q = tmpl if last is None else copy.deepcopy(tmpl)
+            ts = list(q.iter(T))
+            if ts:
+                _clear(ts[0], text if text.startswith(("ㆍ", "-", "·", "1", "2", "3", "4", "5", "6", "7", "8", "9")) else f"ㆍ{text}")
+                for x in ts[1:]:
+                    _clear(x, "")
+            if last is not None:
+                last.addnext(q)
+            last = q
+
+
+def _fill_history(root, entries: list[dict]) -> int:
+    """1.2.6 표들을 entries(위 = 최근)로 — 첫 표를 본떠 하나씩, 원래 표들은 지움."""
+    tables = _hist_tables(root)
+    if not tables or not entries:
+        return 0
+    tmpl = tables[0]
+    for e in entries:
+        t = copy.deepcopy(tmpl)
+        _new_ids(t)
+        _fill_hist_table(t, e)
+        tmpl.addprevious(t)
+    for t in tables:
+        par = next(t.iterancestors(f"{{{HP}}}p"), None)
+        t.getparent().remove(t)
+        if par is not None and par.getparent() is root and not _top_text(par) and next(par.iter(f"{{{HP}}}tbl"), None) is None:
+            root.remove(par)
+    return 1
+
+
+def _set_repairs(root, rows: list[list[str]]) -> int:
+    """1.2.7 표를 rows([기간, 종류, 방안, 위치, 비고])로 — 원본 줄은 지우고 모자라면 늘림. 이번 면담 줄은 뒤에 _apply_survey가 빈 줄에."""
+    tbl = _repair_table([root])
+    if tbl is None:
+        return 0
+    cells = _cells(tbl)
+    for (r, k), tc in cells.items():
+        if r >= 1:
+            _set_lines(tc, [""] if k == 0 else ["-"])
+    for row in rows:
+        cells = _cells(tbl)
+        free = next((r for r in sorted({k[0] for k in cells if k[0] >= 1}) if not _cell_text(cells.get((r, 0), tbl)).strip()), None)
+        if free is None:
+            _add_row(tbl)
+            cells = _cells(tbl)
+            free = int(tbl.get("rowCnt")) - 1
+        for k, v in enumerate((row + ["", "", "", "", ""])[:5]):
+            if (free, k) in cells:
+                _set_lines(cells[(free, k)], [v or "-"])
+    return 1
+
+
+TARGET_KEYS = {"학교명": "owner", "관리주체": "owner", "건물명": "name", "시설명": "name", "용도": "use", "최초건축년도": "first", "준공년도": "year",
+               "연면적": "area", "층수": "floors", "구조": "structure", "기존등급": "grade", "실측도면작성대상": "survey", "내진보강여부": "seismic"}
+
+
+def _set_target_table(root, vals: dict, school: bool) -> int:
+    """부록 과업지시서·과업수행계획서의 대상 시설물 표(학교명|건물명|용도|…|내진보강여부, 8칸 넘는 것)의 첫 줄을 이 시설물 값으로(10/12 ③).
+    학교가 아니면 머리 "학교명" → "관리주체"."""
+    n = 0
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        if int(tbl.get("colCnt") or 0) < 8:
+            continue
+        cells = _cells(tbl)
+        head = {c: re.sub(r"\s|\(.*?\)", "", _cell_text(tc)) for (r, c), tc in cells.items() if r == 0}
+        if not any(h in ("건물명", "시설명") for h in head.values()) or not any(h.startswith("연면적") for h in head.values()):
+            continue
+        for c, h in head.items():
+            key = TARGET_KEYS.get(h) or ("area" if h.startswith("연면적") else None)
+            if key and (1, c) in cells:
+                _set_lines(cells[(1, c)], [vals.get(key) or "-"])
+            if h == "학교명" and not school:
+                _set_lines(cells[(0, c)], ["관리주체"])
+        n += 1
+    return n
+
+
+def _set_result_fields(root, fields: dict[str, str]) -> int:
+    """결과표 이름 칸 오른쪽 값 — {"공동수급": …, "계약방법": …, "시설물구분": …, "종류": …, "종별": …}(이름은 띄어쓰기 무시)."""
+    cells = _find_result_table([root])
+    if cells is None:
+        return 0
+    n = 0
+    for (r, c), tc in list(cells.items()):
+        label = re.sub(r"\s", "", _cell_text(tc))
+        if label in fields and (r, c + 1) in cells and fields[label]:
+            _set_lines(cells[(r, c + 1)], [fields[label]])
+            n += 1
+    return n
+
+
+def read_overview(hwpx: Path, dest: Path) -> list[tuple[str, str]]:
+    """전회차 보고서의 전경사진 [(저장한 경로, 제목)] — 10쪽 위치도 표 아래 그림이 첫 장, 11쪽 "■ 대상 시설물 전경사진" 표들(이번에 안 찍었을 때 씀).
+    흰 그림(빈 칸)은 뺌. dest 폴더에 전회차_전경_N.jpg로."""
+    import io
+
+    from PIL import Image
+
+    out: list[tuple[str, str]] = []
+    with zipfile.ZipFile(hwpx) as z:
+        root = etree.fromstring(z.read(_sections(z)[0]))
+        hpf = z.read("Contents/content.hpf").decode("utf-8")
+        href = dict(re.findall(r'<opf:item id="([^"]+)" href="([^"]+)"', hpf))
+
+        thumbs: list[list[int]] = []
+
+        def save(pic, title: str) -> None:
+            img = next(pic.iter(f"{{{CORE}}}img"), None)
+            name = href.get(img.get("binaryItemIDRef")) if img is not None else None
+            if not name or name not in z.namelist():
+                return
+            try:
+                im = Image.open(io.BytesIO(z.read(name))).convert("RGB")
+            except Exception:  # noqa: BLE001
+                return
+            if min(lo for lo, _ in im.getextrema()) > 245:  # 흰 그림
+                return
+            small = list(im.convert("L").resize((16, 12)).getdata())  # 10쪽 사진이 11쪽 첫 장과 같은 사진(파일만 따로)인 경우가 많음
+            if any(sum(abs(a - b) for a, b in zip(small, s)) / len(small) < 8 for s in thumbs):
+                return
+            thumbs.append(small)
+            im.thumbnail((1600, 1600))
+            p = dest / f"전회차_전경_{len(out) + 1}.jpg"
+            dest.mkdir(parents=True, exist_ok=True)
+            im.save(p, "JPEG", quality=88)
+            out.append((str(p), title))
+
+        tables = [t for t in root.iter(f"{{{HP}}}tbl") if next(t.iterancestors(f"{{{HP}}}tbl"), None) is None]
+        for t in tables:
+            head = _cell_text(_cells(t).get((0, 0), t))
+            if "위치도" in head:
+                slots = _pic_slots(t)
+                if len(slots) >= 2:
+                    save(slots[-1][1], "전경사진")
+        for t in tables:
+            cells = _cells(t)
+            if "전경사진" not in _cell_text(cells.get((0, 0), t)):
+                continue
+            for (r, c), pic in _pic_slots(t):
+                cap = _cell_text(cells[(r - 1, c)]).strip("【】 \n") if (r - 1, c) in cells and r - 1 > 0 else ""
+                save(pic, cap if cap and cap != "-" else "전경사진")
+    return out
+
+
+def read_texts(hwpx: Path) -> dict:
+    """전회차 보고서 글을 AI 초안 모양으로(AI 초안을 안 만들었을 때 원본 글 대신 이걸 넣음) — 결과표 중대결함·공중이용·주요결과·주요보수·
+    차기 중점부위·안전등급, 1.3 항목 서술, 종합결론 글머리."""
+    from server.sitok.ai_draft import section_key
+
+    with zipfile.ZipFile(hwpx) as z:
+        roots = [etree.fromstring(z.read(n)) for n in _sections(z)]
+    out: dict = {"sections": {}, "conclusion": [], "findings": [], "from_prior": True}
+    cells = _find_result_table(roots)
+    if cells is not None:
+        g = lambda r, k: _cell_text(cells[(r, k)]).replace("\n", " ").strip() if (r, k) in cells else ""  # noqa: E731
+        out["critical"], out["public"] = g(8, 1).lstrip("ㆍ· "), g(9, 1).lstrip("ㆍ· ")
+        r = 10
+        while (r, 1) in cells and not re.sub(r"\s", "", g(r, 0)).startswith(("주요보수", "다.")):
+            out["findings"] += [x.strip() for x in _cell_text(cells[(r, 1)]).split("\n") if x.strip()]
+            r += 1
+        if (r, 1) in cells and re.sub(r"\s", "", g(r, 0)).startswith("주요보수"):
+            out["repairs"] = [x.strip() for x in _cell_text(cells[(r, 1)]).split("\n") if x.strip()]
+        for tc in cells.values():
+            for q in tc.iter(f"{{{HP}}}p"):
+                t = "".join(_full(x) for x in q.iter(T))
+                if "중점 점검부위" in t and ":" in t:
+                    out["next_focus"] = t.split(":", 1)[1].strip()
+        out["grade"] = _letter(g(5, 8))
+    for root in roots[1:]:
+        tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+        in13 = False
+        for i, p in enumerate(tops):
+            t = _top_text(p)
+            if re.match(r"1\.\d\s*외관조사\s*실시결과", t):
+                in13 = True
+                continue
+            if in13 and re.match(r"1\.\d\s", t):
+                in13 = False
+            if in13 and re.match(r"^\d\)", t) and "분석" not in t:
+                key = section_key(t)
+                nxt = tops[i + 1] if i + 1 < len(tops) else None
+                if key and nxt is not None and _top_text(nxt) and not re.match(r"^\d\)", _top_text(nxt)):
+                    out["sections"][key] = _top_text(nxt)
+            if re.match(r"2\)\s*종합결론", t):
+                for q in tops[i + 1:]:
+                    if _top_text(q).startswith("ㆍ"):
+                        out["conclusion"].append(_top_text(q).lstrip("ㆍ").strip())
+                    elif _top_text(q):
+                        break
+    return out
 
 
 # ---------- 1.2.7 보수·보강 이력, 1.2.8 변경사항 실태조사 ----------

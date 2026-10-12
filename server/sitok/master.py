@@ -24,12 +24,18 @@ from server.sitok import report_build as rb
 
 HP = rb.HP
 
-TEXT_FIXES = [  # (틀린 글, 고친 글) — 광숭초 2026 상반기 보고서에서 찾은 것
-    ("2024년 하반기 안산대학교 정기안전점검 용역", "2026년 광숭초등학교 상반기 제3종시설물 정기안전점검 용역"),
+TITLE = "2026년 상반기 광숭초등학교 제3종시설물 정기안전점검 용역"  # 원본 용역명 — 만들 때 이 회차 용역명으로 통째로 바뀜
+NAME = "광숭초등학교 교사동"  # 원본 시설물명(관리주체명은 "광숭초등학교")
+TEXT_FIXES = [  # (틀린 글, 고친 글) — 광숭초 2026 상반기 보고서에서 찾은 것 + 이름 모양 맞추기(만들 때 빠짐없이 바뀌게)
+    ("2024년 하반기 안산대학교 정기안전점검 용역", TITLE),
+    ("2026년 광숭초등학교 상반기 제3종시설물 정기안전점검 용역", TITLE),  # 머리글 — 연도·반기 사이에 이름
+    ("2026년도 상반기 제3종시설물 정기안전 점검 용역", TITLE),  # 부록 과업수행조직
     ("제2종에 해당하는 업무시설 및 근린생활시설", "제3종에 해당하는 교육연구시설"),
     ("해당없는 것을 확인되었다", "해당없는 것으로 확인되었다"),
     ("박리, 바락", "박리, 박락"),
+    ("광숭초등학교정기안전점검 결과표", f"{NAME} 정기안전점검 결과표"),
 ]
+NAME_ALONE = re.compile(r"^(\s*(?:제\s*1\s*장\.?\s*)?)교사동(\s*\d*\s*)$")  # 장 제목·목차 "제 1장. 교사동" → 시설물명 전체
 OTHER_TEXT = "본 시설물의 기타시설 점검결과 마감재 및 부착물 등 전반적으로 양호한 것으로 조사되었다."
 
 
@@ -130,9 +136,19 @@ def _fix_texts(root) -> int:
             for o, nw in TEXT_FIXES:
                 if o in s:
                     s = s.replace(o, nw)
+            s = NAME_ALONE.sub(lambda m: f"{m[1]}{NAME}{m[2]}", s)
             if s != pc.text:
                 pc.text = s
                 n += 1
+    for p in root.iter(f"{{{HP}}}p"):  # 머리글 용역명이 글자 모양별로 조각나 있으면(만들 때 통째 바꾸기가 안 걸림) 한 조각으로
+        own = [t for t in p.iter(rb.T) if next(t.iterancestors(f"{{{HP}}}p"), None) is p]
+        if len(own) > 1 and " ".join("".join(rb._full(t) for t in own).split()) == TITLE:
+            rb._set_para(p, TITLE, in_table=True)
+            n += 1
+    cells = rb._find_result_table([root])  # 결과표 용역명 칸 "…광숭초등학교 ⏎ 제3종시설물 정기안전점검용역" → 한 모양
+    if cells is not None and (1, 1) in cells and rb._cell_text(cells[(1, 1)]).replace("\n", " ") != TITLE:
+        rb._set_lines(cells[(1, 1)], [TITLE])
+        n += 1
     return n
 
 
@@ -194,6 +210,107 @@ def _blank_other_pics(root, key: str) -> int:
                     img.set("binaryItemIDRef", key)
                     n += 1
     return n
+
+
+# ---------- 종별 손질(만들 때마다) ----------
+DROP = {"2종": ("안전등급평가및결과", "치장벽돌"), "3종일반": ("치장벽돌",), "3종학교": ()}
+HEAD = re.compile(r"^\s*1\.(\d+)\s+(.+?)\s*$")
+
+
+def _tops(root) -> list:
+    return [p for p in root if p.tag == f"{{{HP}}}p"]
+
+
+def _appendix_start(tops) -> int:
+    """시설물편 구역에서 부록 간지가 시작하는 문단 번호(없으면 끝)."""
+    for i, p in enumerate(tops):
+        if any("부록.1" in rb._cell_text(c).replace(" ", "") for t in p.iter(f"{{{HP}}}tbl") for c in rb._cells(t).values()):
+            return i
+    return len(tops)
+
+
+def _renum(p, old: int, new: int, in_table: bool = False) -> None:
+    """문단(또는 칸 안 문단)의 맨 앞 "1.old" → "1.new"(1.old.x도) — 글자 모양은 그대로, 그 조각만."""
+    ts = [t for t in p.iter(rb.T) if (next(t.iterancestors(f"{{{HP}}}p"), None) is p if in_table
+                                      else next(t.iterancestors(f"{{{HP}}}tbl"), None) is None)]
+    for t in ts:
+        for pc in rb._pieces(t):
+            if re.search(rf"1\.{old}(?=[\s.]|$)", pc.text):
+                pc.text = re.sub(rf"1\.{old}(?=[\s.]|$)", f"1.{new}", pc.text, count=1)
+                return
+
+
+def prepare(src: Path, kind: str, dest: Path) -> list[str]:
+    """원본 → 이 시설물 종별의 틀(dest): 학교 전용 절 빼기(2종 = 1.5 18항목 안전등급 평가·1.7 치장벽돌, 3종 일반 = 1.7) → 시설물편 절 번호·
+    목차·장 표지 소목차를 실제 절로 다시, 2종 표지·책등 "3종시설" → "2종시설". 안내(못 한 것)를 돌려줌."""
+    drop = DROP.get(kind, ())
+    notes: list[str] = []
+    with zipfile.ZipFile(src) as zin:
+        secs = rb._sections(zin)
+        roots = {n: etree.fromstring(zin.read(n)) for n in secs}
+        body = roots[secs[2]]
+        tops = _tops(body)
+        stop = _appendix_start(tops)
+        heads = [(i, int(m[1]), m[2]) for i, p in enumerate(tops[:stop]) if (m := HEAD.match(rb._top_text(p)))]
+        keep, gone = [], []
+        for k, (i, num, title) in enumerate(heads):
+            end = heads[k + 1][0] if k + 1 < len(heads) else stop
+            if any(d in re.sub(r"\s", "", title) for d in drop):
+                for p in tops[i:end]:
+                    p.getparent().remove(p)
+                gone.append(num)
+            else:
+                keep.append((num, title, tops[i:end]))
+        mapping = {old: new for new, (old, _, _) in enumerate(keep, 1)}
+        for old, _, block in keep:
+            if mapping[old] != old:
+                for p in block:
+                    if re.match(rf"^\s*1\.{old}(?=[\s.])", rb._top_text(p)):
+                        _renum(p, old, mapping[old])
+        final = [f"1.{mapping[old]} {title}" for old, title, _ in keep]
+        # 장 표지 소목차(시설물편 첫 표의 "1.1 …" 칸들)
+        first = next((t for p in _tops(body)[:3] for t in p.iter(f"{{{HP}}}tbl")), None)
+        if first is not None:
+            cells = rb._cells(first)
+            col = next((c for (r, c), tc in sorted(cells.items()) if re.match(r"^1\.1\s", rb._cell_text(tc))), None)
+            if col is not None:
+                start = next(r for (r, c), tc in sorted(cells.items()) if c == col and re.match(r"^1\.1\s", rb._cell_text(tc)))
+                slots = [cells[(r, c)] for (r, c) in sorted(cells) if c == col and r >= start]
+                for k, tc in enumerate(slots):
+                    lines = final[k:k + 1] if k < len(slots) - 1 else final[k:]
+                    rb._set_lines(tc, lines or [""])
+                if len(final) > len(slots):
+                    notes.append("장 표지 소목차 칸이 모자라 마지막 칸에 두 줄로 넣었습니다")
+        # 목차(첫 구역) — "Ⅱ. 시설물편" 뒤 "1.x 제목쪽" 줄
+        front = roots[secs[0]]
+        on = False
+        for p in _tops(front):
+            t = rb._top_text(p).strip()
+            if t.startswith("Ⅱ"):
+                on = True
+                continue
+            if on and t.startswith(("▣", "부록")):
+                break
+            m = re.match(r"^1\.(\d+)\s*(.+)$", t) if on else None
+            if not m:
+                continue
+            old = int(m[1])
+            if old in gone:
+                p.getparent().remove(p)
+            elif mapping.get(old, old) != old:
+                _renum(p, old, mapping[old])
+        if kind == "2종":  # 책등 "제 / 3종시설" 칸만(용역명 안 "제3종시설물"은 만들 때 용역명째 바뀜 — 여기서 바꾸면 머리글 용역명과 어긋남)
+            for t in front.iter(rb.T):
+                for pc in rb._pieces(t):
+                    if re.fullmatch(r"\s*3종시설\s*", pc.text):
+                        pc.text = pc.text.replace("3종시설", "2종시설")
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                data = zin.read(info.filename)
+                if info.filename in roots:
+                    data = etree.tostring(roots[info.filename], xml_declaration=True, encoding="UTF-8", standalone=True)
+                zout.writestr(info, data, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+    return notes
 
 
 def make_from(src: Path, dest: Path) -> dict:

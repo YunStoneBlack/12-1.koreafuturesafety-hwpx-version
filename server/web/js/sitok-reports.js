@@ -1,5 +1,5 @@
 // 시특법 시설물 화면의 "점검 보고서" 칸(sitok-facility.html?id=, 2026-10-10 4단계) — 회차(연도·반기) 만들기·틀 올리기·보고서 만들기.
-// 틀 = 직전 회차가 만든 한글(자동) 또는 지난 보고서 한글 파일(처음 하는 시설물 — hwp·hwpx). 만들기는 백그라운드(한글 PDF 몇 분) — 3초마다 진행 확인.
+// 10/12: 틀은 늘 회사 원본 템플릿 — 전회차 보고서(직전 회차가 만든 한글 자동, 또는 올린 지난 보고서)는 데이터만. 만들기는 백그라운드(한글 PDF 몇 분) — 3초마다 진행 확인.
 // 서버 server/api/routers/sitok_reports.py, 값 바꾸기 server/sitok/report_build.py.
 
 (function () {
@@ -29,9 +29,8 @@
       : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`
         : r.status === "done" ? `<span class="sk-rep-st ok">✓ ${esc(r.made_at)} 만듦 — ${esc(r.message)}</span>` : "";
     el.innerHTML = `<div class="sk-rep-head"><b>${r.year}년 ${esc(r.half)}</b>
-        <span class="sk-rep-src">${r.past ? "이미 낸 보고서" : r.has_source ? `틀: ${esc(r.source_note)}` : '<span class="bad">틀 없음 — 우리 지난 보고서 한글을 올리거나, 처음 맡는 시설물이면 회사 기본 틀로</span>'}</span>
-        ${!r.past && !r.has_source ? '<button type="button" class="secondary btn-sm sk-rep-base" title="신축·타회사 인계 — 같은 종별 우리 보고서를 틀로, 그 시설물 내용은 비우고 시설물 현황·AI 초안으로 채움">📋 회사 기본 틀로 시작</button>' : ""}
-        <label class="secondary-link"${r.past ? " hidden" : ""}>지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
+        <span class="sk-rep-src">${r.past ? "이미 낸 보고서" : r.has_source ? `전회차 보고서: ${esc(r.source_note)}` : '전회차 보고서 없음 — 처음 맡는 시설물(우리가 하던 시설물이면 지난 보고서 한글을 올리세요)'}</span>
+        <label class="secondary-link"${r.past ? " hidden" : ""} title="이력·시설물 현황·지난 평가 같은 데이터만 가져옵니다(보고서 틀은 회사 원본)">지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
         ${r.past ? "" : `<a class="secondary-link sk-rep-field" href="sitok-field.html?report=${r.id}">📱 현장 조사</a>
           <button type="button" class="secondary btn-sm sk-rep-detail">🏢 시설물 현황${r.has_detail ? " ✓" : ""}</button>
           <button type="button" class="secondary btn-sm sk-rep-survey">📝 면담·변경사항${r.has_survey ? " ✓" : ""}</button>
@@ -48,7 +47,7 @@
       <div class="sk-rep-foot">${stateText}
         ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf" target="_blank" rel="noopener">PDF 보기</a>` : ""}
         ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx">한글 받기</a>` : ""}
-        ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" || !r.has_source ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : "보고서 만들기"}</button>`}</div>`;
+        ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : "보고서 만들기"}</button>`}</div>`;
     el.querySelectorAll("[data-k]").forEach((inp) => inp.addEventListener("change", async () => {
       const k = inp.dataset.k;
       const body = k === "p0" ? { participant_ids: inp.value ? [Number(inp.value)] : [] }
@@ -73,10 +72,6 @@
       try { await api(`/sitok/reports/${r.id}`, { method: "DELETE" }); load(); } catch (e) { err(e); }
     });
     el.querySelector(".sk-rep-ai")?.addEventListener("click", () => openSitokAi(r.id, `${r.year}년 ${r.half}`, load));
-    el.querySelector(".sk-rep-base")?.addEventListener("click", async () => {
-      if (!confirm("같은 종별 우리 보고서를 틀로 씁니다. 그 시설물 내용(현황·이력·사진)은 비우고 이 시설물 것으로 채웁니다.\n다음 순서로 하세요: 🏢 시설물 현황 → 📱 현장 조사(전경사진·결함) → 🤖 AI 초안 → 보고서 만들기")) return;
-      try { await apiPost(`/sitok/reports/${r.id}/base`); load(); } catch (e) { alert(e.message); }
-    });
     el.querySelector(".sk-rep-detail")?.addEventListener("click", () => openSitokDetail(r.id, `${r.year}년 ${r.half}`, load));
     el.querySelector(".sk-rep-survey")?.addEventListener("click", () => openSitokSurvey(r.id, `${r.year}년 ${r.half}`, load));
     el.querySelector(".sk-rep-build")?.addEventListener("click", async () => {
@@ -106,7 +101,7 @@
       <select class="nr-half"><option${d.half === "상반기" ? " selected" : ""}>상반기</option><option${d.half === "하반기" ? " selected" : ""}>하반기</option></select>
       <button type="button" class="btn-sm nr-add">+ 회차 만들기</button>
       <label class="secondary-link nr-past" title="이미 낸 지난 반기 보고서 한글(.hwp·.hwpx) — 연도·반기·점검기간은 결과표에서 읽고, 다음 회차가 이걸 틀로 씁니다">이미 낸 보고서 등록<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
-      <span class="sk-help nr-msg">직전 회차 보고서가 있으면 그게 틀이 됩니다. 우리가 하던 시설물은 [이미 낸 보고서 등록]으로 지난 반기 한글을, 처음 맡는 시설물(신축·타회사 인계)은 회차를 만든 뒤 [📋 회사 기본 틀로 시작].</span>`;
+      <span class="sk-help nr-msg">보고서는 회사 원본 템플릿으로 만들고, 직전 회차(또는 [이미 낸 보고서 등록]으로 올린 지난 반기 한글)에서는 이력·시설물 현황·지난 평가 같은 데이터만 가져옵니다. 처음 맡는 시설물(신축·타회사 인계)은 그냥 회차를 만들면 됩니다.</span>`;
     const past = el.querySelector(".nr-past input");
     past.addEventListener("change", async () => {
       if (!past.files[0]) return;
