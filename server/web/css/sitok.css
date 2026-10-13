@@ -126,6 +126,21 @@
 .sk-rep-new select { width: auto; padding: 6px 8px; }
 .main .sk-rep-new button, .main .sk-rep-new .secondary-link { margin: 0; padding: 6px 12px; font-size: 12.5px; cursor: pointer; }
 .sk-rep-new.busy { opacity: .6; pointer-events: none; }
+/* 회차 ↔ 계약(10/13): 덮는 계약이 없을 때 칸 · 장기·지속 계약 끝 알림 · 다시 그린 뒤 안내 */
+.nr-nocon { flex-basis: 100%; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid #E8C873; border-radius: 10px; background: var(--warn-soft); }
+.nr-nocon > b { color: var(--warn); font-size: 13.5px; }
+.nr-nocon > span { font-size: 12.5px; color: var(--ink); }
+.nr-nocon-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.nr-nocon .nr-con-drop { flex: 1 1 260px; background: var(--surface); }
+.nr-nocon-btns { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.nr-nocon.busy { opacity: .6; pointer-events: none; }
+.sk-renew { margin-bottom: 10px; padding: 9px 12px; border-radius: 8px; background: var(--blue-soft); color: var(--blue); font-size: 13px; font-weight: 600; }
+.sk-renew.over { background: var(--crit-soft); color: var(--crit); }
+.sk-renew-tag { display: block; margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--blue); }
+.sk-renew-tag.over { color: var(--crit); }
+.sk-flash { margin-bottom: 10px; padding: 9px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+.sk-flash.ok { background: var(--green-soft); color: var(--green); }
+.sk-flash.warn { background: var(--warn-soft); color: var(--warn); }
 .sk-rep { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-top: 12px; }
 .sk-rep.done { border-left: 4px solid var(--green); } .sk-rep.failed { border-left: 4px solid var(--crit); } .sk-rep.running { border-left: 4px solid var(--blue); }
 .sk-rep.busy { opacity: .6; pointer-events: none; }

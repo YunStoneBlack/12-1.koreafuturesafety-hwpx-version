@@ -417,6 +417,9 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
     shutil.copyfile(src, dest)
     rc.contract_pdf = str(dest)
     c.report_contract_id = rc.id
+    db.flush()
+    from server.api.routers.sitok import attach_contract
+    attach_contract(db, rc)  # 계약 없이 만든 회차 중 이 계약이 덮는 것에 붙임(10/13)
     db.commit()
     return summary(db, c) | {"report_contract": rc.id, "facility_name": f.name}
 

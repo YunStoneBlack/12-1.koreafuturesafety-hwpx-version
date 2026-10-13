@@ -8,6 +8,8 @@
 - `GET    /sitok/files/ledger/{facility_id}`, `/sitok/files/contract/{contract_id}` — 올린 PDF 보기.
 - `POST   /sitok/facilities/{id}/contract-type` {contract_type: 장기|1회성|종료} — 시설물 목록함 구분(묶인 동 같이, 10/13 민재형).
   목록 번호표(mgmt_no "26-4", 새 등록 때 자동 next_mgmt_no)·담당자 📞·최근 열람순(sitok_view — 시설물·회차 화면을 열면 mark_view)은 0042.
+- 회차 ↔ 계약(10/13 사용자): 회차는 그 반기를 계약기간이 덮는 계약에 붙음(contract_for — 이 동 먼저, 묶인 동이면 묶음 계약),
+  계약을 추가하면 계약 없이 만든 회차 중 덮이는 것에 붙임(attach_contract), 장기·지속 시설물은 마지막 계약 끝나기 60일 전부터 알림(renew_info).
 값의 뜻·기본값(민간 = 독자수행 100%·수의계약·건축, 템플릿 2종/3종일반/3종학교)은 core/models_web.py SitokFacility·SitokContract 설명.
 """
 
@@ -194,6 +196,7 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
            "latest": _contract_out(contracts[0]) if contracts else None, "contract_count": len(contracts)}
     from server.api.routers.sitok_groups import group_out
     out["group"] = group_out(db, f)  # 한 보고서로 묶인 동(10/12)
+    out["renew"] = renew_info(db, f)  # 장기·지속 계약 끝나기 전 알림(10/13)
     if with_contracts:
         out["contracts"] = [_contract_out(c) for c in contracts]
     return out
@@ -225,6 +228,69 @@ def mark_view(db: Session, user_id: int, facility_id: int | None) -> None:
         db.commit()
     except Exception:  # noqa: BLE001
         db.rollback()
+
+
+# ---------- 회차 ↔ 계약(10/13 사용자 — "2026 계약이 끝나고 2027 계약서는 다음 회차에 어떻게?") ----------
+
+RENEW_DAYS = 60  # 장기·지속 계약 끝나기 이만큼 전부터 "다음 계약서 필요" 표시
+
+
+def half_range(year: int, half: str) -> tuple[datetime.date, datetime.date]:
+    return (datetime.date(year, 1, 1), datetime.date(year, 6, 30)) if half == "상반기" else (datetime.date(year, 7, 1), datetime.date(year, 12, 31))
+
+
+def covers(c: SitokContract, year: int, half: str) -> bool:
+    """계약이 그 반기를 덮는지 — 계약기간이 반기와 겹치고, 반기 하나 계약(halves 상반기/하반기)이면 그 반기만. 끝 날짜가 없으면 계속."""
+    if c.halves in ("상반기", "하반기") and c.halves != half:
+        return False
+    if c.start_date is None:
+        return False
+    a, b = half_range(year, half)
+    return c.start_date <= b and (c.end_date is None or c.end_date >= a)
+
+
+def _family(db: Session, f: SitokFacility) -> list[int]:
+    """이 동 먼저, 묶인 동이면 묶음 다른 동(한 계약서에 여러 동 — 계약은 보통 1번 동에)."""
+    if not f.group_id:
+        return [f.id]
+    from server.api.routers.sitok_groups import members
+    return [f.id] + [m.id for m in members(db, f.group_id) if m.id != f.id]
+
+
+def contract_for(db: Session, f: SitokFacility, year: int, half: str) -> SitokContract | None:
+    """그 반기를 덮는 계약(여럿이면 늦게 시작한 것). 없으면 None — 회차 만들기 화면이 "새 계약서를 올리세요"로 안내."""
+    for fid in _family(db, f):
+        cs = [c for c in db.query(SitokContract).filter(SitokContract.facility_id == fid).all() if covers(c, year, half)]
+        if cs:
+            return max(cs, key=lambda c: (c.start_date, c.id))
+    return None
+
+
+def attach_contract(db: Session, c: SitokContract) -> int:
+    """계약을 추가·고친 뒤 — 이 동(묶인 동 포함) 회차 중 계약 없이 만든 것을 이 계약이 덮으면 붙임. 이미 계약이 있는 회차는 그대로. 붙인 수."""
+    from core.models_web import SitokReport
+
+    f = db.get(SitokFacility, c.facility_id)
+    n = 0
+    for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(_family(db, f)), SitokReport.contract_id.is_(None)).all():
+        if covers(c, r.year, r.half):
+            r.contract_id = c.id
+            n += 1
+    return n
+
+
+def renew_info(db: Session, f: SitokFacility) -> dict | None:
+    """장기·지속 시설물인데 마지막 계약이 곧(60일 안) 끝나거나 끝났으면 {end, days} — 목록·회차 칸에 "다음 계약서 필요". 끝 없는 계약이 있으면 None."""
+    if f.contract_type != "장기":
+        return None
+    cs = db.query(SitokContract).filter(SitokContract.facility_id.in_(_family(db, f))).all()
+    if not cs or any(c.end_date is None and c.start_date is not None for c in cs):
+        return None
+    last = max((c.end_date for c in cs if c.end_date), default=None)
+    if last is None:
+        return None
+    days = (last - datetime.date.today()).days
+    return {"end": last.isoformat(), "days": days} if days <= RENEW_DAYS else None
 
 
 def _require_facility(db: Session, user: User, facility_id: int) -> SitokFacility:
@@ -383,9 +449,11 @@ def delete_facility(facility_id: int, password: str = Body("", embed=True), user
 @router.post("/facilities/{facility_id}/contracts")
 def add_contract(facility_id: int, body: ContractIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     f = _require_facility(db, user, facility_id)
-    _add_contract(db, user, f, body)
+    c = _add_contract(db, user, f, body)
+    db.flush()
+    attached = attach_contract(db, c)  # 계약 없이 만든 회차 중 이 계약이 덮는 것
     db.commit()
-    return _facility_out(db, f)
+    return _facility_out(db, f) | {"new_contract_id": c.id, "attached": attached}
 
 
 @router.patch("/contracts/{contract_id}")
@@ -395,6 +463,7 @@ def update_contract(contract_id: int, body: ContractIn, user: User = Depends(get
     if body.contract_token:
         f = db.get(SitokFacility, c.facility_id)
         c.contract_pdf = _take(body.contract_token, _facility_dir(f) / f"계약서_{c.id}.pdf") or c.contract_pdf
+    attach_contract(db, c)  # 날짜를 고쳐 덮게 된 계약 없는 회차
     db.commit()
     return _facility_out(db, db.get(SitokFacility, c.facility_id))
 

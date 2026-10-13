@@ -7,6 +7,8 @@
   const errorEl = document.getElementById("error");
   const id = Number(new URLSearchParams(location.search).get("id")) || null;
   if (!id) { location.replace("sitok-new.html"); return; } // 새 등록은 한 화면에서(계약서·이전 회차·동마다 관리대장·건축물대장)
+  // 회차 만들기에서 계약서를 올려 계약이 늘면(js/sitok-reports.js, 10/13) 계약 칸을 다시 그림
+  window.addEventListener("sitok-contracts-changed", async () => { try { fac = await api(`/sitok/facilities/${id}`); draw(); } catch (e) { showError(errorEl, e); } });
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   let opts = null;
   let fac = null; // 저장된 시설물(고치기 화면)

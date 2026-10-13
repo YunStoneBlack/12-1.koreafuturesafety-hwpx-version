@@ -33,7 +33,7 @@ from core.models_web import SitokContract, SitokEquipment, SitokFacility, SitokR
 from core.stored_path import to_full
 from server.api.deps import get_current_user, get_db
 from server.api.routers.contract_library import doc_status
-from server.api.routers.sitok import _facility_dir, _require_facility
+from server.api.routers.sitok import _contract_out, _facility_dir, _require_facility, contract_for, renew_info
 
 
 def _iso(d) -> str:
@@ -133,7 +133,7 @@ def list_reports(facility_id: int, user: User = Depends(get_current_user), db: S
     rows = sorted(db.query(SitokReport).filter(SitokReport.facility_id == f.id).all(), key=_order, reverse=True)
     today = datetime.date.today()
     half = "상반기" if today.month <= 6 else "하반기"
-    c = _latest_contract(db, f.id)
+    c = contract_for(db, f, today.year, half)  # 그 반기를 덮는 계약(10/13 — 예전엔 가장 최근 계약)
     persons = db.query(TechPerson).filter(TechPerson.company_id == user.company_id, TechPerson.active.is_(True)).order_by(TechPerson.name).all()
     from server.api.routers.sitok_groups import group_out
     return {
@@ -143,7 +143,19 @@ def list_reports(facility_id: int, user: User = Depends(get_current_user), db: S
         "persons": [{"id": p.id, "name": p.name, "position": p.position, "sitok_grade": p.sitok_grade} for p in persons],
         "group": group_out(db, f),  # 한 보고서로 묶인 동(10/12)
         "group_contracts": _group_contracts(db, f),  # 묶인 동이면 묶음 전체 동의 계약에서 고름(한 계약서에 여러 동)
+        "renew": renew_info(db, f),  # 장기·지속 계약 끝나기 전 알림(10/13)
     }
+
+
+@router.get("/facilities/{facility_id}/contract-for")
+def get_contract_for(facility_id: int, year: int, half: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """회차 만들기 전 — 그 반기를 덮는 계약(없으면 null + 마지막 계약: 화면이 "새 계약서를 올리세요")."""
+    f = _require_facility(db, user, facility_id)
+    if half not in HALVES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "반기는 상반기·하반기입니다.")
+    c = contract_for(db, f, year, half)
+    last = _latest_contract(db, f.id)
+    return {"contract": _contract_out(c) if c else None, "latest": _contract_out(last) if last else None}
 
 
 def _group_contracts(db: Session, f: SitokFacility) -> list[dict]:
@@ -181,7 +193,7 @@ def _group_reports(db: Session, r: SitokReport, by: str = "") -> list[tuple[Sito
         x = r if m.id == f.id else db.query(SitokReport).filter(SitokReport.facility_id == m.id, SitokReport.year == r.year,
                                                                   SitokReport.half == r.half).first()
         if x is None:
-            c = _latest_contract(db, m.id)  # 그 동 계약이 없으면 같이 쓰는 계약서(대표 동 회차의 것)
+            c = contract_for(db, m, r.year, r.half)  # 그 반기를 덮는 계약(그 동 → 묶음), 없으면 대표 동 회차의 것
             x = _new_report(db, by, m, r.year, r.half, contract_id=c.id if c else r.contract_id, **{k: getattr(r, k) for k in SHARED})
         out.append((m, x))
     return out
@@ -195,6 +207,9 @@ def create_report(facility_id: int, body: ReportIn, user: User = Depends(get_cur
     if db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == body.year, SitokReport.half == body.half).first():
         raise HTTPException(status.HTTP_409_CONFLICT, f"{body.year}년 {body.half} 보고서가 이미 있습니다.")
     vals = body.model_dump(exclude_unset=True, exclude={"year", "half"})
+    if "contract_id" not in vals:  # 안 보내면 그 반기를 덮는 계약(10/13), null을 보내면 "계약 없이"
+        c = contract_for(db, f, body.year, body.half)
+        vals["contract_id"] = c.id if c else None
     r = _new_report(db, user.display_name or "", f, body.year, body.half, **vals)
     if f.group_id:  # 묶인 동도 같은 반기 회차(사용자 10/12 — 한 번 묶이면 계속)
         _group_reports(db, r, user.display_name or "")
@@ -274,7 +289,7 @@ def _register_one(db: Session, user: User, f: SitokFacility, src: Path, name: st
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "보고서의 연도·반기를 결과표 용역명에서 찾지 못했습니다.")
     r = db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == old.year, SitokReport.half == old.half).first()
     if r is None:
-        c = _latest_contract(db, f.id)
+        c = contract_for(db, f, old.year, old.half)
         r = SitokReport(company_id=user.company_id, facility_id=f.id, year=old.year, half=old.half, contract_id=c.id if c else None,
                         created_by=user.display_name or "")
         db.add(r)

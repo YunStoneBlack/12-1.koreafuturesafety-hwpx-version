@@ -133,6 +133,8 @@
         ? `<span class="sk-sector ${c.sector === "관급" ? "gov" : "pri"}">${esc(c.sector)}</span> ${ymd(c.start_date)} ~ ${ymd(c.end_date)}` +
           `${c.amount ? ` · ${money(c.amount)}${c.sector === "민간" && c.halves === "연간" ? "(반기)" : ""}` : ""}`
         : '<span class="sk-none">계약 없음</span>';
+      const rn = f.renew; // 장기·지속 계약 끝나기 60일 전부터(10/13)
+      const renew = rn ? `<span class="sk-renew-tag${rn.days < 0 ? " over" : ""}">${rn.days < 0 ? "⚠ 계약 끝남 — 다음 계약서 필요" : `⏳ ${rn.days}일 뒤 계약 끝 — 다음 계약서 준비`}</span>` : "";
       const row = document.createElement("a");
       row.className = `sk-row${f.contract_type === "종료" ? " ended" : ""}`;
       row.href = `sitok-facility.html?id=${f.id}`;
@@ -144,7 +146,7 @@
           <div class="sk-sub">${esc([f.address, f.owner_name].filter(Boolean).join(" · "))}</div>
           <div class="sk-sub">${esc([f.fms_no, f.use_type || f.main_use, f.contact_name && `담당 ${f.contact_name}`].filter(Boolean).join(" · "))}</div>
         </div>
-        <div class="sk-contract">${contract}</div>`;
+        <div class="sk-contract">${contract}${renew}</div>`;
       const links = siteLinkButtons(f.contact_phone || f.owner_phone, f.address); // [📞 전화] [📍 지도]
       if (links) row.querySelector(".sk-main").appendChild(links);
       row.appendChild(typeSwitch(f));

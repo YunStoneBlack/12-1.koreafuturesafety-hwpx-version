@@ -1,6 +1,9 @@
 // 시특법 시설물 화면의 "점검 보고서" 칸(sitok-facility.html?id=, 2026-10-10 4단계) — 회차(연도·반기) 만들기·틀 올리기·보고서 만들기.
 // 10/12: 틀은 늘 회사 원본 템플릿 — 전회차 보고서(직전 회차가 만든 한글 자동, 또는 올린 지난 보고서)는 데이터만. 만들기는 백그라운드(한글 PDF 몇 분) — 3초마다 진행 확인.
 // 서버 server/api/routers/sitok_reports.py, 값 바꾸기 server/sitok/report_build.py.
+// 10/13 회차 ↔ 계약: [+ 회차 만들기]는 그 반기를 계약기간이 덮는 계약을 붙임(GET …/contract-for). 없으면 "새 계약서를 올리세요" 칸 —
+// 계약서 PDF를 올리면 읽어서 계약을 추가하고(점검 용역 계약 칸에도 생김) 그 회차에 붙임, 또는 [계약 없이 만들기](나중에 계약을 추가하면 자동으로 붙음).
+// 장기·지속 시설물은 마지막 계약이 끝나기 60일 전부터 맨 위에 "다음 계약서 필요".
 
 (function () {
   const fid = Number(new URLSearchParams(location.search).get("id")) || null;
@@ -14,6 +17,10 @@
   let data = null;
   let contracts = [];
   const polling = {};
+  let flash = null; // 다시 그린 뒤 맨 위에 띄울 안내 [글, "ok"|"warn"]
+  const ymdDot = (s) => (s || "?").replaceAll("-", ".");
+  const CON_KEYS = ["sector", "title", "contract_no", "contract_date", "start_date", "end_date", "halves", "first_half_end", "second_half_start",
+    "amount", "rep_name", "joint_type", "joint_pct", "bid_method", "field"];
 
   function personOptions(selected) {
     return '<option value="">—</option>' + data.persons.map((p) => `<option value="${p.id}"${p.id === selected ? " selected" : ""}>${esc(p.name)}${p.position ? ` ${esc(p.position)}` : ""}</option>`).join("");
@@ -99,6 +106,85 @@
     }, 3000);
   }
 
+  // 장기·지속 계약 끝나기 전·끝난 뒤 알림(서버 renew_info)
+  function renewNote() {
+    const r = data.renew;
+    if (!r) return null;
+    const el = document.createElement("div");
+    el.className = `sk-renew${r.days < 0 ? " over" : ""}`;
+    el.textContent = r.days < 0
+      ? `⚠ 장기·지속 계약이 ${ymdDot(r.end)}에 끝났습니다 — 다음 계약서를 올려야 다음 회차 보고서에 들어갑니다(아래 [+ 회차 만들기] 때 올려도 됨).`
+      : `⏳ 장기·지속 계약이 ${ymdDot(r.end)}에 끝납니다(${r.days}일 남음) — 다음 계약서를 준비하세요. 다음 회차를 만들 때 올리면 그 회차에 붙습니다.`;
+    return el;
+  }
+
+  async function createReport(year, half, contractId) {
+    const body = { year, half, contract_id: contractId };
+    const chief = data.persons.find((p) => p.sitok_grade.includes("특급")) || data.persons[0];
+    if (chief) body.chief_id = chief.id;
+    const other = data.persons.find((p) => p.id !== chief?.id);
+    if (other) body.participant_ids = [other.id];
+    await apiPost(`/sitok/facilities/${fid}/reports`, body);
+  }
+
+  // 그 반기를 덮는 계약이 없을 때 — 계약서 PDF 올리기 / 계약 없이 만들기 / 취소
+  function noContract(el, year, half, latest) {
+    el.querySelector(".nr-nocon")?.remove();
+    const box2 = document.createElement("div");
+    box2.className = "nr-nocon";
+    box2.innerHTML = `<b>⚠ ${year}년 ${half}를 덮는 계약이 없습니다</b>
+      <span>${latest ? `마지막 계약: ${esc(latest.title || "계약")} (${ymdDot(latest.start_date)} ~ ${ymdDot(latest.end_date)})` : "등록된 계약이 없습니다"}
+        — 이번 계약서를 올리면 읽어서 계약을 추가하고 이 회차에 붙입니다.</span>
+      <div class="nr-nocon-acts">
+        <label class="sk-drop nr-con-drop"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" />
+          <b>📄 이번 계약서 PDF 올리기</b><span class="sk-drop-msg">눌러서 고르거나 끌어다 놓기 — 민간 계약서(스캔도 됨)·나라장터 계약서</span></label>
+        <div class="nr-nocon-btns"><button type="button" class="secondary btn-sm nr-skip">계약 없이 만들기</button>
+          <button type="button" class="secondary btn-sm nr-cancel">취소</button></div>
+      </div>
+      <span class="sk-help">계약 없이 만들어도 나중에 [+ 계약 추가]로 이 반기를 덮는 계약을 넣으면 자동으로 붙습니다.</span>`;
+    el.appendChild(box2);
+    const msg = box2.querySelector(".sk-drop-msg");
+    const input = box2.querySelector("input");
+    enableFileDrop(box2.querySelector(".nr-con-drop"), input);
+    box2.querySelector(".nr-cancel").addEventListener("click", () => box2.remove());
+    box2.querySelector(".nr-skip").addEventListener("click", async () => {
+      box2.classList.add("busy");
+      try {
+        await createReport(year, half, null);
+        flash = [`${year}년 ${half} 회차를 계약 없이 만들었습니다 — 계약을 추가하면 자동으로 붙습니다.`, "warn"];
+        load();
+      } catch (e) { err(e); box2.classList.remove("busy"); }
+    });
+    input.addEventListener("change", async () => {
+      const file = input.files[0];
+      input.value = "";
+      if (!file) return;
+      box2.classList.add("busy");
+      msg.textContent = `${file.name} — 읽는 중…(10~30초)`;
+      try {
+        const fd = new FormData();
+        fd.append("kind", "contract");
+        fd.append("file", file);
+        const rd = await apiUpload("/sitok/read", fd);
+        const fields = Object.fromEntries(CON_KEYS.filter((k) => rd.fields?.[k] !== undefined && rd.fields[k] !== "" && rd.fields[k] !== null)
+          .map((k) => [k, rd.fields[k]]));
+        const out = await apiPost(`/sitok/facilities/${fid}/contracts`, { ...fields, contract_token: rd.token });
+        await createReport(year, half, out.new_contract_id);
+        const chk = await api(`/sitok/facilities/${fid}/contract-for?year=${year}&half=${encodeURIComponent(half)}`);
+        const fits = chk.contract && chk.contract.id === out.new_contract_id;
+        flash = rd.error ? [`계약서를 읽지 못해 칸이 비었습니다 — 아래 "점검 용역 계약"에서 날짜·금액을 채우세요. (${rd.error})`, "warn"]
+          : fits ? [`✓ 계약서를 읽어 계약을 추가하고 ${year}년 ${half} 회차에 붙였습니다 — 아래 "점검 용역 계약"에서 읽은 값을 확인하세요.`, "ok"]
+            : [`계약을 추가해 이 회차에 붙였지만, 읽은 계약기간이 ${year}년 ${half}와 맞지 않습니다 — "점검 용역 계약"에서 날짜를 확인하세요.`, "warn"];
+        window.dispatchEvent(new Event("sitok-contracts-changed")); // 시설물 화면 계약 칸 다시 그리기(js/sitok-facility.js)
+        load();
+      } catch (e) {
+        err(e);
+        box2.classList.remove("busy");
+        msg.textContent = "눌러서 고르거나 끌어다 놓기";
+      }
+    });
+  }
+
   function drawNew() {
     const d = data.defaults;
     const el = document.createElement("div");
@@ -123,13 +209,18 @@
       } catch (e) { err(e); el.classList.remove("busy"); msg.textContent = ""; }
     });
     enableFileDrop(el.querySelector(".nr-past"), past);
-    el.querySelector(".nr-add").addEventListener("click", async () => {
-      const body = { year: Number(el.querySelector(".nr-year").value), half: el.querySelector(".nr-half").value, contract_id: d.contract_id };
-      const chief = data.persons.find((p) => p.sitok_grade.includes("특급")) || data.persons[0];
-      if (chief) body.chief_id = chief.id;
-      const other = data.persons.find((p) => p.id !== chief?.id);
-      if (other) body.participant_ids = [other.id];
-      try { await apiPost(`/sitok/facilities/${fid}/reports`, body); load(); } catch (e) { err(e); }
+    el.querySelector(".nr-add").addEventListener("click", async () => { // 그 반기를 덮는 계약을 찾아 붙임 — 없으면 계약서 올리기 칸
+      const year = Number(el.querySelector(".nr-year").value), half = el.querySelector(".nr-half").value;
+      el.classList.add("busy");
+      try {
+        const r = await api(`/sitok/facilities/${fid}/contract-for?year=${year}&half=${encodeURIComponent(half)}`);
+        if (r.contract) {
+          await createReport(year, half, r.contract.id);
+          load();
+        } else {
+          noContract(el, year, half, r.latest);
+        }
+      } catch (e) { err(e); } finally { el.classList.remove("busy"); }
     });
     return el;
   }
@@ -140,6 +231,15 @@
       data = r;
       contracts = f.contracts || [];
       box.innerHTML = "";
+      if (flash) {
+        const f2 = document.createElement("div");
+        f2.className = `sk-flash ${flash[1]}`;
+        f2.textContent = flash[0];
+        box.appendChild(f2);
+        flash = null;
+      }
+      const renew = renewNote();
+      if (renew) box.appendChild(renew);
       box.appendChild(drawNew());
       data.reports.forEach((x) => box.appendChild(card(x)));
       if (!data.reports.length) box.insertAdjacentHTML("beforeend", '<div class="empty-note">아직 회차가 없습니다.</div>');
