@@ -127,6 +127,25 @@ def mean_grade(grades: list[str]) -> str:
     return GRADES[min(4, max(0, round((sum(SCORE[g] for g in grades) / len(grades) - 1) / 2)))]
 
 
+MIN_RANGE = {"기둥": 0.2, "내력벽": 0.2, "큰보": 0.3, "작은보": 0.3, "슬래브": 0.3, "테두리보": 0.3}  # 균열·표면노후 대푯값 최소범위(표 6.23)
+
+
+def grade_from_counts(counts: dict[str, int], member: str) -> str | None:
+    """균열·표면노후처럼 부재 개수를 등급 칸에 넣는 항목(SafetyMan 입력 방식) → 부재 대푯값.
+    표 6.23: "결함·손상부재를 포함해 평가대상 부재수의 최소범위(기둥·벽 20%, 보·슬래브 30%)에 대한 결함·손상부재의 평가점수의 평균값" —
+    나쁜 등급부터 최소범위 개수만큼 모아 점수 평균 → 등급. 예: 내력벽 a 4개 + b 1개 → 최소범위 1개 = b(조훈빌딩 SafetyMan 3.00과 일치)."""
+    total = sum(int(v or 0) for v in counts.values())
+    if total <= 0:
+        return None
+    n = max(1, math.ceil(total * MIN_RANGE.get(member, 0.3) - 1e-9))
+    picked: list[str] = []
+    for g in reversed(GRADES):
+        for _ in range(int(counts.get(g) or 0)):
+            if len(picked) < n:
+                picked.append(g)
+    return mean_grade(picked)
+
+
 # ---------- 2) 부재 상태평가(퍼지 합성 — 요령 2.1.1·2.2.2, 내구성계수 Table p151~152) ----------
 
 # 항목 등급(행 a~e) → 종합 노후도 DM 등급(열 a~e)에 대한 가능성
@@ -345,6 +364,16 @@ def _selfcheck() -> None:
     r = evaluate(b)
     assert r["condition"]["score"] == 1.0 and r["deform"]["score"] == 5.0 and r["total"]["score"] == 3.8 and r["total"]["grade"] == "B", r
     assert (r["floors"][0]["g"], r["floors"][1]["g"]) == (0.9, 0.1)
+    # 조훈빌딩(2019, 지하2·지상16, 표본층 -2·8·16층) SafetyMan: 부재 점수(-2층 기둥1·내력벽3·큰보1·슬래브2 / 8층 1·1·1 / 16층 내력벽3·슬래브1) → 층 2.83·1.00·2.80,
+    # 상태 2.68(B), 기울기·침하 1.00 → 종합 2.18(B). 층 중요도 -2층 0.9 · 8층 0.5 · 16층 0.1
+    assert abs(choquet([(1, 0.9), (3, 0.9), (1, 0.7), (2, 0.3)]) - 2.83) < 0.01 and abs(choquet([(3, 0.9), (1, 0.3)]) - 2.8) < 0.01
+    assert (floor_importance(-2, 16, 2), floor_importance(8, 16, 2), floor_importance(16, 16, 2)) == (0.9, 0.5, 0.1)
+    assert abs(choquet([(2.83, 0.9), (1.0, 0.5), (2.8, 0.1)]) - 2.68) < 0.01 and abs(choquet([(2.68, G_CONDITION), (1.0, G_DEFORM)]) - 2.18) < 0.01
+    # 조훈 부재: 기둥(강도 c 97.6% + 탄산화 a) 1, 내력벽(강도 c + 균열 a4·b1 → b + 표면노후 a) 3, 큰보(강도 c + 탄산화 b) 1
+    assert grade_from_counts({"a": 4, "b": 1}, "내력벽") == "b" and grade_from_counts({"a": 48}, "기둥") == "a"
+    assert member_condition({"DS": "c", "CA": "a"})["score"] == 1 and member_condition({"DS": "c", "CR": "b", "SD": "a"})["score"] == 3
+    assert member_condition({"DS": "c", "CA": "b"})["score"] == 1
+    # ⚠ 미확인: 조훈 -2층 슬래브(강도 c 92.9%만 — 가능성 (0.75,…)) SafetyMan 2.00 — 우리는 1 (α=0.75 정수 x). 프로그램을 직접 돌려 맞춰 볼 것
     # 항목 등급
     assert grade_strength(27.6, 27) == "a" and grade_strength(27.6, 27, damaged=True) == "b" and grade_strength(20, 27) == "d"
     assert grade_carbonation(1.326, 6.1) == "a" and grade_carbonation(3.5, 6.1) == "c"
