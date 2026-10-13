@@ -348,7 +348,7 @@ def _fill_test_rows(cells: dict, D: Data) -> int:
     sm, cs, ti, se = tv["strength"]["summary"], tv["carbonation"]["summary"], tv["tilt"], tv["settlement"]
     rows = {
         "규격조사": (f"{len(tv['sections'])}개소" if tv["sections"] else "-", "재료시험 결과 참조", t.get("section", "")[:60]),
-        "강도조사": (f"{sm['count']}개소" if sm["count"] else "-", [f"추정압축강도:", f"{sm['min']}~{sm['max']}MPa"] if sm["count"] else "-",
+        "강도조사": (f"{sm['count']}개소" if sm["count"] else "-", ["추정압축강도:", f"{sm['min']}~{sm['max']}MPa"] if sm["count"] else "-",
                   f"{(tv['strength']['grade'] or '-').upper()}등급 — " + t.get("strength", "")[:50]),
         "탄산화조사": (f"{cs['count']}개소" if cs["count"] else "-", ["탄산화깊이:", f"{cs['min']}mm~{cs['max']}mm"] if cs["count"] else "-",
                    f"{(tv['carbonation']['grade'] or '-').upper()}등급, 잔존수명 " + ("평균 100년 이상" if all(r.get('life_text') == '100년 이상' for r in tv['carbonation']['rows']) else "일부 100년 미만")),
@@ -1072,12 +1072,10 @@ def _priority8(db, r, ai: dict | None) -> list:
 
 def build_body(db, r, dest: Path) -> tuple[list[str], int, rb.Values]:
     """정밀 본문 한글 — (경고, 바꾼 곳 수, 새 값)."""
-    from core.models_web import Company, SitokContract, SitokFacility
-    from server.api.routers import sitok_precision as SP, sitok_rating as SRt, sitok_reports as SR, sitok_tests as ST
-    from server.api.routers.sitok_defects import _defects_for_cost
+    from core.models_web import SitokFacility
+    from server.api.routers import sitok_reports as SR
 
     f = db.get(SitokFacility, r.facility_id)
-    c = db.get(SitokContract, r.contract_id) if r.contract_id else None
     src = master.master_path("정밀본문")
     if not src.exists():
         raise ValueError("정밀안전점검 본문 원본이 없습니다 — 시특법 설정에서 올리세요.")
@@ -1123,7 +1121,6 @@ def _data_for(db, r, new: rb.Values, f, ex) -> Data:
     from server.api.routers.sitok_defects import _defects_for_cost
 
     src = master.master_path("정밀본문")
-    old = rb.read_old(src)
     tv = ST._view(db, r)
     rv = SRt._compute(db, r)
     pr = SP._out(db, r)

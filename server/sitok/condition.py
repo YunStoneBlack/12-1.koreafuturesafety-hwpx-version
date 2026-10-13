@@ -7,11 +7,10 @@
 """
 from __future__ import annotations
 
-import datetime
 import re
 from pathlib import Path
 
-from server.sitok import kinds, rating, tests
+from server.sitok import kinds, rating
 
 MEMBERS = rating.MEMBERS  # 기둥 내력벽 큰보 작은보 슬래브 테두리보 접합부 — SafetyMan 갑지 열 순서
 ITEMS = ("DS", "CA", "CR", "SD")

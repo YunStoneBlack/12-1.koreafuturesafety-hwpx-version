@@ -18,7 +18,7 @@ from server.api.deps import get_current_user, get_db
 from server.api.routers.sitok_defects import _defects_for_cost
 from server.api.routers.sitok_reports import _order, _report_dir, _require
 from server.api.routers.sitok_tests import _view as tests_view
-from server.sitok import condition, rating
+from server.sitok import condition
 
 router = APIRouter(prefix="/sitok", tags=["sitok-rating"])
 GRADE_LETTERS = ("", "A", "B", "C", "D", "E")

@@ -5,7 +5,7 @@ prev_compare(전차 비교 검토 칸), limit·special·suggest·diag(사용제�
 """
 from __future__ import annotations
 
-from server.sitok import condition, kinds
+from server.sitok import condition
 
 
 def _floors_text(floors: list[str]) -> str:
