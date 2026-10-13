@@ -74,6 +74,7 @@ def _out(r: SitokReport) -> dict:
             "has_source": _prior(r) is not None, "source_note": r.source_note,
             "status": r.status, "message": r.message, "made_at": r.made_at.strftime("%Y-%m-%d %H:%M") if r.made_at else "",
             "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists()),
+            "has_appendix": bool((r.survey or {}).get("appendix_hwpx") and Path((r.survey or {}).get("appendix_hwpx", "")).exists()),  # 정밀 부록 한글(10/13)
             # 이미 낸 보고서를 등록한 회차(만들기 없음) = 등록한 한글 "(낸 보고서).hwpx"(_register_one). 예전 조건 "만듦 + 전회차 없음"은 10/12 회사 원본으로
             # 바꾼 뒤 처음 맡는 시설물 첫 회차를 한 번 만들면 여기 걸려 현장 조사·면담 버튼이 사라졌음(동안교회 — 사용자 10/12)
             "past": r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"),
@@ -604,8 +605,67 @@ def _fail(rows: list[SitokReport], err: Exception) -> None:
     traceback.print_exc()
 
 
+def _insert_after_page(doc, keys: tuple, add_bytes: bytes | None, label: str, done: list) -> None:
+    """keys 글자가 다 있는 짧은 쪽(간지) 뒤에 PDF를 끼움 — 뒤쪽부터 끼워야 앞 쪽 번호가 안 밀리므로 호출 순서는 뒤 간지 먼저."""
+    if not add_bytes:
+        return
+    page = next((i for i in range(len(doc) - 1, -1, -1) if all(k in doc[i].get_text() for k in keys) and len(doc[i].get_text().strip()) < 120), None)
+    if page is None:
+        return
+    with pymupdf.open(stream=add_bytes, filetype="pdf") as add:
+        doc.insert_pdf(add, start_at=page + 1)
+    done.append(label)
+
+
+def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: Path) -> list[str]:
+    """부록 PDF에 끼우기(간지 글자로 쪽 찾기, 뒤 간지부터): 7-5 계약서 · 5 상태평가 결과자료(③ PDF) · 2-1 강도 측정데이터(슈미트 xlsx → PDF) · 2 외관조사 사진첩 · 1 관리대장."""
+    from server.api.routers.sitok_defects import _defects_for_cost, album_floors
+    from server.api.routers.sitok_rating import _compute as rating_view
+    from server.api.routers.sitok_tests import _view as tests_view
+    from server.contract_docs.attachments import to_pdf_bytes
+    from server.sitok import album_make, condition
+
+    doc = pymupdf.open(pdf)
+    done: list[str] = []
+    c = db.get(SitokContract, r.contract_id) if r.contract_id else None
+    if c is not None and c.contract_pdf and Path(c.contract_pdf).exists():
+        _insert_after_page(doc, ("7-5", "계약서"), Path(c.contract_pdf).read_bytes(), "계약서", done)
+    rv = rating_view(db, r)
+    if rv["result"] is not None:
+        tv = tests_view(db, r)
+        from core.models_web import Company
+        co = db.get(Company, r.company_id)
+        when = r.period_start or r.report_date or datetime.date.today()
+        bi = {"name": f.name, "address": f.address, "owner": f.owner_name, "completion": f"{f.completion_date.year}년 {f.completion_date.month}월" if f.completion_date else "",
+              "use": f.main_use or f.use_type, "structure": f.structure, "land_area": "", "building_area": f"{f.building_area:,.1f} ㎡" if f.building_area else "",
+              "total_area": f"{f.total_area:,.1f} ㎡" if f.total_area else "", "above": f.floors_above or 0, "below": f.floors_below or 0, "company": co.name if co else "", "phone": "",
+              "when": when.isoformat()}
+        agg = condition.aggregate(_defects_for_cost(db, r.id), tv, rv["counts"], above=f.floors_above or 0, below=f.floors_below or 0, tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"])
+        out = _report_dir(f, r) / "상태평가" / "상태평가결과.pdf"
+        condition.make_pdf(out, agg, rv["result"], bi, tv, rv["prev_grade"] or rv["prev_auto"])
+        _insert_after_page(doc, ("5.", "상태평가 결과 자료"), out.read_bytes(), "상태평가 결과자료", done)
+    xlsx = _report_dir(f, r) / "재료시험" / "슈미트_시험성과표.xlsx"
+    if xlsx.exists():
+        try:
+            _insert_after_page(doc, ("2-1", "측정데이터"), to_pdf_bytes(xlsx.read_bytes(), xlsx.name), "강도 측정데이터", done)
+        except Exception:  # noqa: BLE001 — 엑셀 변환이 안 되면 빼고 감
+            pass
+    floors = album_floors(db, r.id)
+    if floors:
+        album = pdf.with_name("외관조사 사진첩.pdf")
+        album_make.make(floors, album)
+        _insert_after_page(doc, ("2.", "외관조사 사진첩"), album.read_bytes(), "외관조사 사진첩", done)
+    if f.ledger_pdf and Path(f.ledger_pdf).exists():
+        _insert_after_page(doc, ("1.", "시설물관리대장"), Path(f.ledger_pdf).read_bytes(), "관리대장", done)
+    tmp = pdf.with_suffix(".ins.pdf")
+    doc.save(tmp, garbage=3, deflate=True)
+    doc.close()
+    tmp.replace(pdf)
+    return done
+
+
 def _run_precision_build(db: Session, r: SitokReport) -> None:
-    """정밀안전점검(10/13 ⑤) — 본문 원본에 값 넣어 본문 한글 → PDF(부록 한글·합본은 다음 단계)."""
+    """정밀안전점검(10/13 ⑤) — 본문 원본 → 본문 한글·PDF, 부록 원본 → 부록 한글·PDF(관리대장·사진첩·측정데이터·결과자료·계약서 끼움), 합본 PDF."""
     from server.sitok import precision_build
 
     f = db.get(SitokFacility, r.facility_id)
@@ -615,13 +675,31 @@ def _run_precision_build(db: Session, r: SitokReport) -> None:
         hwpx = folder / f"{base}(본문).hwpx"
         warn, changed, _ = precision_build.build_body(db, r, hwpx)
         r.out_hwpx = str(hwpx)
-        r.message = f"본문 한글 만듦({changed}곳 바꿈) — PDF로 바꾸는 중(몇 분)…"
+        r.message = f"본문 한글 만듦({changed}곳 바꿈) — 본문 PDF로 바꾸는 중(몇 분)…"
         db.commit()
         pdf = folder / f"{base}(본문).pdf"
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
-        r.out_pdf, r.status, r.made_at = str(pdf), "done", datetime.datetime.now()
-        pages = pymupdf.open(pdf).page_count
-        r.message = " · ".join([f"본문 {pages}쪽, {changed}곳 바꿈(부록은 다음 단계)"] + [f"⚠ {w}" for w in warn])
+        body_pages = pymupdf.open(pdf).page_count
+        r.message = f"본문 {body_pages}쪽 — 부록 한글 만드는 중…"
+        db.commit()
+        appx = folder / f"{base}(부록).hwpx"
+        w2, changed2 = precision_build.build_appendix(db, r, appx)
+        warn += [x for x in w2 if x not in warn]
+        r.survey = {**(r.survey or {}), "appendix_hwpx": str(appx)}
+        r.message = f"본문 {body_pages}쪽 · 부록 한글 만듦({changed2}곳) — 부록 PDF로 바꾸는 중…"
+        db.commit()
+        apdf = folder / f"{base}(부록).pdf"
+        apdf.write_bytes(hwp_queue.convert_via_worker(appx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        merged = _precision_appendix_pdf(db, r, f, apdf)
+        full = folder / f"{base}_합본.pdf"
+        with pymupdf.open(pdf) as a, pymupdf.open(apdf) as b, pymupdf.open() as out:
+            out.insert_pdf(a)
+            out.insert_pdf(b)
+            out.save(full, garbage=3, deflate=True)
+        pages = pymupdf.open(full).page_count
+        r.survey = {**(r.survey or {}), "appendix_hwpx": str(appx), "appendix_pdf": str(apdf), "body_pdf": str(pdf)}
+        r.out_pdf, r.status, r.made_at = str(full), "done", datetime.datetime.now()
+        r.message = " · ".join([f"합본 {pages}쪽(본문 {body_pages}), {changed + changed2}곳 바꿈" + (f", 부록에 {'·'.join(merged)} 끼움" if merged else "")] + [f"⚠ {w}" for w in warn])
     except Exception as err:  # noqa: BLE001
         _fail([r], err)
     db.commit()
@@ -783,7 +861,10 @@ def get_report(report_id: int, user: User = Depends(get_current_user), db: Sessi
 @router.get("/reports/{report_id}/file/{kind}")
 def report_file(report_id: int, kind: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
-    path = r.out_pdf if kind == "pdf" else r.out_hwpx if kind == "hwpx" else ""
+    sv = r.survey or {}
+    path = (r.out_pdf if kind == "pdf" else r.out_hwpx if kind == "hwpx" else sv.get("appendix_hwpx", "") if kind == "appendix"
+            else sv.get("appendix_pdf", "") if kind == "appendix_pdf" else sv.get("body_pdf", "") if kind == "body_pdf" else "")
+    kind = "pdf" if kind.endswith("pdf") else kind
     if not path or not Path(path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
     return FileResponse(path, media_type="application/pdf" if kind == "pdf" else "application/octet-stream",
@@ -797,6 +878,34 @@ def _ai_out(db: Session, r: SitokReport) -> dict:
     return {**(r.ai or {}), "prices": [p.method for p in prices(db, r.company_id)]}
 
 
+def _precision_ai_out(db: Session, r: SitokReport) -> dict:
+    """정밀 회차 AI 창(10/13 ⑤-2) — 22항목: 기본 글(precision_text) + 저장한 글(ai.final.precision)."""
+    from server.sitok import precision_ai, precision_build
+
+    base = precision_build.defaults(db, r)["texts"]
+    saved = ((r.ai or {}).get("final") or {}).get("precision") or {}
+    draft = ((r.ai or {}).get("draft") or {}).get("precision") or {}
+    return {"precision": True, "made_at": ((r.ai or {}).get("draft") or {}).get("made_at", ""), "edited_at": ((r.ai or {}).get("final") or {}).get("edited_at", ""),
+            "edited_by": ((r.ai or {}).get("final") or {}).get("edited_by", ""),
+            "items": [{"key": k, "label": lab, "where": where, "default": base.get(k, ""), "ai": draft.get(k, ""), "text": saved.get(k) or base.get(k, "")}
+                      for k, lab, where in precision_ai.ITEMS]}
+
+
+def _precision_ai_draft(db: Session, r: SitokReport, user: User) -> dict:
+    from server.sitok import precision_ai, precision_build
+
+    d = precision_build.defaults(db, r)
+    mat = precision_ai.material(db, r, d["tv"], d["rv"], d["pr"], d["defects"], d["facility"])
+    try:
+        texts = precision_ai.draft(user.company_id, mat, d["texts"])
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    r.ai = {**(r.ai or {}), "draft": {"precision": texts, "made_at": now}, "final": {**((r.ai or {}).get("final") or {}), "precision": texts}}
+    db.commit()
+    return _precision_ai_out(db, r)
+
+
 @router.post("/reports/{report_id}/ai/draft")
 def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """AI 초안 새로 — 결과는 draft에, 점검자가 고치기 전 final도 같은 값으로(화면에서 고쳐 저장하면 final만 바뀜)."""
@@ -804,6 +913,8 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
     from server.sitok import ai_draft
 
     r = _require(db, user, report_id)
+    if (r.kind or "정기") == "정밀":
+        return _precision_ai_draft(db, r, user)
     f = db.get(SitokFacility, r.facility_id)
     rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id).all()
     if not rows:
@@ -853,13 +964,25 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
 @router.get("/reports/{report_id}/ai")
 def ai_get(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
+    if (r.kind or "정기") == "정밀":
+        return _precision_ai_out(db, r)
     return _ai_out(db, r) if r.ai else {}
 
 
 @router.put("/reports/{report_id}/ai")
 def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """점검자가 고친 값(final) 저장 — 키는 ai_draft.draft 결과와 같음. 등급은 A~E만."""
+    """점검자가 고친 값(final) 저장 — 키는 ai_draft.draft 결과와 같음. 등급은 A~E만. 정밀 회차는 {precision: {키: 글}}."""
     r = _require(db, user, report_id)
+    if (r.kind or "정기") == "정밀":
+        from server.sitok import precision_ai
+
+        texts = {k: str((body.get("precision") or {}).get(k) or "").strip() for k in precision_ai.KEYS}
+        if texts.get("diag") not in ("필요", "불필요", ""):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전진단 실시여부는 필요/불필요입니다.")
+        final = {**((r.ai or {}).get("final") or {}), "precision": texts, "edited_by": user.display_name or "", "edited_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
+        r.ai = {**(r.ai or {}), "final": final}
+        db.commit()
+        return _precision_ai_out(db, r)
     final = {k: body.get(k) for k in ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason",
                                       "items", "eval_opinion", "facility", "methods", "parts")}
     if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선)

@@ -358,3 +358,9 @@
 .dt-dwg-list .dt-dwg-del { color: var(--crit); }
 .dt-dwg-none { margin-top: 4px; }
 @media (max-width: 760px) { .dt-dwg-h label.secondary-link { margin-left: 0; } }
+
+/* 정밀 AI 초안 창(10/13 ⑤-2) — 22항목, 칸마다 [기본 글]·[AI 글] */
+.ai-pre label { position: relative; }
+.ai-pre .ai-pre-acts { display: flex; gap: 10px; }
+.main .ai-pre .link-btn { margin: 0; padding: 0; background: none; border: 0; color: var(--blue); font-size: 12px; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.ai-pre select { width: auto; }

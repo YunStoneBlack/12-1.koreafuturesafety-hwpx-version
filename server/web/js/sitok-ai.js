@@ -51,7 +51,44 @@ async function openSitokAi(reportId, title, onSaved) {
     }
   }
 
+  // 정밀안전점검(10/13 ⑤-2) — 항목 22개: 기본 글이 먼저, [AI로 다시 쓰기]로 결함·시험·상태평가 값을 보고 다시 씀, 고쳐 저장하면 본문에 들어감
+  function drawPrecision(ai) {
+    box.innerHTML = `${head}
+      <div class="ai-meta">${ai.made_at ? `AI 초안 ${esc(ai.made_at)}` : "아직 AI가 쓰지 않음 — 결함·시험·상태평가 값으로 만든 기본 글입니다"}${ai.edited_at ? ` · ${esc(ai.edited_by)} 고침 ${esc(ai.edited_at)}` : ""}</div>
+      <div class="ai-form ai-pre">
+        ${ai.items.map((it) => `<label><b>${esc(it.label)}</b> <span class="sk-help">${esc(it.where)}</span>
+          ${it.key === "diag" ? `<select data-k="${it.key}"><option${it.text === "불필요" ? " selected" : ""}>불필요</option><option${it.text === "필요" ? " selected" : ""}>필요</option></select>`
+            : `<textarea data-k="${it.key}" rows="${it.text.length > 160 ? 4 : 2}">${esc(it.text)}</textarea>`}
+          <span class="ai-pre-acts"><button type="button" class="link-btn ai-reset" data-k="${it.key}" title="기본 글로">기본 글</button>${it.ai ? `<button type="button" class="link-btn ai-useai" data-k="${it.key}" title="AI가 쓴 글로">AI 글</button>` : ""}</span></label>`).join("")}
+      </div>
+      <div class="mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="secondary ai-redo">🤖 AI로 다시 쓰기</button><button type="button" class="mail-cancel">닫기</button>
+        <button type="button" class="mail-primary ai-save">저장</button></div>`;
+    const byKey = Object.fromEntries(ai.items.map((it) => [it.key, it]));
+    box.querySelectorAll(".ai-reset").forEach((b) => b.addEventListener("click", () => { box.querySelector(`[data-k="${b.dataset.k}"]`).value = byKey[b.dataset.k].default; }));
+    box.querySelectorAll(".ai-useai").forEach((b) => b.addEventListener("click", () => { box.querySelector(`[data-k="${b.dataset.k}"]`).value = byKey[b.dataset.k].ai; }));
+    box.querySelector(".mail-cancel").addEventListener("click", close);
+    box.querySelector(".ai-redo").addEventListener("click", async () => {
+      if (!confirm("결함현황표·재료시험·상태평가 값을 AI에게 보내 22항목을 다시 씁니다(30~90초). 고친 글은 AI 글로 바뀝니다. 할까요?")) return;
+      busy = true;
+      box.innerHTML = `${head}<div class="mail-wait">AI가 정밀안전점검 문장을 쓰는 중…(30~90초)</div>`;
+      try { const next = await apiPost(`/sitok/reports/${reportId}/ai/draft`); busy = false; drawPrecision(next); }
+      catch (e) { busy = false; box.innerHTML = `${head}<div class="mail-msg bad">${esc(e.message)}</div><div class="mail-foot"><button type="button" class="mail-cancel">닫기</button></div>`; box.querySelector(".mail-cancel").addEventListener("click", close); }
+    });
+    box.querySelector(".ai-save").addEventListener("click", async () => {
+      const precision = {};
+      box.querySelectorAll("[data-k]").forEach((el) => { precision[el.dataset.k] = el.value.trim(); });
+      const msg = box.querySelector(".mail-msg");
+      try {
+        await api(`/sitok/reports/${reportId}/ai`, { method: "PUT", body: JSON.stringify({ precision }) });
+        msg.hidden = false; msg.className = "mail-msg ok"; msg.textContent = "저장했습니다 — [본문 보고서 만들기]를 누르면 들어갑니다.";
+        if (onSaved) onSaved();
+      } catch (e) { msg.hidden = false; msg.className = "mail-msg bad"; msg.textContent = e.message; }
+    });
+  }
+
   function draw(ai) {
+    if (ai && ai.precision) return drawPrecision(ai);
     const f = ai.final || {};
     const d = ai.draft || {};
     if (!ai.final) {

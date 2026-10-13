@@ -116,8 +116,9 @@
   보고서 기준), 상태평가 계산 `server/sitok/rating.py`(SafetyMan 규칙 재구현·검증), 슈미트 성과표 `schmidt.py`, 결함 깊이(`SitokDefect.depth`),
   재료시험 탭 `sitok-tests.html`(표본층·부재 규격·강도·탄산화·기울기·부등침하 — 계산 `server/sitok/tests.py`, API `sitok_tests.py`, `SitokReport.tests`),
   상태평가 `sitok-rating.html`(표본층별 부재 전체 개수 → 결함현황표·재료시험 집계 `server/sitok/condition.py` → `rating.evaluate`, 부록 결과자료 PDF, `SitokReport.rating`),
-  현장 조사 화면 정밀 탭(자료수집·하중상태·등급 — `server/sitok/precision.py`, `sitok_precision.py`), 본문 만들기 `server/sitok/precision_build.py`(다산 원본에 두 번 채움) +
-  기본 글 `precision_text.py`(AI 초안 `ai["precision"]`이 덮어씀). 남은 것: AI 초안 창·부록 한글·합본 PDF.
+  현장 조사 화면 정밀 탭(자료수집·하중상태·등급 — `server/sitok/precision.py`, `sitok_precision.py`), AI 초안 22항목 `precision_ai.py`(정기 AI 창 재사용),
+  만들기 `server/sitok/precision_build.py`(본문·부록 원본에 두 번 채움 — `build_body`·`build_appendix`) + 기본 글 `precision_text.py` → `sitok_reports._run_precision_build`:
+  본문 한글·PDF → 부록 한글·PDF(관리대장·사진첩·슈미트 측정데이터·상태평가 결과자료·계약서 PDF 끼움) → 합본 PDF. 묶음(여러 동) 정밀은 미지원.
 - 방식: **회사 원본 템플릿 하나**(`server/sitok/master.py` — 학교 보고서, 종별로 1.5·1.7 빼고 번호 다시)에 이번 값과 **전회차 보고서 데이터**(이력·현황·지난 평가)를 넣는다
   (`report_build.py`). 여러 동은 동마다 한글 → `merge.py`로 한 권. 한글로 PDF → 첨부 도면(1.2.9 뒤, `drawings.py`)·관리대장·계약서·외관조사 사진첩·전회차 비교 사진대장 합본,
   만든 뒤 자동 쪽 검사(`pagecheck.py` — 제목만 쪽 끝·꼬리말 넘음·넘친 몇 줄). 줄이 느는 표는 쪽에서 나누고(글자처럼 취급 → 자리 차지) 제목은 다음 문단과 함께.

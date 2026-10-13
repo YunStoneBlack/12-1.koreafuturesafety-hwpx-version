@@ -800,17 +800,22 @@ def _fill_carb_tbl(tbl, D: Data) -> None:
 
 
 def _fill_tilt_tbl(tbl, D: Data) -> None:
+    """기울기 표 — 줄의 칸을 순서대로(본문 7칸, 부록은 변위방향 칸이 둘로 합쳐져 칸 번호가 다름). 첫 칸이 번호인 줄만(부록 표 아래 사진 줄은 건너뜀)."""
     ti = D.tv["tilt"]["rows"]
     cells = rb._cells(tbl)
-    rows = [r for r in sorted({k[0] for k in cells}) if r >= 1 and (r, 1) in cells and (r, 3) in cells]
-    for i, r in enumerate(rows):
+    data_rows = []
+    for r in sorted({k[0] for k in cells}):
+        row = _row_cells(cells, r)
+        if r >= 1 and len(row) >= 6 and re.fullmatch(r"[\d\-]*", rb._cell_text(row[0]).strip()):
+            data_rows.append(row)
+    for i, row in enumerate(data_rows):
         x = ti[i] if i < len(ti) else None
         vals = [str(i + 1), f"{x['height']:,.0f}" if x and x["height"] else "-", x["direction"] or "-", f"{x['disp']:g}" if x and x["disp"] is not None else "-", "1/",
                 f"{x['n']:,}" if x and x["n"] else "-", (x["grade"] or "-").upper()] if x else ["-", "-", "-", "-", "", "-", "-"]
-        for col, v in enumerate(vals):
-            _set(cells, r, col, v)
-    if len(ti) > len(rows):
-        D.notes.append(f"기울기 표가 {len(rows)}개소뿐이라 {len(ti)}개소 중 앞부분만 넣었습니다")
+        for tc, v in zip(row[:7], vals):
+            rb._set_lines(tc, [v])
+    if len(ti) > len(data_rows):
+        D.notes.append(f"기울기 표가 {len(data_rows)}개소뿐이라 {len(ti)}개소 중 앞부분만 넣었습니다")
 
 
 def _fill_settle_tbls(root, D: Data) -> int:
