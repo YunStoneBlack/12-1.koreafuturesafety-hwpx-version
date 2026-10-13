@@ -604,10 +604,35 @@ def _fail(rows: list[SitokReport], err: Exception) -> None:
     traceback.print_exc()
 
 
+def _run_precision_build(db: Session, r: SitokReport) -> None:
+    """정밀안전점검(10/13 ⑤) — 본문 원본에 값 넣어 본문 한글 → PDF(부록 한글·합본은 다음 단계)."""
+    from server.sitok import precision_build
+
+    f = db.get(SitokFacility, r.facility_id)
+    try:
+        folder = _report_dir(f, r)
+        base = f"{r.year}년 {r.half} 정밀안전점검 보고서_{f.name}"
+        hwpx = folder / f"{base}(본문).hwpx"
+        warn, changed, _ = precision_build.build_body(db, r, hwpx)
+        r.out_hwpx = str(hwpx)
+        r.message = f"본문 한글 만듦({changed}곳 바꿈) — PDF로 바꾸는 중(몇 분)…"
+        db.commit()
+        pdf = folder / f"{base}(본문).pdf"
+        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        r.out_pdf, r.status, r.made_at = str(pdf), "done", datetime.datetime.now()
+        pages = pymupdf.open(pdf).page_count
+        r.message = " · ".join([f"본문 {pages}쪽, {changed}곳 바꿈(부록은 다음 단계)"] + [f"⚠ {w}" for w in warn])
+    except Exception as err:  # noqa: BLE001
+        _fail([r], err)
+    db.commit()
+
+
 def _run_build(report_id: int) -> None:
     with SessionLocal() as db:
         r = db.get(SitokReport, report_id)
         f = db.get(SitokFacility, r.facility_id)
+        if (r.kind or "정기") == "정밀":
+            return _run_precision_build(db, r)
         if f.group_id:
             return _run_group_build(db, r)
         try:
@@ -731,9 +756,12 @@ def start_build(report_id: int, user: User = Depends(get_current_user), db: Sess
     r = _require(db, user, report_id)
     if r.status == "running":
         raise HTTPException(status.HTTP_409_CONFLICT, "이미 만드는 중입니다.")
-    if (r.kind or "정기") == "정밀":  # 정밀 만들기는 재료시험·상태평가 단계(②③) 뒤에 — 10/13 ①은 원본·종류·깊이 칸까지
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전점검 보고서 만들기는 아직 준비 중입니다(재료시험·상태평가 단계 뒤에 열립니다).")
-    if not master.master_path().exists():
+    if (r.kind or "정기") == "정밀":  # 정밀(10/13 ⑤) — 본문 원본으로 본문 한글·PDF(부록은 다음)
+        if not master.master_path("정밀본문").exists():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전점검 본문 원본이 없습니다 — 시특법 설정에서 올리세요.")
+        if db.get(SitokFacility, r.facility_id).group_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전점검은 묶음 보고서를 아직 지원하지 않습니다 — 동마다 따로 만드세요.")
+    elif not master.master_path().exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 원본 템플릿이 없습니다 — 시특법 설정에서 올리세요.")
     if not (r.period_start and r.period_end):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "점검기간(시작·끝)을 먼저 정하세요.")

@@ -64,8 +64,7 @@
       <div class="sk-rep-foot">${stateText}
         ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf?v=${encodeURIComponent(r.made_at || "")}" target="_blank" rel="noopener">PDF 보기</a>` : ""}
         ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx?v=${encodeURIComponent(r.made_at || "")}">한글 받기</a>` : ""}
-        ${r.past ? "" : kind === "정밀" ? '<span class="sk-help">정밀안전점검 보고서 만들기는 재료시험·상태평가 단계 뒤에 열립니다</span>'
-          : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>`;
+        ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : g && kind !== "정밀" ? `묶음 보고서 만들기(${g.members.length}동)` : kind === "정밀" ? "본문 보고서 만들기" : "보고서 만들기"}</button>`}</div>`;
     el.querySelectorAll("[data-k]").forEach((inp) => inp.addEventListener("change", async () => {
       const k = inp.dataset.k;
       const body = k === "p0" ? { participant_ids: inp.value ? [Number(inp.value)] : [] }
