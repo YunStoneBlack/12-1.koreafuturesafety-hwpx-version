@@ -44,6 +44,7 @@ class Data:
     notes: list = field(default_factory=list)
     result_fields: dict = field(default_factory=dict)  # 결과표 이름 칸 → 값(관리주체명·대표자)
     detail: dict | None = None  # 시설물 현황(survey.detail) — 현황표에 넣은 칸은 안 비움
+    cost: tuple | None = None  # 개략공사비(정기 cost_rows) — 앞부분 요약문 표는 rb.build가 안 채우므로 여기서
 
 
 # ---------- 작은 도구 ----------
@@ -686,16 +687,33 @@ def _fill_analysis_tables(root, D: Data) -> int:
     return n
 
 
-# ---------- 4장 ----------
+# ---------- 4장(본문)·성과표(부록) — 표는 머리줄 글자로 찾음 ----------
 
-def _fill_ch4(root, D: Data) -> int:
+def _head(tbl, n: int = 4) -> list[str]:
+    """머리줄 칸 글(열 순서, 합친 칸은 하나로 — 고정 칸 번호로 읽으면 합쳐진 머리칸에서 어긋남)."""
+    cells = rb._cells(tbl)
+    return [re.sub(r"\s", "", rb._cell_text(cells[k])) for k in sorted(k for k in cells if k[0] == 0)][:n]
+
+
+def _tables(root, head: list[str], ncol: int | None = None) -> list:
+    want = [h.replace(" ", "") for h in head]
+    out = []
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None:
+            continue
+        if _head(tbl, len(want)) == want and (ncol is None or int(tbl.get("colCnt")) == ncol):
+            out.append(tbl)
+    return out
+
+
+def _fill_quantity(root, D: Data) -> int:
+    """표 4.1(층수·연면적 √·금회수량), 표 4.2(7×7 수량), 항목별 산출수량 3×6·3×4(캡션 뒤)."""
     tv, f = D.tv, D.facility
     n = 0
     total_floors = (f.floors_above or 0) + (f.floors_below or 0)
     need = tv["sample"]["need"] or 0
     q = tv["sample"]["quantity"]
-    tbl = rb._find_table(root, ["층수", "수량기준", "연면적(㎡)"])
-    if tbl is not None:
+    for tbl in _tables(root, ["층수", "수량기준", "연면적(㎡)"]):
         cells = rb._cells(tbl)
         pick = 4 if total_floors <= 10 else 3 if total_floors <= 20 else 2
         for r in (2, 3, 4):
@@ -703,16 +721,16 @@ def _fill_ch4(root, D: Data) -> int:
         _set(cells, 2, 5, ["￮ 층수", f"  - 지상{f.floors_above or 0}층, 지하{f.floors_below or 0}층({total_floors}개층)", "￮ 연면적", f"  - {f.total_area or 0:,.2f}㎡",
                            "￮ 층수별·연면적별 최대치", f"  - {need}개층, {need}개 단위 산정"])
         n += 1
-    tbl = _table_after(root, "【표 4.2】")
-    if tbl is not None:
+    for tbl in _tables(root, ["구분", "세부지침기준", "금회수량"]):
         cells = rb._cells(tbl)
-        _set(cells, 2, 2, ["￮ 표본층(단위)수", f"({need}개 단위 산정)"])
-        for r, key in ((2, "strength"), (3, "section"), (4, "carbonation"), (5, "tilt"), (6, "settlement")):
-            _set(cells, r, 5, q[key]["need"]); _set(cells, r, 6, q[key]["have"] or "-")  # noqa: E702
-        n += 1
+        if int(tbl.get("rowCnt")) >= 7:
+            _set(cells, 2, 2, ["￮ 표본층(단위)수", f"({need}개 단위 산정)"])
+            for r, key in ((2, "strength"), (3, "section"), (4, "carbonation"), (5, "tilt"), (6, "settlement")):
+                _set(cells, r, 5, q[key]["need"]); _set(cells, r, 6, q[key]["have"] or "-")  # noqa: E702
+            n += 1
     for cap, key in (("【표 4.3】", "section"), ("【표 4.5】", "strength"), ("【표 4.7】", "carbonation"), ("【표 4.9】", "tilt"), ("【표 4.11】", "settlement")):
         tbl = _table_after(root, cap)
-        if tbl is None:
+        if tbl is None or int(tbl.get("rowCnt")) != 3:
             continue
         cells = rb._cells(tbl)
         row = _row_cells(cells, 2)
@@ -721,107 +739,132 @@ def _fill_ch4(root, D: Data) -> int:
         if key in ("section", "strength", "carbonation") and (2, 2) in cells:
             _set(cells, 2, 2, ["￮ 표본층(단위)수", f"({need}개 단위 산정)"])
         n += 1
-    # 규격
-    tbl = _table_after(root, "【표 4.4】")
-    if tbl is not None:
-        secs = tv["sections"]
-        k = _fit_rows(tbl, len(secs), 1)
-        cells = rb._cells(tbl)
-        for i in range(k):
-            s = secs[i] if i < len(secs) else None
-            vals = [f"B{i + 1}", TESTS.floor_label(s["floor"]) if s and s["floor"] else "-", s["position"] or "-", s["member"] or "-", s["design"] or "-", s["measured"] or "-",
-                    ("O.K" if s["ok"] else "N.G") if s and s["ok"] is not None else "-"] if s else ["-"] * 7
-            for tc, v in zip(_row_cells(cells, i + 1), vals):
-                rb._set_lines(tc, [v])
-            _set_row_height(tbl, i + 1, 1400)
-        n += 1
-    # 강도
-    tbl = _table_after(root, "【표 4.6】")
-    if tbl is not None:
-        cells = rb._cells(tbl)
-        rows = sorted({k[0] for k in cells})
-        data_rows = [r for r in rows if r >= 1 and (r, 2) in cells and rb._cell_text(cells.get((r, 0), tbl)).replace(" ", "") not in ("최대값", "최소값", "평균", "평  균")]
-        st = tv["strength"]["rows"]
-        fmt = lambda v: "-" if v is None else f"{v:g}"  # noqa: E731
-        for i, r in enumerate(data_rows):
-            s = st[i] if i < len(st) else None
-            vals = [f"S{i + 1}", TESTS.floor_label(s["floor"]) if s and s["floor"] else "-", s["member"] or "-", fmt(s["r0"]), fmt(s["fc_mat"]), fmt(s["fc_arch"]), fmt(s["est"]), fmt(s["design"]),
-                    s["note"] or ("손상부" if s["damaged"] else "건전부")] if s else ["-"] * 9
-            for tc, v in zip(_row_cells(cells, r), vals):
-                rb._set_lines(tc, [v])
-        sm = tv["strength"]["summary"]
-        for r in rows:
-            label = rb._cell_text(cells.get((r, 0), tbl)).replace(" ", "")
-            if label in ("최대값", "최소값", "평균"):
-                row = _row_cells(cells, r)
-                if len(row) >= 2:
-                    rb._set_lines(row[1], [fmt({"최대값": sm["max"], "최소값": sm["min"], "평균": sm["mean"]}[label])])
-        if len(st) > len(data_rows):
-            D.notes.append(f"강도 조사 표가 {len(data_rows)}개소뿐이라 {len(st)}개소 중 앞부분만 넣었습니다")
-        n += 1
-    # 탄산화
-    tbl = _table_after(root, "【표 4.8】")
-    if tbl is not None:
-        cells = rb._cells(tbl)
-        rows = sorted({k[0] for k in cells})
-        starts = [r for r in rows if (r, 0) in cells and re.fullmatch(r"C\d+", rb._cell_text(cells[(r, 0)]).strip() or "")]
-        cr = tv["carbonation"]["rows"]
-        fmt = lambda v: "-" if v is None else f"{v:g}"  # noqa: E731
-        for i, r in enumerate(starts):
-            c = cr[i] if i < len(cr) else None
-            vals = [f"C{i + 1}", TESTS.floor_label(c["floor"]) if c and c["floor"] else "-", str(c["age"] if c and c["age"] is not None else "-"), fmt(c["cover"]), fmt(c["depth"]), fmt(c["remain"]),
-                    fmt(c["coef"]), f"{tv['carbonation']['wc']:g}", f"{tv['carbonation']['ratio']:g}", fmt(c["theory"]), c["life_text"] or "-", (c["grade"] or "-").upper()] if c else ["-"] * 12
-            for col, v in enumerate(vals):
-                _set(cells, r, col, v)
-            if (r + 1, 1) in cells:
-                _set(cells, r + 1, 1, c["member"] if c else "-")
-        if len(cr) > len(starts):
-            D.notes.append(f"탄산화 표가 {len(starts)}개소뿐이라 {len(cr)}개소 중 앞부분만 넣었습니다")
-        n += 1
-    # 기울기
-    tbl = _table_after(root, "【표 4.10】")
-    if tbl is not None:
-        ti = tv["tilt"]["rows"]
-        cells = rb._cells(tbl)
-        rows = [r for r in sorted({k[0] for k in cells}) if r >= 1]
-        for i, r in enumerate(rows):
-            x = ti[i] if i < len(ti) else None
-            vals = [str(i + 1), f"{x['height']:,.0f}" if x and x["height"] else "-", x["direction"] or "-", f"{x['disp']:g}" if x and x["disp"] is not None else "-", "1/",
-                    f"{x['n']:,}" if x and x["n"] else "-", (x["grade"] or "-").upper()] if x else ["-", "-", "-", "-", "", "-", "-"]
-            for col, v in enumerate(vals):
-                _set(cells, r, col, v)
-        if len(ti) > len(rows):
-            D.notes.append(f"기울기 표가 {len(rows)}개소뿐이라 {len(ti)}개소 중 앞부분만 넣었습니다")
-        n += 1
-    # 부등침하 — 【표 4.12】 뒤 표 2개(X 1·2구간), 【표 4.13】 뒤 표 2개(Y 1·2구간)
-    secs = {("X", 1): None, ("X", 2): None, ("Y", 1): None, ("Y", 2): None}
-    for s in tv["settlement"]["sections"]:
-        key = (s["axis"], s["no"])
-        if key in secs and secs[key] is None:
-            secs[key] = s
+    return n
+
+
+def _fill_section_tbl(tbl, D: Data) -> None:
+    secs = D.tv["sections"]
+    k = _fit_rows(tbl, len(secs), 1)
+    cells = rb._cells(tbl)
+    for i in range(k):
+        s = secs[i] if i < len(secs) else None
+        vals = [f"B{i + 1}", TESTS.floor_label(s["floor"]) if s and s["floor"] else "-", s["position"] or "-", s["member"] or "-", s["design"] or "-", s["measured"] or "-",
+                ("O.K" if s["ok"] else "N.G") if s and s["ok"] is not None else "-"] if s else ["-"] * 7
+        for tc, v in zip(_row_cells(cells, i + 1), vals):
+            rb._set_lines(tc, [v])
+        _set_row_height(tbl, i + 1, 1400)
+
+
+def _fill_strength_tbl(tbl, D: Data) -> None:
+    tv = D.tv
+    cells = rb._cells(tbl)
+    rows = sorted({k[0] for k in cells})
+    label_of = lambda r: rb._cell_text(cells.get((r, 0), tbl)).replace(" ", "")  # noqa: E731
+    data_rows = [r for r in rows if r >= 1 and (r, 2) in cells and label_of(r) not in ("최대값", "최소값", "평균")]
+    st = tv["strength"]["rows"]
+    fmt = lambda v: "-" if v is None else f"{v:g}"  # noqa: E731
+    for i, r in enumerate(data_rows):
+        x = st[i] if i < len(st) else None
+        vals = [f"S{i + 1}", TESTS.floor_label(x["floor"]) if x and x["floor"] else "-", x["member"] or "-", fmt(x["r0"]), fmt(x["fc_mat"]), fmt(x["fc_arch"]), fmt(x["est"]), fmt(x["design"]),
+                x["note"] or ("손상부" if x["damaged"] else "건전부")] if x else ["-"] * 9
+        for tc, v in zip(_row_cells(cells, r), vals):
+            rb._set_lines(tc, [v])
+    sm = tv["strength"]["summary"]
+    for r in rows:
+        label = label_of(r)
+        if label in ("최대값", "최소값", "평균"):
+            row = _row_cells(cells, r)
+            if len(row) >= 2:
+                rb._set_lines(row[1], [fmt({"최대값": sm["max"], "최소값": sm["min"], "평균": sm["mean"]}[label])])
+    if len(st) > len(data_rows):
+        D.notes.append(f"강도 조사 표가 {len(data_rows)}개소뿐이라 {len(st)}개소 중 앞부분만 넣었습니다")
+
+
+def _fill_carb_tbl(tbl, D: Data) -> None:
+    tv = D.tv
+    cells = rb._cells(tbl)
+    rows = sorted({k[0] for k in cells})
+    starts = [r for r in rows if (r, 0) in cells and re.fullmatch(r"C\d+", rb._cell_text(cells[(r, 0)]).strip() or "")]
+    cr = tv["carbonation"]["rows"]
+    fmt = lambda v: "-" if v is None else f"{v:g}"  # noqa: E731
+    for i, r in enumerate(starts):
+        c = cr[i] if i < len(cr) else None
+        vals = [f"C{i + 1}", TESTS.floor_label(c["floor"]) if c and c["floor"] else "-", str(c["age"] if c and c["age"] is not None else "-"), fmt(c["cover"]), fmt(c["depth"]), fmt(c["remain"]),
+                fmt(c["coef"]), f"{tv['carbonation']['wc']:g}", f"{tv['carbonation']['ratio']:g}", fmt(c["theory"]), c["life_text"] or "-", (c["grade"] or "-").upper()] if c else ["-"] * 12
+        for col, v in enumerate(vals):
+            _set(cells, r, col, v)
+        if (r + 1, 1) in cells:
+            _set(cells, r + 1, 1, c["member"] if c else "-")
+    if len(cr) > len(starts):
+        D.notes.append(f"탄산화 표가 {len(starts)}개소뿐이라 {len(cr)}개소 중 앞부분만 넣었습니다")
+
+
+def _fill_tilt_tbl(tbl, D: Data) -> None:
+    ti = D.tv["tilt"]["rows"]
+    cells = rb._cells(tbl)
+    rows = [r for r in sorted({k[0] for k in cells}) if r >= 1 and (r, 1) in cells and (r, 3) in cells]
+    for i, r in enumerate(rows):
+        x = ti[i] if i < len(ti) else None
+        vals = [str(i + 1), f"{x['height']:,.0f}" if x and x["height"] else "-", x["direction"] or "-", f"{x['disp']:g}" if x and x["disp"] is not None else "-", "1/",
+                f"{x['n']:,}" if x and x["n"] else "-", (x["grade"] or "-").upper()] if x else ["-", "-", "-", "-", "", "-", "-"]
+        for col, v in enumerate(vals):
+            _set(cells, r, col, v)
+    if len(ti) > len(rows):
+        D.notes.append(f"기울기 표가 {len(rows)}개소뿐이라 {len(ti)}개소 중 앞부분만 넣었습니다")
+
+
+def _fill_settle_tbls(root, D: Data) -> int:
+    """첫 칸이 "… 바닥 X축 방향(1구간)"인 표들 — 축·구간을 제목에서 읽어 그 구간 값."""
+    tv = D.tv
+    secs = {}
+    for s_ in tv["settlement"]["sections"]:
+        secs.setdefault((s_["axis"], s_["no"]), s_)
     floor_label = tv["settlement"]["floor_label"] or "최하층"
-    for cap, axis in (("【표 4.12】", "X"), ("【표 4.13】", "Y")):
-        for nth in (0, 1):
-            tbl = _table_after(root, cap, nth)
-            if tbl is None:
-                continue
-            s = secs[(axis, nth + 1)]
-            cells = rb._cells(tbl)
-            _set(cells, 0, 0, f"{floor_label} 바닥 {axis}축 방향({nth + 1}구간)")
-            rows = s["rows"] if s else []
-            for i in range(3):
-                r_level, r_disp = 2 + 2 * i, 3 + 2 * i
-                row = rows[i] if i < len(rows) else None
-                _set(cells, r_level, 0, str(i + 1)); _set(cells, r_level, 1, "위치도 참조")  # noqa: E702
-                _set(cells, r_level, 2, f"{row['level']:,.0f}" if row and row["level"] is not None else "-")
-                if row and row["disp"] is not None:
-                    _set(cells, r_disp, 3, f"{row['disp']:g}"); _set(cells, r_disp, 4, f"{row['distance']:,.0f}" if row["distance"] else "-")  # noqa: E702
-                    _set(cells, r_disp, 5, "1/"); _set(cells, r_disp, 6, f"{row['n']:,}" if row["n"] else "-"); _set(cells, r_disp, 7, (row["grade"] or "-").upper())  # noqa: E702
-                else:
-                    for col in (3, 4, 5, 6, 7):
-                        _set(cells, r_disp, col, "")
-            n += 1
-    # 나. 결과 분석 다섯 번
+    n = 0
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None:
+            continue
+        cells = rb._cells(tbl)
+        title = rb._cell_text(cells.get((0, 0), tbl)).replace(" ", "")
+        m = re.search(r"([XY])축방향\((\d)구간\)", title)
+        if not m or int(tbl.get("rowCnt")) < 7:
+            continue
+        axis, no = m[1], int(m[2])
+        s_ = secs.get((axis, no))
+        _set(cells, 0, 0, f"{floor_label} 바닥 {axis}축 방향({no}구간)")
+        rows = s_["rows"] if s_ else []
+        for i in range(3):
+            r_level, r_disp = 2 + 2 * i, 3 + 2 * i
+            row = rows[i] if i < len(rows) else None
+            _set(cells, r_level, 0, str(i + 1)); _set(cells, r_level, 1, "위치도 참조")  # noqa: E702
+            _set(cells, r_level, 2, f"{row['level']:,.0f}" if row and row["level"] is not None else "-")
+            if row and row["disp"] is not None:
+                _set(cells, r_disp, 3, f"{row['disp']:g}"); _set(cells, r_disp, 4, f"{row['distance']:,.0f}" if row["distance"] else "-")  # noqa: E702
+                _set(cells, r_disp, 5, "1/"); _set(cells, r_disp, 6, f"{row['n']:,}" if row["n"] else "-"); _set(cells, r_disp, 7, (row["grade"] or "-").upper())  # noqa: E702
+            else:
+                for col in (3, 4, 5, 6, 7):
+                    _set(cells, r_disp, col, "")
+        n += 1
+    return n
+
+
+def _fill_test_tables(root, D: Data) -> int:
+    """규격·강도·탄산화·기울기·부등침하 표 — 본문 4장과 부록 성과표 둘 다(머리줄로 찾음)."""
+    n = 0
+    for tbl in _tables(root, ["NO.", "위치", "부재", "설계도면"]):
+        _fill_section_tbl(tbl, D); n += 1  # noqa: E702
+    for tbl in _tables(root, ["구분", "위치", "부재부위", "보정반발경도(R0)"]):
+        _fill_strength_tbl(tbl, D); n += 1  # noqa: E702
+    for tbl in _tables(root, ["no", "측정위치", "경과년수"]):
+        _fill_carb_tbl(tbl, D); n += 1  # noqa: E702
+    for tbl in _tables(root, ["NO", "측정높이(㎜)"]):
+        _fill_tilt_tbl(tbl, D); n += 1  # noqa: E702
+    n += _fill_settle_tbls(root, D)
+    return n
+
+
+def _fill_ch4(root, D: Data) -> int:
+    n = _fill_quantity(root, D) + _fill_test_tables(root, D)
     t = D.texts
     for i, keys in enumerate((["section"], ["strength"], ["carb", "carb_life"], ["tilt"], ["settle"])):
         n += _set_after(root, "나. 결과 분석", [t.get(k, "") for k in keys], nth=i)
@@ -861,20 +904,20 @@ def _fill_ch5_7(root, D: Data, add_image) -> int:
 # ---------- 6장 보수물량·우선순위(8칸) ----------
 
 def _fill_priority(root, D: Data) -> int:
+    """보수물량 및 우선순위(정밀 8칸: 층 칸이 세로로 합쳐짐) — 정기 _priority_table처럼 표를 새로 짜고(쪽 단위로 나눔) 층은 세로 합침.
+    줄만 지우면 합친 층 칸의 rowSpan이 표 밖으로 나가 한글이 PDF 변환 중 죽음(10/13)."""
     n = 0
     for tbl in list(root.iter(f"{{{HP}}}tbl")):
+        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None:
+            continue
         cells = rb._cells(tbl)
-        head = [rb._cell_text(cells.get((0, c), tbl)).replace(" ", "") for c in range(4)]
-        if head != ["구분", "부재", "손상내용", "적용공법"] or int(tbl.get("colCnt")) != 8:
+        if _head(tbl, 4) != ["구분", "부재", "손상내용", "적용공법"] or int(tbl.get("colCnt")) != 8 or not all((1, c) in cells for c in range(8)):
             continue
         rows = D.priority or [("-", "-", "-", "특이사항 없음", "-", "-", "-", "-")]
-        k = _fit_rows(tbl, len(rows), 1)
-        cells = rb._cells(tbl)
-        for i in range(k):
-            vals = rows[i] if i < len(rows) else ["-"] * 8
-            for tc, v in zip(_row_cells(cells, i + 1), vals):
-                rb._set_lines(tc, [str(v)])
-            _set_row_height(tbl, i + 1, 1400)
+        data = [[[str(x)] for x in r] for r in rows]
+        h = int(cells[(1, 2)].find(f"{{{HP}}}cellSz").get("height"))
+        heights = rb._row_heights({c: cells[(1, c)] for c in range(8)}, data, h)
+        rb._rebuild_paged(root, tbl, data, 1, heights, False, first_page_h=rb.SUMMARY_PAGE_H - 9000)
         n += 1
     return n
 
@@ -907,6 +950,8 @@ def _fill(src: Path, dest: Path, D: Data) -> int:
                     changed += _fill_result_table(root, D) + _fill_summary_table(root, D) + _fill_seismic(root, D)
                     if D.result_fields:
                         changed += rb._set_result_fields(root, D.result_fields)
+                    if D.cost is not None and rb._cost_table(root, D.cost[0], D.cost[1]):  # 요약문 2.7 개략공사비
+                        changed += 1
                     for tbl in root.iter(f"{{{HP}}}tbl"):  # 결과표 뒤 "시험명 | 개소 | 조사결과 | 책임기술자 의견" 표
                         cells = rb._cells(tbl)
                         if rb._cell_text(cells.get((0, 0), tbl)).replace(" ", "") == "시험명":
@@ -1021,6 +1066,25 @@ def build_body(db, r, dest: Path) -> tuple[list[str], int, rb.Values]:
     tmp = dest.with_suffix(".p1.hwpx")
     changed = rb.build(src, old, new, tmp, ex1)
     warn += ex1.notes
+    D = _data_for(db, r, new, f, ex)
+    D.result_fields = fields
+    changed += _fill(tmp, dest, D)
+    tmp.unlink(missing_ok=True)
+    if not D.tv["sample"]["floors"]:
+        D.notes.append("표본층이 없어 재료시험·상태평가 표가 비었습니다(📐 재료시험)")
+    if D.rv["result"] is None:
+        D.notes.append("상태평가 결과가 없어 등급·결과 그림이 비었습니다(📊 상태평가)")
+    return warn + D.notes, changed, new
+
+
+def _data_for(db, r, new: rb.Values, f, ex) -> Data:
+    """본문·부록이 같이 쓰는 자료 묶음."""
+    from core.models_web import Company
+    from server.api.routers import sitok_precision as SP, sitok_rating as SRt, sitok_reports as SR, sitok_tests as ST
+    from server.api.routers.sitok_defects import _defects_for_cost
+
+    src = master.master_path("정밀본문")
+    old = rb.read_old(src)
     tv = ST._view(db, r)
     rv = SRt._compute(db, r)
     pr = SP._out(db, r)
@@ -1061,12 +1125,114 @@ def build_body(db, r, dest: Path) -> tuple[list[str], int, rb.Values]:
     D = Data(new=new, facility=f, tv=tv, rv=rv, pr=pr, defects=defects, texts=texts, parts=ex.parts or {}, load_photos=load_photos,
              priority=_priority8(db, r, ex.ai), repairs=(r.survey or {}).get("repairs") or [], rating_png=_rating_png(db, r, rv, tv, f, co.name if co else ""),
              replace=rep, kind_label=f.template or "2종")
-    D.result_fields = fields
     D.detail = (r.survey or {}).get("detail")
-    changed += _fill(tmp, dest, D)
+    D.cost = ex.cost
+    return D
+
+
+def defaults(db, r) -> dict:
+    """AI 초안 창에 먼저 보여 줄 기본 글(precision_text) — build_body와 같은 자료로."""
+    from core.models_web import SitokFacility
+    from server.api.routers import sitok_precision as SP, sitok_rating as SRt, sitok_tests as ST
+    from server.api.routers.sitok_defects import _defects_for_cost
+
+    f = db.get(SitokFacility, r.facility_id)
+    tv, rv, pr = ST._view(db, r), SRt._compute(db, r), SP._out(db, r)
+    defects = _defects_for_cost(db, r.id)
+    comp_text = f"{f.completion_date.year}년 {f.completion_date.month:02d}월 {f.completion_date.day:02d}일" if f.completion_date else "-"
+    grades = {x["key"]: x["grade"] for grp in ("public", "other") for x in pr["grades"][grp]}
+    t = precision_text.all_texts(defects, tv, rv["result"], grades=grades, structure=f.structure or "", load_note=pr["load"]["note"],
+                                 prev_grade=rv["prev_grade"] or rv["prev_auto"], name=f.name, year=r.year, completion_text=comp_text,
+                                 first=rv.get("prev_report") is None, ai=None)
+    return {"texts": t, "tv": tv, "rv": rv, "pr": pr, "defects": defects, "facility": f}
+
+
+def build_appendix(db, r, dest: Path, D_body: Data | None = None) -> tuple[list[str], int]:
+    """정밀 부록 한글 — 부록 원본(다산)에 이름·날짜·그림(자격·수료증·장비)·성과표(규격·강도·탄산화·기울기·부등침하)·과업지시서 표를 넣음.
+    관리대장·사진첩·측정데이터·상태평가 결과자료·계약서 PDF는 한글 PDF 뒤에 끼움(sitok_reports._run_precision_build)."""
+    from core.models_web import SitokFacility
+    from server.api.routers import sitok_reports as SR
+
+    f = db.get(SitokFacility, r.facility_id)
+    src = master.master_path("정밀부록")
+    if not src.exists():
+        raise ValueError("정밀안전점검 부록 원본이 없습니다 — 시특법 설정에서 올리세요.")
+    body_src = master.master_path("정밀본문")
+    old = rb.read_old(body_src)  # 부록엔 결과표가 없어 본문 원본 값으로 바꿈
+    if not old.name:
+        m = re.search(r"\d{4}\s*년(?:도)?\s*(?:상반기|하반기)\s*(.+?)\s*정밀안전점검", old.title)
+        old.name = m[1].strip() if m else (old.owner or "")
+    if old.rep and old.rep in (old.name, old.owner):
+        old.rep = ""
+    if old.owner and old.owner == old.name:
+        old.owner = ""
+    prior = SR._prior(r)
+    pv = rb.read_old(prior) if prior else None
+    new, warn = SR._new_values(db, r, old, pv)
+    if pv is None or not pv.title:
+        new.title = f"{r.year}년 {r.half} {f.name} 정밀안전점검 용역"
+    new.title = new.title.replace("정기안전점검", "정밀안전점검").replace("정기점검", "정밀점검")
+    ex = SR._extras(db, r)
+    ex1 = rb.Extras(images=ex.images, equipment=ex.equipment, positions=ex.positions, history=False, cost=None, template=ex.template, blank=ex.blank,
+                    overview=[], has_drawings=True, parts=None, rep_photos={}, survey=None, ai=None)
+    tmp = dest.with_suffix(".p1.hwpx")
+    changed = rb.build(src, old, new, tmp, ex1)
+    warn = [w for w in warn if "기술자 수" not in w] + ex1.notes
+    D = D_body or _data_for(db, r, new, f, ex)
+    added: list[tuple[str, bytes]] = []
+    run = datetime.datetime.now().strftime("%y%m%d%H%M%S")
+
+    def add_image(path_or_bytes) -> str:
+        key = f"sitoka{run}_{len(added) + 1}"
+        added.append((key, path_or_bytes if isinstance(path_or_bytes, bytes) else Path(path_or_bytes).read_bytes()))
+        return key
+
+    hpf = b""
+    prev = D.rv["prev_grade"] or D.rv["prev_auto"]
+    WORD = {"A": "우수", "B": "양호", "C": "보통", "D": "미흡", "E": "불량"}
+    with zipfile.ZipFile(tmp) as zin, zipfile.ZipFile(dest.with_suffix(".tmp"), "w", zipfile.ZIP_DEFLATED) as zout:
+        ordered = rb._sections(zin)
+        for info in zin.infolist():
+            data = zin.read(info.filename)
+            if info.filename in ordered:
+                root = etree.fromstring(data)
+                if D.replace:
+                    changed += rb._apply(root, D.replace, [], set(), False)
+                changed += _fill_test_tables(root, D) + _fill_quantity(root, D)
+                for tbl in _tables(root, ["시설명", "용도", "최초건축년도"]) + _tables(root, ["건물명", "용도", "최초건축년도"]):  # 과업지시서·사전검토 범위 표
+                    cells = rb._cells(tbl)
+                    heads = _head(tbl, 16)
+                    vals = {"시설명": f.name, "건물명": f.name, "용도": f.use_type or f.main_use or "-", "준공년도": str(f.completion_date.year) if f.completion_date else "-",
+                            "연면적(㎡)": f"{f.total_area:,.2f}" if f.total_area else "-", "층수": f"{f.floors_above or 0}/-{f.floors_below or 0}",
+                            "구조": "철콘" if "철근콘크리트" in (f.structure or "") else (f.structure or "-"), "기존등급": WORD.get(prev, prev) if prev else "-"}
+                    for c, h in enumerate(heads):
+                        if h in vals and (1, c) in cells:
+                            _set(cells, 1, c, vals[h])
+                    changed += 1
+                for tbl in _tables(root, ["건물명"], 2):  # 과업지시서 3. 건축물 개요
+                    cells = rb._cells(tbl)
+                    age = TESTS.age_years(f.completion_date, r.period_start)
+                    vals = {"건물명": f.name, "위치": f.address or "-", "건축면적": f"{f.building_area:,.2f}㎡" if f.building_area else "-", "연면적": f"{f.total_area:,.2f}㎡" if f.total_area else "-",
+                            "구조": f.structure or "-", "층수": f"지상{f.floors_above or 0}층 / 지하{f.floors_below or 0}층", "최초건축년도": f"{f.completion_date.year}년" if f.completion_date else "-",
+                            "경과년수": f"{age}년" if age is not None else "-"}
+                    for (r_, c_), tc in list(cells.items()):
+                        label = rb._cell_text(tc).replace(" ", "")
+                        if c_ == 0 and label in vals and (r_, 1) in cells:
+                            _set(cells, r_, 1, vals[label])
+                    changed += 1
+                for el in list(root.iter(f"{{{HP}}}linesegarray")):
+                    el.getparent().remove(el)
+                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+            elif info.filename == "Contents/content.hpf":
+                hpf = data
+                continue
+            elif info.filename in ("Preview/PrvImage.png",):
+                continue
+            zout.writestr(info, data, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+        items = "".join(f'<opf:item id="{k}" href="BinData/{k}.jpg" media-type="image/jpg" isEmbeded="1"/>' for k, _ in added)
+        zout.writestr("Contents/content.hpf", hpf.decode("utf-8").replace("</opf:manifest>", items + "</opf:manifest>").encode("utf-8"))
+        for k, b in added:
+            zout.writestr(f"BinData/{k}.jpg", b, compress_type=zipfile.ZIP_STORED)
+    dest.with_suffix(".tmp").replace(dest)
     tmp.unlink(missing_ok=True)
-    if not tv["sample"]["floors"]:
-        D.notes.append("표본층이 없어 재료시험·상태평가 표가 비었습니다(📐 재료시험)")
-    if rv["result"] is None:
-        D.notes.append("상태평가 결과가 없어 등급·결과 그림이 비었습니다(📊 상태평가)")
-    return warn + D.notes, changed, new
+    return warn + D.notes, changed
