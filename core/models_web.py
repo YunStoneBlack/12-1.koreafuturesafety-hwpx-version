@@ -505,6 +505,7 @@ class SitokContract(Base):
     first_half_end: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     second_half_start: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     amount: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    rounds: Mapped[list | None] = mapped_column(JSON, default=None)  # 회차 줄 [{year, half, kind 정기|정밀, amount}] — 회차 종류 자동 선택(0043)
     rep_name: Mapped[str] = mapped_column(Text, default="")
     joint_type: Mapped[str] = mapped_column(Text, default="독자수행")
     joint_pct: Mapped[int] = mapped_column(Integer, default=100)
@@ -546,6 +547,7 @@ class SitokReport(Base):
     contract_id: Mapped[int | None] = mapped_column(ForeignKey("sitok_contract.id", ondelete="SET NULL"), default=None)
     year: Mapped[int] = mapped_column(Integer)
     half: Mapped[str] = mapped_column(Text)  # 상반기 / 하반기
+    kind: Mapped[str] = mapped_column(Text, default="정기")  # 정기 / 정밀(안전점검) — 계약서 그 반기 줄에서 자동, 직접 바꿀 수 있음(0043)
     period_start: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     period_end: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     report_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)  # 제출일(표지·제출문 연월)
@@ -586,6 +588,7 @@ class SitokDefect(Base):
     count: Mapped[str] = mapped_column(Text, default="")
     width: Mapped[str] = mapped_column(Text, default="")
     length: Mapped[str] = mapped_column(Text, default="")
+    depth: Mapped[str] = mapped_column(Text, default="")  # 깊이 mm — 박리·박락·층분리만(정밀 상태평가 기준, 0043)
     qty: Mapped[str] = mapped_column(Text, default="")
     area_ratio: Mapped[str] = mapped_column(Text, default="")
     cause: Mapped[str] = mapped_column(Text, default="")

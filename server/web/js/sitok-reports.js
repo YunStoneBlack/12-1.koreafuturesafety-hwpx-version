@@ -19,7 +19,7 @@
   const polling = {};
   let flash = null; // 다시 그린 뒤 맨 위에 띄울 안내 [글, "ok"|"warn"]
   const ymdDot = (s) => (s || "?").replaceAll("-", ".");
-  const CON_KEYS = ["sector", "title", "contract_no", "contract_date", "start_date", "end_date", "halves", "first_half_end", "second_half_start",
+  const CON_KEYS = ["sector", "title", "contract_no", "contract_date", "start_date", "end_date", "halves", "first_half_end", "second_half_start", "rounds",
     "amount", "rep_name", "joint_type", "joint_pct", "bid_method", "field"];
 
   function personOptions(selected) {
@@ -37,7 +37,8 @@
     const stateText = r.status === "running" ? `<span class="sk-rep-st run">⏳ ${esc(r.message)}</span>`
       : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`
         : r.status === "done" ? `<span class="sk-rep-st ok">✓ ${esc(r.made_at)} 만듦 — ${esc(r.message)}</span>` : "";
-    el.innerHTML = `<div class="sk-rep-head"><b>${r.year}년 ${esc(r.half)}</b>
+    const kind = r.kind || "정기"; // 회차 종류(10/13) — 계약서 그 반기 줄에서 자동, 틀리면 아래 칸에서 직접
+    el.innerHTML = `<div class="sk-rep-head"><b>${r.year}년 ${esc(r.half)}</b><span class="sk-kind ${kind === "정밀" ? "pre" : ""}">${kind}안전점검</span>
         <span class="sk-rep-src">${r.past ? "이미 낸 보고서" : r.has_source ? `전회차 보고서: ${esc(r.source_note)}` : '전회차 보고서 없음 — 처음 맡는 시설물(우리가 하던 시설물이면 지난 보고서 한글을 올리세요)'}</span>
         <label class="secondary-link"${r.past ? " hidden" : ""} title="이력·시설물 현황·지난 평가 같은 데이터만 가져옵니다(보고서 틀은 회사 원본)">지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
         ${r.past ? "" : `<a class="secondary-link sk-rep-field" href="sitok-field.html?report=${r.id}">📱 현장 조사</a>
@@ -49,6 +50,7 @@
         <span class="sk-help">점검기간·제출일·기술자는 묶인 동 회차도 같이 바뀝니다. 현장 조사·현황·AI 초안은 동마다.</span></div>` : ""}
       <div class="sk-rep-grid">
         <label>계약<select data-k="contract_id">${contractOpts}</select></label>
+        <label>종류 <span class="sk-help">계약서 회차 줄에서 자동 — 틀리면 직접</span><select data-k="kind">${["정기", "정밀"].map((k) => `<option${k === kind ? " selected" : ""}>${k}</option>`).join("")}</select></label>
         <label>점검기간 시작 <span class="sk-help">민간 = 현장 간 날</span><input type="date" data-k="period_start" value="${esc(r.period_start)}" /></label>
         <label>점검기간 끝 <span class="sk-help">민간 = 보고서 낸 날</span><input type="date" data-k="period_end" value="${esc(r.period_end)}" /></label>
         <label>제출일 <span class="sk-help">표지·제출문 연월, 비우면 점검기간 끝</span><input type="date" data-k="report_date" value="${esc(r.report_date)}" /></label>
@@ -60,7 +62,8 @@
       <div class="sk-rep-foot">${stateText}
         ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf?v=${encodeURIComponent(r.made_at || "")}" target="_blank" rel="noopener">PDF 보기</a>` : ""}
         ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx?v=${encodeURIComponent(r.made_at || "")}">한글 받기</a>` : ""}
-        ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>`;
+        ${r.past ? "" : kind === "정밀" ? '<span class="sk-help">정밀안전점검 보고서 만들기는 재료시험·상태평가 단계 뒤에 열립니다</span>'
+          : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>`;
     el.querySelectorAll("[data-k]").forEach((inp) => inp.addEventListener("change", async () => {
       const k = inp.dataset.k;
       const body = k === "p0" ? { participant_ids: inp.value ? [Number(inp.value)] : [] }
@@ -118,8 +121,9 @@
     return el;
   }
 
-  async function createReport(year, half, contractId) {
+  async function createReport(year, half, contractId, kind) {
     const body = { year, half, contract_id: contractId };
+    if (kind) body.kind = kind; // 비우면 서버가 계약서 회차 줄에서(정기/정밀)
     const chief = data.persons.find((p) => p.sitok_grade.includes("특급")) || data.persons[0];
     if (chief) body.chief_id = chief.id;
     const other = data.persons.find((p) => p.id !== chief?.id);
@@ -150,7 +154,7 @@
     box2.querySelector(".nr-skip").addEventListener("click", async () => {
       box2.classList.add("busy");
       try {
-        await createReport(year, half, null);
+        await createReport(year, half, null, el.querySelector(".nr-kind")?.value || "");
         flash = [`${year}년 ${half} 회차를 계약 없이 만들었습니다 — 계약을 추가하면 자동으로 붙습니다.`, "warn"];
         load();
       } catch (e) { err(e); box2.classList.remove("busy"); }
@@ -169,7 +173,7 @@
         const fields = Object.fromEntries(CON_KEYS.filter((k) => rd.fields?.[k] !== undefined && rd.fields[k] !== "" && rd.fields[k] !== null)
           .map((k) => [k, rd.fields[k]]));
         const out = await apiPost(`/sitok/facilities/${fid}/contracts`, { ...fields, contract_token: rd.token });
-        await createReport(year, half, out.new_contract_id);
+        await createReport(year, half, out.new_contract_id, el.querySelector(".nr-kind")?.value || "");
         const chk = await api(`/sitok/facilities/${fid}/contract-for?year=${year}&half=${encodeURIComponent(half)}`);
         const fits = chk.contract && chk.contract.id === out.new_contract_id;
         flash = rd.error ? [`계약서를 읽지 못해 칸이 비었습니다 — 아래 "점검 용역 계약"에서 날짜·금액을 채우세요. (${rd.error})`, "warn"]
@@ -192,6 +196,7 @@
     el.innerHTML = `<b>새 회차</b>
       <input type="number" class="nr-year" value="${d.year}" min="2000" max="2100" aria-label="연도" />년
       <select class="nr-half"><option${d.half === "상반기" ? " selected" : ""}>상반기</option><option${d.half === "하반기" ? " selected" : ""}>하반기</option></select>
+      <select class="nr-kind" title="회차 종류 — 계약서 그 반기 줄(정기/정밀)에서 자동, 틀리면 고르기"><option value="">계약서대로</option><option>정기</option><option>정밀</option></select>
       <button type="button" class="btn-sm nr-add">+ 회차 만들기</button>
       <label class="secondary-link nr-past" title="이미 낸 지난 반기 보고서 한글(.hwp·.hwpx) — 연도·반기·점검기간은 결과표에서 읽고, 다음 회차가 이걸 틀로 씁니다">이미 낸 보고서 등록<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
       <span class="sk-help nr-msg">보고서는 회사 원본 템플릿으로 만들고, 직전 회차(또는 [이미 낸 보고서 등록]으로 올린 지난 반기 한글)에서는 이력·시설물 현황·지난 평가 같은 데이터만 가져옵니다. 처음 맡는 시설물(신축·타회사 인계)은 그냥 회차를 만들면 됩니다.</span>`;
@@ -211,11 +216,13 @@
     enableFileDrop(el.querySelector(".nr-past"), past);
     el.querySelector(".nr-add").addEventListener("click", async () => { // 그 반기를 덮는 계약을 찾아 붙임 — 없으면 계약서 올리기 칸
       const year = Number(el.querySelector(".nr-year").value), half = el.querySelector(".nr-half").value;
+      const kind = el.querySelector(".nr-kind").value || "";
       el.classList.add("busy");
       try {
         const r = await api(`/sitok/facilities/${fid}/contract-for?year=${year}&half=${encodeURIComponent(half)}`);
         if (r.contract) {
-          await createReport(year, half, r.contract.id);
+          await createReport(year, half, r.contract.id, kind);
+          if (!kind && r.kind === "정밀") flash = [`${year}년 ${half} 회차를 계약서대로 정밀안전점검으로 만들었습니다 — 틀리면 회차 칸 "종류"에서 바꾸세요.`, "ok"];
           load();
         } else {
           noContract(el, year, half, r.latest);

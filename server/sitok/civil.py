@@ -45,6 +45,31 @@ def template_path() -> Path:
 
 # ---------- 값 ----------
 
+def normalize_rounds(v) -> list[dict]:
+    """회차 줄 정리 — [{year, half, kind 정기|정밀(없으면 정기), amount 원}] (연도·반기 순). 서류 자동화 계약·보고서 쪽 계약 둘 다 씀."""
+    out = []
+    for r in v or []:
+        try:
+            y = int(r.get("year"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if r.get("half") not in HALVES:
+            continue
+        amt = int(str(r.get("amount") or 0).replace(",", "") or 0)
+        out.append({"year": y, "half": r["half"], "kind": r.get("kind") if r.get("kind") in KINDS else "정기", "amount": amt})
+    return sorted(out, key=lambda r: (r["year"], HALVES.index(r["half"])))
+
+
+def kind_for(rounds: list | None, unit: dict | None, open_ended: bool, year: int, half: str) -> str | None:
+    """그 반기의 회차 종류 — 회차 줄에 있으면 그것, 끝 없는 계약이면 매 반기 종류, 모르면 None(화면은 정기)."""
+    for r in rounds or []:
+        if r.get("year") == year and r.get("half") == half and r.get("kind") in KINDS:
+            return r["kind"]
+    if open_ended and unit and unit.get("kind") in KINDS:
+        return unit["kind"]
+    return None
+
+
 def kinds_of(rounds: list | None, unit: dict | None, open_ended: bool) -> str:
     """"정기" | "정밀" | "정기·정밀"."""
     got = {r.get("kind") for r in (rounds or []) if r.get("kind") in KINDS}

@@ -15,6 +15,7 @@
   let ledgerToken = null;
   let ledgerExtra = null;
   const conTokens = {}; // 계약 카드 키 → 올린 계약서 token
+  const conRounds = {}; // 계약 카드 키 → 계약서에서 읽은 회차 줄 [{year, half, kind, amount}] — 회차 종류(정기/정밀) 자동(10/13)
   let ownerRep = ""; // 관리대장에서 읽은 관리주체 대표자(민간 계약 대표자 칸이 비면 채움)
 
   // 칸 정의·그리기·읽기는 js/sitok-fields.js(새 등록 화면과 같이 씀, 10/12)
@@ -54,7 +55,7 @@
     card.querySelector(".sk-con-pdf input")?.addEventListener("change", (e) => readPdf("contract", e.target.files[0], card));
     card.querySelector(".sk-con-save")?.addEventListener("click", async () => {
       try {
-        fac = await apiPatch(`/sitok/contracts/${c.id}`, { ...values(card), contract_token: conTokens[key] || null });
+        fac = await apiPatch(`/sitok/contracts/${c.id}`, { ...values(card), contract_token: conTokens[key] || null, ...(conRounds[key] ? { rounds: conRounds[key] } : {}) });
         flash("계약을 저장했습니다.");
         draw();
       } catch (err) { showError(errorEl, err); }
@@ -89,6 +90,7 @@
       } else {
         const box = card || document.querySelector("#sk-cons .sk-con");
         conTokens[box.dataset.key] = r.token;
+        if (Array.isArray(f.rounds) && f.rounds.length) conRounds[box.dataset.key] = f.rounds;
         const rep = f.sector === "민간" && ownerRep ? ownerRep : f.rep_name;
         setValues(box, { ...f, rep_name: rep }, false);
         box.querySelector('[data-key="sector"]').dispatchEvent(new Event("change"));
@@ -144,7 +146,7 @@
     save.textContent = "이 계약 추가";
     save.addEventListener("click", async () => {
       try {
-        fac = await apiPost(`/sitok/facilities/${id}/contracts`, { ...values(card), contract_token: conTokens[card.dataset.key] || null });
+        fac = await apiPost(`/sitok/facilities/${id}/contracts`, { ...values(card), contract_token: conTokens[card.dataset.key] || null, ...(conRounds[card.dataset.key] ? { rounds: conRounds[card.dataset.key] } : {}) });
         flash("계약을 추가했습니다.");
         draw();
       } catch (err) { showError(errorEl, err); }
@@ -168,7 +170,7 @@
         draw();
       } else {
         const card = document.querySelector("#sk-cons .sk-con");
-        const contract = { ...values(card), contract_token: conTokens[card.dataset.key] || null };
+        const contract = { ...values(card), contract_token: conTokens[card.dataset.key] || null, ...(conRounds[card.dataset.key] ? { rounds: conRounds[card.dataset.key] } : {}) };
         const hasContract = contract.title || contract.start_date || contract.amount || contract.contract_token;
         const res = await apiPost("/sitok/facilities", {
           facility, contract: hasContract ? contract : null, ledger_token: ledgerToken, ledger_extra: ledgerExtra,

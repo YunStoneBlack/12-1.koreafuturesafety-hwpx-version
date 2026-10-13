@@ -137,26 +137,34 @@ def get_settings(user: User = Depends(get_current_user), db: Session = Depends(g
         "equipment": [_equip_out(e) for e in equipment(db, user.company_id)],
         "prices": [_price_out(p) for p in prices(db, user.company_id)],
         "vocab": vocab_out(vocab_rows(db, user.company_id)),
-        "master": master.info(),
+        "master": master.info_all(),
     }
 
 
+def _master_kind(kind: str) -> str:
+    if kind not in master.FILES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "원본 종류는 정기·정밀본문·정밀부록입니다.")
+    return kind
+
+
 @router.get("/master/file")
-def master_file(user: User = Depends(get_current_user)):
-    p = master.master_path()
+def master_file(kind: str = "정기", user: User = Depends(get_current_user)):
+    p = master.master_path(_master_kind(kind))
     if not p.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "원본 템플릿이 아직 없습니다.")
-    return FileResponse(p, media_type="application/octet-stream", filename="정기안전점검_원본.hwpx")
+    return FileResponse(p, media_type="application/octet-stream", filename=p.name)
 
 
 @router.post("/master")
-def upload_master(file: UploadFile = File(...), user: User = Depends(get_current_user)):
-    """형이 한글에서 고친 원본 올리기 — hwp는 작업 프로그램이 hwpx로. 결과표를 못 읽거나 프로그램이 채우는 자리가 없으면 안 받음(옛 원본은 보관)."""
+def upload_master(file: UploadFile = File(...), kind: str = Form("정기"), user: User = Depends(get_current_user)):
+    """형이 한글에서 고친 원본 올리기(kind = 정기 / 정밀본문 / 정밀부록) — hwp는 작업 프로그램이 hwpx로. 결과표를 못 읽거나 프로그램이 채우는 자리가 없으면
+    안 받음(옛 원본은 보관)."""
     import tempfile
 
     from server.contract_docs import hwp_queue
     from server.sitok import report_build as rb
 
+    kind = _master_kind(kind)
     ext = Path(file.filename or "").suffix.lower()
     if ext not in (".hwp", ".hwpx"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "한글 파일(.hwp·.hwpx)을 올려 주세요.")
@@ -170,14 +178,15 @@ def upload_master(file: UploadFile = File(...), user: User = Depends(get_current
         tmp = Path(d) / "원본.hwpx"
         tmp.write_bytes(data)
         try:
-            rb.read_old(tmp)
-            missing = master.check(tmp)
+            if kind == "정기":
+                rb.read_old(tmp)
+            missing = master.check(tmp, kind)
         except Exception as err:  # noqa: BLE001
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"원본으로 쓸 수 없습니다: {str(err).splitlines()[0][:150]}") from err
     if missing:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "프로그램이 채우는 자리가 없어 안 바꿨습니다: " + ", ".join(missing))
-    master.install(data)
-    return master.info()
+    master.install(data, kind=kind)
+    return master.info_all()
 
 
 class VocabIn(BaseModel):

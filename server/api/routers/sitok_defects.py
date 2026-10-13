@@ -35,7 +35,8 @@ from server.sitok import album_read, kinds, learn
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
 AREA_WORDS = ("누수", "백태", "백화", "박리", "박락", "층분리", "재료분리", "철근노출", "부식", "들뜸", "탈락", "파손", "오염")
-FIELDS = ("floor", "part", "member", "dtype", "count", "width", "length", "area_ratio", "cause", "cause_note", "progress", "note")
+FIELDS = ("floor", "part", "member", "dtype", "count", "width", "length", "depth", "area_ratio", "cause", "cause_note", "progress", "note")
+DEPTH_WORDS = ("박리", "박락", "층분리")  # 깊이(mm) 칸이 있는 결함유형 — 정밀 상태평가 기준(박리 0.5/1.0/2.5, 박락·층분리 15/20/25mm, 10/13)
 CHECKS = ("", "same", "grew", "repaired", "new")
 MARK = {"same": "기존", "grew": "기존", "repaired": "보수", "new": "신규"}
 FLOOR_ORDER = ("옥상", "옥탑", "지상", "지하")
@@ -405,7 +406,7 @@ def carry(report_id: int, user: User = Depends(get_current_user), db: Session = 
         vals = {"번호": str(x.seq), "구분": x.part, "부재": x.member, "결함유형": x.dtype, "개수": x.count, "폭": x.width, "길이": x.length,
                 "물량": x.qty, "면적률": x.area_ratio, "결함원인": x.cause, "진행유무": x.progress, "비고": x.mark}
         db.add(SitokDefect(report_id=r.id, floor=x.floor, seq=x.seq, part=x.part, member=x.member, dtype=x.dtype, count=x.count,
-                           width=x.width, length=x.length, qty=x.qty, area_ratio=x.area_ratio, cause=x.cause, progress=x.progress,
+                           width=x.width, length=x.length, depth=x.depth, qty=x.qty, area_ratio=x.area_ratio, cause=x.cause, progress=x.progress,
                            mark="기존", prev=vals, prev_photo=x.photo or x.prev_photo))
     db.commit()
     return list_defects(report_id, user, db)
@@ -432,6 +433,7 @@ class DefectIn(BaseModel):
     count: str | None = None
     width: str | None = None
     length: str | None = None
+    depth: str | None = None  # 깊이 mm — 박리·박락·층분리만(0043)
     area_ratio: str | None = None
     cause: str | None = None
     cause_note: str | None = None
@@ -472,7 +474,7 @@ def _apply(d: SitokDefect, body: DefectIn, user: User, bases: tuple[float, float
         elif d.prev and d.prev.get("진행유무"):
             d.progress = d.prev["진행유무"]
     if d.check == "repaired":
-        d.count = d.width = d.length = d.qty = d.area_ratio = ""
+        d.count = d.width = d.length = d.depth = d.qty = d.area_ratio = ""
     else:
         d.qty = calc_qty(d.dtype, d.count, d.width, d.length) or d.qty
         if bases is not None and d.check in ("grew", "new"):  # 크기를 새로 잰 것만 다시(그대로·전회차 값은 전회차 면적률 유지)

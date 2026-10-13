@@ -98,6 +98,7 @@ class ContractIn(BaseModel):
     joint_pct: int | None = None
     bid_method: str | None = None
     field: str | None = None
+    rounds: list[dict] | None = None  # 회차 줄 [{year, half, kind, amount}] — 계약서를 읽으면 같이(회차 종류 자동, 0043)
     contract_token: str | None = None
 
 
@@ -178,12 +179,33 @@ def _apply_contract(row: SitokContract, body: ContractIn) -> None:
     _check("공동수급", data.get("joint_type"), JOINT_TYPES)
     _check("입찰방식", data.get("bid_method"), BID_METHODS)
     _check("수행분야", data.get("field"), FIELDS)
+    if "rounds" in data:
+        from server.sitok import civil
+        data["rounds"] = civil.normalize_rounds(data["rounds"]) or None
     for k, v in data.items():
         setattr(row, k, v.strip() if isinstance(v, str) else v)
 
 
+def kind_for(db: Session, c: SitokContract | None, year: int, half: str) -> str:
+    """그 반기 회차 종류(정기/정밀) — 보고서 쪽 계약의 회차 줄, 없으면 그 계약을 만든 서류 자동화 계약의 회차 줄, 모르면 정기(민재형 10/13: 계약서에서 자동, 틀리면 직접)."""
+    from core.models_web import SitokDocContract
+    from server.sitok import civil
+
+    if c is None:
+        return "정기"
+    rounds = c.rounds or []
+    unit = next((r for r in rounds if r.get("open_ended")), None)
+    k = civil.kind_for(rounds, unit, unit is not None, year, half)
+    if k is None:
+        doc = db.query(SitokDocContract).filter(SitokDocContract.report_contract_id == c.id).first()
+        if doc is not None:
+            k = civil.kind_for(doc.rounds, doc.unit, doc.open_ended, year, half)
+    return k or "정기"
+
+
 def _contract_out(c: SitokContract) -> dict:
-    return {"id": c.id, **{k: _iso(getattr(c, k)) for k in CON_FIELDS}, "has_pdf": bool(c.contract_pdf and Path(c.contract_pdf).exists()),
+    return {"id": c.id, **{k: _iso(getattr(c, k)) for k in CON_FIELDS}, "rounds": c.rounds or [],
+            "has_pdf": bool(c.contract_pdf and Path(c.contract_pdf).exists()),
             "created_at": c.created_at.strftime("%Y-%m-%d") if c.created_at else ""}
 
 

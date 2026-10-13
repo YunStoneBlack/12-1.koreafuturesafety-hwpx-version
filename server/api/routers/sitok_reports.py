@@ -33,7 +33,7 @@ from core.models_web import SitokContract, SitokEquipment, SitokFacility, SitokR
 from core.stored_path import to_full
 from server.api.deps import get_current_user, get_db
 from server.api.routers.contract_library import doc_status
-from server.api.routers.sitok import _contract_out, _facility_dir, _require_facility, contract_for, renew_info
+from server.api.routers.sitok import _contract_out, _facility_dir, _require_facility, contract_for, kind_for, renew_info
 
 
 def _iso(d) -> str:
@@ -43,6 +43,7 @@ from server.sitok import master, report_build as rb
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
 HALVES = ("상반기", "하반기")
+KINDS = ("정기", "정밀")  # 회차 종류(안전점검) — 계약서 그 반기 줄에서 자동, 틀리면 직접(민재형 10/13)
 PDF_WAIT = 1200  # 한글 PDF 대기(초) — 135쪽 보고서 + 앞에 산안법 보고서 작업이 있을 수도
 
 
@@ -50,6 +51,7 @@ class ReportIn(BaseModel):
     contract_id: int | None = None
     year: int | None = None
     half: str | None = None
+    kind: str | None = None  # 정기 / 정밀 — 안 보내면 계약서 회차 줄에서
     period_start: datetime.date | None = None
     period_end: datetime.date | None = None
     report_date: datetime.date | None = None
@@ -66,7 +68,7 @@ def _report_dir(f: SitokFacility, r: SitokReport) -> Path:
 
 
 def _out(r: SitokReport) -> dict:
-    return {"id": r.id, "contract_id": r.contract_id, "year": r.year, "half": r.half,
+    return {"id": r.id, "contract_id": r.contract_id, "year": r.year, "half": r.half, "kind": r.kind or "정기",
             "period_start": _iso(r.period_start), "period_end": _iso(r.period_end), "report_date": _iso(r.report_date),
             "chief_id": r.chief_id, "participant_ids": r.participant_ids or [],
             "has_source": _prior(r) is not None, "source_note": r.source_note,
@@ -155,7 +157,8 @@ def get_contract_for(facility_id: int, year: int, half: str, user: User = Depend
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "반기는 상반기·하반기입니다.")
     c = contract_for(db, f, year, half)
     last = _latest_contract(db, f.id)
-    return {"contract": _contract_out(c) if c else None, "latest": _contract_out(last) if last else None}
+    return {"contract": _contract_out(c) if c else None, "latest": _contract_out(last) if last else None,
+            "kind": kind_for(db, c, year, half)}  # 그 반기 회차 종류(정기/정밀) — 계약서 회차 줄에서(0043)
 
 
 def _group_contracts(db: Session, f: SitokFacility) -> list[dict]:
@@ -194,7 +197,7 @@ def _group_reports(db: Session, r: SitokReport, by: str = "") -> list[tuple[Sito
                                                                   SitokReport.half == r.half).first()
         if x is None:
             c = contract_for(db, m, r.year, r.half)  # 그 반기를 덮는 계약(그 동 → 묶음), 없으면 대표 동 회차의 것
-            x = _new_report(db, by, m, r.year, r.half, contract_id=c.id if c else r.contract_id, **{k: getattr(r, k) for k in SHARED})
+            x = _new_report(db, by, m, r.year, r.half, contract_id=c.id if c else r.contract_id, kind=r.kind, **{k: getattr(r, k) for k in SHARED})
         out.append((m, x))
     return out
 
@@ -210,6 +213,8 @@ def create_report(facility_id: int, body: ReportIn, user: User = Depends(get_cur
     if "contract_id" not in vals:  # 안 보내면 그 반기를 덮는 계약(10/13), null을 보내면 "계약 없이"
         c = contract_for(db, f, body.year, body.half)
         vals["contract_id"] = c.id if c else None
+    if vals.get("kind") not in KINDS:  # 종류를 안 고르면 계약서 그 반기 줄에서(정기/정밀), 모르면 정기
+        vals["kind"] = kind_for(db, db.get(SitokContract, vals["contract_id"]) if vals["contract_id"] else None, body.year, body.half)
     r = _new_report(db, user.display_name or "", f, body.year, body.half, **vals)
     if f.group_id:  # 묶인 동도 같은 반기 회차(사용자 10/12 — 한 번 묶이면 계속)
         _group_reports(db, r, user.display_name or "")
@@ -223,6 +228,8 @@ def update_report(report_id: int, body: ReportIn, user: User = Depends(get_curre
     data = body.model_dump(exclude_unset=True)
     if "amount_k" in data:
         data["amount_k"] = (data["amount_k"] or "").strip()
+    if "kind" in data and data["kind"] not in KINDS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "회차 종류는 정기·정밀입니다.")
     for k, v in data.items():
         setattr(r, k, v)
     shared = {k: v for k, v in data.items() if k in SHARED}
@@ -385,7 +392,7 @@ def _new_values(db: Session, r: SitokReport, old: rb.Values, prior: rb.Values | 
                 t = t.replace(o, n)
         new.title = t
     else:
-        new.title = f"{r.year}년도 {r.half} 정기점검[{new.name}]"
+        new.title = f"{r.year}년도 {r.half} {r.kind or '정기'}점검[{new.name}]"
     new.owner = f.owner_name or p.owner or "-"
     new.address = f.address or p.address or "-"
     new.completion = f.completion_date or p.completion
@@ -606,7 +613,7 @@ def _run_build(report_id: int) -> None:
         try:
             c = db.get(SitokContract, r.contract_id) if r.contract_id else None
             folder = _report_dir(f, r)
-            base = f"{r.year}년 {r.half} 정기안전점검 보고서_{f.name}"
+            base = f"{r.year}년 {r.half} {r.kind or '정기'}안전점검 보고서_{f.name}"
             hwpx = folder / f"{base}.hwpx"
             warn, changed, _ = _build_hwpx(db, r, hwpx)
             r.out_hwpx = str(hwpx)
@@ -674,7 +681,7 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
             raise ValueError("점검기간이 없는 동: " + ", ".join(missing))
         parts, warn, total = [], [], 0
         for k, (m, x) in enumerate(pairs, 1):
-            single = _report_dir(m, x) / f"{x.year}년 {x.half} 정기안전점검 보고서_{m.name}(이 동만).hwpx"
+            single = _report_dir(m, x) / f"{x.year}년 {x.half} {x.kind or '정기'}안전점검 보고서_{m.name}(이 동만).hwpx"
             w, changed, new = _build_hwpx(db, x, single)
             total += changed
             x.survey = {**(x.survey or {}), "single_hwpx": str(single)}
@@ -691,7 +698,7 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         gname = (g.name if g else "") or lead.name
         gtitle = parts[0]["title"].replace(lead.name, gname) if lead.name in parts[0]["title"] else parts[0]["title"]
         folder = _report_dir(lead, lead_r)
-        base = f"{r.year}년 {r.half} 정기안전점검 보고서_{gname}"
+        base = f"{r.year}년 {r.half} {r.kind or '정기'}안전점검 보고서_{gname}"
         hwpx = folder / f"{base}.hwpx"
         warn += merge.merge(parts, hwpx, gname, gtitle)
         for _, y in pairs:
@@ -724,6 +731,8 @@ def start_build(report_id: int, user: User = Depends(get_current_user), db: Sess
     r = _require(db, user, report_id)
     if r.status == "running":
         raise HTTPException(status.HTTP_409_CONFLICT, "이미 만드는 중입니다.")
+    if (r.kind or "정기") == "정밀":  # 정밀 만들기는 재료시험·상태평가 단계(②③) 뒤에 — 10/13 ①은 원본·종류·깊이 칸까지
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전점검 보고서 만들기는 아직 준비 중입니다(재료시험·상태평가 단계 뒤에 열립니다).")
     if not master.master_path().exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 원본 템플릿이 없습니다 — 시특법 설정에서 올리세요.")
     if not (r.period_start and r.period_end):

@@ -77,20 +77,6 @@ def _date(v) -> datetime.date | None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"날짜가 맞지 않습니다: {v}") from err
 
 
-def _rounds(v) -> list[dict]:
-    out = []
-    for r in v or []:
-        try:
-            y = int(r.get("year"))
-        except (TypeError, ValueError):
-            continue
-        if r.get("half") not in civil.HALVES:
-            continue
-        amt = int(str(r.get("amount") or 0).replace(",", "") or 0)
-        out.append({"year": y, "half": r["half"], "kind": r.get("kind") if r.get("kind") in civil.KINDS else "정기", "amount": amt})
-    return sorted(out, key=lambda r: (r["year"], civil.HALVES.index(r["half"])))
-
-
 def _require(db: Session, user: User, cid: int) -> SitokDocContract:
     c = db.get(SitokDocContract, cid)
     if c is None or c.company_id != user.company_id:
@@ -157,7 +143,7 @@ def _apply(c: SitokDocContract, body: ContractIn, user: User) -> None:
         if k in data:
             setattr(c, k, _date(data[k]))
     if "rounds" in data:
-        c.rounds = _rounds(data["rounds"])
+        c.rounds = civil.normalize_rounds(data["rounds"])
     if "open_ended" in data:
         c.open_ended = bool(data["open_ended"])
     if "unit" in data:
@@ -412,6 +398,7 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
     rc.halves = "연간" if c.sector == "관급" or c.open_ended or len(halves) != 1 else next(iter(halves))
     rc.amount = c.amount if c.sector == "관급" else per_half  # 보고서 쪽 민간 금액 = 반기 한 번 금액(회차마다 다르면 회차 카드 "이 동 점검금액")
     rc.rep_name = re.sub(r"^대표자\s*", "", c.client_rep or "")
+    rc.rounds = (c.rounds or []) + ([{"open_ended": True, **c.unit}] if c.open_ended and c.unit else [])  # 회차 종류(정기/정밀) 자동 선택에 씀(0043)
     dest = _facility_dir(f) / f"계약서_{rc.id}.pdf"
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src, dest)

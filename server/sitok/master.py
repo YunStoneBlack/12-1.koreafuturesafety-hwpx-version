@@ -39,13 +39,21 @@ NAME_ALONE = re.compile(r"^(\s*(?:제\s*1\s*장\.?\s*)?)교사동(\s*\d*\s*)$") 
 OTHER_TEXT = "본 시설물의 기타시설 점검결과 마감재 및 부착물 등 전반적으로 양호한 것으로 조사되었다."
 
 
+FILES = {  # 원본 종류 → 파일 이름. 정밀은 회사 관행대로 본문·부록 두 파일(한 파일로 합치면 서식 번호가 어긋날 수 있음 — 사용자 10/13 "응")
+    "정기": "정기안전점검_원본.hwpx",
+    "정밀본문": "정밀안전점검_본문_원본.hwpx",
+    "정밀부록": "정밀안전점검_부록_원본.hwpx",
+}
+KIND_LABEL = {"정기": "정기안전점검 원본", "정밀본문": "정밀안전점검 본문 원본", "정밀부록": "정밀안전점검 부록 원본"}
+
+
 def master_dir() -> Path:
     from server.api.routers.sitok import ROOT
     return ROOT / "_회사템플릿"
 
 
-def master_path() -> Path:
-    return master_dir() / "정기안전점검_원본.hwpx"
+def master_path(kind: str = "정기") -> Path:
+    return master_dir() / FILES[kind]
 
 
 def shrink(data: bytes, side: int = 1800, min_bytes: int = 600_000) -> bytes:
@@ -173,13 +181,13 @@ def flatten_metafiles(data: bytes, dpi: int = 300) -> bytes:
     return out.getvalue()
 
 
-def install(data: bytes, shrink_images: bool = True) -> Path:
+def install(data: bytes, shrink_images: bool = True, kind: str = "정기") -> Path:
     """새 원본 넣기(큰 그림은 줄이고 WMF 흐름도는 JPG로) — 지금 원본은 _지난원본/에 날짜 붙여 보관."""
     data = flatten_metafiles(shrink(data) if shrink_images else data)
-    p = master_path()
+    p = master_path(kind)
     p.parent.mkdir(parents=True, exist_ok=True)
     if p.exists():
-        old = master_dir() / "_지난원본" / f"정기안전점검_원본_{datetime.datetime.fromtimestamp(p.stat().st_mtime):%Y%m%d_%H%M%S}.hwpx"
+        old = master_dir() / "_지난원본" / f"{p.stem}_{datetime.datetime.fromtimestamp(p.stat().st_mtime):%Y%m%d_%H%M%S}.hwpx"
         old.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(p, old)
     tmp = p.with_suffix(".tmp")
@@ -188,11 +196,16 @@ def install(data: bytes, shrink_images: bool = True) -> Path:
     return p
 
 
-def info() -> dict:
-    p = master_path()
+def info(kind: str = "정기") -> dict:
+    p = master_path(kind)
     if not p.exists():
         return {"exists": False}
     return {"exists": True, "updated": f"{datetime.datetime.fromtimestamp(p.stat().st_mtime):%Y-%m-%d %H:%M}", "size_mb": round(p.stat().st_size / 1e6, 1)}
+
+
+def info_all() -> dict:
+    """설정 탭 — 종류마다 {exists, updated, size_mb}."""
+    return {k: info(k) for k in FILES}
 
 
 CHECKS = [  # (이름, 찾는 방법) — 형이 한글에서 고쳐 올린 원본에 프로그램이 채우는 자리가 다 있는지
@@ -210,12 +223,40 @@ CHECKS = [  # (이름, 찾는 방법) — 형이 한글에서 고쳐 올린 원�
 ]
 
 
-def check(hwpx: Path) -> list[str]:
+def _has_top(tops: list[str], pat: str) -> bool:
+    return any(re.match(pat, re.sub(r"\s+", " ", t)) for t in tops)
+
+
+def _has_text(roots, word: str) -> bool:
+    return any(word in re.sub(r"\s+", "", "".join(t.text or "" for t in r.iter(rb.T))) for r in roots)
+
+
+# 정밀안전점검 원본(다산은혜교회 26년 상반기 보고서 기준, 10/13) — 프로그램이 채울 장·표가 있는지. 본문 = 결과표 + 시설물편 1~7장, 부록 = 성과표·상태평가 결과 자료
+PRECISION_CHECKS = {
+    "정밀본문": [
+        ("결과표(가. 일반현황)", lambda roots, tops: rb._find_result_table(roots) is not None),
+        ("제2장 자료수집 및 분석", lambda roots, tops: _has_top(tops, r"^제\s*2\s*장\s*자료수집")),
+        ("제3장 외관조사", lambda roots, tops: _has_top(tops, r"^제\s*3\s*장\s*외관조사$")),
+        ("제4장 재료시험", lambda roots, tops: _has_top(tops, r"^제\s*4\s*장\s*재료시험$")),
+        ("제5장 상태평가", lambda roots, tops: _has_top(tops, r"^제\s*5\s*장\s*상태평가$")),
+        ("제6장 보수·보강 및 유지관리 방안", lambda roots, tops: _has_top(tops, r"^제\s*6\s*장\s*보수")),
+        ("제7장 종합결론", lambda roots, tops: _has_top(tops, r"^제\s*7\s*장\s*종합결론$")),
+    ],
+    "정밀부록": [
+        ("시설물관리대장 사본", lambda roots, tops: _has_text(roots, "시설물관리대장")),
+        ("측정, 시험, 계측 성과표", lambda roots, tops: _has_text(roots, "계측성과표")),
+        ("상태평가 결과 자료", lambda roots, tops: _has_text(roots, "상태평가결과자료")),
+        ("탄산화 깊이 조사 표", lambda roots, tops: _has_text(roots, "탄산화깊이조사")),
+    ],
+}
+
+
+def check(hwpx: Path, kind: str = "정기") -> list[str]:
     """없는 자리 이름들(다 있으면 [])."""
     with zipfile.ZipFile(hwpx) as z:
         roots = [etree.fromstring(z.read(n)) for n in rb._sections(z)]
     tops = [rb._top_text(p).strip() for r in roots for p in r if p.tag == f"{{{HP}}}p"]
-    return [name for name, ok in CHECKS if not ok(roots, tops)]
+    return [name for name, ok in (CHECKS if kind == "정기" else PRECISION_CHECKS[kind]) if not ok(roots, tops)]
 
 
 def _fix_texts(root) -> int:

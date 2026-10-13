@@ -37,7 +37,10 @@ CONTRACT_PROMPT = """첨부는 시설물 정기안전점검 용역 계약서입�
  "amount_first_half": null, "amount_second_half": null, "amount_total": null,
  "owner_name": "관리주체·발주기관(수요기관) 이름", "rep_name": "관리주체 대표자 이름(관급이면 계약관·기관장 이름)",
  "address": "시설물 위치·현장 주소", "bid_method": "계약방법(수의계약·일반경쟁·제한경쟁·지명경쟁 중 가까운 것)",
- "joint_type": "공동도급(단독계약이면 독자수행, 공동이행·분담이행)"}"""
+ "joint_type": "공동도급(단독계약이면 독자수행, 공동이행·분담이행)",
+ "rounds": [{"year": 연도, "half": "상반기|하반기", "kind": "정기|정밀", "amount": 금액(원, 정수)}]}
+rounds = 점검 회차마다 한 줄(예: 장기 계약서의 "26년 상반기 정기 / 26년 하반기 정밀", 단발 계약은 계약기간의 반기 하나). kind는 계약건명·금액 칸의
+"정밀안전점검"/"정기안전점검" 글자로 — 없으면 "정기". 반기 표시가 없으면 계약기간으로 판단, 총합 줄은 빼기."""
 
 
 def _date(v) -> datetime.date | None:
@@ -132,7 +135,9 @@ def read_ledger(pdf: Path, company_id: int) -> dict:
 
 
 def read_contract(pdf: Path, company_id: int) -> dict:
-    """계약서 PDF → 계약 칸(SitokContract 이름) + owner_name·address(시설물 칸이 비었을 때 채움)."""
+    """계약서 PDF → 계약 칸(SitokContract 이름) + owner_name·address(시설물 칸이 비었을 때 채움) + rounds(회차 종류)."""
+    from server.sitok import civil
+
     d = _ask(pdf, CONTRACT_PROMPT, company_id)
     sector = "관급" if "관" in _str(d.get("sector")) else "민간"
     first, second, total = _int(d.get("amount_first_half")), _int(d.get("amount_second_half")), _int(d.get("amount_total"))
@@ -149,4 +154,5 @@ def read_contract(pdf: Path, company_id: int) -> dict:
         "joint_type": "공동이행" if "공동" in joint else "분담이행" if "분담" in joint else "독자수행",
         "bid_method": next((m for m in ("일반경쟁", "제한경쟁", "지명경쟁", "수의계약") if m[:2] in bid), "수의계약"),
         "owner_name": _str(d.get("owner_name")), "address": _str(d.get("address")),
+        "rounds": civil.normalize_rounds(d.get("rounds")) if isinstance(d.get("rounds"), list) else [],  # 회차 종류 정기/정밀(0043)
     }

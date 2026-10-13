@@ -11,6 +11,7 @@
   const err = (e) => showError(errorEl, e);
   const KIND_LABEL = { member: "부재", dtype: "결함유형" };
   const AREA_RE = /누수|백태|박리|박락|층분리|재료분리|철근|부식|파손/;
+  const DEPTH_RE = /박리|박락|층분리/; // 깊이(mm) 칸 — 정밀 상태평가 기준(박리 0.5/1.0/2.5, 박락·층분리 15/20/25mm, 10/13)
   let data = null;
   let started = false; // [전회차 없이 시작]을 누름(신축·전회차 자료 없음)
   try { started = sessionStorage.getItem(`sf-started-${rid}`) === "1"; } catch (_) { /* */ }
@@ -228,6 +229,7 @@
         <label>개수<input inputmode="decimal" data-k="count" value="${esc(d.count)}" /></label>
         <label>폭${d.dtype && AREA_RE.test(d.dtype) ? "(m)" : "(mm)"}<input inputmode="decimal" data-k="width" value="${esc(d.width)}" /></label>
         <label>길이(m)<input inputmode="decimal" data-k="length" value="${esc(d.length)}" /></label>
+        ${d.dtype && DEPTH_RE.test(d.dtype) ? `<label>깊이(mm)<input inputmode="decimal" data-k="depth" value="${esc(d.depth)}" placeholder="파인 깊이" /></label>` : ""}
         <span class="sf-qty">${d.qty ? `물량 ${esc(d.qty)}` : ""}</span>
       </div>
       ${d.check === "repaired" || isRecord(d.dtype) ? "" : `<div class="sf-cause"><label>원인<input data-k="cause" value="${esc(d.cause)}" placeholder="결함원인(구체적으로)" /></label>
@@ -315,7 +317,8 @@
       <div class="sf-cause-note n-cause-note" hidden></div>
       <div class="n-bands"><span>균열 폭(mm)</span>${["0.1", "0.2", "0.3", "0.5", "1.0"].map((w) => `<button type="button" data-w="${w}">${w === "1.0" ? "1.0↑" : w}</button>`).join("")}</div>
       <div class="sf-size"><label>개수<input inputmode="decimal" class="n-count" value="1" /></label><label>폭<input inputmode="decimal" class="n-width" /></label>
-        <label>길이(m)<input inputmode="decimal" class="n-length" /></label></div>
+        <label>길이(m)<input inputmode="decimal" class="n-length" /></label>
+        <label class="n-depth-box" hidden>깊이(mm)<input inputmode="decimal" class="n-depth" placeholder="파인 깊이" /></label></div>
       <div class="mail-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="mail-cancel">취소</button><button type="button" class="mail-primary n-ok">추가</button></div></div>`;
     document.body.appendChild(overlay);
@@ -325,6 +328,8 @@
     setPick(q(".n-dtype"), "dtype", "");
     bindPicker(q(".n-member"), "member", (m) => { if (partOf(m)) q(".n-part").value = partOf(m); });
     bindPicker(q(".n-dtype"), "dtype");
+    const depthBox = () => { q(".n-depth-box").hidden = !DEPTH_RE.test(q(".n-dtype").value || ""); }; // 박리·박락·층분리만 깊이 칸
+    q(".n-dtype").addEventListener("change", depthBox);
     const suggest = (a) => { // 목록에 맞는 게 없을 때 AI 제안 → [이 보고서에만] [회사 목록에] 또는 목록에서 고르기
       const box = q(".n-suggest");
       const rows = [["member", a.new_member], ["dtype", a.new_dtype]].filter(([, v]) => v);
@@ -370,6 +375,7 @@
         q(".n-part").value = a.part;
         pick(".n-member", "member", a.member);
         pick(".n-dtype", "dtype", a.dtype);
+        depthBox();
         suggest(a);
         fill(".n-cause", a.cause);
         if (a.cause_note && q(".n-cause").value.trim() === a.cause) {
@@ -388,7 +394,8 @@
     q(".mail-cancel").addEventListener("click", () => overlay.remove());
     q(".n-ok").addEventListener("click", async () => {
       const body = { floor: q(".n-floor").value.trim(), part: q(".n-part").value, member: q(".n-member").value, dtype: q(".n-dtype").value,
-        cause: q(".n-cause").value.trim(), count: q(".n-count").value.trim(), width: q(".n-width").value.trim(), length: q(".n-length").value.trim() };
+        cause: q(".n-cause").value.trim(), count: q(".n-count").value.trim(), width: q(".n-width").value.trim(), length: q(".n-length").value.trim(),
+        depth: q(".n-depth").value.trim() };
       body.cause_note = ai && ai.cause_note && body.cause === ai.cause ? ai.cause_note : ""; // 원인을 고쳤으면 AI 근거는 안 맞음
       body.ai_guess = ai && ai.guess ? ai.guess : null; // AI 첫 분류 — 다르게 넣으면 회사 교정 기록(다음 사진 분석에 씀, 10/12)
       if (!body.floor || !body.dtype) { alert("층과 결함유형을 골라 주세요."); return; }
