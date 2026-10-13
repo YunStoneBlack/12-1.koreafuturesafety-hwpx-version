@@ -9,9 +9,6 @@
   border-bottom: 1px solid var(--line); color: var(--ink); transition: background .12s; }
 .sk-row:last-child { border-bottom: 0; }
 .sk-row:hover { background: var(--blue-soft); }
-.sk-name, .sk-where { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13.5px; }
-.sk-name b { font-weight: 600; }
-.sk-name small, .sk-where small { color: var(--muted); font-size: 12px; }
 .sk-contract { font-size: 12.5px; color: var(--muted); }
 .sk-tpl { display: inline-block; width: fit-content; margin-top: 2px; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: var(--paper); color: var(--muted); }
 .sk-tpl.t3종일반 { background: #F3EFFF; color: #7c3aed; }
@@ -58,15 +55,24 @@
 .st-switch.sk-type button[data-s="장기"] { --c: #2A7DE1; --soft: #EAF2FD; }
 .st-switch.sk-type button[data-s="1회성"] { --c: #7c3aed; --soft: #F3EFFF; }
 .st-switch.sk-type button[data-s="종료"] { --c: #6B7280; --soft: #F1F2F4; }
-.sk-row { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.2fr) minmax(0, 1fr) auto; }
+.sk-row { grid-template-columns: minmax(0, 1fr) 270px auto; } /* 이름 칸(주소·전화·지도 포함) · 계약 · 구분 버튼 */
+.sk-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sk-title { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; font-size: 14px; }
+.sk-title b { font-weight: 600; margin-right: 8px; }
+.sk-row:hover .sk-title b { color: var(--blue); }
+.sk-title .sk-tpl { margin-top: 0; }
+.sk-sub { font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sk-sub:empty { display: none; }
 .sk-row .site-no { display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 6px; background: var(--blue-soft); color: var(--blue);
   font-size: 12px; font-weight: 700; vertical-align: 1px; font-variant-numeric: tabular-nums; }
 .sk-row .site-links { margin-top: 4px; }
-.sk-row.ended .sk-name b, .sk-row.ended .sk-where > span, .sk-row.ended .sk-contract { color: var(--faint); } /* 지속계약 종료 — 흐리게 */
+.sk-row.ended .sk-title b, .sk-row.ended .sk-contract { color: var(--faint); } /* 지속계약 종료 — 흐리게 */
 
 @media (max-width: 760px) {
   .sk-row { grid-template-columns: 1fr; gap: 4px; padding: 12px 14px; }
   .sk-row .st-switch.sk-type { order: -1; flex-direction: row; width: 100%; margin-bottom: 4px; }
+  .sk-sub { white-space: normal; } /* 폰: 주소가 잘리지 않게 줄바꿈 */
+  .sk-row .sk-contract { padding-top: 4px; border-top: 1px dashed var(--line); margin-top: 4px; }
   .main .sk-row .st-switch.sk-type button { flex: 1; width: auto; min-width: 0; padding: 8px 0; font-size: 13px; }
   .sk-subbar { justify-content: space-between; margin-top: 0; }
   .sk-drops { grid-template-columns: 1fr; }

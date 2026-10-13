@@ -136,15 +136,17 @@
       const row = document.createElement("a");
       row.className = `sk-row${f.contract_type === "종료" ? " ended" : ""}`;
       row.href = `sitok-facility.html?id=${f.id}`;
+      // 산안법 현장 목록처럼(10/13 사용자): 번호표·이름·틀 / 주소 · 관리주체 / 시설물번호 · 종류 · 담당 / [📞][📍][주소 복사] 를 이름 칸 한 곳에
       row.innerHTML = `
-        <div class="sk-name"><b>${f.mgmt_no ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}${esc(f.name)}</b>
-          <span class="sk-tpl t${esc(f.template)}">${esc(TEMPLATE_LABEL[f.template] || f.template)}</span>
-          <small>${esc([f.fms_no, f.use_type || f.main_use].filter(Boolean).join(" · "))}</small></div>
-        <div class="sk-where"><span>${esc(f.address)}</span>
-          <small>${esc([f.owner_name, f.contact_name && `담당 ${f.contact_name}`].filter(Boolean).join(" · "))}</small></div>
+        <div class="sk-main">
+          <div class="sk-title">${f.mgmt_no ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<b>${esc(f.name)}</b>
+            <span class="sk-tpl t${esc(f.template)}">${esc(TEMPLATE_LABEL[f.template] || f.template)}</span></div>
+          <div class="sk-sub">${esc([f.address, f.owner_name].filter(Boolean).join(" · "))}</div>
+          <div class="sk-sub">${esc([f.fms_no, f.use_type || f.main_use, f.contact_name && `담당 ${f.contact_name}`].filter(Boolean).join(" · "))}</div>
+        </div>
         <div class="sk-contract">${contract}</div>`;
       const links = siteLinkButtons(f.contact_phone || f.owner_phone, f.address); // [📞 전화] [📍 지도]
-      if (links) row.querySelector(".sk-where").appendChild(links);
+      if (links) row.querySelector(".sk-main").appendChild(links);
       row.appendChild(typeSwitch(f));
       list.appendChild(row);
     }
