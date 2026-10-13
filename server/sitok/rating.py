@@ -7,7 +7,8 @@
 
 계산 순서(요령 2장):
 1) 항목 → 등급 a~e(세부지침 표) → 점수 1·3·5·7·9.
-2) 부재 상태평가 = 퍼지 합성: 항목 등급 한 줄(one-hot) × 내구성계수 Table(nRM) → 등급별 가능성(최댓값) → 소속함수(삼각, 꼭짓점 1·3·5·7·9) α=0.75 수준에서 가장 큰 x = 대표값.
+2) 부재 상태평가 = 퍼지 합성: 항목 등급 한 줄(one-hot) × 내구성계수 Table(nRM) → 등급별 가능성(최댓값) → 소속함수(삼각, 꼭짓점 1·3·5·7·9)가
+   최대 높이에 닿는 가장 오른쪽 x = 대표값(높이 0.75 → 1.5 → 2, 높이 0.75 미만 = 표면노후만 → 평가 제외). SafetyMan 직접 실행으로 확인(10/13).
 3) 층 = 부재 대표값을 부재 중요도(기둥·내력벽 0.9, 큰보 0.7, 작은보 0.5, 슬래브 0.3)의 λ-퍼지척도로 Choquet 적분.
 4) 전체 = 층 점수를 층 중요도(ζ = (N-(n-1))/N → 0.9/0.7/0.5/0.3/0.1)로 Choquet 적분.
 5) 변위·변형 = max(기울기, 부동침하). 종합 = Choquet(상태 0.7, 변위·변형 0.7, [안전성 0.9 — 정밀안전진단만]).
@@ -162,11 +163,6 @@ ITEM_LABEL = {"DS": "콘크리트 강도", "CR": "균열", "CA": "탄산화", "S
 # 콘크리트 부재단면 규격(2023판 표 6.24)은 보고서 재료시험에서 a~e로 평가만 하고 상태평가 점수엔 넣지 않음(민재형 10/13 — SafetyMan에도 없음, 국토부 미개정)
 
 
-def _membership(peak: int, x: float) -> float:
-    """등급 소속함수(그림 2-1) — 꼭짓점 1·3·5·7·9에서 1, ±2에서 0인 삼각형."""
-    return max(0.0, 1 - abs(x - peak) / 2)
-
-
 def member_condition(items: dict[str, str | None]) -> dict:
     """부재 하나의 상태평가 — items = {"DS": "b", "CR": "c", "CA": "d", "SD": "d", ...}(없는 항목은 None·생략).
     돌려주는 값: {score 대표값(1·3·5·7·9), possibility 등급별 가능성, grade}."""
@@ -177,14 +173,15 @@ def member_condition(items: dict[str, str | None]) -> dict:
     for key, g in used.items():
         row = RELATION[key][GRADES.index(g)]  # one-hot × 관계행렬의 max-min 합성 = 그 등급 행
         poss = [max(p, r) for p, r in zip(poss, row)]
-    # μDT(x) = max_g min(poss[g], 삼각(x)) — 0.75 이상인 x 중 가장 큰 값(x는 0~10 정수)
-    best = None
-    for x in range(0, 11):
-        mu = max(min(poss[i], _membership(2 * i + 1, x)) for i in range(5))
-        if mu >= ALPHA:
-            best = x
-    if best is None:  # 가능성이 전부 0.75 미만(이론상 없음 — 항목 하나만 있어도 자기 등급은 1.0) → 가장 큰 가능성의 등급
-        best = 2 * max(range(5), key=lambda i: poss[i]) + 1
+    # μDT(x) = max_g min(poss[g], 삼각(x)). 대표값 = μ가 최대 높이(= 가장 큰 가능성)에 닿는 가장 오른쪽 x(실수) → 0.5는 올림.
+    # SafetyMan을 돌려 맞춘 규칙(10/13, 작업내용 43차): 높이 1이면 가능성 1인 등급 중 가장 오른쪽 꼭짓점(지침 예제 5·7·3, 탄산화 d→3·e→5),
+    # 강도 c·d·e만 있는 부재(높이 0.75 → x=1.5)는 2.0(조훈빌딩 슬래브·다산 시험), 표면노후만 있는 부재(높이 0.5)는 평가 제외("-").
+    # 예전 "0.75 수준집합의 가장 큰 정수 x"는 강도만 있을 때 1을 내서 SafetyMan과 달랐음.
+    hgt = max(poss)
+    if hgt < ALPHA:
+        return {"score": None, "possibility": dict(zip(GRADES, poss)), "grade": None, "items": used}
+    top = max(i for i in range(5) if poss[i] == hgt)
+    best = math.floor(2 * top + 1 + (1 - hgt) * 2 + 0.5)
     return {"score": float(best), "possibility": dict(zip(GRADES, poss)), "grade": grade_of(best), "items": used}
 
 
@@ -374,7 +371,18 @@ def _selfcheck() -> None:
     assert grade_from_counts({"a": 4, "b": 1}, "내력벽") == "b" and grade_from_counts({"a": 48}, "기둥") == "a"
     assert member_condition({"DS": "c", "CA": "a"})["score"] == 1 and member_condition({"DS": "c", "CR": "b", "SD": "a"})["score"] == 3
     assert member_condition({"DS": "c", "CA": "b"})["score"] == 1
-    # ⚠ 미확인: 조훈 -2층 슬래브(강도 c 92.9%만 — 가능성 (0.75,…)) SafetyMan 2.00 — 우리는 1 (α=0.75 정수 x). 프로그램을 직접 돌려 맞춰 볼 것
+    # 조훈 -2층 슬래브(강도 c 92.9%만) SafetyMan 2.00 — 10/13 SafetyMan을 다산 파일로 직접 돌려 확인(작업내용 43차):
+    # 강도만 a·b → 1, c·d·e → 2 / 강도 a + 탄산화 c·d·e → 1·3·5 / 표면노후만(a·b) → "-"(제외) / 균열 d만 → 7(균열은 항등 관계)
+    for g, want in (("a", 1), ("b", 1), ("c", 2), ("d", 2), ("e", 2)):
+        assert member_condition({"DS": g})["score"] == want, (g, member_condition({"DS": g}))
+    for g, want in (("c", 1), ("d", 3), ("e", 5)):
+        assert member_condition({"DS": "a", "CA": g})["score"] == want
+    assert member_condition({"SD": "a"})["score"] is None and member_condition({"SD": "b"})["score"] is None
+    assert member_condition({"CR": "d"})["score"] == 7 and member_condition({"DS": "c", "CR": "a", "SD": "a"})["score"] == 1
+    # 그때 층·전체: 작은보 2 → -3층 1.50, 전체 1.45 / 작은보 3 → 2.00(B) / 내력벽 7 → 6.40(D) / 균열 48개 중 b 7 → 최소범위 15개(올림) 평균 1.93 → a
+    assert abs(choquet([(1, 0.9), (1, 0.9), (1, 0.7), (2, 0.5), (1, 0.3)]) - 1.5) < 0.01 and abs(choquet([(1.5, 0.9), (1.0, 0.1)]) - 1.45) < 0.01
+    assert abs(choquet([(1, 0.9), (1, 0.9), (1, 0.7), (3, 0.5), (1, 0.3)]) - 2.0) < 0.01 and abs(choquet([(1, 0.9), (7, 0.9), (1, 0.7), (1, 0.5), (1, 0.3)]) - 6.4) < 0.01
+    assert grade_from_counts({"a": 41, "b": 7}, "슬래브") == "a"
     # 항목 등급
     assert grade_strength(27.6, 27) == "a" and grade_strength(27.6, 27, damaged=True) == "b" and grade_strength(20, 27) == "d"
     assert grade_carbonation(1.326, 6.1) == "a" and grade_carbonation(3.5, 6.1) == "c"
