@@ -6,6 +6,8 @@
 .sd-chip.civil { background: var(--blue-soft); color: var(--blue); }
 .sd-chip.gov { background: var(--green-soft); color: var(--green); }
 .dc-doc a { color: inherit; }
+/* 상태 칸 줄 맞춤(10/13 사용자) — 버튼 칸을 관급 4개([착수계][완료계][계약 정보][삭제]) 폭으로 고정, 민간 줄 버튼도 오른쪽 끝에 */
+#sd-list .row.dc-row { grid-template-columns: minmax(0, 1fr) 210px 330px; }
 
 /* 양식 칸 */
 .sd-tpl .panel-body { display: flex; flex-direction: column; gap: 10px; }
@@ -49,6 +51,7 @@
 .sd-g-msg[hidden] { display: none; }
 
 @media (max-width: 760px) {
+  #sd-list .row.dc-row { grid-template-columns: 1fr; }
   .sd-ups, .sd-ups.two { grid-template-columns: 1fr; }
   .sd-up { flex-direction: row; align-items: center; }
   .sd-up .sd-up-box { flex: 1; }
