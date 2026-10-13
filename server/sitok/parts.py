@@ -65,7 +65,7 @@ GRADE_WORD = {"a": "최상", "b": "양호(경미한 결함·관찰)", "c": "보�
 
 
 def empty() -> dict:
-    return {"public": {}, "other": {k: [] for k, _ in OTHER}}
+    return {"public": {}, "other": {k: [] for k, _ in OTHER}, "grades": {}}
 
 
 def norm(parts: dict | None) -> dict:
@@ -74,6 +74,8 @@ def norm(parts: dict | None) -> dict:
     out["public"] = {k: dict(v) for k, v in (p.get("public") or {}).items() if k in dict(PUBLIC)}
     for k, _ in OTHER:
         out["other"][k] = [x for x in ((p.get("other") or {}).get(k) or [])][:OTHER_SLOTS]
+    keys = dict(PUBLIC) | dict(OTHER)
+    out["grades"] = {k: g for k, g in (p.get("grades") or {}).items() if k in keys and g in ("a", "b", "c", "d", "e")}  # 정밀 3.2.7~8 등급(10/13)
     return out
 
 

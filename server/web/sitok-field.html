@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/sitok.css" />
 <link rel="stylesheet" href="css/sitok-field.css" />
+<link rel="stylesheet" href="css/sitok-precision.css" />
 </head>
 <!-- 시특법 현장 조사(2026-10-10 5단계, 폰 우선) — 전회차 결함 자리에 가서 같은 자리를 다시 찍고 [그대로·진행·보수], 못 보던 건 [+ 신규].
      서버 server/api/routers/sitok_defects.py, 화면 js/sitok-field.js. ?report=회차 id -->
@@ -25,6 +26,8 @@
   <button type="button" class="sf-tab" data-tab="overview">🏢 전경사진 <span id="ov-count"></span></button>
   <button type="button" class="sf-tab" data-tab="public">🚶 공중이용 <span id="pt-pub-count"></span></button>
   <button type="button" class="sf-tab" data-tab="other">🧱 기타시설 <span id="pt-oth-count"></span></button>
+  <button type="button" class="sf-tab sf-tab-pre" data-tab="docs" hidden>📋 자료수집 <span id="pr-docs-count"></span></button>
+  <button type="button" class="sf-tab sf-tab-pre" data-tab="load" hidden>⚖ 하중상태 <span id="pr-load-count"></span></button>
 </div>
 
 <div id="sf-defects">
@@ -71,13 +74,28 @@
   <p class="page-sub pt-intro">보고서 1.3 6) 공중이 이용하는 부위 — 항목마다 대표사진 한 장(표 한 칸), 이 시설물에 없는 항목은 [해당없음].
     [🤖 AI 초안]이 사진을 보고 조사항목·상태평가기준(a~e)으로 판단해 본문을 씁니다.</p>
   <div class="mail-msg" id="pt-msg" hidden></div>
+  <div id="pr-grade-public" class="pr-grades" hidden></div>
   <div id="pt-public" class="pt-grid"></div>
 </div>
 <div id="sf-other" hidden>
   <p class="page-sub pt-intro">보고서 1.3 7) 기타시설 — 마감재(외장재·내장재·천장재 등) 2장, 부착물 등(난간대·광고판·첨탑·커튼월·캣워크·대형조명 등) 2장.
     한 장만 찍으면 빈 칸은 "-"로 들어갑니다.</p>
   <div class="mail-msg" id="pt-msg2" hidden></div>
+  <div id="pr-grade-other" class="pr-grades" hidden></div>
   <div id="pt-other"></div>
+</div>
+
+<!-- 정밀안전점검만(10/13 ④) — 2장 자료수집·2.3.2 내진·2.3.4 사용·관리실태·전차 점검 검토 / 3.2.6 하중상태 사진 — js/sitok-precision.js, 서버 sitok_precision.py -->
+<div id="sf-docs" hidden>
+  <p class="page-sub pt-intro">보고서 2장 자료수집 및 분석 — 자료 보관 여부(2.2), 내진설계(2.3.2), 사용·관리실태 면담(2.3.4), 점검이력·전차 점검 보고서 검토. 고치는 대로 저장됩니다.
+    <span id="pr-saved" class="st-saved"></span></p>
+  <div class="mail-msg" id="pr-msg" hidden></div>
+  <div id="pr-docs"></div>
+</div>
+<div id="sf-load" hidden>
+  <p class="page-sub pt-intro">보고서 3.2.6 시설물의 하중상태 — 사용하중 현황사진 4장(옥상·식당·집회실·지하주차장처럼 하중이 실리는 곳)과 결과 한 줄.</p>
+  <div class="mail-msg" id="pr-msg2" hidden></div>
+  <div id="pr-load"></div>
 </div>
 
   </main>
@@ -88,5 +106,6 @@
 <script src="js/sitok-field.js"></script>
 <script src="js/sitok-parts.js"></script>
 <script src="js/sitok-overview.js"></script>
+<script src="js/sitok-precision.js"></script>
 </body>
 </html>

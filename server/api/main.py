@@ -43,6 +43,7 @@ from server.api.routers import (
     sitok_docs,
     sitok_tests,
     sitok_rating,
+    sitok_precision,
     photo_rotate,
     photos,
     plan_change,
@@ -121,6 +122,7 @@ web_app.include_router(sitok_parts.router, prefix="/api")  # 시특법 현장 �
 web_app.include_router(sitok_drawings.router, prefix="/api")  # 시특법 시설물 도면(첨부·구조일반사항, 2026-10-12)
 web_app.include_router(sitok_tests.router, prefix="/api")  # 시특법 정밀 재료시험(2026-10-13)
 web_app.include_router(sitok_rating.router, prefix="/api")  # 시특법 정밀 상태평가(2026-10-13)
+web_app.include_router(sitok_precision.router, prefix="/api")  # 시특법 정밀 자료수집·하중상태·등급(2026-10-13)
 web_app.include_router(sitok_docs.router, prefix="/api")  # 서류 자동화 · 시특법 계약(민간 계약서·관급 착수/완료계, 2026-10-12)
 web_app.include_router(route_plan.router, prefix="/api")
 web_app.include_router(contract_library.router, prefix="/api")  # 착수계·완수계 자료실(설정 탭)
