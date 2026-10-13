@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>상태평가 - 시특법 정밀안전점검</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/sitok-tests.css" />
+<link rel="stylesheet" href="css/sitok-rating.css" />
+</head>
+<!-- 시특법 정밀안전점검 상태평가(2026-10-13 ③ 단계) — 표본층별 부재 전체 개수만 넣으면 결함현황표·재료시험을 합쳐 SafetyMan 갑지와 같은 결과.
+     서버 server/api/routers/sitok_rating.py(집계 server/sitok/condition.py, 계산 rating.py), 화면 js/sitok-rating.js. ?report=회차 id -->
+<body data-report-tab="facilities" data-law="sitok" data-tabs-only>
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div class="crumb"><a href="sitok.html">시설물 목록</a> › <a id="sr-fac-link" href="#">시설물</a> › <span id="sr-title">상태평가</span></div>
+<div id="error" class="error"></div>
+<p class="page-sub st-intro">결함현황표(구조체 줄)와 재료시험 값은 자동으로 들어갑니다. 표본층마다 <b>부재 전체 개수</b>만 넣으면 됩니다(빈칸 = 그 부재 없음). 고치는 대로 저장됩니다.
+  <span id="sr-saved" class="st-saved"></span></p>
+<div id="sr-warn" class="sr-warn" hidden></div>
+
+<section class="panel" id="sr-counts">
+  <div class="panel-head"><h2>1. 표본층별 부재 전체 개수</h2><span class="panel-count" id="sr-counts-note"></span></div>
+  <div class="panel-body">
+    <div class="st-tbl" id="sr-counts-tbl"></div>
+    <div class="sr-prev" id="sr-prev"></div>
+  </div>
+</section>
+
+<section class="panel" id="sr-result">
+  <div class="panel-head"><h2>2. 평가결과</h2><span class="panel-count" id="sr-result-note"></span></div>
+  <div class="panel-body">
+    <div class="st-tbl" id="sr-result-tbl"></div>
+    <div class="sr-final" id="sr-final"></div>
+    <div class="sr-acts"><a class="secondary-link" id="sr-pdf" href="#" target="_blank" rel="noopener">📄 부록 결과자료 PDF 보기</a>
+      <span class="page-sub">건축물 평가결과(건물개요·층별 점수·최종결과) + 입력자료 — SafetyMan 출력과 같은 모양</span></div>
+  </div>
+</section>
+
+<section class="panel" id="sr-detail">
+  <div class="panel-head"><h2>3. 근거 (입력자료)</h2><span class="panel-count" id="sr-detail-note"></span></div>
+  <div class="panel-body" id="sr-detail-body"></div>
+</section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/sitok-rating.js"></script>
+</body>
+</html>

@@ -95,6 +95,11 @@ def grade_spalling(depth_mm: float, area_pct: float = 0.0) -> str:
     return g
 
 
+def grade_leak(ratio_pct: float) -> str:
+    """누수·백태(표 6.29, SafetyMan 줄): 없음 a / 경미 — 면적 5% 미만 b / 현저 — 10% 미만 c / 진행 관찰 — 20% 미만 d / 확연 — 20% 이상 e."""
+    return "a" if ratio_pct <= 0 else "b" if ratio_pct < 5 else "c" if ratio_pct < 10 else "d" if ratio_pct < 20 else "e"
+
+
 def grade_rebar_exposure(ratio_pct: float) -> str:
     """철근노출(표 6.30): 노출 면적률 ra(%) 0 / <1 / <3 / <5 / ≥5."""
     return "a" if ratio_pct <= 0 else "b" if ratio_pct < 1 else "c" if ratio_pct < 3 else "d" if ratio_pct < 5 else "e"

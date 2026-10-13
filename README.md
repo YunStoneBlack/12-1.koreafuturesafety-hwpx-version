@@ -114,7 +114,8 @@
   `<body data-law="sitok">`이면 shell.js가 시특법 소메뉴를 켠다.
 - 정밀안전점검(10/13 ①~): 회차 종류 `SitokReport.kind` 정기/정밀(계약서 회차 줄에서 자동), 정밀 원본은 **본문·부록 두 파일**(`master.FILES` 정밀본문·정밀부록, 다산은혜교회
   보고서 기준), 상태평가 계산 `server/sitok/rating.py`(SafetyMan 규칙 재구현·검증), 슈미트 성과표 `schmidt.py`, 결함 깊이(`SitokDefect.depth`),
-  재료시험 탭 `sitok-tests.html`(표본층·부재 규격·강도·탄산화·기울기·부등침하 — 계산 `server/sitok/tests.py`, API `sitok_tests.py`, `SitokReport.tests`). 만들기는 상태평가 단계 뒤.
+  재료시험 탭 `sitok-tests.html`(표본층·부재 규격·강도·탄산화·기울기·부등침하 — 계산 `server/sitok/tests.py`, API `sitok_tests.py`, `SitokReport.tests`),
+  상태평가 `sitok-rating.html`(표본층별 부재 전체 개수 → 결함현황표·재료시험 집계 `server/sitok/condition.py` → `rating.evaluate`, 부록 결과자료 PDF, `SitokReport.rating`). 만들기는 ④⑤ 뒤.
 - 방식: **회사 원본 템플릿 하나**(`server/sitok/master.py` — 학교 보고서, 종별로 1.5·1.7 빼고 번호 다시)에 이번 값과 **전회차 보고서 데이터**(이력·현황·지난 평가)를 넣는다
   (`report_build.py`). 여러 동은 동마다 한글 → `merge.py`로 한 권. 한글로 PDF → 첨부 도면(1.2.9 뒤, `drawings.py`)·관리대장·계약서·외관조사 사진첩·전회차 비교 사진대장 합본,
   만든 뒤 자동 쪽 검사(`pagecheck.py` — 제목만 쪽 끝·꼬리말 넘음·넘친 몇 줄). 줄이 느는 표는 쪽에서 나누고(글자처럼 취급 → 자리 차지) 제목은 다음 문단과 함께.

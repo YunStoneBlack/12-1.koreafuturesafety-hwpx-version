@@ -568,6 +568,8 @@ class SitokReport(Base):
     parts: Mapped[dict | None] = mapped_column(JSON, default=None)
     # 정밀안전점검 재료시험(0044) {sample 표본층, sections 부재 규격, strength 강도, carbonation 탄산화, tilt 기울기, settlement 부등침하} — server/sitok/tests.py
     tests: Mapped[dict | None] = mapped_column(JSON, default=None)
+    # 정밀 상태평가 입력(0045) {counts: {표본층: {부재: 전체 개수}}, prev_grade 전회차 등급, note} — 결과는 server/sitok/condition.py가 계산
+    rating: Mapped[dict | None] = mapped_column(JSON, default=None)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
