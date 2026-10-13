@@ -74,9 +74,9 @@ def pages_of(path: Path) -> int:
         return doc.page_count
 
 
-def insert(pdf: Path, chapters: list[tuple[int, list[Path]]]) -> list[int]:
+def insert(pdf: Path, chapters: list[tuple[int, list[Path]]], finder=None) -> list[int]:
     """보고서 PDF의 "N.2.9 관련 설계도면" 쪽(시설물편 N장) 바로 뒤에 도면 쪽들을 끼움 → 끼운 쪽 번호들(0부터, 쪽 검사에서 뺌).
-    목차·장 표지에도 "N.2.9"가 있을 수 있어 "후면첨부"가 같이 있는 쪽만."""
+    목차·장 표지에도 "N.2.9"가 있을 수 있어 "후면첨부"가 같이 있는 쪽만. finder(pg, n) → bool 을 주면 그 조건으로 쪽을 찾음(정밀 "1.2 시설물 관련도면", 10/13)."""
     import pymupdf
 
     doc = pymupdf.open(pdf)
@@ -84,7 +84,10 @@ def insert(pdf: Path, chapters: list[tuple[int, list[Path]]]) -> list[int]:
     for n, paths in chapters:
         if not paths:
             continue
-        at = next((i for i, pg in enumerate(doc) if pg.search_for(f"{n}.2.9") and pg.search_for("관련 설계도면") and pg.search_for("후면첨부")), None)
+        if finder is not None:
+            at = next((i for i, pg in enumerate(doc) if finder(pg, n)), None)
+        else:
+            at = next((i for i, pg in enumerate(doc) if pg.search_for(f"{n}.2.9") and pg.search_for("관련 설계도면") and pg.search_for("후면첨부")), None)
         if at is not None:
             plan.append((at, paths))
     inserted: list[int] = []

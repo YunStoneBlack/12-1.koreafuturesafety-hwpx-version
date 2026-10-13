@@ -679,6 +679,10 @@ def _run_precision_build(db: Session, r: SitokReport) -> None:
         db.commit()
         pdf = folder / f"{base}(본문).pdf"
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        from server.sitok import drawings as D
+        paths = [it["path"] for it in D.items(f, "attach", _facility_dir(f))]  # 1.2 시설물 관련도면 [후면첨부] 뒤에 첨부 도면(정기 1.2.9와 같게)
+        drawn = D.insert(pdf, [(1, paths)], finder=lambda pg, n: pg.search_for("시설물 관련도면") and pg.search_for("후면첨부")) if paths else []
+        warn = _page_check(pdf, hwpx, drawn) + warn
         body_pages = pymupdf.open(pdf).page_count
         r.message = f"본문 {body_pages}쪽 — 부록 한글 만드는 중…"
         db.commit()

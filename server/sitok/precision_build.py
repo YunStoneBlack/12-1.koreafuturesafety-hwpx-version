@@ -45,6 +45,9 @@ class Data:
     result_fields: dict = field(default_factory=dict)  # 결과표 이름 칸 → 값(관리주체명·대표자)
     detail: dict | None = None  # 시설물 현황(survey.detail) — 현황표에 넣은 칸은 안 비움
     cost: tuple | None = None  # 개략공사비(정기 cost_rows) — 앞부분 요약문 표는 rb.build가 안 채우므로 여기서
+    map_path: str = ""  # 위치도 지도(locmap) — 없으면 흰 그림
+    overview: list = field(default_factory=list)  # 전경사진 [(경로, 제목)] — 위치도 표 아래 칸·요약문 사진
+    blank: str = ""
 
 
 # ---------- 작은 도구 ----------
@@ -448,6 +451,36 @@ def _fill_status_tables(root, D: Data) -> int:
             elif label in blank and DT._key(label) not in have:
                 rb._set_lines(target, ["-"])
                 n += 1
+    return n
+
+
+def _fill_front_pics(root, D: Data, add_image) -> int:
+    """앞부분 그림 — "■ 대상시설물 위치도" 표(위 칸 지도, 아래 칸 첫 전경사진), 요약문의 글 없는 1×1 그림 표(전경사진 차례로). 없으면 흰 그림(원본 다산 사진이 남지 않게)."""
+    n = 0
+    photos = [p_ for p_, _ in D.overview if p_ and Path(p_).exists()]
+    blank = D.blank
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None:
+            continue
+        cells = rb._cells(tbl)
+        head = rb._cell_text(cells.get((0, 0), tbl)).replace(" ", "")
+        if "위치도" in head and "전경" not in head:
+            slots = rb._pic_slots(tbl)
+            if slots:
+                rb._put_pic(slots[0][1], D.map_path or blank, add_image)
+            if len(slots) > 1:
+                rb._put_pic(slots[-1][1], photos[0] if photos else blank, add_image)
+            n += 1
+    k = 0
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None or int(tbl.get("rowCnt")) != 1 or int(tbl.get("colCnt")) != 1:
+            continue
+        pics = list(tbl.iter(f"{{{HP}}}pic"))
+        if len(pics) != 1 or "".join(rb._full(t) for t in tbl.iter(T)).strip():
+            continue
+        rb._put_pic(pics[0], photos[k] if k < len(photos) else blank, add_image)
+        k += 1
+        n += 1
     return n
 
 
@@ -957,6 +990,7 @@ def _fill(src: Path, dest: Path, D: Data) -> int:
                         changed += rb._set_result_fields(root, D.result_fields)
                     if D.cost is not None and rb._cost_table(root, D.cost[0], D.cost[1]):  # 요약문 2.7 개략공사비
                         changed += 1
+                    changed += _fill_front_pics(root, D, add_image)
                     for tbl in root.iter(f"{{{HP}}}tbl"):  # 결과표 뒤 "시험명 | 개소 | 조사결과 | 책임기술자 의견" 표
                         cells = rb._cells(tbl)
                         if rb._cell_text(cells.get((0, 0), tbl)).replace(" ", "") == "시험명":
@@ -1132,6 +1166,18 @@ def _data_for(db, r, new: rb.Values, f, ex) -> Data:
              replace=rep, kind_label=f.template or "2종")
     D.detail = (r.survey or {}).get("detail")
     D.cost = ex.cost
+    D.overview = list(ex.overview or [])
+    D.blank = ex.blank
+    try:
+        from server.sitok import locmap
+        mp = locmap.map_for(f.address, f.name, SR._facility_dir(f))
+        D.map_path = str(mp) if mp else ""
+    except Exception:  # noqa: BLE001 — 지도를 못 받으면 흰 그림
+        D.map_path = ""
+    if not D.map_path:
+        D.notes.append("주소로 위치도 지도를 만들지 못해 빈 그림으로 넣었습니다")
+    if not D.overview:
+        D.notes.append("전경사진이 없어 위치도 아래·요약문 사진은 빈 그림입니다(현장 조사 → 전경사진)")
     return D
 
 
