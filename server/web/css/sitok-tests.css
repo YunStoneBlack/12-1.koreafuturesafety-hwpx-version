@@ -1,0 +1,44 @@
+/* 시특법 정밀 재료시험(sitok-tests.html, 2026-10-13 ② 단계) — PC 우선, 표는 폰에서 가로 스크롤 */
+.st-intro { margin: 0 0 12px; }
+.st-saved { color: var(--green); font-size: 12px; margin-left: 8px; }
+.st-saved.bad { color: var(--crit); }
+.st-floor-pick { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 12px; }
+.main .st-floor-pick button { margin: 0; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+.main .st-floor-pick button.on { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+.st-tbl { overflow-x: auto; }
+.st-tbl table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 13px; }
+.st-tbl th, .st-tbl td { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: center; vertical-align: middle; white-space: nowrap; }
+.st-tbl th { background: var(--surface); font-weight: 600; color: var(--muted); font-size: 12px; }
+.st-tbl td.l { text-align: left; }
+.st-tbl input, .st-tbl select { width: 100%; min-width: 64px; padding: 5px 6px; font-size: 13px; text-align: center; }
+.st-tbl input.w { min-width: 110px; }
+.st-tbl input.l, .st-tbl select.l { text-align: left; min-width: 90px; }
+.st-tbl input.n { min-width: 70px; max-width: 96px; }
+.st-tbl td.calc { color: var(--muted); font-variant-numeric: tabular-nums; }
+.st-tbl td.calc b { color: var(--ink); }
+.st-grade { display: inline-block; min-width: 22px; padding: 1px 7px; border-radius: 999px; font-weight: 700; font-size: 12px; }
+.st-grade.a { background: #e2f1e6; color: #2c7a4b; } .st-grade.b { background: #e4eef6; color: #1f5f8b; } .st-grade.c { background: #fff3cd; color: #8a6d00; }
+.st-grade.d { background: #fbeadc; color: #b4541a; } .st-grade.e { background: #f8d7da; color: #a12a2a; }
+.main .st-tbl button.st-del { margin: 0; padding: 3px 8px; font-size: 12px; }
+.main button.st-add { margin: 8px 0 0; padding: 6px 12px; font-size: 13px; }
+.st-qty { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.st-qty b { color: var(--ink); } .st-qty .short { color: var(--warn); font-weight: 600; }
+.st-strength-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.st-strength-top .sk-drop { flex: 1 1 360px; margin: 0; }
+.st-file { font-size: 13px; color: var(--muted); }
+.main .st-file button { margin: 0 0 0 6px; padding: 2px 8px; font-size: 12px; }
+.st-carb-top, .st-sett-top { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-bottom: 10px; font-size: 13px; }
+.st-carb-top label, .st-sett-top label { display: flex; align-items: center; gap: 6px; }
+.st-carb-top input, .st-sett-top select { width: 80px; padding: 4px 6px; font-size: 13px; }
+.st-sett-top select { width: auto; }
+.st-note { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.st-note textarea { font-size: 13px; padding: 6px 8px; }
+.st-sec { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.st-sec-head { display: flex; align-items: center; gap: 10px; font-size: 13px; margin-bottom: 6px; }
+.st-sec-head b { font-size: 14px; }
+.st-sec-head select { width: auto; padding: 3px 6px; }
+.st-sum { font-size: 13px; color: var(--muted); margin-top: 6px; }
+@media (max-width: 640px) {
+  .st-tbl table { min-width: 560px; }
+  .st-strength-top .sk-drop { flex-basis: 100%; }
+}

@@ -42,6 +42,7 @@
         <span class="sk-rep-src">${r.past ? "이미 낸 보고서" : r.has_source ? `전회차 보고서: ${esc(r.source_note)}` : '전회차 보고서 없음 — 처음 맡는 시설물(우리가 하던 시설물이면 지난 보고서 한글을 올리세요)'}</span>
         <label class="secondary-link"${r.past ? " hidden" : ""} title="이력·시설물 현황·지난 평가 같은 데이터만 가져옵니다(보고서 틀은 회사 원본)">지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
         ${r.past ? "" : `<a class="secondary-link sk-rep-field" href="sitok-field.html?report=${r.id}">📱 현장 조사</a>
+          ${kind === "정밀" ? `<a class="secondary-link sk-rep-tests" href="sitok-tests.html?report=${r.id}">📐 재료시험</a>` : ""}
           <button type="button" class="secondary btn-sm sk-rep-detail">🏢 시설물 현황${r.has_detail ? " ✓" : ""}</button>
           <button type="button" class="secondary btn-sm sk-rep-survey">📝 면담·변경사항${r.has_survey ? " ✓" : ""}</button>
           <button type="button" class="secondary btn-sm sk-rep-ai">🤖 AI 초안${r.has_ai ? " ✓" : ""}</button>`}

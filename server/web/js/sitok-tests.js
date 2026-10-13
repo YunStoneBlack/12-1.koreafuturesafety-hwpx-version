@@ -1,0 +1,257 @@
+// 시특법 정밀안전점검 재료시험(sitok-tests.html, 2026-10-13 ② 단계) — 표본층·부재 규격·강도·탄산화·기울기·부등침하.
+// 값을 바꾸면(change) 입력 전체를 PATCH /sitok/reports/{id}/tests 로 저장하고, 서버가 계산한 값(등급·1/N·잔존수명)으로 다시 그림.
+// 계산은 server/sitok/tests.py — 다산은혜교회 보고서 값으로 검증.
+
+(function () {
+  const rid = Number(new URLSearchParams(location.search).get("report")) || null;
+  const errorEl = document.getElementById("error");
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const err = (e) => showError(errorEl, e);
+  const $ = (id) => document.getElementById(id);
+  const num = (v) => (v === null || v === undefined || v === "" ? "" : v);
+  const grade = (g) => (g ? `<span class="st-grade ${g}">${g.toUpperCase()}</span>` : "-");
+  const STRUCT = ["라멘", "벽식", "무량판"], MAT = ["RC", "SRC", "철골", "조적"], DIRS = ["", "좌측", "우측", "전면", "후면"];
+  let view = null; // 서버가 준 계산값
+  let input = null; // 저장할 입력(view.input)
+  let timer = null;
+
+  function floorOptions(sel) {
+    const fl = (view.sample.floors || []).length ? view.sample.floors : [];
+    return `<option value="">층</option>${fl.map((f) => `<option value="${f.floor}"${Number(sel) === f.floor ? " selected" : ""}>${esc(f.label)}</option>`).join("")}`;
+  }
+  const opts = (list, sel) => list.map((v) => `<option value="${esc(v)}"${v === sel ? " selected" : ""}>${esc(v) || "—"}</option>`).join("");
+
+  async function save(msg) {
+    clearTimeout(timer);
+    const saved = $("st-saved");
+    saved.textContent = "저장 중…";
+    saved.className = "st-saved";
+    try {
+      view = await apiPatch(`/sitok/reports/${rid}/tests`, { tests: input });
+      input = view.input;
+      draw();
+      saved.textContent = msg || "✓ 저장됨";
+      timer = setTimeout(() => { saved.textContent = ""; }, 2500);
+    } catch (e) { saved.textContent = `저장 실패: ${e.message}`; saved.className = "st-saved bad"; }
+  }
+
+  // 표 칸(data-path="sections.0.design")에서 input으로 값 넣기
+  function bindInputs(root) {
+    root.querySelectorAll("[data-path]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const keys = el.dataset.path.split(".");
+        let o = input;
+        for (const k of keys.slice(0, -1)) o = o[/^\d+$/.test(k) ? Number(k) : k];
+        const last = keys[keys.length - 1];
+        o[/^\d+$/.test(last) ? Number(last) : last] = el.type === "checkbox" ? el.checked : el.value;
+        save();
+      });
+    });
+    root.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => {
+      const [list, i] = b.dataset.del.split(".");
+      const arr = list.includes("/") ? input[list.split("/")[0]][list.split("/")[1]] : input[list];
+      arr.splice(Number(i), 1);
+      save();
+    }));
+  }
+
+  // ---- 1. 표본층 ----
+  function drawSample() {
+    const s = view.sample, b = view.building;
+    $("st-sample-count").textContent = s.need ? `필요 ${s.need}개 층 · 고른 ${s.count}개` : "시설물 층수·연면적을 먼저 넣으세요";
+    const picked = new Set((input.sample.floors || []).map((f) => f.floor));
+    $("st-floor-pick").innerHTML = b.floors.map((f) => `<button type="button" data-k="${f.key}" class="${picked.has(f.key) ? "on" : ""}">${esc(f.label)}</button>`).join("")
+      || '<span class="page-sub">시설물 현황에 지상·지하 층수가 없습니다.</span>';
+    $("st-floor-pick").querySelectorAll("button").forEach((btn) => btn.addEventListener("click", () => {
+      const k = Number(btn.dataset.k);
+      const list = input.sample.floors;
+      const i = list.findIndex((f) => f.floor === k);
+      if (i >= 0) list.splice(i, 1);
+      else list.push({ floor: k, start: null, end: null, structure: (view.report.structure || "").includes("벽") ? "벽식" : "라멘", material: "RC" });
+      list.forEach((f) => { f.start = null; f.end = null; }); // 층이 바뀌면 범위 다시 자동
+      save();
+    }));
+    const rows = s.floors.map((f, i) => `<tr><td><b>${esc(f.label)}</b></td>
+      <td><select data-path="sample.floors.${i}.start">${floorAll(f.start)}</select></td><td><select data-path="sample.floors.${i}.end">${floorAll(f.end)}</select></td>
+      <td class="calc">${esc(f.range_label)}${f.auto && (f.auto[0] !== f.start || f.auto[1] !== f.end) ? ' <small>(자동: ' + esc(rangeText(f.auto)) + ")</small>" : ""}</td>
+      <td><select data-path="sample.floors.${i}.structure">${opts(STRUCT, f.structure)}</select></td>
+      <td><select data-path="sample.floors.${i}.material">${opts(MAT, f.material)}</select></td></tr>`).join("");
+    $("st-sample-tbl").innerHTML = s.floors.length ? `<table><thead><tr><th>표본층</th><th>범위 시작</th><th>범위 끝</th><th>대표 범위</th><th>구조형식</th><th>구조재료</th></tr></thead><tbody>${rows}</tbody></table>` : "";
+    const q = s.quantity;
+    const qt = (name, x) => `<span><b>${name}</b> ${x.have}/${x.need}${x.have < x.need ? ' <span class="short">부족</span>' : ""}</span>`;
+    $("st-qty").innerHTML = s.floors.length ? `<span>기준 수량(표본층 ${s.count}개):</span>${qt("부재 규격", q.section)}${qt("강도", q.strength)}${qt("탄산화", q.carbonation)}${qt("기울기", q.tilt)}${qt("부등침하 구간", q.settlement)}` : "";
+    bindInputs($("st-sample-tbl"));
+  }
+  const floorAll = (sel) => `${view.building.floors.map((f) => `<option value="${f.key}"${Number(sel) === f.key ? " selected" : ""}>${esc(f.label)}</option>`).join("")}`;
+  const rangeText = (a) => { const l = (k) => (k < 0 ? `지하${-k}층` : `지상${k}층`); return a[0] === a[1] ? l(a[0]) : `${l(a[0])}~${l(a[1])}`; };
+
+  // ---- 2. 부재 규격 ----
+  function drawSections() {
+    const rows = view.sections.map((r, i) => `<tr><td>B${i + 1}</td><td><select data-path="sections.${i}.floor">${floorOptions(r.floor)}</select></td>
+      <td><input class="l" data-path="sections.${i}.position" value="${esc(r.position)}" placeholder="X3/Y3" /></td>
+      <td><input class="l" data-path="sections.${i}.member" value="${esc(r.member)}" placeholder="기둥(C5)" /></td>
+      <td><input class="w" data-path="sections.${i}.design" value="${esc(r.design)}" placeholder="800×800" /></td>
+      <td><input class="w" data-path="sections.${i}.measured" value="${esc(r.measured)}" placeholder="800×800" /></td>
+      <td class="calc">${r.ratio === null ? "-" : `${r.ratio}%`}</td><td class="calc">${r.ok === null ? "-" : r.ok ? "<b>O.K</b>" : "N.G"}</td><td>${grade(r.grade)}</td>
+      <td><button type="button" class="secondary st-del" data-del="sections.${i}">✕</button></td></tr>`).join("");
+    $("st-section-count").textContent = `${view.sections.length}개소${view.sections_grade ? ` · ${view.sections_grade.toUpperCase()}` : ""}`;
+    $("st-section-tbl").innerHTML = `<table><thead><tr><th>NO</th><th>표본층</th><th>위치</th><th>부재</th><th>설계도면</th><th>조사결과</th><th>비율</th><th>평가</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <button type="button" class="secondary st-add" id="st-section-add">+ 개소 추가</button>`;
+    $("st-section-add").addEventListener("click", () => {
+      const last = input.sections[input.sections.length - 1];
+      input.sections.push({ floor: last ? last.floor : (input.sample.floors[0] || {}).floor ?? null, position: "", member: "", design: "", measured: "" });
+      save();
+    });
+    bindInputs($("st-section-tbl"));
+  }
+
+  // ---- 3. 강도 ----
+  function drawStrength() {
+    const st = view.strength;
+    const rows = st.rows.map((r, i) => `<tr><td>S${i + 1}</td><td><select data-path="strength.rows.${i}.floor">${floorOptions(r.floor)}</select></td>
+      <td><input class="l" data-path="strength.rows.${i}.member" value="${esc(r.member)}" placeholder="기둥 중앙부" /></td>
+      <td class="calc">${esc(r.position || "-")}</td><td class="calc">${num(r.r0) || "-"}</td><td class="calc">${num(r.fc_mat) || "-"}</td><td class="calc">${num(r.fc_arch) || "-"}</td>
+      <td><input class="n" data-path="strength.rows.${i}.est" value="${num(r.est)}" inputmode="decimal" /></td>
+      <td><input class="n" data-path="strength.rows.${i}.design" value="${num(r.design)}" inputmode="decimal" placeholder="27" /></td>
+      <td class="calc">${r.ratio === null ? "-" : `${r.ratio}%`}</td>
+      <td><label class="st-chk"><input type="checkbox" data-path="strength.rows.${i}.damaged"${r.damaged ? " checked" : ""} /> 손상</label></td>
+      <td><input class="l" data-path="strength.rows.${i}.note" value="${esc(r.note)}" placeholder="건전부" /></td><td>${grade(r.grade)}</td>
+      <td><button type="button" class="secondary st-del" data-del="strength/rows.${i}">✕</button></td></tr>`).join("");
+    const sm = st.summary;
+    $("st-strength-count").textContent = `${st.rows.length}개소${sm.count ? ` · ${sm.min}~${sm.max}MPa 평균 ${sm.mean}` : ""}${st.grade ? ` · ${st.grade.toUpperCase()}` : ""}`;
+    $("st-strength-tbl").innerHTML = `<table><thead><tr><th>구분</th><th>표본층</th><th>부재부위</th><th>성과표 위치</th><th>보정반발경도 R0</th><th>재료학회</th><th>건축학회</th><th>추정강도(MPa)</th><th>설계기준강도</th><th>비율</th><th>손상</th><th>비고</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <button type="button" class="secondary st-add" id="st-strength-add">+ 개소 추가</button>`;
+    $("st-strength-add").addEventListener("click", () => {
+      const last = input.strength.rows[input.strength.rows.length - 1];
+      input.strength.rows.push({ floor: last ? last.floor : null, member: "", position: "", r0: null, fc_mat: null, fc_arch: null, est: null, design: last ? last.design : null, damaged: false, note: "건전부" });
+      save();
+    });
+    $("st-xlsx-file").innerHTML = st.file ? `📎 ${esc(st.file)} <button type="button" class="secondary" id="st-xlsx-del">빼기</button>` : "";
+    $("st-xlsx-del")?.addEventListener("click", async () => {
+      if (!confirm("올린 성과표를 빼고 강도 값을 비울까요?")) return;
+      try { view = await api(`/sitok/reports/${rid}/tests/schmidt`, { method: "DELETE" }); input = view.input; draw(); } catch (e) { err(e); }
+    });
+    bindInputs($("st-strength-tbl"));
+  }
+
+  // ---- 4. 탄산화 ----
+  function drawCarb() {
+    const c = view.carbonation, b = view.building;
+    $("st-carb-top").innerHTML = `<span>경과년수 <b>${b.age ?? "?"}년</b> <small>(준공 ${esc(b.completion || "?")} ~ 점검 ${esc(b.when || "오늘")})</small></span>
+      <label>물-시멘트비(W/C)<input data-path="carbonation.wc" value="${num(c.wc)}" inputmode="decimal" /></label>
+      <label>탄산화 비율(R)<input data-path="carbonation.ratio" value="${num(c.ratio)}" inputmode="decimal" /></label>`;
+    const rows = c.rows.map((r, i) => `<tr><td>C${i + 1}</td><td><select data-path="carbonation.rows.${i}.floor">${floorOptions(r.floor)}</select></td>
+      <td><input class="l" data-path="carbonation.rows.${i}.member" value="${esc(r.member)}" placeholder="기둥" /></td>
+      <td><input class="n" data-path="carbonation.rows.${i}.cover" value="${num(r.cover)}" inputmode="decimal" /></td>
+      <td><input class="n" data-path="carbonation.rows.${i}.depth" value="${num(r.depth)}" inputmode="decimal" /></td>
+      <td class="calc">${num(r.remain) === "" ? "-" : r.remain}</td><td class="calc">${num(r.coef) === "" ? "-" : r.coef}</td><td class="calc">${num(r.theory) === "" ? "-" : r.theory}</td>
+      <td class="calc"><b>${esc(r.life_text || "-")}</b></td><td>${grade(r.grade)}</td>
+      <td><button type="button" class="secondary st-del" data-del="carbonation/rows.${i}">✕</button></td></tr>`).join("");
+    const sm = c.summary;
+    $("st-carb-count").textContent = `${c.rows.length}개소${sm.count ? ` · 깊이 ${sm.min}~${sm.max}mm` : ""}${c.grade ? ` · ${c.grade.toUpperCase()}` : ""}`;
+    $("st-carb-tbl").innerHTML = `<table><thead><tr><th>no</th><th>표본층</th><th>부재</th><th>철근 피복(mm)</th><th>탄산화 깊이(mm)</th><th>잔여 깊이</th><th>속도계수 A</th><th>이론치(mm)</th><th>잔존수명(년)</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <button type="button" class="secondary st-add" id="st-carb-add">+ 개소 추가</button>`;
+    $("st-carb-add").addEventListener("click", () => {
+      const last = input.carbonation.rows[input.carbonation.rows.length - 1];
+      input.carbonation.rows.push({ floor: last ? last.floor : (input.sample.floors[0] || {}).floor ?? null, member: "", position: "", cover: null, depth: null });
+      save();
+    });
+    bindInputs($("st-carb-top"));
+    bindInputs($("st-carb-tbl"));
+  }
+
+  // ---- 5. 기울기 ----
+  function drawTilt() {
+    const t = view.tilt;
+    const rows = t.rows.map((r, i) => `<tr><td>${i + 1}</td><td><input class="n" data-path="tilt.rows.${i}.height" value="${num(r.height)}" inputmode="numeric" placeholder="29200" /></td>
+      <td><select data-path="tilt.rows.${i}.direction">${opts(DIRS, r.direction)}</select></td>
+      <td><input class="n" data-path="tilt.rows.${i}.disp" value="${num(r.disp)}" inputmode="decimal" /></td>
+      <td class="calc"><b>${esc(r.ratio_text)}</b></td><td>${grade(r.grade)}</td>
+      <td><button type="button" class="secondary st-del" data-del="tilt/rows.${i}">✕</button></td></tr>`).join("");
+    const rg = t.range;
+    $("st-tilt-count").textContent = `${t.rows.length}개소${rg.min_n ? ` · 1/${rg.min_n.toLocaleString()} ~ 1/${rg.max_n.toLocaleString()}` : ""}${t.grade ? ` · ${t.grade.toUpperCase()}` : ""}`;
+    $("st-tilt-tbl").innerHTML = `<table><thead><tr><th>NO</th><th>측정높이(mm)</th><th>상부 변위방향</th><th>변위량(mm)</th><th>기울기</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <button type="button" class="secondary st-add" id="st-tilt-add">+ 측점 추가</button>`;
+    $("st-tilt-add").addEventListener("click", () => {
+      const last = input.tilt.rows[input.tilt.rows.length - 1];
+      input.tilt.rows.push({ height: last ? last.height : null, direction: "", disp: null });
+      save();
+    });
+    $("st-tilt-note").value = t.note || "";
+    bindInputs($("st-tilt-tbl"));
+  }
+
+  // ---- 6. 부등침하 ----
+  function drawSett() {
+    const s = view.settlement;
+    $("st-sett-top").innerHTML = `<label>조사 층<select data-path="settlement.floor">${floorAll(s.floor)}</select></label>
+      <span class="page-sub">보통 최하층 바닥(${esc((view.building.floors[0] || {}).label || "")})</span>`;
+    $("st-sett-count").textContent = `${s.sections.length}구간${s.range.max_disp !== null ? ` · 변위 ${s.range.min_disp}~${s.range.max_disp}mm` : ""}${s.grade ? ` · ${s.grade.toUpperCase()}` : ""}`;
+    $("st-sett-list").innerHTML = s.sections.map((sec, j) => {
+      const rows = sec.rows.map((r, i) => `<tr><td>${r.no}</td><td>위치도 참조</td>
+        <td><input class="n" data-path="settlement.sections.${j}.levels.${i}" value="${num(r.level)}" inputmode="decimal" /></td>
+        <td class="calc">${r.disp === null ? "" : r.disp}</td>
+        <td>${i < sec.rows.length - 1 ? `<input class="n" data-path="settlement.sections.${j}.distances.${i}" value="${num(r.distance)}" inputmode="numeric" />` : ""}</td>
+        <td class="calc"><b>${esc(r.ratio_text)}</b></td><td>${r.grade ? grade(r.grade) : ""}</td></tr>`).join("");
+      return `<div class="st-sec"><div class="st-sec-head"><b>${esc(s.floor_label || "")} 바닥 ${esc(sec.axis)}축 방향(${sec.no}구간)</b>
+          <select data-path="settlement.sections.${j}.axis">${opts(["X", "Y"], sec.axis)}</select>
+          <select data-path="settlement.sections.${j}.no">${opts(["1", "2", "3", "4"], String(sec.no))}</select>
+          <button type="button" class="secondary st-del" data-del="settlement/sections.${j}">구간 빼기</button></div>
+        <div class="st-tbl"><table><thead><tr><th>NO</th><th>측정위치</th><th>측정위치값(mm)</th><th>변위(mm)</th><th>거리(mm)</th><th>기울기</th><th>등급</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    }).join("") + '<button type="button" class="secondary st-add" id="st-sett-add">+ 구간 추가(측점 3개)</button>';
+    $("st-sett-add").addEventListener("click", () => {
+      const n = input.settlement.sections.length;
+      input.settlement.sections.push({ axis: n < 2 ? "X" : "Y", no: (n % 2) + 1, levels: [null, null, null], distances: [null, null] });
+      if (!input.settlement.floor) input.settlement.floor = (view.building.floors[0] || {}).key ?? null;
+      save();
+    });
+    $("st-sett-note").value = s.note || "";
+    bindInputs($("st-sett-top"));
+    bindInputs($("st-sett-list"));
+  }
+
+  function draw() {
+    const r = view.report;
+    $("st-title").textContent = `${r.year}년 ${r.half} 재료시험`;
+    const link = $("st-fac-link");
+    link.textContent = r.facility_name;
+    link.href = `sitok-facility.html?id=${r.facility_id}`;
+    drawSample();
+    drawSections();
+    drawStrength();
+    drawCarb();
+    drawTilt();
+    drawSett();
+  }
+
+  async function load() {
+    try {
+      view = await api(`/sitok/reports/${rid}/tests`);
+      input = view.input;
+      draw();
+    } catch (e) { err(e); }
+  }
+
+  $("st-tilt-note").addEventListener("change", () => { input.tilt.note = $("st-tilt-note").value; save(); });
+  $("st-sett-note").addEventListener("change", () => { input.settlement.note = $("st-sett-note").value; save(); });
+  const xlsx = $("st-xlsx");
+  xlsx.addEventListener("change", async () => {
+    const f = xlsx.files[0];
+    xlsx.value = "";
+    if (!f) return;
+    const msg = $("st-xlsx-msg");
+    msg.textContent = `${f.name} 읽는 중…`;
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      view = await apiUpload(`/sitok/reports/${rid}/tests/schmidt`, fd);
+      input = view.input;
+      draw();
+      msg.textContent = `✓ ${f.name} — ${view.read}개 위치를 읽어 채웠습니다. 층·부재부위·설계기준강도를 확인하세요.`;
+    } catch (e) { msg.textContent = `읽지 못했습니다: ${e.message}`; }
+  });
+  enableFileDrop(document.querySelector(".st-xlsx"), xlsx);
+
+  if (!rid) { err(new Error("회차가 없습니다 (?report=)")); return; }
+  load();
+})();

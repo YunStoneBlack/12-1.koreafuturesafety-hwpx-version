@@ -566,6 +566,8 @@ class SitokReport(Base):
     amount_k: Mapped[str] = mapped_column(Text, default="")  # 이 동 점검금액(천원) — 같은 계약서를 여러 동이 같이 쓸 때(0035), 비면 계약 금액
     # 공중이용·기타시설 사진(0037) {public: {키: {file} | {none: true}}, other: {finish: [file, file], attach: [file, file]}} — 1.3 6)·7), server/sitok/parts.py
     parts: Mapped[dict | None] = mapped_column(JSON, default=None)
+    # 정밀안전점검 재료시험(0044) {sample 표본층, sections 부재 규격, strength 강도, carbonation 탄산화, tilt 기울기, settlement 부등침하} — server/sitok/tests.py
+    tests: Mapped[dict | None] = mapped_column(JSON, default=None)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
