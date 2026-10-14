@@ -192,6 +192,24 @@ def _divider_rows(body, parts: list[dict], group_name: str) -> None:
         last = q
 
 
+def _summary_toc(front, parts: list[dict]) -> None:
+    """요약문 간지의 글상자 목차("1. 서 언 / 2. ○○")에 둘째 동부터 "3. □□" 줄 추가(사용자 10/14)."""
+    for p in M._tops(front):
+        inner = [q for q in p.iter(f"{{{HP}}}p") if q is not p]
+        texts = ["".join(x.text or "" for x in q.iter(rb.T)) for q in inner]
+        i2 = next((i for i, t in enumerate(texts) if t.replace(" ", "").startswith("2.") and parts[0]["name"] in t), None)
+        if i2 is None or not any(t.replace(" ", "").startswith("1.서언") for t in texts[:i2]):
+            continue
+        lead_sp = re.match(r"\s*", texts[i2]).group(0)
+        last = inner[i2]
+        for k, part in enumerate(parts[1:], 3):
+            q = copy.deepcopy(inner[i2])
+            rb._set_para(q, f"{lead_sp}{k}. {part['name']}")
+            last.addnext(q)
+            last = q
+        return
+
+
 def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str) -> list[str]:
     """parts = [{hwpx, name, title}] 동 순서(첫 동 = 대표). 안내를 돌려줌."""
     notes: list[str] = []
@@ -225,12 +243,11 @@ def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str)
                         for h in q.iter(f"{{{HP}}}header"):
                             M._sub_pieces(h, r"^(\s*)2(\.\s*)", rf"\g<1>{k + 1}\g<2>", first_only=True)
                 a = anchors[kind]
-                prev = a  # 앞 묶음 끝의 빈 문단들(현황표 뒤 빈 문단 4개, 첫 것이 쪽 나눔) + 복사본 첫 문단 쪽 나눔 = 빈 쪽(10/14 숭의 14쪽)
-                while copies and copies[0].get("pageBreak") == "1" and prev is not None and prev.tag == f"{{{HP}}}p" and not _text(prev) and not M._tables(prev):
-                    if prev.get("pageBreak") == "1":
-                        copies[0].set("pageBreak", "0")
-                        break
-                    prev = prev.getprevious()
+                if copies and copies[0].get("pageBreak") == "1":  # 앞 묶음 끝의 빈 문단들(현황표 뒤 4개, 첫 것이 쪽 나눔)은 지움 — 두면 빈 쪽이나 결과표 위 공백(10/14)
+                    while a is not None and a.tag == f"{{{HP}}}p" and not _text(a) and not M._tables(a):
+                        prev = a.getprevious()
+                        a.getparent().remove(a)
+                        a = prev
                 anchors[kind] = _append_after(a, copies)
         # 표지·제출문·명단(위치도 앞까지): 첫 동 이름 → 묶음 이름
         lead_name = parts[0]["name"]
@@ -266,6 +283,7 @@ def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str)
                 p.set("pageBreak", "1")
                 break
         _divider_rows(roots[1], parts, group_name)  # 시설물편 간지 — 제1장·제2장…
+        _summary_toc(roots[0], parts)  # 요약문 간지 목차 — 1. 서언 2. ○○ 3. □□
         # --- 쓰기(merge.merge와 같음)
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".tmp")

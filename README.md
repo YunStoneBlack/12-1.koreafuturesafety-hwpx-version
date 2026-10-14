@@ -122,6 +122,10 @@
   만들기 `server/sitok/precision_build.py`(본문·부록 원본에 두 번 채움 — `build_body`·`build_appendix`) + 기본 글 `precision_text.py` → `sitok_reports._run_precision_build`:
   본문 한글·PDF → 부록 한글·PDF(관리대장·사진첩·슈미트 측정데이터·탄산화 사진현황(`carb_photos.py`)·상태평가 결과자료·계약서 PDF 끼움) → 합본 PDF.
   묶음(여러 동) 정밀(10/14): `_run_precision_group_build` — 동마다 본문 → `precision_merge.merge_body`(결과표·요약문·목차 동마다, 시설물편 제N장) → PDF, 동마다 부록 PDF → `merge_appendix_pdfs`(간지 구간마다 동 이름 간지 + 그 동 자료) → 합본.
+  실데이터 반영(10/14~15, 작업내용 52~54차): 현황 표 동마다 줄·결과표 기술자 줄 위치로·참여기술자 명단 이번 회차 사람·결과표 주요결과 (계속) 줄 나눔·제목 밀기(PDF 한 번 더)·
+  📷 조사 전경 탭(`precision.SURVEY_PICS` — 【사진 2.1】·【사진 3.1】·【사진 4.1~4.5】, `/precision/survey-photo`)·부대 점검사항 자동(`precision.auto_checklist`)·점검이력 자동(끝난 회차 결과표 등급·주요결과)·
+  용도 현황(건축물대장 층별)·현황표 빈 칸은 전회차 보고서에서(`prior_status_fields`)·정밀 묶음 나누기 `precision_merge.split`(이미 낸 정밀 보고서 동별 등록, 종류 정밀·결과표 등급 저장)·
+  상태평가 결과 자료 SafetyMan 양식(`condition.make_pdf`)·개략공사비 균열 면적환산(폭 0.25m)+20% 할증·사진은 이번 회차 것만(없으면 비우고 경고)·강재 규격 글자("L-100×100×7", `tests.steel_area` 앵글)·표 칸 그림 픽셀=칸 크기(96dpi 함정, 핵심기술 18절).
   구조 일람표 읽기 `schedule_read.py`(글자 있는 쪽 타일 / 글자 없으면 AI가 위치를 찾아 크게) + 기호 우선 규칙, 강재 단면적 `tests.steel_area`, 강재 규격 상태평가(`rating` SS 항목·`condition` 강재기둥·강재보).
 - 방식: **회사 원본 템플릿 하나**(`server/sitok/master.py` — 학교 보고서, 종별로 1.5·1.7 빼고 번호 다시)에 이번 값과 **전회차 보고서 데이터**(이력·현황·지난 평가)를 넣는다
   (`report_build.py`). 여러 동은 동마다 한글 → `merge.py`로 한 권. 한글로 PDF → 첨부 도면(1.2.9 뒤, `drawings.py`)·관리대장·계약서·외관조사 사진첩·전회차 비교 사진대장 합본,

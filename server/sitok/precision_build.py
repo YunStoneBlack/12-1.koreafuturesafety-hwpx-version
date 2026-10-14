@@ -50,6 +50,7 @@ class Data:
     blank: str = ""
     survey_pics: dict = field(default_factory=dict)  # 조사 전경 사진 {키: [경로|""…]}(precision.SURVEY_PICS, 형 10/14) — 【사진 2.1】·【사진 4.1~4.5】
     prior_fields: dict = field(default_factory=dict)  # 이전 회차 보고서 현황표의 칸 값 {이름: 값} — 빈 칸은 여기서(형 10/14 "그럼 가져와?" → 추천대로)
+    missing_photo_note: str = ""  # 이번 회차 사진 없는 결함 안내(sitok_defects.missing_photo_note, 10/14)
 
 
 # ---------- 작은 도구 ----------
@@ -351,6 +352,7 @@ def _fill_result_table(root, D: Data) -> int:
     if k and t.get("grade_letter"):
         _set(cells, *k, t["grade_letter"]); n += 1  # noqa: E702
     n += rb.engineer_rows(root, D.new.persons)  # 다. 책임(참여)기술자 줄 — 이름·등급을 줄 위치로, 남는 줄 지움(10/14 숭의: 틀의 "특급기술자" 두 명이 글자 바꾸기에서 충돌)
+    n += rb.engineer_list(root, D.new.persons)  # 참여기술자 명단도 같은 사람·줄 수(형 10/14)
     for tc in cells.values():
         for q in tc.iter(f"{{{HP}}}p"):
             txt = "".join(rb._full(x) for x in q.iter(T))
@@ -860,7 +862,7 @@ def _fill_prev_review(root, D: Data) -> int:
 def _photo_groups(D: Data) -> dict:
     """3.2 손상사진 묶음 — 이번 회차 사진, 없으면 전회차 사진("그대로"로 넘긴 결함, 10/14)."""
     def ph(d):
-        return d.photo if d.photo and Path(d.photo).exists() else d.prev_photo if d.prev_photo and Path(d.prev_photo).exists() else ""
+        return d.photo if d.photo and Path(d.photo).exists() else ""  # 이번 회차 사진만(사용자 10/14 — 전회차가 섞이면 안 찍은 걸 못 잡음)
     ds = [(d, ph(d)) for d in D.defects]
     ds = [(d, p) for d, p in ds if p]
     cap = lambda d: f"{d.floor} {d.member} {d.dtype}".strip()  # noqa: E731
@@ -893,6 +895,8 @@ def _fill_ch3(root, D: Data, tpl, add_image) -> int:
     n = 0
     t = D.texts
     groups = _photo_groups(D)
+    if D.missing_photo_note and D.missing_photo_note not in D.notes:
+        D.notes.append(D.missing_photo_note)
     for cap, key, text_key in (("【사진 3.2】", "crack", "crack"), ("【사진 3.3】", "leak", "leak"), ("【사진 3.4】", "spall", "spall"),
                                ("【사진 3.7】", "steel", "steel"), ("【사진 3.8】", "nonstruct", "nonstruct")):
         tbl = _table_after(root, cap)
@@ -1245,7 +1249,9 @@ def _fill(src: Path, dest: Path, D: Data) -> int:
                     for tbl in _result_tables(root):  # 결과표가 길어지면 통째로 다음 쪽으로 넘어가지 않고 줄 단위로 나뉘게(사용자 10/14 — 원본은 pageBreak TABLE)
                         rb._splittable(tbl, 0)
                         tbl.set("repeatHeader", "0")  # "가. 일반현황" 줄이 다음 쪽에 또 찍히지 않게
-                        if _split_result_table(root, tbl):  # 한 쪽을 넘을 것 같으면 '다.'부터 새 쪽(형 10/14)
+                        if rb.split_findings_row(root, tbl, RESULT_EST_FIT):  # "점검 주요결과"가 쪽을 넘으면 앞 쪽 몫 + (계속) 줄로(형 10/14 — 칸 안에서 잘리면 테두리 끊김)
+                            changed += 1
+                        elif _split_result_table(root, tbl):  # 그래도 넘칠 것 같으면 '다.'부터 새 쪽
                             changed += 1
                     if D.result_fields:
                         changed += rb._set_result_fields(root, D.result_fields)
@@ -1424,6 +1430,8 @@ def _data_for(db, r, new: rb.Values, f, ex) -> Data:
              replace=rep, kind_label=f.template or "2종")
     D.detail = (r.survey or {}).get("detail")
     D.prior_fields = prior_status_fields(SR._prior(r))  # 이전 회차 보고서 현황표 값 — 빈 칸 채우기(10/14)
+    from server.api.routers.sitok_defects import missing_photo_note
+    D.missing_photo_note = missing_photo_note(db, r.id)
     from server.sitok import precision as PR
     base_dir = SR._report_dir(f, r)
     D.survey_pics = {k: [str(base_dir / x) if x else "" for x in v] for k, v in PR.norm((r.survey or {}).get("precision"))["survey"].items()}

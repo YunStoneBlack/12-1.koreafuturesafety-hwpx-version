@@ -40,6 +40,8 @@ DEPTH_WORDS = ("박리", "박락", "층분리")  # 깊이(mm) 칸이 있는 결�
 CHECKS = ("", "same", "grew", "repaired", "new")
 MARK = {"same": "기존", "grew": "기존", "repaired": "보수", "new": "신규"}
 FLOOR_ORDER = ("옥상", "옥탑", "지상", "지하")
+CRACK_WIDTH_M = 0.25  # 균열 보수물량 면적 환산 폭(m) — 길이 × 0.25 = ㎡(형 10/14 "균열은 길이로 재는데 보수물량은 폭 0.25로 면적 환산")
+COST_MARKUP = 1.2  # 개략공사비 보수물량 할증 20%(형 10/14)
 
 
 def is_area(dtype: str) -> bool:
@@ -202,6 +204,16 @@ def priority(d: SitokDefect, methods: dict | None = None) -> int:
     return 3
 
 
+def missing_photo_note(db: Session, report_id: int) -> str:
+    """이번 회차 사진이 없는 결함 안내(보고서 만들 때 경고, 10/14) — "결함 57건 중 이번 사진 없음 3건(지상3층 1번, …)". 없으면 ""."""
+    rows = _rows(db, report_id)
+    miss = [d for d in rows if not (d.photo and Path(d.photo).exists()) and not (d.check == "repaired" or d.mark == "보수")]
+    if not miss:
+        return ""
+    where = ", ".join(f"{d.floor} {d.seq}번" for d in miss[:6]) + (f" 외 {len(miss) - 6}건" if len(miss) > 6 else "")
+    return f"결함 {len(rows)}건 중 이번 회차 사진 없음 {len(miss)}건({where}) — 사진 칸은 비워 두었습니다"
+
+
 def _defects_for_cost(db: Session, report_id: int) -> list[SitokDefect]:
     return [d for d in _rows(db, report_id) if not (d.check == "repaired" or d.mark == "보수" or not d.dtype
                                                      or kinds.is_record(d.dtype) or kinds.is_repaired_type(d.dtype))]
@@ -236,6 +248,11 @@ def cost_rows(db: Session, report_id: int, prices: list, methods: dict | None = 
         if act == "주의관찰":
             continue
         g = groups.setdefault((d.part or "-", act), {"types": [], "qty": 0.0, "lump": 0, "lump_keys": set()})
+        p = table.get(act.replace(" ", ""))
+        q = _num(d.qty) or 0
+        if p is not None and not is_area(d.dtype) and (p.unit or "").strip() in ("㎡", "m2", "m²"):
+            q = q * CRACK_WIDTH_M  # 균열은 길이로 재지만 보수물량은 폭 0.25m로 보고 면적 환산해 면적 단가(형 10/14)
+        q *= COST_MARKUP  # 조사된 보수물량에 20% 할증(형 10/14)
         k = method_key(d.part, d.member, d.dtype, d.width)
         lump = ((methods or {}).get(k) or ("", None))[1]
         if lump and k not in g["lump_keys"]:  # 1식 금액은 묶음마다 한 번
@@ -243,7 +260,7 @@ def cost_rows(db: Session, report_id: int, prices: list, methods: dict | None = 
             g["lump_keys"].add(k)
         if d.dtype not in g["types"]:
             g["types"].append(d.dtype)
-        g["qty"] += _num(d.qty) or 0
+        g["qty"] += q
     rows, direct = [], 0
     for (part, act), g in groups.items():
         p = table.get(act.replace(" ", ""))
@@ -268,8 +285,8 @@ def rep_photos(db: Session, report_id: int, per: int = 4) -> dict:
     out: dict = {}
     for d in sorted(_defects_for_cost(db, report_id),
                     key=lambda d: (not d.starred, d.check not in ("grew", "new"), d.part != "구조체", -(_num(d.qty) or 0))):
-        photo = d.photo if d.photo and Path(d.photo).exists() else d.prev_photo
-        if not photo or not Path(photo).exists():
+        photo = d.photo if d.photo and Path(d.photo).exists() else ""  # 이번 회차 사진만(사용자 10/14 — 전회차 사진이 섞이면 안 찍은 걸 못 잡음)
+        if not photo:
             continue
         lst = out.setdefault(category_of(d.part, d.member, d.dtype), [])
         if len(lst) < per:
@@ -289,7 +306,7 @@ def album_floors(db: Session, report_id: int) -> list[tuple[str, list[dict]]]:
                      "개수": "-" if rep else d.count, "폭": "-" if rep else d.width, "길이": "-" if rep else d.length,
                      "물량": "-" if rep else d.qty, "면적률": "-" if rep else d.area_ratio, "결함원인": "-" if rep else d.cause,
                      "진행유무": "-" if rep else d.progress, "비고": d.mark, "사진번호": f"사진{len(rows) + 1}",
-                     "_photo": d.photo if d.photo and Path(d.photo).exists() else d.prev_photo,
+                     "_photo": d.photo if d.photo and Path(d.photo).exists() else "",  # 사진첩도 이번 사진만, 없으면 빈 칸(사용자 10/14 "비우기")
                      # 전회차 비교 사진대장(album_make.compare_pages)용
                      "_now_photo": d.photo if d.photo and Path(d.photo).exists() else "", "_prev_photo": d.prev_photo,
                      "_prev": d.prev or {}, "_check": d.check, "_compare": bool(d.prev) and not (d.dtype or "").rstrip().endswith("현황")

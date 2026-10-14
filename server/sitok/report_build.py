@@ -1556,7 +1556,7 @@ def _dup_rows(tbl, start: int, count: int, times: int, clear_cols: set | None = 
                     _set_lines(tc, [""])
             last.addnext(new)
             last = new
-    if start + count == len(trs) and start - count >= 0:  # 묶음이 표 끝이었으면 원래 끝줄의 굵은 아래 테두리를 그 위 묶음 모양으로
+    if start + count == len(trs) and start - count >= 1:  # 묶음이 표 끝이었으면 원래 끝줄의 굵은 아래 테두리를 그 위 묶음 모양으로(위가 머리줄이면 회색 배경이 따라오므로 안 함, 10/14)
         for src, dst in zip(trs[start - count:start], block):
             above = {tc.find(f"{{{HP}}}cellAddr").get("colAddr"): tc.get("borderFillIDRef") for tc in src.findall(f"{{{HP}}}tc")}
             for tc in dst.findall(f"{{{HP}}}tc"):
@@ -1603,13 +1603,130 @@ def engineer_rows(root, persons: list[tuple[str, str]]) -> int:
     return n
 
 
-def split_result_table(root, tbl) -> bool:
+def grade_word(grade: str) -> str:
+    """결과표 기술등급("안전관리 건축분야고급기술자") → 명단 자격등급("고급기술인")."""
+    for key in ("특급", "고급", "중급", "초급"):
+        if key in (grade or ""):
+            return f"{key}기술인"
+    return grade or "-"
+
+
+def engineer_list(root, persons: list[tuple[str, str]]) -> int:
+    """참여기술자 명단 표(분야·참여세부 과업내용·성명·자격 및 등급·비고) — 결과표와 같은 사람·줄 수로(형 10/14 "전회차랑 상관없이 이번 회차 기술자").
+    첫 줄 = 책임(분야·참여세부는 틀 첫 줄 그대로), 참여는 틀의 마지막 참여 줄 모양(분야·참여세부)을 본떠, 남는 줄 삭제·모자라면 복사."""
+    if not persons:
+        return 0
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        cells = _cells(tbl)
+        head = {c: _cell_text(cells[(0, c)]).replace(" ", "") for c in range(8) if (0, c) in cells}
+        if "참여세부" not in "".join(head.values()):
+            continue
+        name_c = next((c for c, h in head.items() if h.startswith("성명")), None)
+        grade_c = next((c for c, h in head.items() if h.startswith("자격")), None)
+        if name_c is None:
+            continue
+        rows = [r for r in sorted({k[0] for k in cells}) if r > 0 and (r, name_c) in cells]
+        if not rows:
+            continue
+        need = len(persons)
+        if len(rows) < need:
+            _dup_rows(tbl, rows[-1], 1, need - len(rows), clear_cols={name_c, grade_c} if grade_c is not None else {name_c})
+            cells = _cells(tbl)
+            rows = [r for r in sorted({k[0] for k in cells}) if r > 0 and (r, name_c) in cells]
+        elif len(rows) > need:  # 남는 줄은 마지막 참여 줄 모양을 남기고 가운데를 지움
+            keep = rows[:need]
+            if need >= 2:  # 참여 줄 모양은 틀의 마지막 줄(안전관리·현장조사) — 그 줄의 분야·참여세부를 마지막 남는 줄에
+                last = rows[-1]
+                for c in sorted(c for r, c in cells if r == last and c not in (name_c, grade_c)):
+                    if (keep[-1], c) in cells:
+                        _set_lines(cells[(keep[-1], c)], [x for x in _cell_text(cells[(last, c)]).split("\n")] or [""])
+            _del_rows(tbl, keep[-1] + 1, rows[-1] - keep[-1])
+            cells = _cells(tbl)
+            rows = keep
+        for r, (name, grade) in zip(rows, persons):
+            _set_lines(cells[(r, name_c)], [name])
+            if grade_c is not None and (r, grade_c) in cells:
+                _set_lines(cells[(r, grade_c)], [grade_word(grade)])
+        return 1
+    return 0
+
+
+def _table_row_heights(tbl) -> dict[int, int]:
+    """줄마다 어림 높이(HWPUNIT) — _est_height와 같은 셈(칸 높이 vs 글 줄 수 × LINE_H)."""
+    import math
+
+    rows: dict[int, int] = {}
+    for (r, _), tc in _cells(tbl).items():
+        span = tc.find(f"{{{HP}}}cellSpan")
+        if span is not None and int(span.get("rowSpan") or 1) > 1:
+            continue
+        sz = tc.find(f"{{{HP}}}cellSz")
+        w, h = int(sz.get("width") or 0), int(sz.get("height") or 0)
+        m = tc.find(f"{{{HP}}}cellMargin")
+        mx = (int(m.get("left") or 141) + int(m.get("right") or 141)) if m is not None else 282
+        my = (int(m.get("top") or 141) + int(m.get("bottom") or 141)) if m is not None else 282
+        if next(tc.iter(f"{{{HP}}}pic"), None) is not None or next(tc.iter(f"{{{HP}}}tbl"), None) is not None:
+            est = h
+        else:
+            lines = 0
+            for p in tc.iter(f"{{{HP}}}p"):
+                t = "".join(x.text or "" for x in p.iter(T))
+                lines += max(1, math.ceil(len(t) * CHAR_W / max(w - mx, 1000)))
+            est = min(lines, 200) * LINE_H + my
+        rows[r] = max(rows.get(r, 0), h, est)
+    return rows
+
+
+def split_findings_row(root, tbl, limit: int) -> bool:
+    """결과표 "점검 주요결과" 줄이 쪽을 넘을 것 같으면(어림) 앞 쪽에 들어갈 글머리만 남기고 나머지를 "점검 주요결과(계속)" 줄로 떼어 둘째 표(새 쪽)로 —
+    형 10/14 "칸 안에서 잘리면 테두리가 끊겨 보임". limit = 한 쪽에 들어가는 어림 높이(결과표 기준값). 나눴으면 True."""
+    cells = _cells(tbl)
+    rows = sorted({k[0] for k in cells})
+    r = next((rr for rr in rows if (rr, 0) in cells and _n(_cell_text(cells[(rr, 0)])).startswith("점검주요결과")), None)
+    if r is None:
+        return False
+    heights = _table_row_heights(tbl)
+    if sum(heights.values()) <= limit:
+        return False
+    nxt = [k for k in cells if k[0] == r and k[1] > 0]
+    if not nxt:
+        return False
+    tc = cells[min(nxt)]
+    paras = [p for p in tc.iter(f"{{{HP}}}p") if next(p.iterancestors(f"{{{HP}}}tc"), None) is tc]
+    texts = ["".join(x.text or "" for x in p.iter(T)) for p in paras]
+    if len([t for t in texts if t.strip()]) < 2:
+        return False
+    sz = tc.find(f"{{{HP}}}cellSz")
+    w = int(sz.get("width") or 0) - 282
+    import math
+
+    before = sum(h for rr, h in heights.items() if rr < r)
+    avail = limit - before - 1200
+    keep, used = [], 282
+    for t in texts:
+        need = max(1, math.ceil(len(t) * CHAR_W / max(w, 1000))) * LINE_H
+        if keep and used + need > avail:
+            break
+        keep.append(t)
+        used += need
+    rest = texts[len(keep):]
+    if not rest:
+        return False
+    _dup_rows(tbl, r, 1, 1)  # 같은 모양 줄 하나 더(글은 비움)
+    cells = _cells(tbl)
+    _set_lines(cells[(r, min(nxt)[1])], keep)
+    _set_lines(cells[(r + 1, 0)], ["점검", "주요결과", "(계속)"])
+    _set_lines(cells[(r + 1, min(nxt)[1])], rest)
+    return split_result_table(root, tbl, at=r + 1)
+
+
+def split_result_table(root, tbl, at: int | None = None) -> bool:
     """결과표를 '다. 책임(참여)기술자 현황'부터 새 쪽의 둘째 표로(문단 복사 + pageBreak, 앞/뒤 줄은 _del_rows) — 형 10/14 "2~3줄 애매하게 넘어가면 아예 넘겨버려".
     '다.' 줄이 없으면(이미 나눴거나 모양이 다르면) 안 함. 정기·정밀 공용(pagecheck.split_result_tables가 PDF를 보고 부름)."""
     cells = _cells(tbl)
     rows = sorted({k[0] for k in cells})
-    k = next((r for r in rows if (r, 0) in cells and re.sub(r"\s", "", _cell_text(cells[(r, 0)])).startswith("다.")), None)
-    if k is None or k == rows[0]:
+    k = at if at is not None else next((r for r in rows if (r, 0) in cells and re.sub(r"\s", "", _cell_text(cells[(r, 0)])).startswith("다.")), None)
+    if k is None or k == rows[0] or k not in rows:
         return False
     top = tbl
     while top.getparent() is not None and top.getparent() is not root:
@@ -1680,9 +1797,14 @@ def _cropped(path, w: int, h: int) -> bytes:
     else:
         nh = iw * h // w
         img = img.crop((0, (ih - nh) // 2, iw, (ih - nh) // 2 + nh))
+    pw, ph = max(int(w / 7200 * PIC_DPI), 1), max(int(h / 7200 * PIC_DPI), 1)  # 칸 크기 픽셀로(작은 사진은 작게, 큰 사진은 잘려 보이던 것 — 10/14)
+    img = img.resize((pw, ph))
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=88)
     return buf.getvalue()
+
+
+PIC_DPI = 96  # 우리 한글(2020)이 표 칸 그림을 그리는 기준 — 픽셀 = HWPUNIT/7200인치 × 96(10/14 t72_pic.py 실험: dpi 메타·orgSz 무시)
 
 
 def _new_ids(el) -> None:
@@ -1858,33 +1980,13 @@ def _trim_rows(tbl, keep: int) -> None:
         sz.set("height", str(max(int(sz.get("height") or 0) - cut, 0)))
 
 
+REGULAR_RESULT_FIT = 76000  # 정기 결과표 어림 높이 한 쪽 기준(낸 보고서 76928이 한 쪽에 듦, 넘친 숭의 2026이 76886 — 어림이 거칠어 가운데쯤; 넘치면 pagecheck가 '다.'부터 나눔)
 BODY_H = 67000  # 본문 높이(HWPUNIT, ≈236mm) — A4에서 위·아래 여백·머리말·꼬리말 뺀 것(원본 쪽 설정), 한 쪽짜리 표가 이만함
 
 
 def _est_height(tbl) -> int:
-    """표 높이 어림(HWPUNIT) — 줄마다 max(칸 높이, 글 줄 수 × LINE_H)(칸 너비로 접히는 줄 셈). 그림·안쪽 표가 든 칸은 칸 높이."""
-    import math
-
-    rows: dict[int, int] = {}
-    for (r, _), tc in _cells(tbl).items():
-        span = tc.find(f"{{{HP}}}cellSpan")
-        if span is not None and int(span.get("rowSpan") or 1) > 1:
-            continue
-        sz = tc.find(f"{{{HP}}}cellSz")
-        w, h = int(sz.get("width") or 0), int(sz.get("height") or 0)
-        m = tc.find(f"{{{HP}}}cellMargin")
-        mx = (int(m.get("left") or 141) + int(m.get("right") or 141)) if m is not None else 282
-        my = (int(m.get("top") or 141) + int(m.get("bottom") or 141)) if m is not None else 282
-        if next(tc.iter(f"{{{HP}}}pic"), None) is not None or next(tc.iter(f"{{{HP}}}tbl"), None) is not None:
-            est = h
-        else:
-            lines = 0
-            for p in tc.iter(f"{{{HP}}}p"):
-                t = "".join(x.text or "" for x in p.iter(T))
-                lines += max(1, math.ceil(len(t) * CHAR_W / max(w - mx, 1000)))
-            est = min(lines, 200) * LINE_H + my
-        rows[r] = max(rows.get(r, 0), h, est)
-    return sum(rows.values())
+    """표 높이 어림(HWPUNIT) — 줄마다 max(칸 높이, 글 줄 수 × LINE_H)(칸 너비로 접히는 줄 셈). 그림·안쪽 표가 든 칸은 칸 높이(_row_heights 합)."""
+    return sum(_table_row_heights(tbl).values())
 
 
 def table_heights(root) -> dict[str, int]:
@@ -2147,6 +2249,15 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     changed += 1
                 if extras.ai:
                     changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template, old.grade)
+                if is_front and new.persons:
+                    changed += engineer_list(root, new.persons)  # 참여기술자 명단도 이번 회차 사람으로(10/14)
+                if is_front:
+                    for tbl in root.iter(f"{{{HP}}}tbl"):  # 정기 결과표 "점검 주요결과"가 길면 앞 쪽 몫 + (계속) 줄로(10/14)
+                        c0 = _cells(tbl)
+                        if {"용역명", "점검기간", "관리주체명"} <= {re.sub(r"\s", "", _cell_text(v)) for v in c0.values()}:
+                            if split_findings_row(root, tbl, REGULAR_RESULT_FIT):
+                                changed += 1
+                            break
                 if extras.survey and not is_front:
                     changed += _apply_survey(root, extras.survey)
                 if extras.survey and extras.survey.get("detail") and not is_front:

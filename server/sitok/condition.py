@@ -245,88 +245,194 @@ def _fmt(x) -> str:
     return "-" if x is None else f"{x:.2f}"
 
 
+SM_CRACK = ("0.1mm미만의 균열발견", "0.2mm미만의 균열발견", "0.3mm미만의 균열발견", "0.5mm미만의 균열발견", "0.5mm이상의 균열발견")
+SM_SCALING = ("발생없음", "0.5mm미만의 박리발생", "1.0mm미만의 박리발생", "2.5mm미만의 박리발생", "2.5mm이상의 박리발생")
+SM_SPALLING = ("발생없음", "15mm미만의 박리발생", "20mm미만의 박리발생", "25mm미만의 박리발생", "25mm이상의 박리발생")
+SM_LEAK = ("누수 및 백태발생 없음", "경미한 누수/백태발생면적 5%미만", "현저한 누수/백태발생면적 10%미만", "누수진행 관찰/백태발생면적 20%미만", "누수진행 확연/백태발생면적 20%이상")
+SM_REBAR = ("노출발생없음", "노출발생면적율 1%미만", "노출발생면적율 3%미만", "노출발생면적율 5%미만", "노출발생면적율 5%이상")
+RED = (0.85, 0.1, 0.1)
+BLUE = (0.1, 0.2, 0.75)
+HEAD_FILL = (0.96, 0.96, 0.85)  # SafetyMan 머리칸(연노랑)
+
+
 def make_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_view: dict, prev_grade: str = "") -> Path:
-    """건축물 평가결과(건물개요·평가결과·최종결과) + 입력자료(표본층마다 강도·균열·중성화·박리·박락·누수·철근노출) + 기울기 및 침하 — A4 세로, pymupdf."""
+    """건축물 평가결과 — SafetyMan 출력(형 10/14 "상태평가결과 엑셀과 똑같은 양식, 지침이 SafetyMan 사용")과 같은 짜임:
+    건물개요(한 열 이름·값) → 평가결과(층 묶음마다 부재 머리줄 + '상태' 줄, 오른쪽 '기울기 및 침하' 세로 칸, 종합·최종은 빨강) → 최종결과 →
+    입력자료(층 묶음마다 콘크리트강도·균열·중성화·박리·박락·누수·철근노출·강재규격, SafetyMan 줄 이름·값 꼴 "24.2, 0, 0 / 24(D)") → 기울기 및 침하. A4 세로, pymupdf."""
     import pymupdf
 
-    from server.sitok.album_make import M, W, _cell, _fonts, _scale
+    from server.sitok.album_make import FONT, FONT_B, M, W, _fonts, _scale
 
     doc = pymupdf.open()
     page = doc.new_page(width=W, height=841.68)
     _fonts(page)
     y = M
+    PH = 841.68
 
-    def title(text, size=13):
-        nonlocal y
-        page.insert_text((M, y + size), text, fontname="mgb", fontsize=size)
-        y += size + 8
-
-    def table(cols, rows, size=7, head_fill=(0.93, 0.93, 0.93), bold_first=False, row_h=14):
-        """cols = [(이름, 폭비)], rows = [[값…]]. 쪽이 모자라면 새 쪽."""
+    def newpage():
         nonlocal page, y
+        page = doc.new_page(width=W, height=PH)
+        _fonts(page)
+        y = M
+
+    def need(h):
+        if y + h > PH - M:
+            newpage()
+
+    def text(x, yy, t, size=9, bold=False, color=(0, 0, 0)):
+        page.insert_text((x, yy), t, fontname="mgb" if bold else "mg", fontsize=size, color=color)
+
+    def cell(rect, t, size=7.5, bold=False, fill=None, color=(0, 0, 0), align="center"):
+        if fill:
+            page.draw_rect(rect, color=None, fill=fill)
+        page.draw_rect(rect, color=(0.3, 0.3, 0.3), width=0.5)
+        lines = str(t).split("\n")
+        lh = size * 1.3
+        yy = rect.y0 + (rect.height - lh * len(lines)) / 2 + size * 0.95
+        f = pymupdf.Font(fontfile=FONT_B if bold else FONT)
+        for ln in lines:
+            sz = size
+            tw = f.text_length(ln, fontsize=sz)
+            while tw > rect.width - 3 and sz > 4:
+                sz -= 0.3
+                tw = f.text_length(ln, fontsize=sz)
+            x = rect.x0 + 3 if align == "left" else rect.x0 + (rect.width - tw) / 2
+            page.insert_text((x, yy), ln, fontname="mgb" if bold else "mg", fontsize=sz, color=color)
+            yy += lh
+
+    def title(t, size=14, gap=6):
+        nonlocal y
+        need(size + gap + 4)
+        text(M, y + size, t, size, True)
+        y += size + gap
+
+    def grid(cols, rows, row_h=13, size=7.5, head=True, head_fill=HEAD_FILL):
+        """cols = [(이름, 폭비)], rows = [[값 또는 (값, {bold, color, fill})…]] — 쪽이 모자라면 새 쪽(머리줄 다시)."""
+        nonlocal y
         widths = _scale(cols, W - 2 * M)
-        if y + row_h * (len(rows) + 1) > 841.68 - M:
-            page = doc.new_page(width=W, height=841.68)
-            _fonts(page)
-            y = M
-        x = M
-        for name, w in widths:
-            _cell(page, pymupdf.Rect(x, y, x + w, y + row_h), name, size=size, bold=True, fill=head_fill)
-            x += w
-        y += row_h
-        for row in rows:
+
+        def head_row():
+            nonlocal y
             x = M
-            for (name, w), val in zip(widths, row):
-                _cell(page, pymupdf.Rect(x, y, x + w, y + row_h), "" if val is None else str(val), size=size, bold=bold_first and name == cols[0][0])
+            for name, w in widths:
+                cell(pymupdf.Rect(x, y, x + w, y + row_h), name, size, True, head_fill)
                 x += w
             y += row_h
 
-    title("건축물 평가결과", 15)
-    title("건물개요", 10)
+        need(row_h * 2)
+        if head:
+            head_row()
+        for row in rows:
+            if y + row_h > PH - M:
+                newpage()
+                if head:
+                    head_row()
+            x = M
+            for (name, w), val in zip(widths, row):
+                opt = {}
+                if isinstance(val, tuple):
+                    val, opt = val
+                cell(pymupdf.Rect(x, y, x + w, y + row_h), "" if val is None else str(val), size, opt.get("bold", False), opt.get("fill"), opt.get("color", (0, 0, 0)), opt.get("align", "center"))
+                x += w
+            y += row_h
+
+    # ---- 건축물 평가결과 / 건물개요
+    need(60)
+    f = pymupdf.Font(fontfile=FONT_B)
+    tw = f.text_length("건축물 평가결과", fontsize=17)
+    text(M + (W - 2 * M - tw) / 2, y + 17, "건축물 평가결과", 17, True)
+    y += 30
+    title("건물개요", 13)
     bi = building
-    table([("항목", 1), ("내용", 3), ("항목", 1), ("내용", 3)], [
-        ["건물명", bi.get("name", ""), "소유주", bi.get("owner", "")], ["소재지", bi.get("address", ""), "관리주체", bi.get("owner", "")],
-        ["준공년도", bi.get("completion", ""), "대지면적", bi.get("land_area", "")], ["주용도", bi.get("use", ""), "건축면적", bi.get("building_area", "")],
-        ["구조형식", bi.get("structure", ""), "건축연면적", bi.get("total_area", "")], ["지상", f"{bi.get('above', '')} 층", "지하", f"{bi.get('below', '')} 층"],
-        ["평가종류", "정밀점검", "평가기관", bi.get("company", "")], ["평가일시", bi.get("when", ""), "연락처", bi.get("phone", "")]])
-    y += 10
-    title("평가결과", 10)
-    rows = []
-    if result:
-        for fl in result["floors"]:
-            scores = {m["kind"]: m["condition"] for m in fl["members"]}
-            rows.append([fl["label"].replace("(", "\n("), "상태"] + [("-" if scores.get(k) is None else f"{scores[k]:.1f}") for k in MEMBERS]
-                        + [f"{fl['condition']:.2f}({rating.grade_of(fl['condition'])})" if fl["condition"] is not None else "-"])
-    deform = result["deform"] if result and result.get("deform") else None
-    table([("층", 1.6), ("", 0.7)] + [(k, 0.9) for k in MEMBERS] + [("종합", 1.1)], rows, row_h=22)
-    steel_lines = []  # 강재 부재(10/14 형) — 갑지 표(SafetyMan 열 7개)는 그대로 두고 아래에 줄로
-    for fl in (result["floors"] if result else []):
-        for m in fl["members"]:
-            if m["kind"] in STEEL_MEMBERS and m["condition"] is not None:
-                steel_lines.append(f"{fl['label'].split('(')[0]} {m['kind']} {m['condition']:.1f}({rating.grade_of(m['condition'])})")
-    if steel_lines:
-        y += 2
-        table([("강재 부재(규격)", 1.4), ("", 5)], [["강재 부재(규격)", " · ".join(steel_lines)]], row_h=15, size=7)
-    if result:
-        y += 6
-        lines = [f"상태평가: {result['condition']['score']:.2f}({result['condition']['grade']}등급)" if result.get("condition") else "상태평가: -",
-                 f"기울기 및 침하: {deform['score']:.2f}({deform['grade']}등급)" if deform else "기울기 및 침하: -",
-                 f"종합평가: {result['total']['score']:.2f}({result['total']['grade']}등급)" if result.get("total") else "종합평가: -"]
-        if prev_grade:
-            lines.append(f"전차 점검 등급: {prev_grade}")
-        table([("최종결과", 1), ("", 4)], [[("" if i else "최종결과"), ln] for i, ln in enumerate(lines)], row_h=15)
-    # 입력자료
+    pairs = [("건물명", bi.get("name", "")), ("소재지", bi.get("address", "")), ("준공년도", bi.get("completion", "")), ("주용도", bi.get("use", "")), ("구조형식", bi.get("structure", "")),
+             ("소유주", bi.get("owner", "")), ("연락처", ""), ("관리주체", bi.get("owner", "")), ("연락처", ""),
+             ("대지면적", bi.get("land_area") or "-"), ("건축면적", bi.get("building_area") or "-"), ("건축연면적", bi.get("total_area") or "-"), ("건폐율", "-"), ("용적율", "-"),
+             ("지상", f"{bi.get('above', '')} 층"), ("지하", f"{bi.get('below', '')} 층")]
+    lw, vw = (W - 2 * M) * 0.22, (W - 2 * M) * 0.78
+    for k, v in pairs:
+        need(13)
+        cell(pymupdf.Rect(M, y, M + lw, y + 13), k, 8, False, None, align="left")
+        cell(pymupdf.Rect(M + lw, y, M + lw + vw, y + 13), v, 8, False, None, align="left")
+        y += 13
+    half = (W - 2 * M) / 2
+    for (k1, v1, k2, v2) in (("평가종류", "정밀점검", "평가기관", bi.get("company", "")), ("평가일시", bi.get("when", ""), "연락처", bi.get("phone", ""))):
+        need(13)
+        cell(pymupdf.Rect(M, y, M + lw, y + 13), k1, 8, align="left")
+        cell(pymupdf.Rect(M + lw, y, M + half, y + 13), v1, 8, k1 == "평가종류", align="left")
+        cell(pymupdf.Rect(M + half, y, M + half + lw * 0.8, y + 13), k2, 8)
+        cell(pymupdf.Rect(M + half + lw * 0.8, y, W - M, y + 13), v2, 8, align="left")
+        y += 13
     y += 12
-    title("입력자료", 11)
+    # ---- 평가결과
+    title("평가결과", 13)
+    floors = result["floors"] if result else []
+    deform = result["deform"] if result and result.get("deform") else None
+    total_w = W - 2 * M
+    c_floor, c_def = total_w * 0.17, total_w * 0.11
+    c_mid = total_w - c_floor - c_def
+    c_lab = c_mid * 0.09
+    c_mem = (c_mid - c_lab) / (len(MEMBERS) + 1)
+    rh = 14
+    need(rh * (2 + 2 * max(len(floors), 1)) + 4)
+    cell(pymupdf.Rect(M, y, M + c_floor, y + rh * 2), "층", 9, True, HEAD_FILL)
+    cell(pymupdf.Rect(M + c_floor, y, M + c_floor + c_mid, y + rh * 2), "안전성 / 상태", 9, True, HEAD_FILL)
+    cell(pymupdf.Rect(M + c_floor + c_mid, y, W - M, y + rh * 2), "기울기\n및 침하", 9, True, HEAD_FILL)
+    y += rh * 2
+    body_top = y
+    for fl in floors:
+        scores = {m["kind"]: m["condition"] for m in fl["members"]}
+        cell(pymupdf.Rect(M, y, M + c_floor, y + rh * 2), f"{fl['label'].split('(')[0]}\n({fl.get('g') or fl['label'].split('(')[-1].rstrip(')')})\n{fl.get('structure', '')}", 7.5)
+        x = M + c_floor
+        cell(pymupdf.Rect(x, y, x + c_lab, y + rh), "", 7.5)
+        xx = x + c_lab
+        for k in MEMBERS:
+            cell(pymupdf.Rect(xx, y, xx + c_mem, y + rh), k, 7.5, True)
+            xx += c_mem
+        cell(pymupdf.Rect(xx, y, xx + c_mem, y + rh), "종합", 7.5, True)
+        cell(pymupdf.Rect(x, y + rh, x + c_lab, y + rh * 2), "상태", 7.5, False, None, BLUE)
+        xx = x + c_lab
+        for k in MEMBERS:
+            v = scores.get(k)
+            cell(pymupdf.Rect(xx, y + rh, xx + c_mem, y + rh * 2), "-" if v is None else (f"{v:g}" if abs(v - round(v)) < 1e-9 else f"{v:.2f}"), 7.5)
+            xx += c_mem
+        cell(pymupdf.Rect(xx, y + rh, xx + c_mem, y + rh * 2), f"{fl['condition']:.2f}({rating.grade_of(fl['condition'])})" if fl["condition"] is not None else "-", 7.5, False, None, RED)
+        y += rh * 2
+    if not floors:
+        cell(pymupdf.Rect(M, y, M + c_floor + c_mid, y + rh), "평가할 부재 없음", 7.5)
+        y += rh
+    cell(pymupdf.Rect(M + c_floor + c_mid, body_top, W - M, y), f"{deform['score']:.2f}({deform['grade']})" if deform else "-", 8, False, None, RED)
+    steel_lines = [f"{fl['label'].split('(')[0]} {m['kind']} {m['condition']:.2f}({rating.grade_of(m['condition'])})"
+                   for fl in floors for m in fl["members"] if m["kind"] in STEEL_MEMBERS and m["condition"] is not None]
+    if steel_lines:
+        cell(pymupdf.Rect(M, y, M + c_floor, y + rh), "강재 부재", 7.5, True, HEAD_FILL)
+        cell(pymupdf.Rect(M + c_floor, y, W - M, y + rh), " · ".join(steel_lines), 7.5, False, None, RED)
+        y += rh
+    y += 4
+    if result:
+        lines = [f"상태평가: {result['condition']['score']:.2f}({result['condition']['grade']}등급)" if result.get("condition") else "상태평가: -",
+                 f"종합평가: {result['total']['score']:.2f}({result['total']['grade']}등급)" if result.get("total") else "종합평가: -"]
+        cell(pymupdf.Rect(M, y, M + c_floor, y + rh * 2), "최종결과", 9, True, HEAD_FILL)
+        cell(pymupdf.Rect(M + c_floor, y, W - M, y + rh * 2), "\n".join(lines), 8.5, False, None, RED)
+        y += rh * 2
+    # ---- 입력자료
+    y += 14
+    title("입력자료", 13)
     for fl in agg["floors"]:
-        title(f"{fl['label']}[{fl['range_label']}] {fl['structure']}({fl['material']})", 9)
+        need(60)
+        title(f"{fl['label']}[{fl['range_label']}]{fl['structure']}({fl['material']})", 10, 4)
         mem = {m["kind"]: m for m in fl["members"]}
 
-        def item_rows(item, key_rows, sub=None):
+        def label_row(t):
+            nonlocal y
+            need(14)
+            cell(pymupdf.Rect(M, y, W - M, y + 13), t, 8, True, None, align="left")
+            y += 13
+
+        def item_rows(item, key_rows, sub=None, area_rows=()):
             out = []
             for i, name in enumerate(key_rows):
                 g = rating.GRADES[i]
-                row = [name]
+                row = [("균열폭" if item == "CR" else "발생정도") if i == 0 else "", name]
                 for k in MEMBERS:
                     m = mem.get(k)
                     it = (m or {}).get("items", {}).get(item)
@@ -334,12 +440,24 @@ def make_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_v
                         it = it["sub"].get(sub)
                     row.append("" if not it else (it["counts"][g] or ""))
                 out.append(row)
+            for j, name in enumerate(area_rows):  # 면적율 줄 — 전부 기준 미만(우리는 면적률 20% 미만 등급만 셈)
+                row = ["면적율" if j == 0 else "", name]
+                for k in MEMBERS:
+                    m = mem.get(k)
+                    it = (m or {}).get("items", {}).get(item)
+                    if sub and it:
+                        it = it["sub"].get(sub)
+                    row.append((it.get("total") or sum(it["counts"].values()) or "") if it and j == 0 else "")
+                out.append(row)
             return out
 
-        # 강도·중성화: 측정 줄
-        for item, label, fmt in (("DS", "콘크리트강도(측정강도/설계강도:MPa)", lambda r: f"{r.get('est')} / {r.get('design')}"),
-                                 ("CA", "콘크리트중성화(중성화깊이/피복두께:mm)", lambda r: f"{r.get('depth')} / {r.get('cover')}")):
+        cols7 = [("평가부재", 1.3)] + [(k, 1) for k in MEMBERS]
+        for item, label, fmt in (("DS", "콘크리트강도(측정강도, 0, 0 / 설계강도:MPa)", lambda r: f"{r.get('est')}, 0, 0 / {r.get('design')}" + ("(D)" if r.get("damaged") else "")),
+                                 ("CA", "콘크리트중성화(중성화깊이, 0, 0 / 피복두께:mm)", lambda r: f"{r.get('depth')}, 0, 0 / {r.get('cover')}")):
             maxn = max((len((mem[k].get("items", {}).get(item) or {}).get("rows", [])) for k in MEMBERS if k in mem), default=0)
+            if not maxn:
+                continue
+            label_row(label)
             rows = []
             for i in range(maxn):
                 row = [f"평가부재{i + 1}"]
@@ -347,30 +465,35 @@ def make_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_v
                     rs = (mem.get(k, {}).get("items", {}).get(item) or {}).get("rows", [])
                     row.append(fmt(rs[i]) if i < len(rs) else "")
                 rows.append(row)
-            table([(label, 1.6)] + [(k, 0.9) for k in MEMBERS], rows or [["(없음)"] + [""] * len(MEMBERS)], row_h=13, size=6.5)
-            y += 4
+            grid(cols7, rows, row_h=13, size=7)
+            y += 5
         ss_rows = [(k, r) for k in (*MEMBERS, *STEEL_MEMBERS) for r in ((mem.get(k) or {}).get("items", {}).get("SS") or {}).get("rows", [])]
-        if ss_rows:  # 강재 규격(측정/설계 단면적 cm²) — 철골조·SRC
-            table([("강재규격(측정단면적/설계단면적:cm²)", 1.6), ("부재", 0.9), ("기호", 0.9), ("설계 규격", 1.4), ("측정 규격", 1.4), ("비율", 0.7), ("등급", 0.6)],
-                  [[f"평가부재{i + 1}", k, r.get("position") or "-", r.get("design") or "-", r.get("measured") or "-", f"{r['ratio']}%" if r.get("ratio") is not None else "-", (r.get("grade") or "-").upper()]
-                   for i, (k, r) in enumerate(ss_rows)], row_h=13, size=6.5)
-            y += 4
-        table([("콘크리트균열 — 균열폭", 1.6)] + [(k, 0.9) for k in MEMBERS], item_rows("CR", CRACK_ROWS), row_h=12, size=6.5)
-        y += 4
-        for sub, label, krows in (("scaling", "박리 — 발생정도", SCALING_ROWS), ("spalling", "박락·층분리 — 발생정도", SPALLING_ROWS),
-                                  ("leak", "누수·백태", LEAK_ROWS), ("rebar", "철근노출", REBAR_ROWS)):
-            table([(label, 1.6)] + [(k, 0.9) for k in MEMBERS], item_rows("SD", krows, sub), row_h=12, size=6.5)
-            y += 4
+        if ss_rows:
+            label_row("강재규격(측정값/설계값:mm²)")
+            grid([("평가부재", 1.3), ("부재", 1), ("기호", 1), ("설계 규격", 1.4), ("측정 규격", 1.4), ("측정값/설계값(mm²)", 1.4), ("등급", 0.7)],
+                 [[f"평가부재{i + 1}", k, r.get("position") or "-", r.get("design") or "-", r.get("measured") or "-",
+                   (f"{r['area_measured'] * 100:.0f} / {r['area_design'] * 100:.0f}" if r.get("area_measured") and r.get("area_design") else "-"), (r.get("grade") or "-").upper()]
+                  for i, (k, r) in enumerate(ss_rows)], row_h=13, size=7)
+            y += 5
+        cols9 = [("평가내용", 0.7), ("", 2.2)] + [(k, 1) for k in MEMBERS]
+        for label, item, krows, sub, area in (("콘크리트균열", "CR", SM_CRACK, None, ("면적율 20% 미만", "면적율 20% 이상")),
+                                               ("박리", "SD", SM_SCALING, "scaling", ("면적율 10% 미만", "면적율 10% 이상")),
+                                               ("박락 · 층분리", "SD", SM_SPALLING, "spalling", ("면적율 20% 미만", "면적율 20% 이상")),
+                                               ("누수 · 백태", "SD", SM_LEAK, "leak", ()), ("철근노출", "SD", SM_REBAR, "rebar", ())):
+            label_row(label)
+            grid(cols9, item_rows(item, krows, sub, area), row_h=12, size=6.8)
+            y += 5
         y += 6
-    title("기울기 및 침하", 9)
+    need(60)
+    title("기울기 및 침하", 10, 4)
     de = agg["deform"]
     tv = tests_view
-    table([("평가내용", 1), ("각변위", 1.2), ("상태", 2.6)], [
+    grid([("평가내용", 1), ("각변위", 1.3), ("상태", 2.8)], [
         ["기울기", f"1/{tv['tilt']['range']['min_n']:,} ~ 1/{tv['tilt']['range']['max_n']:,}" if tv["tilt"]["range"]["min_n"] else "-", f"{(de['tilt'] or '-').upper()} {de['tilt_note']}"],
         ["부동침하", f"{tv['settlement']['range']['min_disp']}~{tv['settlement']['range']['max_disp']}mm" if tv["settlement"]["range"]["max_disp"] is not None else "-",
-         f"{(de['settlement'] or '-').upper()} {de['settlement_note']}"]], row_h=15)
+         f"{(de['settlement'] or '-').upper()} {de['settlement_note']}"]], row_h=14)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    doc.subset_fonts()  # 맑은 고딕 전체(쪽마다 7MB)가 아니라 쓴 글자만 — 15MB → 수십 KB
+    doc.subset_fonts()
     doc.save(str(dest), garbage=3, deflate=True)
     doc.close()
     return dest

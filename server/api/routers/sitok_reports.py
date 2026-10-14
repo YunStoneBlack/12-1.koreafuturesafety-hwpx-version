@@ -864,6 +864,9 @@ def _run_build(report_id: int) -> None:
             merged = _merge(pdf, [f.ledger_pdf], [c.contract_pdf] if c else [])
             if _insert_albums(db, [r], [f.name], pdf):
                 merged.append("외관조사 사진첩")
+            from server.api.routers.sitok_defects import missing_photo_note
+            if missing_photo_note(db, r.id):  # 이번 회차 사진 없는 결함 — 사진첩 칸은 비움(사용자 10/14)
+                warn.append(missing_photo_note(db, r.id))
             r.out_pdf, r.status, r.made_at = str(pdf), "done", datetime.datetime.now()
             pages = pymupdf.open(pdf).page_count
             r.message = " · ".join([f"{pages}쪽, {changed}곳 바꿈" + (f", {'·'.join(merged)} 합본" if merged else "")] + [f"⚠ {w}" for w in warn])
@@ -954,6 +957,8 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         merged = _merge(pdf, [m.ledger_pdf for m, _ in pairs], contracts)
         if _insert_albums(db, [y for _, y in pairs], [m.name for m, _ in pairs], pdf):
             merged.append("외관조사 사진첩")
+        from server.api.routers.sitok_defects import missing_photo_note
+        warn += [f"{m.name}: {missing_photo_note(db, y.id)}" for m, y in pairs if missing_photo_note(db, y.id)]
         pages = pymupdf.open(pdf).page_count
         msg = " · ".join([f"{len(pairs)}동 묶음 {pages}쪽, {total}곳 바꿈" + (f", {'·'.join(merged)} 합본" if merged else "")] + [f"⚠ {w}" for w in warn])
         now = datetime.datetime.now()
