@@ -52,6 +52,9 @@
 .st-tbl td.st-photo img { height: 40px; width: 54px; object-fit: cover; border: 1px solid var(--line); border-radius: 4px; vertical-align: middle; }
 .main .st-tbl td.st-photo .secondary-link { padding: 3px 8px; font-size: 12px; cursor: pointer; margin-left: 4px; }
 .main .st-tbl td.st-photo button.st-photo-del { margin: 0 2px; vertical-align: middle; }
+.st-prev { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: var(--blue-soft); font-size: 13px; }
+.main .st-prev button { margin: 0; }
+.st-hint { font-size: 11px; color: var(--faint); margin-top: 2px; white-space: nowrap; }
 @media (max-width: 640px) {
   .st-tbl table { min-width: 560px; }
   .st-sec-head b { flex-basis: 100%; }

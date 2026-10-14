@@ -4,6 +4,7 @@
 // 10/14 형 피드백(작업내용 46차): 표본층을 고르면 기준 수량만큼 줄이 자동(서버 sync_defaults), 부재는 선택(기둥·큰보·작은보·슬래브·벽체)·강도는 부위(중앙부·단부) 따로,
 // 규격 치수는 기둥·보 가로·세로 두 칸 / 슬래브·벽체 두께 한 칸(숫자 키패드), 조사결과는 일치/다름, 기울기 8줄(모서리 4 × X·Y), 부등침하 4구간 + 구간마다 측점 추가,
 // [🤖 일람표에서 설계 치수 채우기](시설물 도면 "구조 일람표"를 AI가 읽음).
+// 10/14 전회차 가져오기(view.prev = 지난 정밀 회차 입력): 표본층은 서버가 자동, 표마다 [전회차 그대로](규격 전부 / 강도 부재·부위·손상·설계강도 / 탄산화 부재 / 기울기·부등침하 전부), 줄마다 "전회차: …" 힌트.
 
 (function () {
   const rid = Number(new URLSearchParams(location.search).get("report")) || null;
@@ -16,6 +17,7 @@
   const STRUCT = ["라멘", "벽식", "무량판"], MAT = ["RC", "SRC", "철골", "조적"], DIRS = ["", "좌측", "우측", "전면", "후면"];
   const MEMBERS = ["", "기둥", "큰보", "작은보", "슬래브", "벽체", "강재"], SPOTS = ["", "중앙부", "단부"], THICK = ["슬래브", "벽체"];
   let view = null; // 서버가 준 계산값
+  let prevKeep = null; // 전회차 입력(GET에만 옴 — 저장 뒤에도 유지, 10/14)
   let input = null; // 저장할 입력(view.input)
   let timer = null;
 
@@ -75,6 +77,19 @@
     }));
   }
 
+  // ---- 전회차 가져오기(10/14) ----
+  const prevIn = () => (view.prev && view.prev.input) || null;
+  const prevLabel = () => (view.prev ? `${view.prev.report.year}년 ${view.prev.report.half}` : "");
+  function prevBar(key, n, what, onCopy) {
+    if (!prevIn() || !n) return "";
+    return `<div class="st-prev"><span>📂 전회차(${esc(prevLabel())}) ${what} ${n}줄</span><button type="button" class="secondary btn-sm st-prev-copy" data-key="${key}">전회차 그대로 가져오기</button>
+      <span class="sk-help">가져온 뒤 고칠 수 있습니다${key === "strength" || key === "carbonation" ? " — 측정값은 새로(강도는 엑셀, 탄산화는 직접)" : ""}</span></div>`;
+  }
+  const hint = (text) => (text ? `<div class="st-hint">전회차: ${esc(text)}</div>` : "");
+  function bindPrev(root, fn) {
+    root.querySelectorAll(".st-prev-copy").forEach((b) => b.addEventListener("click", () => { fn(prevIn()); save("✓ 전회차에서 가져왔습니다 — 고칠 곳을 고치세요"); }));
+  }
+
   // ---- 1. 표본층 ----
   function drawSample() {
     const s = view.sample, b = view.building;
@@ -115,8 +130,9 @@
     return `<span class="st-dim"><input class="n" data-dim="${path}" value="${esc(a)}" inputmode="numeric" placeholder="가로" /><small>×</small><input class="n" data-dim="${path}" value="${esc(b)}" inputmode="numeric" placeholder="세로" /></span>`;
   }
   function drawSections() {
+    const pvs = (prevIn() || {}).sections || [];
     const rows = view.sections.map((r, i) => `<tr><td>B${i + 1}</td><td><select data-path="sections.${i}.floor">${floorOptions(r.floor)}</select></td>
-      <td><input class="l" data-path="sections.${i}.position" value="${esc(r.position)}" placeholder="C1 / X3-Y3" /></td>
+      <td><input class="l" data-path="sections.${i}.position" value="${esc(r.position)}" placeholder="C1 / X3-Y3" />${hint(pvs[i] && !r.design ? `${pvs[i].position || ""} ${pvs[i].member} ${pvs[i].design}${pvs[i].measured && pvs[i].measured !== pvs[i].design ? " → " + pvs[i].measured : ""}`.trim() : "")}</td>
       <td><select data-path="sections.${i}.member">${opts(MEMBERS, r.member, "부재")}</select>${r.member === "강재" ? `<select data-path="sections.${i}.sub" title="강재가 어느 부재인지 — 상태평가 강재기둥/강재보">${opts(["기둥", "큰보", "작은보"], r.sub || "기둥")}</select>` : ""}</td>
       <td>${dimCell(`sections.${i}.design`, r.design, r.member)}</td>
       <td class="st-measured"><select data-same="${i}"><option value="1"${r.same ? " selected" : ""}>일치</option><option value="0"${r.same ? "" : " selected"}>다름</option></select>
@@ -124,8 +140,11 @@
       <td class="calc">${r.steel && r.area_design ? `<small>${r.area_design}${r.area_measured ? `→${r.area_measured}` : ""}cm²</small><br>` : ""}${r.ratio === null ? "-" : `${r.ratio}%`}</td><td class="calc">${r.ok === null ? "-" : r.ok ? "<b>O.K</b>" : "N.G"}</td><td>${grade(r.grade)}</td>
       <td><button type="button" class="secondary st-del" data-del="sections.${i}">✕</button></td></tr>`).join("");
     $("st-section-count").textContent = `${view.sections.length}개소${view.sections_grade ? ` · ${view.sections_grade.toUpperCase()}` : ""}`;
-    $("st-section-tbl").innerHTML = `<table><thead><tr><th>NO</th><th>표본층</th><th>위치·기호</th><th>부재</th><th>설계도면(mm)</th><th>조사결과</th><th>비율</th><th>평가</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    const pv = prevIn();
+    $("st-section-tbl").innerHTML = prevBar("sections", pv ? pv.sections.length : 0, "부재 규격")
+      + `<table><thead><tr><th>NO</th><th>표본층</th><th>위치·기호</th><th>부재</th><th>설계도면(mm)</th><th>조사결과</th><th>비율</th><th>평가</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <button type="button" class="secondary st-add" id="st-section-add">+ 개소 추가</button>`;
+    bindPrev($("st-section-tbl"), (p) => { input.sections = p.sections.map((r) => ({ ...r })); });
     $("st-section-add").addEventListener("click", () => {
       const last = input.sections[input.sections.length - 1];
       input.sections.push({ floor: last ? last.floor : (input.sample.floors[0] || {}).floor ?? null, position: "", member: last ? last.member : "기둥", design: "", measured: "", same: true, sub: "" });
@@ -155,8 +174,11 @@
       <td><button type="button" class="secondary st-del" data-del="strength/rows.${i}">✕</button></td></tr>`).join("");
     const sm = st.summary;
     $("st-strength-count").textContent = `${st.rows.length}개소${sm.count ? ` · ${sm.min}~${sm.max}MPa 평균 ${sm.mean}` : ""}${st.grade ? ` · ${st.grade.toUpperCase()}` : ""}`;
-    $("st-strength-tbl").innerHTML = `<table><thead><tr><th>구분</th><th>표본층</th><th>부재</th><th>부위</th><th>성과표 위치</th><th>보정반발경도 R0</th><th>재료학회</th><th>건축학회</th><th>추정강도(MPa)</th><th>설계기준강도</th><th>비율</th><th>손상</th><th>비고</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    const pvS = prevIn();
+    $("st-strength-tbl").innerHTML = prevBar("strength", pvS ? pvS.strength.rows.length : 0, "강도 개소(부재·부위·손상·설계강도)")
+      + `<table><thead><tr><th>구분</th><th>표본층</th><th>부재</th><th>부위</th><th>성과표 위치</th><th>보정반발경도 R0</th><th>재료학회</th><th>건축학회</th><th>추정강도(MPa)</th><th>설계기준강도</th><th>비율</th><th>손상</th><th>비고</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <button type="button" class="secondary st-add" id="st-strength-add">+ 개소 추가</button>`;
+    bindPrev($("st-strength-tbl"), (p) => { input.strength.rows = p.strength.rows.map((r) => ({ floor: r.floor, member: r.member, spot: r.spot, position: "", r0: null, fc_mat: null, fc_arch: null, est: null, design: r.design, damaged: r.damaged, note: r.note })); });
     $("st-strength-add").addEventListener("click", () => {
       const last = input.strength.rows[input.strength.rows.length - 1];
       input.strength.rows.push({ floor: last ? last.floor : null, member: last ? last.member : "기둥", spot: "", position: "", r0: null, fc_mat: null, fc_arch: null, est: null,
@@ -189,8 +211,11 @@
       <td><button type="button" class="secondary st-del" data-del="carbonation/rows.${i}">✕</button></td></tr>`).join("");
     const sm = c.summary;
     $("st-carb-count").textContent = `${c.rows.length}개소${sm.count ? ` · 깊이 ${sm.min}~${sm.max}mm` : ""}${c.grade ? ` · ${c.grade.toUpperCase()}` : ""}`;
-    $("st-carb-tbl").innerHTML = `<table><thead><tr><th>no</th><th>표본층</th><th>부재</th><th>철근 피복(mm)</th><th>탄산화 깊이(mm)</th><th>잔여 깊이</th><th>속도계수 A</th><th>이론치(mm)</th><th>잔존수명(년)</th><th>등급</th><th>사진</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    const pvC = prevIn();
+    $("st-carb-tbl").innerHTML = prevBar("carbonation", pvC ? pvC.carbonation.rows.length : 0, "탄산화 개소(부재)")
+      + `<table><thead><tr><th>no</th><th>표본층</th><th>부재</th><th>철근 피복(mm)</th><th>탄산화 깊이(mm)</th><th>잔여 깊이</th><th>속도계수 A</th><th>이론치(mm)</th><th>잔존수명(년)</th><th>등급</th><th>사진</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <button type="button" class="secondary st-add" id="st-carb-add">+ 개소 추가</button>`;
+    bindPrev($("st-carb-tbl"), (p) => { input.carbonation.rows = p.carbonation.rows.map((r) => ({ floor: r.floor, member: r.member, position: "", cover: null, depth: null, photo: "" })); });
     $("st-carb-add").addEventListener("click", () => {
       const last = input.carbonation.rows[input.carbonation.rows.length - 1];
       input.carbonation.rows.push({ floor: last ? last.floor : (input.sample.floors[0] || {}).floor ?? null, member: last ? last.member : "기둥", position: "", cover: null, depth: null });
@@ -223,8 +248,9 @@
   // ---- 5. 기울기 ----
   function drawTilt() {
     const t = view.tilt;
+    const pvT = ((prevIn() || {}).tilt || {}).rows || [];
     const rows = t.rows.map((r, i) => `<tr><td>${i + 1}</td>
-      <td><input class="l" data-path="tilt.rows.${i}.label" value="${esc(r.label)}" placeholder="모서리1 X" /></td>
+      <td><input class="l" data-path="tilt.rows.${i}.label" value="${esc(r.label)}" placeholder="모서리1 X" />${hint(pvT[i] && r.disp === null && pvT[i].height ? `${pvT[i].height}mm ${pvT[i].direction || ""} 변위 ${pvT[i].disp ?? "-"}mm` : "")}</td>
       <td><input class="n" data-path="tilt.rows.${i}.height" value="${num(r.height)}" inputmode="numeric" placeholder="29200" /></td>
       <td><select data-path="tilt.rows.${i}.direction">${opts(DIRS, r.direction)}</select></td>
       <td><input class="n" data-path="tilt.rows.${i}.disp" value="${num(r.disp)}" inputmode="decimal" /></td>
@@ -232,8 +258,10 @@
       <td><button type="button" class="secondary st-del" data-del="tilt/rows.${i}">✕</button></td></tr>`).join("");
     const rg = t.range;
     $("st-tilt-count").textContent = `${t.rows.length}개소${rg.min_n ? ` · 1/${rg.min_n.toLocaleString()} ~ 1/${rg.max_n.toLocaleString()}` : ""}${t.grade ? ` · ${t.grade.toUpperCase()}` : ""}`;
-    $("st-tilt-tbl").innerHTML = `<table><thead><tr><th>NO</th><th>측점</th><th>측정높이(mm)</th><th>상부 변위방향</th><th>변위량(mm)</th><th>기울기</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    $("st-tilt-tbl").innerHTML = prevBar("tilt", pvT.filter((x) => x.height).length, "기울기 측점(측정값까지)")
+      + `<table><thead><tr><th>NO</th><th>측점</th><th>측정높이(mm)</th><th>상부 변위방향</th><th>변위량(mm)</th><th>기울기</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <button type="button" class="secondary st-add" id="st-tilt-add">+ 측점 추가</button>`;
+    bindPrev($("st-tilt-tbl"), (p) => { input.tilt = { note: p.tilt.note || input.tilt.note, rows: p.tilt.rows.map((r) => ({ ...r })) }; });
     $("st-tilt-add").addEventListener("click", () => {
       const last = input.tilt.rows[input.tilt.rows.length - 1];
       const n = input.tilt.rows.length;
@@ -264,6 +292,12 @@
           <button type="button" class="secondary st-del" data-del="settlement/sections.${j}">구간 빼기</button></div>
         <div class="st-tbl"><table><thead><tr><th>NO</th><th>측정위치</th><th>측정위치값(mm)</th><th>변위(mm)</th><th>거리(mm)</th><th>기울기</th><th>등급</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
     }).join("") + '<button type="button" class="secondary st-add" id="st-sett-add">+ 구간 추가(측점 3개)</button>';
+    const pvSe = (prevIn() || {}).settlement;
+    if (pvSe && pvSe.sections.some((x) => x.levels.some((v) => v !== null))) {
+      $("st-sett-list").insertAdjacentHTML("afterbegin", prevBar("settlement", pvSe.sections.length, "부등침하 구간(측정값까지)")
+        + `<div class="st-hint">전회차: ${pvSe.sections.map((x) => `${x.axis}${x.no}구간 ${x.levels.map((v) => v ?? "-").join("/")}`).join(" · ")}</div>`);
+      bindPrev($("st-sett-list"), (p) => { input.settlement = { floor: p.settlement.floor, note: p.settlement.note || input.settlement.note, sections: p.settlement.sections.map((x) => ({ ...x, levels: [...x.levels], distances: [...x.distances] })) }; });
+    }
     $("st-sett-add").addEventListener("click", () => {
       const n = input.settlement.sections.length;
       input.settlement.sections.push({ axis: n < 2 ? "X" : "Y", no: (n % 2) + 1, levels: [null, null, null], distances: [null, null] });
@@ -289,6 +323,8 @@
   }
 
   function draw() {
+    if (view.prev) prevKeep = view.prev;
+    else if (prevKeep) view.prev = prevKeep;
     const r = view.report;
     $("st-title").textContent = `${r.year}년 ${r.half} 재료시험`;
     const link = $("st-fac-link");

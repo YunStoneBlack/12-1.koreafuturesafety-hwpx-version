@@ -1,6 +1,7 @@
 """시특법 정밀안전점검 재료시험(2026-10-13 밤, ② 단계) — 회차 하나의 표본층·부재 규격·강도·탄산화·기울기·부등침하.
 
-- `GET /sitok/reports/{id}/tests` — 입력 + 계산값(server/sitok/tests.compute) + 시설물(층수·연면적·준공일).
+- `GET /sitok/reports/{id}/tests` — 입력 + 계산값(server/sitok/tests.compute) + 시설물(층수·연면적·준공일) + prev(지난 정밀 회차 입력 — 화면 [전회차 그대로], 10/14).
+  표본층이 비었고 지난 정밀 회차 표본층이 있으면 GET 때 자동으로 가져와 저장(기본 줄도 같이).
 - `PATCH /sitok/reports/{id}/tests` — 입력 통째로 저장(정리해서) → 계산값 돌려줌.
 - `POST /sitok/reports/{id}/tests/schmidt` — 슈미트 시험성과표 xlsx → 강도 줄(server/sitok/schmidt.read), 파일은 회차 폴더에 보관.
 - `POST /sitok/reports/{id}/tests/schedule` — 시설물 도면 "구조 일람표"(schedule)를 AI가 읽어 빈 설계도면 칸 채우기(10/14 형 피드백).
@@ -39,14 +40,29 @@ def _view(db: Session, r: SitokReport) -> dict:
     return v
 
 
+def _prev_tests(db: Session, r: SitokReport) -> dict | None:
+    """지난 정밀 회차의 재료시험 입력(없으면 None) — 화면 [전회차 그대로]·힌트."""
+    from server.api.routers.sitok_rating import _previous_precision
+
+    prev = _previous_precision(db, r)
+    if prev is None or not prev.tests:
+        return None
+    return {"report": {"id": prev.id, "year": prev.year, "half": prev.half}, "input": tests.normalize(prev.tests)}
+
+
 @router.get("/reports/{report_id}/tests")
 def get_tests(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
     data = tests.normalize(r.tests)
-    if tests.sync_defaults(data):  # 표본층은 골랐는데 기본 줄이 없던 회차(10/14 전)도 열면 채워짐
+    prev = _prev_tests(db, r)
+    changed = False
+    if not data["sample"]["floors"] and prev and prev["input"]["sample"]["floors"]:  # 1. 표본층 그대로(10/14 사용자)
+        data["sample"]["floors"] = [dict(f) for f in prev["input"]["sample"]["floors"]]
+        changed = True
+    if tests.sync_defaults(data) or changed:  # 표본층은 골랐는데 기본 줄이 없던 회차(10/14 전)도 열면 채워짐
         r.tests = data
         db.commit()
-    return _view(db, r)
+    return _view(db, r) | {"prev": prev}
 
 
 @router.patch("/reports/{report_id}/tests")
