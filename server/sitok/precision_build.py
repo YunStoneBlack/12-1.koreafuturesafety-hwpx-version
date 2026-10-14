@@ -49,6 +49,7 @@ class Data:
     overview: list = field(default_factory=list)  # 전경사진 [(경로, 제목)] — 위치도 표 아래 칸·요약문 사진
     blank: str = ""
     survey_pics: dict = field(default_factory=dict)  # 조사 전경 사진 {키: [경로|""…]}(precision.SURVEY_PICS, 형 10/14) — 【사진 2.1】·【사진 4.1~4.5】
+    prior_fields: dict = field(default_factory=dict)  # 이전 회차 보고서 현황표의 칸 값 {이름: 값} — 빈 칸은 여기서(형 10/14 "그럼 가져와?" → 추천대로)
 
 
 # ---------- 작은 도구 ----------
@@ -513,6 +514,38 @@ def _fill_limit(root, D: Data) -> int:
     return n
 
 
+def prior_status_fields(hwpx: Path | None) -> dict:
+    """이전 회차 보고서(hwpx) 앞부분 현황표("시설물명(FMS등록기준)" 표)의 이름 칸 → 오른쪽 값 {이름(띄어쓰기 뺀 것): 값}. 못 읽으면 {}."""
+    if not hwpx or not Path(hwpx).exists():
+        return {}
+    try:
+        with zipfile.ZipFile(hwpx) as z:
+            root = etree.fromstring(z.read(rb._sections(z)[0]))
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict = {}
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        cells = rb._cells(tbl)
+        if not any(rb._cell_text(tc).replace(" ", "").startswith("시설물명") for (r_, c_), tc in cells.items() if r_ == 0):
+            continue
+        for (r_, c_), tc in sorted(cells.items()):
+            label = re.sub(r"\s", "", rb._cell_text(tc))
+            label = label.split("(")[0] if label.startswith("시설물") else label
+            nxt = [k for k in cells if k[0] == r_ and k[1] > c_]
+            if label not in STATUS_LABELS or not nxt or label in out:
+                continue
+            val = " ".join(rb._cell_text(cells[min(nxt)]).split())
+            if val and val.replace(" ", "") not in STATUS_LABELS:  # 이름 칸 → 오른쪽 값(다음 이름 칸이면 빈 값)
+                out[label] = val
+        break
+    return out
+
+
+STATUS_LABELS = {"시설물명", "시설물번호", "시설물위치", "준공일자", "용도", "시설물규모", "구조형식", "종별", "전차안전등급", "점검결과안전등급", "건축연면적", "건축면적", "층수",
+                 "최고높이", "주용도", "사용승인일", "준공후경과년수", "대지면적", "기본모듈", "최고층고", "기초형식", "콘크리트설계강도", "철근종류", "철골종류", "설계자",
+                 "시공자", "감리자", "공사기간", "부대시설", "규모및제원추가사항"}  # 현황표 이름 칸(띄어쓰기 뺀 것)
+
+
 def _fill_status_tables(root, D: Data) -> int:
     """현황표(시설물명(FMS등록기준) …) — 시설물 칸 값, 시설물 현황(detail)에 없는 다산 고유 칸은 "-". 앞부분 두 번·시설물편 1.1."""
     from server.sitok import detail as DT
@@ -544,11 +577,15 @@ def _fill_status_tables(root, D: Data) -> int:
             if not nxt:
                 continue
             target = cells[min(nxt)]
+            prior_v = (D.prior_fields or {}).get(label, "")
             if label in values:
-                rb._set_lines(target, [values[label]])
+                v = values[label]
+                if v == "-" and prior_v and prior_v != "-":  # 시설물 카드에 없는 값(최고높이·건축면적 등)은 이전 회차 보고서 현황표에서
+                    v = prior_v
+                rb._set_lines(target, [v])
                 n += 1
-            elif label in blank and DT._key(label) not in have:
-                rb._set_lines(target, ["-"])
+            elif label in blank and DT._key(label) not in have:  # 시설물 현황 창에서 안 고친 칸 — 이전 회차 보고서 값, 없으면 "-"
+                rb._set_lines(target, [prior_v if prior_v else "-"])
                 n += 1
     return n
 
@@ -1386,6 +1423,7 @@ def _data_for(db, r, new: rb.Values, f, ex) -> Data:
              priority=_priority8(db, r, ex.ai), repairs=(r.survey or {}).get("repairs") or [], rating_png=_rating_png(db, r, rv, tv, f, co.name if co else ""),
              replace=rep, kind_label=f.template or "2종")
     D.detail = (r.survey or {}).get("detail")
+    D.prior_fields = prior_status_fields(SR._prior(r))  # 이전 회차 보고서 현황표 값 — 빈 칸 채우기(10/14)
     from server.sitok import precision as PR
     base_dir = SR._report_dir(f, r)
     D.survey_pics = {k: [str(base_dir / x) if x else "" for x in v] for k, v in PR.norm((r.survey or {}).get("precision"))["survey"].items()}

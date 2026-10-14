@@ -340,6 +340,11 @@ def _register_one(db: Session, user: User, f: SitokFacility, src: Path, name: st
     r.out_hwpx, r.out_pdf, r.status, r.made_at = str(dest), "", "done", datetime.datetime.now()
     r.source_note = r.source_note or "이미 낸 보고서"
     r.message = f"이미 낸 보고서 등록({name}) — 다음 회차가 이력·시설물 현황 등 데이터를 여기서 가져옵니다"
+    later = [x for x in db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.id != r.id).all() if _order(x) > _order(r) and x.status != "running"]
+    if later:  # 바로 다음 회차가 "직전 회차" 보고서를 전회차로 쓰고 있었으면(지운 시험 회차 등) 이제 이 보고서로(10/14 숭의 42·43)
+        nxt = min(later, key=_order)
+        if not nxt.source_hwpx or (nxt.source_note or "").startswith("직전 회차") or not Path(nxt.source_hwpx).exists():
+            nxt.source_hwpx, nxt.source_note = str(dest), f"직전 회차({old.year}년 {old.half} {kind}) 보고서"
     return r
 
 
