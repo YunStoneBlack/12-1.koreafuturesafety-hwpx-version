@@ -4,13 +4,15 @@
 - `PATCH /sitok/reports/{id}/tests` — 입력 통째로 저장(정리해서) → 계산값 돌려줌.
 - `POST /sitok/reports/{id}/tests/schmidt` — 슈미트 시험성과표 xlsx → 강도 줄(server/sitok/schmidt.read), 파일은 회차 폴더에 보관.
 - `POST /sitok/reports/{id}/tests/schedule` — 시설물 도면 "구조 일람표"(schedule)를 AI가 읽어 빈 설계도면 칸 채우기(10/14 형 피드백).
+- `POST/GET/DELETE /sitok/reports/{id}/tests/carb-photo/{i}` — 탄산화 줄 i의 사진(회차 폴더 재료시험/탄산화_*.jpg) → 부록 3-1 탄산화 사진현황 PDF(server/sitok/carb_photos.py, 10/14).
 GET·PATCH 모두 tests.sync_defaults — 표본층에 맞춰 기본 줄(값 있는 줄은 그대로).
 화면 sitok-tests.html(js/sitok-tests.js). 정밀 회차 카드의 [📐 재료시험]."""
 from __future__ import annotations
 
-import shutil
+import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -108,7 +110,7 @@ def delete_schmidt(report_id: int, user: User = Depends(get_current_user), db: S
     """올린 성과표 빼기(강도 값은 비우고 줄은 남김)."""
     r = _require(db, user, report_id)
     f = db.get(SitokFacility, r.facility_id)
-    shutil.rmtree(_report_dir(f, r) / "재료시험", ignore_errors=True)
+    (_report_dir(f, r) / "재료시험" / "슈미트_시험성과표.xlsx").unlink(missing_ok=True)  # 탄산화 사진이 같은 폴더라 xlsx만(10/14)
     cur = tests.normalize(r.tests)
     for row in cur["strength"]["rows"]:
         row.update({"position": "", "r0": None, "fc_mat": None, "fc_arch": None, "est": None})
@@ -116,3 +118,72 @@ def delete_schmidt(report_id: int, user: User = Depends(get_current_user), db: S
     r.tests = cur
     db.commit()
     return _view(db, r)
+
+
+# ---- 탄산화 사진(10/14) — 부록 3-1 탄산화 사진현황 ----
+
+def _carb_row(r: SitokReport, i: int) -> tuple[dict, dict]:
+    cur = tests.normalize(r.tests)
+    rows = cur["carbonation"]["rows"]
+    if i < 0 or i >= len(rows):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "그 탄산화 줄이 없습니다.")
+    return cur, rows[i]
+
+
+@router.post("/reports/{report_id}/tests/carb-photo/{i}")
+def upload_carb_photo(report_id: int, i: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """탄산화 줄 i 사진 올리기(바꾸면 전 사진은 지움). JPG로 줄여 저장(server/contract_docs/files.save_jpeg)."""
+    from server.contract_docs import files
+
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    cur, row = _carb_row(r, i)
+    folder = _report_dir(f, r) / "재료시험"
+    data = file.file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "사진이 비었습니다.")
+    name = f"탄산화_{uuid.uuid4().hex[:8]}.jpg"
+    try:
+        files.save_jpeg(data, file.filename or name, folder / name)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"사진을 읽지 못했습니다: {str(err)[:100]}") from err
+    if row.get("photo"):
+        (folder / row["photo"]).unlink(missing_ok=True)
+    row["photo"] = name
+    r.tests = cur
+    db.commit()
+    return _view(db, r)
+
+
+@router.get("/reports/{report_id}/tests/carb-photo/{i}")
+def carb_photo(report_id: int, i: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    _, row = _carb_row(r, i)
+    p = _report_dir(f, r) / "재료시험" / (row.get("photo") or "없음")
+    if not row.get("photo") or not p.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
+    return FileResponse(p, media_type="image/jpeg", content_disposition_type="inline", filename=f"탄산화 C{i + 1}.jpg")
+
+
+@router.delete("/reports/{report_id}/tests/carb-photo/{i}")
+def delete_carb_photo(report_id: int, i: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    cur, row = _carb_row(r, i)
+    if row.get("photo"):
+        (_report_dir(f, r) / "재료시험" / row["photo"]).unlink(missing_ok=True)
+    row["photo"] = ""
+    r.tests = cur
+    db.commit()
+    return _view(db, r)
+
+
+def carb_photo_pdf(db: Session, r: SitokReport, f: SitokFacility, dest):
+    """부록 3-1 탄산화 사진현황 PDF — 사진 있는 줄만, 없으면 None(sitok_reports._precision_appendix_pdf가 부름)."""
+    from server.sitok import carb_photos
+
+    folder = _report_dir(f, r) / "재료시험"
+    cur = tests.normalize(r.tests)
+    rows = [{"label": f"C{i + 1}", "photo": folder / x["photo"], "depth": x["depth"], "cover": x["cover"]} for i, x in enumerate(cur["carbonation"]["rows"]) if x.get("photo")]
+    return carb_photos.make_pdf(dest, f.name, rows)

@@ -255,7 +255,7 @@ def normalize(raw: dict | None) -> dict:
     ca = raw.get("carbonation") or {}
     base["carbonation"] = {"wc": _f(ca.get("wc")) or DEFAULT_WC, "ratio": _f(ca.get("ratio")) or DEFAULT_R, "rows": [
         {"floor": _i(r.get("floor")), "member": member_of(r.get("member")), "position": str(r.get("position") or "").strip(),
-         "cover": _f(r.get("cover")), "depth": _f(r.get("depth"))} for r in ca.get("rows") or []]}
+         "cover": _f(r.get("cover")), "depth": _f(r.get("depth")), "photo": str(r.get("photo") or "").strip()} for r in ca.get("rows") or []]}  # photo = 부록 3-1 사진현황(10/14)
     ti = raw.get("tilt") or {}
     base["tilt"] = {"note": str(ti.get("note") or ""), "rows": [
         {"label": str(r.get("label") or "").strip(), "height": _f(r.get("height")), "direction": r.get("direction") if r.get("direction") in TILT_DIRS else "",
@@ -288,7 +288,7 @@ def _strength_empty(r: dict) -> bool:
 
 
 def _carb_empty(r: dict) -> bool:
-    return r.get("cover") is None and r.get("depth") is None
+    return r.get("cover") is None and r.get("depth") is None and not r.get("photo")
 
 
 def _sync_rows(rows: list[dict], floors: list[int], combos: tuple, keyf, is_empty, make) -> list[dict]:
@@ -326,7 +326,7 @@ def sync_defaults(data: dict) -> bool:
                                               lambda k, c: {"floor": k, "member": c[0], "spot": c[1], "position": "", "r0": None, "fc_mat": None, "fc_arch": None,
                                                             "est": None, "design": None, "damaged": False, "note": "건전부"})
         data["carbonation"]["rows"] = _sync_rows(data["carbonation"]["rows"], floors, DEFAULT_CARB, lambda r: r.get("member"), _carb_empty,
-                                                 lambda k, m: {"floor": k, "member": m, "position": "", "cover": None, "depth": None})
+                                                 lambda k, m: {"floor": k, "member": m, "position": "", "cover": None, "depth": None, "photo": ""})
         for st in data["strength"]["rows"]:
             if st["design"] is None:
                 st["design"] = next((x["design"] for x in data["strength"]["rows"] if x["design"] is not None), None)  # 설계기준강도는 한 건물에 보통 하나

@@ -48,6 +48,10 @@
 .st-sched { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 8px; }
 .main .st-sched button { margin: 0; }
 .st-sched .bad { color: var(--crit); }
+.st-tbl td.st-photo { white-space: nowrap; }
+.st-tbl td.st-photo img { height: 40px; width: 54px; object-fit: cover; border: 1px solid var(--line); border-radius: 4px; vertical-align: middle; }
+.main .st-tbl td.st-photo .secondary-link { padding: 3px 8px; font-size: 12px; cursor: pointer; margin-left: 4px; }
+.main .st-tbl td.st-photo button.st-photo-del { margin: 0 2px; vertical-align: middle; }
 @media (max-width: 640px) {
   .st-tbl table { min-width: 560px; }
   .st-sec-head b { flex-basis: 100%; }

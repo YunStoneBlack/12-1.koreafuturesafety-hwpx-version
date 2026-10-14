@@ -631,7 +631,7 @@ def _insert_after_page(doc, keys: tuple, add_bytes: bytes | None, label: str, do
 
 
 def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: Path) -> list[str]:
-    """부록 PDF에 끼우기(간지 글자로 쪽 찾기, 뒤 간지부터): 7-5 계약서 · 5 상태평가 결과자료(③ PDF) · 2-1 강도 측정데이터(슈미트 xlsx → PDF) · 2 외관조사 사진첩 · 1 관리대장."""
+    """부록 PDF에 끼우기(간지 글자로 쪽 찾기, 뒤 간지부터): 7-5 계약서 · 5 상태평가 결과자료(③ PDF) · 3-1 탄산화 사진현황(10/14) · 2-1 강도 측정데이터(슈미트 xlsx → PDF) · 2 외관조사 사진첩 · 1 관리대장."""
     from server.api.routers.sitok_defects import _defects_for_cost, album_floors
     from server.api.routers.sitok_rating import _compute as rating_view
     from server.api.routers.sitok_tests import _view as tests_view
@@ -657,6 +657,13 @@ def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: 
         out = _report_dir(f, r) / "상태평가" / "상태평가결과.pdf"
         condition.make_pdf(out, agg, rv["result"], bi, tv, rv["prev_grade"] or rv["prev_auto"])
         _insert_after_page(doc, ("5.", "상태평가 결과 자료"), out.read_bytes(), "상태평가 결과자료", done)
+    try:  # 3-1 탄산화 사진현황(재료시험 탭 탄산화 줄 사진, 10/14)
+        from server.api.routers.sitok_tests import carb_photo_pdf
+        cp = carb_photo_pdf(db, r, f, _report_dir(f, r) / "재료시험" / "탄산화_사진현황.pdf")
+        if cp is not None:
+            _insert_after_page(doc, ("3-1", "측정데이터"), cp.read_bytes(), "탄산화 사진현황", done)
+    except Exception:  # noqa: BLE001 — 사진 PDF가 안 되면 빼고 감
+        traceback.print_exc()
     xlsx = _report_dir(f, r) / "재료시험" / "슈미트_시험성과표.xlsx"
     if xlsx.exists():
         try:

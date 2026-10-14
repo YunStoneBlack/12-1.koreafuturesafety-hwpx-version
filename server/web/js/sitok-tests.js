@@ -178,16 +178,39 @@
       <td><input class="n" data-path="carbonation.rows.${i}.depth" value="${num(r.depth)}" inputmode="decimal" /></td>
       <td class="calc">${num(r.remain) === "" ? "-" : r.remain}</td><td class="calc">${num(r.coef) === "" ? "-" : r.coef}</td><td class="calc">${num(r.theory) === "" ? "-" : r.theory}</td>
       <td class="calc"><b>${esc(r.life_text || "-")}</b></td><td>${grade(r.grade)}</td>
+      <td class="st-photo">${r.photo ? `<a href="${BASE}/api/sitok/reports/${rid}/tests/carb-photo/${i}?v=${encodeURIComponent(r.photo)}" target="_blank" rel="noopener"><img src="${BASE}/api/sitok/reports/${rid}/tests/carb-photo/${i}?v=${encodeURIComponent(r.photo)}" alt="C${i + 1}" /></a>
+          <button type="button" class="secondary st-del st-photo-del" data-i="${i}" title="사진 빼기">✕</button>` : ""}
+        <label class="secondary-link st-photo-add" title="부록 3-1 탄산화 사진현황에 들어갑니다">${r.photo ? "바꾸기" : "📷 사진"}<input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" data-i="${i}" /></label></td>
       <td><button type="button" class="secondary st-del" data-del="carbonation/rows.${i}">✕</button></td></tr>`).join("");
     const sm = c.summary;
     $("st-carb-count").textContent = `${c.rows.length}개소${sm.count ? ` · 깊이 ${sm.min}~${sm.max}mm` : ""}${c.grade ? ` · ${c.grade.toUpperCase()}` : ""}`;
-    $("st-carb-tbl").innerHTML = `<table><thead><tr><th>no</th><th>표본층</th><th>부재</th><th>철근 피복(mm)</th><th>탄산화 깊이(mm)</th><th>잔여 깊이</th><th>속도계수 A</th><th>이론치(mm)</th><th>잔존수명(년)</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    $("st-carb-tbl").innerHTML = `<table><thead><tr><th>no</th><th>표본층</th><th>부재</th><th>철근 피복(mm)</th><th>탄산화 깊이(mm)</th><th>잔여 깊이</th><th>속도계수 A</th><th>이론치(mm)</th><th>잔존수명(년)</th><th>등급</th><th>사진</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <button type="button" class="secondary st-add" id="st-carb-add">+ 개소 추가</button>`;
     $("st-carb-add").addEventListener("click", () => {
       const last = input.carbonation.rows[input.carbonation.rows.length - 1];
       input.carbonation.rows.push({ floor: last ? last.floor : (input.sample.floors[0] || {}).floor ?? null, member: last ? last.member : "기둥", position: "", cover: null, depth: null });
       save();
     });
+    // 탄산화 사진(10/14) — 줄마다 한 장, 부록 3-1 탄산화 사진현황(6장/쪽)
+    $("st-carb-tbl").querySelectorAll(".st-photo-add input").forEach((inp) => inp.addEventListener("change", async () => {
+      const f = inp.files[0];
+      const i = inp.dataset.i;
+      inp.value = "";
+      if (!f) return;
+      $("st-saved").textContent = "사진 올리는 중…";
+      try {
+        const fd = new FormData();
+        fd.append("file", f);
+        view = await apiUpload(`/sitok/reports/${rid}/tests/carb-photo/${i}`, fd);
+        input = view.input;
+        draw();
+        $("st-saved").textContent = "✓ 사진 저장됨";
+      } catch (e) { $("st-saved").textContent = `사진 실패: ${e.message}`; $("st-saved").className = "st-saved bad"; }
+    }));
+    $("st-carb-tbl").querySelectorAll(".st-photo-del").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("이 사진을 뺄까요?")) return;
+      try { view = await api(`/sitok/reports/${rid}/tests/carb-photo/${b.dataset.i}`, { method: "DELETE" }); input = view.input; draw(); } catch (e) { err(e); }
+    }));
     bindInputs($("st-carb-top"));
     bindInputs($("st-carb-tbl"));
   }
