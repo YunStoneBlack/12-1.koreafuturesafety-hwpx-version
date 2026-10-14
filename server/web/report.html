@@ -232,20 +232,12 @@
   </div>
 </section>
 
-<!-- K2B 제출(2026-10-02) — 마지막 결과(성공: 저장된 K2B 화면 / 실패: 이유 + 이렇게 하세요) + [📤 K2B 제출](현장 화면과 같은 창) + 오른쪽 반 = 고객사 메일 전송(마지막 전송 기록 + [📧 고객사 전송] 현장 화면과 같은 메일 창, 10/15 민재형 "반 나눠서 이메일 전송"). js/report-k2b.js -->
+<!-- K2B 제출(2026-10-02) — 마지막 결과(성공: 저장된 K2B 화면 / 실패: 이유 + 이렇게 하세요) + [📤 K2B 제출](현장 화면과 같은 창) + [📧 고객사 전송](현장 화면과 같은 메일 창, 10/15 민재형 "K2B 제출 버튼 옆에 메일 전송 버튼만"). js/report-k2b.js -->
 <section class="panel" id="k2b-panel">
   <div class="panel-head"><h2>K2B 제출 및 고객사 메일 전송</h2></div>
-  <div class="panel-body rk-split">
-    <div class="rk-col">
-      <h3 class="rk-sub">K2B 제출</h3>
-      <div id="k2b-state" class="rk-state">불러오는 중…</div>
-      <div class="rk-actions"><button type="button" id="k2b-open" class="secondary">📤 K2B 제출</button></div>
-    </div>
-    <div class="rk-col">
-      <h3 class="rk-sub">고객사 메일 전송</h3>
-      <div id="mail-state" class="rk-state">불러오는 중…</div>
-      <div class="rk-actions"><button type="button" id="mail-open" class="secondary" title="고객사에 PDF 메일 보내기">📧 고객사 전송</button></div>
-    </div>
+  <div class="panel-body">
+    <div id="k2b-state" class="rk-state">불러오는 중…</div>
+    <div class="rk-actions"><button type="button" id="k2b-open" class="secondary">📤 K2B 제출</button><button type="button" id="mail-open" class="secondary" title="고객사에 PDF 메일 보내기">📧 고객사 전송</button></div>
   </div>
 </section>
 
