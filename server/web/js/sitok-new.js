@@ -43,13 +43,13 @@
     el.className = "nw-b";
     el.dataset.k = `b${seq}`;
     el.innerHTML = `<div class="nw-b-head"><b class="nw-b-no"></b><button type="button" class="link-btn nw-b-del">이 동 빼기</button></div>
-      <div class="nw-b-drops">
+      <div class="nw-b-drops one">
         <label class="sk-drop nw-ledger"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
-          <b>📄 시설물관리대장 PDF</b><span class="sk-drop-msg">FMS 출력 — 시설물명 등이 채워짐. 없으면(법정 외 자체 점검) 아래 칸에 직접</span></label>
-        <span class="nw-dash">—</span>
-        <label class="sk-drop nw-reg"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
-          <b>📄 건축물대장 PDF</b><span class="sk-drop-msg">변동사항("을") 쪽까지 — 없으면(군사보안 등) 비워 두기: 그 칸은 "-"로 두고 직접 입력</span></label>
+          <b>📄 시설물관리대장 PDF</b><span class="sk-drop-msg">FMS 출력 — 시설물명 등이 채워짐. 없으면(법정 외 자체 점검) 아래 시설물 칸에 직접</span></label>
       </div>
+      <details class="nw-fields nw-opt"><summary>건축물대장 <span class="sk-help">(선택) 있으면 시설물 현황·1.2.8 변경사항 초안에 씀 — 없으면(군사보안 등) 그 칸은 "-"</span></summary>
+        <div class="nw-b-drops one"><label class="sk-drop nw-reg"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
+          <b>📄 건축물대장 PDF</b><span class="sk-drop-msg">변동사항("을") 쪽까지</span></label></div></details>
       <details class="nw-fields"><summary>시설물 칸 <span class="sk-help">관리대장을 올리면 채워집니다 — 확인·고치기</span></summary>
         <div class="field-grid">${FAC.filter((f) => SHOW.includes(f[0])).map((f) => input(el.dataset.k, f)).join("")}</div></details>`;
     setValues(el, { legal: true, kind: "건축물" });
@@ -117,6 +117,7 @@
     const f = r.fields || {};
     conToken = r.token;
     const box = document.getElementById("nw-con");
+    document.getElementById("nw-con-panel").open = true; // 읽은 값 확인하게 펼침
     setValues(box, { ...f, rep_name: f.sector === "민간" && ownerRep ? ownerRep : f.rep_name }, false);
     box.querySelector('[data-key="sector"]').dispatchEvent(new Event("change"));
     setValues(box, { joint_type: f.joint_type, bid_method: f.bid_method }, false);
@@ -171,6 +172,14 @@
       btn.disabled = false;
     }
   });
+
+  // 두 경우 고르기(10/14 형 2차 ②) — "계약서가 있음" = 이 화면, "없음" = 서류 자동화 민간 계약서 만들기 안내
+  document.querySelectorAll(".nw-mode-btn").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".nw-mode-btn").forEach((x) => x.classList.toggle("on", x === b));
+    const none = b.dataset.mode === "none";
+    document.getElementById("nw-none").hidden = !none;
+    document.getElementById("nw-has").hidden = none;
+  }));
 
   (async () => {
     try {

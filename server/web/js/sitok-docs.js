@@ -300,7 +300,8 @@
           <span class="mail-sub">${esc(st.title || (civil && st.facility_name && st.auto_title) || "새 계약")}</span>
           <div class="cd-site-line mail-sub">현장: ${f ? `<a href="sitok-facility.html?id=${f.id}">${esc(f.name)}</a>` : '<span class="dc-nosite">연결 안 됨</span>'}
             <button type="button" class="cd-link-btn sd-link">${f ? "바꾸기" : "🔗 현장 연결"}</button>
-            ${f ? `<button type="button" class="cd-link-btn sd-tofac" title="이 계약(계약서 PDF 포함)을 시설물 화면의 계약으로 — 보고서에 씀">${st.report_contract_id ? "보고서 쪽 계약 다시 넣기" : "📋 보고서 쪽 계약으로 넣기"}</button>` : ""}</div></div>
+            ${f ? `<button type="button" class="cd-link-btn sd-tofac" title="이 계약(계약서 PDF 포함)을 시설물 화면의 계약으로 — 보고서에 씀">${st.report_contract_id ? "보고서 쪽 계약 다시 넣기" : "📋 보고서 쪽 계약으로 넣기"}</button>`
+              : `<button type="button" class="cd-link-btn sd-tofac" title="올린 관리대장(없으면 시설물명·위치·관리주체 칸)으로 시설물 카드를 만들고 이 계약을 넣고 이번 반기 회차까지 만듭니다">🏢 시설물 카드 만들어 넣기</button>`}</div></div>
         <div class="sd-sector">${["민간", "관급"].map((s) => `<label><input type="radio" name="sd-sector" value="${s}"${st.sector === s ? " checked" : ""} /> ${s === "민간" ? "민간 — 계약서를 우리가 작성" : "관급 — 나라장터 계약서"}</label>`).join("")}</div>
         <div class="mail-label">서류 올리기 <span class="mail-note">— 읽어서 빈 칸을 채웁니다(PDF·한글·사진, 끌어다 놓아도 됨)</span></div>
         <div class="sd-ups${civil ? "" : " two"}">
@@ -409,7 +410,9 @@
           const out = await apiPost(`${P}/contracts/${st.id}/to-facility`);
           st = out;
           draw(true);
-          msg(`✓ "${esc(out.facility_name)}" 시설물의 보고서 쪽 계약으로 넣었습니다(계약서 PDF 포함) — <a href="sitok-facility.html?id=${out.facility.id}">시설물 화면</a>`, "ok");
+          msg(out.created_facility
+            ? `✓ 시설물 카드 "${esc(out.facility_name)}"를 만들고 이 계약을 넣었습니다${out.report_id ? " — 이번 반기 회차까지 만들었습니다" : ""}. <a href="${out.report_id ? `sitok-round.html?report=${out.report_id}` : `sitok-facility.html?id=${out.facility.id}`}">${out.report_id ? "회차 화면으로" : "시설물 화면으로"}</a>`
+            : `✓ "${esc(out.facility_name)}" 시설물의 보고서 쪽 계약으로 넣었습니다(계약서 PDF 포함) — <a href="sitok-facility.html?id=${out.facility.id}">시설물 화면</a>`, "ok");
         } catch (err) {
           msg(esc(err.message), "bad");
         } finally {
@@ -526,4 +529,7 @@
   enableFileDrop(tpl.closest(".cd-upload"), tpl);
 
   load();
+  // 새 점검 대상 등록 "계약서가 아직 없음"(sitok-new.html, 10/14)에서 오면 바로 민간 계약서 창
+  const want = new URLSearchParams(location.search).get("new");
+  if (want === "civil") openContract(null, "민간", { message: "계약서를 만들 시설물의 <b>시설물관리대장</b>과 발주처 <b>사업자등록증</b>을 올리면 칸이 채워집니다. 회차·금액을 넣고 [📝 계약서 만들기] → 위 [🏢 시설물 카드 만들어 넣기]를 누르면 시설물 카드와 이번 반기 회차가 생깁니다.", tone: "ok" });
 })();

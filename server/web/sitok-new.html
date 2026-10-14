@@ -16,23 +16,34 @@
   <main class="main">
 
 <div class="crumb"><a href="sitok.html">시설물 목록</a> › <span>새 점검 대상 등록</span></div>
-<p class="page-sub tab-intro">서류를 한 번에 올리고 <b>[등록하고 시작]</b>을 누르면 시설물·계약·이전 회차 보고서가 등록되고 이번 반기 회차까지 만들어집니다.
-  없는 서류는 비워 두세요 — 이전 회차(처음 점검), 건축물대장(군사보안 등), 시설물관리대장(법정 외 자체 점검)이 없으면 그 칸은 직접 넣습니다.</p>
 <div id="error" class="error"></div>
+<!-- 10/14 형 2차 피드백 ②: 신규 건물은 두 경우뿐 — 계약서가 있음(계약서 + 관리대장 → 시설물 카드) / 계약서가 없음(서류 자동화에서 사업자등록증 + 관리대장으로 계약서를 만들며 시설물 카드) -->
+<div class="nw-mode" id="nw-mode">
+  <button type="button" class="nw-mode-btn on" data-mode="has"><span class="rd-ic">📄</span><span class="rd-lb">계약서가 있음</span><span class="rd-sub">계약서 PDF + 시설물관리대장을 올리면 시설물 카드와 이번 회차가 만들어집니다</span></button>
+  <button type="button" class="nw-mode-btn" data-mode="none"><span class="rd-ic">📝</span><span class="rd-lb">계약서가 아직 없음 — 우리가 씀</span><span class="rd-sub">발주처 사업자등록증 + 시설물관리대장으로 민간 계약서를 만들면서 시설물 카드까지</span></button>
+</div>
+<section class="panel" id="nw-none" hidden>
+  <div class="panel-head"><h2>계약서 만들기부터</h2><span class="panel-count">서류 자동화 · 시특법의 민간 계약서 만들기로 갑니다</span></div>
+  <div class="panel-body">
+    <ol class="nw-steps"><li>발주처 <b>사업자등록증</b>과 <b>시설물관리대장</b>을 올리면 관리주체·시설물 칸이 채워집니다.</li><li>회차(연도·반기·정기/정밀)·금액을 넣고 <b>[📝 계약서 만들기]</b>.</li>
+      <li><b>[🏢 시설물 카드 만들어 넣기]</b>를 누르면 시설물 카드와 이번 반기 회차가 만들어지고, 올린 관리대장은 시설물 정보·서류에 들어갑니다(다시 안 올림).</li></ol>
+    <a class="nw-go-docs" href="sitok-docs.html?new=civil">📝 민간 계약서 만들기로 가기</a>
+  </div>
+</section>
+<div id="nw-has">
+<p class="page-sub tab-intro">계약서와 동마다 시설물관리대장을 올리고 <b>[등록하고 시작]</b> — 시설물 카드·계약·이번 반기 회차가 만들어집니다. 여기 올린 서류는 시설물 화면 "시설물 정보·서류"에 들어가므로 다시 올리지 않습니다.
+  관리대장이 없는 법정 외 자체 점검은 "시설물 칸"에 직접 넣습니다.</p>
 
 <section class="panel">
-  <div class="panel-head"><h2>① 계약서 · 이전 회차 보고서</h2><span class="panel-count">올리면 AI가 읽어 아래 칸을 채웁니다</span></div>
-  <div class="panel-body sk-drops">
+  <div class="panel-head"><h2>① 계약서</h2><span class="panel-count">올리면 AI가 읽어 계약 칸을 채웁니다(회차 종류 정기/정밀도)</span></div>
+  <div class="panel-body sk-drops one">
     <label class="sk-drop" id="nw-con-drop"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
       <b>📄 계약서 PDF</b><span class="sk-drop-msg">민간 표준계약서(스캔도 됨) 또는 나라장터 용역계약서 — 여러 동이면 1번 동에 붙음</span></label>
-    <label class="sk-drop" id="nw-prior-drop"><input type="file" accept=".hwp,.hwpx,application/pdf,.pdf" hidden data-kr-file="1" />
-      <b>📘 이전 회차 보고서 <small>(선택)</small></b><span class="sk-drop-msg">우리 한글(hwp·hwpx) — 이력·시설물 현황 등 데이터를 가져옴, 여러 동 보고서면 동마다 나눔 /
-        타회사 PDF — 첫 회차 현장 조사에 전회차 결함으로</span></label>
   </div>
 </section>
 
 <section class="panel">
-  <div class="panel-head"><h2>② 동마다 시설물관리대장 · 건축물대장</h2><button type="button" class="secondary btn-sm" id="nw-add">+ 동 추가</button></div>
+  <div class="panel-head"><h2>② 동마다 시설물관리대장</h2><button type="button" class="secondary btn-sm" id="nw-add">+ 동 추가</button></div>
   <div class="panel-body" id="nw-buildings"></div>
   <div class="panel-body nw-group" id="nw-group" hidden>
     <label>묶음 이름 <input id="nw-group-name" placeholder="예: 숭의교회" /></label>
@@ -40,16 +51,25 @@
   </div>
 </section>
 
-<section class="panel">
-  <div class="panel-head"><h2>③ 점검 용역 계약</h2><span class="panel-count">계약서를 올리면 채워집니다 — 없으면 비워 둬도 됩니다</span></div>
+<details class="panel sk-fold" id="nw-opt-panel">
+  <summary class="panel-head"><h2>선택 서류</h2><span class="panel-count">이전 회차 보고서(처음 점검이면 없음) — 건축물대장은 동마다 접힌 칸에</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body sk-drops one">
+    <label class="sk-drop" id="nw-prior-drop"><input type="file" accept=".hwp,.hwpx,application/pdf,.pdf" hidden data-kr-file="1" />
+      <b>📘 이전 회차 보고서 <small>(선택)</small></b><span class="sk-drop-msg">우리 한글(hwp·hwpx) — 이력·시설물 현황 등 데이터를 가져옴, 여러 동 보고서면 동마다 나눔 /
+        타회사 PDF — 첫 회차 현장 조사에 전회차 결함으로</span></label>
+  </div>
+</details>
+<details class="panel sk-fold" id="nw-con-panel">
+  <summary class="panel-head"><h2>③ 점검 용역 계약 칸</h2><span class="panel-count" id="nw-con-note">계약서를 올리면 채워집니다 — 확인·고치기</span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body" id="nw-con"></div>
-</section>
+</details>
 
 <div class="sk-actions nw-actions">
   <label class="nw-round">이번 회차 <input type="number" id="nw-year" min="2000" max="2100" aria-label="연도" />년
     <select id="nw-half" aria-label="반기"><option>상반기</option><option>하반기</option></select></label>
   <span class="sk-saved" id="nw-msg"></span>
   <button type="button" id="nw-go">등록하고 시작</button>
+</div>
 </div>
 
   </main>

@@ -7,6 +7,7 @@
 - `POST   /sitok/docs/contracts/{id}/make` — 민간 계약서 한글·PDF. `GET .../{id}/file/{name}` — 계약서.hwpx·계약서.pdf·날인본.pdf 등.
 - `GET    /sitok/docs/contracts/{id}/candidates`, `POST .../{id}/link` {facility_id|null} — 현장(시설물) 연결.
 - `POST   /sitok/docs/contracts/{id}/to-facility` — 연결한 시설물에 보고서 쪽 계약으로 넣기(날인본/만든 PDF를 계약서로, 다시 누르면 고침).
+  10/14 형 2차 ②: 연결된 시설물이 없으면 올린 관리대장(없으면 계약 칸의 시설물명·위치·관리주체)으로 **시설물 카드를 만들고** 이번 반기 회차까지 만듦("계약서가 없는 경우" 등록 경로).
 - `GET    /sitok/docs/template`, `POST /sitok/docs/template` — 민간 계약서 양식 받기·고친 양식 올리기(자리표시 검사).
 - 관급(2단계, server/sitok/gov_docs.py): 올리기 g2b(나라장터 계약서 — 글자 규칙, 못 읽은 칸만 AI → 읽은 칸 덮어씀)·report_cover(결과보고서 표지),
   `GET .../{id}/gov` 착수계·완료계 창, `POST .../{id}/gov/{start|done}` 엑셀 + 합본 PDF(붙임 산출내역서·완수내역서), `GET .../{id}/gov/{kind}.{xlsx|pdf}`,
@@ -376,16 +377,20 @@ def link(cid: int, body: LinkIn, user: User = Depends(get_current_user), db: Ses
 
 @router.post("/contracts/{cid}/to-facility")
 def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """연결한 시설물에 보고서 쪽 계약(SitokContract)으로 — 계약서 PDF는 날인본(없으면 만든 계약서 PDF). 이미 넣었으면 그 계약을 고침."""
+    """연결한 시설물에 보고서 쪽 계약(SitokContract)으로 — 계약서 PDF는 날인본(없으면 만든 계약서 PDF). 이미 넣었으면 그 계약을 고침.
+    연결된 시설물이 없으면(10/14 "계약서가 없는 경우" 등록) 관리대장으로 시설물 카드를 만들어 연결하고, 이번 반기 회차까지 만든다."""
     from server.api.routers.sitok import _facility_dir
 
     c = _require(db, user, cid)
-    f = db.get(SitokFacility, c.facility_id) if c.facility_id else None
-    if f is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "먼저 현장(시설물)을 연결하세요.")
     src = Path(c.contract_pdf) if c.contract_pdf and Path(c.contract_pdf).exists() else folder(c) / "계약서.pdf"
     if not src.exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "넣을 계약서가 없습니다 — 날인본을 올리거나 계약서를 만드세요.")
+    f = db.get(SitokFacility, c.facility_id) if c.facility_id else None
+    created = None
+    if f is None:
+        f = _new_facility_from(db, user, c)
+        c.facility_id = f.id
+        created = f.id
     rc = db.get(SitokContract, c.report_contract_id) if c.report_contract_id else None
     if rc is None or rc.facility_id != f.id:
         rc = SitokContract(company_id=user.company_id, facility_id=f.id, created_by=user.display_name or "")
@@ -407,8 +412,68 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
     db.flush()
     from server.api.routers.sitok import attach_contract
     attach_contract(db, rc)  # 계약 없이 만든 회차 중 이 계약이 덮는 것에 붙임(10/13)
+    report_id = None
+    if created is not None:  # 새 시설물이면 이번 반기(계약이 덮으면) 회차까지
+        report_id = _first_report(db, user, f, rc)
     db.commit()
-    return summary(db, c) | {"report_contract": rc.id, "facility_name": f.name}
+    return summary(db, c) | {"report_contract": rc.id, "facility_name": f.name, "created_facility": created, "report_id": report_id}
+
+
+def _new_facility_from(db: Session, user: User, c: SitokDocContract) -> SitokFacility:
+    """서류 자동화 계약 → 시설물 카드: 올린 관리대장(AI로 다시 읽어 칸 전부)이 있으면 그것, 없으면 계약 칸의 시설물명·위치·관리주체만. 번호표·계약 구분은 새 등록과 같음."""
+    from server.api.routers.sitok import FacilityIn, _apply_facility, _facility_dir, default_type, next_mgmt_no
+    from server.sitok import reader
+
+    ledger = folder(c) / "시설물관리대장.pdf"
+    fields: dict = {"name": (c.facility_name or c.client or c.title or "").strip(), "address": c.location or "", "owner_name": c.client or ""}
+    extra = None
+    if ledger.exists():
+        try:
+            d = reader.read_ledger(ledger, user.company_id)
+            extra = d.pop("ledger", None)
+            d.pop("owner_rep", None)
+            grade = d.pop("grade", "")
+            fields.update({k: v for k, v in d.items() if v not in (None, "") and k in FacilityIn.model_fields})
+            if grade and "template" in FacilityIn.model_fields and not fields.get("template"):
+                fields["template"] = "3종일반" if grade == "3" else "2종"
+        except Exception:  # noqa: BLE001 — 못 읽으면 계약 칸 값으로
+            pass
+    if not fields["name"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "시설물명이 없습니다 — 관리대장을 올리거나 시설물 칸을 적어 주세요.")
+    f = SitokFacility(company_id=user.company_id, created_by=user.display_name or "", ledger=extra or None)
+    _apply_facility(f, FacilityIn(**fields))
+    db.add(f)
+    db.flush()
+    if ledger.exists():
+        dest = _facility_dir(f) / "시설물관리대장.pdf"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ledger, dest)
+        f.ledger_pdf = str(dest)
+    bizreg = folder(c) / "사업자등록증.pdf"
+    if bizreg.exists():
+        dest = _facility_dir(f) / "사업자등록증.pdf"
+        shutil.copyfile(bizreg, dest)
+    f.mgmt_no = next_mgmt_no(db, user.company_id)
+    f.contract_type = default_type(c.sector)
+    return f
+
+
+def _first_report(db: Session, user: User, f: SitokFacility, rc: SitokContract) -> int | None:
+    """새 시설물의 첫 회차 — 오늘 반기를 이 계약이 덮으면 그 회차(종류는 계약 회차 줄에서, 모르면 정기)."""
+    from server.api.routers.sitok import kind_known
+    from server.api.routers.sitok_onboard import _default_people
+    from server.api.routers.sitok_reports import _new_report
+
+    today = datetime.date.today()
+    half = "상반기" if today.month <= 6 else "하반기"
+    if rc.start_date and rc.end_date and not (rc.start_date <= today <= rc.end_date):
+        return None
+    if db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == today.year, SitokReport.half == half).first():
+        return None
+    chief, parts = _default_people(db, user.company_id)
+    r = _new_report(db, user.display_name or "", f, today.year, half, contract_id=rc.id, chief_id=chief, participant_ids=parts,
+                    kind=kind_known(db, rc, today.year, half) or "정기")
+    return r.id
 
 
 # ---------- 민간 계약서 양식 ----------

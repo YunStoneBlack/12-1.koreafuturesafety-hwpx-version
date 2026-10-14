@@ -461,3 +461,16 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
   .sk-row .st-switch.sk-type, .sk-row .sk-contract { grid-column: 2; }
   .main .panel-head .sk-bulk { flex-basis: 100%; justify-content: flex-end; }
 }
+
+/* 새 점검 대상 등록 — 두 경우 고르기(10/14 형 2차 ②) */
+.nw-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 4px 0 14px; }
+.main button.nw-mode-btn { margin: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 14px 16px; border: 2px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--ink); text-align: left; font-weight: 400; cursor: pointer; }
+.main button.nw-mode-btn.on { border-color: var(--blue); background: var(--blue-soft); }
+.main button.nw-mode-btn .rd-lb { font-size: 15px; font-weight: 700; }
+.nw-steps { margin: 0 0 12px; padding-left: 20px; font-size: 13.5px; line-height: 1.7; }
+.main a.nw-go-docs { display: inline-flex; align-items: center; padding: 10px 18px; border-radius: 8px; background: var(--blue); color: #fff; font-size: 14px; font-weight: 600; }
+.sk-drops.one { grid-template-columns: 1fr; }
+.nw-b-drops.one { grid-template-columns: 1fr; }
+.nw-opt { margin-top: 8px; }
+@media (max-width: 760px) { .nw-mode { grid-template-columns: 1fr; } }
