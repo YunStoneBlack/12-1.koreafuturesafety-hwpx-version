@@ -1,6 +1,9 @@
 // 시특법 정밀안전점검 재료시험(sitok-tests.html, 2026-10-13 ② 단계) — 표본층·부재 규격·강도·탄산화·기울기·부등침하.
 // 값을 바꾸면(change) 입력 전체를 PATCH /sitok/reports/{id}/tests 로 저장하고, 서버가 계산한 값(등급·1/N·잔존수명)으로 다시 그림.
 // 계산은 server/sitok/tests.py — 다산은혜교회 보고서 값으로 검증.
+// 10/14 형 피드백(작업내용 46차): 표본층을 고르면 기준 수량만큼 줄이 자동(서버 sync_defaults), 부재는 선택(기둥·큰보·작은보·슬래브·벽체)·강도는 부위(중앙부·단부) 따로,
+// 규격 치수는 기둥·보 가로·세로 두 칸 / 슬래브·벽체 두께 한 칸(숫자 키패드), 조사결과는 일치/다름, 기울기 8줄(모서리 4 × X·Y), 부등침하 4구간 + 구간마다 측점 추가,
+// [🤖 일람표에서 설계 치수 채우기](시설물 도면 "구조 일람표"를 AI가 읽음).
 
 (function () {
   const rid = Number(new URLSearchParams(location.search).get("report")) || null;
@@ -11,6 +14,7 @@
   const num = (v) => (v === null || v === undefined || v === "" ? "" : v);
   const grade = (g) => (g ? `<span class="st-grade ${g}">${g.toUpperCase()}</span>` : "-");
   const STRUCT = ["라멘", "벽식", "무량판"], MAT = ["RC", "SRC", "철골", "조적"], DIRS = ["", "좌측", "우측", "전면", "후면"];
+  const MEMBERS = ["", "기둥", "큰보", "작은보", "슬래브", "벽체"], SPOTS = ["", "중앙부", "단부"], THICK = ["슬래브", "벽체"];
   let view = null; // 서버가 준 계산값
   let input = null; // 저장할 입력(view.input)
   let timer = null;
@@ -19,7 +23,7 @@
     const fl = (view.sample.floors || []).length ? view.sample.floors : [];
     return `<option value="">층</option>${fl.map((f) => `<option value="${f.floor}"${Number(sel) === f.floor ? " selected" : ""}>${esc(f.label)}</option>`).join("")}`;
   }
-  const opts = (list, sel) => list.map((v) => `<option value="${esc(v)}"${v === sel ? " selected" : ""}>${esc(v) || "—"}</option>`).join("");
+  const opts = (list, sel, blank) => list.map((v) => `<option value="${esc(v)}"${v === (sel || "") ? " selected" : ""}>${esc(v) || blank || "—"}</option>`).join("");
 
   async function save(msg) {
     clearTimeout(timer);
@@ -35,15 +39,27 @@
     } catch (e) { saved.textContent = `저장 실패: ${e.message}`; saved.className = "st-saved bad"; }
   }
 
+  const getAt = (keys) => { let o = input; for (const k of keys) o = o[/^\d+$/.test(k) ? Number(k) : k]; return o; };
+  const setAt = (path, v) => {
+    const keys = path.split(".");
+    const o = getAt(keys.slice(0, -1));
+    const last = keys[keys.length - 1];
+    o[/^\d+$/.test(last) ? Number(last) : last] = v;
+  };
+
   // 표 칸(data-path="sections.0.design")에서 input으로 값 넣기
   function bindInputs(root) {
     root.querySelectorAll("[data-path]").forEach((el) => {
       el.addEventListener("change", () => {
-        const keys = el.dataset.path.split(".");
-        let o = input;
-        for (const k of keys.slice(0, -1)) o = o[/^\d+$/.test(k) ? Number(k) : k];
-        const last = keys[keys.length - 1];
-        o[/^\d+$/.test(last) ? Number(last) : last] = el.type === "checkbox" ? el.checked : el.value;
+        setAt(el.dataset.path, el.type === "checkbox" ? el.checked : el.value);
+        save();
+      });
+    });
+    // 치수 칸(가로·세로 두 칸 또는 두께 한 칸) → "300×600" 글자 하나로(10/14)
+    root.querySelectorAll("[data-dim]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const parts = [...root.querySelectorAll(`[data-dim="${el.dataset.dim}"]`)].map((x) => x.value.trim()).filter((x) => x !== "");
+        setAt(el.dataset.dim, parts.join("×"));
         save();
       });
     });
@@ -69,7 +85,7 @@
       if (i >= 0) list.splice(i, 1);
       else list.push({ floor: k, start: null, end: null, structure: (view.report.structure || "").includes("벽") ? "벽식" : "라멘", material: "RC" });
       list.forEach((f) => { f.start = null; f.end = null; }); // 층이 바뀌면 범위 다시 자동
-      save();
+      save(i >= 0 ? "✓ 저장됨 — 그 층의 빈 줄은 뺐습니다(값 있는 줄은 남김)" : "✓ 저장됨 — 기준 수량만큼 줄을 만들었습니다");
     }));
     const rows = s.floors.map((f, i) => `<tr><td><b>${esc(f.label)}</b></td>
       <td><select data-path="sample.floors.${i}.start">${floorAll(f.start)}</select></td><td><select data-path="sample.floors.${i}.end">${floorAll(f.end)}</select></td>
@@ -86,22 +102,36 @@
   const rangeText = (a) => { const l = (k) => (k < 0 ? `지하${-k}층` : `지상${k}층`); return a[0] === a[1] ? l(a[0]) : `${l(a[0])}~${l(a[1])}`; };
 
   // ---- 2. 부재 규격 ----
+  // 치수 칸: 기둥·보 = 가로 × 세로(두 칸), 슬래브·벽체 = 두께(한 칸). 폰에선 숫자 키패드(inputmode=numeric).
+  function dimCell(path, value, member) {
+    const v = String(value || "");
+    if (THICK.includes(member)) return `<span class="st-dim"><input class="n" data-dim="${path}" value="${esc(v)}" inputmode="numeric" placeholder="두께" /><small>mm</small></span>`;
+    const [a = "", b = ""] = v.split("×");
+    return `<span class="st-dim"><input class="n" data-dim="${path}" value="${esc(a)}" inputmode="numeric" placeholder="가로" /><small>×</small><input class="n" data-dim="${path}" value="${esc(b)}" inputmode="numeric" placeholder="세로" /></span>`;
+  }
   function drawSections() {
     const rows = view.sections.map((r, i) => `<tr><td>B${i + 1}</td><td><select data-path="sections.${i}.floor">${floorOptions(r.floor)}</select></td>
-      <td><input class="l" data-path="sections.${i}.position" value="${esc(r.position)}" placeholder="X3/Y3" /></td>
-      <td><input class="l" data-path="sections.${i}.member" value="${esc(r.member)}" placeholder="기둥(C5)" /></td>
-      <td><input class="w" data-path="sections.${i}.design" value="${esc(r.design)}" placeholder="800×800" /></td>
-      <td><input class="w" data-path="sections.${i}.measured" value="${esc(r.measured)}" placeholder="800×800" /></td>
+      <td><input class="l" data-path="sections.${i}.position" value="${esc(r.position)}" placeholder="C1 / X3-Y3" /></td>
+      <td><select data-path="sections.${i}.member">${opts(MEMBERS, r.member, "부재")}</select></td>
+      <td>${dimCell(`sections.${i}.design`, r.design, r.member)}</td>
+      <td class="st-measured"><select data-same="${i}"><option value="1"${r.same ? " selected" : ""}>일치</option><option value="0"${r.same ? "" : " selected"}>다름</option></select>
+        ${r.same ? `<span class="calc">${esc(r.design || "-")}</span>` : dimCell(`sections.${i}.measured`, r.measured, r.member)}</td>
       <td class="calc">${r.ratio === null ? "-" : `${r.ratio}%`}</td><td class="calc">${r.ok === null ? "-" : r.ok ? "<b>O.K</b>" : "N.G"}</td><td>${grade(r.grade)}</td>
       <td><button type="button" class="secondary st-del" data-del="sections.${i}">✕</button></td></tr>`).join("");
     $("st-section-count").textContent = `${view.sections.length}개소${view.sections_grade ? ` · ${view.sections_grade.toUpperCase()}` : ""}`;
-    $("st-section-tbl").innerHTML = `<table><thead><tr><th>NO</th><th>표본층</th><th>위치</th><th>부재</th><th>설계도면</th><th>조사결과</th><th>비율</th><th>평가</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    $("st-section-tbl").innerHTML = `<table><thead><tr><th>NO</th><th>표본층</th><th>위치·기호</th><th>부재</th><th>설계도면(mm)</th><th>조사결과</th><th>비율</th><th>평가</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <button type="button" class="secondary st-add" id="st-section-add">+ 개소 추가</button>`;
     $("st-section-add").addEventListener("click", () => {
       const last = input.sections[input.sections.length - 1];
-      input.sections.push({ floor: last ? last.floor : (input.sample.floors[0] || {}).floor ?? null, position: "", member: "", design: "", measured: "" });
+      input.sections.push({ floor: last ? last.floor : (input.sample.floors[0] || {}).floor ?? null, position: "", member: last ? last.member : "기둥", design: "", measured: "", same: true });
       save();
     });
+    $("st-section-tbl").querySelectorAll("[data-same]").forEach((sel) => sel.addEventListener("change", () => {
+      const r = input.sections[Number(sel.dataset.same)];
+      r.same = sel.value === "1";
+      if (r.same) r.measured = r.design;
+      save();
+    }));
     bindInputs($("st-section-tbl"));
   }
 
@@ -109,7 +139,8 @@
   function drawStrength() {
     const st = view.strength;
     const rows = st.rows.map((r, i) => `<tr><td>S${i + 1}</td><td><select data-path="strength.rows.${i}.floor">${floorOptions(r.floor)}</select></td>
-      <td><input class="l" data-path="strength.rows.${i}.member" value="${esc(r.member)}" placeholder="기둥 중앙부" /></td>
+      <td><select data-path="strength.rows.${i}.member">${opts(MEMBERS, r.member, "부재")}</select></td>
+      <td><select data-path="strength.rows.${i}.spot">${opts(SPOTS, r.spot, "부위")}</select></td>
       <td class="calc">${esc(r.position || "-")}</td><td class="calc">${num(r.r0) || "-"}</td><td class="calc">${num(r.fc_mat) || "-"}</td><td class="calc">${num(r.fc_arch) || "-"}</td>
       <td><input class="n" data-path="strength.rows.${i}.est" value="${num(r.est)}" inputmode="decimal" /></td>
       <td><input class="n" data-path="strength.rows.${i}.design" value="${num(r.design)}" inputmode="decimal" placeholder="27" /></td>
@@ -119,11 +150,12 @@
       <td><button type="button" class="secondary st-del" data-del="strength/rows.${i}">✕</button></td></tr>`).join("");
     const sm = st.summary;
     $("st-strength-count").textContent = `${st.rows.length}개소${sm.count ? ` · ${sm.min}~${sm.max}MPa 평균 ${sm.mean}` : ""}${st.grade ? ` · ${st.grade.toUpperCase()}` : ""}`;
-    $("st-strength-tbl").innerHTML = `<table><thead><tr><th>구분</th><th>표본층</th><th>부재부위</th><th>성과표 위치</th><th>보정반발경도 R0</th><th>재료학회</th><th>건축학회</th><th>추정강도(MPa)</th><th>설계기준강도</th><th>비율</th><th>손상</th><th>비고</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    $("st-strength-tbl").innerHTML = `<table><thead><tr><th>구분</th><th>표본층</th><th>부재</th><th>부위</th><th>성과표 위치</th><th>보정반발경도 R0</th><th>재료학회</th><th>건축학회</th><th>추정강도(MPa)</th><th>설계기준강도</th><th>비율</th><th>손상</th><th>비고</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <button type="button" class="secondary st-add" id="st-strength-add">+ 개소 추가</button>`;
     $("st-strength-add").addEventListener("click", () => {
       const last = input.strength.rows[input.strength.rows.length - 1];
-      input.strength.rows.push({ floor: last ? last.floor : null, member: "", position: "", r0: null, fc_mat: null, fc_arch: null, est: null, design: last ? last.design : null, damaged: false, note: "건전부" });
+      input.strength.rows.push({ floor: last ? last.floor : null, member: last ? last.member : "기둥", spot: "", position: "", r0: null, fc_mat: null, fc_arch: null, est: null,
+        design: last ? last.design : null, damaged: false, note: "건전부" });
       save();
     });
     $("st-xlsx-file").innerHTML = st.file ? `📎 ${esc(st.file)} <button type="button" class="secondary" id="st-xlsx-del">빼기</button>` : "";
@@ -141,7 +173,7 @@
       <label>물-시멘트비(W/C)<input data-path="carbonation.wc" value="${num(c.wc)}" inputmode="decimal" /></label>
       <label>탄산화 비율(R)<input data-path="carbonation.ratio" value="${num(c.ratio)}" inputmode="decimal" /></label>`;
     const rows = c.rows.map((r, i) => `<tr><td>C${i + 1}</td><td><select data-path="carbonation.rows.${i}.floor">${floorOptions(r.floor)}</select></td>
-      <td><input class="l" data-path="carbonation.rows.${i}.member" value="${esc(r.member)}" placeholder="기둥" /></td>
+      <td><select data-path="carbonation.rows.${i}.member">${opts(MEMBERS, r.member, "부재")}</select></td>
       <td><input class="n" data-path="carbonation.rows.${i}.cover" value="${num(r.cover)}" inputmode="decimal" /></td>
       <td><input class="n" data-path="carbonation.rows.${i}.depth" value="${num(r.depth)}" inputmode="decimal" /></td>
       <td class="calc">${num(r.remain) === "" ? "-" : r.remain}</td><td class="calc">${num(r.coef) === "" ? "-" : r.coef}</td><td class="calc">${num(r.theory) === "" ? "-" : r.theory}</td>
@@ -153,7 +185,7 @@
       <button type="button" class="secondary st-add" id="st-carb-add">+ 개소 추가</button>`;
     $("st-carb-add").addEventListener("click", () => {
       const last = input.carbonation.rows[input.carbonation.rows.length - 1];
-      input.carbonation.rows.push({ floor: last ? last.floor : (input.sample.floors[0] || {}).floor ?? null, member: "", position: "", cover: null, depth: null });
+      input.carbonation.rows.push({ floor: last ? last.floor : (input.sample.floors[0] || {}).floor ?? null, member: last ? last.member : "기둥", position: "", cover: null, depth: null });
       save();
     });
     bindInputs($("st-carb-top"));
@@ -163,18 +195,21 @@
   // ---- 5. 기울기 ----
   function drawTilt() {
     const t = view.tilt;
-    const rows = t.rows.map((r, i) => `<tr><td>${i + 1}</td><td><input class="n" data-path="tilt.rows.${i}.height" value="${num(r.height)}" inputmode="numeric" placeholder="29200" /></td>
+    const rows = t.rows.map((r, i) => `<tr><td>${i + 1}</td>
+      <td><input class="l" data-path="tilt.rows.${i}.label" value="${esc(r.label)}" placeholder="모서리1 X" /></td>
+      <td><input class="n" data-path="tilt.rows.${i}.height" value="${num(r.height)}" inputmode="numeric" placeholder="29200" /></td>
       <td><select data-path="tilt.rows.${i}.direction">${opts(DIRS, r.direction)}</select></td>
       <td><input class="n" data-path="tilt.rows.${i}.disp" value="${num(r.disp)}" inputmode="decimal" /></td>
       <td class="calc"><b>${esc(r.ratio_text)}</b></td><td>${grade(r.grade)}</td>
       <td><button type="button" class="secondary st-del" data-del="tilt/rows.${i}">✕</button></td></tr>`).join("");
     const rg = t.range;
     $("st-tilt-count").textContent = `${t.rows.length}개소${rg.min_n ? ` · 1/${rg.min_n.toLocaleString()} ~ 1/${rg.max_n.toLocaleString()}` : ""}${t.grade ? ` · ${t.grade.toUpperCase()}` : ""}`;
-    $("st-tilt-tbl").innerHTML = `<table><thead><tr><th>NO</th><th>측정높이(mm)</th><th>상부 변위방향</th><th>변위량(mm)</th><th>기울기</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    $("st-tilt-tbl").innerHTML = `<table><thead><tr><th>NO</th><th>측점</th><th>측정높이(mm)</th><th>상부 변위방향</th><th>변위량(mm)</th><th>기울기</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <button type="button" class="secondary st-add" id="st-tilt-add">+ 측점 추가</button>`;
     $("st-tilt-add").addEventListener("click", () => {
       const last = input.tilt.rows[input.tilt.rows.length - 1];
-      input.tilt.rows.push({ height: last ? last.height : null, direction: "", disp: null });
+      const n = input.tilt.rows.length;
+      input.tilt.rows.push({ label: `모서리${Math.floor(n / 2) + 1} ${n % 2 ? "Y" : "X"}`, height: last ? last.height : null, direction: "", disp: null });
       save();
     });
     $("st-tilt-note").value = t.note || "";
@@ -196,6 +231,8 @@
       return `<div class="st-sec"><div class="st-sec-head"><b>${esc(s.floor_label || "")} 바닥 ${esc(sec.axis)}축 방향(${sec.no}구간)</b>
           <select data-path="settlement.sections.${j}.axis">${opts(["X", "Y"], sec.axis)}</select>
           <select data-path="settlement.sections.${j}.no">${opts(["1", "2", "3", "4"], String(sec.no))}</select>
+          <button type="button" class="secondary st-del" data-sett-add="${j}">+ 측점 추가</button>
+          ${sec.rows.length > 2 ? `<button type="button" class="secondary st-del" data-sett-pop="${j}">마지막 측점 빼기</button>` : ""}
           <button type="button" class="secondary st-del" data-del="settlement/sections.${j}">구간 빼기</button></div>
         <div class="st-tbl"><table><thead><tr><th>NO</th><th>측정위치</th><th>측정위치값(mm)</th><th>변위(mm)</th><th>거리(mm)</th><th>기울기</th><th>등급</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
     }).join("") + '<button type="button" class="secondary st-add" id="st-sett-add">+ 구간 추가(측점 3개)</button>';
@@ -205,6 +242,19 @@
       if (!input.settlement.floor) input.settlement.floor = (view.building.floors[0] || {}).key ?? null;
       save();
     });
+    $("st-sett-list").querySelectorAll("[data-sett-add]").forEach((b) => b.addEventListener("click", () => {
+      const sec = input.settlement.sections[Number(b.dataset.settAdd)];
+      sec.levels.push(null);
+      sec.distances.push(null);
+      save();
+    }));
+    $("st-sett-list").querySelectorAll("[data-sett-pop]").forEach((b) => b.addEventListener("click", () => {
+      const sec = input.settlement.sections[Number(b.dataset.settPop)];
+      if (sec.levels.length <= 2) return;
+      sec.levels.pop();
+      sec.distances.pop();
+      save();
+    }));
     $("st-sett-note").value = s.note || "";
     bindInputs($("st-sett-top"));
     bindInputs($("st-sett-list"));
@@ -234,6 +284,19 @@
 
   $("st-tilt-note").addEventListener("change", () => { input.tilt.note = $("st-tilt-note").value; save(); });
   $("st-sett-note").addEventListener("change", () => { input.settlement.note = $("st-sett-note").value; save(); });
+  // 구조 일람표(시설물 도면 "schedule") → 빈 설계도면 칸 채우기(10/14 형 피드백 ④)
+  $("st-sched").addEventListener("click", async () => {
+    const btn = $("st-sched"), msg = $("st-sched-msg");
+    btn.disabled = true;
+    msg.textContent = "일람표 읽는 중…(10~30초)";
+    msg.className = "sk-help";
+    try {
+      view = await apiPost(`/sitok/reports/${rid}/tests/schedule`, {});
+      input = view.input;
+      draw();
+      msg.textContent = view.filled ? `✓ ${view.filled}칸을 채웠습니다 — 틀린 치수는 고치세요.` : "채울 칸을 못 찾았습니다(일람표에 그 층·부재가 없거나, 이미 다 채워짐).";
+    } catch (e) { msg.textContent = e.message; msg.className = "sk-help bad"; } finally { btn.disabled = false; }
+  });
   const xlsx = $("st-xlsx");
   xlsx.addEventListener("change", async () => {
     const f = xlsx.files[0];
@@ -247,7 +310,7 @@
       view = await apiUpload(`/sitok/reports/${rid}/tests/schmidt`, fd);
       input = view.input;
       draw();
-      msg.textContent = `✓ ${f.name} — ${view.read}개 위치를 읽어 채웠습니다. 층·부재부위·설계기준강도를 확인하세요.`;
+      msg.textContent = `✓ ${f.name} — ${view.read}개 위치를 읽어 채웠습니다. 층·부재·부위·설계기준강도를 확인하세요.`;
     } catch (e) { msg.textContent = `읽지 못했습니다: ${e.message}`; }
   });
   enableFileDrop(document.querySelector(".st-xlsx"), xlsx);

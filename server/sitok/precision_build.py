@@ -798,7 +798,7 @@ def _fill_strength_tbl(tbl, D: Data) -> None:
     fmt = lambda v: "-" if v is None else f"{v:g}"  # noqa: E731
     for i, r in enumerate(data_rows):
         x = st[i] if i < len(st) else None
-        vals = [f"S{i + 1}", TESTS.floor_label(x["floor"]) if x and x["floor"] else "-", x["member"] or "-", fmt(x["r0"]), fmt(x["fc_mat"]), fmt(x["fc_arch"]), fmt(x["est"]), fmt(x["design"]),
+        vals = [f"S{i + 1}", TESTS.floor_label(x["floor"]) if x and x["floor"] else "-", (x.get("member_text") or x["member"]) or "-", fmt(x["r0"]), fmt(x["fc_mat"]), fmt(x["fc_arch"]), fmt(x["est"]), fmt(x["design"]),
                 x["note"] or ("손상부" if x["damaged"] else "건전부")] if x else ["-"] * 9
         for tc, v in zip(_row_cells(cells, r), vals):
             rb._set_lines(tc, [v])

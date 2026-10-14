@@ -34,11 +34,22 @@
 .st-note { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .st-note textarea { font-size: 13px; padding: 6px 8px; }
 .st-sec { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-.st-sec-head { display: flex; align-items: center; gap: 10px; font-size: 13px; margin-bottom: 6px; }
-.st-sec-head b { font-size: 14px; }
+.st-sec-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; margin-bottom: 6px; }
+.st-sec-head b { font-size: 14px; white-space: nowrap; }
+.main .st-sec-head button { white-space: nowrap; margin: 0; }
 .st-sec-head select { width: auto; padding: 3px 6px; }
 .st-sum { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.st-dim { display: inline-flex; align-items: center; gap: 3px; }
+.st-dim input.n { min-width: 58px; max-width: 72px; }
+.st-dim small { color: var(--muted); }
+.st-tbl td.st-measured { white-space: nowrap; }
+.st-tbl td.st-measured select { width: auto; min-width: 0; margin-right: 4px; }
+.st-tbl td.st-measured .calc { color: var(--muted); }
+.st-sched { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 8px; }
+.main .st-sched button { margin: 0; }
+.st-sched .bad { color: var(--crit); }
 @media (max-width: 640px) {
   .st-tbl table { min-width: 560px; }
+  .st-sec-head b { flex-basis: 100%; }
   .st-strength-top .sk-drop { flex-basis: 100%; }
 }

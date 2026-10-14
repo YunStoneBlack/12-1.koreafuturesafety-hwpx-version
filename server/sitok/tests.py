@@ -8,7 +8,9 @@
 - 강도: 슈미트 추정강도(MPa) ÷ 설계기준강도 → rating.grade_strength(건전부/손상).
 - 탄산화(mm, 경과년수 t = 준공 ~ 점검): 잔여 = 피복 − 깊이, 속도계수 A = 깊이/√t, 이론치 = R·(4.6·(W/C) − 1.76)/√7.2 · √t (cm → mm; 기시타니 식, 다산 4.37mm),
   잔존수명 = (피복/A)² − t(100년 넘으면 "100년 이상", 다산 C1 80.7년), 등급 = rating.grade_carbonation(깊이/피복).
-- 기울기: 1/N, N = 측정높이 ÷ 변위량 → rating.grade_tilt. 부등침하: 구간(측점 3개·거리 2개) → 변위 = 앞 측점 − 뒤 측점, N = 거리 ÷ |변위|.
+- 기울기: 1/N, N = 측정높이 ÷ 변위량 → rating.grade_tilt. 부등침하: 구간(측점 3개 이상·거리는 측점 − 1) → 변위 = 앞 측점 − 뒤 측점, N = 거리 ÷ |변위|.
+10/14 형 피드백(작업내용 46차): 부재는 선택(기둥·큰보·작은보·슬래브·벽체) + 강도는 부위(중앙부·단부) 따로, 표본층을 고르면 기준 수량만큼 기본 줄을 자동으로
+(sync_defaults — 모자란 줄만, 값 있는 줄은 안 지움), 기울기 8줄(모서리 4 × X·Y)·부등침하 4구간(X1·X2·Y1·Y2)은 비었을 때 한 번, 구조 일람표 도면 → 설계 치수(schedule_fill).
 """
 from __future__ import annotations
 
@@ -23,7 +25,35 @@ DEFAULT_R = 1.0  # 탄산화 비율(R)
 STRUCTURES = ("라멘", "벽식", "무량판")
 MATERIALS = ("RC", "SRC", "철골", "조적")
 TILT_DIRS = ("좌측", "우측", "전면", "후면")
-MEMBER_SPOTS = ("기둥 중앙부", "기둥 단부", "보 중앙부", "보 단부")  # 강도 기본 부재부위(층마다 2부재 × 2개소)
+MEMBERS = ("기둥", "큰보", "작은보", "슬래브", "벽체")  # 선택 칸(10/14 형) — 치수는 기둥·보 가로×세로, 슬래브·벽체 두께
+SPOTS = ("중앙부", "단부")
+THICK_MEMBERS = ("슬래브", "벽체")
+DEFAULT_STRENGTH = (("기둥", "중앙부"), ("기둥", "단부"), ("큰보", "중앙부"), ("큰보", "단부"))  # 층마다 2부재 × 2개소
+DEFAULT_SECTION = ("기둥",) * 3 + ("큰보",) * 3  # 층마다 2부재 × 3개소
+DEFAULT_CARB = ("기둥", "큰보")  # 층마다 2부재 × 1개소
+TILT_LABELS = tuple(f"모서리{i} {ax}" for i in (1, 2, 3, 4) for ax in ("X", "Y"))  # 기본 8줄
+SETT_DEFAULT = (("X", 1), ("X", 2), ("Y", 1), ("Y", 2))  # 기본 4구간
+
+
+def member_of(text: str) -> str:
+    """옛 글자("기둥 중앙부"·"보 단부"·"기둥(C5)"·"내력벽") → 선택 값. 모르면 그대로."""
+    t = (text or "").replace(" ", "")
+    if t in MEMBERS:
+        return t
+    for key, m in (("작은보", "작은보"), ("기둥", "기둥"), ("슬라브", "슬래브"), ("슬래브", "슬래브"), ("바닥", "슬래브"), ("벽", "벽체"), ("보", "큰보")):
+        if key in t:
+            return m
+    return (text or "").strip()
+
+
+def spot_of(text: str) -> str:
+    t = (text or "").replace(" ", "")
+    return "중앙부" if "중앙" in t else "단부" if "단부" in t else ""
+
+
+def member_text(r: dict) -> str:
+    """보고서·상태평가에 쓰는 글자 — "기둥 중앙부"."""
+    return " ".join(x for x in (r.get("member") or "", r.get("spot") or "") if x)
 
 
 # ---------- 층 ----------
@@ -104,6 +134,7 @@ def ratio_text(n: float | None) -> str:
 
 def section_row(r: dict) -> dict:
     d, m = _dims(r.get("design")), _dims(r.get("measured"))
+    r = {**r, "thick": r.get("member") in THICK_MEMBERS}
     out = {**r, "ratio": None, "grade": None, "ok": None}
     if d and m is not None:
         out["ratio"] = round(m / d * 100, 1)
@@ -114,7 +145,7 @@ def section_row(r: dict) -> dict:
 
 def strength_row(r: dict) -> dict:
     est, design = _f(r.get("est")), _f(r.get("design"))
-    out = {**r, "ratio": None, "grade": None}
+    out = {**r, "member_text": member_text(r), "ratio": None, "grade": None}
     if est is not None and design:
         out["ratio"] = round(est / design * 100, 1)
         out["grade"] = rating.grade_strength(est, design, bool(r.get("damaged")))
@@ -206,26 +237,104 @@ def normalize(raw: dict | None) -> dict:
                        "structure": f.get("structure") if f.get("structure") in STRUCTURES else "라멘",
                        "material": f.get("material") if f.get("material") in MATERIALS else "RC"})
     base["sample"] = {"floors": sorted(floors, key=lambda x: x["floor"])}
-    base["sections"] = [{"floor": _i(r.get("floor")), "position": str(r.get("position") or "").strip(), "member": str(r.get("member") or "").strip(),
-                         "design": str(r.get("design") or "").strip(), "measured": str(r.get("measured") or "").strip()} for r in raw.get("sections") or []]
+    secs = []
+    for r in raw.get("sections") or []:
+        design, measured = _dim_text(r.get("design")), _dim_text(r.get("measured"))
+        same = bool(r.get("same")) if "same" in r else (bool(design) and design == measured)
+        if same:
+            measured = design  # 조사결과 "일치" → 설계값 그대로(10/14 형)
+        secs.append({"floor": _i(r.get("floor")), "position": str(r.get("position") or "").strip(), "member": member_of(r.get("member")),
+                     "design": design, "measured": measured, "same": same})
+    base["sections"] = secs
     st = raw.get("strength") or {}
     base["strength"] = {"file": str(st.get("file") or ""), "rows": [
-        {"floor": _i(r.get("floor")), "member": str(r.get("member") or "").strip(), "position": str(r.get("position") or "").strip(),
+        {"floor": _i(r.get("floor")), "member": member_of(r.get("member")), "spot": spot_of(r.get("member")) or (r.get("spot") if r.get("spot") in SPOTS else ""),
+         "position": str(r.get("position") or "").strip(),
          "r0": _f(r.get("r0")), "fc_mat": _f(r.get("fc_mat")), "fc_arch": _f(r.get("fc_arch")), "est": _f(r.get("est")), "design": _f(r.get("design")),
          "damaged": bool(r.get("damaged")), "note": str(r.get("note") or "").strip()} for r in st.get("rows") or []]}
     ca = raw.get("carbonation") or {}
     base["carbonation"] = {"wc": _f(ca.get("wc")) or DEFAULT_WC, "ratio": _f(ca.get("ratio")) or DEFAULT_R, "rows": [
-        {"floor": _i(r.get("floor")), "member": str(r.get("member") or "").strip(), "position": str(r.get("position") or "").strip(),
+        {"floor": _i(r.get("floor")), "member": member_of(r.get("member")), "position": str(r.get("position") or "").strip(),
          "cover": _f(r.get("cover")), "depth": _f(r.get("depth"))} for r in ca.get("rows") or []]}
     ti = raw.get("tilt") or {}
     base["tilt"] = {"note": str(ti.get("note") or ""), "rows": [
-        {"height": _f(r.get("height")), "direction": r.get("direction") if r.get("direction") in TILT_DIRS else "", "disp": _f(r.get("disp"))}
-        for r in ti.get("rows") or []]}
+        {"label": str(r.get("label") or "").strip(), "height": _f(r.get("height")), "direction": r.get("direction") if r.get("direction") in TILT_DIRS else "",
+         "disp": _f(r.get("disp"))} for r in ti.get("rows") or []]}
     se = raw.get("settlement") or {}
     base["settlement"] = {"floor": _i(se.get("floor")), "note": str(se.get("note") or ""), "sections": [
         {"axis": "Y" if str(sec.get("axis") or "").upper() == "Y" else "X", "no": _i(sec.get("no")) or 1,
          "levels": [_f(v) for v in sec.get("levels") or []], "distances": [_f(v) for v in sec.get("distances") or []]} for sec in se.get("sections") or []]}
+    for sec in base["settlement"]["sections"]:
+        if len(sec["levels"]) < 2:
+            sec["levels"] += [None] * (2 - len(sec["levels"]))
+        sec["distances"] = (sec["distances"] + [None] * len(sec["levels"]))[:len(sec["levels"]) - 1]
     return base
+
+
+def _dim_text(v) -> str:
+    """치수 글자 정리 — "300x600"·"300*600"·"300 × 600" → "300×600"."""
+    s = str(v or "").strip().replace("x", "×").replace("X", "×").replace("*", "×").replace(" ", "")
+    return s
+
+
+# ---------- 기본 줄(10/14 형 피드백) ----------
+
+def _section_empty(r: dict) -> bool:
+    return not (r.get("design") or r.get("measured") or r.get("position"))
+
+
+def _strength_empty(r: dict) -> bool:
+    return r.get("est") is None and r.get("r0") is None and not r.get("position")
+
+
+def _carb_empty(r: dict) -> bool:
+    return r.get("cover") is None and r.get("depth") is None
+
+
+def _sync_rows(rows: list[dict], floors: list[int], combos: tuple, keyf, is_empty, make) -> list[dict]:
+    """표본층마다 기준 수량(combos 수)만큼 — 모자라면 없는 조합부터 더하고, 표본층에서 빠진 층의 빈 줄은 뺌. 값 있는 줄은 안 건드림."""
+    rows = [r for r in rows if not (r.get("floor") is not None and r["floor"] not in floors and is_empty(r))]
+    for k in floors:
+        mine = [r for r in rows if r.get("floor") == k]
+        if len(mine) >= len(combos):
+            continue
+        have = {}
+        for r in mine:
+            have[keyf(r)] = have.get(keyf(r), 0) + 1
+        for c in combos:
+            if len(mine) >= len(combos):
+                break
+            if have.get(c, 0) > 0:
+                have[c] -= 1
+                continue
+            row = make(k, c)
+            rows.append(row)
+            mine.append(row)
+    order = {k: i for i, k in enumerate(floors)}
+    rows.sort(key=lambda r: order.get(r.get("floor"), len(order)))  # 층 순서로(안정 정렬 — 같은 층 안 순서는 그대로)
+    return rows
+
+
+def sync_defaults(data: dict) -> bool:
+    """표본층에 맞춰 규격·강도·탄산화 기본 줄, 기울기 8줄·부등침하 4구간(비었을 때만). 바뀌었으면 True."""
+    before = repr(data)
+    floors = [f["floor"] for f in data["sample"]["floors"]]
+    if floors:
+        data["sections"] = _sync_rows(data["sections"], floors, DEFAULT_SECTION, lambda r: r.get("member"), _section_empty,
+                                      lambda k, m: {"floor": k, "position": "", "member": m, "design": "", "measured": "", "same": True})
+        data["strength"]["rows"] = _sync_rows(data["strength"]["rows"], floors, DEFAULT_STRENGTH, lambda r: (r.get("member"), r.get("spot")), _strength_empty,
+                                              lambda k, c: {"floor": k, "member": c[0], "spot": c[1], "position": "", "r0": None, "fc_mat": None, "fc_arch": None,
+                                                            "est": None, "design": None, "damaged": False, "note": "건전부"})
+        data["carbonation"]["rows"] = _sync_rows(data["carbonation"]["rows"], floors, DEFAULT_CARB, lambda r: r.get("member"), _carb_empty,
+                                                 lambda k, m: {"floor": k, "member": m, "position": "", "cover": None, "depth": None})
+        for st in data["strength"]["rows"]:
+            if st["design"] is None:
+                st["design"] = next((x["design"] for x in data["strength"]["rows"] if x["design"] is not None), None)  # 설계기준강도는 한 건물에 보통 하나
+    if not data["tilt"]["rows"]:
+        data["tilt"]["rows"] = [{"label": lb, "height": None, "direction": "", "disp": None} for lb in TILT_LABELS]
+    if not data["settlement"]["sections"]:
+        data["settlement"]["sections"] = [{"axis": ax, "no": no, "levels": [None, None, None], "distances": [None, None]} for ax, no in SETT_DEFAULT]
+    return repr(data) != before
 
 
 def compute(raw: dict | None, *, above: int, below: int, area: float, kind: str, completion: datetime.date | None, when: datetime.date | None) -> dict:
@@ -256,7 +365,7 @@ def compute(raw: dict | None, *, above: int, below: int, area: float, kind: str,
                      "completion": completion.isoformat() if completion else None, "when": when.isoformat() if when else None, "age": t},
         "sample": {"need": need, "count": n, "floors": floors,
                    "quantity": {"strength": {"need": qty["strength"], "have": len(strength)}, "section": {"need": qty["section"], "have": len(sections)},
-                                "carbonation": {"need": qty["carbonation"], "have": len(carb)}, "tilt": {"need": 4, "have": len(tilt)},
+                                "carbonation": {"need": qty["carbonation"], "have": len(carb)}, "tilt": {"need": 8, "have": len(tilt)},
                                 "settlement": {"need": 4, "have": len(sett)}}},
         "sections": sections, "sections_grade": _worst(r["grade"] for r in sections),
         "strength": {"file": data["strength"]["file"], "rows": strength, "summary": _summary([r["est"] for r in strength]), "grade": _worst(r["grade"] for r in strength)},
@@ -275,8 +384,8 @@ def default_strength_rows(floors: list[dict]) -> list[dict]:
     """표본층마다 강도 기본 줄 4개(2부재 × 중앙부·단부) — 슈미트 성과표를 올리기 전 자리."""
     rows = []
     for f in floors:
-        for m in MEMBER_SPOTS:
-            rows.append({"floor": f["floor"], "member": m, "position": "", "r0": None, "fc_mat": None, "fc_arch": None, "est": None, "design": None,
+        for m, sp in DEFAULT_STRENGTH:
+            rows.append({"floor": f["floor"], "member": m, "spot": sp, "position": "", "r0": None, "fc_mat": None, "fc_arch": None, "est": None, "design": None,
                          "damaged": False, "note": "건전부"})
     return rows
 
@@ -287,13 +396,56 @@ def spots_to_rows(spots: list, floors: list[dict], existing: list[dict]) -> list
     defaults = default_strength_rows(floors)
     for i, s in enumerate(spots):
         if i >= len(rows):
-            rows.append(defaults[i] if i < len(defaults) else {"floor": floors[-1]["floor"] if floors else None, "member": "", "position": "", "design": None,
-                                                                 "damaged": False, "note": "건전부"})
+            rows.append(defaults[i] if i < len(defaults) else {"floor": floors[-1]["floor"] if floors else None, "member": "", "spot": "", "position": "",
+                                                                 "design": None, "damaged": False, "note": "건전부"})
         r1 = lambda v: round(v, 1) if v is not None else None  # noqa: E731 — 보고서 표는 소수 1자리
         rows[i].update({"position": s.position, "r0": r1(s.r0), "fc_mat": r1(s.est_mat), "fc_arch": r1(s.est_arch), "est": r1(s.est)})
+        hint = f"{s.position} {s.note}"  # 위치 글자에 기둥/보/중앙부/단부가 있으면 그대로(10/14 결정 ⑨), 없으면 줄 순서대로
+        if member_of(hint) in MEMBERS and any(k in hint for k in ("기둥", "보", "슬래브", "슬라브", "벽")):
+            rows[i]["member"] = member_of(hint)
+        if spot_of(hint):
+            rows[i]["spot"] = spot_of(hint)
         if s.note and not rows[i].get("note"):
             rows[i]["note"] = s.note
     return rows
+
+
+SCHEDULE_PROMPT = """아래 그림(과 글자)은 건축 구조도면의 구조 일람표(기둥·보·슬래브·벽체 단면 치수표)입니다.
+{facility} 건물의 재료시험 "부재 규격 조사"에 넣을 설계 치수를 찾아 주세요.
+찾을 줄(번호 · 층 · 부재):
+{rows}
+
+규칙: 기둥·큰보·작은보는 "가로×세로"(mm, 예 500×600 — 기둥은 b×h, 보는 b×D), 슬래브·벽체는 두께 "150"처럼 숫자만.
+그 층(또는 그 층이 속한 구간)에 쓰이는 부재 중 가장 많이 쓰이는 대표 부재의 치수를 넣고, 부재 기호(C1·G2·S1·W1 등)를 같이 적어 주세요. 못 찾으면 "".
+JSON 배열만 답하세요: [{{"no": 1, "design": "500×600", "mark": "C1"}}, …]
+{text}"""
+
+
+def schedule_fill(data: dict, facility: str, company_id: int, text: str, imgs: list[bytes]) -> int:
+    """구조 일람표 도면(글자·쪽 그림) → 빈 설계도면 칸 채우기(10/14 형 피드백 ④). 돌려주는 값 = 채운 줄 수. 위치 칸이 비었으면 부재 기호를 넣음."""
+    from server.sitok import vision
+
+    todo = [(i, r) for i, r in enumerate(data["sections"]) if not r.get("design") and r.get("member")]
+    if not todo:
+        return 0
+    lines = "\n".join(f"{i + 1} · {floor_label(r['floor']) if r.get('floor') else '층 미정'} · {r['member']}" for i, r in todo)
+    got = vision.ask_json(company_id, imgs, SCHEDULE_PROMPT.format(facility=facility, rows=lines, text=(text[:12000] if text else "(글자 없음 — 그림으로)")), max_tokens=4000)
+    by_no = {int(x.get("no")): x for x in (got if isinstance(got, list) else got.get("rows") or []) if isinstance(x, dict) and str(x.get("no", "")).isdigit()}
+    n = 0
+    for i, r in todo:
+        x = by_no.get(i + 1)
+        if not x:
+            continue
+        d = _dim_text(x.get("design"))
+        if not d or _dims(d) is None:
+            continue
+        r["design"] = d
+        if r.get("same", True):
+            r["measured"] = d
+        if not r.get("position") and x.get("mark"):
+            r["position"] = str(x["mark"]).strip()[:20]
+        n += 1
+    return n
 
 
 def _selfcheck() -> None:
@@ -311,6 +463,15 @@ def _selfcheck() -> None:
     assert [r["disp"] for r in s1["rows"]] == [9, -3, None] and s1["rows"][0]["ratio_text"] == "1/1,033" and s1["rows"][1]["ratio_text"] == "1/3,100"
     s2 = settlement_section({"axis": "Y", "no": 2, "levels": [1365, 1348, 1354], "distances": [7500, 6800]})
     assert s2["rows"][0]["grade"] == "c" and s2["rows"][0]["ratio_text"] == "1/441" and s2["rows"][1]["grade"] == "a"
+    assert member_of("기둥 중앙부") == "기둥" and member_of("보 단부") == "큰보" and spot_of("보 단부") == "단부" and member_of("내력벽(W5)") == "벽체"
+    d0 = normalize({"sample": {"floors": [{"floor": -3}, {"floor": 5}]}, "strength": {"rows": [{"floor": 5, "member": "기둥 단부", "est": 27.7, "design": 24}]},
+                    "sections": [{"floor": 5, "member": "기둥(C5)", "design": "300x600", "same": True}]})
+    assert d0["strength"]["rows"][0]["member"] == "기둥" and d0["strength"]["rows"][0]["spot"] == "단부" and d0["sections"][0]["measured"] == "300×600"
+    assert sync_defaults(d0) and len(d0["sections"]) == 12 and len(d0["strength"]["rows"]) == 8 and len(d0["carbonation"]["rows"]) == 4
+    assert len(d0["tilt"]["rows"]) == 8 and len(d0["settlement"]["sections"]) == 4 and d0["strength"]["rows"][-1]["design"] == 24
+    assert [r for r in d0["strength"]["rows"] if r["floor"] == 5 and r["est"] == 27.7] and not sync_defaults(d0)  # 값 있는 줄 유지·두 번째는 변화 없음
+    d0["sample"]["floors"].pop()  # 5층을 빼면 빈 줄만 빠지고 값 있는 줄은 남음
+    assert sync_defaults(d0) and len([r for r in d0["strength"]["rows"] if r["floor"] == 5]) == 1 and len([r for r in d0["sections"] if r["floor"] == 5]) == 1
     sec = section_row({"design": "800×800", "measured": "800×800"})
     assert sec["ok"] and sec["grade"] == "a" and section_row({"design": "300", "measured": "280"})["grade"] == "c"
     st = strength_row({"est": 30.9, "design": 30})

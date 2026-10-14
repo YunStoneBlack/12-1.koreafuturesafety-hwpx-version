@@ -3,6 +3,8 @@
 - `GET /sitok/reports/{id}/tests` — 입력 + 계산값(server/sitok/tests.compute) + 시설물(층수·연면적·준공일).
 - `PATCH /sitok/reports/{id}/tests` — 입력 통째로 저장(정리해서) → 계산값 돌려줌.
 - `POST /sitok/reports/{id}/tests/schmidt` — 슈미트 시험성과표 xlsx → 강도 줄(server/sitok/schmidt.read), 파일은 회차 폴더에 보관.
+- `POST /sitok/reports/{id}/tests/schedule` — 시설물 도면 "구조 일람표"(schedule)를 AI가 읽어 빈 설계도면 칸 채우기(10/14 형 피드백).
+GET·PATCH 모두 tests.sync_defaults — 표본층에 맞춰 기본 줄(값 있는 줄은 그대로).
 화면 sitok-tests.html(js/sitok-tests.js). 정밀 회차 카드의 [📐 재료시험]."""
 from __future__ import annotations
 
@@ -14,7 +16,9 @@ from sqlalchemy.orm import Session
 
 from core.models_web import SitokFacility, SitokReport, User
 from server.api.deps import get_current_user, get_db
+from server.api.routers.sitok import _facility_dir
 from server.api.routers.sitok_reports import _report_dir, _require
+from server.sitok import drawings as D
 from server.sitok import schmidt, tests
 
 router = APIRouter(prefix="/sitok", tags=["sitok-tests"])
@@ -36,6 +40,10 @@ def _view(db: Session, r: SitokReport) -> dict:
 @router.get("/reports/{report_id}/tests")
 def get_tests(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
+    data = tests.normalize(r.tests)
+    if tests.sync_defaults(data):  # 표본층은 골랐는데 기본 줄이 없던 회차(10/14 전)도 열면 채워짐
+        r.tests = data
+        db.commit()
     return _view(db, r)
 
 
@@ -43,8 +51,7 @@ def get_tests(report_id: int, user: User = Depends(get_current_user), db: Sessio
 def save_tests(report_id: int, body: TestsIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
     data = tests.normalize(body.tests)
-    if not data["strength"]["rows"] and data["sample"]["floors"] and not (r.tests or {}).get("strength", {}).get("rows"):
-        data["strength"]["rows"] = tests.default_strength_rows(data["sample"]["floors"])  # 표본층을 처음 고르면 강도 기본 줄
+    tests.sync_defaults(data)  # 표본층에 맞춰 기본 줄(모자란 것만)
     r.tests = data
     db.commit()
     return _view(db, r)
@@ -72,6 +79,28 @@ def upload_schmidt(report_id: int, file: UploadFile = File(...), user: User = De
     r.tests = cur
     db.commit()
     return _view(db, r) | {"read": len(spots)}
+
+
+@router.post("/reports/{report_id}/tests/schedule")
+def fill_from_schedule(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """시설물 도면 "구조 일람표" → AI가 표본층·부재별 설계 치수를 읽어 빈 설계도면 칸만 채움(위치 칸이 비면 부재 기호)."""
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    paths = [it["path"] for it in D.items(f, "schedule", _facility_dir(f))]
+    if not paths:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "구조 일람표 도면이 없습니다 — 🏢 시설물 현황 창의 도면 칸에 올리세요.")
+    cur = tests.normalize(r.tests)
+    tests.sync_defaults(cur)
+    if not any(not x["design"] and x["member"] for x in cur["sections"]):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "빈 설계도면 칸이 없습니다(표본층을 먼저 고르거나, 지우고 싶은 칸을 비우세요).")
+    text, imgs = D.for_ai(paths, max_pages=6)
+    try:
+        n = tests.schedule_fill(cur, f.name, r.company_id, text, imgs)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"일람표를 읽지 못했습니다: {str(err)[:150]}") from err
+    r.tests = cur
+    db.commit()
+    return _view(db, r) | {"filled": n}
 
 
 @router.delete("/reports/{report_id}/tests/schmidt")

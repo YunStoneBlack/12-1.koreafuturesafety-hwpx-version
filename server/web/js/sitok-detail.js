@@ -94,7 +94,8 @@ async function openSitokDetail(reportId, title, onSaved) {
     const url = `/sitok/reports/${reportId}/drawings`;
     try { data = data || await api(url); } catch (e) { el.innerHTML = `<div class="mail-msg bad">${esc(e.message)}</div>`; return; }
     const KIND = { struct: ["📐 구조일반사항·건축개요 도면", "[🤖 채우기]가 같이 읽음(콘크리트 강도·철근 종류·기초형식·지하깊이·슬래브 두께·방수 등)"],
-      attach: ["🗂 첨부 도면(평·입·단면도)", "보고서 1.2.9 관련 설계도면 쪽 뒤에 이 순서로 붙음 — 없으면 \"-\""] };
+      attach: ["🗂 첨부 도면(평·입·단면도)", "보고서 1.2.9 관련 설계도면 쪽 뒤에 이 순서로 붙음 — 없으면 \"-\""],
+      schedule: ["📏 구조 일람표(기둥·보·슬래브·벽 단면표)", "정밀 📐 재료시험 [🤖 일람표에서 설계 치수 채우기]가 읽음(10/14)"] };
     el.innerHTML = `<div class="dt-dwg-note sk-help">도면은 시설물에 한 번 올리면 다음 회차에도 그대로 씁니다 — 증축·내부 인테리어 등으로 바뀌면 지우고 새로 올리세요(이미 만든 보고서는 그대로).</div>`
       + Object.entries(KIND).map(([k, [label, help]]) => `<div class="dt-dwg-k" data-k="${k}"><div class="dt-dwg-h"><b>${label}</b> <span class="sk-help">${help}</span>
         <label class="secondary-link">+ 올리기(PDF·그림, 여러 개)<input type="file" accept="application/pdf,.pdf,image/*" multiple hidden data-kr-file="1" /></label></div>

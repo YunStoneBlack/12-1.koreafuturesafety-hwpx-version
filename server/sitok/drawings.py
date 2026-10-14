@@ -4,6 +4,7 @@
 - attach(첨부 도면 — 평·입·단면도): 보고서 PDF의 "N.2.9 관련 설계도면" 쪽 바로 뒤에 끼움(그림은 한 장 한 쪽, 가로·세로는 그림대로). 없으면 한글의
   "-후면첨부-"를 "-"로.
 - struct(구조일반사항·건축개요 도면): 시설물 현황 [🤖 채우기]가 관리대장·건축물대장과 같이 읽음(글자 + 쪽 그림 — 스캔 도면도).
+- schedule(구조 일람표, 10/14 형): 정밀 재료시험 [🤖 일람표에서 설계 치수 채우기]가 읽음(server/sitok/tests.schedule_fill).
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ import io
 import uuid
 from pathlib import Path
 
-KINDS = ("attach", "struct")
+KINDS = ("attach", "struct", "schedule")
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".webp")
 
 

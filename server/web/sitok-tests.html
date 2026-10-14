@@ -10,7 +10,8 @@
 <link rel="stylesheet" href="css/sitok.css" />
 <link rel="stylesheet" href="css/sitok-tests.css" />
 </head>
-<!-- 시특법 정밀안전점검 재료시험(2026-10-13 ② 단계) — 표본층 → 부재 규격 → 콘크리트 강도(슈미트 성과표 xlsx) → 탄산화 → 기울기·부등침하.
+<!-- 시특법 정밀안전점검 재료시험(2026-10-13 ② 단계, 10/14 형 피드백 반영) — 표본층 → 부재 규격 → 콘크리트 강도(슈미트 성과표 xlsx) → 탄산화 → 기울기·부등침하.
+     표본층을 고르면 기준 수량만큼 줄이 자동으로 생기고(서버 sync_defaults), 부재·부위는 선택, 규격 치수는 가로·세로/두께 숫자 칸, 일람표 AI 채우기.
      서버 server/api/routers/sitok_tests.py(계산 server/sitok/tests.py), 화면 js/sitok-tests.js. ?report=회차 id -->
 <body data-report-tab="facilities" data-law="sitok" data-tabs-only>
 <div class="app">
@@ -25,7 +26,7 @@
 <section class="panel" id="st-sample">
   <div class="panel-head"><h2>1. 표본층</h2><span class="panel-count" id="st-sample-count"></span></div>
   <div class="panel-body">
-    <p class="page-sub">층수·연면적으로 정한 수만큼 층을 고르세요. 대표 범위는 자동으로 나누고(두 표본층 사이 가운데, 지하/지상 경계가 사이면 거기서) 고칠 수 있습니다.</p>
+    <p class="page-sub">층수·연면적으로 정한 수만큼 층을 고르세요. 고르면 아래 표에 기준 수량만큼 줄이 생깁니다(값을 넣은 줄은 층을 바꿔도 남음). 대표 범위는 자동으로 나누고(두 표본층 사이 가운데, 지하/지상 경계가 사이면 거기서) 고칠 수 있습니다.</p>
     <div class="st-floor-pick" id="st-floor-pick"></div>
     <div class="st-tbl" id="st-sample-tbl"></div>
     <div class="st-qty" id="st-qty"></div>
@@ -35,7 +36,9 @@
 <section class="panel" id="st-section">
   <div class="panel-head"><h2>2. 부재 규격 조사</h2><span class="panel-count" id="st-section-count"></span></div>
   <div class="panel-body">
-    <p class="page-sub">표본층마다 2부재 × 3개소. 설계도면·조사결과는 "300×600"처럼(벽은 두께 "300"). 상태평가 점수에는 안 넣고(민재형 10/13) 평가만 합니다.</p>
+    <p class="page-sub">표본층마다 2부재 × 3개소. 부재를 고르면 기둥·보는 가로·세로, 슬래브·벽체는 두께(mm)만 넣습니다. 조사결과가 설계와 같으면 "일치", 다르면 "다름"으로 바꾸고 실측값을. 상태평가 점수에는 안 넣고(민재형 10/13) 평가만 합니다.</p>
+    <div class="st-sched"><button type="button" class="secondary btn-sm" id="st-sched">🤖 일람표에서 설계 치수 채우기</button>
+      <span class="sk-help" id="st-sched-msg">🏢 시설물 현황 창의 도면 칸에 올린 "구조 일람표"를 읽어 빈 설계도면 칸만 채웁니다(위치 칸에 부재 기호)</span></div>
     <div class="st-tbl" id="st-section-tbl"></div>
   </div>
 </section>
@@ -49,7 +52,7 @@
       <span id="st-xlsx-file" class="st-file"></span>
     </div>
     <div class="st-tbl" id="st-strength-tbl"></div>
-    <p class="page-sub">층·부재부위·설계기준강도는 직접. 추정강도(MPa) ÷ 설계기준강도 → a 100%↑ · c 85~100 · d 70~85 · e 70 미만(손상 있으면 b).</p>
+    <p class="page-sub">층·부재·부위·설계기준강도는 직접(성과표 위치 글자에 부재·부위가 있으면 자동). 추정강도(MPa) ÷ 설계기준강도 → a 100%↑ · c 85~100 · d 70~85 · e 70 미만(손상 있으면 b).</p>
   </div>
 </section>
 
@@ -65,7 +68,7 @@
 <section class="panel" id="st-tilt">
   <div class="panel-head"><h2>5. 기울기 (수평변위)</h2><span class="panel-count" id="st-tilt-count"></span></div>
   <div class="panel-body">
-    <p class="page-sub">건축물 4면 외벽 모서리. 기울기 1/N = 측정높이 ÷ 변위량 → a 1/750 이하 · b 1/500 · c 1/250 · d 1/150 · e 초과.</p>
+    <p class="page-sub">건축물 외벽 모서리 4곳 × X·Y 두 방향 = 기본 8측점(더 재면 [+ 측점 추가]). 기울기 1/N = 측정높이 ÷ 변위량 → a 1/750 이하 · b 1/500 · c 1/250 · d 1/150 · e 초과.</p>
     <div class="st-tbl" id="st-tilt-tbl"></div>
     <label class="st-note">결과 분석 메모<textarea id="st-tilt-note" rows="2" placeholder="예: 시공상의 오차로 판단"></textarea></label>
   </div>
@@ -74,7 +77,7 @@
 <section class="panel" id="st-sett">
   <div class="panel-head"><h2>6. 부등침하 (수직변위)</h2><span class="panel-count" id="st-sett-count"></span></div>
   <div class="panel-body">
-    <p class="page-sub">최하층 바닥을 레벨기로 — 장변(X)·단변(Y) 방향 각 2개소 이상. 구간마다 측점 3개 레벨(mm)과 측점 사이 거리(mm) 2개. 변위 = 앞 측점 − 뒤 측점, 기울기 = 거리 ÷ |변위|.</p>
+    <p class="page-sub">최하층 바닥을 레벨기로 — 장변(X)·단변(Y) 방향 각 2구간이 기본(X1·X2·Y1·Y2). 구간마다 측점 3개로 시작하고 더 재면 [+ 측점 추가]. 레벨(mm)과 측점 사이 거리(mm). 변위 = 앞 측점 − 뒤 측점, 기울기 = 거리 ÷ |변위|.</p>
     <div class="st-sett-top" id="st-sett-top"></div>
     <div id="st-sett-list"></div>
     <label class="st-note">결과 분석 메모<textarea id="st-sett-note" rows="2" placeholder="예: 바닥마감 시공오차 및 구배 등으로 인한 차이"></textarea></label>
