@@ -2107,7 +2107,7 @@ def _qty_per_member(root, infos: list[dict]) -> int:
 
 
 def _fill_appendix_docs(root, D: Data, infos: list[dict], state: dict, when) -> int:
-    """부록 서류 손질(형 10/15) — 표지 날짜(2026. 05. → 점검 시작 연월), 과업수행계획서의 "정기안전점검" → 정밀, 과업범위 표 동마다, 사전검토보고서
+    """부록 서류 손질(형 10/15) — 표지 날짜(2026. 05. → 점검 시작 연월), 과업지시서(7-2)의 "정밀점검" → "정밀안전점검", 과업수행계획서의 "정기안전점검" → 정밀, 과업범위 표 동마다, 사전검토보고서
     ("정밀점검" → "정밀안전점검", 4.2 자료 목록 = 본문 표 2.1과 같은 목록, 4.3 제목 "정밀안전점검 과업내용", 4.4 동마다 수량, 5. 결론 두 동 이름). state = 구역을 넘는 구간 표시."""
     from server.sitok import merge as M
 
@@ -2118,14 +2118,18 @@ def _fill_appendix_docs(root, D: Data, infos: list[dict], state: dict, when) -> 
             n += M._sub_pieces(p, r"20\d{2}\.\s*\d{1,2}\.", f"{when.year}. {when.month:02d}.")
     for p in _tops(root):
         allt = "".join(rb._full(t) for t in p.iter(T)).replace(" ", "")
+        if "7-2" in allt and "과업지시서" in allt:
+            state["task"] = True
         if "7-3" in allt and "과업수행계획서" in allt:
-            state["plan"], state["pre"] = True, False
+            state["plan"], state["pre"], state["task"] = True, False, False
         if "7-4" in allt and "사전검토보고서" in allt:
             state["plan"], state["pre"] = False, True
         if "7-5" in allt and "계약서" in allt:
             state["plan"], state["pre"] = False, False
         if state.get("plan"):
             n += M._sub_pieces(p, "정기안전점검", "정밀안전점검") + M._sub_pieces(p, "정기점검", "정밀안전점검")
+        if state.get("task"):  # 7-2 과업지시서 본문도(사용자 10/15 "추천대로")
+            n += M._sub_pieces(p, "정밀점검", "정밀안전점검")
         if state.get("pre"):
             n += M._sub_pieces(p, "정밀점검", "정밀안전점검")
             t = _para_text(p)

@@ -478,6 +478,24 @@ def _divider_page(doc, like, text: str) -> None:
         page.insert_textbox(box, text, fontsize=20, align=1)
 
 
+def _dong_divider_page(doc, like, text: str) -> None:
+    """부록 구간마다 동 간지(사용자 10/15 "동 간지 바꾸되 부록 간지보다 심플하게") — 부록 간지(쪽 테두리·굵은 막대·회색 띠)에서
+    테두리와 막대를 빼고 가운데 회색 띠 + 위아래 가는 선 + 동 이름(굵게)만."""
+    font = next((p for p in (r"C:\Windows\Fonts\malgunbd.ttf", r"C:\Windows\Fonts\malgun.ttf") if Path(p).exists()), None)
+    W, H = like.rect.width, like.rect.height
+    page = doc.new_page(width=W, height=H)
+    band = pymupdf.Rect(W * 0.2, H * 0.42, W * 0.8, H * 0.42 + 50)
+    page.draw_rect(band, color=None, fill=(0.8, 0.8, 0.8))
+    for y in (band.y0 - 5, band.y1 + 5):
+        page.draw_line((band.x0, y), (band.x1, y), color=(0.1, 0.1, 0.1), width=1.2)
+    size = 20 if len(text) <= 16 else 16
+    box = pymupdf.Rect(band.x0 + 6, band.y0 + (band.height - size * 1.35) / 2, band.x1 - 6, band.y1)
+    if font:
+        page.insert_textbox(box, text, fontsize=size, fontname="kr", fontfile=font, align=1)
+    else:
+        page.insert_textbox(box, text, fontsize=size, align=1)
+
+
 def merge_appendix_pdfs(items: list[tuple[str, Path]], dest: Path) -> list[str]:
     """items = [(동 이름, 그 동 부록 PDF)] 동 순서. 첫 동 PDF를 바탕으로 1·2·4·5 간지 구간에 둘째 동부터 "동 이름" 간지 + 그 동 구간을 이어 붙임."""
     notes: list[str] = []
@@ -516,7 +534,7 @@ def merge_appendix_pdfs(items: list[tuple[str, Path]], dest: Path) -> list[str]:
         at = le
         for name, d, s, e in adds:
             piece = pymupdf.open()
-            _divider_page(piece, lead[0], name)
+            _dong_divider_page(piece, lead[0], name)
             if e > s:
                 piece.insert_pdf(d, from_page=s, to_page=e - 1)
             lead.insert_pdf(piece, start_at=at)
@@ -525,7 +543,7 @@ def merge_appendix_pdfs(items: list[tuple[str, Path]], dest: Path) -> list[str]:
             d.close()
         if le > ls_:  # 첫 동 구간 앞에도 동 이름 간지(형 10/15 "간지가 B동만 있음 — 부록 다른 항목도 마찬가지")
             piece = pymupdf.open()
-            _divider_page(piece, lead[0], items[0][0])
+            _dong_divider_page(piece, lead[0], items[0][0])
             lead.insert_pdf(piece, start_at=ls_)
             piece.close()
     dest.parent.mkdir(parents=True, exist_ok=True)
