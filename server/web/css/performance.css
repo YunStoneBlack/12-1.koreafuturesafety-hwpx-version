@@ -1,0 +1,44 @@
+/* 실적 탭(docs-performance.html, 2026-10-14) — PC 우선, 폰은 카드 2열·표 줄바꿈 */
+.main .list-toolbar.pf-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.pf-year { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.pf-year select { padding: 6px 8px; font-size: 13px; }
+.main .pf-toolbar .secondary-link { padding: 6px 12px; font-size: 12.5px; }
+.pf-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.pf-card { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.pf-k { font-size: 12px; color: var(--muted); font-weight: 600; }
+.pf-v { font-size: 22px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pf-s { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.pf-card.up .pf-v { color: var(--blue); }
+.pf-card.down .pf-v { color: var(--crit); }
+.pf-chart svg { width: 100%; height: auto; display: block; }
+.pf-grid { stroke: var(--line); stroke-width: 1; }
+.pf-ax { font-size: 10px; fill: var(--faint); }
+.pf-val { font-size: 10px; fill: var(--muted); font-weight: 600; }
+.pf-bar rect:hover { opacity: 1; filter: brightness(1.08); }
+.pf-legend { display: flex; gap: 16px; justify-content: flex-end; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.pf-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.pf-table { display: flex; flex-direction: column; }
+.pf-head, .pf-row { display: grid; grid-template-columns: 64px 130px minmax(0, 1fr) 120px 120px 150px; gap: 10px; align-items: center; padding: 10px 18px; }
+.pf-head { font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); }
+.pf-row { border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.pf-row:last-child { border-bottom: none; }
+.pf-head .r, .pf-row .r { text-align: right; font-variant-numeric: tabular-nums; }
+.pf-no { font-size: 12px; font-weight: 700; color: var(--blue); background: var(--blue-soft); padding: 2px 8px; border-radius: 6px; text-align: center; }
+.pf-kind { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-kind.sitok { background: #fbeadc; color: #b4541a; }
+.pf-kind.sanan { background: var(--blue-soft); color: var(--blue); }
+.pf-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pf-name a { color: var(--ink); font-weight: 600; }
+.pf-name small, .pf-date small { display: block; font-size: 12px; color: var(--faint); }
+.pf-halves { color: var(--muted) !important; }
+.pf-amt { font-weight: 700; }
+.pf-total { color: var(--faint); font-size: 12.5px; }
+@media (max-width: 760px) {
+  .pf-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pf-v { font-size: 18px; }
+  .pf-head { display: none; }
+  .pf-row { grid-template-columns: 1fr 1fr; padding: 10px 14px; }
+  .pf-row .pf-name { grid-column: 1 / -1; }
+  .pf-row .pf-amt, .pf-row .pf-total { text-align: left; }
+  .pf-row .pf-date { grid-column: 1 / -1; }
+}

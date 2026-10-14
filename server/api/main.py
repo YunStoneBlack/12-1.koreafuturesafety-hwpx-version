@@ -26,6 +26,7 @@ from server.api.routers import (
     calendar,
     contract_library,
     contracts,
+    performance,
     findings,
     jobs,
     k2b_submit,
@@ -127,6 +128,7 @@ web_app.include_router(sitok_docs.router, prefix="/api")  # 서류 자동화 · 
 web_app.include_router(route_plan.router, prefix="/api")
 web_app.include_router(contract_library.router, prefix="/api")  # 착수계·완수계 자료실(설정 탭)
 web_app.include_router(contracts.router, prefix="/api")  # 서류 자동화 — 용역 계약·착수계·완수계
+web_app.include_router(performance.router, prefix="/api")  # 서류 자동화 — 실적(시특법 계약 + 산안법 용역계약, 2026-10-14)
 web_app.include_router(contracts.site_router, prefix="/api")  # 현장 화면 [📑 착수계]·[📑 완수계] → 연결된 계약
 
 

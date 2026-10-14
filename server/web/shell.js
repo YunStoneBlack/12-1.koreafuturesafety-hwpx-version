@@ -24,6 +24,7 @@ const DOCS_TABS = [
   ["contracts", "계약 목록", "docs.html"],
   ["status", "제출 현황", "docs-status.html"],
   ["calendar", "착수·완수 일정", "docs-calendar.html"],
+  ["performance", "실적", "docs-performance.html"],  // 계약 기준 실적(시특법 + 산안법, 2026-10-14)
   ["settings", "설정", "docs-settings.html"],
 ];
 const isDocsPage = () => !!document.body.dataset.docsTab;
@@ -31,7 +32,7 @@ const isDocsPage = () => !!document.body.dataset.docsTab;
 // 시특법은 아직 메인 하나씩(설계: 바탕화면 "시특법 견본\인수인계.md") — 단계마다 탭을 늘린다.
 const pageLaw = () => (document.body.dataset.law === "sitok" ? "sitok" : "sanan");
 const SITOK_TABS = [["facilities", "시설물 목록", "sitok.html"], ["settings", "설정", "sitok-settings.html"]];
-const SITOK_DOCS_TABS = [["contracts", "계약 목록", "sitok-docs.html"], ["calendar", "착수·완수 일정", "sitok-docs-calendar.html"]];  // 일정 = 관급만(10/12)
+const SITOK_DOCS_TABS = [["contracts", "계약 목록", "sitok-docs.html"], ["calendar", "착수·완수 일정", "sitok-docs-calendar.html"], ["performance", "실적", "docs-performance.html"]];  // 일정 = 관급만(10/12), 실적은 산안법과 같은 화면(10/14)
 const LAW_LABEL = { sanan: "산안법", sitok: "시특법" };
 const SIDEBAR_CACHE_KEY = "kfsc-report:gw-sidebar";
 

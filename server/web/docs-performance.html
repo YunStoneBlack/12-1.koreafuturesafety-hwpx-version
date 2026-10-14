@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>실적 - 서류 자동화</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/contract-docs.css" />
+<link rel="stylesheet" href="css/docs.css" />
+<link rel="stylesheet" href="css/performance.css" />
+</head>
+<!-- 실적(2026-10-14 사용자 — 계약 기준 금액, 전년 동기 대비, 내가 보기 위함) — 시특법 계약 + 산안법 용역계약에서 자동. js/docs-performance.js, 서버 server/api/routers/performance.py -->
+<body data-docs-tab="performance">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<div class="list-toolbar pf-toolbar">
+  <label class="pf-year">연도 <select id="pf-year"></select></label>
+  <span class="site-sort pf-law" role="group" aria-label="구분"><button type="button" data-law="" class="on">전체</button><button type="button" data-law="시특법">시특법</button><button type="button" data-law="산안법">산안법</button></span>
+  <a class="secondary-link pf-xlsx" id="pf-xlsx" href="#">⬇ 엑셀</a>
+  <span class="sk-help">계약 기준(VAT 포함) — 시특법 민간은 그 해 반기 금액, 관급·산안법은 계약일이 든 해에 계약금액 전부</span>
+</div>
+
+<div class="pf-cards" id="pf-cards"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>월별 계약금액</h2><span class="panel-count" id="pf-chart-note"></span></div>
+  <div class="panel-body"><div class="pf-chart" id="pf-chart"></div></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>계약 목록</h2><span class="panel-count" id="pf-count"></span></div>
+  <div class="pf-table" id="pf-list"><div class="empty-note">불러오는 중...</div></div>
+</section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/docs-performance.js"></script>
+</body>
+</html>
