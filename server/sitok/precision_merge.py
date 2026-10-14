@@ -171,10 +171,14 @@ def _divider_rows(body, parts: list[dict], group_name: str) -> None:
         for dt in line.iter(f"{{{HP}}}drawText"):
             if int(dt.get("lastWidth") or 0) < W:
                 dt.set("lastWidth", str(W))
+        first = "".join(x.text or "" for x in inner.iter(rb.T))
+        lead_sp = re.match(r"\s*", first).group(0)  # 첫 줄의 앞 공백·"제1장. " 뒤 공백을 그대로 따라 줄을 맞춤(사용자 10/14 "1.이랑 2.이랑 줄이 안 맞잖아")
+        m_ = re.match(r"\s*제\s*1\s*장\.?(\s*)", first)
+        gap = m_.group(1) if m_ else " "
         last = inner
         for k, part in enumerate(parts[1:], 2):
             q = copy.deepcopy(inner)
-            rb._set_para(q, f" 제{k}장. {part['name']}")
+            rb._set_para(q, f"{lead_sp}제{k}장.{gap}{part['name']}")
             last.addnext(q)
             last = q
         return
