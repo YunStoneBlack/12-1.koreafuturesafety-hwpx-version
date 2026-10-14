@@ -57,3 +57,4 @@
   .st-sec-head b { flex-basis: 100%; }
   .st-strength-top .sk-drop { flex-basis: 100%; }
 }
+.st-tbl td select + select { margin-top: 3px; }

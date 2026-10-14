@@ -25,7 +25,9 @@ GRADES = ("a", "b", "c", "d", "e")
 SCORE = {"a": 1, "b": 3, "c": 5, "d": 7, "e": 9}
 ALPHA = 0.75  # 대표값 수준집합
 # 부재 중요도(요령 표 1-4 — 기둥 기준 하중 분담 비율) — 지침 표 1-13·SafetyMan 갑지 열 순서
-MEMBER_G = {"기둥": 0.9, "내력벽": 0.9, "큰보": 0.7, "작은보": 0.5, "슬래브": 0.3, "테두리보": 0.7, "접합부": 0.9, "지판": 0.7}
+MEMBER_G = {"기둥": 0.9, "내력벽": 0.9, "큰보": 0.7, "작은보": 0.5, "슬래브": 0.3, "테두리보": 0.7, "접합부": 0.9, "지판": 0.7,
+            "강재기둥": 0.9, "강재보": 0.7}  # 철골조 강재 부재(10/14 형: 정밀점검까지는 강재 규격만 상태평가) — 중요도는 기둥·큰보와 같게
+G_STEEL = 0.9  # SRC: 철콘 항목 묶음(0.9)과 강재 규격(0.9)을 Choquet로 합산(요령 표 1-14 S.R.C조 — RC 0.9·STL 0.9)
 MEMBERS = ("기둥", "내력벽", "큰보", "작은보", "슬래브", "테두리보", "접합부")
 # 종합평가 중분류 중요도(표 1-3)
 G_SAFETY, G_CONDITION, G_DEFORM = 0.9, 0.7, 0.7
@@ -164,7 +166,7 @@ RELATION = {
     "SD": [[0.5, 0.06, 0.06, 0, 0], [0.5, 0.06, 0.06, 0, 0], [0.5, 0.25, 0.25, 0.25, 0.06], [0.5, 0.5, 0.25, 0.25, 0.06], [0.5, 0.5, 0.5, 0.5, 0.06]],  # 표면노후 DRM
     "CO": _IDENT,  # 철근부식 ORM
 }
-ITEM_LABEL = {"DS": "콘크리트 강도", "CR": "균열", "CA": "탄산화", "SD": "표면노후", "CL": "염화물", "CO": "철근부식"}
+ITEM_LABEL = {"DS": "콘크리트 강도", "CR": "균열", "CA": "탄산화", "SD": "표면노후", "CL": "염화물", "CO": "철근부식", "SS": "강재 규격"}
 # 콘크리트 부재단면 규격(2023판 표 6.24)은 보고서 재료시험에서 a~e로 평가만 하고 상태평가 점수엔 넣지 않음(민재형 10/13 — SafetyMan에도 없음, 국토부 미개정)
 
 
@@ -174,6 +176,16 @@ def member_condition(items: dict[str, str | None]) -> dict:
     used = {k: g for k, g in items.items() if g}
     if not used:
         raise ValueError("평가할 항목이 없습니다.")
+    ss = used.pop("SS", None)  # 강재 규격(표 6.36, 10/14 형) — 항목이 하나라 대푯값 그대로; 철콘 항목이 같이 있으면(SRC) Choquet(RC 0.9, STL 0.9)
+    if ss:
+        steel = float(SCORE[ss])
+        if not used:
+            return {"score": steel, "possibility": {g: (1.0 if g == ss else 0.0) for g in GRADES}, "grade": grade_of(steel), "items": {"SS": ss}}
+        rc = member_condition(used)
+        if rc["score"] is None:
+            return {"score": steel, "possibility": rc["possibility"], "grade": grade_of(steel), "items": {**used, "SS": ss}}
+        score = choquet([(rc["score"], G_STEEL), (steel, G_STEEL)])
+        return {"score": round(score, 2), "possibility": rc["possibility"], "grade": grade_of(score), "items": {**used, "SS": ss}}
     poss = [0.0] * 5
     for key, g in used.items():
         row = RELATION[key][GRADES.index(g)]  # one-hot × 관계행렬의 max-min 합성 = 그 등급 행
@@ -375,6 +387,9 @@ def _selfcheck() -> None:
     # 조훈 부재: 기둥(강도 c 97.6% + 탄산화 a) 1, 내력벽(강도 c + 균열 a4·b1 → b + 표면노후 a) 3, 큰보(강도 c + 탄산화 b) 1
     assert grade_from_counts({"a": 4, "b": 1}, "내력벽") == "b" and grade_from_counts({"a": 48}, "기둥") == "a"
     assert member_condition({"DS": "c", "CA": "a"})["score"] == 1 and member_condition({"DS": "c", "CR": "b", "SD": "a"})["score"] == 3
+    assert member_condition({"SS": "c"})["score"] == 5 and member_condition({"SS": "b"})["grade"] == "B"  # 철골조: 규격 등급 대푯값
+    src = member_condition({"CR": "a", "SD": "a", "SS": "c"})  # SRC: 철콘 1점 + 강재 5점 → Choquet(0.9·0.9) — 큰 쪽에 가깝게
+    assert 1 < src["score"] <= 5 and src["grade"] in ("B", "C"), src  # 4.6(C)
     assert member_condition({"DS": "c", "CA": "b"})["score"] == 1
     # 조훈 -2층 슬래브(강도 c 92.9%만) SafetyMan 2.00 — 10/13 SafetyMan을 다산 파일로 직접 돌려 확인(작업내용 43차):
     # 강도만 a·b → 1, c·d·e → 2 / 강도 a + 탄산화 c·d·e → 1·3·5 / 표면노후만(a·b) → "-"(제외) / 균열 d만 → 7(균열은 항등 관계)

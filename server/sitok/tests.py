@@ -263,8 +263,10 @@ def normalize(raw: dict | None) -> dict:
         same = bool(r.get("same")) if "same" in r else (bool(design) and design == measured)
         if same:
             measured = design  # 조사결과 "일치" → 설계값 그대로(10/14 형)
-        secs.append({"floor": _i(r.get("floor")), "position": str(r.get("position") or "").strip(), "member": member_of(r.get("member")),
-                     "design": design, "measured": measured, "same": same})
+        member = member_of(r.get("member"))
+        sub = (r.get("sub") if r.get("sub") in ("기둥", "큰보", "작은보") else "기둥") if member == "강재" else ""  # 강재 줄: 어느 부재인지(상태평가 강재기둥/강재보, 10/14)
+        secs.append({"floor": _i(r.get("floor")), "position": str(r.get("position") or "").strip(), "member": member,
+                     "design": design, "measured": measured, "same": same, "sub": sub})
     base["sections"] = secs
     st = raw.get("strength") or {}
     base["strength"] = {"file": str(st.get("file") or ""), "rows": [
@@ -341,7 +343,7 @@ def sync_defaults(data: dict) -> bool:
     floors = [f["floor"] for f in data["sample"]["floors"]]
     if floors:
         data["sections"] = _sync_rows(data["sections"], floors, DEFAULT_SECTION, lambda r: r.get("member"), _section_empty,
-                                      lambda k, m: {"floor": k, "position": "", "member": m, "design": "", "measured": "", "same": True})
+                                      lambda k, m: {"floor": k, "position": "", "member": m, "design": "", "measured": "", "same": True, "sub": ""})
         data["strength"]["rows"] = _sync_rows(data["strength"]["rows"], floors, DEFAULT_STRENGTH, lambda r: (r.get("member"), r.get("spot")), _strength_empty,
                                               lambda k, c: {"floor": k, "member": c[0], "spot": c[1], "position": "", "r0": None, "fc_mat": None, "fc_arch": None,
                                                             "est": None, "design": None, "damaged": False, "note": "건전부"})

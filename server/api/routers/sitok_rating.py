@@ -39,7 +39,7 @@ def _norm_counts(v) -> dict:
             continue
         row = {}
         for m, n in (members or {}).items():
-            if m in condition.MEMBERS:
+            if m in condition.MEMBERS or m in condition.STEEL_MEMBERS:
                 try:
                     row[m] = max(0, int(float(str(n).replace(",", "")))) if str(n).strip() not in ("", "None") else 0
                 except ValueError:
@@ -75,7 +75,8 @@ def _compute(db: Session, r: SitokReport) -> dict:
     agg = condition.aggregate(_defects_for_cost(db, r.id), tv, counts, above=f.floors_above or 0, below=f.floors_below or 0,
                               tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"])
     result = condition.evaluate(agg)
-    return {"report": tv["report"], "building": tv["building"], "sample_floors": tv["sample"]["floors"], "members": list(condition.MEMBERS),
+    steel = any(fl.get("material") == "철골" for fl in tv["sample"]["floors"])  # 철골조면 강재기둥·강재보 열(10/14)
+    return {"report": tv["report"], "building": tv["building"], "sample_floors": tv["sample"]["floors"], "members": list(condition.MEMBERS) + (list(condition.STEEL_MEMBERS) if steel else []),
             "counts": counts, "carried": carried, "prev_grade": prev_grade, "prev_auto": prev_auto, "prev_report": {"id": prev.id, "year": prev.year, "half": prev.half} if prev else None,
             "note": raw.get("note") or "", "result": result, "floors": agg["floors"], "deform": agg["deform"], "excluded": agg["excluded"], "unassigned": agg["unassigned"],
             "labels": {"items": condition.ITEM_LABEL, "surface": condition.SURFACE_LABEL, "crack_rows": condition.CRACK_ROWS, "scaling_rows": condition.SCALING_ROWS,
