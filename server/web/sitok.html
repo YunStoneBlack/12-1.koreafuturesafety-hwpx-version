@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/css/app.css" />
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="css/site-info.css" />
+<link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/sitok.css" />
 </head>
 <!-- 보고서 자동화 · 시특법(2026-10-10) — 시설물 정기안전점검. 그룹웨어 왼쪽 메뉴 [보고서 자동화] 아래 "시특법" 소메뉴가 여는 메인 = 시설물 목록.
@@ -30,7 +31,9 @@
 <div class="sc-cards sk-cards" id="sk-cards" role="group" aria-label="계약 구분별 시설물 수"></div>
 
 <section class="panel">
-  <div class="panel-head"><h2>시설물 목록</h2><span class="panel-count" id="sk-count"></span></div>
+  <div class="panel-head"><h2>시설물 목록</h2><span class="panel-count" id="sk-count"></span>
+    <span class="sk-bulk"><label class="sk-check-all"><input type="checkbox" id="sk-all" /> 전체 선택</label>
+      <button type="button" class="danger btn-sm" id="sk-del-sel" disabled>선택 삭제</button></span></div>
   <div id="sk-list"></div>
 </section>
 

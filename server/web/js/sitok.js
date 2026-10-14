@@ -124,9 +124,13 @@
     }
     if (!shown.length) {
       list.innerHTML = '<div class="empty-note">맞는 시설물이 없습니다.</div>';
+      shownIds = [];
+      drawBulk();
       return;
     }
     list.innerHTML = "";
+    shownIds = shown.map((f) => f.id);
+    drawBulk();
     for (const f of shown) {
       const c = contractOf(f);
       const contract = c
@@ -136,8 +140,13 @@
       const rn = f.renew; // 장기·지속 계약 끝나기 60일 전부터(10/13)
       const renew = rn ? `<span class="sk-renew-tag${rn.days < 0 ? " over" : ""}">${rn.days < 0 ? "⚠ 계약 끝남 — 다음 계약서 필요" : `⏳ ${rn.days}일 뒤 계약 끝 — 다음 계약서 준비`}</span>` : "";
       const row = document.createElement("a");
-      row.className = `sk-row${f.contract_type === "종료" ? " ended" : ""}`;
+      row.className = `sk-row${f.contract_type === "종료" ? " ended" : ""}${selected.has(f.id) ? " sel" : ""}`;
       row.href = `sitok-facility.html?id=${f.id}`;
+      const chk = document.createElement("label"); // 골라서 지우기(10/14 형 피드백 ③) — 줄은 링크라 체크 칸 클릭은 링크로 안 가게
+      chk.className = "sk-check";
+      chk.innerHTML = `<input type="checkbox" aria-label="${esc(f.name)} 선택"${selected.has(f.id) ? " checked" : ""} />`;
+      chk.addEventListener("click", (e) => e.stopPropagation());
+      chk.querySelector("input").addEventListener("change", (e) => { if (e.target.checked) selected.add(f.id); else selected.delete(f.id); row.classList.toggle("sel", e.target.checked); drawBulk(); });
       // 산안법 현장 목록처럼(10/13 사용자): 번호표·이름·틀 / 주소 · 관리주체 / 시설물번호 · 종류 · 담당 / [📞][📍][주소 복사] 를 이름 칸 한 곳에
       row.innerHTML = `
         <div class="sk-main">
@@ -147,11 +156,59 @@
           <div class="sk-sub">${esc([f.fms_no, f.use_type || f.main_use, f.contact_name && `담당 ${f.contact_name}`].filter(Boolean).join(" · "))}</div>
         </div>
         <div class="sk-contract">${contract}${renew}</div>`;
+      row.prepend(chk); // innerHTML 뒤에 넣어야 안 지워짐
       const links = siteLinkButtons(f.contact_phone || f.owner_phone, f.address); // [📞 전화] [📍 지도]
       if (links) row.querySelector(".sk-main").appendChild(links);
       row.appendChild(typeSwitch(f));
       list.appendChild(row);
     }
+  }
+
+  // ---- 골라서 지우기(10/14 형 피드백 ③): 전체 선택 = 지금 보이는 줄, [선택 삭제] = 비밀번호 한 번 → POST /sitok/facilities/delete ----
+  const selected = new Set();
+  let shownIds = [];
+  function drawBulk() {
+    const n = selected.size;
+    const btn = document.getElementById("sk-del-sel");
+    btn.disabled = !n;
+    btn.textContent = n ? `선택 삭제 (${n})` : "선택 삭제";
+    const all = document.getElementById("sk-all");
+    all.checked = shownIds.length > 0 && shownIds.every((id) => selected.has(id));
+  }
+  document.getElementById("sk-all").addEventListener("change", (e) => {
+    shownIds.forEach((id) => (e.target.checked ? selected.add(id) : selected.delete(id)));
+    render();
+  });
+  document.getElementById("sk-del-sel").addEventListener("click", async () => {
+    const names = rows.filter((f) => selected.has(f.id)).map((f) => f.name);
+    if (!names.length) return;
+    const pw = await askDeletePassword(`${names.length}곳(${names.slice(0, 3).join(", ")}${names.length > 3 ? " 외" : ""}) — 계약·회차·올린 서류·만든 보고서까지 지워지고 되돌릴 수 없습니다.`);
+    if (pw == null) return;
+    try {
+      const out = await apiPost("/sitok/facilities/delete", { ids: [...selected], password: pw });
+      selected.clear();
+      rows = await api("/sitok/facilities");
+      render();
+      alert(`${out.deleted.length}곳을 지웠습니다.`);
+    } catch (err) { alert(err.message); }
+  });
+  function askDeletePassword(message) { // 시설물 화면의 삭제 창과 같은 모양(js/sitok-facility.js)
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "mail-overlay";
+      overlay.innerHTML = `<div class="mail-box" role="dialog" aria-modal="true">
+        <div class="mail-head"><b>🗑 시설물 삭제</b><span class="mail-sub">${esc(message)}</span></div>
+        <input type="password" class="mail-input" placeholder="삭제 비밀번호" autocomplete="off" />
+        <div class="mail-note">보고서 자동화 설정 탭에서 정한 삭제 비밀번호(현장 삭제와 같음)</div>
+        <div class="mail-foot"><button type="button" class="sk-cancel">취소</button><button type="button" class="mail-primary sk-ok" style="background:var(--crit);border-color:var(--crit);">삭제</button></div></div>`;
+      document.body.appendChild(overlay);
+      const inputEl = overlay.querySelector("input");
+      const done = (v) => { overlay.remove(); resolve(v); };
+      overlay.querySelector(".sk-cancel").addEventListener("click", () => done(null));
+      overlay.querySelector(".sk-ok").addEventListener("click", () => (inputEl.value ? done(inputEl.value) : inputEl.focus()));
+      inputEl.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && inputEl.value) done(inputEl.value); if (ev.key === "Escape") done(null); });
+      inputEl.focus();
+    });
   }
 
   document.getElementById("sk-search").addEventListener("input", render);

@@ -445,3 +445,19 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
 .main button.sk-kind-btn.pre { background: #fbeadc; color: #b4541a; }
 .main button.sk-kind-btn:hover { border-color: currentColor; }
 .rd-head h1 .sk-kind-btn { font-size: 12.5px; }
+
+/* 목록 골라서 지우기(10/14 형 피드백 ③) */
+.sk-bulk { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.sk-check-all { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.sk-check-all input, .sk-check input { width: 16px; height: 16px; cursor: pointer; margin: 0; }
+.main .sk-bulk button { margin: 0; }
+.main .sk-bulk button.danger:disabled { opacity: .45; }
+.sk-row { grid-template-columns: 28px minmax(0, 1fr) 270px auto; } /* 체크 · 이름 칸 · 계약 · 구분 버튼 */
+.sk-check { display: flex; align-items: center; justify-content: center; }
+.sk-row.sel { background: var(--blue-soft); }
+@media (max-width: 760px) {
+  .sk-row { grid-template-columns: 28px 1fr; }
+  .sk-row .sk-check { grid-row: 1 / span 3; align-items: flex-start; padding-top: 2px; }
+  .sk-row .st-switch.sk-type, .sk-row .sk-contract { grid-column: 2; }
+  .main .panel-head .sk-bulk { flex-basis: 100%; justify-content: flex-end; }
+}

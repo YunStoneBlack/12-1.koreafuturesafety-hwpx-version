@@ -472,18 +472,48 @@ def update_facility(facility_id: int, body: FacilityIn, ledger_token: str | None
 def delete_facility(facility_id: int, password: str = Body("", embed=True), user: User = Depends(get_current_user),
                     db: Session = Depends(get_db)):
     """시설물 지우기(계약·올린 PDF까지, 되돌릴 수 없음) — 현장 삭제와 같은 회사 공용 삭제 비밀번호."""
+    _check_delete_password(user, password)
+    f = _require_facility(db, user, facility_id)
+    _delete_facility(db, f)
+    db.commit()
+    return {"ok": True}
+
+
+def _check_delete_password(user: User, password: str) -> None:
     password_hash = config.get_site_delete_password_hash(user.company_id)
     if not password_hash:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "삭제 비밀번호가 아직 없습니다. '설정' 탭에서 먼저 정하세요.")
     if not verify_password(password, password_hash):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "삭제 비밀번호가 맞지 않습니다.")
-    f = _require_facility(db, user, facility_id)
+
+
+def _delete_facility(db: Session, f: SitokFacility) -> None:
+    """계약·회차·올린 서류·만든 보고서 폴더까지. 서류 자동화 쪽 계약(SitokDocContract)은 연결만 끊김(FK SET NULL)."""
     folder = _facility_dir(f)
     db.query(SitokContract).filter(SitokContract.facility_id == f.id).delete()
     db.delete(f)
-    db.commit()
+    db.flush()
     shutil.rmtree(folder, ignore_errors=True)
-    return {"ok": True}
+
+
+class BulkDeleteIn(BaseModel):
+    ids: list[int]
+    password: str = ""
+
+
+@router.post("/facilities/delete")
+def delete_facilities(body: BulkDeleteIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """목록에서 고른 시설물 한꺼번에 지우기(10/14 형 피드백 ③) — 비밀번호 한 번, 지워지는 범위는 하나 지우기와 같음."""
+    _check_delete_password(user, body.password)
+    names = []
+    for fid in body.ids:
+        f = db.query(SitokFacility).filter(SitokFacility.id == fid, SitokFacility.company_id == user.company_id).first()
+        if f is None:
+            continue
+        names.append(f.name)
+        _delete_facility(db, f)
+    db.commit()
+    return {"ok": True, "deleted": names}
 
 
 @router.post("/facilities/{facility_id}/contracts")
