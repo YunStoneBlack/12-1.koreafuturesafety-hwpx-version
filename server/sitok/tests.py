@@ -416,7 +416,8 @@ SCHEDULE_PROMPT = """아래 그림(과 글자)은 건축 구조도면의 구조 
 {rows}
 
 규칙: 기둥·큰보·작은보는 "가로×세로"(mm, 예 500×600 — 기둥은 b×h, 보는 b×D), 슬래브·벽체는 두께 "150"처럼 숫자만.
-그 층(또는 그 층이 속한 구간)에 쓰이는 부재 중 가장 많이 쓰이는 대표 부재의 치수를 넣고, 부재 기호(C1·G2·S1·W1 등)를 같이 적어 주세요. 못 찾으면 "".
+그 층(또는 괄호의 대표 범위)에 쓰이는 부재 중 가장 많이 쓰이는 대표 부재(일반 부재 — "1개소"·"계단실" 같은 특수 부재 말고)의 치수를 넣고, 부재 기호(C1·G2·S1·W1 등)를 같이 적어 주세요.
+표의 적용 층 구간에 그 층이 글자 그대로 없으면 대표 범위가 겹치는 구간, 그것도 없으면 가장 가까운 구간의 치수를 쓰세요(보·슬래브는 그 층의 천장 = 윗층 바닥 구조라 한 층 어긋나는 게 보통). 그 부재 종류 자체가 표에 없을 때만 "".
 JSON 배열만 답하세요: [{{"no": 1, "design": "500×600", "mark": "C1"}}, …]
 {text}"""
 
@@ -428,7 +429,9 @@ def schedule_fill(data: dict, facility: str, company_id: int, text: str, imgs: l
     todo = [(i, r) for i, r in enumerate(data["sections"]) if not r.get("design") and r.get("member")]
     if not todo:
         return 0
-    lines = "\n".join(f"{i + 1} · {floor_label(r['floor']) if r.get('floor') else '층 미정'} · {r['member']}" for i, r in todo)
+    ranges = {f["floor"]: range_label(f["start"], f["end"]) for f in data["sample"]["floors"] if f.get("start") is not None and f.get("end") is not None}
+    lines = "\n".join(f"{i + 1} · {floor_label(r['floor']) if r.get('floor') else '층 미정'}{'(대표 범위 ' + ranges[r['floor']] + ')' if r.get('floor') in ranges else ''} · {r['member']}"
+                      for i, r in todo)
     got = vision.ask_json(company_id, imgs, SCHEDULE_PROMPT.format(facility=facility, rows=lines, text=(text[:12000] if text else "(글자 없음 — 그림으로)")), max_tokens=4000)
     by_no = {int(x.get("no")): x for x in (got if isinstance(got, list) else got.get("rows") or []) if isinstance(x, dict) and str(x.get("no", "")).isdigit()}
     n = 0
