@@ -118,6 +118,8 @@
     const link = $("sr-fac-link");
     link.textContent = r.facility_name;
     link.href = `sitok-facility.html?id=${r.facility_id}`;
+    $("sr-round-link").textContent = `${r.year}년 ${r.half}`; // 회차 화면(10/14 3층 구조)
+    $("sr-round-link").href = `sitok-round.html?report=${rid}`;
     drawCounts();
     drawResult();
     drawDetail();

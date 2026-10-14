@@ -1,4 +1,5 @@
 // 시특법 시설물 등록·고치기(sitok-facility.html, 2026-10-10 2단계). ?id= 없으면 새 등록 화면(sitok-new.html, 10/12 — 서류 한 번에)으로 감.
+// 10/14 형 피드백 ⑦ 3층 구조: 이 파일은 접힌 "시설물 정보·서류"(관리대장·건축물대장·도면·시설물 칸)와 "계약"(카드마다 쓰는 회차) 칸. 회차 목록은 js/sitok-reports.js.
 // PDF 칸: 관리대장 → 시설물 칸(+ 보고서 틀 추정, 관리주체 대표자는 계약 칸에), 계약서 → 계약 칸(민간/관급 구분, 비어 있는 시설물 칸도 채움).
 // 민간/관급 기본값(인수인계 10/10): 민간 = 독자수행 100%·수의계약·건축. 관급 1년 계약이면 "상반기 완료일·하반기 시작일"을 직접 정함.
 // 서버 server/api/routers/sitok.py, PDF 읽기 server/sitok/reader.py.
@@ -31,7 +32,8 @@
     card.className = "sk-con";
     card.dataset.key = key;
     if (c?.id) card.dataset.id = c.id;
-    card.innerHTML = `<div class="sk-con-head"><b>${c?.id ? esc(c.title || "계약") : "새 계약"}</b>
+    const used = c?.used_by?.length ? `<span class="sk-con-used">쓰는 회차: ${c.used_by.map(esc).join(" · ")}</span>` : c?.id ? '<span class="sk-con-used none">쓰는 회차 없음</span>' : "";
+    card.innerHTML = `<div class="sk-con-head"><b>${c?.id ? esc(c.title || "계약") : "새 계약"}</b>${used}
         ${c?.has_pdf ? `<a href="${BASE}/api/sitok/files/contract/${c.id}" target="_blank" rel="noopener">계약서 PDF 보기</a>` : ""}
         ${id ? `<label class="secondary-link sk-con-pdf">계약서 PDF로 채우기<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" /></label>` : ""}
         <span class="sk-con-msg"></span>
@@ -128,6 +130,12 @@
       document.title = `${fac.name} - 시특법`;
       (fac.contracts || []).forEach((c) => cons.appendChild(conCard(c)));
       if (!fac.contracts?.length) cons.innerHTML = '<div class="empty-note">계약이 없습니다. [+ 계약 추가]로 넣으세요.</div>';
+      document.getElementById("sk-con-count").textContent = fac.contracts?.length ? `${fac.contracts.length}건 — 최근 계약이 위, 카드마다 쓰는 회차` : "계약이 없습니다 — 회차를 만들 때 계약서를 올리거나 [+ 계약 추가]";
+      if (!fac.contracts?.length) document.getElementById("sk-con-panel").open = true;
+      document.getElementById("sk-register-msg").textContent = fac.has_register
+        ? "올려 둠 ✓ — 바꾸려면 다시 올리기 · 시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 읽습니다" : "시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 읽습니다(층별 용도·면적·변동사항) — 눌러서 고르거나 끌어다 놓기";
+      document.getElementById("sk-register").classList.toggle("has", !!fac.has_register);
+      sitokDrawDrawings(document.getElementById("sk-dwg"), `/sitok/facilities/${fac.id}/drawings`);
     } else {
       cons.appendChild(conCard(null));
     }
@@ -153,6 +161,7 @@
     });
     card.querySelector(".sk-con-head").appendChild(save);
     cons.prepend(card);
+    document.getElementById("sk-con-panel").open = true;
   });
 
   document.getElementById("sk-form").addEventListener("submit", async (e) => {
@@ -214,18 +223,38 @@
   }
 
   // PDF 칸(맨 위) — 누르기·끌어다 놓기
-  document.querySelectorAll(".sk-drop").forEach((zone) => {
+  document.querySelectorAll(".sk-drop[data-kind]").forEach((zone) => {
     const inputEl = zone.querySelector("input");
     inputEl.addEventListener("change", () => readPdf(zone.dataset.kind, inputEl.files[0], null));
     enableFileDrop(zone, inputEl);
   });
+  // 건축물대장 PDF(10/14 — 전엔 회차 시설물 현황 창에서) → 시설물 폴더에 하나
+  const regZone = document.getElementById("sk-register");
+  const regInput = regZone.querySelector("input");
+  regInput.addEventListener("change", async () => {
+    const f = regInput.files[0];
+    regInput.value = "";
+    if (!f) return;
+    const msg = document.getElementById("sk-register-msg");
+    regZone.classList.add("busy");
+    msg.textContent = `${f.name} 올리는 중…`;
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      await apiUpload(`/sitok/facilities/${id}/register`, fd);
+      fac = await api(`/sitok/facilities/${id}`);
+      draw();
+      flash("건축물대장을 올렸습니다.");
+    } catch (e) { msg.textContent = `올리지 못했습니다: ${e.message}`; msg.classList.add("bad"); } finally { regZone.classList.remove("busy"); }
+  });
+  enableFileDrop(regZone, regInput);
 
   (async () => {
     try {
       opts = await api("/sitok/options");
       if (id) fac = await api(`/sitok/facilities/${id}`);
       // 고치기 화면의 맨 위 PDF 칸은 관리대장만(계약서는 계약 카드마다)
-      if (id) document.querySelector('.sk-drop[data-kind="contract"]').hidden = true;
+      document.querySelector('.sk-drop[data-kind="contract"]')?.remove(); // 고치기 화면엔 계약서 칸이 없음(계약 카드마다, 10/14)
       draw();
     } catch (err) {
       showError(errorEl, err);

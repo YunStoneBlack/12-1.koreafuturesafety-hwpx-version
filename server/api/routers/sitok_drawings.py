@@ -1,7 +1,8 @@
 """시특법 시설물 도면(2026-10-12 사용자, alembic 0039) — 시설물 현황 창에서(회차 번호로 부르지만 저장은 시설물: 다음 회차에도 그대로, 바뀌면 여기서).
 내용·보고서에 넣기는 server/sitok/drawings.py.
 
-- `GET    /sitok/reports/{id}/drawings` — {attach: [...], struct: [...]} (이름·올린 날·쪽 수).
+- `GET    /sitok/reports/{id}/drawings` — {attach: [...], struct: [...], schedule: [...]} (이름·올린 날·쪽 수).
+- 같은 것을 시설물 id로: `/sitok/facilities/{fid}/drawings…`(10/14 — 시설물 정보·서류 칸, 3층 구조).
 - `POST   /sitok/reports/{id}/drawings` — form kind(attach|struct) + file(PDF·그림, 여러 번).
 - `DELETE /sitok/reports/{id}/drawings/{kind}/{did}`, `POST .../{kind}/{did}/move` {step: -1|1}, `GET .../{kind}/{did}/file`.
 """
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from core.models_web import SitokFacility, SitokReport, User
 from server.api.deps import get_current_user, get_db
-from server.api.routers.sitok import _facility_dir
+from server.api.routers.sitok import _facility_dir, _require_facility
 from server.api.routers.sitok_reports import _require
 from server.sitok import drawings as D
 
@@ -26,6 +27,11 @@ router = APIRouter(prefix="/sitok", tags=["sitok"])
 def _fac(db: Session, user: User, report_id: int) -> tuple[SitokFacility, Path]:
     r: SitokReport = _require(db, user, report_id)
     f = db.get(SitokFacility, r.facility_id)
+    return f, _facility_dir(f)
+
+
+def _fac_by_id(db: Session, user: User, facility_id: int) -> tuple[SitokFacility, Path]:
+    f = _require_facility(db, user, facility_id)
     return f, _facility_dir(f)
 
 
@@ -81,6 +87,53 @@ def move_drawing(report_id: int, kind: str, did: str, body: MoveIn, user: User =
 @router.get("/reports/{report_id}/drawings/{kind}/{did}/file")
 def drawing_file(report_id: int, kind: str, did: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     f, base = _fac(db, user, report_id)
+    it = next((x for x in D.items(f, _kind(kind), base) if x["id"] == did), None)
+    if it is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "도면이 없습니다.")
+    p = it["path"]
+    return FileResponse(p, media_type="application/pdf" if p.suffix.lower() == ".pdf" else "image/jpeg", content_disposition_type="inline",
+                        filename=it["name"])
+
+
+# ---- 시설물 id로(10/14) — 시설물 정보·서류 칸 ----
+
+@router.get("/facilities/{facility_id}/drawings")
+def get_drawings_f(facility_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    f, base = _fac_by_id(db, user, facility_id)
+    return _out(f, base)
+
+
+@router.post("/facilities/{facility_id}/drawings")
+def add_drawing_f(facility_id: int, kind: str = Form(...), file: UploadFile = File(...), user: User = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    f, base = _fac_by_id(db, user, facility_id)
+    try:
+        D.add(f, _kind(kind), base, file.file.read(), file.filename or "도면")
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    db.commit()
+    return _out(f, base)
+
+
+@router.delete("/facilities/{facility_id}/drawings/{kind}/{did}")
+def delete_drawing_f(facility_id: int, kind: str, did: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    f, base = _fac_by_id(db, user, facility_id)
+    D.remove(f, _kind(kind), base, did)
+    db.commit()
+    return _out(f, base)
+
+
+@router.post("/facilities/{facility_id}/drawings/{kind}/{did}/move")
+def move_drawing_f(facility_id: int, kind: str, did: str, body: MoveIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    f, base = _fac_by_id(db, user, facility_id)
+    D.move(f, _kind(kind), did, 1 if body.step > 0 else -1)
+    db.commit()
+    return _out(f, base)
+
+
+@router.get("/facilities/{facility_id}/drawings/{kind}/{did}/file")
+def drawing_file_f(facility_id: int, kind: str, did: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    f, base = _fac_by_id(db, user, facility_id)
     it = next((x for x in D.items(f, _kind(kind), base) if x["id"] == did), None)
     if it is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "도면이 없습니다.")

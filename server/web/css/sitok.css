@@ -364,3 +364,77 @@
 .ai-pre .ai-pre-acts { display: flex; gap: 10px; }
 .ai-box .ai-pre .link-btn, .main .ai-pre .link-btn { margin: 0; padding: 0; width: auto; background: none; border: 0; color: var(--blue); font-size: 12px; font-weight: 600; text-decoration: underline; cursor: pointer; }
 .ai-pre select { width: auto; }
+
+/* 3층 구조(10/14 형 피드백 ⑦) — 시설물 화면: 회차 목록 + 접힌 패널(details) / 회차 화면(sitok-round.html) */
+details.sk-fold > summary.panel-head { cursor: pointer; list-style: none; gap: 10px; }
+details.sk-fold > summary.panel-head::-webkit-details-marker { display: none; }
+details.sk-fold > summary.panel-head .panel-count { flex: 1; }
+details.sk-fold > summary.panel-head h2 { white-space: nowrap; }
+.sk-fold-arrow { color: var(--faint); font-size: 14px; transition: transform .15s; }
+details.sk-fold[open] > summary .sk-fold-arrow { transform: rotate(180deg); }
+details.sk-fold:not([open]) > summary.panel-head { border-bottom: 0; }
+.sk-h3 { margin: 18px 0 8px; font-size: 13.5px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sk-h3:first-child { margin-top: 0; }
+.sk-drop.has { border-color: var(--green); background: var(--green-soft); }
+.sk-con-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.main .sk-con-top button { margin: 0; }
+.sk-con-used { font-size: 12px; font-weight: 600; color: var(--blue); background: var(--blue-soft); padding: 2px 8px; border-radius: 999px; }
+.sk-con-used.none { color: var(--faint); background: var(--paper); }
+#sk-dwg .dt-dwg-k { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+#sk-dwg .dt-dwg-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+#sk-dwg .dt-dwg-h .sk-help { flex: 1; }
+.main #sk-dwg .secondary-link { padding: 4px 10px; font-size: 12px; cursor: pointer; }
+#sk-dwg .dt-dwg-list { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
+#sk-dwg .dt-dwg-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 0; }
+#sk-dwg .dt-dwg-none { margin-top: 4px; }
+/* 회차 목록 */
+.sk-rounds { display: flex; flex-direction: column; gap: 8px; }
+.sk-round { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--surface); transition: background .12s, border-color .12s; }
+.sk-round:hover { background: var(--blue-soft); border-color: var(--blue); }
+.sk-round.done { border-left: 4px solid var(--green); } .sk-round.failed { border-left: 4px solid var(--crit); } .sk-round.running { border-left: 4px solid var(--blue); }
+.sk-round.past { opacity: .75; }
+.sk-round-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.sk-round-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sk-round-title b { font-size: 15px; }
+.sk-round-prog { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.sk-chip { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--paper); color: var(--faint); white-space: nowrap; }
+.sk-chip.on { background: var(--green-soft); color: var(--green); font-weight: 600; }
+.sk-chip.run { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+.sk-chip.bad { background: var(--crit-soft); color: var(--crit); font-weight: 600; }
+.sk-round-open { font-size: 13px; font-weight: 600; color: var(--blue); white-space: nowrap; }
+details.sk-old { margin-top: 12px; }
+details.sk-old > summary { cursor: pointer; font-size: 13px; color: var(--muted); font-weight: 600; padding: 6px 0; }
+details.sk-old > .sk-rounds { margin-top: 8px; }
+/* 회차 화면 */
+.rd-head { margin: 4px 0 14px; }
+.rd-head h1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 19px; margin: 0 0 4px; }
+.rd-head .rd-round { color: var(--blue); }
+.rd-src { font-size: 12.5px; color: var(--muted); }
+.rd-head .sk-rep-group { margin-top: 8px; }
+.rd-btns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.rd-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink);
+  text-align: left; font: inherit; cursor: pointer; transition: background .12s, border-color .12s; margin: 0; }
+.main button.rd-btn { margin: 0; width: 100%; background: var(--surface); color: var(--ink); border: 1px solid var(--line); font-weight: 400; display: flex; align-items: flex-start; text-align: left; }
+.main button.rd-btn:hover { background: var(--blue-soft); border-color: var(--blue); }
+.main button.rd-btn.on { border-color: var(--green); }
+.rd-btn:hover { background: var(--blue-soft); border-color: var(--blue); }
+.rd-btn.on { border-color: var(--green); }
+.rd-ic { font-size: 22px; line-height: 1; }
+.rd-lb { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.rd-ok { font-style: normal; color: var(--green); font-weight: 700; }
+.rd-sub { font-size: 12px; color: var(--faint); }
+.rd-build { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.rd-build .sk-rep-foot { margin-top: 0; }
+.rd-source { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: 12.5px; }
+.main .rd-source .secondary-link { padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
+.rd-source.drop-over { background: var(--blue-soft); border-radius: 8px; }
+.rd-info-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.main .rd-info-foot button { margin: 0; }
+@media (max-width: 760px) {
+  .rd-btns { grid-template-columns: 1fr; }
+  .rd-btn { padding: 14px; }
+  .sk-round { flex-wrap: wrap; }
+  .sk-round-open { width: 100%; text-align: right; }
+  details.sk-fold > summary.panel-head { flex-wrap: wrap; }
+  details.sk-fold > summary.panel-head .panel-count { flex-basis: 100%; order: 3; }
+}

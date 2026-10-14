@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from core import config
 from core.db import DATA_DIR
-from core.models_web import SitokContract, SitokFacility, SitokView, User
+from core.models_web import SitokContract, SitokFacility, SitokView, User, SitokReport
 from server.api import storage
 from server.api.deps import get_current_user, get_db
 from server.api.security import verify_password
@@ -209,18 +209,26 @@ def _contract_out(c: SitokContract) -> dict:
             "created_at": c.created_at.strftime("%Y-%m-%d") if c.created_at else ""}
 
 
+def register_path(f: SitokFacility) -> Path:
+    """건축물대장 PDF — 시설물 폴더에 하나(시설물 현황 AI·1.2.8 초안이 같이 씀). 10/14 시설물 정보·서류 칸에서 올림."""
+    return _facility_dir(f) / "건축물대장.pdf"
+
+
 def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) -> dict:
     contracts = (db.query(SitokContract).filter(SitokContract.facility_id == f.id)
                  .order_by(SitokContract.start_date.desc().nullslast(), SitokContract.id.desc()).all())
     out = {"id": f.id, **{k: _iso(getattr(f, k)) for k in FAC_FIELDS}, "ledger": f.ledger or {},
-           "has_ledger_pdf": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()),
+           "has_ledger_pdf": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()), "has_register": register_path(f).exists(),
            "base_wall": (f.ledger or {}).get("base_wall"), "base_slab": (f.ledger or {}).get("base_slab"),
            "latest": _contract_out(contracts[0]) if contracts else None, "contract_count": len(contracts)}
     from server.api.routers.sitok_groups import group_out
     out["group"] = group_out(db, f)  # 한 보고서로 묶인 동(10/12)
     out["renew"] = renew_info(db, f)  # 장기·지속 계약 끝나기 전 알림(10/13)
     if with_contracts:
-        out["contracts"] = [_contract_out(c) for c in contracts]
+        used: dict[int, list[str]] = {}  # 계약 → 쓰는 회차(10/14 계약 패널 "쓰는 회차: 2026 상·하")
+        for rp in db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.contract_id.isnot(None)).order_by(SitokReport.year, SitokReport.half).all():
+            used.setdefault(rp.contract_id, []).append(f"{rp.year} {rp.half[:1]}")
+        out["contracts"] = [{**_contract_out(c), "used_by": used.get(c.id, [])} for c in contracts]
     return out
 
 

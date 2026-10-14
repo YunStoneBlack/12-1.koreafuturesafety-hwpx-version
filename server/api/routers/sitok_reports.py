@@ -33,7 +33,7 @@ from core.models_web import SitokContract, SitokEquipment, SitokFacility, SitokR
 from core.stored_path import to_full
 from server.api.deps import get_current_user, get_db
 from server.api.routers.contract_library import doc_status
-from server.api.routers.sitok import _contract_out, _facility_dir, _require_facility, contract_for, kind_for, renew_info
+from server.api.routers.sitok import _contract_out, _facility_dir, _require_facility, contract_for, kind_for, register_path, renew_info
 
 
 def _iso(d) -> str:
@@ -79,7 +79,20 @@ def _out(r: SitokReport) -> dict:
             # 바꾼 뒤 처음 맡는 시설물 첫 회차를 한 번 만들면 여기 걸려 현장 조사·면담 버튼이 사라졌음(동안교회 — 사용자 10/12)
             "past": r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"),
             "has_ai": bool(r.ai), "base": bool((r.survey or {}).get("base")), "has_survey": bool((r.survey or {}).get("repairs") or (r.survey or {}).get("changes")),
-            "has_detail": bool((r.survey or {}).get("detail")), "amount_k": r.amount_k or ""}
+            "has_detail": bool((r.survey or {}).get("detail")), "amount_k": r.amount_k or "",
+            # 회차 목록 진행 표시(10/14 형 피드백 ⑦ — 3층 구조): 현장 조사 = 결함 줄이나 전경사진이 있음, 재료시험 = 표본층 고름, 상태평가 = 저장한 입력
+            "has_field": _has_field(r), "has_tests": bool(((r.tests or {}).get("sample") or {}).get("floors")), "has_rating": bool(r.rating)}
+
+
+def _has_field(r: SitokReport) -> bool:
+    from sqlalchemy.orm import object_session
+
+    from core.models_web import SitokDefect
+
+    db = object_session(r)
+    if db is not None and db.query(SitokDefect.id).filter(SitokDefect.report_id == r.id).first() is not None:
+        return True
+    return bool(r.overview or (r.survey or {}).get("precision"))
 
 
 def _data_hwpx(x: SitokReport) -> str:
@@ -859,7 +872,8 @@ def get_report(report_id: int, user: User = Depends(get_current_user), db: Sessi
 
     r = _require(db, user, report_id)
     mark_view(db, user.id, r.facility_id)  # 시설물 목록 "최근 열람순"(10/13) — 현장 조사·보고서 화면도
-    return _out(r)
+    f = db.get(SitokFacility, r.facility_id)
+    return {**_out(r), "facility_id": f.id, "facility_name": f.name}  # 회차 화면(sitok-round.html, 10/14)이 경로 표시에 씀
 
 
 @router.get("/reports/{report_id}/file/{kind}")
@@ -1011,9 +1025,24 @@ def survey_get(report_id: int, user: User = Depends(get_current_user), db: Sessi
             "period": f"{r.year}년 {r.half}", "has_register": _register(db.get(SitokFacility, r.facility_id)).exists()}
 
 
-def _register(f: SitokFacility) -> Path:
-    """건축물대장 PDF — 시설물 폴더에 하나(시설물 현황 AI·1.2.8 초안이 같이 씀)."""
-    return _facility_dir(f) / "건축물대장.pdf"
+_register = register_path  # 건축물대장 PDF(시설물 폴더에 하나) — 10/14 server/api/routers/sitok.register_path로 옮김
+
+
+@router.post("/facilities/{facility_id}/register")
+def upload_register(facility_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """건축물대장 PDF 올리기 — 시설물 정보·서류 칸(10/14). 시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 씀."""
+    f = _require_facility(db, user, facility_id)
+    _save_register(f, file)
+    return {"ok": True, "has_register": True}
+
+
+@router.get("/facilities/{facility_id}/register/file")
+def register_file(facility_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    f = _require_facility(db, user, facility_id)
+    p = register_path(f)
+    if not p.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "건축물대장이 없습니다.")
+    return FileResponse(p, media_type="application/pdf", content_disposition_type="inline", filename=f"{f.name} 건축물대장.pdf")
 
 
 def _save_register(f: SitokFacility, file: UploadFile | None) -> Path:

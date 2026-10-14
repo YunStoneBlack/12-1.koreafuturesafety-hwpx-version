@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>회차 - 시특법</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+</head>
+<!-- 시특법 회차 화면(2026-10-14 형 피드백 ⑦ 3층 구조) — ?report= 회차 하나. 위 = 현장 점검(현장 조사 → 재료시험·상태평가(정밀) → 면담·변경사항),
+     가운데 = 보고서(시설물 현황·AI 초안·보고서 만들기·파일), 아래 = 접힌 회차 정보(계약·종류·점검기간·제출일·기술자·묶음 금액·삭제).
+     전엔 시설물 화면의 회차 카드(js/sitok-reports.js)에 다 있었음. 화면 js/sitok-round.js, 서버 server/api/routers/sitok_reports.py. -->
+<body data-report-tab="facilities" data-law="sitok" data-tabs-only>
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div class="crumb"><a href="sitok.html">시설물 목록</a> › <a id="rd-fac-link" href="#">시설물</a> › <span id="rd-crumb">회차</span></div>
+<div id="error" class="error"></div>
+<div id="rd-flash"></div>
+
+<div class="rd-head" id="rd-head"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>📱 현장 점검</h2><span class="panel-count">현장에서 순서대로 — 끝난 것은 ✓</span></div>
+  <div class="panel-body"><div class="rd-btns" id="rd-field"></div></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>📄 보고서</h2><span class="panel-count">회사 원본 템플릿에 이번 값과 전회차 데이터를 넣어 한글·PDF를 만듭니다</span></div>
+  <div class="panel-body">
+    <div class="rd-btns" id="rd-report"></div>
+    <div class="rd-build" id="rd-build"></div>
+  </div>
+</section>
+
+<details class="panel sk-fold" id="rd-info-panel">
+  <summary class="panel-head"><h2>⚙ 회차 정보</h2><span class="panel-count">계약·종류·점검기간·제출일·기술자 — 보통 자동으로 채워짐</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body" id="rd-info"></div>
+</details>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="mail.js"></script>
+<script src="js/sitok-ai.js"></script>
+<script src="js/sitok-survey.js"></script>
+<script src="js/sitok-detail.js"></script>
+<script src="js/sitok-round.js"></script>
+</body>
+</html>

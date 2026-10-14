@@ -9,52 +9,57 @@
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/sitok.css" />
 </head>
-<!-- 시특법 시설물 등록·고치기(2026-10-10 2단계) — ?id= 없으면 새로 등록. 관리대장·계약서 PDF를 올리면 AI가 읽어 칸을 채움(server/sitok/reader.py).
-     칸 정의·저장은 js/sitok-facility.js, 서버 server/api/routers/sitok.py. -->
+<!-- 시특법 시설물 화면(2026-10-10 2단계, 10/14 형 피드백 ⑦ 3층 구조) — ?id= 없으면 새 등록(sitok-new.html).
+     위 = 점검 회차 목록(누르면 회차 화면 sitok-round.html) / 접힌 "시설물 정보·서류"(관리대장·건축물대장·도면·같이 점검하는 동·시설물 칸) / 접힌 "계약"(회차별로 쌓임).
+     칸 정의·저장은 js/sitok-facility.js, 회차 목록 js/sitok-reports.js, 도면 js/sitok-drawings.js, 서버 server/api/routers/sitok.py. -->
 <body data-report-tab="facilities" data-law="sitok" data-tabs-only>
 <div class="app">
   <aside class="sidebar" id="gw-sidebar"></aside>
   <main class="main">
 
-<div class="crumb"><a href="sitok.html">시설물 목록</a> › <span id="sk-crumb">새 시설물 등록</span></div>
+<div class="crumb"><a href="sitok.html">시설물 목록</a> › <span id="sk-crumb">시설물</span></div>
 <div id="error" class="error"></div>
 
 <section class="panel" id="sk-rep-panel" hidden>
-  <div class="panel-head"><h2>점검 보고서</h2><span class="panel-count">회차(연도·반기)마다 — 회사 원본 템플릿에 이번 값과 전회차 데이터를 넣어 한글·PDF를 만듭니다</span></div>
+  <div class="panel-head"><h2>점검 회차</h2><span class="panel-count">회차를 누르면 현장 조사·재료시험·보고서 만들기 화면으로 갑니다</span></div>
   <div class="panel-body" id="sk-reps"></div>
 </section>
 
-<section class="panel" id="sk-group-panel" hidden>
-  <div class="panel-head"><h2>같이 점검하는 동</h2><span class="panel-count">한 계약에 여러 동이면 보고서 한 권으로(동마다 시설물편 제N장)</span></div>
-  <div class="panel-body" id="sk-group"></div>
-</section>
-
-
-<section class="panel" id="sk-pdfs">
-  <div class="panel-head"><h2>PDF로 채우기</h2><span class="panel-count">올리면 AI가 읽어 아래 칸을 채웁니다(10~30초) — 틀린 칸은 고치세요</span></div>
-  <div class="panel-body sk-drops">
-    <label class="sk-drop" data-kind="ledger"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
-      <b>📄 시설물관리대장 PDF</b><span class="sk-drop-msg">FMS에서 출력한 관리대장 — 눌러서 고르거나 끌어다 놓기</span></label>
-    <label class="sk-drop" data-kind="contract"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
-      <b>📄 계약서 PDF</b><span class="sk-drop-msg">민간 표준계약서(스캔도 됨) 또는 나라장터 용역계약서</span></label>
+<details class="panel sk-fold" id="sk-info-panel">
+  <summary class="panel-head"><h2>🏢 시설물 정보·서류</h2><span class="panel-count">관리대장·건축물대장·도면·같이 점검하는 동·시설물 칸 — 바뀌기 전까지 모든 회차가 같이 씀</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body">
+    <div class="sk-drops" id="sk-pdfs">
+      <label class="sk-drop" data-kind="ledger"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
+        <b>📄 시설물관리대장 PDF</b><span class="sk-drop-msg">FMS에서 출력한 관리대장 — 올리면 AI가 읽어 아래 시설물 칸을 채웁니다(10~30초)</span></label>
+      <label class="sk-drop" id="sk-register"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
+        <b>📄 건축물대장 PDF</b><span class="sk-drop-msg" id="sk-register-msg">시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 읽습니다(층별 용도·면적·변동사항)</span></label>
+    </div>
+    <h3 class="sk-h3">도면</h3>
+    <div id="sk-dwg"></div>
+    <div id="sk-group-panel" hidden>
+      <h3 class="sk-h3">같이 점검하는 동 <span class="sk-help">한 계약에 여러 동이면 보고서 한 권으로(동마다 시설물편 제N장)</span></h3>
+      <div id="sk-group"></div>
+    </div>
+    <h3 class="sk-h3">시설물 칸</h3>
+    <form id="sk-form" autocomplete="off">
+      <div id="sk-fac"></div>
+      <div class="sk-actions">
+        <button type="button" class="danger" id="sk-del" hidden>시설물 삭제</button>
+        <span class="sk-saved" id="sk-saved"></span>
+        <button type="submit" id="sk-save">저장</button>
+      </div>
+    </form>
   </div>
-</section>
+</details>
 
-<form id="sk-form" autocomplete="off">
-  <section class="panel">
-    <div class="panel-head"><h2>시설물</h2></div>
-    <div class="panel-body" id="sk-fac"></div>
-  </section>
-  <section class="panel" id="sk-con-panel">
-    <div class="panel-head"><h2>점검 용역 계약</h2><button type="button" class="secondary btn-sm" id="sk-add-con" hidden>+ 계약 추가</button></div>
-    <div class="panel-body" id="sk-cons"></div>
-  </section>
-  <div class="sk-actions">
-    <button type="button" class="danger" id="sk-del" hidden>시설물 삭제</button>
-    <span class="sk-saved" id="sk-saved"></span>
-    <button type="submit" id="sk-save">저장</button>
+<details class="panel sk-fold" id="sk-con-panel">
+  <summary class="panel-head"><h2>📑 계약</h2><span class="panel-count" id="sk-con-count">회차별로 쌓입니다 — 최근 계약이 위</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body">
+    <div class="sk-con-top"><button type="button" class="secondary btn-sm" id="sk-add-con" hidden>+ 계약 추가</button>
+      <span class="sk-help">새 회차를 만들 때 계약서를 올려도 여기에 쌓입니다</span></div>
+    <div id="sk-cons"></div>
   </div>
-</form>
+</details>
 
   </main>
 </div>
@@ -64,10 +69,8 @@
 <script src="mail.js"></script>
 <script src="js/docs-common.js"></script>
 <script src="js/sitok-fields.js"></script>
+<script src="js/sitok-drawings.js"></script>
 <script src="js/sitok-facility.js"></script>
-<script src="js/sitok-ai.js"></script>
-<script src="js/sitok-survey.js"></script>
-<script src="js/sitok-detail.js"></script>
 <script src="js/sitok-reports.js"></script>
 <script src="js/sitok-group.js"></script>
 </body>
