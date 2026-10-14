@@ -52,6 +52,10 @@
     root.querySelectorAll("[data-path]").forEach((el) => {
       el.addEventListener("change", () => {
         setAt(el.dataset.path, el.type === "checkbox" ? el.checked : el.value);
+        if (el.dataset.path.endsWith(".damaged")) { // 손상 체크 → 비고 "비건전부", 풀면 "건전부"(직접 적은 비고는 그대로, 10/14 형)
+          const row = getAt(el.dataset.path.split(".").slice(0, -1));
+          if (["", "건전부", "비건전부"].includes((row.note || "").trim())) row.note = el.checked ? "비건전부" : "건전부";
+        }
         save();
       });
     });
