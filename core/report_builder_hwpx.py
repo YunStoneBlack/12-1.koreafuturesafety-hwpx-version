@@ -136,6 +136,31 @@ def build_report_hwpx(report_id: int, output_path: str | Path) -> Path:
     return output_path
 
 
+def _fix_process_splits(hwp, tmp_hwpx: Path, tmp_pdf: Path) -> None:
+    """진행공정 표(표12)가 공정 중간에서 쪽을 넘었으면 그 자리에 선 + 다음 쪽 칸에도 공정명을 넣은 hwpx로 한 번 더 PDF
+    (2026-10-15 사용자 — core/hwpx_process_split.py). 이미 켜 둔 한글로 다시 열어 저장만 하므로 한글을 다시 켜는 시간은 안 든다.
+    안전장치: 고칠 곳이 없으면 아무것도 안 함(지금과 같음), 무슨 오류든·쪽 수가 달라지면 첫 PDF 그대로."""
+    try:
+        import pymupdf
+
+        from core.hwpx_process_split import fix_process_splits
+
+        fixed_hwpx = tmp_hwpx.with_name(tmp_hwpx.stem + "_split.hwpx")
+        fixed_pdf = tmp_pdf.with_name(tmp_pdf.stem + "_split.pdf")
+        fixed_pdf.unlink(missing_ok=True)
+        if not fix_process_splits(tmp_hwpx, tmp_pdf, fixed_hwpx):
+            return
+        hwp.clear(1)
+        if not hwp.open(str(fixed_hwpx)) or not hwp.save_as(str(fixed_pdf), format="PDF"):
+            return
+        with pymupdf.open(tmp_pdf) as a, pymupdf.open(fixed_pdf) as b:
+            same = a.page_count == b.page_count and b.page_count > 0
+        if same:
+            shutil.copy2(fixed_pdf, tmp_pdf)
+    except Exception:  # noqa: BLE001 — 첫 PDF 그대로(보고서 만들기는 절대 안 막음)
+        pass
+
+
 def build_report_pdf_via_hwpx(report_id: int, output_path: str | Path) -> Path:
     """신규 엔진(COM 불필요)으로 내용을 채운 뒤, 그 결과물을 한글 COM으로 열어 PDF로
     "변환만" 한다 — 필드 채우기는 `build_report_hwpx` 하나로 통일하고 COM은 PDF 렌더러로만
@@ -182,6 +207,7 @@ def build_report_pdf_via_hwpx(report_id: int, output_path: str | Path) -> Path:
             raise HwpBuildError("생성된 hwpx 파일을 여는 데 실패했습니다.")
         if not hwp.save_as(str(tmp_pdf), format="PDF"):
             raise HwpBuildError("PDF로 변환하는 데 실패했습니다.")
+        _fix_process_splits(hwp, tmp_hwpx, tmp_pdf)
     except HwpBuildError:
         raise
     except Exception as e:  # noqa: BLE001 - 한글 COM 자동화 에러를 그대로 전달
