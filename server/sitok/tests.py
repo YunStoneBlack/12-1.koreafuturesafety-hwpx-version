@@ -124,11 +124,18 @@ def _i(v) -> int | None:
 
 
 def steel_area(s: str) -> float | None:
-    """H형강 규격 글자 "H-400×200×8×13"(H-, x, *, 띄어쓰기 다 됨) → 단면적 cm². 숫자 4개가 아니면 None. 숫자 하나면 단면적을 직접 적은 것(cm²)."""
-    t = str(s or "").strip().upper().replace("H-", "").replace("H", "").replace(" ", "")
+    """강재 규격 글자 → 단면적 cm²(표엔 글자 그대로, 상태평가 비교에만 씀 — 형 10/14 "H-100×100×6×8 이런 식으로 써져야").
+    H형강 "H-400×200×8×13"(숫자 4개, KS 필릿 반지름 표) / 앵글(L형강) "L-100×100×7"·"ㄱ-90×90×7"(숫자 3개 a×b×t, KS 등변·부등변 어림:
+    t(a+b-t) + 필릿 0.107t²) / 숫자 하나면 단면적 직접(cm²). 그 밖(두께 없는 "100×100" 등)은 None."""
+    raw = str(s or "").strip().upper().replace(" ", "")
+    angle = raw.startswith(("L-", "L", "ㄱ-", "ㄱ"))
+    t = raw.replace("H-", "").replace("H", "").replace("L-", "").replace("L", "").replace("ㄱ-", "").replace("ㄱ", "")
     nums = [_f(p) for p in re.split(r"[×XÅ*]", t) if p.strip()]
     if len(nums) == 1 and nums[0]:
         return nums[0]
+    if len(nums) == 3 and all(n for n in nums) and (angle or True):  # 숫자 3개는 앵글(a×b×t)
+        a, b, tt = nums
+        return round((tt * (a + b - tt) + 0.107 * tt * tt) / 100, 2)
     if len(nums) != 4 or any(n is None for n in nums):
         return None
     h, b, t1, t2 = nums
@@ -484,6 +491,8 @@ def schedule_fill(data: dict, facility: str, company_id: int, text: str, imgs: l
 def _selfcheck() -> None:
     # 다산: 지하3·지상5, 표본층 -3·5 → -3~-1 / 1~5 ; 조훈 -2·8·16(지하2·지상16) → 가운데 나눔
     assert split_ranges([-3, 5], 5, 3) == [(-3, -1), (1, 5)]
+    assert abs(steel_area("L-100×100×7") - 13.56) < 0.1 and abs(steel_area("L-200×200×15") - 58.0) < 0.3 and abs(steel_area("L-50×50×4") - 3.86) < 0.1  # KS 13.62·57.75·3.89
+    assert steel_area("100×100") is None and steel_area("13.4") == 13.4
     assert split_ranges([-2, 8, 16], 16, 2) == [(-2, -1), (1, 12), (13, 16)]
     assert age_years(datetime.date(2022, 5, 31), datetime.date(2026, 5, 21)) == 4 and age_years(datetime.date(2022, 5, 1), datetime.date(2026, 5, 21)) == 4
     c1 = carbonation_row({"cover": 61, "depth": 13.26}, 4, 0.51, 1.0)

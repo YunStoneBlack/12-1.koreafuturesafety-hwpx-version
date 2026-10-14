@@ -48,6 +48,7 @@ class Data:
     map_path: str = ""  # 위치도 지도(locmap) — 없으면 흰 그림
     overview: list = field(default_factory=list)  # 전경사진 [(경로, 제목)] — 위치도 표 아래 칸·요약문 사진
     blank: str = ""
+    survey_pics: dict = field(default_factory=dict)  # 조사 전경 사진 {키: [경로|""…]}(precision.SURVEY_PICS, 형 10/14) — 【사진 2.1】·【사진 4.1~4.5】
 
 
 # ---------- 작은 도구 ----------
@@ -209,6 +210,61 @@ def _fit_png(png: bytes, w: int, h: int) -> bytes:
     return buf.getvalue()
 
 
+def _rating_crop(png: bytes, frac: float = 0.46) -> tuple[bytes, float]:
+    """상태평가 갑지 PNG 윗부분(건물개요·평가결과·최종결과)만 — (JPG 바이트, 가로/세로 비율). 다산 요약문 2.4는 갑지를 가로로 자른 그림."""
+    import io
+
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(png)).convert("RGB")
+    w, h = im.size
+    im = im.crop((0, 0, w, max(int(h * frac), 1)))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=90)
+    return buf.getvalue(), w / max(int(h * frac), 1)
+
+
+def _px_for_frame(jpg: bytes, w: int, h: int) -> bytes:
+    """우리 한글(2020)은 표 칸 그림을 96dpi 원래 크기로 그리고 틀로 잘라 보인다(10/14 실험: 1406px 갑지가 6.5인치 틀에서 2.2배 확대, dpi 메타는 무시) →
+    그림 픽셀을 틀 크기(HWPUNIT/7200인치 × 96)에 맞춤."""
+    import io
+
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(jpg)).convert("RGB")
+    pw, ph = max(int(w / 7200 * 96), 1), max(int(h / 7200 * 96), 1)
+    im = im.resize((pw, ph))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=92)
+    return buf.getvalue()
+
+
+def _reset_pic(pic, w: int, h: int) -> None:
+    """그림 틀을 새 그림 크기(w×h HWPUNIT)에 맞춤 — 원본 크기·현재 크기·자르기·배율을 새로(옛 사진의 자르기 속성이 남으면 확대돼 보임, 10/14)."""
+    for tag in ("orgSz", "curSz", "sz"):
+        el = pic.find(f"{{{HP}}}{tag}")
+        if el is not None:
+            el.set("width", str(w))
+            el.set("height", str(h))
+    rect = pic.find(f"{{{HP}}}imgRect")
+    if rect is not None:
+        for name, (x, y) in zip(("pt0", "pt1", "pt2", "pt3"), ((0, 0), (w, 0), (w, h), (0, h))):
+            pt = rect.find(f"{{{CORE}}}{name}")
+            if pt is not None:
+                pt.set("x", str(x))
+                pt.set("y", str(y))
+    clip = pic.find(f"{{{HP}}}imgClip")
+    if clip is not None:
+        clip.attrib.update({"left": "0", "top": "0", "right": str(w), "bottom": str(h)})
+    for m in pic.iter(f"{{{CORE}}}scaMatrix"):
+        m.set("e1", "1")
+        m.set("e5", "1")
+    rot = pic.find(f"{{{HP}}}rotationInfo")
+    if rot is not None:
+        rot.set("centerX", str(w // 2))
+        rot.set("centerY", str(h // 2))
+
+
 def _put_png(p, png: bytes | None, add_image) -> int:
     """문단 안 그림(표 밖)을 png로."""
     if not png:
@@ -293,13 +349,7 @@ def _fill_result_table(root, D: Data) -> int:
     k = right("안전등급")
     if k and t.get("grade_letter"):
         _set(cells, *k, t["grade_letter"]); n += 1  # noqa: E702
-    eng = [r for r in sorted({k[0] for k in cells}) if (r, 0) in cells and re.sub(r"\s", "", rb._cell_text(cells[(r, 0)])).endswith("기술자")]  # 다. 책임(참여)기술자 줄
-    extra = eng[len(D.new.persons):] if D.new.persons else []
-    if extra:  # 틀(다산)보다 기술자가 적으면 남는 줄은 지움 — 그냥 두면 옛 이름이 남음(10/14 숭의: 참여 1명인데 2줄)
-        tbl = cells[(extra[0], 0)].getparent().getparent()
-        rb._del_rows(tbl, extra[0], len(extra))
-        cells = rb._cells(tbl)
-        n += 1
+    n += rb.engineer_rows(root, D.new.persons)  # 다. 책임(참여)기술자 줄 — 이름·등급을 줄 위치로, 남는 줄 지움(10/14 숭의: 틀의 "특급기술자" 두 명이 글자 바꾸기에서 충돌)
     for tc in cells.values():
         for q in tc.iter(f"{{{HP}}}p"):
             txt = "".join(rb._full(x) for x in q.iter(T))
@@ -377,6 +427,20 @@ def _fill_summary_table(root, D: Data) -> int:
     return n
 
 
+def _brief(text: str, n: int = 70) -> str:
+    """책임기술자 의견 칸 — 첫 문장(마침표)까지, 너무 길면 n자 뒤 가장 가까운 쉼표·띄어쓰기에서 끊고 "…"(사용자 10/14 "50자에서 문장 중간에 잘림")."""
+    t = " ".join((text or "").split())
+    if not t:
+        return ""
+    m = re.search(r"[.。]\s", t + " ")
+    first = t[:m.end()].strip() if m else t
+    if len(first) <= n + 25:
+        return first
+    cut = first[:n]
+    k = max(cut.rfind(","), cut.rfind(" "), cut.rfind("·"))
+    return (cut[:k] if k > n // 2 else cut).rstrip(",· ") + "…"
+
+
 def _fill_test_rows(cells: dict, D: Data) -> int:
     """시험 요약 줄(시험명 | 개소 | 조사결과 | 책임기술자 의견) — 요약표·결과표 뒤 표 공통(줄 첫 칸 글자로)."""
     tv, t = D.tv, D.texts
@@ -384,7 +448,7 @@ def _fill_test_rows(cells: dict, D: Data) -> int:
     rows = {
         "규격조사": (f"{len(tv['sections'])}개소" if tv["sections"] else "-", "재료시험 결과 참조", t.get("section", "")[:60]),
         "강도조사": (f"{sm['count']}개소" if sm["count"] else "-", ["추정압축강도:", f"{sm['min']}~{sm['max']}MPa"] if sm["count"] else "-",
-                  f"{(tv['strength']['grade'] or '-').upper()}등급 — " + t.get("strength", "")[:50]),
+                  f"{(tv['strength']['grade'] or '-').upper()}등급 — " + _brief(t.get("strength", ""))),
         "탄산화조사": (f"{cs['count']}개소" if cs["count"] else "-", ["탄산화깊이:", f"{cs['min']}mm~{cs['max']}mm"] if cs["count"] else "-",
                    f"{(tv['carbonation']['grade'] or '-').upper()}등급, 잔존수명 " + ("평균 100년 이상" if all(r.get('life_text') == '100년 이상' for r in tv['carbonation']['rows']) else "일부 100년 미만")),
         "기울기조사": ("4면" if ti["rows"] else "-", f"1/{ti['range']['min_n']:,}~1/{ti['range']['max_n']:,}" if ti["range"]["min_n"] else "-",
@@ -489,6 +553,36 @@ def _fill_status_tables(root, D: Data) -> int:
     return n
 
 
+def general_row(f, no: str = "") -> list[str]:
+    """대상시설물 현황 표 한 줄 — [no.] 종별·시설명·위치·연면적·층수(지상/지하)·구조·준공년도."""
+    vals = [(f.template or "2종")[:2], f.name or "-", f.address or "-", f"{f.total_area:,.2f}" if f.total_area else "-",
+            f"지상{f.floors_above or 0}층/지하{f.floors_below or 0}층", f.structure or "-", f"{f.completion_date.year}년" if f.completion_date else "-"]
+    return ([no] if no else []) + vals
+
+
+def general_tables(root) -> list:
+    """종별·시설명·위치·연면적·층수·구조·준공년도 머리줄 표(앞에 no.가 있든 없든) — 5쪽 시설물 현황·요약문 1.2·공통편 표 1.1."""
+    out = []
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None:
+            continue
+        h = _head(tbl, 8)
+        if "종별" in h and "시설명" in h and any(x.startswith("연면적") for x in h) and any(x.startswith("준공") for x in h):
+            out.append(tbl)
+    return out
+
+
+def _fill_general_tables(root, D: Data) -> int:
+    n = 0
+    for tbl in general_tables(root):
+        cells = rb._cells(tbl)
+        has_no = _head(tbl, 1)[0].lower().startswith("no")
+        for tc, v in zip(_row_cells(cells, 1), general_row(D.facility, "1" if has_no else "")):
+            rb._set_lines(tc, [v])
+        n += 1
+    return n
+
+
 def _fill_front_pics(root, D: Data, add_image) -> int:
     """앞부분 그림 — "■ 대상시설물 위치도" 표(위 칸 지도, 아래 칸 첫 전경사진), 요약문의 글 없는 1×1 그림 표(전경사진 차례로). 없으면 흰 그림(원본 다산 사진이 남지 않게)."""
     n = 0
@@ -507,15 +601,46 @@ def _fill_front_pics(root, D: Data, add_image) -> int:
                 rb._put_pic(slots[-1][1], photos[0] if photos else blank, add_image)
             n += 1
     k = 0
-    for tbl in root.iter(f"{{{HP}}}tbl"):
-        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None or int(tbl.get("rowCnt")) != 1 or int(tbl.get("colCnt")) != 1:
-            continue
-        pics = list(tbl.iter(f"{{{HP}}}pic"))
-        if len(pics) != 1 or "".join(rb._full(t) for t in tbl.iter(T)).strip():
-            continue
-        rb._put_pic(pics[0], photos[k] if k < len(photos) else blank, add_image)
-        k += 1
-        n += 1
+    tops = _tops(root)
+    for i, p in enumerate(tops):
+        prev = _para_text(tops[i - 1]).replace(" ", "") if i else ""
+        for tbl in p.iter(f"{{{HP}}}tbl"):
+            if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None:
+                continue
+            pics = list(tbl.iter(f"{{{HP}}}pic"))
+            if not pics:
+                continue
+            head = rb._cell_text(rb._cells(tbl).get((0, 0), tbl)).replace(" ", "")
+            if "위치도" in head and "전경" not in head:
+                continue  # 위 "■ 대상시설물 위치도" 표는 이미
+            if prev.endswith("위치도"):  # 요약문 1.4 위치도 — 지도
+                rb._put_pic(pics[0], D.map_path or blank, add_image)
+                n += 1
+            elif prev.endswith("상태평가결과"):  # 요약문 2.4 상태평가 결과 — 갑지 윗부분(건물개요~최종결과) 그림, 틀 크기·자르기 속성을 새 그림에 맞춤(옛 사진 속성이 남으면 확대돼 보임)
+                sz = pics[0].find(f"{{{HP}}}curSz")
+                img = next(pics[0].iter(f"{{{CORE}}}img"), None)
+                if D.rating_png and img is not None:
+                    tops[i - 1].set("pageBreak", "1")  # 그림이 커서 2.3 표 아래 안 들어가면 제목만 남고 그림만 넘어감 → 2.4는 새 쪽에서(형 10/14 "아예 넘겨")
+                    jpg, ratio = _rating_crop(D.rating_png, 1.0)  # rating_png는 이미 갑지 윗부분(건물개요~최종결과)만 — 더 자르지 않음
+                    w = int(sz.get("width")) if sz is not None and int(sz.get("width") or 0) > 0 else 46000
+                    h = int(w / ratio)
+                    _reset_pic(pics[0], w, h)
+                    img.set("binaryItemIDRef", add_image(_px_for_frame(jpg, w, h)))
+                    for tc in tbl.iter(f"{{{HP}}}tc"):  # 1×1 그림 표 칸 높이도 그림에 맞게
+                        csz = tc.find(f"{{{HP}}}cellSz")
+                        if csz is not None and int(csz.get("height") or 0) < h + 600:
+                            csz.set("height", str(h + 600))
+                    tsz = tbl.find(f"{{{HP}}}sz")
+                    if tsz is not None and int(tsz.get("height") or 0) < h + 600:
+                        tsz.set("height", str(h + 600))
+                    n += 1
+                else:
+                    rb._put_pic(pics[0], blank, add_image)
+            elif head.startswith("시설물명") or (int(tbl.get("rowCnt")) == 1 and int(tbl.get("colCnt")) == 1 and len(pics) == 1 and not "".join(rb._full(t) for t in tbl.iter(T)).strip()):
+                for pic in pics:  # 현황표 전경사진 칸·글 없는 1×1 그림 표 — 전경사진 차례로
+                    rb._put_pic(pic, photos[k] if k < len(photos) else blank, add_image)
+                    k += 1
+                    n += 1
     return n
 
 
@@ -610,17 +735,30 @@ def _fill_uses(root, D: Data) -> int:
         data_rows = [r for r in rows if r >= 1 and not rb._cell_text(cells.get((r, 0), cells.get((r, 1)))).replace(" ", "").startswith("계") and (r, 1) in cells]
         total_row = next((r for r in rows if any(rb._cell_text(cells[(r, c)]).replace(" ", "") == "계" for c in range(3) if (r, c) in cells)), None)
     use = f.main_use or f.use_type or "-"
+    by_floor = {}  # 시설물 현황 창에서 건축물대장을 읽은 층별 [층, 면적, 용도, 비고](detail.uses, 10/14)
+    for row in ((D.detail or {}).get("uses") or []):
+        if isinstance(row, list) and row and str(row[0]).strip():
+            by_floor[str(row[0]).replace(" ", "")] = row
     for i, r in enumerate(data_rows):
         if i < len(keys):
-            _set(cells, r, 1, TESTS.floor_label(keys[i])); _set(cells, r, 2, "-"); _set(cells, r, 3, use); _set(cells, r, 4, "")  # noqa: E702
+            lb = TESTS.floor_label(keys[i])
+            u = by_floor.get(lb) or by_floor.get(lb.replace("지상", "")) or []
+            area = str(u[1]).strip() if len(u) > 1 and str(u[1]).strip() else "-"
+            _set(cells, r, 1, lb); _set(cells, r, 2, area); _set(cells, r, 3, (str(u[2]).strip() if len(u) > 2 and str(u[2]).strip() else use)); _set(cells, r, 4, str(u[3]).strip() if len(u) > 3 else "")  # noqa: E702
         else:
             _set(cells, r, 1, "-"); _set(cells, r, 2, "-"); _set(cells, r, 3, "-")  # noqa: E702
+    for p in _tops(root):  # 캡션이 틀 글자("부재별 점검방향 설정")로 남아 있던 것
+        tx = _para_text(p)
+        if tx.startswith("【표 2.4】") and "점검방향" in tx:
+            rb._set_para(p, "【표 2.4】층별 용도 현황")
     if (1, 0) in cells:
         _set(cells, 1, 0, f.name)
     if total_row is not None and (total_row, 2) in cells:
         _set(cells, total_row, 2, f"{f.total_area:,.2f}㎡" if f.total_area else "-")
     if len(keys) > len(data_rows):
-        D.notes.append(f"용도 현황 표가 {len(data_rows)}개 층뿐이라 {len(keys)}개 층 중 앞부분만 넣었습니다(바닥면적은 직접)")
+        D.notes.append(f"용도 현황 표가 {len(data_rows)}개 층뿐이라 {len(keys)}개 층 중 앞부분만 넣었습니다")
+    if not by_floor:
+        D.notes.append("층별 바닥면적·용도는 건축물대장을 시설물 현황 창에 올려 읽으면 들어갑니다(지금은 주용도만)")
     return 1
 
 
@@ -635,18 +773,25 @@ def _fill_manage(root, D: Data) -> int:
                 marks = " ".join(f"{'■' if m[key] == v else '□'} {v}" for v in ("유", "무", "불명"))
                 rb._set_para(p, f"{head} : {marks}")
                 n += 1
-    tbl = rb._find_table(root, ["분야", "점검내용", "결과"])
+    tbl = next((t_ for t_ in root.iter(f"{{{HP}}}tbl") if _head(t_, 3) == ["분야", "점검내용", "결과"]), None)  # 머리칸이 합쳐져 있어 _find_table로는 못 찾음(10/14)
     if tbl is not None:
+        from server.sitok import precision as PR
+
         cells = rb._cells(tbl)
         rows = [r for r in sorted({k[0] for k in cells}) if (r, 1) in cells and rb._cell_text(cells[(r, 1)]).strip().startswith("□")]
+        auto = PR.auto_checklist(D.defects) if not m["checklist"] else {}  # 점검자가 체크한 게 없으면 결함 목록으로(10/14)
         note_done = False
         for i, r in enumerate(rows):
-            bad = bool(m["checklist"].get(str(i)))
+            a = auto.get(str(i))
+            bad = bool(m["checklist"].get(str(i))) or bool(a)
             _set(cells, r, 3, "" if bad else "■")
             _set(cells, r, 5, "■" if bad else "")
+            _set(cells, r, 7, "■" if a else "")
+            _set(cells, r, 9, "·".join(a["types"]) if a else "")
             if (r, 11) in cells:
-                _set(cells, r, 11, (m["note"] if bad and not note_done else ""))
-                if bad and m["note"]:
+                note = a["where"] if a else (m["note"] if bad and not note_done else "")
+                _set(cells, r, 11, note)
+                if bad and m["note"] and not a:
                     note_done = True
         n += 1
     return n
@@ -676,15 +821,35 @@ def _fill_prev_review(root, D: Data) -> int:
 # ---------- 3장 ----------
 
 def _photo_groups(D: Data) -> dict:
-    ds = [d for d in D.defects if d.photo and Path(d.photo).exists()]
-    cap = lambda d: f"{d.member} {d.dtype}".strip()  # noqa: E731
+    """3.2 손상사진 묶음 — 이번 회차 사진, 없으면 전회차 사진("그대로"로 넘긴 결함, 10/14)."""
+    def ph(d):
+        return d.photo if d.photo and Path(d.photo).exists() else d.prev_photo if d.prev_photo and Path(d.prev_photo).exists() else ""
+    ds = [(d, ph(d)) for d in D.defects]
+    ds = [(d, p) for d, p in ds if p]
+    cap = lambda d: f"{d.floor} {d.member} {d.dtype}".strip()  # noqa: E731
     return {
-        "crack": [(d.photo, cap(d)) for d in ds if d.part == "구조체" and "균열" in (d.dtype or "")],
-        "leak": [(d.photo, cap(d)) for d in ds if any(w in (d.dtype or "") for w in ("누수", "백태", "백화"))],
-        "spall": [(d.photo, cap(d)) for d in ds if d.part == "구조체" and any(w in (d.dtype or "") for w in ("박리", "박락", "층분리", "철근"))],
-        "steel": [(d.photo, cap(d)) for d in ds if (d.member or "") == "강재"],
-        "nonstruct": [(d.photo, cap(d)) for d in ds if d.part == "비구조체"],
+        "crack": [(p, cap(d)) for d, p in ds if d.part == "구조체" and "균열" in (d.dtype or "")],
+        "leak": [(p, cap(d)) for d, p in ds if any(w in (d.dtype or "") for w in ("누수", "백태", "백화"))],
+        "spall": [(p, cap(d)) for d, p in ds if d.part == "구조체" and any(w in (d.dtype or "") for w in ("박리", "박락", "층분리", "철근"))],
+        "steel": [(p, cap(d)) for d, p in ds if (d.member or "") == "강재"],
+        "nonstruct": [(p, cap(d)) for d, p in ds if d.part == "비구조체"],
     }
+
+
+def _fill_survey_pics(root, D: Data, tpl, add_image) -> int:
+    """조사 전경 사진(형 10/14) — 【사진 2.1】 외관조사 2 · 【사진 4.1~4.5】 재료시험 조사 전경(칸 제목 = precision.SURVEY_PICS). 안 찍은 칸은 흰 그림(다산 사진이 남지 않게)."""
+    from server.sitok import precision as PR
+
+    n = 0
+    for key, cap, _, titles in PR.SURVEY_PICS:
+        tbl = _table_after(root, cap)
+        if tbl is None:
+            continue
+        paths = list(D.survey_pics.get(key) or [])
+        photos = [((paths[i] if i < len(paths) and paths[i] and Path(paths[i]).exists() else D.blank), t) for i, t in enumerate(titles)]
+        if _photos_into(tbl, photos, tpl, add_image):
+            n += 1
+    return n
 
 
 def _fill_ch3(root, D: Data, tpl, add_image) -> int:
@@ -708,9 +873,11 @@ def _fill_ch3(root, D: Data, tpl, add_image) -> int:
         n += 1
     tbl = _table_after(root, "【사진 3.10】")
     if tbl is not None:
+        if int(tbl.get("rowCnt")) >= 6:  # 틀은 6칸(옹벽·절토사면까지) — 공중이용 탭 4항목에 맞춰 마지막 줄(사진·설명 2줄) 빼기(형 10/14)
+            rb._del_rows(tbl, 4, 2)
         slots = _slots(tbl)
         cells = rb._cells(tbl)
-        items = list(D.parts.get("public") or [])[:4] + [("옹벽", None), ("절토사면", None)]
+        items = list(D.parts.get("public") or [])[:4]
         for i, (pk, ck) in enumerate(slots):
             name, path = items[i] if i < len(items) else ("-", None)
             image = None
@@ -757,6 +924,7 @@ def _fill_analysis_tables(root, D: Data) -> int:
                    else "nonstruct" if "비구조" in label else "load" if "하중" in label else "public" if "공중" in label else "other" if "기타" in label else None)
             if key:
                 _set(cells, r, 1, f"ㆍ{t.get(key, '')}")
+        rb._splittable(tbl, 1)  # 글이 길어져도 통째로 다음 쪽으로 안 가고 줄 단위로(10/14 "표가 통째로 넘어감")
         n += 1
     return n
 
@@ -1034,7 +1202,7 @@ def _fill(src: Path, dest: Path, D: Data) -> int:
                 if D.replace:
                     changed += rb._apply(root, D.replace, [], set(), is_front)
                 tpl = next((copy.deepcopy(p) for p in root.iter(f"{{{HP}}}pic")), None)
-                changed += _fill_compare(root, D) + _fill_limit(root, D) + _fill_priority(root, D) + _fill_analysis_tables(root, D) + _fill_status_tables(root, D)
+                changed += _fill_compare(root, D) + _fill_limit(root, D) + _fill_priority(root, D) + _fill_analysis_tables(root, D) + _fill_status_tables(root, D) + _fill_general_tables(root, D)
                 if is_front:
                     changed += _fill_result_table(root, D) + _fill_summary_table(root, D) + _fill_seismic(root, D)
                     for tbl in _result_tables(root):  # 결과표가 길어지면 통째로 다음 쪽으로 넘어가지 않고 줄 단위로 나뉘게(사용자 10/14 — 원본은 pageBreak TABLE)
@@ -1057,7 +1225,7 @@ def _fill(src: Path, dest: Path, D: Data) -> int:
                             changed += 1
                 else:
                     changed += (_fill_docs(root, D) + _fill_repairs(root, D) + _fill_history(root, D) + _fill_seismic_body(root, D) + _fill_uses(root, D)
-                                + _fill_manage(root, D) + _fill_prev_review(root, D) + _fill_ch3(root, D, tpl, add_image) + _fill_ch4(root, D)
+                                + _fill_manage(root, D) + _fill_prev_review(root, D) + _fill_ch3(root, D, tpl, add_image) + _fill_survey_pics(root, D, tpl, add_image) + _fill_ch4(root, D)
                                 + _fill_ch5_7(root, D, add_image))
                 for el in list(root.iter(f"{{{HP}}}linesegarray")):
                     el.getparent().remove(el)
@@ -1218,6 +1386,9 @@ def _data_for(db, r, new: rb.Values, f, ex) -> Data:
              priority=_priority8(db, r, ex.ai), repairs=(r.survey or {}).get("repairs") or [], rating_png=_rating_png(db, r, rv, tv, f, co.name if co else ""),
              replace=rep, kind_label=f.template or "2종")
     D.detail = (r.survey or {}).get("detail")
+    from server.sitok import precision as PR
+    base_dir = SR._report_dir(f, r)
+    D.survey_pics = {k: [str(base_dir / x) if x else "" for x in v] for k, v in PR.norm((r.survey or {}).get("precision"))["survey"].items()}
     D.cost = ex.cost
     D.overview = list(ex.overview or [])
     D.blank = ex.blank

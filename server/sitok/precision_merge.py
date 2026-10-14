@@ -52,6 +52,7 @@ def front_blocks(root) -> dict[str, tuple[int, int]]:
     se = toc
     while se > ss and not t[se - 1] and not M._tables(tops[se - 1]):
         se -= 1
+    ss = next((i for i in range(ss + 1, se) if tops[i].get("pageBreak") == "1"), ss)  # 1.2~1.4(공통)는 두고 "2. ○○" 장 제목(새 쪽)부터
     p2 = next(i for i, x in enumerate(t) if i > toc and x.replace(" ", "").startswith("제2편") and "시설물편" in x)
     ts = next(i for i, x in enumerate(t) if i > p2 and re.match(r"^0?1\.\s+\S", x))  # "01. ○○" (목차 "1.1 …"은 띄어쓰기가 없어 제외)
     te = next(i for i, x in enumerate(t) if i > ts and (x.startswith("- 부") or x.startswith("-부") or x.startswith("부  록") or "부록" in x.replace(" ", "")[:3]))
@@ -101,6 +102,92 @@ def _append_after(anchor, paras: list):
     return last
 
 
+def _general_tables(root) -> list:
+    """대상시설물 현황 표(종별·시설명·위치·연면적·층수·구조·준공년도, 앞에 no.가 있든 없든) — 5쪽·요약문 1.2·공통편 표 1.1."""
+    out = []
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None:
+            continue
+        c = rb._cells(tbl)
+        h = [re.sub(r"\s", "", rb._cell_text(c[k])) for k in sorted(k for k in c if k[0] == 0)]
+        if "종별" in h and "시설명" in h and any(x.startswith("연면적") for x in h) and any(x.startswith("준공") for x in h):
+            out.append(tbl)
+    return out
+
+
+def _general_rows(roots: list) -> list[list[str]]:
+    """그 동 본문의 현황 표마다 첫 데이터 줄 값(표 순서대로)."""
+    out = []
+    for root in roots:
+        for tbl in _general_tables(root):
+            c = rb._cells(tbl)
+            out.append([rb._cell_text(c[k]).strip() for k in sorted(k for k in c if k[0] == 1)])
+    return out
+
+
+def _fill_general_rows(roots: list, rows_by_part: list[list[list[str]]], notes: list[str]) -> None:
+    """합친 본문의 현황 표마다 동 수만큼 줄(둘째 동부터 줄 복사) — 값은 각 동 본문에서 읽은 것, no. 열은 1·2·…(형 10/14 "시설물 2개라서 2개 들어갈 것")."""
+    j = 0
+    for root in roots:
+        for tbl in _general_tables(root):
+            rows = [pr[j] for pr in rows_by_part if j < len(pr)]
+            j += 1
+            if len(rows) < 2:
+                continue
+            if int(tbl.get("rowCnt")) < len(rows) + 1:
+                rb._dup_rows(tbl, 1, 1, len(rows) + 1 - int(tbl.get("rowCnt")))
+            c = rb._cells(tbl)
+            has_no = re.sub(r"\s", "", rb._cell_text(c.get((0, 0), tbl))).lower().startswith("no")
+            for i, vals in enumerate(rows):
+                cells_i = [c[k] for k in sorted(k for k in c if k[0] == i + 1)]
+                for tc, v in zip(cells_i, vals):
+                    rb._set_lines(tc, [v])
+                if has_no and cells_i:
+                    rb._set_lines(cells_i[0], [str(i + 1)])
+
+
+def _divider_rows(body, parts: list[dict], group_name: str) -> None:
+    """공통편 끝 시설물편 간지 — "제1장. ○○" 줄을 동마다("제k장. ○○"), 그 위 용역명의 대표 동 이름은 묶음 이름으로(10/14)."""
+    tops = M._tops(body)
+    i0 = next((i for i, p in enumerate(tops) if _text(p) == "시설물편"), None)
+    if i0 is None:
+        return
+    lead = parts[0]["name"]
+    for p in tops[max(0, i0 - 10):i0]:  # 간지 위 용역명 "2027년도 상반기 ○○ 정밀안전점검 용역"
+        if lead and lead != group_name and lead in _text(p):
+            M._sub_pieces(p, re.escape(lead), group_name)
+    line = next((p for p in tops[i0 + 1:i0 + 4] if _text(p).replace(" ", "").startswith("제1장")), None)
+    if line is None:
+        return
+    inner = next((q for q in line.iter(f"{{{HP}}}p") if q is not line and "제1장" in "".join(x.text or "" for x in q.iter(rb.T))), None)
+    if inner is not None:  # 견본·틀 모두 글상자(rect) 안 문단 — 글상자 안에 줄을 더함(문단을 통째로 복사하면 글상자가 겹침)
+        W = 40000  # 긴 이름("기독교대한감리회숭의교회")이 한 줄에 들어가게 글상자 너비 — 원본 크기·현재 크기·배율(그리는 너비 = 원본 × 배율)을 같이
+        for tag in ("orgSz", "curSz", "sz"):
+            for sz in line.iter(f"{{{HP}}}{tag}"):
+                if int(sz.get("width") or 0) < W:
+                    sz.set("width", str(W))
+        for m in line.iter(f"{{{rb.CORE}}}scaMatrix"):
+            m.set("e1", "1")
+        for dt in line.iter(f"{{{HP}}}drawText"):
+            if int(dt.get("lastWidth") or 0) < W:
+                dt.set("lastWidth", str(W))
+        last = inner
+        for k, part in enumerate(parts[1:], 2):
+            q = copy.deepcopy(inner)
+            rb._set_para(q, f" 제{k}장. {part['name']}")
+            last.addnext(q)
+            last = q
+        return
+    last = line
+    for k, part in enumerate(parts[1:], 2):
+        q = copy.deepcopy(line)
+        M._sub_pieces(q, r"제\s*1\s*장", f"제{k}장", first_only=True)
+        if lead:
+            M._sub_pieces(q, re.escape(lead), part["name"])
+        last.addnext(q)
+        last = q
+
+
 def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str) -> list[str]:
     """parts = [{hwpx, name, title}] 동 순서(첫 동 = 대표). 안내를 돌려줌."""
     notes: list[str] = []
@@ -112,6 +199,7 @@ def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str)
         if len(roots) < 2:
             raise ValueError("정밀 본문 한글의 구역이 2개가 아닙니다.")
         others = [[etree.fromstring(z.read(n)) for n in rb._sections(z)] for z in zs[1:]]
+        general = [_general_rows(roots)] + [_general_rows(o) for o in others]  # 현황 표 값은 이름 바꾸기 전에 동마다 읽어 둠
         # --- 첫 구역: 동별 묶음 이어 붙이기
         front = roots[0]
         blocks = front_blocks(front)
@@ -128,7 +216,18 @@ def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str)
                 copies = _copy_block(otops, ob[kind], zs[k - 1], k, bins)
                 if kind == "toc" and copies:
                     M._sub_pieces(copies[0], r"^(\s*)0?1(\.\s*)", rf"\g<1>{k:02d}\g<2>", first_only=True)
-                anchors[kind] = _append_after(anchors[kind], copies)
+                if kind == "summary":  # 요약문 쪽 머리말 "2. ○○" → "k+1. ○○"(장 제목 번호는 한글 자동 번호라 저절로)
+                    for q in copies:
+                        for h in q.iter(f"{{{HP}}}header"):
+                            M._sub_pieces(h, r"^(\s*)2(\.\s*)", rf"\g<1>{k + 1}\g<2>", first_only=True)
+                a = anchors[kind]
+                prev = a  # 앞 묶음 끝의 빈 문단들(현황표 뒤 빈 문단 4개, 첫 것이 쪽 나눔) + 복사본 첫 문단 쪽 나눔 = 빈 쪽(10/14 숭의 14쪽)
+                while copies and copies[0].get("pageBreak") == "1" and prev is not None and prev.tag == f"{{{HP}}}p" and not _text(prev) and not M._tables(prev):
+                    if prev.get("pageBreak") == "1":
+                        copies[0].set("pageBreak", "0")
+                        break
+                    prev = prev.getprevious()
+                anchors[kind] = _append_after(a, copies)
         # 표지·제출문·명단(위치도 앞까지): 첫 동 이름 → 묶음 이름
         lead_name = parts[0]["name"]
         if lead_name and lead_name != group_name:
@@ -157,6 +256,12 @@ def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str)
             M._replace_titles(root, [p["title"] for p in parts], group_title)
             for el in list(root.iter(f"{{{HP}}}linesegarray")):
                 el.getparent().remove(el)
+        _fill_general_rows(roots, general, notes)  # 대상시설물 현황 표 3곳 — 동마다 줄
+        for p in M._tops(roots[0]):  # 1.2 표가 늘어 1.4 위치도 지도 표가 다음 쪽으로 통째로 넘어가 제목만 남음 → 위치도는 새 쪽에서(10/14)
+            if _text(p) == "위치도" and p.get("pageBreak") != "1":
+                p.set("pageBreak", "1")
+                break
+        _divider_rows(roots[1], parts, group_name)  # 시설물편 간지 — 제1장·제2장…
         # --- 쓰기(merge.merge와 같음)
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".tmp")
@@ -179,6 +284,135 @@ def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str)
         for z in zs:
             z.close()
     return notes
+
+
+# ---------- 묶음 보고서 나누기(이미 낸 정밀 보고서 등록, 10/14) ----------
+
+def part_count(hwpx: Path) -> int:
+    """정밀 보고서의 동 수 = 첫 구역의 "…정밀안전점검 결과표" 문단 수."""
+    with zipfile.ZipFile(hwpx) as z:
+        root = etree.fromstring(z.read(rb._sections(z)[0]))
+    return sum(1 for p in M._tops(root) if _text(p).endswith("정밀안전점검 결과표"))
+
+
+def _drop(root, tops: list, spans: list[tuple[int, int]]) -> None:
+    for s, e in spans:
+        for p in tops[s:e]:
+            if p.getparent() is root:
+                root.remove(p)
+
+
+def split(src: Path, k: int, dest: Path) -> str:
+    """정밀 묶음 보고서 hwpx(src)에서 k번째 동만 남긴 hwpx(dest) — merge_body의 반대. 앞부분(위치도·결과표·요약문 장·목차)은 k번째 묶음만,
+    현황 표는 k번째 줄만, 시설물편은 k번째 장만(제k장 → 제1장, 간지 한 줄). 돌려주는 값 = 그 동 이름."""
+    with zipfile.ZipFile(src) as z:
+        secs = rb._sections(z)
+        roots = [etree.fromstring(z.read(n)) for n in secs]
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+    front, body = roots[0], roots[1]
+    tops = M._tops(front)
+    t = [_text(p) for p in tops]
+    heads = [M._head(p).replace(" ", "") for p in tops]
+    rs = [i for i, x in enumerate(t) if x.endswith("정밀안전점검 결과표")]
+    n = len(rs)
+    if not 1 <= k <= n:
+        raise ValueError(f"보고서에 동이 {n}개라 {k}번째를 나눌 수 없습니다.")
+    names = [t[i].replace("정밀안전점검 결과표", "").strip() for i in rs]
+    name = names[k - 1]
+    re_ = next(i for i, h in enumerate(heads) if i > rs[0] and h.startswith("요약문"))
+    toc = next(i for i, p in enumerate(tops) if i > re_ and _hidden(p) and "목" in heads[i] and "차" in heads[i])
+    se = toc
+    while se > re_ and not t[se - 1] and not M._tables(tops[se - 1]):
+        se -= 1
+    ov = [i for i, h in enumerate(heads) if "위치도" in h or "전경사진" in h]
+    m = max(len(ov) // n, 1)
+    spans = []
+    for j in range(n):  # 다른 동 묶음들
+        if j == k - 1:
+            continue
+        oj = ov[j * m:(j + 1) * m]
+        if oj:
+            spans.append((oj[0], oj[-1] + 1))
+        spans.append((rs[j], rs[j + 1] if j + 1 < n else re_))
+    chap = [next((i for i in range(re_, se) if tops[i].get("pageBreak") == "1" and t[i] == nm), None) for nm in names]
+    for j in range(n):
+        if j == k - 1 or chap[j] is None:
+            continue
+        nxt = next((c for c in chap[j + 1:] if c is not None), se)
+        spans.append((chap[j], nxt))
+    p2 = next((i for i, x in enumerate(t) if i > toc and x.replace(" ", "").startswith("제2편") and "시설물편" in x), None)
+    if p2 is not None:
+        te = next((i for i, x in enumerate(t) if i > p2 and (x.startswith("- 부") or x.startswith("-부") or "부록" in x.replace(" ", "")[:3])), len(tops))
+        tocs = [i for i, x in enumerate(t) if p2 < i < te and re.match(r"^0?\d+\.\s+\S", x)]
+        for j, i in enumerate(tocs):
+            if j != k - 1:
+                spans.append((i, tocs[j + 1] if j + 1 < len(tocs) else te))
+            else:
+                M._sub_pieces(tops[i], r"^(\s*)0?\d+(\.\s*)", r"\g<1>01\g<2>", first_only=True)
+    if chap[k - 1] is not None:  # 머리말 "3. ○○" → "2. ○○"(장 번호는 한글 자동 번호)
+        end = next((c for c in chap[k:] if c is not None), se)
+        for p in tops[chap[k - 1]:end]:
+            for h in p.iter(f"{{{HP}}}header"):
+                M._sub_pieces(h, r"^(\s*)\d+(\.\s*)", r"\g<1>2\g<2>", first_only=True)
+    _drop(front, tops, spans)
+    for tbl in _general_tables(front):  # 현황 표 — k번째 줄만
+        rows = int(tbl.get("rowCnt")) - 1
+        if rows >= n:
+            if k < rows:
+                rb._del_rows(tbl, k + 1, rows - k)
+            if k > 1:
+                rb._del_rows(tbl, 1, k - 1)
+            c = rb._cells(tbl)
+            if re.sub(r"\s", "", rb._cell_text(c.get((0, 0), tbl))).lower().startswith("no") and (1, 0) in c:
+                rb._set_lines(c[(1, 0)], ["1"])
+    # --- 시설물편
+    bt = M._tops(body)
+    bx = [_text(p) for p in bt]
+    i0 = next((i for i, x in enumerate(bx) if x == "시설물편"), None)
+    if i0 is not None:
+        for p in bt[i0 + 1:i0 + 1 + n]:  # 간지 글상자 안 "제1장. ○○ / 제2장. □□" 줄들 → 이 동 한 줄
+            inner = [q for q in p.iter(f"{{{HP}}}p") if q is not p and re.match(r"^제\s*\d+\s*장", "".join(x.text or "" for x in q.iter(rb.T)).strip())]
+            if inner:
+                rb._set_para(inner[0], f"   제1장. {name}")
+                for q in inner[1:]:
+                    q.getparent().remove(q)
+                break
+        extra = [p for p in bt[i0 + 2:i0 + 1 + n] if re.match(r"^제\s*\d+\s*장", _text(p).replace(" ", ""))]
+        for p in extra:
+            body.remove(p)
+    starts = []
+    for nm in names:
+        i = next((i for i, x in enumerate(bx) if i > (i0 or 0) and x == nm and i + 1 < len(bx) and bx[i + 1].replace(" ", "").startswith("제")), None)
+        if i is not None:
+            while i > 0 and not bx[i - 1] and not M._tables(bt[i - 1]) and bt[i].get("pageBreak") != "1":
+                i -= 1
+        starts.append(i)
+    for j, s0 in enumerate(starts):
+        if j == k - 1 or s0 is None:
+            continue
+        e0 = next((x for x in starts[j + 1:] if x is not None), len(bt))
+        _drop(body, bt, [(s0, e0)])
+    if starts[k - 1] is not None:
+        e0 = next((x for x in starts[k:] if x is not None), len(bt))
+        for p in bt[starts[k - 1]:min(starts[k - 1] + 6, e0)]:
+            if re.fullmatch(r"제\s*\d+\s*장", _text(p).replace(" ", "")):
+                rb._set_para(p, "제1장")
+                break
+        for p in bt[starts[k - 1]:e0]:
+            for h in p.iter(f"{{{HP}}}header"):
+                M._sub_pieces(h, rf"제\s*{k}\s*장", "제1장", first_only=True)
+    for i, nm in enumerate(secs):
+        data[nm] = etree.tostring(roots[i], xml_declaration=True, encoding="UTF-8", standalone=True)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".tmp")
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in infos:
+            if info.filename == "Preview/PrvImage.png":
+                continue
+            zout.writestr(info.filename, data[info.filename], compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+    tmp.replace(dest)
+    return name
 
 
 # ---------- 부록 PDF ----------

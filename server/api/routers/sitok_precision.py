@@ -5,6 +5,8 @@
 - `POST /sitok/reports/{id}/precision/fms` — FMS 점검진단실적 xlsx → history.   `DELETE …/fms` — 비움.
 - `POST /sitok/reports/{id}/precision/load-photo` (slot·file) / `DELETE …/load-photo?slot=` / `GET …/load-photo?slot=` — 하중상태 사진 4장(회차 폴더 하중상태/).
 - `POST /sitok/reports/{id}/precision/grade` {group public|other, key, grade a~e|""} — parts["grades"].
+- `POST /sitok/reports/{id}/precision/survey-photo` (key·slot·file) / `DELETE`·`GET …/survey-photo?key=&slot=` — 조사 전경 사진(【사진 2.1】·【사진 4.1~4.5】,
+  형 10/14: 외관조사 2·부재규격 수직재/수평재·강도 수직재/수평재·탄산화 수직재 천공/피복두께·수평재 천공/피복두께·기울기 2·부등침하 2) — 회차 폴더 조사전경/.
 """
 from __future__ import annotations
 
@@ -24,6 +26,7 @@ from server.sitok import parts as P, precision as PR
 
 router = APIRouter(prefix="/sitok", tags=["sitok-precision"])
 DIR = "하중상태"
+DIR2 = "조사전경"
 
 
 def _base(db: Session, r: SitokReport) -> Path:
@@ -45,10 +48,18 @@ def _history_auto(db: Session, r: SitokReport) -> list[dict]:
     """우리 지난 회차들 → 점검이력 줄(FMS 양식과 같은 키)."""
     rows = db.query(SitokReport).filter(SitokReport.facility_id == r.facility_id, SitokReport.id != r.id).all()
     out = []
-    for x in sorted((x for x in rows if _order(x) < _order(r)), key=_order, reverse=True):
+    for x in sorted((x for x in rows if _order(x) < _order(r) and x.status == "done"), key=_order, reverse=True):  # 만들다 실패한·빈 회차는 빼고(10/14 숭의)
         ai = x.ai or {}
+        grade, findings = ai.get("grade") or "", ai.get("findings") or []
+        if (not grade or not findings) and x.out_hwpx and Path(x.out_hwpx).exists():  # 끝난 회차는 그 보고서 결과표의 등급·주요결과(이미 낸 보고서 등록분도)
+            try:
+                from server.sitok import report_build as rb
+                old = rb.read_old(Path(x.out_hwpx))
+                grade, findings = grade or (old.grade or ""), findings or (old.findings or [])
+            except Exception:  # noqa: BLE001 — 못 읽으면 빈 채로
+                pass
         out.append({"kind": f"{x.kind or '정기'}안전점검", "start": x.period_start.isoformat() if x.period_start else "", "end": x.period_end.isoformat() if x.period_end else "",
-                    "org": "(주)한국미래안전", "grade": ai.get("grade") or "", "result": "\n".join(ai.get("findings") or []), "repair": "", "auto": True, "year": x.year, "half": x.half})
+                    "org": "(주)한국미래안전", "grade": grade, "result": "\n".join(findings), "repair": "", "auto": True, "year": x.year, "half": x.half})
     return out
 
 
@@ -61,7 +72,12 @@ def _out(db: Session, r: SitokReport) -> dict:
         photos.append({"slot": i, "title": ph["title"], "has": bool(ph["file"] and (base / ph["file"]).exists())})
     parts = P.norm(r.parts)
     grades = parts.get("grades") or {}
+    from server.api.routers.sitok_defects import _defects_for_cost
+    survey = [{"key": k, "caption": cap, "title": title,
+               "slots": [{"slot": i, "title": t, "has": bool(p["survey"][k][i] and (base / p["survey"][k][i]).exists())} for i, t in enumerate(titles)]}
+              for k, cap, title, titles in PR.SURVEY_PICS]
     return {"report": {"id": r.id, "year": r.year, "half": r.half, "kind": r.kind or "정기"},
+            "survey": survey, "checklist_auto": PR.auto_checklist(_defects_for_cost(db, r.id)),
             "docs": [{"group": g, "key": k, "name": n, **(p["docs"].get(k) or {"status": "", "note": ""})} for g, k, n in PR.DOC_ITEMS],
             "doc_status": PR.DOC_STATUS, "seismic": p["seismic"], "seismic_options": PR.SEISMIC, "ynu": PR.YNU,
             "manage": p["manage"], "checklist": PR.CHECKLIST, "history": p["history"], "history_auto": _history_auto(db, r),
@@ -170,6 +186,53 @@ def get_load_photo(report_id: int, slot: int = 0, user: User = Depends(get_curre
     slot = _slot(slot)
     cur = PR.norm((r.survey or {}).get("precision"))
     f = cur["load"]["photos"][slot]["file"] if slot < len(cur["load"]["photos"]) else ""
+    p = _base(db, r) / f if f else None
+    if p is None or not p.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
+    return FileResponse(p, media_type="image/jpeg")
+
+
+def _survey_slot(key: str, slot: int) -> int:
+    if key not in PR.SURVEY_KEYS or not 0 <= slot < PR.SURVEY_KEYS[key]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "조사 전경 사진 칸이 아닙니다.")
+    return slot
+
+
+@router.post("/reports/{report_id}/precision/survey-photo")
+def add_survey_photo(report_id: int, key: str = Form(...), slot: int = Form(0), file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = _require(db, user, report_id)
+    slot = _survey_slot(key, slot)
+    cur = PR.norm((r.survey or {}).get("precision"))
+    name = f"{DIR2}/{key}_{slot + 1}_{uuid.uuid4().hex[:8]}.jpg"
+    files.save_jpeg(file.file.read(), file.filename or "", _base(db, r) / name)
+    old = cur["survey"][key][slot]
+    if old:
+        (_base(db, r) / old).unlink(missing_ok=True)
+    cur["survey"][key][slot] = name
+    r.survey = {**(r.survey or {}), "precision": cur}
+    db.commit()
+    return _out(db, r)
+
+
+@router.delete("/reports/{report_id}/precision/survey-photo")
+def delete_survey_photo(report_id: int, key: str, slot: int = 0, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = _require(db, user, report_id)
+    slot = _survey_slot(key, slot)
+    cur = PR.norm((r.survey or {}).get("precision"))
+    if cur["survey"][key][slot]:
+        (_base(db, r) / cur["survey"][key][slot]).unlink(missing_ok=True)
+        cur["survey"][key][slot] = ""
+    r.survey = {**(r.survey or {}), "precision": cur}
+    db.commit()
+    return _out(db, r)
+
+
+@router.get("/reports/{report_id}/precision/survey-photo")
+def get_survey_photo(report_id: int, key: str, slot: int = 0, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = _require(db, user, report_id)
+    slot = _survey_slot(key, slot)
+    cur = PR.norm((r.survey or {}).get("precision"))
+    f = cur["survey"][key][slot]
     p = _base(db, r) / f if f else None
     if p is None or not p.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")

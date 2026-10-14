@@ -1578,6 +1578,31 @@ def _del_rows(tbl, start: int, count: int) -> None:
     _shift_rows(tbl, start + count, -len(block), -h)
 
 
+def engineer_rows(root, persons: list[tuple[str, str]]) -> int:
+    """결과표 "다. 책임(참여)기술자 현황" 줄을 위치로 채움 — i번째 줄 = persons[i](이름은 "현 민 재"처럼 띄어, 등급은 마지막 칸), 남는 줄은 지움.
+    글자 바꾸기만으로는 틀에 같은 등급 글자가 두 명이면(다산 "특급기술자"×2) 누가 누구인지 못 가려 어긋남(10/14 숭의). 바꾼 줄 수."""
+    cells = _find_result_table([root])
+    if cells is None or not persons:
+        return 0
+    rows = [r for r in sorted({k[0] for k in cells}) if (r, 0) in cells and _n(_cell_text(cells[(r, 0)])).endswith("기술자") and _n(_cell_text(cells[(r, 0)])) != "구분"]
+    if not rows:
+        return 0
+    n = 0
+    for r, (name, grade) in zip(rows, persons):
+        row = [cells[k] for k in sorted(k for k in cells if k[0] == r)]
+        if len(row) < 3:
+            continue
+        _set_lines(row[1], [_spaced(name) if len(name) <= 4 else name])
+        _set_lines(row[-1], [grade or "-"])
+        n += 1
+    extra = rows[len(persons):]
+    if extra:
+        tbl = cells[(extra[0], 0)].getparent().getparent()
+        _del_rows(tbl, extra[0], len(extra))
+        n += 1
+    return n
+
+
 def split_result_table(root, tbl) -> bool:
     """결과표를 '다. 책임(참여)기술자 현황'부터 새 쪽의 둘째 표로(문단 복사 + pageBreak, 앞/뒤 줄은 _del_rows) — 형 10/14 "2~3줄 애매하게 넘어가면 아예 넘겨버려".
     '다.' 줄이 없으면(이미 나눴거나 모양이 다르면) 안 함. 정기·정밀 공용(pagecheck.split_result_tables가 PDF를 보고 부름)."""
@@ -2095,6 +2120,8 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                 is_front = info.filename == ordered[0]
                 heights = table_heights(root) if not is_front else {}  # 내용 넣기 전 표 높이 어림(_let_split — 늘어난 표만 나눔)
                 changed += _apply(root, whole, parts, front, is_front)
+                if is_front and new.persons:
+                    changed += engineer_rows(root, new.persons)  # 결과표 기술자 줄은 위치로(글자 바꾸기 충돌 방지, 10/14)
                 if extras.base:
                     changed += _base_reset(root, is_front, ordered.index(info.filename), extras.base, extras.blank, add_image)
                 for img, kind, idx in _doc_pics(root, is_front):

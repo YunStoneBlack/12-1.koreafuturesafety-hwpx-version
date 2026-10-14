@@ -293,6 +293,14 @@ def _read_hwp_upload(file: UploadFile, dest: Path) -> tuple[str, rb.Values]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
 
 
+def _is_precision(hwpx: Path) -> bool:
+    """정밀안전점검 보고서인지 — 결과표 용역명에 "정밀"."""
+    try:
+        return "정밀" in (rb.read_old(hwpx).title or "")
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _chapter_count(hwpx: Path) -> int:
     """보고서 시설물편 장 수(여러 동 묶음 보고서면 2 이상)."""
     import zipfile
@@ -322,7 +330,11 @@ def _register_one(db: Session, user: User, f: SitokFacility, src: Path, name: st
     r.period_start, r.period_end = old.period_start, old.period_end
     if old.report_month:
         r.report_date = datetime.date(old.report_month[0], old.report_month[1], 1)
-    dest = _report_dir(f, r) / f"{old.year}년 {old.half} 정기안전점검 보고서_{f.name}(낸 보고서).hwpx"
+    kind = "정밀" if "정밀" in (old.title or "") else "정기"  # 용역명에 "정밀"이면 정밀 회차(10/14 숭의 2026 상반기 정밀 등록)
+    r.kind = kind
+    if old.grade or old.findings:  # 결과표 안전등급·점검 주요결과 → 다음 회차 점검이력·전차 검토가 씀
+        r.ai = {**(r.ai or {}), "grade": old.grade or (r.ai or {}).get("grade", ""), "findings": old.findings or (r.ai or {}).get("findings", [])}
+    dest = _report_dir(f, r) / f"{old.year}년 {old.half} {kind}안전점검 보고서_{f.name}(낸 보고서).hwpx"
     dest.parent.mkdir(parents=True, exist_ok=True)
     src.replace(dest)
     r.out_hwpx, r.out_pdf, r.status, r.made_at = str(dest), "", "done", datetime.datetime.now()
@@ -346,16 +358,17 @@ def register_past(facility_id: int, file: UploadFile = File(...), user: User = D
 def register_prior_file(db: Session, user: User, f: SitokFacility, tmp: Path, name: str) -> SitokReport:
     """지난 보고서 hwpx(tmp) 등록 — 묶인 시설물이고 여러 동 보고서면 동마다 나눠(장 순서 = 묶음 순서). f의 회차를 돌려줌(commit은 부른 쪽)."""
     from server.api.routers.sitok_groups import members
-    from server.sitok import merge
+    from server.sitok import merge, precision_merge
 
-    n = _chapter_count(tmp)
+    precise = _is_precision(tmp)
+    n = precision_merge.part_count(tmp) if precise else _chapter_count(tmp)
     ms = members(db, f.group_id)
     if n >= 2 and len(ms) >= 2:
         mine = None
         for k, m in enumerate(ms[:n], 1):
             part = _facility_dir(m) / f"_올림_지난보고서_{k}.hwpx"
             part.parent.mkdir(parents=True, exist_ok=True)
-            merge.split(tmp, k, part)
+            (precision_merge.split if precise else merge.split)(tmp, k, part)  # 정밀 묶음은 구역 2개·앞부분 묶음이 달라 따로(10/14)
             x = _register_one(db, user, m, part, f"{name} — {k}장")
             mine = x if m.id == f.id else mine
         tmp.unlink(missing_ok=True)

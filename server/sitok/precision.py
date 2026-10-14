@@ -27,13 +27,54 @@ CHECKLIST = [
     "누수되는 곳의 유무", "녹물이 흘러나오는 곳의 유무", "코킹이 갑자기 떨어진 곳의 유무", "외부 석재에 균열 또는 변형 유무", "슬래브·보·기둥·벽체의 들뜬 현상",
 ]
 LOAD_SLOTS = 4  # 3.2.6 사용하중 현황사진 4장(다산: 옥상·식당·믿음실·지하주차장)
+# 조사 전경 사진(형 10/14 "조사 전경 모두 2개씩, 탄산화만 수직재 2·수평재 2") — (키, 보고서 캡션, 화면 제목, [칸 제목…]) — 공통편 2장 【사진 2.1】·시설물편 4장 【사진 4.1~4.5】
+SURVEY_PICS = [
+    ("visual", "【사진 2.1】", "외관조사 전경", ["육안관찰 외관조사", "육안관찰 외관조사"]),
+    ("section", "【사진 4.1】", "부재규격 조사 전경", ["부재 규격 조사(수직재)", "부재 규격 조사(수평재)"]),
+    ("strength", "【사진 4.2】", "콘크리트 강도조사 전경", ["콘크리트 강도조사(수직재)", "콘크리트 강도조사(수평재)"]),
+    ("carb", "【사진 4.3】", "탄산화시험 조사 전경", ["수직재 탄산화 시험(천공)", "수직재 탄산화 시험(피복두께 측정)", "수평재 탄산화 시험(천공)", "수평재 탄산화 시험(피복두께 측정)"]),
+    ("tilt", "【사진 4.4】", "기울기(수평변위) 조사 전경", ["기울기(수평변위) 측정전경-1", "기울기(수평변위) 측정전경-2"]),
+    ("settle", "【사진 4.5】", "부등침하(수직변위) 조사 전경", ["부등침하(수직변위) 측정전경-1", "부등침하(수직변위) 측정전경-2"]),
+]
+SURVEY_KEYS = {k: len(titles) for k, _, _, titles in SURVEY_PICS}
+# 2.3.4 4) 부대 점검사항 자동(사용자 10/14 "결함 사진 분석해도 없는 거지?" → 결함 목록으로 해당 줄 "있다") — (체크리스트 번호, 판정 함수(결함) → 맞으면 True)
+CHECK_RULES = {
+    6: lambda d: "탈락" in (d.dtype or "") and any(w in (d.member or "") for w in ("타일", "외벽")),
+    7: lambda d: any(w in (d.dtype or "") for w in ("박락", "박리", "재료분리")) and (d.part == "구조체" or "외벽" in (d.member or "")),
+    11: lambda d: "옥상" in (d.floor or "") and "균열" in (d.dtype or ""),
+    13: lambda d: any(w in (d.dtype or "") for w in ("백태", "백화")),
+    16: lambda d: any(w in (d.member or "") for w in ("천장", "천정")) and any(w in (d.dtype or "") for w in ("탈락", "균열", "갈라")),
+    20: lambda d: "누수" in (d.dtype or ""),
+    21: lambda d: "부식" in (d.dtype or "") or "녹" in (d.dtype or ""),
+    23: lambda d: "석재" in (d.member or "") and any(w in (d.dtype or "") for w in ("균열", "변형")),
+    24: lambda d: d.part == "구조체" and any(w in (d.dtype or "") for w in ("들뜸", "층분리")),
+}
+
+
+def auto_checklist(defects: list) -> dict:
+    """결함 목록 → {번호(str): {"types": [결함유형…], "where": "층 부재 …"}} — 점검자가 표에서 고친 것이 없을 때 "있다"로."""
+    out: dict = {}
+    for d in defects:
+        for i, rule in CHECK_RULES.items():
+            try:
+                hit = rule(d)
+            except Exception:  # noqa: BLE001
+                hit = False
+            if hit:
+                e = out.setdefault(str(i), {"types": [], "where": []})
+                if d.dtype and d.dtype not in e["types"]:
+                    e["types"].append(d.dtype)
+                w = f"{d.floor} {d.member}".strip()
+                if w and w not in e["where"] and len(e["where"]) < 4:
+                    e["where"].append(w)
+    return {k: {"types": v["types"][:3], "where": ", ".join(v["where"])} for k, v in out.items()}
 LOAD_DEFAULT_NOTE = "용도변경 이력은 없는 것으로 확인되었고, 현장에서도 추가하중에 대한 확인결과 준공도서와 동일한 것으로 조사되었다."
 GRADES = ("a", "b", "c", "d", "e")
 
 
 def empty() -> dict:
     return {"docs": {}, "seismic": {"status": "", "note": ""}, "manage": {"use_change": "무", "struct_change": "무", "surround_change": "무", "checklist": {}, "note": ""},
-            "prev_review": {"text": ""}, "history": [], "load": {"photos": [], "note": ""}}
+            "prev_review": {"text": ""}, "history": [], "load": {"photos": [], "note": ""}, "survey": {k: [""] * n for k, n in SURVEY_KEYS.items()}}
 
 
 def norm(p: dict | None) -> dict:
@@ -58,6 +99,10 @@ def norm(p: dict | None) -> dict:
         if isinstance(ph, dict):
             photos.append({"file": str(ph.get("file") or ""), "title": str(ph.get("title") or "").strip()})
     out["load"] = {"photos": photos, "note": str(lo.get("note") or "").strip()}
+    sv = p.get("survey") or {}
+    for k, n in SURVEY_KEYS.items():  # 조사 전경 사진 — 칸 수 고정, 값은 회차 폴더 상대경로
+        got = [str(x or "") for x in (sv.get(k) or [])][:n]
+        out["survey"][k] = got + [""] * (n - len(got))
     return out
 
 

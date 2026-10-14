@@ -136,11 +136,20 @@ def push_headings(hwpx: Path, found: list[str]) -> list[str]:
 
 
 def _rewrite(hwpx: Path, infos, data: dict) -> None:
+    import time
+
     tmp = hwpx.with_suffix(".push.hwpx")
     with zipfile.ZipFile(tmp, "w") as zout:
         for i in infos:
             zout.writestr(i.filename, data[i.filename], compress_type=zipfile.ZIP_STORED if i.filename == "mimetype" else zipfile.ZIP_DEFLATED)
-    tmp.replace(hwpx)
+    for k in range(5):  # 누가 잠깐 열어 두었으면(미리보기 등) 잠시 뒤 다시
+        try:
+            tmp.replace(hwpx)
+            return
+        except PermissionError:
+            if k == 4:
+                raise
+            time.sleep(1.5)
 
 
 def split_result_tables(hwpx: Path, pdf: Path) -> list[str]:

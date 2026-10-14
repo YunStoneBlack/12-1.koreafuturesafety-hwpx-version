@@ -34,7 +34,13 @@
       <td>${seg(d.doc_status, it.status, `data-doc="${it.key}"`, ["미보유"])}</td>
       <td><input data-docnote="${it.key}" value="${esc(it.note)}" placeholder="자료수집 결과(예: 시설물관리대장·컴퓨터 파일 확보)" /></td></tr>`).join("");
     const m = d.manage;
-    const checks = d.checklist.map((name, i) => `<label class="${m.checklist[String(i)] ? "bad" : ""}"><input type="checkbox" data-chk="${i}"${m.checklist[String(i)] ? " checked" : ""} /> ${esc(name)}</label>`).join("");
+    const auto = d.checklist_auto || {}; // 결함 목록으로 자동 "있다"(점검자가 체크한 게 없을 때 보고서에 씀, 10/14)
+    const useAuto = !Object.keys(m.checklist || {}).length;
+    const checks = d.checklist.map((name, i) => {
+      const a = auto[String(i)];
+      const on = m.checklist[String(i)] || (useAuto && !!a);
+      return `<label class="${on ? "bad" : ""}"><input type="checkbox" data-chk="${i}"${on ? " checked" : ""} /> ${esc(name)}${a ? `<small class="pr-auto"> ← 결함 목록: ${esc(a.types.join("·"))} (${esc(a.where)})</small>` : ""}</label>`;
+    }).join("");
     const hist = d.history.length ? d.history : d.history_auto;
     const histRows = hist.map((h, i) => `<tr><td>${i + 1}</td><td>${esc(h.kind)}</td><td class="g">${esc(h.start)}~${esc(h.end)}</td><td>${esc(h.org)}</td><td>${esc(h.grade || "-")}</td>
       <td style="white-space:pre-wrap">${esc((h.result || "").slice(0, 300))}</td></tr>`).join("");
@@ -151,9 +157,42 @@
     }
   }
 
+  // ---- 조사 전경 탭(형 10/14: 외관조사 2·부재규격 2·강도 2·탄산화 4·기울기 2·부등침하 2) ----
+  function drawSurvey() {
+    const src = (key, slot) => `${BASE}/api${url}/survey-photo?key=${key}&slot=${slot}&t=${ts}`;
+    $("pr-survey").innerHTML = (data.survey || []).map((g) => `<div class="pr-sec"><h3>${esc(g.caption)} ${esc(g.title)}</h3><div class="pr-load">${g.slots.map((p) => `
+      <div class="pt-card" data-key="${g.key}" data-slot="${p.slot}">
+        <div class="pt-name">${esc(p.title)}<span>${p.has ? "✓ 사진" : "아직"}</span></div>
+        ${p.has ? `<img src="${src(g.key, p.slot)}" alt="" loading="lazy" />` : '<div class="pt-blank">사진 없음</div>'}
+        <div class="pt-acts"><label class="ov-shot pt-shot">📷 ${p.has ? "다시 찍기" : "찍기"}<input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label>
+          <label class="ov-shot secondary pt-shot">🖼 고르기<input type="file" accept="image/*" hidden data-kr-file="1" /></label>
+          ${p.has ? '<button type="button" class="pt-del">지우기</button>' : ""}</div></div>`).join("")}</div></div>`).join("");
+    $("pr-survey").querySelectorAll(".pt-card").forEach((el) => {
+      const { key, slot } = el.dataset;
+      el.querySelectorAll(".pt-shot input").forEach((inp) => inp.addEventListener("change", async () => {
+        if (!inp.files[0]) return;
+        el.classList.add("busy");
+        const fd = new FormData();
+        fd.append("key", key);
+        fd.append("slot", slot);
+        fd.append("file", inp.files[0]);
+        try { data = await apiUpload(`${url}/survey-photo`, fd); ts = Date.now(); draw(); } catch (e) { saved(e.message, true); el.classList.remove("busy"); }
+      }));
+      el.querySelector(".pt-del")?.addEventListener("click", async () => {
+        if (!confirm("이 사진을 지울까요?")) return;
+        try { data = await api(`${url}/survey-photo?key=${key}&slot=${slot}`, { method: "DELETE" }); draw(); } catch (e) { saved(e.message, true); }
+      });
+      el.querySelector("img")?.addEventListener("click", (e) => window.open(e.target.src, "_blank"));
+    });
+    const all = (data.survey || []).flatMap((g) => g.slots);
+    const n = all.filter((p) => p.has).length;
+    $("pr-survey-count").textContent = n ? `(${n}/${all.length})` : "";
+  }
+
   function draw() {
     drawDocs();
     drawLoad();
+    drawSurvey();
     drawGrades();
   }
 
