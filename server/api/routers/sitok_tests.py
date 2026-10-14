@@ -95,14 +95,16 @@ def fill_from_schedule(report_id: int, user: User = Depends(get_current_user), d
     tests.sync_defaults(cur)
     if not any(not x["design"] and x["member"] for x in cur["sections"]):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "빈 설계도면 칸이 없습니다(표본층을 먼저 고르거나, 지우고 싶은 칸을 비우세요).")
-    text, imgs = D.for_ai(paths, max_pages=6)
+    from server.sitok import schedule_read
     try:
+        text, imgs, notes = schedule_read.images_for(paths, r.company_id)  # 일람표 쪽 고르기·크게 잘라(10/14 형 2차 ④)
         n = tests.schedule_fill(cur, f.name, r.company_id, text, imgs)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"일람표를 읽지 못했습니다: {str(err)[:150]}") from err
+    missing = cur.pop("_notes", [])
     r.tests = cur
     db.commit()
-    return _view(db, r) | {"filled": n}
+    return _view(db, r) | {"filled": n, "notes": notes, "missing": missing}
 
 
 @router.delete("/reports/{report_id}/tests/schmidt")

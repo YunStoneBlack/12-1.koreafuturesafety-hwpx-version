@@ -25,7 +25,12 @@ DEFAULT_R = 1.0  # 탄산화 비율(R)
 STRUCTURES = ("라멘", "벽식", "무량판")
 MATERIALS = ("RC", "SRC", "철골", "조적")
 TILT_DIRS = ("좌측", "우측", "전면", "후면")
-MEMBERS = ("기둥", "큰보", "작은보", "슬래브", "벽체")  # 선택 칸(10/14 형) — 치수는 기둥·보 가로×세로, 슬래브·벽체 두께
+MEMBERS = ("기둥", "큰보", "작은보", "슬래브", "벽체", "강재")  # 선택 칸(10/14 형) — 치수는 기둥·보 가로×세로, 슬래브·벽체 두께, 강재 H형강 규격(단면적 비교, 표 6.36)
+# KS D 3503 H형강 필릿 반지름 r(mm) — (H 계열, B)별. 단면적 = 2·B·t2 + (H−2·t2)·t1 + (4−π)·r² (형이 보낸 표 값과 일치: 100×100 21.90, 200×200 63.53, 300×300 119.8, 588×300 192.5)
+H_FILLET = {(100, 50): 8, (100, 100): 10, (125, 60): 8, (125, 125): 10, (150, 75): 8, (150, 100): 11, (150, 150): 11, (175, 90): 9, (175, 175): 12, (200, 100): 11, (200, 150): 11,
+            (200, 200): 13, (250, 125): 12, (250, 175): 13, (250, 250): 16, (300, 150): 13, (300, 200): 13, (300, 300): 18, (350, 175): 14, (350, 250): 16, (350, 350): 20,
+            (400, 200): 16, (400, 300): 20, (400, 400): 22, (450, 200): 18, (450, 300): 22, (500, 200): 20, (500, 300): 22, (600, 200): 22, (600, 300): 28, (700, 300): 28,
+            (800, 300): 28, (900, 300): 28}
 SPOTS = ("중앙부", "단부")
 THICK_MEMBERS = ("슬래브", "벽체")
 DEFAULT_STRENGTH = (("기둥", "중앙부"), ("기둥", "단부"), ("큰보", "중앙부"), ("큰보", "단부"))  # 층마다 2부재 × 2개소
@@ -118,6 +123,20 @@ def _i(v) -> int | None:
     return int(round(f)) if f is not None else None
 
 
+def steel_area(s: str) -> float | None:
+    """H형강 규격 글자 "H-400×200×8×13"(H-, x, *, 띄어쓰기 다 됨) → 단면적 cm². 숫자 4개가 아니면 None. 숫자 하나면 단면적을 직접 적은 것(cm²)."""
+    t = str(s or "").strip().upper().replace("H-", "").replace("H", "").replace(" ", "")
+    nums = [_f(p) for p in re.split(r"[×XÅ*]", t) if p.strip()]
+    if len(nums) == 1 and nums[0]:
+        return nums[0]
+    if len(nums) != 4 or any(n is None for n in nums):
+        return None
+    h, b, t1, t2 = nums
+    hs = min(H_FILLET, key=lambda k: (abs(k[0] - h) + abs(k[1] - b) * 0.5)) if H_FILLET else None
+    r = H_FILLET.get(hs, 13) if hs and abs(hs[0] - h) <= 30 and abs(hs[1] - b) <= 30 else 13
+    return round((2 * b * t2 + (h - 2 * t2) * t1 + (4 - math.pi) * r * r) / 100, 2)
+
+
 def _dims(s: str) -> float | None:
     """"300×600" → 180000, "300" → 300(두께·폭 하나). ×·x·X·* 다 됨."""
     nums = [_f(p) for p in re.split(r"[×xX*]", str(s or "")) if p.strip()]
@@ -133,8 +152,9 @@ def ratio_text(n: float | None) -> str:
 # ---------- 항목 계산 ----------
 
 def section_row(r: dict) -> dict:
-    d, m = _dims(r.get("design")), _dims(r.get("measured"))
-    r = {**r, "thick": r.get("member") in THICK_MEMBERS}
+    steel = r.get("member") == "강재"
+    d, m = (steel_area(r.get("design")), steel_area(r.get("measured"))) if steel else (_dims(r.get("design")), _dims(r.get("measured")))
+    r = {**r, "thick": r.get("member") in THICK_MEMBERS, "steel": steel, "area_design": d if steel else None, "area_measured": m if steel else None}
     out = {**r, "ratio": None, "grade": None, "ok": None}
     if d and m is not None:
         out["ratio"] = round(m / d * 100, 1)
@@ -412,12 +432,14 @@ def spots_to_rows(spots: list, floors: list[dict], existing: list[dict]) -> list
 
 SCHEDULE_PROMPT = """아래 그림(과 글자)은 건축 구조도면의 구조 일람표(기둥·보·슬래브·벽체 단면 치수표)입니다.
 {facility} 건물의 재료시험 "부재 규격 조사"에 넣을 설계 치수를 찾아 주세요.
-찾을 줄(번호 · 층 · 부재):
+찾을 줄(번호 · 층 · 부재 · 기호):
 {rows}
 
-규칙: 기둥·큰보·작은보는 "가로×세로"(mm, 예 500×600 — 기둥은 b×h, 보는 b×D), 슬래브·벽체는 두께 "150"처럼 숫자만.
+규칙: 기둥·큰보·작은보는 "가로×세로"(mm, 예 500×600 — 기둥은 b×h, 보는 b×D), 슬래브·벽체는 두께 "150"처럼 숫자만, 강재는 H형강 규격 "H-400×200×8×13"(H×B×t1×t2).
+기호가 적힌 줄은 **그 기호**의 치수를 그 층(구간)에서 찾으세요(일람표가 층 구간별로 다르면 그 층 구간 값; 기호가 "C1"이면 "C1, C2"처럼 묶인 칸이나 "-2~2TC1"처럼 층 접두가 붙은 부호도 같은 것). 기호가 없는 줄은
 그 층(또는 괄호의 대표 범위)에 쓰이는 부재 중 가장 많이 쓰이는 대표 부재(일반 부재 — "1개소"·"계단실" 같은 특수 부재 말고)의 치수를 넣고, 부재 기호(C1·G2·S1·W1 등)를 같이 적어 주세요.
 표의 적용 층 구간에 그 층이 글자 그대로 없으면 대표 범위가 겹치는 구간, 그것도 없으면 가장 가까운 구간의 치수를 쓰세요(보·슬래브는 그 층의 천장 = 윗층 바닥 구조라 한 층 어긋나는 게 보통). 그 부재 종류 자체가 표에 없을 때만 "".
+기호가 적힌 줄의 기호가 일람표에 없으면 design을 ""로 두고 "missing": true. 표에 "상동"은 윗줄(윗층)과 같다는 뜻입니다.
 JSON 배열만 답하세요: [{{"no": 1, "design": "500×600", "mark": "C1"}}, …]
 {text}"""
 
@@ -431,8 +453,8 @@ def schedule_fill(data: dict, facility: str, company_id: int, text: str, imgs: l
         return 0
     ranges = {f["floor"]: range_label(f["start"], f["end"]) for f in data["sample"]["floors"] if f.get("start") is not None and f.get("end") is not None}
     lines = "\n".join(f"{i + 1} · {floor_label(r['floor']) if r.get('floor') else '층 미정'}{'(대표 범위 ' + ranges[r['floor']] + ')' if r.get('floor') in ranges else ''} · {r['member']}"
-                      for i, r in todo)
-    got = vision.ask_json(company_id, imgs, SCHEDULE_PROMPT.format(facility=facility, rows=lines, text=(text[:12000] if text else "(글자 없음 — 그림으로)")), max_tokens=4000)
+                      f" · 기호 {r['position'] if r.get('position') else '(없음 — 대표 부재 고르기)'}" for i, r in todo)
+    got = vision.ask_json(company_id, imgs, SCHEDULE_PROMPT.format(facility=facility, rows=lines, text=(text[:12000] if text else "(글자 없음 — 그림으로)")), max_tokens=8000, side=1568, effort="medium")
     by_no = {int(x.get("no")): x for x in (got if isinstance(got, list) else got.get("rows") or []) if isinstance(x, dict) and str(x.get("no", "")).isdigit()}
     n = 0
     for i, r in todo:
@@ -440,7 +462,13 @@ def schedule_fill(data: dict, facility: str, company_id: int, text: str, imgs: l
         if not x:
             continue
         d = _dim_text(x.get("design"))
-        if not d or _dims(d) is None:
+        if r["member"] == "강재":
+            d = str(x.get("design") or "").strip().replace(" ", "")
+            if not d.upper().startswith("H") and steel_area(d) is not None and len(d.split("×")) == 4:
+                d = "H-" + d
+        if not d or (steel_area(d) if r["member"] == "강재" else _dims(d)) is None:
+            if r.get("position"):
+                data.setdefault("_notes", []).append(f"B{i + 1} {r['position']}: 일람표에서 못 찾음")
             continue
         r["design"] = d
         if r.get("same", True):
@@ -475,6 +503,9 @@ def _selfcheck() -> None:
     assert [r for r in d0["strength"]["rows"] if r["floor"] == 5 and r["est"] == 27.7] and not sync_defaults(d0)  # 값 있는 줄 유지·두 번째는 변화 없음
     d0["sample"]["floors"].pop()  # 5층을 빼면 빈 줄만 빠지고 값 있는 줄은 남음
     assert sync_defaults(d0) and len([r for r in d0["strength"]["rows"] if r["floor"] == 5]) == 1 and len([r for r in d0["sections"] if r["floor"] == 5]) == 1
+    assert all(abs(steel_area(k) - v) < 0.1 for k, v in (("H-200×200×8×12", 63.53), ("400x200x8x13", 84.12), ("H 300*300*10*15", 119.8), ("150×75×5×7", 17.85), ("588×300×12×20", 192.5)))
+    st = section_row({"member": "강재", "design": "H-200×200×8×12", "measured": "H-200×200×8×11"})
+    assert st["steel"] and st["area_design"] == 63.53 and st["grade"] == "c" and 90 <= st["ratio"] < 95, st
     sec = section_row({"design": "800×800", "measured": "800×800"})
     assert sec["ok"] and sec["grade"] == "a" and section_row({"design": "300", "measured": "280"})["grade"] == "c"
     st = strength_row({"est": 30.9, "design": 30})

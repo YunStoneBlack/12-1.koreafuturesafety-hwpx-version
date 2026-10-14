@@ -14,7 +14,7 @@
   const num = (v) => (v === null || v === undefined || v === "" ? "" : v);
   const grade = (g) => (g ? `<span class="st-grade ${g}">${g.toUpperCase()}</span>` : "-");
   const STRUCT = ["라멘", "벽식", "무량판"], MAT = ["RC", "SRC", "철골", "조적"], DIRS = ["", "좌측", "우측", "전면", "후면"];
-  const MEMBERS = ["", "기둥", "큰보", "작은보", "슬래브", "벽체"], SPOTS = ["", "중앙부", "단부"], THICK = ["슬래브", "벽체"];
+  const MEMBERS = ["", "기둥", "큰보", "작은보", "슬래브", "벽체", "강재"], SPOTS = ["", "중앙부", "단부"], THICK = ["슬래브", "벽체"];
   let view = null; // 서버가 준 계산값
   let input = null; // 저장할 입력(view.input)
   let timer = null;
@@ -105,6 +105,7 @@
   // 치수 칸: 기둥·보 = 가로 × 세로(두 칸), 슬래브·벽체 = 두께(한 칸). 폰에선 숫자 키패드(inputmode=numeric).
   function dimCell(path, value, member) {
     const v = String(value || "");
+    if (member === "강재") return `<span class="st-dim"><input class="w" data-dim="${path}" value="${esc(v)}" placeholder="H-400×200×8×13" title="H형강 규격 H×B×t1×t2(mm) — 단면적은 자동. 단면적(cm²)만 적어도 됩니다" /></span>`;
     if (THICK.includes(member)) return `<span class="st-dim"><input class="n" data-dim="${path}" value="${esc(v)}" inputmode="numeric" placeholder="두께" /><small>mm</small></span>`;
     const [a = "", b = ""] = v.split("×");
     return `<span class="st-dim"><input class="n" data-dim="${path}" value="${esc(a)}" inputmode="numeric" placeholder="가로" /><small>×</small><input class="n" data-dim="${path}" value="${esc(b)}" inputmode="numeric" placeholder="세로" /></span>`;
@@ -116,7 +117,7 @@
       <td>${dimCell(`sections.${i}.design`, r.design, r.member)}</td>
       <td class="st-measured"><select data-same="${i}"><option value="1"${r.same ? " selected" : ""}>일치</option><option value="0"${r.same ? "" : " selected"}>다름</option></select>
         ${r.same ? `<span class="calc">${esc(r.design || "-")}</span>` : dimCell(`sections.${i}.measured`, r.measured, r.member)}</td>
-      <td class="calc">${r.ratio === null ? "-" : `${r.ratio}%`}</td><td class="calc">${r.ok === null ? "-" : r.ok ? "<b>O.K</b>" : "N.G"}</td><td>${grade(r.grade)}</td>
+      <td class="calc">${r.steel && r.area_design ? `<small>${r.area_design}${r.area_measured ? `→${r.area_measured}` : ""}cm²</small><br>` : ""}${r.ratio === null ? "-" : `${r.ratio}%`}</td><td class="calc">${r.ok === null ? "-" : r.ok ? "<b>O.K</b>" : "N.G"}</td><td>${grade(r.grade)}</td>
       <td><button type="button" class="secondary st-del" data-del="sections.${i}">✕</button></td></tr>`).join("");
     $("st-section-count").textContent = `${view.sections.length}개소${view.sections_grade ? ` · ${view.sections_grade.toUpperCase()}` : ""}`;
     $("st-section-tbl").innerHTML = `<table><thead><tr><th>NO</th><th>표본층</th><th>위치·기호</th><th>부재</th><th>설계도면(mm)</th><th>조사결과</th><th>비율</th><th>평가</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
@@ -319,7 +320,8 @@
       view = await apiPost(`/sitok/reports/${rid}/tests/schedule`, {});
       input = view.input;
       draw();
-      msg.textContent = view.filled ? `✓ ${view.filled}칸을 채웠습니다 — 틀린 치수는 고치세요.` : "채울 칸을 못 찾았습니다(일람표에 그 층·부재가 없거나, 이미 다 채워짐).";
+      const miss = (view.missing || []).length ? ` 못 찾음: ${view.missing.join(", ")}` : "";
+      msg.textContent = (view.filled ? `✓ ${view.filled}칸을 채웠습니다 — 틀린 치수는 고치세요.` : "채울 칸을 못 찾았습니다(일람표에 그 층·부재가 없거나, 이미 다 채워짐).") + miss + (view.notes?.length ? ` (${view.notes.join(" / ")})` : "");
     } catch (e) { msg.textContent = e.message; msg.className = "sk-help bad"; } finally { btn.disabled = false; }
   });
   const xlsx = $("st-xlsx");
