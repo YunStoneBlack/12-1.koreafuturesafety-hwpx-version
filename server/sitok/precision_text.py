@@ -124,7 +124,7 @@ def test_texts(tv: dict) -> dict:
     return out
 
 
-def rating_texts(result: dict | None, prev_grade: str, name: str, year: int, completion_text: str, first: bool) -> dict:
+def rating_texts(result: dict | None, prev_grade: str, name: str, year: int, completion_text: str, first: bool, prev_info: dict | None = None) -> dict:
     out = {}
     if result and result.get("total"):
         letter = result["total"]["grade"]
@@ -146,10 +146,72 @@ def rating_texts(result: dict | None, prev_grade: str, name: str, year: int, com
         out["overall"] = out["conclusion"] = out["summary"] = "상태평가 결과가 없어 안전등급을 산정하지 못했다."
         out["grade_letter"], out["grade_score"], out["diag"] = "", None, "-"
     out["prev_compare"] = (f"{completion_text} 준공 건축물로 이번 회차가 첫 회차 정밀안전점검이며 전차 비교 대상이 없다." if first or not prev_grade
-                           else f"전차 점검 안전등급 {prev_grade}등급에서 이번 회차 {out['grade_letter'] or '-'}등급으로 " + ("변동 없이 유지되고 있다." if prev_grade == out["grade_letter"] else "변동되었다."))
+                           else compare_text(prev_info or {}, result or {}, prev_grade, out["grade_letter"]))
     out["limit"] = "중대결함은 없는 것으로 조사되었고, 사용제한 불필요." if out["grade_letter"] in ("A", "B", "C") else "사용제한 여부에 대한 책임기술자 검토가 필요하다."
     out["special"] = "조사된 결함은 유지관리계획에 따라 보수하고 지속적인 주의관찰이 필요하다."
     out["suggest"] = "향후 건물이 존속하는 기간동안 보수구간의 정기적인 점검을 실시하여 손상의 진행 여부를 확인하고, 유지관리계획에 따라 보수·보강할 것을 건의한다."
+    return out
+
+
+GRADE_UP = "ABCDE"
+
+
+def compare_text(pi: dict, result: dict, prev_grade: str, cur_grade: str) -> str:
+    """【표 5.5】 검토 — 항목별(상태평가·기울기 및 침하·종합) 전차→이번 변동 + 전차 결론과 이번 결론 비교(형 10/15)."""
+    def g(v):
+        return (v or (None, ""))[1] or ""
+
+    def sc(v):
+        return f"{v[0]:.2f}({v[1]})" if v and v[0] is not None and v[1] else (f"{v[1]}등급" if v and v[1] else "-")
+
+    cur = {k: ((result.get(k) or {}).get("score"), (result.get(k) or {}).get("grade")) for k in ("condition", "deform", "total")}
+    prev = {"condition": pi.get("state"), "deform": pi.get("deform"), "total": pi.get("total") or (None, prev_grade)}
+    parts = []
+    for k, name in (("condition", "상태평가"), ("deform", "기울기 및 침하")):
+        a, b = g(prev[k]), g(cur[k])
+        if a and b:
+            parts.append(f"{name}는 {sc(prev[k])}에서 {sc(cur[k])}" + ("로 동일하고" if a == b else ("로 상향되었고" if b < a else "로 하향되었고")))
+    a, b = g(prev["total"]), cur_grade or g(cur["total"])
+    head = ("전차 점검 대비 " + ", ".join(parts) + ", " if parts else "전차 점검 대비 ")
+    tot = f"종합평가 안전등급은 {a}등급에서 {b}등급으로 " + ("변동 없이 유지되고 있다." if a == b else ("상향되었다." if b < a else "하향되었다."))
+    tail = (" 전차 점검에서는 구조적인 문제점은 없으나 손상부 보수 및 지속적인 주의관찰이 필요한 것으로 결론지었으며, 이번 점검에서도 "
+            + ("신규·진행 손상 여부를 확인한 결과 구조안전성에 영향을 주는 결함은 없어 같은 결론을 유지한다." if a == b else "등급 변동 사유를 반영하여 보수·보강 계획을 다시 세울 것을 권고한다."))
+    return head + tot + tail
+
+
+def maint_texts(defects: list, grades: dict | None = None) -> dict:
+    """【표 6.2】 부재별 유지관리방안 글(ㆍ줄) — 이번 회차 결함유형으로 원인·점검 포인트 2줄 + 관리 방법 1줄(형 10/15 "대표결함 3개씩 + 유지관리방안")."""
+    last = "지속적인 주의관찰을 통해 진행성 유무 파악, 유지관리계획 세워 보수 계획 권고"
+
+    def lines(ds, rules, base):
+        out = []
+        for words, line in rules:
+            if any(any(w in (d.dtype or "") for w in words) for d in ds) and line not in out:
+                out.append(line)
+        return "ㆍ".join((out or [base])[:2] + [last])
+
+    st = [d for d in defects if d.part == "구조체"]
+    non = [d for d in defects if d.part == "비구조체"]
+    out = {
+        "maint_struct": "ㆍ" + lines(st, [(("균열",), "공용기간 증가, 건조수축 및 온도변화에 의한 균열 발생유무"),
+                                          (("누수", "백태", "백화"), "방수층 노후화 및 균열부를 통한 누수·백태 발생유무"),
+                                          (("박리", "박락", "층분리"), "공용기간 증가, 동결융해 및 외부충격에 의한 박리·박락 발생유무"),
+                                          (("철근", "부식"), "피복두께 부족 및 중성화 진행에 의한 철근노출·부식 발생유무"),
+                                          (("재료분리",), "시공 시 다짐불량에 의한 재료분리 부위의 진행유무")],
+                                     "공용기간 증가, 온도변화, 외부충격에 의한 파손, 소성변형 발생유무"),
+        "maint_nonstruct": "ㆍ" + lines(non, [(("균열",), "공용기간 증가, 건조수축 및 온도변화, 습윤환경 등에 의한 균열, 망상균열 발생유무"),
+                                              (("이격",), "부재 간 접합부 거동 및 실링재 노후화에 의한 이격 발생유무"),
+                                              (("누수", "백태", "백화"), "습윤환경 및 방수 노후화에 의한 누수·백태 발생유무"),
+                                              (("박리", "탈락", "들뜸", "파손"), "공용기간 증가, 온도변화, 습윤환경 등에 의한 마감재 박리·탈락 발생유무"),
+                                              (("부식", "도장"), "공용기간 증가, 습윤환경 등에 의한 부식, 도장박리 발생유무")],
+                                        "공용기간 증가, 건조수축 및 온도변화, 습윤환경 등에 의한 균열 발생유무"),
+    }
+    from server.sitok.parts import PUBLIC
+
+    names = dict(PUBLIC)
+    bad = [k for k, v in (grades or {}).items() if v in ("c", "d", "e") and k in names]
+    out["maint_public"] = ("ㆍ" + "·".join(names.get(k, k) for k in bad) + " 손상부 보수 후 고정상태·파손 여부 주기적 점검ㆍ" + last if bad
+                           else "ㆍ외부난간/내부난간 고정상태 및 도로포장면 상태 주의관찰")
     return out
 
 
@@ -159,7 +221,7 @@ def findings(texts: dict) -> list[str]:
 
 
 def all_texts(defects: list, tv: dict, result: dict | None, *, grades: dict, structure: str, load_note: str, prev_grade: str, name: str, year: int,
-              completion_text: str, first: bool, ai: dict | None) -> dict:
+              completion_text: str, first: bool, ai: dict | None, prev_info: dict | None = None) -> dict:
     t = {}
     t.update(defect_texts(defects, grades, structure))
     t.update(test_texts(tv))
@@ -168,7 +230,8 @@ def all_texts(defects: list, tv: dict, result: dict | None, *, grades: dict, str
         t["steel"] = ("본 시설물은 일부 구간이 강재구조(트러스 등)로 되어 있으며, 강재 부재 규격 조사 결과 " + ("설계값과 일치하고 " if all(s.get("ok") is not False for s in steel_secs) else "일부 차이가 있으나 ")
                       + "부식·도장 상태 등 전반적으로 양호한 것으로 조사되었다.")
         t["steel_na"] = False
-    t.update(rating_texts(result, prev_grade, name, year, completion_text, first))
+    t.update(rating_texts(result, prev_grade, name, year, completion_text, first, prev_info))
+    t.update(maint_texts(defects, grades))
     t["load"] = load_note or "본 시설물의 하중상태 등에 대한 조사결과 용도변경 이력은 없는 것으로 확인되었고, 현장에서도 추가하중에 대한 확인결과 준공도서와 동일한 것으로 조사되었다."
     gs = [g for g in (tv["sections_grade"], tv["strength"]["grade"], tv["carbonation"]["grade"], tv["tilt"]["grade"], tv["settlement"]["grade"]) if g]
     t["tests_summary"] = f"재료시험 조사 결과 {min(gs).upper()}~{max(gs).upper()}등급으로 " + ("양호한 상태로 조사되었다." if max(gs) <= "b" else "일부 항목에서 보수·관찰이 필요한 것으로 조사되었다.") if gs else ""

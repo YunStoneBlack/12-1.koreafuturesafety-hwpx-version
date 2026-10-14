@@ -1,4 +1,4 @@
-"""시특법 정밀안전점검 AI 초안(2026-10-13 밤, ⑤-2) — 정기 [🤖 AI 초안] 창을 정밀 회차에서 쓰면 항목이 이 22개로 바뀜(사용자 "추천대로").
+"""시특법 정밀안전점검 AI 초안(2026-10-13 밤, ⑤-2) — 정기 [🤖 AI 초안] 창을 정밀 회차에서 쓰면 항목이 이 25개로 바뀜(사용자 "추천대로", 10/15 유지관리방안 3개 더함).
 결함현황표 + 재료시험 수치 + 상태평가 결과 + 하중·공중이용 등급을 글로 묶어 한 번에 보내고 항목별 JSON으로 받음(사진 안 보냄).
 기본 글(precision_text)이 먼저 칸에 들어 있고 [AI로 다시 쓰기]를 누르면 다시 씀. 저장은 r.ai["final"]["precision"] = {키: 글} → precision_build가 덮어씀.
 """
@@ -22,7 +22,10 @@ ITEMS = [  # (키, 이름, 어디에 들어가는지)
     ("summary", "책임기술자 종합의견(8~10줄, 350~450자 — 등급·주요 손상·재료시험 결과·유지관리 방향을 담아 칸을 채우게)", "요약표 첫 칸"),
     ("overall", "종합평가 및 안전등급 한 문장", "5.2 · 7.4"),
     ("conclusion", "종합결론 첫 문단", "7.5 · 요약문"),
-    ("prev_compare", "전차 점검 비교 검토", "표 5.5 검토 칸 · 요약문"),
+    ("prev_compare", "전차 점검 비교 검토(상태평가·기울기 및 침하·종합 항목별 전차→이번 변동 + 전차 결론과 이번 결론 비교)", "표 5.5 검토 칸 · 요약문"),
+    ("maint_struct", "유지관리방안 — 구조체(ㆍ로 나눈 3줄: 이번 결함 원인별 점검 포인트 2줄 + 관리 방법 1줄)", "표 6.2 구조체 칸"),
+    ("maint_nonstruct", "유지관리방안 — 비구조체(ㆍ로 나눈 3줄)", "표 6.2 비구조체 칸"),
+    ("maint_public", "유지관리방안 — 공중이 이용하는 부위(ㆍ로 나눈 1~2줄)", "표 6.2 공중이용 칸"),
     ("limit", "사용제한 필요성", "사용제한 표"),
     ("special", "유지관리 특별 요구사항", "사용제한 표"),
     ("suggest", "건의사항", "사용제한 표"),
@@ -87,6 +90,10 @@ def material(db, r, tv: dict, rv: dict, pr: dict, defects: list, f) -> dict:
              "공중이용: " + ", ".join(f"{x['name']} {x['grade'] or '-'}" for x in pr["grades"]["public"]),
              "기타시설: " + ", ".join(f"{x['name']} {x['grade'] or '-'}" for x in pr["grades"]["other"]),
              f"내진: {pr['seismic']['status'] or '-'} {pr['seismic']['note']}"]
+    pi = (rv.get("prior_info") or {})
+    if pi:
+        sc = lambda v: (f"{v[0]:.2f}({v[1]})" if v[0] is not None else f"{v[1]}등급") if v and v[1] else "-"  # noqa: E731
+        extra.append(f"전차 점검({pi.get('label', '-')}): 상태평가 {sc(pi.get('state'))} · 기울기 및 침하 {sc(pi.get('deform'))} · 종합 {sc(pi.get('total'))} · 결론: {pi.get('conclusion', '-')}")
     return {"facility": f"{f.name} — {f.use_type or f.main_use} · {f.structure} · 지상 {f.floors_above or '-'}층/지하 {f.floors_below or 0}층 · 연면적 {f.total_area or '-'}㎡ · 준공 {f.completion_date}",
             "period": f"{r.year}년 {r.half} (점검기간 {r.period_start}~{r.period_end})", "defects": "\n".join(lines) or "(결함 없음)",
             "tests": "\n".join(tests), "rating": "\n".join(rating), "extra": "\n".join(extra)}

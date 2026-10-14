@@ -46,7 +46,7 @@
       <td style="white-space:pre-wrap">${esc((h.result || "").slice(0, 300))}</td></tr>`).join("");
     const pa = d.prev_auto;
     $("pr-docs").innerHTML = `
-      <div class="pr-sec"><h3>2.2 자료수집 목록</h3><p class="page-sub">관리주체에게 받은 자료 — 보관 여부와 수집 결과(표 2.1)</p>
+      <div class="pr-sec"><h3>2.2 자료수집 목록</h3><p class="page-sub">관리주체에게 받은 자료 — 보관 여부와 수집 결과 — 본문 표 2.1과 부록 사전검토보고서 4.2에 같이 들어갑니다</p>
         <div class="pr-tbl"><table><thead><tr><th>구분</th><th>자료</th><th>보관 유무</th><th>자료수집 결과</th></tr></thead><tbody>${docRows}</tbody></table></div></div>
       <div class="pr-sec"><h3>2.3.2 내진설계 및 보강 여부</h3>
         ${seg(d.seismic_options, d.seismic.status, 'data-seismic="1"', ["미적용"])}

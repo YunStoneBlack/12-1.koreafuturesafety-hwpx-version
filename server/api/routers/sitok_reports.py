@@ -647,6 +647,43 @@ def _insert_after_page(doc, keys: tuple, add_bytes: bytes | None, label: str, do
     done.append(label)
 
 
+def _replace_back_page(doc, keys: tuple, add_bytes: bytes | None, label: str, done: list) -> None:
+    """부록 "2-1. … 측정데이터 [후면첨부]"처럼 빈 틀만 있는 쪽 → 그 쪽의 제목(틀 위)·꼬리(틀 아래)는 그대로 두고 틀 자리에 붙는 자료 첫 쪽을 줄여 넣음,
+    자료 나머지 쪽은 뒤에 그대로(형 10/15 "수기 작업 때 편의상 그런 것 — 프로그램이니 이렇게 넣고 합본 가능?"). 틀 쪽을 못 찾으면 예전처럼 간지 뒤에 끼움."""
+    if not add_bytes:
+        return
+    page = next((i for i in range(len(doc) - 1, -1, -1) if all(k in doc[i].get_text() for k in keys) and "후면첨부" in doc[i].get_text()
+                 and len(doc[i].get_text().strip()) < 120), None)
+    if page is None:
+        _insert_after_page(doc, keys, add_bytes, label, done)
+        return
+    src = doc[page]
+    W, H = src.rect.width, src.rect.height
+    boxes = [d["rect"] for d in src.get_drawings() if d["rect"].height > H * 0.3 or d["rect"].width > W * 0.4]  # 틀 = 표 테두리 선들(세로·가로 선 따로)
+    if not boxes or max(b.x1 for b in boxes) - min(b.x0 for b in boxes) < W * 0.4 or max(b.y1 for b in boxes) - min(b.y0 for b in boxes) < H * 0.3:
+        _insert_after_page(doc, keys, add_bytes, label, done)
+        return
+    box = pymupdf.Rect(min(b.x0 for b in boxes), min(b.y0 for b in boxes), max(b.x1 for b in boxes), max(b.y1 for b in boxes))
+    with pymupdf.open(stream=add_bytes, filetype="pdf") as add, pymupdf.open() as new:
+        pg = new.new_page(width=W, height=H)
+        top, bottom = pymupdf.Rect(0, 0, W, box.y0 - 1), pymupdf.Rect(0, box.y1 + 1, W, H)
+        pg.show_pdf_page(top, doc, page, clip=top)
+        if bottom.height > 2:
+            pg.show_pdf_page(bottom, doc, page, clip=bottom)
+        a0 = add[0]
+        parts = [pymupdf.Rect(b_[:4]) for b_ in a0.get_text("blocks")] + [d["rect"] for d in a0.get_drawings()] + [r_ for info in a0.get_images(full=True) for r_ in a0.get_image_rects(info[0])]
+        parts = [r_ for r_ in parts if r_.is_valid and not r_.is_empty or r_.width > 0 or r_.height > 0]
+        clip = pymupdf.Rect(min(r_.x0 for r_ in parts), min(r_.y0 for r_ in parts), max(r_.x1 for r_ in parts), max(r_.y1 for r_ in parts)) if parts else a0.rect
+        clip = (clip + (-6, -6, 6, 6)) & a0.rect  # 자료 쪽 여백은 빼고 내용만 크게
+        target = pymupdf.Rect(box.x0, box.y0, box.x1, box.y0 + min(box.height, box.width * clip.height / max(clip.width, 1)))  # 위에 붙여
+        pg.show_pdf_page(target, add, 0, clip=clip)
+        if len(add) > 1:
+            new.insert_pdf(add, from_page=1)
+        doc.insert_pdf(new, start_at=page + 1)
+    doc.delete_page(page)
+    done.append(label)
+
+
 def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: Path) -> list[str]:
     """부록 PDF에 끼우기(간지 글자로 쪽 찾기, 뒤 간지부터): 7-5 계약서 · 5 상태평가 결과자료(③ PDF) · 3-1 탄산화 사진현황(10/14) · 2-1 강도 측정데이터(슈미트 xlsx → PDF) · 2 외관조사 사진첩 · 1 관리대장."""
     from server.api.routers.sitok_defects import _defects_for_cost, album_floors
@@ -678,13 +715,13 @@ def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: 
         from server.api.routers.sitok_tests import carb_photo_pdf
         cp = carb_photo_pdf(db, r, f, _report_dir(f, r) / "재료시험" / "탄산화_사진현황.pdf")
         if cp is not None:
-            _insert_after_page(doc, ("3-1", "측정데이터"), cp.read_bytes(), "탄산화 사진현황", done)
+            _replace_back_page(doc, ("3-1", "측정데이터"), cp.read_bytes(), "탄산화 사진현황", done)
     except Exception:  # noqa: BLE001 — 사진 PDF가 안 되면 빼고 감
         traceback.print_exc()
     xlsx = _report_dir(f, r) / "재료시험" / "슈미트_시험성과표.xlsx"
     if xlsx.exists():
         try:
-            _insert_after_page(doc, ("2-1", "측정데이터"), to_pdf_bytes(xlsx.read_bytes(), xlsx.name), "강도 측정데이터", done)
+            _replace_back_page(doc, ("2-1", "측정데이터"), to_pdf_bytes(xlsx.read_bytes(), xlsx.name), "강도 측정데이터", done)
         except Exception:  # noqa: BLE001 — 엑셀 변환이 안 되면 빼고 감
             pass
     floors = album_floors(db, r.id)
@@ -701,12 +738,20 @@ def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: 
     return done
 
 
-def _convert_pushing(hwpx: Path, pdf: Path) -> None:
+def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
     """본문 한글 → PDF(정기·정밀 공용, 사용자 10/14 "정기도 같이"). 쪽 검사에서 "제목 'X'만 쪽 끝에 있음"이 나오면 그 제목 문단을 새 쪽에서 시작하게 고치고(pagecheck.push_headings) PDF를 한 번 더
     — 형 10/14 "2~3줄 애매하게 넘어가면 줄간격 늘려서 아예 넘겨버려"(결과표 '다.'부터는 precision_build._split_result_table)."""
     from server.sitok import pagecheck
 
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+    filled = []
+    if precision:  # 정밀: 빈 쪽·쪽 아래 빈 자리에 다음 쪽 내용(사진 표는 줄여서)을 당김(형 10/15 "빈 공간에 표를 끼워 넣어 한 쪽에 쏙")
+        try:
+            filled = pagecheck.fill_gaps(hwpx, pdf)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+        if filled:
+            pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
     try:
         pushed = pagecheck.split_result_tables(hwpx, pdf) + pagecheck.push_headings(hwpx, pagecheck.scan(pdf, hwpx, limit=50))  # 결과표 넘침 → '다.'부터 새 쪽, 제목만 쪽 끝 → 새 쪽
     except Exception:  # noqa: BLE001 — 검사가 안 되면 그대로
@@ -714,6 +759,18 @@ def _convert_pushing(hwpx: Path, pdf: Path) -> None:
         pushed = []
     if pushed:
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+
+
+def _convert_appendix(appx: Path, apdf: Path) -> None:
+    """정밀 부록 한글 → PDF — 마지막 구역(과업수행계획서·사전검토보고서)은 빈 자리 메우기 후 한 번 더(표 한 줄만 다음 쪽 등, 10/15)."""
+    from server.sitok import pagecheck
+
+    apdf.write_bytes(hwp_queue.convert_via_worker(appx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+    try:
+        if pagecheck.fill_gaps(appx, apdf, sections_from=-1):
+            apdf.write_bytes(hwp_queue.convert_via_worker(appx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+    except Exception:  # noqa: BLE001 — 못 하면 그대로
+        traceback.print_exc()
 
 
 def _run_precision_build(db: Session, r: SitokReport) -> None:
@@ -730,7 +787,7 @@ def _run_precision_build(db: Session, r: SitokReport) -> None:
         r.message = f"본문 한글 만듦({changed}곳 바꿈) — 본문 PDF로 바꾸는 중(몇 분)…"
         db.commit()
         pdf = folder / f"{base}(본문).pdf"
-        _convert_pushing(hwpx, pdf)  # 한글 → PDF(+ 제목만 쪽 끝이면 새 쪽으로 밀고 한 번 더, 형 10/14)
+        _convert_pushing(hwpx, pdf, precision=True)  # 한글 → PDF(+ 제목만 쪽 끝이면 새 쪽으로 밀고 한 번 더, 형 10/14)
         from server.sitok import drawings as D
         paths = [it["path"] for it in D.items(f, "attach", _facility_dir(f))]  # 1.2 시설물 관련도면 [후면첨부] 뒤에 첨부 도면(정기 1.2.9와 같게)
         drawn = D.insert(pdf, [(1, paths)], finder=lambda pg, n: pg.search_for("시설물 관련도면") and pg.search_for("후면첨부")) if paths else []
@@ -745,7 +802,7 @@ def _run_precision_build(db: Session, r: SitokReport) -> None:
         r.message = f"본문 {body_pages}쪽 · 부록 한글 만듦({changed2}곳) — 부록 PDF로 바꾸는 중…"
         db.commit()
         apdf = folder / f"{base}(부록).pdf"
-        apdf.write_bytes(hwp_queue.convert_via_worker(appx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        _convert_appendix(appx, apdf)
         merged = _precision_appendix_pdf(db, r, f, apdf)
         full = folder / f"{base}_합본.pdf"
         with pymupdf.open(pdf) as a, pymupdf.open(apdf) as b, pymupdf.open() as out:
@@ -801,7 +858,7 @@ def _run_precision_group_build(db: Session, r: SitokReport) -> None:
             y.out_hwpx, y.message = str(hwpx), f"{len(pairs)}동 본문 합침 — 본문 PDF로 바꾸는 중(몇 분)…"
         db.commit()
         pdf = folder / f"{base}(본문).pdf"
-        _convert_pushing(hwpx, pdf)  # 한글 → PDF(+ 제목만 쪽 끝이면 새 쪽으로 밀고 한 번 더, 형 10/14)
+        _convert_pushing(hwpx, pdf, precision=True)  # 한글 → PDF(+ 제목만 쪽 끝이면 새 쪽으로 밀고 한 번 더, 형 10/14)
         chapters = [(k, [it["path"] for it in D.items(m, "attach", _facility_dir(m))]) for k, (m, _) in enumerate(pairs, 1)]
         with pymupdf.open(pdf) as doc:  # 동마다 "1.2 시설물 관련도면 [후면첨부]" 쪽 — k번째 것
             hits = [i for i, pg in enumerate(doc) if pg.search_for("시설물 관련도면") and pg.search_for("후면첨부")]
@@ -818,7 +875,7 @@ def _run_precision_group_build(db: Session, r: SitokReport) -> None:
             changed2 += c2
             warn += [f"{m.name}: {s}" for s in w2 if f"{m.name}: {s}" not in warn]
             apdf = appx.with_suffix(".pdf")
-            apdf.write_bytes(hwp_queue.convert_via_worker(appx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+            _convert_appendix(appx, apdf)
             merged_all += [f"{m.name} {s}" for s in _precision_appendix_pdf(db, x, m, apdf)]
             x.survey = {**(x.survey or {}), "appendix_hwpx": str(appx)}
             apdfs.append((m.name, apdf))

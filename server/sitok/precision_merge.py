@@ -266,10 +266,15 @@ def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str)
             except StopIteration:
                 notes.append(f"{part['name']}: 시설물편 시작을 못 찾아 합치지 못했습니다")
                 continue
+            i_txt = next((i for i in range(s, len(otops)) if _text(otops[i]) == "시설물편"), None)  # 둘째 동부터는 "시설물편" 간지를 빼고 동 표지부터
+            s2 = next((i for i in range(i_txt + 1, min(i_txt + 8, len(otops))) if otops[i].get("pageBreak") == "1"), None) if i_txt is not None else None
+            if s2 is not None:  # (첫 동 간지에 "제k장. ○○" 줄이 이미 있음 — 사용자 10/15 "삭제")
+                s = s2
             copies = _copy_block(otops, (s, len(otops)), zs[k - 1], k, bins)
             _strip_section(copies)
-            for q in copies[:12]:  # 동 표지 "제1장. ○○" → "제k장. ○○"
-                if M._sub_pieces(q, r"(제\s*)1(\s*장\s*\.)", rf"\g<1>{k}\g<2>", first_only=True):
+            for q in copies[:12]:  # 동 표지 큰 글 "제1장" → "제k장"(사용자 10/15 "제2장") — 표지 소목차("제1장시설물 개요…")는 그대로
+                if re.fullmatch(r"제\s*1\s*장\.?", _text(q).replace(" ", "")):
+                    M._sub_pieces(q, r"(제\s*)1(\s*장)", rf"\g<1>{k}\g<2>", first_only=True)
                     break
             last = _append_after(last, copies)
         # --- 용역명 → 묶음 용역명(결과표 칸은 동마다)
@@ -506,8 +511,8 @@ def merge_appendix_pdfs(items: list[tuple[str, Path]], dest: Path) -> list[str]:
             else:
                 d.close()
         if adds:
-            plan.append((le, adds))
-    for le, adds in sorted(plan, key=lambda x: -x[0]):  # 뒤에서부터 끼워 앞 쪽 번호가 안 밀리게
+            plan.append((ls_, le, adds))
+    for ls_, le, adds in sorted(plan, key=lambda x: -x[1]):  # 뒤에서부터 끼워 앞 쪽 번호가 안 밀리게
         at = le
         for name, d, s, e in adds:
             piece = pymupdf.open()
@@ -518,6 +523,11 @@ def merge_appendix_pdfs(items: list[tuple[str, Path]], dest: Path) -> list[str]:
             at += piece.page_count
             piece.close()
             d.close()
+        if le > ls_:  # 첫 동 구간 앞에도 동 이름 간지(형 10/15 "간지가 B동만 있음 — 부록 다른 항목도 마찬가지")
+            piece = pymupdf.open()
+            _divider_page(piece, lead[0], items[0][0])
+            lead.insert_pdf(piece, start_at=ls_)
+            piece.close()
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".pm.pdf")
     lead.save(tmp, garbage=3, deflate=True)
@@ -544,9 +554,9 @@ def _selfcheck() -> None:
         notes = merge_appendix_pdfs([("본관", a), ("B동", b)], out)
         m = pymupdf.open(out)
         texts = [pg.get_text().strip() for pg in m]
-        # 1번 구간(관리대장 1쪽) 뒤에 간지 "B동" + 1쪽, 2번 구간(2쪽: 2-1·사진) 뒤에 간지 + 2쪽, 4번(1쪽), 5번(1쪽) → 12 + 4×1 + (1+2+1+1) = 21
-        assert m.page_count == 21 and texts.count("B동") == 4 and not notes, (m.page_count, texts.count("B동"), notes)
-        assert texts[2] == "관리대장 내용" and texts[3] == "B동" and texts[4] == "관리대장 내용", texts[:6]
+        # 구간마다 첫 동 간지 "본관" + 첫 동 내용, 간지 "B동" + 둘째 동 내용 — 1번(1쪽)·2번(2쪽)·4번(1쪽)·5번(1쪽) → 12 + 4×2 + (1+2+1+1) = 25
+        assert m.page_count == 25 and texts.count("B동") == 4 and texts.count("본관") == 4 and not notes, (m.page_count, texts.count("B동"), notes)
+        assert texts[2] == "본관" and texts[3] == "관리대장 내용" and texts[4] == "B동" and texts[5] == "관리대장 내용", texts[:7]
         m.close()
     print("정밀 묶음 부록 합치기 검증 통과")
 

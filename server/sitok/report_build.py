@@ -475,7 +475,7 @@ def _equipment(root, items: list, add_image) -> str:
             if (i, 4) in cells and photos:
                 imgs = list(cells[(i, 4)].iter("{http://www.hancom.co.kr/hwpml/2011/core}img"))
                 for img, ph in zip(imgs, photos):
-                    img.set("binaryItemIDRef", add_image(ph))
+                    img.set("binaryItemIDRef", add_image(_fit_to_pic(ph, img, crop=True)))  # 칸 크기 픽셀로(형 10/15 "사진 이상하게 들어감" — 확대·늘어남)
         return ""
     return ""
 
@@ -1804,6 +1804,36 @@ def _cropped(path, w: int, h: int) -> bytes:
     return buf.getvalue()
 
 
+def _fit_to_pic(path, img, crop: bool = True):
+    """그림 파일을 그 그림 틀(img의 pic curSz) 크기 픽셀로 — crop이면 가운데 잘라 꽉, 아니면(서류) 흰 여백을 둘러 통째로. 못 읽으면 원래 경로."""
+    import io
+
+    from PIL import Image, ImageOps
+
+    pic = next(img.iterancestors(f"{{{HP}}}pic"), None)
+    sz = pic.find(f"{{{HP}}}curSz") if pic is not None else None
+    w, h = (int(sz.get("width") or 0), int(sz.get("height") or 0)) if sz is not None else (0, 0)
+    if w <= 0 or h <= 0:
+        return path
+    try:
+        im = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+    except Exception:  # noqa: BLE001
+        return path
+    ratio = (im.width / max(im.height, 1)) / (w / h)
+    if crop and 0.4 < ratio < 2.5:  # 비율이 아주 다른 사진(스타프 433×31 같은 띠)은 자르면 한 조각만 크게 흐려짐 → 통째로
+        try:
+            return _cropped(path, w, h)
+        except Exception:  # noqa: BLE001
+            return path
+    pw, ph = max(int(w / 7200 * PIC_DPI), 1), max(int(h / 7200 * PIC_DPI), 1)
+    im.thumbnail((pw, ph))
+    canvas = Image.new("RGB", (pw, ph), "white")
+    canvas.paste(im, ((pw - im.width) // 2, (ph - im.height) // 2))
+    buf = io.BytesIO()
+    canvas.save(buf, "JPEG", quality=90)
+    return buf.getvalue()
+
+
 PIC_DPI = 96  # 우리 한글(2020)이 표 칸 그림을 그리는 기준 — 픽셀 = HWPUNIT/7200인치 × 96(10/14 t72_pic.py 실험: dpi 메타·orgSz 무시)
 
 
@@ -2229,7 +2259,7 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                 for img, kind, idx in _doc_pics(root, is_front):
                     path = extras.images.get((kind, idx))
                     if path and Path(path).exists():
-                        img.set("binaryItemIDRef", add_image(path))
+                        img.set("binaryItemIDRef", add_image(_fit_to_pic(path, img, crop=False)))  # 서류는 자르지 않고 틀 비율로(형 10/15 "수료증 사진 짤림")
                         changed += 1
                 if extras.equipment:
                     note = _equipment(root, extras.equipment, add_image)

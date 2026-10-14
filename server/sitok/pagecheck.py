@@ -152,6 +152,164 @@ def _rewrite(hwpx: Path, infos, data: dict) -> None:
             time.sleep(1.5)
 
 
+CAPTION = re.compile(r"^【[^】]*】")
+
+
+def _chapter_start(p, rb) -> bool:
+    """장 시작(장 제목 "제N장 …"·간지 머리 띠 표·"시설물편")은 늘 새 쪽 — 당기지 않음."""
+    t = rb._top_text(p).strip().replace(" ", "")
+    if re.match(r"^제\d+장", t) or t in ("시설물편", "공통편"):
+        return True
+    tbl = next(p.iter(f"{{{rb.HP}}}tbl"), None)
+    return tbl is not None and tbl.get("rowCnt") == "1" and tbl.get("colCnt") == "2"
+
+
+def _photo_rows_shrink(tbl, rb, cut: int) -> bool:
+    """그림이 든 줄 높이를 합쳐 cut(HWPUNIT)만큼 줄임 — 그림도 같은 비율로(가운데). 그림 줄이 너무 작아지면(원래의 55% 미만) 안 함."""
+    cells = rb._cells(tbl)
+    rows: dict = {}
+    for (r, c), tc in cells.items():
+        if next(tc.iter(f"{{{rb.HP}}}pic"), None) is not None and rb._span(tc, "rowSpan") == 1:
+            rows[r] = max(rows.get(r, 0), int(tc.find(f"{{{rb.HP}}}cellSz").get("height") or 0))
+    total = sum(rows.values())
+    if not total or cut <= 0 or total - cut < total * 0.55:
+        return False
+    k = (total - cut) / total
+    for (r, c), tc in cells.items():
+        if r not in rows or rb._span(tc, "rowSpan") != 1:
+            continue
+        csz = tc.find(f"{{{rb.HP}}}cellSz")
+        csz.set("height", str(int(int(csz.get("height") or 0) * k)))
+        for pic in tc.iter(f"{{{rb.HP}}}pic"):
+            for tag in ("curSz", "sz"):
+                el = pic.find(f"{{{rb.HP}}}{tag}")
+                if el is not None:
+                    el.set("width", str(int(int(el.get("width") or 0) * k)))
+                    el.set("height", str(int(int(el.get("height") or 0) * k)))
+    tsz = tbl.find(f"{{{rb.HP}}}sz")
+    if tsz is not None:
+        tsz.set("height", str(max(int(int(tsz.get("height") or 0) - cut), 0)))
+    return True
+
+
+def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
+    """빈 자리 메우기(형 10/15 "빈 공간이 있고 아래는 표만 달랑 — 빈 공간에 표를 끼워 넣어 한 쪽에 쏙", "쓸데없는 빈 페이지") — PDF를 보고 hwpx를 고침:
+    ① 빈 쪽(머리말·꼬리말만) 다음 쪽이 원본 쪽 나눔으로 시작하면 그 쪽 나눔을 뺌.
+    ② 쪽 아래가 25% 넘게 비었고 다음 쪽이 원본 쪽 나눔 문단(장 시작 아님)으로 시작하면 — 다음 쪽 내용이 빈 자리에 들어가면 쪽 나눔을 뺌,
+       조금(20%까지) 크고 사진 표면 사진 줄을 줄여서 같이 당김.
+    ③ 쪽 끝이 캡션【…】이고 다음 쪽이 표로 시작(글자처럼 취급 표가 통째로 넘어감)하면 — 사진 줄을 줄여 그 표를 빈 자리에 넣음.
+    sections_from = 고칠 구역 시작(1 = 시설물편·본문 구역만, 앞부분 결과표·요약문은 안 건드림). 돌려주는 값 = 고친 곳 설명(비면 안 바꿈)."""
+    import pymupdf
+
+    from server.sitok import report_build as rb
+
+    doc = pymupdf.open(pdf)
+    pages = [_body(pg) for pg in doc]
+    has_pic = [any(TOP < rr.y0 < pages[i][2] - 2 for info in pg.get_images(full=True) for rr in pg.get_image_rects(info[0])) for i, pg in enumerate(doc)]
+    doc.close()
+
+    def divider(i: int) -> bool:  # 간지 = 짧은 줄 몇 개뿐이고 사진·캡션이 없는 쪽(사진 표만 있는 쪽·제목+캡션만 남은 쪽은 간지 아님)
+        lines = pages[i][0]
+        return bool(lines) and _divider(lines) and not has_pic[i] and not any(CAPTION.match(t) for _, _, t in lines)
+
+    with zipfile.ZipFile(hwpx) as z:
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+        sections = rb._sections(z)
+    roots = {n: etree.fromstring(data[n]) for n in sections}
+    if sections_from < 0:  # 뒤에서 몇 번째 구역부터(부록은 마지막 구역 = 과업수행계획서·사전검토보고서만)
+        sections_from = max(len(sections) + sections_from, 0)
+    breaks = []  # 원본 쪽 나눔 문단(구역 순서대로) [(구역, 문단, 키)]
+    for si, n in enumerate(sections):
+        tops = [p for p in roots[n] if p.tag == f"{{{rb.HP}}}p"]
+        for i, p in enumerate(tops):
+            if p.get("pageBreak") != "1":
+                continue
+            t = rb._top_text(p).strip()
+            if not t:
+                tbl = next(p.iter(f"{{{rb.HP}}}tbl"), None)
+                t = rb._cell_text(rb._cells(tbl).get((0, 0), tbl)) if tbl is not None else (rb._top_text(tops[i + 1]) if i + 1 < len(tops) else "")
+            breaks.append((si, p, _key(t), tops, i))
+    caps = []  # 캡션 문단 [(구역, 문단, 키, tops, i)]
+    for si, n in enumerate(sections):
+        tops = [p for p in roots[n] if p.tag == f"{{{rb.HP}}}p"]
+        for i, p in enumerate(tops):
+            if CAPTION.match(rb._top_text(p).strip()):
+                caps.append((si, p, _key(rb._top_text(p)), tops, i))
+    done: list[str] = []
+    bi = 0
+    cap_seen: dict = {}
+    hit_sections: set = set()
+    for i, (lines, bottom, foot, _) in enumerate(pages[:-1]):
+        for _, _, t in lines:  # 캡션 순번은 문서 전체 순서로(같은 캡션이 동마다 있음)
+            if CAPTION.match(t or ""):
+                cap_seen[_key(t)] = cap_seen.get(_key(t), 0) + 1
+        nxt_lines, nxt_bottom, nxt_foot, _ = pages[i + 1]
+        if not nxt_lines:
+            continue
+        first = _key(nxt_lines[0][2])
+        span = foot - TOP
+        gap = foot - max(bottom, TOP)
+        # 다음 쪽이 원본 쪽 나눔으로 시작하는지(순서대로 맞춰 감)
+        match = next((j for j in range(bi, len(breaks)) if breaks[j][2] and breaks[j][2] == first), None)  # 쪽 나눔은 문서 순서대로 쪽 첫 줄에 나옴
+        cap_last = lines and CAPTION.match(lines[-1][2] or "")
+        if match is not None:
+            bi = match + 1
+        if not lines or divider(i) or divider(i + 1):
+            if not lines and not has_pic[i] and match is not None and not divider(i + 1):  # ① 빈 쪽
+                si, p, _, tops, idx = breaks[match]
+                if si >= sections_from and not _chapter_start(p, rb):
+                    p.set("pageBreak", "0")
+                    hit_sections.add(sections[si])
+                    done.append(f"{i + 1}쪽 빈 쪽")
+            continue
+        need = nxt_bottom - TOP  # 다음 쪽 내용 높이(pt)
+        if match is not None and gap > span * 0.25:  # ②
+            si, p, _, tops, idx = breaks[match]
+            if si < sections_from or _chapter_start(p, rb):
+                continue
+            if need <= gap - 12:
+                p.set("pageBreak", "0")
+                hit_sections.add(sections[si])
+                done.append(f"{i + 2}쪽 당김")
+            elif need <= (gap - 12) / 0.8:
+                tbl = next((t for q in tops[idx:idx + 4] for t in q.iter(f"{{{rb.HP}}}tbl") if next(t.iterancestors(f"{{{rb.HP}}}tbl"), None) is None), None)
+                if tbl is not None and _photo_rows_shrink(tbl, rb, int((need - gap + 16) * 100)):
+                    p.set("pageBreak", "0")
+                    hit_sections.add(sections[si])
+                    done.append(f"{i + 2}쪽 사진 줄여 당김")
+        elif cap_last and not CAPTION.match(nxt_lines[0][2] or ""):  # ③ 캡션만 쪽 끝, 표·그림은 다음 쪽
+            k = _key(lines[-1][2])
+            hits = [c for c in caps if c[2] == k]
+            if len(hits) >= cap_seen[k]:
+                si, p, _, tops, idx = hits[cap_seen[k] - 1]
+                if si < sections_from:
+                    continue
+
+                def obj(q) -> bool:
+                    return next(q.iter(f"{{{rb.HP}}}tbl"), None) is not None or next(q.iter(f"{{{rb.HP}}}pic"), None) is not None
+                if obj(p) or not any(obj(q) for q in tops[idx + 1:idx + 3]) or (idx > 0 and obj(tops[idx - 1])):
+                    continue  # 캡션 다음 문단에 표·그림이 오는 것만(그림과 한 문단인 캡션·그림 아래 캡션은 쪽 끝에 있어도 정상)
+                tbl = next((t for q in tops[idx:idx + 3] for t in q.iter(f"{{{rb.HP}}}tbl") if next(t.iterancestors(f"{{{rb.HP}}}tbl"), None) is None), None)
+                if (gap > span * 0.25 and gap - 12 < need <= (gap - 12) / 0.8 and tbl is not None
+                        and _photo_rows_shrink(tbl, rb, int((need - gap + 16) * 100))):
+                    hit_sections.add(sections[si])
+                    done.append(f"{i + 2}쪽 표 줄여 앞 쪽에")
+                else:  # 못 줄이면 캡션(바로 위 절 제목까지)을 표와 같이 다음 쪽으로(형 10/14 "애매하면 아예 넘겨")
+                    prev_t = rb._top_text(tops[idx - 1]).strip() if idx > 0 else ""
+                    target = tops[idx - 1] if prev_t and HEAD.match(prev_t) and len(prev_t) <= 45 else p
+                    if target.get("pageBreak") != "1":
+                        target.set("pageBreak", "1")
+                        hit_sections.add(sections[si])
+                        done.append(f"{i + 1}쪽 캡션 '{lines[-1][2][:12]}' 다음 쪽으로")
+    if not done:
+        return []
+    for n in hit_sections:
+        data[n] = etree.tostring(roots[n], xml_declaration=True, encoding="UTF-8", standalone=True)
+    _rewrite(hwpx, infos, data)
+    return done
+
+
 def split_result_tables(hwpx: Path, pdf: Path) -> list[str]:
     """PDF에서 결과표("안전점검 결과표"+"가. 일반현황" 쪽)가 한 쪽을 넘쳤으면(그 쪽에 '다. 책임'은 있는데 마지막 줄 '후속 조치사항'이 없음) hwpx의 그 결과표를
     '다.'부터 새 쪽 둘째 표로(rb.split_result_table) 다시 씀 — 정기·정밀 공용, 동마다 결과표가 여럿이면 순서대로. 돌려주는 값 = 나눈 결과표 제목들."""

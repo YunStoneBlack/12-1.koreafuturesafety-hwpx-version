@@ -6,15 +6,33 @@ from __future__ import annotations
 
 import io
 
-# 2.2 자료수집 목록(표 2.1) — (구분, 키, 자료)
+# 2.2 자료수집 목록(본문 표 2.1 + 부록 사전검토보고서 4.2 유지관리자료 보유 현황 — 둘이 미묘하게 달라 합친 한 목록, 사용자 10/15 "한 번 고르면 둘 다") — (구분, 키, 자료)
 DOC_ITEMS = [
-    ("시공관련자료", "build", "시공관련자료"), ("시공관련자료", "quality", "품질관리자료"), ("시공관련자료", "accident", "사고기록"), ("시공관련자료", "operate", "운영기록"),
-    ("설계도서", "dwg_common", "공통 — 위치도(배치도)·평면도·단면도"), ("설계도서", "dwg_arch", "건축도면 — 배치도·평면도·입면도·단면도"),
+    ("시공관련자료", "build", "시공관련 자료"), ("시공관련자료", "quality", "품질관리자료 — 재료증명서·품질시험기록·관리 및 선정시험 기록"),
+    ("시공관련자료", "measure", "주요 구조부위 계측 관련자료"), ("시공관련자료", "accident", "사고기록"), ("시공관련자료", "operate", "운영기록"),
+    ("설계도서", "spec", "공통 — 준공내역서·공사시방서·각종 계산서·토질 및 지반조사 보고서"),
+    ("설계도서", "dwg_common", "공통도면 — 위치도(배치도)·평면도·단면도(종·횡)"), ("설계도서", "dwg_arch", "건축도면 — 배치도·평면도·입면도·단면도"),
     ("설계도서", "dwg_struct", "구조도면 — 평면·단면도·배근도·접합 상세도"), ("설계도서", "dwg_mech", "기계설비도면 — 승강기·냉난방·환기"),
     ("설계도서", "dwg_elec", "전기설비도면 — 조명·통신·방송·변전"), ("설계도서", "dwg_fire", "소방설비도면 — 방화구획·소화전·스프링클러"),
     ("설계도서", "dwg_water", "급배수설비도면 — 계통도·수조·정화조"),
-    ("유지관련자료", "ledger", "시설물관리대장"), ("유지관련자료", "past", "기존 점검 자료"), ("유지관련자료", "repair", "보수·보강 및 용도변경 자료"),
+    ("유지관련자료", "ledger", "시설물관리대장 — 기본현황·상세제원·유지관리 이력"), ("유지관련자료", "past", "기존 안전점검·정밀안전진단 자료"),
+    ("유지관련자료", "repair", "보수·보강 및 용도변경 자료"),
 ]
+DOC_GROUPS = ("시공관련자료", "설계도서", "유지관련자료")
+
+
+def doc_groups(docs: list[dict]) -> list[dict]:
+    """자료수집 목록 → 표 줄(구분마다) [{group, items: ["1) 자료", …], status: 보유/미보유/일부 보유/-, detail: ["자료 : 보유(메모)", …]}] — 본문 표 2.1·부록 4.2 공용."""
+    out = []
+    for g in DOC_GROUPS:
+        rows = [d for d in docs if d["group"] == g]
+        sts = [d["status"] for d in rows if d.get("status")]
+        status = "-" if not sts else sts[0] if all(x == sts[0] for x in sts) else "일부 보유"
+        detail = [f"{d['name'].split(' — ')[0]} : {d['status']}" + (f"({d['note']})" if d.get("note") else "") for d in rows if d.get("status")]
+        out.append({"group": g, "items": [f"{i}) {d['name'].replace(' — ', ' : ')}" for i, d in enumerate(rows, 1)], "status": status, "detail": detail or ["-"]})
+    return out
+
+
 DOC_STATUS = ("보유", "미보유", "해당없음")
 SEISMIC = ("적용", "미적용", "불명")
 YNU = ("무", "유", "불명")
@@ -141,7 +159,7 @@ def read_fms(data: bytes) -> list[dict]:
 
 
 def _selfcheck() -> None:
-    assert len(CHECKLIST) == 25 and len(DOC_ITEMS) == 14
+    assert len(CHECKLIST) == 25 and len(DOC_ITEMS) == 16
     n = norm({"docs": {"ledger": {"status": "보유", "note": "컴퓨터 파일"}, "zzz": {"status": "보유"}}, "manage": {"use_change": "유", "checklist": {"3": True, "99": True}},
               "load": {"photos": [{"file": "a.jpg", "title": "옥상"}], "note": ""}})
     assert list(n["docs"]) == ["ledger"] and n["manage"]["use_change"] == "유" and n["manage"]["checklist"] == {"3": True} and n["load"]["photos"][0]["title"] == "옥상"
