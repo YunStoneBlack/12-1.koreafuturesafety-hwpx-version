@@ -252,17 +252,12 @@
       msg.textContent = "사진 보는 중…";
       try {
         const r = await apiPost(`/sitok/defects/${d.id}/analyze`);
-        const what = r.grew === true ? "커짐(진행) 같음" : r.grew === false ? "전회차와 비슷함(그대로)" : "";
-        msg.innerHTML = `${esc([what, r.width ? `폭 약 ${r.width}mm` : "", r.note].filter(Boolean).join(" · "))}
-          ${r.grew === true ? '<button type="button" class="link-btn" data-a="grew">진행으로</button>' : r.grew === false ? '<button type="button" class="link-btn" data-a="same">그대로로</button>' : ""}
-          ${r.width ? `<button type="button" class="link-btn" data-a="w">폭 ${r.width} 넣기</button>` : ""}`;
-        msg.querySelectorAll(".link-btn").forEach((b) => b.addEventListener("click", () => {
-          if (b.dataset.a === "w") save({ check: d.check === "same" || !d.check ? "grew" : d.check, width: r.width });
-          else save({ check: b.dataset.a });
-        }));
+        aiHints[d.id] = r;
+        showAnalysis(el, d, r, save);
       } catch (err) { msg.textContent = err.message; }
       btn.disabled = false;
     });
+    if (aiHints[d.id] && el.querySelector(".sf-ai-msg")) showAnalysis(el, d, aiHints[d.id], save); // 사진 찍고 자동 비교한 결과(10/14 형)
     el.querySelector(".sf-cause input")?.addEventListener("change", (e) => save({ cause: e.target.value }));
     el.querySelectorAll(".sf-size input").forEach((inp) => inp.addEventListener("change", () => save({ [inp.dataset.k]: inp.value })));
     el.querySelector(".sf-star").addEventListener("click", () => save({ starred: !d.starred }));
@@ -279,6 +274,7 @@
         const fd = new FormData();
         fd.append("file", file.files[0]);
         await apiUpload(`/sitok/defects/${d.id}/photo`, fd);
+        if (!d.check) await autoCheck(d); // 10/14 형: 전회차가 있으면 사진 들어가면 바로 비교, 진행 추천이 아니면 자동 "그대로"
         refresh(false);
       } catch (e) { err(e); el.classList.remove("busy"); }
     });
@@ -289,6 +285,29 @@
       window.open(img.src, "_blank");
     }));
     return el;
+  }
+
+  const aiHints = {}; // 결함 id → 마지막 AI 비교 결과(카드를 다시 그려도 남게)
+  function showAnalysis(el, d, r, save) {
+    const msg = el.querySelector(".sf-ai-msg");
+    if (!msg) return;
+    const what = r.grew === true ? "커짐(진행) 같음 — 확인하고 [진행으로]" : r.grew === false ? "전회차와 비슷함 → 그대로" : "";
+    msg.innerHTML = `${esc([what, r.width ? `폭 약 ${r.width}mm` : "", r.note].filter(Boolean).join(" · "))}
+      ${r.grew === true && d.check !== "grew" ? '<button type="button" class="link-btn" data-a="grew">진행으로</button>' : ""}
+      ${r.grew === false && d.check !== "same" ? '<button type="button" class="link-btn" data-a="same">그대로로</button>' : ""}
+      ${r.width ? `<button type="button" class="link-btn" data-a="w">폭 ${r.width} 넣기</button>` : ""}`;
+    msg.querySelectorAll(".link-btn").forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.a === "w") save({ check: d.check === "same" || !d.check ? "grew" : d.check, width: r.width });
+      else save({ check: b.dataset.a });
+    }));
+  }
+  async function autoCheck(d) {
+    // 사진을 찍은 뒤(판정이 비어 있을 때) — 전회차 사진이 있으면 AI 비교: 커졌으면 추천만(점검자가 [진행으로]), 아니면 자동 "그대로". 전회차 사진이 없으면 그냥 "그대로".
+    let r = null;
+    if (d.has_prev_photo) {
+      try { r = await apiPost(`/sitok/defects/${d.id}/analyze`); aiHints[d.id] = r; } catch (_) { r = null; }
+    }
+    if (!r || r.grew !== true) await apiPatch(`/sitok/defects/${d.id}`, { check: "same" });
   }
 
   function drawList() {
