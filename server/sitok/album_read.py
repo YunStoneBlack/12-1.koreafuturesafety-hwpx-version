@@ -31,7 +31,8 @@ class Album:
 
 def _floor(text: str) -> str:
     m = re.search(r"\[\s*(.+?)\s*결함\s*(현황표|사진표)\s*\]", text or "")
-    return m[1].replace(" ", "") if m else ""
+    f = m[1].replace(" ", "") if m else ""
+    return "옥상층" if f in ("지붕층", "지붕", "옥상", "옥탑층") else f  # 지난 보고서 "지붕층" → 우리 층 이름 "옥상층"(형 10/14)
 
 
 def _clean(v) -> str:

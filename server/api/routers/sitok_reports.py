@@ -683,6 +683,20 @@ def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: 
     return done
 
 
+def _convert_pushing(hwpx: Path, pdf: Path) -> None:
+    """정밀 본문 한글 → PDF. 쪽 검사에서 "제목 'X'만 쪽 끝에 있음"이 나오면 그 제목 문단을 새 쪽에서 시작하게 고치고(pagecheck.push_headings) PDF를 한 번 더
+    — 형 10/14 "2~3줄 애매하게 넘어가면 줄간격 늘려서 아예 넘겨버려"(결과표 '다.'부터는 precision_build._split_result_table)."""
+    from server.sitok import pagecheck
+
+    pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+    try:
+        pushed = pagecheck.push_headings(hwpx, pagecheck.scan(pdf, hwpx, limit=50))
+    except Exception:  # noqa: BLE001 — 검사가 안 되면 그대로
+        pushed = []
+    if pushed:
+        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+
+
 def _run_precision_build(db: Session, r: SitokReport) -> None:
     """정밀안전점검(10/13 ⑤) — 본문 원본 → 본문 한글·PDF, 부록 원본 → 부록 한글·PDF(관리대장·사진첩·측정데이터·결과자료·계약서 끼움), 합본 PDF."""
     from server.sitok import precision_build
@@ -697,7 +711,7 @@ def _run_precision_build(db: Session, r: SitokReport) -> None:
         r.message = f"본문 한글 만듦({changed}곳 바꿈) — 본문 PDF로 바꾸는 중(몇 분)…"
         db.commit()
         pdf = folder / f"{base}(본문).pdf"
-        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        _convert_pushing(hwpx, pdf)  # 한글 → PDF(+ 제목만 쪽 끝이면 새 쪽으로 밀고 한 번 더, 형 10/14)
         from server.sitok import drawings as D
         paths = [it["path"] for it in D.items(f, "attach", _facility_dir(f))]  # 1.2 시설물 관련도면 [후면첨부] 뒤에 첨부 도면(정기 1.2.9와 같게)
         drawn = D.insert(pdf, [(1, paths)], finder=lambda pg, n: pg.search_for("시설물 관련도면") and pg.search_for("후면첨부")) if paths else []
@@ -768,7 +782,7 @@ def _run_precision_group_build(db: Session, r: SitokReport) -> None:
             y.out_hwpx, y.message = str(hwpx), f"{len(pairs)}동 본문 합침 — 본문 PDF로 바꾸는 중(몇 분)…"
         db.commit()
         pdf = folder / f"{base}(본문).pdf"
-        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        _convert_pushing(hwpx, pdf)  # 한글 → PDF(+ 제목만 쪽 끝이면 새 쪽으로 밀고 한 번 더, 형 10/14)
         chapters = [(k, [it["path"] for it in D.items(m, "attach", _facility_dir(m))]) for k, (m, _) in enumerate(pairs, 1)]
         with pymupdf.open(pdf) as doc:  # 동마다 "1.2 시설물 관련도면 [후면첨부]" 쪽 — k번째 것
             hits = [i for i, pg in enumerate(doc) if pg.search_for("시설물 관련도면") and pg.search_for("후면첨부")]

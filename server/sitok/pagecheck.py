@@ -98,3 +98,42 @@ def scan(pdf: Path, hwpx: Path, limit: int = 12, skip: set[int] | None = None) -
     if len(out) > limit:
         out = out[:limit] + [f"외 {len(out) - limit}곳"]
     return out
+
+
+HEAD_WARN = re.compile(r"제목 '(.+?)'만 쪽 끝에 있음")
+
+
+def push_headings(hwpx: Path, found: list[str]) -> list[str]:
+    """scan이 "제목 'X'만 쪽 끝에 있음"이라 한 제목 문단을 새 쪽에서 시작하게(pageBreak) 하고 hwpx를 다시 씀 — 형 10/14 "2~3줄 애매하게 넘어가면
+    아예 넘겨버려". 돌려주는 값 = 민 제목들(비면 안 바꿈). 부르는 쪽이 PDF를 한 번 더 뽑는다."""
+    from server.sitok import report_build as rb
+
+    keys = {_key(m[1]) for w in found for m in [HEAD_WARN.search(w)] if m}
+    if not keys:
+        return []
+    pushed: list[str] = []
+    with zipfile.ZipFile(hwpx) as z:
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+        sections = rb._sections(z)
+    for n in sections:
+        root = etree.fromstring(data[n])
+        hit = False
+        for p in root:
+            if p.tag != f"{{{rb.HP}}}p" or p.get("pageBreak") == "1":
+                continue
+            t = rb._top_text(p)
+            if t and _key(t) in keys:
+                p.set("pageBreak", "1")
+                pushed.append(t[:20])
+                hit = True
+        if hit:
+            data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    if not pushed:
+        return []
+    tmp = hwpx.with_suffix(".push.hwpx")
+    with zipfile.ZipFile(tmp, "w") as zout:
+        for i in infos:
+            zout.writestr(i.filename, data[i.filename], compress_type=zipfile.ZIP_STORED if i.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+    tmp.replace(hwpx)
+    return pushed

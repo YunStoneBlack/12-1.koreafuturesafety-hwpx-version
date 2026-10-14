@@ -1517,6 +1517,8 @@ def _shift_rows(tbl, from_row: int, delta: int, h: int) -> None:
     for cz in tbl.iter(f"{{{HP}}}cellzone"):
         if int(cz.get("endRowAddr", "0")) >= from_row - 1:
             cz.set("endRowAddr", str(max(int(cz.get("endRowAddr", "0")) + delta, 0)))
+        if int(cz.get("startRowAddr", "0")) >= from_row:
+            cz.set("startRowAddr", str(max(int(cz.get("startRowAddr", "0")) + delta, 0)))
     sz = tbl.find(f"{{{HP}}}sz")
     if sz is not None and sz.get("height"):
         sz.set("height", str(max(int(sz.get("height")) + h, 0)))
