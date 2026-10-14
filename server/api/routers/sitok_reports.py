@@ -744,14 +744,16 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
     from server.sitok import pagecheck
 
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
-    filled = []
-    if precision:  # 정밀: 빈 쪽·쪽 아래 빈 자리에 다음 쪽 내용(사진 표는 줄여서)을 당김(형 10/15 "빈 공간에 표를 끼워 넣어 한 쪽에 쏙")
+    keep: set = set()  # 빈 자리 메우기가 일부러 넘긴 캡션·제목(다음 회에 다시 당기지 않게)
+    for _ in range(2 if precision else 0):  # 정밀: 빈 쪽·쪽 아래 빈 자리에 다음 쪽 내용(사진 표는 줄여서)을 당김(형 10/15 "빈 공간에 표를 끼워 넣어 한 쪽에 쏙") — 고친 뒤 새로 생긴 것도 한 번 더
         try:
-            filled = pagecheck.fill_gaps(hwpx, pdf)
+            filled = pagecheck.fill_gaps(hwpx, pdf, keep=keep)
         except Exception:  # noqa: BLE001
             traceback.print_exc()
-        if filled:
-            pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+            filled = []
+        if not filled:
+            break
+        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
     try:
         pushed = pagecheck.split_result_tables(hwpx, pdf) + pagecheck.push_headings(hwpx, pagecheck.scan(pdf, hwpx, limit=50))  # 결과표 넘침 → '다.'부터 새 쪽, 제목만 쪽 끝 → 새 쪽
     except Exception:  # noqa: BLE001 — 검사가 안 되면 그대로

@@ -192,7 +192,28 @@ def _photo_rows_shrink(tbl, rb, cut: int) -> bool:
     return True
 
 
-def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
+def _align(a: list[str], b: list[str]) -> dict[int, int]:
+    """두 순서(쪽 나눔 문단 글 a·쪽 첫 줄 글 b)를 최장 공통 부분열로 짝지음 → {b 번호: a 번호} — 같은 글이 동마다 되풀이돼도 순서대로 맞음."""
+    n, m = len(a), len(b)
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            dp[i][j] = dp[i + 1][j + 1] + 1 if a[i] and a[i] == b[j] else max(dp[i + 1][j], dp[i][j + 1])
+    out: dict[int, int] = {}
+    i = j = 0
+    while i < n and j < m:
+        if a[i] and a[i] == b[j]:
+            out[j] = i
+            i += 1
+            j += 1
+        elif dp[i + 1][j] >= dp[i][j + 1]:
+            i += 1
+        else:
+            j += 1
+    return out
+
+
+def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1, keep: set | None = None) -> list[str]:
     """빈 자리 메우기(형 10/15 "빈 공간이 있고 아래는 표만 달랑 — 빈 공간에 표를 끼워 넣어 한 쪽에 쏙", "쓸데없는 빈 페이지") — PDF를 보고 hwpx를 고침:
     ① 빈 쪽(머리말·꼬리말만) 다음 쪽이 원본 쪽 나눔으로 시작하면 그 쪽 나눔을 뺌.
     ② 쪽 아래가 25% 넘게 비었고 다음 쪽이 원본 쪽 나눔 문단(장 시작 아님)으로 시작하면 — 다음 쪽 내용이 빈 자리에 들어가면 쪽 나눔을 뺌,
@@ -203,6 +224,7 @@ def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
 
     from server.sitok import report_build as rb
 
+    keep = keep if keep is not None else set()
     doc = pymupdf.open(pdf)
     pages = [_body(pg) for pg in doc]
     has_pic = [any(TOP < rr.y0 < pages[i][2] - 2 for info in pg.get_images(full=True) for rr in pg.get_image_rects(info[0])) for i, pg in enumerate(doc)]
@@ -237,7 +259,7 @@ def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
             if CAPTION.match(rb._top_text(p).strip()):
                 caps.append((si, p, _key(rb._top_text(p)), tops, i))
     done: list[str] = []
-    bi = 0
+    starts = _align([b_[2] for b_ in breaks], [_key(pg[0][0][2]) if pg[0] else "" for pg in pages])  # 쪽 번호 → 그 쪽을 시작한 쪽 나눔
     cap_seen: dict = {}
     hit_sections: set = set()
     for i, (lines, bottom, foot, _) in enumerate(pages[:-1]):
@@ -247,14 +269,11 @@ def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
         nxt_lines, nxt_bottom, nxt_foot, _ = pages[i + 1]
         if not nxt_lines:
             continue
-        first = _key(nxt_lines[0][2])
         span = foot - TOP
         gap = foot - max(bottom, TOP)
         # 다음 쪽이 원본 쪽 나눔으로 시작하는지(순서대로 맞춰 감)
-        match = next((j for j in range(bi, len(breaks)) if breaks[j][2] and breaks[j][2] == first), None)  # 쪽 나눔은 문서 순서대로 쪽 첫 줄에 나옴
+        match = starts.get(i + 1)
         cap_last = lines and CAPTION.match(lines[-1][2] or "")
-        if match is not None:
-            bi = match + 1
         if not lines or divider(i) or divider(i + 1):
             if not lines and not has_pic[i] and match is not None and not divider(i + 1):  # ① 빈 쪽
                 si, p, _, tops, idx = breaks[match]
@@ -265,10 +284,10 @@ def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
             continue
         need = nxt_bottom - TOP  # 다음 쪽 내용 높이(pt)
         if match is not None and gap > span * 0.25:  # ②
-            si, p, _, tops, idx = breaks[match]
-            if si < sections_from or _chapter_start(p, rb):
-                continue
-            if need <= gap - 12:
+            si, p, key, tops, idx = breaks[match]
+            if si < sections_from or _chapter_start(p, rb) or key in keep:
+                continue  # 장 시작·앞 회에서 일부러 넘긴 것(캡션·제목)은 안 당김
+            if need <= gap - 24:
                 p.set("pageBreak", "0")
                 hit_sections.add(sections[si])
                 done.append(f"{i + 2}쪽 당김")
@@ -300,6 +319,7 @@ def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
                     target = tops[idx - 1] if prev_t and HEAD.match(prev_t) and len(prev_t) <= 45 else p
                     if target.get("pageBreak") != "1":
                         target.set("pageBreak", "1")
+                        keep.add(_key(rb._top_text(target)))
                         hit_sections.add(sections[si])
                         done.append(f"{i + 1}쪽 캡션 '{lines[-1][2][:12]}' 다음 쪽으로")
     if not done:

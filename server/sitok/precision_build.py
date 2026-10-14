@@ -826,6 +826,7 @@ def _fill_docs(root, D: Data) -> int:
         _set(cells, r, 2, g["status"])
         _set(cells, r, 3, g["detail"])
     _rows_to_text(tbl)
+    rb._splittable(tbl, 1)  # 목록이 길어져 쪽을 넘으면 줄 단위로
     return 1
 
 
@@ -833,7 +834,7 @@ def _rows_to_text(tbl, first: int = 1) -> None:
     """줄 높이를 글 줄 수 어림에 맞춤(틀 높이가 고정이라 글이 늘면 아래 선에 걸림 — 10/15 표 2.1)."""
     for r, h in rb._table_row_heights(tbl).items():
         if r >= first:
-            _set_row_height(tbl, r, h + 300)
+            _set_row_height(tbl, r, h + rb.LINE_H)  # 어림이 한 줄쯤 모자람(표 2.1 마지막 줄이 선에 걸림) — 한 줄 여유
 
 
 def _fill_docs_appendix(root, D: Data) -> int:
@@ -2141,6 +2142,14 @@ def _fill_appendix_docs(root, D: Data, infos: list[dict], state: dict, when) -> 
     if state.get("pre") or rb._find_table(root, ["보존대상목록", "관리주체보유현황", "비고"]) is not None:
         n += _fill_docs_appendix(root, D)
         n += _qty_per_member(root, infos)
+        if len(infos) > 1:  # 과업의 범위 표가 동 수만큼 늘어난 만큼 "4. 사전검토 내용" 앞뒤 빈 줄을 빼서 4.1 표가 한 쪽에(한 줄만 넘어가던 것, 10/15)
+            tops = _tops(root)
+            k = next((i for i, p in enumerate(tops) if re.match(r"^4\.\s*사전검토", _para_text(p))), None)
+            if k is not None:
+                for q in [tops[k + 1] if k + 1 < len(tops) else None, tops[k - 1] if k > 0 else None][:len(infos) - 1 + 1]:
+                    if q is not None and _blank_para(q) and q.get("pageBreak") != "1":
+                        root.remove(q)
+                        n += 1
     return n
 
 
