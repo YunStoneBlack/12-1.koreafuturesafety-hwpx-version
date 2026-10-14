@@ -229,6 +229,17 @@ def _put_png(p, png: bytes | None, add_image) -> int:
 
 # ---------- 앞부분(결과표·요약표·내진·전차 비교·사용제한) ----------
 
+def _result_tables(root) -> list:
+    """정밀 결과표(첫 칸 "가. 일반현황") — 여러 동이면 동마다."""
+    out = []
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is not None:
+            continue
+        if rb._cell_text(rb._cells(tbl).get((0, 0), tbl)).replace(" ", "").startswith("가.일반현황"):
+            out.append(tbl)
+    return out
+
+
 def _fill_result_table(root, D: Data) -> int:
     cells = rb._find_result_table([root])
     if cells is None:
@@ -986,6 +997,9 @@ def _fill(src: Path, dest: Path, D: Data) -> int:
                 changed += _fill_compare(root, D) + _fill_limit(root, D) + _fill_priority(root, D) + _fill_analysis_tables(root, D) + _fill_status_tables(root, D)
                 if is_front:
                     changed += _fill_result_table(root, D) + _fill_summary_table(root, D) + _fill_seismic(root, D)
+                    for tbl in _result_tables(root):  # 결과표가 길어지면 통째로 다음 쪽으로 넘어가지 않고 줄 단위로 나뉘게(사용자 10/14 — 원본은 pageBreak TABLE)
+                        rb._splittable(tbl, 0)
+                        tbl.set("repeatHeader", "0")  # "가. 일반현황" 줄이 다음 쪽에 또 찍히지 않게
                     if D.result_fields:
                         changed += rb._set_result_fields(root, D.result_fields)
                     if D.cost is not None and rb._cost_table(root, D.cost[0], D.cost[1]):  # 요약문 2.7 개략공사비
