@@ -1,4 +1,4 @@
-// ---------- 보고서 화면 맨 아래 "K2B 제출" 칸(2026-10-02 사용자: 현장 화면뿐 아니라 보고서 화면에서도 결과 보기) ----------
+// ---------- 보고서 화면 맨 아래 "K2B 제출 · 고객사 전송" 칸 왼쪽 반 K2B(2026-10-02 사용자: 현장 화면뿐 아니라 보고서 화면에서도 결과 보기) ----------
 // GET /reports/{id}/k2b(현장 화면 제출 창과 같은 API)의 제출 기록으로 마지막 결과를 그린다 — 성공: 저장된 K2B 화면 사진,
 // 실패: 이유 + "이렇게 하세요"(server/k2b/advice.py), 진행 중: 3초마다 다시 읽음. [📤 K2B 제출]은 js/k2b-submit.js 창 그대로.
 // 지난 제출이 더 있으면 접힌 목록. 글자 넣기는 mail.js의 mailEsc, 모양은 css/k2b-submit.css(rk-*).
@@ -48,4 +48,42 @@ document.getElementById("k2b-open")?.addEventListener("click", () => {
   const visit = (document.getElementById("report-title")?.textContent || "").replace(" 보고서", "");
   openK2bModal(reportId, `${site} ${visit}`.trim(), loadK2bPanel);
 });
+// ---------- 오른쪽 반 "고객사 메일 전송"(2026-10-15 민재형 "반 나눠서 이메일 전송") ----------
+// GET /reports/{id}/mail(현장 화면 메일 창과 같은 API)의 보낸 기록으로 마지막 전송을 그린다. [📧 고객사 전송] = mail.js 창 그대로
+// (PDF가 없거나 수정 전 버전·만드는 중이면 창이 "PDF를 다시 만든 뒤 보내세요"로 막고, 서버도 한 번 더 막음).
+async function loadMailPanel() {
+  const stateEl = document.getElementById("mail-state");
+  if (!stateEl) return;
+  let info;
+  try {
+    info = await api(`/reports/${reportId}/mail`);
+  } catch (err) {
+    stateEl.innerHTML = `<div class="mail-msg bad">메일 기록을 못 읽었습니다: ${mailEsc(err.message)}</div>`;
+    return;
+  }
+  const [last, ...older] = info.history || [];
+  const day = (h) => mailEsc((h.sent_at || "").slice(5).replace("-", "/"));
+  const by = (h) => (h.by ? ` · ${mailEsc(h.by)}` : "");
+  let html;
+  if (!info.configured) {
+    html = `<div class="rk-none">메일 보내기 설정이 아직 안 됐습니다(회사 네이버 메일 연결 필요).</div>`;
+  } else if (!last) {
+    html = `<div class="rk-none">아직 고객사에 보내지 않았습니다.</div>` + (info.problem ? `<div class="rk-block">보내기 전에: ${mailEsc(info.problem)}</div>` : "");
+  } else {
+    html = `<div class="mail-msg ok">✓ ${day(last)} 보냄${by(last)}</div>
+      <div class="rk-mail-to">받는 사람: ${mailEsc(last.to)}${last.cc ? `<br>참조: ${mailEsc(last.cc)}` : ""}</div>` +
+      (info.problem ? `<div class="rk-block">다시 보내려면: ${mailEsc(info.problem)}</div>` : "");
+  }
+  if (older.length) {
+    html += `<details class="rk-older"><summary>지난 전송 ${older.length}건</summary><ul>${older.map((h) => `<li>${day(h)} → ${mailEsc(h.to)}${by(h)}</li>`).join("")}</ul></details>`;
+  }
+  stateEl.innerHTML = html;
+}
+
+document.getElementById("mail-open")?.addEventListener("click", () => {
+  const site = document.getElementById("back-link")?.textContent.trim() || "";
+  const visit = (document.getElementById("report-title")?.textContent || "").replace(" 보고서", "");
+  openMailModal(reportId, `${site} ${visit}`.trim(), loadMailPanel);
+});
 loadK2bPanel();
+loadMailPanel();
