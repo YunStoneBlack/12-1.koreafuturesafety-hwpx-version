@@ -34,9 +34,16 @@
     const chips = r.past ? '<span class="sk-chip on">✓ 이미 낸 보고서(등록)</span>'
       : chip(r.has_field, "현장 조사") + (kind === "정밀" ? chip(r.has_tests, "재료시험") + chip(r.has_rating, "상태평가") : "")
         + chip(r.has_survey, "면담") + chip(r.has_detail, "현황") + chip(r.has_ai, "AI 초안") + report;
-    el.innerHTML = `<div class="sk-round-main"><div class="sk-round-title"><b>${r.year}년 ${esc(r.half)}</b><span class="sk-kind ${kind === "정밀" ? "pre" : ""}">${kind}안전점검</span>
+    el.innerHTML = `<div class="sk-round-main"><div class="sk-round-title"><b>${r.year}년 ${esc(r.half)}</b><button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button>
         ${r.period_start ? `<span class="sk-help">${ymdDot(r.period_start)} ~ ${ymdDot(r.period_end)}</span>` : ""}</div>
       <div class="sk-round-prog">${chips}</div></div><span class="sk-round-open">열기 ›</span>`;
+    el.querySelector(".sk-kind-btn").addEventListener("click", async (e) => { // 종류 바꾸기(10/14 형 피드백 — 회차 정보 안에만 있어 못 찾음)
+      e.preventDefault();
+      e.stopPropagation();
+      const to = kind === "정밀" ? "정기" : "정밀";
+      if (!confirm(`${r.year}년 ${r.half}를 ${to}안전점검으로 바꿀까요?`)) return;
+      try { await apiPatch(`/sitok/reports/${r.id}`, { kind: to }); load(); } catch (x) { err(x); }
+    });
     if (r.status === "running") poll(r.id);
     return el;
   }
@@ -96,7 +103,7 @@
     box2.querySelector(".nr-skip").addEventListener("click", async () => {
       box2.classList.add("busy");
       try {
-        await createReport(year, half, null, el.querySelector(".nr-kind")?.value || "");
+        await createReport(year, half, null, el.querySelector(".nr-kind")?.value || "정기"); // 계약이 없으면 종류를 알 수 없어 정기(배지로 바꿈)
         flash = [`${year}년 ${half} 회차를 계약 없이 만들었습니다 — 계약을 추가하면 자동으로 붙습니다.`, "warn"];
         load();
       } catch (e) { err(e); box2.classList.remove("busy"); }
@@ -115,7 +122,13 @@
         const fields = Object.fromEntries(CON_KEYS.filter((k) => rd.fields?.[k] !== undefined && rd.fields[k] !== "" && rd.fields[k] !== null)
           .map((k) => [k, rd.fields[k]]));
         const out = await apiPost(`/sitok/facilities/${fid}/contracts`, { ...fields, contract_token: rd.token });
-        await createReport(year, half, out.new_contract_id, el.querySelector(".nr-kind")?.value || "");
+        try { await createReport(year, half, out.new_contract_id, el.querySelector(".nr-kind")?.value || ""); } catch (x) {
+          if (x.status !== 428) throw x;
+          window.dispatchEvent(new Event("sitok-contracts-changed"));
+          box2.remove();
+          askKind(el, year, half, out.new_contract_id);
+          return;
+        }
         const chk = await api(`/sitok/facilities/${fid}/contract-for?year=${year}&half=${encodeURIComponent(half)}`);
         const fits = chk.contract && chk.contract.id === out.new_contract_id;
         flash = rd.error ? [`계약서를 읽지 못해 칸이 비었습니다 — 아래 "계약"에서 날짜·금액을 채우세요. (${rd.error})`, "warn"]
@@ -129,6 +142,26 @@
         msg.textContent = "눌러서 고르거나 끌어다 놓기";
       }
     });
+  }
+
+  // 계약서에서 종류(정기/정밀)를 못 읽을 때 — 조용히 정기로 만들지 않고 물음(10/14 형 피드백: 꿈에블리스나인 "정기(정밀)" 스캔 계약서)
+  function askKind(el, year, half, contractId) {
+    el.querySelector(".nr-kind-ask")?.remove();
+    const box2 = document.createElement("div");
+    box2.className = "nr-nocon nr-kind-ask";
+    box2.innerHTML = `<b>⚠ 계약서에서 ${year}년 ${half} 회차 종류를 못 읽었습니다</b><span>계약서에 "정기"·"정밀"이 둘 다 있거나 회차 줄이 없습니다 — 이번 회차 종류를 골라 주세요.</span>
+      <div class="nr-nocon-btns"><button type="button" class="btn-sm" data-kind="정기">정기안전점검으로 만들기</button>
+        <button type="button" class="btn-sm" data-kind="정밀">정밀안전점검으로 만들기</button><button type="button" class="secondary btn-sm nr-cancel">취소</button></div>`;
+    el.appendChild(box2);
+    box2.querySelector(".nr-cancel").addEventListener("click", () => box2.remove());
+    box2.querySelectorAll("[data-kind]").forEach((b) => b.addEventListener("click", async () => {
+      box2.classList.add("busy");
+      try {
+        const made = await createReport(year, half, contractId, b.dataset.kind);
+        if (made && made.id) { location.href = `sitok-round.html?report=${made.id}`; return; }
+        load();
+      } catch (x) { err(x); box2.classList.remove("busy"); }
+    }));
   }
 
   function drawNew() {
@@ -163,7 +196,12 @@
       try {
         const r = await api(`/sitok/facilities/${fid}/contract-for?year=${year}&half=${encodeURIComponent(half)}`);
         if (r.contract) {
-          const made = await createReport(year, half, r.contract.id, kind);
+          let made;
+          try { made = await createReport(year, half, r.contract.id, kind); } catch (x) {
+            if (x.status !== 428) throw x;
+            askKind(el, year, half, r.contract.id); // 계약서에서 종류를 못 읽음 → 정기/정밀 고르기(10/14)
+            return;
+          }
           if (made && made.id) { location.href = `sitok-round.html?report=${made.id}`; return; } // 만들자마자 회차 화면으로
           load();
         } else {

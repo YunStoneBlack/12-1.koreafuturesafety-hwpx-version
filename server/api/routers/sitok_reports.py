@@ -33,7 +33,7 @@ from core.models_web import SitokContract, SitokEquipment, SitokFacility, SitokR
 from core.stored_path import to_full
 from server.api.deps import get_current_user, get_db
 from server.api.routers.contract_library import doc_status
-from server.api.routers.sitok import _contract_out, _facility_dir, _require_facility, contract_for, kind_for, register_path, renew_info
+from server.api.routers.sitok import _contract_out, _facility_dir, _require_facility, contract_for, kind_known, register_path, renew_info
 
 
 def _iso(d) -> str:
@@ -172,7 +172,7 @@ def get_contract_for(facility_id: int, year: int, half: str, user: User = Depend
     c = contract_for(db, f, year, half)
     last = _latest_contract(db, f.id)
     return {"contract": _contract_out(c) if c else None, "latest": _contract_out(last) if last else None,
-            "kind": kind_for(db, c, year, half)}  # 그 반기 회차 종류(정기/정밀) — 계약서 회차 줄에서(0043)
+            "kind": kind_known(db, c, year, half)}  # 그 반기 회차 종류(정기/정밀) — 계약서 회차 줄·계약건명에서, 모르면 null(0043, 10/14)
 
 
 def _group_contracts(db: Session, f: SitokFacility) -> list[dict]:
@@ -227,8 +227,11 @@ def create_report(facility_id: int, body: ReportIn, user: User = Depends(get_cur
     if "contract_id" not in vals:  # 안 보내면 그 반기를 덮는 계약(10/13), null을 보내면 "계약 없이"
         c = contract_for(db, f, body.year, body.half)
         vals["contract_id"] = c.id if c else None
-    if vals.get("kind") not in KINDS:  # 종류를 안 고르면 계약서 그 반기 줄에서(정기/정밀), 모르면 정기
-        vals["kind"] = kind_for(db, db.get(SitokContract, vals["contract_id"]) if vals["contract_id"] else None, body.year, body.half)
+    if vals.get("kind") not in KINDS:  # 종류를 안 고르면 계약서 그 반기 줄·계약건명에서(정기/정밀), 모르면 428 → 화면이 정기/정밀을 물음(10/14 형 피드백)
+        k = kind_known(db, db.get(SitokContract, vals["contract_id"]) if vals["contract_id"] else None, body.year, body.half)
+        if k is None:
+            raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "계약서에서 회차 종류(정기/정밀)를 못 읽었습니다 — 종류를 골라 주세요.")
+        vals["kind"] = k
     r = _new_report(db, user.display_name or "", f, body.year, body.half, **vals)
     if f.group_id:  # 묶인 동도 같은 반기 회차(사용자 10/12 — 한 번 묶이면 계속)
         _group_reports(db, r, user.display_name or "")

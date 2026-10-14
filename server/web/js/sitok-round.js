@@ -28,7 +28,7 @@
     $("rd-fac-link").textContent = r.facility_name;
     $("rd-fac-link").href = `sitok-facility.html?id=${r.facility_id}`;
     $("rd-crumb").textContent = title();
-    $("rd-head").innerHTML = `<h1>${esc(r.facility_name)} <span class="rd-round">${title()}</span><span class="sk-kind ${kind === "정밀" ? "pre" : ""}">${kind}안전점검</span></h1>
+    $("rd-head").innerHTML = `<h1>${esc(r.facility_name)} <span class="rd-round">${title()}</span><button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button></h1>
       <div class="rd-src">${r.past ? "이미 낸 보고서를 등록한 회차 — 다음 회차가 이 보고서의 데이터를 씁니다"
         : r.has_source ? `전회차 보고서: ${esc(r.source_note)}` : "전회차 보고서 없음 — 처음 맡는 시설물(우리가 하던 시설물이면 아래 [지난 보고서 한글 올리기])"}
         ${r.period_start ? ` · 점검기간 ${ymdDot(r.period_start)} ~ ${ymdDot(r.period_end)}` : ""}</div>
@@ -77,6 +77,11 @@
   }
 
   function bind() {
+    $("rd-head").querySelector(".sk-kind-btn")?.addEventListener("click", async () => { // 종류 바꾸기(10/14 형 피드백)
+      const to = (r.kind || "정기") === "정밀" ? "정기" : "정밀";
+      if (!confirm(`${title()}를 ${to}안전점검으로 바꿀까요? 정밀이면 재료시험·상태평가 버튼이 생깁니다.`)) return;
+      try { await apiPatch(`/sitok/reports/${r.id}`, { kind: to }); load(); } catch (e) { err(e); }
+    });
     $("rd-info").querySelectorAll("[data-k]").forEach((inp) => inp.addEventListener("change", async () => {
       const k = inp.dataset.k;
       const body = k === "p0" ? { participant_ids: inp.value ? [Number(inp.value)] : [] }

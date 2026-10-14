@@ -27,7 +27,9 @@ async function api(path, options = {}) {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `요청 실패 (${res.status})`);
+    const err = new Error(body.detail || `요청 실패 (${res.status})`);
+    err.status = res.status; // 화면이 상태 코드로 나눠 처리(428 = 회차 종류 물음, 10/14)
+    throw err;
   }
   if (res.status === 204) return null;
   return res.json();

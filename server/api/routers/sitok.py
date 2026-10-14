@@ -186,13 +186,14 @@ def _apply_contract(row: SitokContract, body: ContractIn) -> None:
         setattr(row, k, v.strip() if isinstance(v, str) else v)
 
 
-def kind_for(db: Session, c: SitokContract | None, year: int, half: str) -> str:
-    """그 반기 회차 종류(정기/정밀) — 보고서 쪽 계약의 회차 줄, 없으면 그 계약을 만든 서류 자동화 계약의 회차 줄, 모르면 정기(민재형 10/13: 계약서에서 자동, 틀리면 직접)."""
+def kind_known(db: Session, c: SitokContract | None, year: int, half: str) -> str | None:
+    """그 반기 회차 종류(정기/정밀) — ① 보고서 쪽 계약의 회차 줄 ② 그 계약을 만든 서류 자동화 계약의 회차 줄 ③ 계약건명에 정밀·정기 중 하나만 있으면 그것(10/14 형 피드백 —
+    스캔 계약서라 회차 줄을 못 읽은 꿈에블리스나인 "정기(정밀)"는 둘 다 있어 못 정함) → 모르면 None(회차 만들기가 물음)."""
     from core.models_web import SitokDocContract
     from server.sitok import civil
 
     if c is None:
-        return "정기"
+        return None
     rounds = c.rounds or []
     unit = next((r for r in rounds if r.get("open_ended")), None)
     k = civil.kind_for(rounds, unit, unit is not None, year, half)
@@ -200,7 +201,16 @@ def kind_for(db: Session, c: SitokContract | None, year: int, half: str) -> str:
         doc = db.query(SitokDocContract).filter(SitokDocContract.report_contract_id == c.id).first()
         if doc is not None:
             k = civil.kind_for(doc.rounds, doc.unit, doc.open_ended, year, half)
-    return k or "정기"
+    if k is None:
+        t = (c.title or "").replace(" ", "")
+        has_pre, has_reg = "정밀" in t, "정기" in t
+        k = "정밀" if has_pre and not has_reg else "정기" if has_reg and not has_pre else None
+    return k
+
+
+def kind_for(db: Session, c: SitokContract | None, year: int, half: str) -> str:
+    """kind_known, 모르면 정기(목록 기본값 표시용 — 회차 만들기는 create_report가 428로 물음)."""
+    return kind_known(db, c, year, half) or "정기"
 
 
 def _contract_out(c: SitokContract) -> dict:

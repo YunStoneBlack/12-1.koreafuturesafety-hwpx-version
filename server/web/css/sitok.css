@@ -438,3 +438,10 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
   details.sk-fold > summary.panel-head { flex-wrap: wrap; }
   details.sk-fold > summary.panel-head .panel-count { flex-basis: 100%; order: 3; }
 }
+
+/* 회차 종류 배지 버튼(10/14 형 피드백 — 누르면 정기 ↔ 정밀) */
+.main button.sk-kind-btn { margin: 0; padding: 2px 9px; border: 1px solid transparent; border-radius: 999px; font-size: 11.5px; font-weight: 600; line-height: 1.5;
+  background: var(--blue-soft); color: var(--blue); cursor: pointer; }
+.main button.sk-kind-btn.pre { background: #fbeadc; color: #b4541a; }
+.main button.sk-kind-btn:hover { border-color: currentColor; }
+.rd-head h1 .sk-kind-btn { font-size: 12.5px; }
