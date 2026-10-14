@@ -72,7 +72,11 @@ def test_texts(tv: dict) -> dict:
     out = {}
     secs = tv["sections"]
     ng = [s for s in secs if s.get("ok") is False]
-    out["section"] = ("시설물의 현장 부재 규격 실측 조사결과 설계도서의 규격과 동일하게 시공된 것으로 조사되었다." if secs and not ng
+    conc = [s for s in secs if s.get("member") != "강재"]
+    lost = bool(conc) and not any(s.get("design") for s in conc)  # 설계도면 칸이 다 비면 설계도서 유실(숭의 견본 문장, 10/14)
+    out["section"] = ("본 대상 구조물은 설계도서가 유실된 것으로 확인되어 기존 도면과의 비교·분석 검토는 불가능하였다. 이에 따라 현장 실측 조사를 통해 부재 규격을 조사하였으며, "
+                      "정밀육안조사 결과 부재의 처짐 등 단면부족에 의한 내구성 저하 현상은 조사되지 않았다. 지속적인 주의관찰을 통한 유지관리를 권고한다." if lost
+                      else "시설물의 현장 부재 규격 실측 조사결과 설계도서의 규격과 동일하게 시공된 것으로 조사되었다." if secs and not ng
                       else f"시설물의 현장 부재 규격 실측 조사결과 {len(ng)}개소에서 설계도서와 차이가 조사되었으나 상태평가 기준 "
                            f"{(tv['sections_grade'] or 'a').upper()}등급으로 구조안전성에 미치는 영향은 크지 않은 것으로 판단된다." if secs
                       else "부재 규격 조사 결과가 없다.")
@@ -155,6 +159,11 @@ def all_texts(defects: list, tv: dict, result: dict | None, *, grades: dict, str
     t = {}
     t.update(defect_texts(defects, grades, structure))
     t.update(test_texts(tv))
+    steel_secs = [s for s in tv["sections"] if s.get("member") == "강재"]  # 재료시험 규격에 강재 줄(트러스 앵글 등)이 있으면 강재구조 있음(숭의 10/14)
+    if t.get("steel_na") and steel_secs:
+        t["steel"] = ("본 시설물은 일부 구간이 강재구조(트러스 등)로 되어 있으며, 강재 부재 규격 조사 결과 " + ("설계값과 일치하고 " if all(s.get("ok") is not False for s in steel_secs) else "일부 차이가 있으나 ")
+                      + "부식·도장 상태 등 전반적으로 양호한 것으로 조사되었다.")
+        t["steel_na"] = False
     t.update(rating_texts(result, prev_grade, name, year, completion_text, first))
     t["load"] = load_note or "본 시설물의 하중상태 등에 대한 조사결과 용도변경 이력은 없는 것으로 확인되었고, 현장에서도 추가하중에 대한 확인결과 준공도서와 동일한 것으로 조사되었다."
     gs = [g for g in (tv["sections_grade"], tv["strength"]["grade"], tv["carbonation"]["grade"], tv["tilt"]["grade"], tv["settlement"]["grade"]) if g]

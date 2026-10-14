@@ -1501,6 +1501,81 @@ def _add_row(tbl) -> None:
         sz.set("height", str(int(sz.get("height")) + h))
 
 
+def _row_height(tr) -> int:
+    """줄 높이 = 그 줄에서 시작해 세로로 안 합친 칸의 높이(없으면 0)."""
+    return max((int(tc.find(f"{{{HP}}}cellSz").get("height")) for tc in tr.findall(f"{{{HP}}}tc") if tc.find(f"{{{HP}}}cellSpan").get("rowSpan") == "1"), default=0)
+
+
+def _shift_rows(tbl, from_row: int, delta: int, h: int) -> None:
+    """from_row 이후 줄의 주소를 delta만큼 밀고 줄 수·테두리 구역·표 높이(h)를 맞춤(_dup_rows·_del_rows 공용)."""
+    for tr in tbl.findall(f"{{{HP}}}tr"):
+        for tc in tr.findall(f"{{{HP}}}tc"):
+            a = tc.find(f"{{{HP}}}cellAddr")
+            if int(a.get("rowAddr")) >= from_row:
+                a.set("rowAddr", str(int(a.get("rowAddr")) + delta))
+    tbl.set("rowCnt", str(int(tbl.get("rowCnt")) + delta))
+    for cz in tbl.iter(f"{{{HP}}}cellzone"):
+        if int(cz.get("endRowAddr", "0")) >= from_row - 1:
+            cz.set("endRowAddr", str(max(int(cz.get("endRowAddr", "0")) + delta, 0)))
+    sz = tbl.find(f"{{{HP}}}sz")
+    if sz is not None and sz.get("height"):
+        sz.set("height", str(max(int(sz.get("height")) + h, 0)))
+
+
+def _span_over(tbl, start: int, end: int, delta: int) -> None:
+    """start 위에서 시작해 end줄(포함)까지 세로로 걸친 칸(용도 현황 표 '건물명' 칸처럼)의 rowSpan을 delta만큼."""
+    for tc in tbl.iter(f"{{{HP}}}tc"):
+        r0 = int(tc.find(f"{{{HP}}}cellAddr").get("rowAddr"))
+        sp = tc.find(f"{{{HP}}}cellSpan")
+        if r0 < start and r0 + int(sp.get("rowSpan")) - 1 >= end:
+            sp.set("rowSpan", str(max(int(sp.get("rowSpan")) + delta, 1)))
+
+
+def _dup_rows(tbl, start: int, count: int, times: int, clear_cols: set | None = None) -> None:
+    """start줄부터 count줄 묶음(세로 합친 칸 포함 — 탄산화 표의 C줄+부재줄)을 바로 뒤에 times번 복사해 끼움(글자는 비움 — clear_cols를 주면 그 열만).
+    뒤 줄(최대값·최소값 같은 꼬리줄) 주소·줄 수·표 높이·위에서 걸쳐 내려온 칸의 rowSpan을 같이 맞춤 — 표본층·층수가 틀보다 많을 때(숭의 3개층·13개층, 10/14)."""
+    if times <= 0 or count <= 0:
+        return
+    trs = tbl.findall(f"{{{HP}}}tr")
+    block = trs[start:start + count]
+    if len(block) < count:
+        return
+    h = sum(_row_height(tr) for tr in block)
+    _span_over(tbl, start, start + count - 1, count * times)
+    _shift_rows(tbl, start + count, count * times, h * times)  # 뒤 줄 먼저 밀고
+    last = block[-1]
+    for t in range(1, times + 1):
+        for tr in block:
+            new = copy.deepcopy(tr)
+            for tc in new.findall(f"{{{HP}}}tc"):
+                a = tc.find(f"{{{HP}}}cellAddr")
+                a.set("rowAddr", str(int(a.get("rowAddr")) + count * t))
+                if clear_cols is None or int(a.get("colAddr")) in clear_cols:
+                    _set_lines(tc, [""])
+            last.addnext(new)
+            last = new
+    if start + count == len(trs) and start - count >= 0:  # 묶음이 표 끝이었으면 원래 끝줄의 굵은 아래 테두리를 그 위 묶음 모양으로
+        for src, dst in zip(trs[start - count:start], block):
+            above = {tc.find(f"{{{HP}}}cellAddr").get("colAddr"): tc.get("borderFillIDRef") for tc in src.findall(f"{{{HP}}}tc")}
+            for tc in dst.findall(f"{{{HP}}}tc"):
+                b = above.get(tc.find(f"{{{HP}}}cellAddr").get("colAddr"))
+                if b:
+                    tc.set("borderFillIDRef", b)
+
+
+def _del_rows(tbl, start: int, count: int) -> None:
+    """start줄부터 count줄을 지움(가운데 줄도) — 뒤 줄 주소·줄 수·표 높이 같이(결과표 남는 기술자 줄, 10/14)."""
+    trs = tbl.findall(f"{{{HP}}}tr")
+    block = trs[start:start + count]
+    if not block:
+        return
+    h = sum(_row_height(tr) for tr in block)
+    _span_over(tbl, start, start + len(block) - 1, -len(block))
+    for tr in block:
+        tbl.remove(tr)
+    _shift_rows(tbl, start + count, -len(block), -h)
+
+
 def _apply_survey(root, survey: dict) -> int:
     n = 0
     new = [r for r in survey.get("repairs") or [] if (r.get("method") or r.get("kind") or "").strip()]

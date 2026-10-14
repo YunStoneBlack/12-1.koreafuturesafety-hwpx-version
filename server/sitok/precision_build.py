@@ -283,6 +283,13 @@ def _fill_result_table(root, D: Data) -> int:
     k = right("안전등급")
     if k and t.get("grade_letter"):
         _set(cells, *k, t["grade_letter"]); n += 1  # noqa: E702
+    eng = [r for r in sorted({k[0] for k in cells}) if (r, 0) in cells and re.sub(r"\s", "", rb._cell_text(cells[(r, 0)])).endswith("기술자")]  # 다. 책임(참여)기술자 줄
+    extra = eng[len(D.new.persons):] if D.new.persons else []
+    if extra:  # 틀(다산)보다 기술자가 적으면 남는 줄은 지움 — 그냥 두면 옛 이름이 남음(10/14 숭의: 참여 1명인데 2줄)
+        tbl = cells[(extra[0], 0)].getparent().getparent()
+        rb._del_rows(tbl, extra[0], len(extra))
+        cells = rb._cells(tbl)
+        n += 1
     for tc in cells.values():
         for q in tc.iter(f"{{{HP}}}p"):
             txt = "".join(rb._full(x) for x in q.iter(T))
@@ -316,6 +323,13 @@ def _fill_summary_table(root, D: Data) -> int:
     # 부재별 상태평가 — 표의 층 묶음(첫 칸에 "층"이 있고 rowSpan 4) 차례로 위층부터
     floors = sorted(D.rv["floors"], key=lambda f: -f["floor"])
     blocks = sorted([(r, tc) for (r, c), tc in cells.items() if c == 0 and rb._span(tc, "rowSpan") >= 3 and "층" in rb._cell_text(tc)], key=lambda x: x[0])
+    if len(floors) > len(blocks) and blocks:  # 틀은 층 묶음 2개 — 마지막 묶음(부재 4줄)을 복사해 뒤에(부재 이름 열은 남기고 층·등급·결함·보수 칸만 비움, 10/14 숭의 3개층)
+        r0, tc0 = blocks[-1]
+        span = rb._span(tc0, "rowSpan")
+        rb._dup_rows(tbl, r0, span, len(floors) - len(blocks), clear_cols={0, 3, 6, 7})
+        cells = rb._cells(tbl)
+        blocks = sorted([(r, tc) for (r, c), tc in cells.items() if c == 0 and rb._span(tc, "rowSpan") >= 3 and (r == r0 or r > r0 or "층" in rb._cell_text(tc))], key=lambda x: x[0])
+        blocks = [b for b in blocks if "층" in rb._cell_text(b[1]) or b[0] >= r0]
     MEMBER_ROW = {"기둥": "기둥", "벽체": "내력벽", "보": "큰보", "슬래브": "슬래브"}
     for bi, (r0, tc) in enumerate(blocks):
         fl = floors[bi] if bi < len(floors) else None
@@ -403,7 +417,7 @@ def _fill_compare(root, D: Data) -> int:
             continue
         t = D.texts
         prev = D.rv["prev_grade"] or D.rv["prev_auto"]
-        _set(cells, 0, 1, f"{D.rv['prev_report']['year']}년 {D.rv['prev_report']['half']}" if D.rv.get("prev_report") else "-")
+        _set(cells, 0, 1, f"{D.rv['prev_report']['year']}년 {D.rv['prev_report']['half']}" if D.rv.get("prev_report") else ("전차 정밀안전점검" if prev else "-"))  # 등급만 직접 넣은 전차(10/14)
         _set(cells, 0, 2, f"{D.new.year}년 정밀안전점검")
         _set(cells, 1, 1, f"·{prev}등급" if prev else "-")
         _set(cells, 1, 2, f"·{t['grade_letter']}등급({t['grade_score']:.2f})" if t.get("grade_letter") else "-")
@@ -579,6 +593,12 @@ def _fill_uses(root, D: Data) -> int:
     rows = sorted({k[0] for k in cells})
     data_rows = [r for r in rows if r >= 1 and not rb._cell_text(cells.get((r, 0), cells.get((r, 1)))).replace(" ", "").startswith("계") and (r, 1) in cells]
     total_row = next((r for r in rows if any(rb._cell_text(cells[(r, c)]).replace(" ", "") == "계" for c in range(3) if (r, c) in cells)), None)
+    if len(keys) > len(data_rows) and data_rows:  # 틀은 8개 층 — 마지막 층 줄을 복사해 '계' 앞에(건물명 칸 rowSpan도 같이, 10/14 숭의 13개층)
+        rb._dup_rows(tbl, data_rows[-1], 1, len(keys) - len(data_rows))
+        cells = rb._cells(tbl)
+        rows = sorted({k[0] for k in cells})
+        data_rows = [r for r in rows if r >= 1 and not rb._cell_text(cells.get((r, 0), cells.get((r, 1)))).replace(" ", "").startswith("계") and (r, 1) in cells]
+        total_row = next((r for r in rows if any(rb._cell_text(cells[(r, c)]).replace(" ", "") == "계" for c in range(3) if (r, c) in cells)), None)
     use = f.main_use or f.use_type or "-"
     for i, r in enumerate(data_rows):
         if i < len(keys):
@@ -806,6 +826,11 @@ def _fill_strength_tbl(tbl, D: Data) -> None:
     label_of = lambda r: rb._cell_text(cells.get((r, 0), tbl)).replace(" ", "")  # noqa: E731
     data_rows = [r for r in rows if r >= 1 and (r, 2) in cells and label_of(r) not in ("최대값", "최소값", "평균")]
     st = tv["strength"]["rows"]
+    if len(st) > len(data_rows) and data_rows:  # 표본층 3개(12개소)인데 틀은 8줄 — 마지막 데이터 줄을 복사해 꼬리(최대값…) 앞에 끼움(10/14 숭의)
+        rb._dup_rows(tbl, data_rows[-1], 1, len(st) - len(data_rows))
+        cells = rb._cells(tbl)
+        rows = sorted({k[0] for k in cells})
+        data_rows = [r for r in rows if r >= 1 and (r, 2) in cells and label_of(r) not in ("최대값", "최소값", "평균")]
     fmt = lambda v: "-" if v is None else f"{v:g}"  # noqa: E731
     for i, r in enumerate(data_rows):
         x = st[i] if i < len(st) else None
@@ -830,6 +855,11 @@ def _fill_carb_tbl(tbl, D: Data) -> None:
     rows = sorted({k[0] for k in cells})
     starts = [r for r in rows if (r, 0) in cells and re.fullmatch(r"C\d+", rb._cell_text(cells[(r, 0)]).strip() or "")]
     cr = tv["carbonation"]["rows"]
+    if len(cr) > len(starts) and starts:  # 본문 표는 한 개소 = 2줄(C줄 + 부재줄), 부록 성과표는 1줄 — 마지막 묶음을 복사해 뒤에(10/14 숭의 6개소)
+        step = (starts[1] - starts[0]) if len(starts) > 1 else (2 if (starts[0] + 1, 1) in cells and (starts[0] + 1, 0) not in cells else 1)
+        rb._dup_rows(tbl, starts[-1], step, len(cr) - len(starts))
+        cells = rb._cells(tbl)
+        starts = starts + [starts[-1] + step * i for i in range(1, len(cr) - len(starts) + 1)]  # 복사한 묶음은 글자가 비어 다시 못 찾으니 주소로
     fmt = lambda v: "-" if v is None else f"{v:g}"  # noqa: E731
     for i, r in enumerate(starts):
         c = cr[i] if i < len(cr) else None
@@ -1144,7 +1174,7 @@ def _data_for(db, r, new: rb.Values, f, ex) -> Data:
     grades = {x["key"]: x["grade"] for grp in ("public", "other") for x in pr["grades"][grp]}
     texts = precision_text.all_texts(defects, tv, rv["result"], grades=grades, structure=f.structure or "", load_note=pr["load"]["note"],
                                      prev_grade=rv["prev_grade"] or rv["prev_auto"], name=f.name, year=r.year, completion_text=comp_text,
-                                     first=rv.get("prev_report") is None, ai=ex.ai)
+                                     first=rv.get("prev_report") is None and not rv["prev_grade"], ai=ex.ai)  # 전차 등급을 직접 넣었으면 첫 회차 아님(10/14)
     texts["completion_text"] = comp_text
     base_dir = SR._report_dir(f, r)
     load_photos = [(str(base_dir / ph["file"]), ph["title"]) for ph in (((r.survey or {}).get("precision") or {}).get("load") or {}).get("photos") or [] if ph.get("file")]
@@ -1205,7 +1235,7 @@ def defaults(db, r) -> dict:
     grades = {x["key"]: x["grade"] for grp in ("public", "other") for x in pr["grades"][grp]}
     t = precision_text.all_texts(defects, tv, rv["result"], grades=grades, structure=f.structure or "", load_note=pr["load"]["note"],
                                  prev_grade=rv["prev_grade"] or rv["prev_auto"], name=f.name, year=r.year, completion_text=comp_text,
-                                 first=rv.get("prev_report") is None, ai=None)
+                                 first=rv.get("prev_report") is None and not rv["prev_grade"], ai=None)
     return {"texts": t, "tv": tv, "rv": rv, "pr": pr, "defects": defects, "facility": f}
 
 
