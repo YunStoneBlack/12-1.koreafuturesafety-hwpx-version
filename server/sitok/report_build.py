@@ -1578,6 +1578,30 @@ def _del_rows(tbl, start: int, count: int) -> None:
     _shift_rows(tbl, start + count, -len(block), -h)
 
 
+def split_result_table(root, tbl) -> bool:
+    """결과표를 '다. 책임(참여)기술자 현황'부터 새 쪽의 둘째 표로(문단 복사 + pageBreak, 앞/뒤 줄은 _del_rows) — 형 10/14 "2~3줄 애매하게 넘어가면 아예 넘겨버려".
+    '다.' 줄이 없으면(이미 나눴거나 모양이 다르면) 안 함. 정기·정밀 공용(pagecheck.split_result_tables가 PDF를 보고 부름)."""
+    cells = _cells(tbl)
+    rows = sorted({k[0] for k in cells})
+    k = next((r for r in rows if (r, 0) in cells and re.sub(r"\s", "", _cell_text(cells[(r, 0)])).startswith("다.")), None)
+    if k is None or k == rows[0]:
+        return False
+    top = tbl
+    while top.getparent() is not None and top.getparent() is not root:
+        top = top.getparent()  # 표가 든 맨 바깥 문단(제목 "○○ 결과표"가 같은 문단)
+    para = copy.deepcopy(top)
+    para.set("pageBreak", "1")
+    for el in para.iter():  # 복사한 문단의 제목 글자는 비움(표만)
+        if el.tag == T and next(el.iterancestors(f"{{{HP}}}tbl"), None) is None:
+            _clear(el, "")
+    t2 = next(para.iter(f"{{{HP}}}tbl"))
+    t2.set("id", str(int(t2.get("id", "0")) + 2000))
+    _del_rows(tbl, k, len(rows) - k)
+    _del_rows(t2, 0, k)
+    top.addnext(para)
+    return True
+
+
 def _apply_survey(root, survey: dict) -> int:
     n = 0
     new = [r for r in survey.get("repairs") or [] if (r.get("method") or r.get("kind") or "").strip()]

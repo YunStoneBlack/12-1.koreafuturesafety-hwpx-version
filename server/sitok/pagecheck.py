@@ -131,9 +131,56 @@ def push_headings(hwpx: Path, found: list[str]) -> list[str]:
             data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
     if not pushed:
         return []
+    _rewrite(hwpx, infos, data)
+    return pushed
+
+
+def _rewrite(hwpx: Path, infos, data: dict) -> None:
     tmp = hwpx.with_suffix(".push.hwpx")
     with zipfile.ZipFile(tmp, "w") as zout:
         for i in infos:
             zout.writestr(i.filename, data[i.filename], compress_type=zipfile.ZIP_STORED if i.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     tmp.replace(hwpx)
-    return pushed
+
+
+def split_result_tables(hwpx: Path, pdf: Path) -> list[str]:
+    """PDF에서 결과표("안전점검 결과표"+"가. 일반현황" 쪽)가 한 쪽을 넘쳤으면(그 쪽에 '다. 책임'은 있는데 마지막 줄 '후속 조치사항'이 없음) hwpx의 그 결과표를
+    '다.'부터 새 쪽 둘째 표로(rb.split_result_table) 다시 씀 — 정기·정밀 공용, 동마다 결과표가 여럿이면 순서대로. 돌려주는 값 = 나눈 결과표 제목들."""
+    import pymupdf
+
+    from server.sitok import report_build as rb
+
+    doc = pymupdf.open(pdf)
+    over = []
+    for i, pg in enumerate(doc):
+        t = pg.get_text()
+        if "안전점검 결과표" in t and "가. 일반현황" in t:
+            over.append("다. 책임" in t and "후속" not in t)
+    doc.close()
+    if not any(over):
+        return []
+    with zipfile.ZipFile(hwpx) as z:
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+        sections = rb._sections(z)
+    done: list[str] = []
+    n = 0
+    for name in sections:
+        root = etree.fromstring(data[name])
+        hit = False
+        for tbl in list(root.iter(f"{{{rb.HP}}}tbl")):
+            if next(tbl.iterancestors(f"{{{rb.HP}}}tbl"), None) is not None:
+                continue
+            cells = rb._cells(tbl)
+            texts = {re.sub(r"\s", "", rb._cell_text(v)) for v in cells.values()}
+            if not {"용역명", "점검기간", "관리주체명"} <= texts:
+                continue
+            if n < len(over) and over[n] and rb.split_result_table(root, tbl):
+                done.append(rb._cell_text(cells.get((1, 1), tbl)).strip()[:20] or f"결과표 {n + 1}")
+                hit = True
+            n += 1
+        if hit:
+            data[name] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    if done:
+        _rewrite(hwpx, infos, data)
+    return done

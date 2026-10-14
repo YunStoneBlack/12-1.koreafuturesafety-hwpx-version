@@ -684,14 +684,15 @@ def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: 
 
 
 def _convert_pushing(hwpx: Path, pdf: Path) -> None:
-    """정밀 본문 한글 → PDF. 쪽 검사에서 "제목 'X'만 쪽 끝에 있음"이 나오면 그 제목 문단을 새 쪽에서 시작하게 고치고(pagecheck.push_headings) PDF를 한 번 더
+    """본문 한글 → PDF(정기·정밀 공용, 사용자 10/14 "정기도 같이"). 쪽 검사에서 "제목 'X'만 쪽 끝에 있음"이 나오면 그 제목 문단을 새 쪽에서 시작하게 고치고(pagecheck.push_headings) PDF를 한 번 더
     — 형 10/14 "2~3줄 애매하게 넘어가면 줄간격 늘려서 아예 넘겨버려"(결과표 '다.'부터는 precision_build._split_result_table)."""
     from server.sitok import pagecheck
 
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
     try:
-        pushed = pagecheck.push_headings(hwpx, pagecheck.scan(pdf, hwpx, limit=50))
+        pushed = pagecheck.split_result_tables(hwpx, pdf) + pagecheck.push_headings(hwpx, pagecheck.scan(pdf, hwpx, limit=50))  # 결과표 넘침 → '다.'부터 새 쪽, 제목만 쪽 끝 → 새 쪽
     except Exception:  # noqa: BLE001 — 검사가 안 되면 그대로
+        traceback.print_exc()
         pushed = []
     if pushed:
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
@@ -839,7 +840,7 @@ def _run_build(report_id: int) -> None:
             r.message = f"한글 만듦({changed}곳 바꿈) — PDF로 바꾸는 중(100쪽 넘으면 몇 분)…"
             db.commit()
             pdf = folder / f"{base}.pdf"
-            pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+            _convert_pushing(hwpx, pdf)  # 한글 → PDF(+ 결과표 넘침·제목만 쪽 끝이면 고치고 한 번 더, 10/14)
             drawn = _insert_drawings(pdf, [(1, f)])  # 1.2.9 뒤 첨부 도면(10/12)
             warn = _page_check(pdf, hwpx, drawn) + warn  # 관리대장·계약서 합치기 전(본문 쪽 번호 = 최종), 도면 쪽은 빼고
             merged = _merge(pdf, [f.ledger_pdf], [c.contract_pdf] if c else [])
@@ -924,7 +925,7 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
             y.out_hwpx, y.message = str(hwpx), f"{len(pairs)}동 한글 합침 — PDF로 바꾸는 중(몇 분)…"
         db.commit()
         pdf = folder / f"{base}.pdf"
-        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        _convert_pushing(hwpx, pdf)  # 한글 → PDF(+ 결과표 넘침·제목만 쪽 끝이면 고치고 한 번 더, 10/14)
         drawn = _insert_drawings(pdf, [(k, m) for k, (m, _) in enumerate(pairs, 1)])  # 동마다 N.2.9 뒤 첨부 도면(10/12)
         warn = _page_check(pdf, hwpx, drawn) + warn  # 관리대장·계약서 합치기 전(본문 쪽 번호 = 최종), 도면 쪽은 빼고
         contracts = []

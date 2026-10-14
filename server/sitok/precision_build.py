@@ -233,26 +233,10 @@ RESULT_EST_FIT = 84000  # 결과표 어림 높이(rb._est_height — 결과표�
 
 
 def _split_result_table(root, tbl) -> bool:
-    """결과표가 한 쪽에 안 들어갈 것 같으면 '다. 책임(참여)기술자 현황'부터 새 쪽의 둘째 표로(형 10/14 "2~3줄 애매하게 넘기지 말고 아예 넘겨") — 줄 단위 나눔(CELL)은 그대로 두어 더 길면 또 나뉨."""
-    cells = rb._cells(tbl)
-    rows = sorted({k[0] for k in cells})
-    k = next((r for r in rows if (r, 0) in cells and re.sub(r"\s", "", rb._cell_text(cells[(r, 0)])).startswith("다.")), None)
-    if k is None or rb._est_height(tbl) <= RESULT_EST_FIT:
+    """결과표가 한 쪽에 안 들어갈 것 같으면(어림) 미리 '다.'부터 새 쪽으로(rb.split_result_table) — PDF를 뽑은 뒤 실제로 넘친 것은 pagecheck.split_result_tables가 잡음."""
+    if rb._est_height(tbl) <= RESULT_EST_FIT:
         return False
-    top = tbl
-    while top.getparent() is not None and top.getparent() is not root:
-        top = top.getparent()  # 표가 든 맨 바깥 문단(제목 "○○ 결과표"가 같은 문단)
-    para = copy.deepcopy(top)
-    para.set("pageBreak", "1")
-    for el in para.iter():  # 복사한 문단의 제목 글자는 비움(표만)
-        if el.tag == rb.T and next(el.iterancestors(f"{{{HP}}}tbl"), None) is None:
-            rb._clear(el, "")
-    t2 = next(para.iter(f"{{{HP}}}tbl"))
-    t2.set("id", str(int(t2.get("id", "0")) + 2000))
-    rb._del_rows(tbl, k, len(rows) - k)
-    rb._del_rows(t2, 0, k)
-    top.addnext(para)
-    return True
+    return rb.split_result_table(root, tbl)
 
 
 def _result_tables(root) -> list:
