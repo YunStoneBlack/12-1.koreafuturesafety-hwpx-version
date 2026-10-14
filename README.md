@@ -106,10 +106,12 @@
   (`service_contract`·`tech_person`·`submit_doc`). 양식 `data/templates/착수계_양식.xlsx`·`완수계_양식.xlsx`(git 밖 — PC 옮길 때 data 째).
 - 규칙: 제출 = 합본 PDF를 만듦, 기한 없음, 금액 = 총용역부기금액, 문서번호 `KFSC21C_계약번호_월일`, 관리번호는 계약끼리 따로(26-N), 계약 삭제는 삭제 비밀번호.
 
-### 시특법(그룹웨어 "보고서 자동화 › 시특법" — 시설물 정기안전점검, 2026-10-10~12)
+### 시특법(그룹웨어 "보고서 자동화 › 시특법" — 시설물 정기·정밀안전점검, 2026-10-10~14)
 
-- 화면: `sitok.html`(시설물 목록 — 번호표·최근 열람순/번호순·민간/관급·📞📍·구분 카드 장기·지속/1회성·입찰/지속계약 종료, 10/13 DB 0042) · `sitok-new.html`(새 점검 대상 등록 — 계약서·이전 회차·동마다 관리대장/건축물대장 한 번에, 법정 외 자체 점검) ·
-  `sitok-facility.html?id=`(시설물·계약·같이 점검하는 동·**점검 보고서 회차**) · `sitok-field.html?report=`(현장 조사 — 폰 우선, 결함 조사 | 전경사진 | 공중이용 | 기타시설 탭) ·
+- 화면(10/14 3층 구조): `sitok.html`(시설물 목록 — 번호표·최근 열람순/번호순·민간/관급·📞📍·구분 카드 장기·지속/1회성·입찰/지속계약 종료, 줄 체크 + [선택 삭제]) · `sitok-new.html`(새 점검 대상 등록 — [계약서가 있음: 계약서 + 동마다 관리대장] / [계약서가 아직 없음: 서류 자동화 민간 계약서 만들기 → 시설물 카드까지]) ·
+  `sitok-facility.html?id=`(**점검 회차 목록**(줄마다 진행 칩·종류 배지 버튼·지난 회차 접기) + 접힌 "시설물 정보·서류"(관리대장·건축물대장·도면 3종·같이 점검하는 동·시설물 칸)·"계약"(쓰는 회차)) · `sitok-round.html?report=`(**회차 화면** — 현장 점검 큰 버튼 → 보고서(현황·AI 초안·만들기·파일) → 접힌 회차 정보) ·
+  `sitok-field.html?report=`(현장 조사 — 폰 우선, 결함 조사 | 전경사진 | 공중이용 | 기타시설 탭, 정밀이면 자료수집·하중상태; 사진 찍으면 전회차와 자동 비교 → 자동 "그대로"/진행 추천) ·
+  `sitok-tests.html?report=`(재료시험 — 표본층 고르면 기준 수량 줄 자동, 부재 선택(강재 H형강 포함), [🤖 일람표에서 설계 치수 채우기], 탄산화 사진, [전회차 그대로]) · `sitok-rating.html?report=`(상태평가) ·
   `sitok-settings.html`(등록증·수료증·기술자·장비·보수 단가표·결함 목록·회사 원본 템플릿·사진 분류 교정 기록) · `sitok-docs.html`(서류 자동화 · 시특법 — 아래 절).
   `<body data-law="sitok">`이면 shell.js가 시특법 소메뉴를 켠다.
 - 정밀안전점검(10/13 ①~): 회차 종류 `SitokReport.kind` 정기/정밀(계약서 회차 줄에서 자동), 정밀 원본은 **본문·부록 두 파일**(`master.FILES` 정밀본문·정밀부록, 다산은혜교회
@@ -118,7 +120,9 @@
   상태평가 `sitok-rating.html`(표본층별 부재 전체 개수 → 결함현황표·재료시험 집계 `server/sitok/condition.py` → `rating.evaluate`, 부록 결과자료 PDF, `SitokReport.rating`),
   현장 조사 화면 정밀 탭(자료수집·하중상태·등급 — `server/sitok/precision.py`, `sitok_precision.py`), AI 초안 22항목 `precision_ai.py`(정기 AI 창 재사용),
   만들기 `server/sitok/precision_build.py`(본문·부록 원본에 두 번 채움 — `build_body`·`build_appendix`) + 기본 글 `precision_text.py` → `sitok_reports._run_precision_build`:
-  본문 한글·PDF → 부록 한글·PDF(관리대장·사진첩·슈미트 측정데이터·상태평가 결과자료·계약서 PDF 끼움) → 합본 PDF. 묶음(여러 동) 정밀은 미지원.
+  본문 한글·PDF → 부록 한글·PDF(관리대장·사진첩·슈미트 측정데이터·탄산화 사진현황(`carb_photos.py`)·상태평가 결과자료·계약서 PDF 끼움) → 합본 PDF.
+  묶음(여러 동) 정밀(10/14): `_run_precision_group_build` — 동마다 본문 → `precision_merge.merge_body`(결과표·요약문·목차 동마다, 시설물편 제N장) → PDF, 동마다 부록 PDF → `merge_appendix_pdfs`(간지 구간마다 동 이름 간지 + 그 동 자료) → 합본.
+  구조 일람표 읽기 `schedule_read.py`(글자 있는 쪽 타일 / 글자 없으면 AI가 위치를 찾아 크게) + 기호 우선 규칙, 강재 단면적 `tests.steel_area`, 강재 규격 상태평가(`rating` SS 항목·`condition` 강재기둥·강재보).
 - 방식: **회사 원본 템플릿 하나**(`server/sitok/master.py` — 학교 보고서, 종별로 1.5·1.7 빼고 번호 다시)에 이번 값과 **전회차 보고서 데이터**(이력·현황·지난 평가)를 넣는다
   (`report_build.py`). 여러 동은 동마다 한글 → `merge.py`로 한 권. 한글로 PDF → 첨부 도면(1.2.9 뒤, `drawings.py`)·관리대장·계약서·외관조사 사진첩·전회차 비교 사진대장 합본,
   만든 뒤 자동 쪽 검사(`pagecheck.py` — 제목만 쪽 끝·꼬리말 넘음·넘친 몇 줄). 줄이 느는 표는 쪽에서 나누고(글자처럼 취급 → 자리 차지) 제목은 다음 문단과 함께.
@@ -127,7 +131,7 @@
   시설물 현황(`detail.py` — 관리대장·건축물대장·구조일반사항 도면), 1.2.8 건축물대장 변동사항(`changes.py`). 관리대장·계약서 읽기는 `reader.py`.
 - 결함 부재·결함유형은 고정 목록(`server/sitok/kinds.py` 기본값 → 회사 목록 `sitok_vocab`, 설정 탭 "결함 목록" + 회차에만 추가한 것). 상태평가 대상 판정도 `kinds.py` 한 곳.
 - 서버: `server/api/routers/sitok.py`(시설물·계약) · `sitok_onboard.py`(새 등록) · `sitok_reports.py`(회차·만들기·AI 초안·면담·시설물 현황) · `sitok_groups.py`(묶음) ·
-  `sitok_defects.py`(현장 결함·요약표·우선순위·개략공사비) · `sitok_overview.py`(전경사진) · `sitok_parts.py`(공중이용·기타시설) · `sitok_drawings.py`(도면) · `sitok_settings.py`.
+  `sitok_defects.py`(현장 결함·요약표·우선순위·개략공사비) · `sitok_overview.py`(전경사진) · `sitok_parts.py`(공중이용·기타시설) · `sitok_drawings.py`(도면 — 회차 id·시설물 id 두 경로) · `sitok_tests.py`(재료시험·슈미트·일람표·탄산화 사진) · `sitok_rating.py`(상태평가) · `sitok_precision.py` · `sitok_settings.py`.
   DB alembic 0027~0039(`sitok_facility`·`sitok_contract`·`sitok_group`·`sitok_equipment`·`sitok_report`·`sitok_defect`·`sitok_vocab`·`sitok_correction`·`sitok_unit_price`).
 - 파일: `data\_시특법\시설물명_id\`(관리대장·건축물대장·계약서·도면\·연도_반기\(틀·결과 한글/PDF·결함사진·전경사진·공중이용_기타시설)), 회사 원본은 `data\_시특법\_회사템플릿\`,
   교정 사진은 `data\_시특법\_교정사진\`. 위치도 지도는 시설물 폴더(카카오 좌표 + OpenStreetMap 타일).

@@ -549,14 +549,10 @@ def _merge(pdf: Path, ledgers: list[str], contracts: list[str]) -> list[str]:
 
 
 def _divider_page(doc, like, text: str) -> None:
-    """묶음 사진첩 앞 간지 "부록2-1. ○○"(견본 모양 — 가운데 큰 글씨) 한 쪽을 doc 끝에."""
-    font = next((p for p in (r"C:\Windows\Fonts\malgunbd.ttf", r"C:\Windows\Fonts\malgun.ttf") if Path(p).exists()), None)
-    page = doc.new_page(width=like.rect.width, height=like.rect.height)
-    box = pymupdf.Rect(40, like.rect.height / 2 - 40, like.rect.width - 40, like.rect.height / 2 + 40)
-    if font:
-        page.insert_textbox(box, text, fontsize=20, fontname="kr", fontfile=font, align=1)
-    else:
-        page.insert_textbox(box, text, fontsize=20, align=1)
+    """묶음 사진첩 앞 간지 "부록2-1. ○○"(견본 모양 — 가운데 큰 글씨) 한 쪽을 doc 끝에 — server/sitok/precision_merge._divider_page와 같은 것(10/14 한 곳으로)."""
+    from server.sitok.precision_merge import _divider_page as make
+
+    make(doc, like, text)
 
 
 def _insert_albums(db: Session, reps: list[SitokReport], names: list[str], pdf: Path) -> bool:
