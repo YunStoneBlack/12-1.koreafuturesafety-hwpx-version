@@ -52,7 +52,7 @@
       ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf?v=${v}" target="_blank" rel="noopener">${kind === "정밀" ? "합본 PDF" : "PDF 보기"}</a>` : ""}
       ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx?v=${v}">${kind === "정밀" ? "본문 한글" : "한글 받기"}</a>` : ""}
       ${r.has_appendix ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/appendix?v=${v}">부록 한글</a>` : ""}
-      ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : g && kind !== "정밀" ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>
+      ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>
       ${r.past ? "" : `<div class="rd-source"><label class="secondary-link" title="이력·시설물 현황·지난 평가 같은 데이터만 가져옵니다(보고서 틀은 회사 원본)">지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
         <span class="sk-help rd-source-msg">직전 회차가 없거나 다른 회사가 만든 지난 보고서(.hwp·.hwpx)를 올리면 전회차 데이터로 씁니다.</span></div>`}`;
     // 회차 정보

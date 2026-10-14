@@ -732,12 +732,91 @@ def _run_precision_build(db: Session, r: SitokReport) -> None:
     db.commit()
 
 
+def _run_precision_group_build(db: Session, r: SitokReport) -> None:
+    """정밀 묶음(10/14 형 2차 답 — 정기 묶음처럼): 동마다 본문 한글(이 동만)을 만들어 한 권으로 합치고(server/sitok/precision_merge.merge_body) PDF·도면·쪽 검사,
+    동마다 부록 한글·PDF(관리대장·사진첩·측정데이터·탄산화 사진현황·결과자료·계약서 끼움)를 만든 뒤 간지 구간마다 이어 붙여(merge_appendix_pdfs) 합본 PDF."""
+    from core.models_web import SitokGroup
+    from server.sitok import drawings as D
+    from server.sitok import precision_build, precision_merge
+
+    pairs: list = []
+    try:
+        pairs = _group_reports(db, r)
+        for _, x in pairs:
+            x.status, x.message, x.kind = "running", "묶음 정밀 보고서 만드는 중…", "정밀"
+        db.commit()
+        _group_amounts(pairs)
+        missing = [m.name for m, x in pairs if not (x.period_start and x.period_end)]
+        if missing:
+            raise ValueError("점검기간이 없는 동: " + ", ".join(missing))
+        parts, warn, total = [], [], 0
+        for k, (m, x) in enumerate(pairs, 1):
+            single = _report_dir(m, x) / f"{x.year}년 {x.half} 정밀안전점검 보고서_{m.name}(본문·이 동만).hwpx"
+            w, changed, new = precision_build.build_body(db, x, single)
+            total += changed
+            x.survey = {**(x.survey or {}), "single_hwpx": str(single)}
+            parts.append({"hwpx": single, "name": m.name, "title": new.title})
+            warn += [f"{m.name}: {s}" for s in w]
+            for _, y in pairs:
+                y.message = f"본문 한글 만드는 중 — {k}/{len(pairs)}동"
+            db.commit()
+        lead, lead_r = pairs[0]
+        g = db.get(SitokGroup, lead.group_id)
+        gname = (g.name if g else "") or lead.name
+        gtitle = parts[0]["title"].replace(lead.name, gname) if lead.name in parts[0]["title"] else parts[0]["title"]
+        folder = _report_dir(lead, lead_r)
+        base = f"{r.year}년 {r.half} 정밀안전점검 보고서_{gname}"
+        hwpx = folder / f"{base}(본문).hwpx"
+        warn += precision_merge.merge_body(parts, hwpx, gname, gtitle)
+        for _, y in pairs:
+            y.out_hwpx, y.message = str(hwpx), f"{len(pairs)}동 본문 합침 — 본문 PDF로 바꾸는 중(몇 분)…"
+        db.commit()
+        pdf = folder / f"{base}(본문).pdf"
+        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        chapters = [(k, [it["path"] for it in D.items(m, "attach", _facility_dir(m))]) for k, (m, _) in enumerate(pairs, 1)]
+        with pymupdf.open(pdf) as doc:  # 동마다 "1.2 시설물 관련도면 [후면첨부]" 쪽 — k번째 것
+            hits = [i for i, pg in enumerate(doc) if pg.search_for("시설물 관련도면") and pg.search_for("후면첨부")]
+        drawn = D.insert(pdf, chapters, finder=lambda pg, n: n <= len(hits) and pg.number == hits[n - 1]) if any(p for _, p in chapters) else []
+        warn = _page_check(pdf, hwpx, drawn) + warn
+        body_pages = pymupdf.open(pdf).page_count
+        apdfs, merged_all, changed2 = [], [], 0
+        for k, (m, x) in enumerate(pairs, 1):
+            for _, y in pairs:
+                y.message = f"본문 {body_pages}쪽 — 부록 만드는 중 {k}/{len(pairs)}동…"
+            db.commit()
+            appx = _report_dir(m, x) / f"{x.year}년 {x.half} 정밀안전점검 보고서_{m.name}(부록·이 동만).hwpx"  # 묶음 이름 = 대표 동 이름이면 합친 "(부록).pdf"와 겹쳐 이름을 달리
+            w2, c2 = precision_build.build_appendix(db, x, appx)
+            changed2 += c2
+            warn += [f"{m.name}: {s}" for s in w2 if f"{m.name}: {s}" not in warn]
+            apdf = appx.with_suffix(".pdf")
+            apdf.write_bytes(hwp_queue.convert_via_worker(appx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+            merged_all += [f"{m.name} {s}" for s in _precision_appendix_pdf(db, x, m, apdf)]
+            x.survey = {**(x.survey or {}), "appendix_hwpx": str(appx)}
+            apdfs.append((m.name, apdf))
+        apdf_all = folder / f"{base}(부록).pdf"
+        warn += precision_merge.merge_appendix_pdfs(apdfs, apdf_all)
+        full = folder / f"{base}_합본.pdf"
+        with pymupdf.open(pdf) as a, pymupdf.open(apdf_all) as b, pymupdf.open() as out:
+            out.insert_pdf(a)
+            out.insert_pdf(b)
+            out.save(full, garbage=3, deflate=True)
+        pages = pymupdf.open(full).page_count
+        msg = " · ".join([f"{len(pairs)}동 묶음 합본 {pages}쪽(본문 {body_pages}), {total + changed2}곳 바꿈" + (f", 부록에 {'·'.join(merged_all)} 끼움" if merged_all else "")] + [f"⚠ {w}" for w in warn])
+        now = datetime.datetime.now()
+        for _, y in pairs:
+            y.survey = {**(y.survey or {}), "appendix_pdf": str(apdf_all), "body_pdf": str(pdf)}
+            y.out_pdf, y.status, y.made_at, y.message = str(full), "done", now, msg
+    except Exception as err:  # noqa: BLE001
+        _fail([y for _, y in pairs] or [r], err)
+    db.commit()
+
+
 def _run_build(report_id: int) -> None:
     with SessionLocal() as db:
         r = db.get(SitokReport, report_id)
         f = db.get(SitokFacility, r.facility_id)
         if (r.kind or "정기") == "정밀":
-            return _run_precision_build(db, r)
+            return _run_precision_group_build(db, r) if f.group_id else _run_precision_build(db, r)
         if f.group_id:
             return _run_group_build(db, r)
         try:
@@ -864,8 +943,6 @@ def start_build(report_id: int, user: User = Depends(get_current_user), db: Sess
     if (r.kind or "정기") == "정밀":  # 정밀(10/13 ⑤) — 본문 원본으로 본문 한글·PDF(부록은 다음)
         if not master.master_path("정밀본문").exists():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전점검 본문 원본이 없습니다 — 시특법 설정에서 올리세요.")
-        if db.get(SitokFacility, r.facility_id).group_id:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전점검은 묶음 보고서를 아직 지원하지 않습니다 — 동마다 따로 만드세요.")
     elif not master.master_path().exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 원본 템플릿이 없습니다 — 시특법 설정에서 올리세요.")
     if not (r.period_start and r.period_end):
