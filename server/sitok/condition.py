@@ -13,8 +13,7 @@ from pathlib import Path
 from server.sitok import kinds, rating
 
 MEMBERS = rating.MEMBERS  # 기둥 내력벽 큰보 작은보 슬래브 테두리보 접합부 — SafetyMan 갑지 열 순서
-STEEL_MEMBERS = ("강재기둥", "강재보")  # 철골조(구조재료 철골)일 때 개수·점수(10/14 형: 정밀점검은 강재 규격만) — 갑지 표엔 없고 아래 줄로 덧붙임
-STEEL_SUB = {"기둥": "강재기둥", "큰보": "강재보", "작은보": "강재보"}  # 재료시험 강재 줄의 '기둥/큰보/작은보'(sub) → 강재 부재
+STEEL_KINDS = rating.STEEL_KINDS  # 기둥 큰보 작은보 — 철골조 층(SRC의 강재 쪽 포함)은 이 부재를 강재 항목으로 평가(SafetyMan 강재 표 열)
 ITEMS = ("DS", "CA", "CR", "SD")
 SURFACE = ("scaling", "spalling", "leak", "rebar")
 SURFACE_LABEL = {"scaling": "박리", "spalling": "박락·층분리", "leak": "누수·백태", "rebar": "철근노출"}
@@ -118,12 +117,17 @@ def _empty_counts() -> dict[str, int]:
     return {g: 0 for g in rating.GRADES}
 
 
-def aggregate(defects: list, tests_view: dict, counts: dict, *, above: int, below: int, tilt_note: str = "", settlement_note: str = "") -> dict:
-    """defects = SitokDefect 줄(결함현황표에 찍히는 것), tests_view = tests.compute() 결과, counts = {"-3": {"기둥": 48, …}} →
-    {building(rating.Building), floors: [{floor, label, range, members: [{kind, total, items: {DS: {grade, rows}, CA, CR: {counts, grade}, SD: {sub: {…}, grade}}, defects: [...]}]}],
-     excluded: [...], unassigned: [...]}."""
+def aggregate(defects: list, tests_view: dict, counts: dict, *, above: int, below: int, tilt_note: str = "", settlement_note: str = "",
+              joints: dict | None = None) -> dict:
+    """defects = SitokDefect 줄(결함현황표에 찍히는 것), tests_view = tests.compute() 결과, counts = {"-3": {"기둥": 48, …}},
+    joints = 강재 용접·볼트·부식 개수 {"5": {"큰보": {weld_n, weld_g, bolt_bad, bolt_n, corr_n, corr_g}}}(상태평가 화면) →
+    {building(rating.Building), floors: [{floor, label, range, material, steel_part?, members: [{kind, total, items: {DS: {grade, rows}, CA, CR: {counts, grade}, SD: {sub: {…}, grade}},
+     steel: {SS: {score, rows}, WE·BO·SC: {score, grade, n…}}, score}]}], excluded: [...], unassigned: [...]}.
+    구조재료(10/15 SafetyMan 직접 비교): 철골 = 기둥·큰보·작은보는 강재 항목만·내력벽 제외 / SRC = 형 SafetyMan 입력 방식 — 콘크리트 층 + 같은 층 철골조 표본층(steel_part)을 따로.
+    floors와 building.floors는 같은 차례(평가 결과 floors[i] ↔ floors[i])."""
     sample = tests_view["sample"]["floors"]
     ranges = [(f["floor"], f["start"], f["end"], f) for f in sample if f.get("start") is not None and f.get("end") is not None]
+    material = {key: (f.get("material") or "RC") for key, _, _, f in ranges}
 
     def sample_of(k: int | None):
         if k is None:
@@ -150,6 +154,9 @@ def aggregate(defects: list, tests_view: dict, counts: dict, *, above: int, belo
         if key is None:
             unassigned.append({**info, "why": "표본층 범위 밖(옥상·옥탑 또는 범위 밖 층)"})
             continue
+        if material.get(key) == "철골" and (kind in STEEL_KINDS or kind == "내력벽"):  # SafetyMan 철골조 층: 기둥·보는 강재 항목만, 내력벽 칸 없음
+            excluded.append({**info, "why": "철골조 표본층 — 기둥·보는 강재 항목만 평가(SafetyMan)" if kind != "내력벽" else "철골조 표본층에는 내력벽 칸이 없음(SafetyMan)"})
+            continue
         g, why = defect_grade(item, d.width, d.depth, d.area_ratio)
         n = int(_num(d.count) or 1)
         slot = per[key].setdefault(kind, {})
@@ -168,16 +175,50 @@ def aggregate(defects: list, tests_view: dict, counts: dict, *, above: int, belo
                 rows.append(r)
         return rows
 
-    def steel_rows(key: int, sub_kinds: tuple) -> list[dict]:
-        """재료시험 규격 조사의 강재 줄(member 강재, sub 기둥/큰보/작은보)로 그 표본층 강재 규격 등급."""
-        return [r for r in tests_view["sections"] if r.get("floor") == key and r.get("member") == "강재" and r.get("sub") in sub_kinds and r.get("grade")]
+    def steel_rows(key: int, kind: str) -> list[dict]:
+        """재료시험 규격 조사의 강재 줄(member 강재, sub 기둥/큰보/작은보)."""
+        return [r for r in tests_view["sections"] if r.get("floor") == key and r.get("member") == "강재" and r.get("sub") == kind and r.get("grade")]
+
+    def steel_items(key: int, kind: str) -> dict:
+        """강재 항목(SafetyMan 강재 표) — 규격 = 재료시험 강재 줄 등급 점수 평균(반올림 없음), 용접·볼트·부식 = 상태평가 화면 개수(joints)."""
+        out = {}
+        ss = steel_rows(key, kind)
+        if ss:
+            out["SS"] = {"score": rating.mean_score([r["grade"] for r in ss]), "rows": ss}
+        j = ((joints or {}).get(str(key)) or {}).get(kind) or {}
+        if j.get("weld_n"):
+            out["WE"] = {"score": float(rating.SCORE[j.get("weld_g") or "a"]), "grade": j.get("weld_g") or "a", "n": j["weld_n"]}
+        if j.get("bolt_n"):
+            g = rating.grade_bolt(int(j.get("bolt_bad") or 0), int(j["bolt_n"]))
+            out["BO"] = {"score": float(rating.SCORE[g]), "grade": g, "bad": int(j.get("bolt_bad") or 0), "n": j["bolt_n"]}
+        if j.get("corr_n"):
+            out["SC"] = {"score": float(rating.SCORE[j.get("corr_g") or "a"]), "grade": j.get("corr_g") or "a", "n": j["corr_n"]}
+        return out
+
+    def steel_member(fl: dict, key: int, kind: str, members: list) -> None:
+        """철골조 층의 기둥·큰보·작은보 — 강재 항목만(없으면 평가 제외)."""
+        st = steel_items(key, kind)
+        if not st:
+            fl["members"].append({"kind": kind, "total": 0, "items": {}, "steel": {}, "skip": True})
+            return
+        m = rating.Member(kind, {}, steel={k: v["score"] for k, v in st.items()})
+        score = rating.member_score(m, "철골")
+        fl["members"].append({"kind": kind, "total": 0, "items": {}, "steel": st, "grades": {}, "score": score, "possibility": None, "skip": False})
+        members.append(m)
 
     out_floors = []
     members_for_eval = []
     for key, s, e, f in ranges:
-        fl = {"floor": key, "label": f["label"], "range_label": f.get("range_label", ""), "structure": f.get("structure", "라멘"), "material": f.get("material", "RC"), "members": []}
+        mat = f.get("material", "RC")
+        fl = {"floor": key, "label": f["label"], "range_label": f.get("range_label", ""), "structure": f.get("structure", "라멘"), "material": mat, "members": []}
         members = []
         for kind in MEMBERS:
+            if mat == "철골" and kind in STEEL_KINDS:
+                steel_member(fl, key, kind, members)
+                continue
+            if mat == "철골" and kind == "내력벽":
+                fl["members"].append({"kind": kind, "total": 0, "items": {}, "skip": True})
+                continue
             total = int(_num((counts.get(str(key)) or {}).get(kind)) or 0)
             slot = per.get(key, {}).get(kind, {})
             items: dict = {}
@@ -187,10 +228,6 @@ def aggregate(defects: list, tests_view: dict, counts: dict, *, above: int, belo
             ca = test_rows("carbonation", key, kind)
             if ca:
                 items["CA"] = {"grade": rating.mean_grade([r["grade"] for r in ca]), "rows": ca}
-            if fl["material"] == "SRC":  # 철골+철콘: 같은 부재에 강재 규격 항목을 같이(Choquet RC 0.9·STL 0.9)
-                ss = steel_rows(key, (kind,))
-                if ss:
-                    items["SS"] = {"grade": rating.mean_grade([r["grade"] for r in ss]), "rows": ss}
             cr = slot.get("CR")
             sd = slot.get("SD", {})
             if total > 0 or cr or sd:
@@ -211,20 +248,17 @@ def aggregate(defects: list, tests_view: dict, counts: dict, *, above: int, belo
             fl["members"].append({"kind": kind, "total": total, "items": items, "grades": grades, "score": cond["score"], "possibility": cond["possibility"], "skip": False})
             if cond["score"] is not None:
                 members.append(rating.Member(kind, grades))
-        if fl["material"] == "철골":  # 철골조: 강재기둥·강재보 — 규격 등급만(대푯값), 개수는 상태평가 화면에서
-            for sk in STEEL_MEMBERS:
-                total = int(_num((counts.get(str(key)) or {}).get(sk)) or 0)
-                ss = steel_rows(key, tuple(k for k, v in STEEL_SUB.items() if v == sk))
-                if not ss:
-                    fl["members"].append({"kind": sk, "total": total, "items": {}, "skip": True})
-                    continue
-                grades = {"SS": rating.mean_grade([r["grade"] for r in ss])}
-                cond = rating.member_condition(grades)
-                fl["members"].append({"kind": sk, "total": total, "items": {"SS": {"grade": grades["SS"], "rows": ss}}, "grades": grades, "score": cond["score"],
-                                      "possibility": cond["possibility"], "skip": False})
-                members.append(rating.Member(sk, grades))
+        calc = "RC" if mat == "SRC" else mat  # SRC의 콘크리트 쪽은 RC 층으로(강재는 아래 철골조 표본층)
         out_floors.append(fl)
-        members_for_eval.append(rating.Floor(f"{f['label']}({fl['range_label']})", key, members, structure=f"{fl['structure']}({fl['material']})"))
+        members_for_eval.append(rating.Floor(f"{f['label']}({fl['range_label']})", key, members, structure=f"{fl['structure']}({'철골조' if calc == '철골' else calc})", material=calc))
+        if mat == "SRC":  # 형 SafetyMan 입력 방식(10/15): 같은 층을 철골조 표본층으로 하나 더 — 강재 항목이 하나라도 있으면
+            sp = {"floor": key, "label": f["label"], "range_label": f"{f['label']}~{f['label']}", "structure": fl["structure"], "material": "철골", "steel_part": True, "members": []}
+            smembers: list = []
+            for kind in STEEL_KINDS:
+                steel_member(sp, key, kind, smembers)
+            if smembers:
+                out_floors.append(sp)
+                members_for_eval.append(rating.Floor(f"{f['label']}({sp['range_label']})", key, smembers, structure=f"{fl['structure']}(철골조)", material="철골"))
     tilt_g, sett_g = tests_view["tilt"]["grade"], tests_view["settlement"]["grade"]
     b = rating.Building(above=above or 0, below=below or 0, floors=members_for_eval, tilt=tilt_g, settlement=sett_g, kind="정밀점검")
     return {"building": b, "floors": out_floors, "excluded": excluded, "unassigned": unassigned, "used": used,
@@ -418,12 +452,6 @@ def _draw_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_
         cell(pymupdf.Rect(M, y, M + c_floor + c_mid, y + rh), "평가할 부재 없음", 7.5)
         y += rh
     cell(pymupdf.Rect(M + c_floor + c_mid, body_top, W - M, y), f"{deform['score']:.2f}({deform['grade']})" if deform else "-", 8, False, None, RED)
-    steel_lines = [f"{fl['label'].split('(')[0]} {m['kind']} {m['condition']:.2f}({rating.grade_of(m['condition'])})"
-                   for fl in floors for m in fl["members"] if m["kind"] in STEEL_MEMBERS and m["condition"] is not None]
-    if steel_lines:
-        cell(pymupdf.Rect(M, y, M + c_floor, y + rh), "강재 부재", 7.5, True, HEAD_FILL)
-        cell(pymupdf.Rect(M + c_floor, y, W - M, y + rh), " · ".join(steel_lines), 7.5, False, None, RED)
-        y += rh
     y += 4
     if result:
         lines = [f"상태평가: {result['condition']['score']:.2f}({result['condition']['grade']}등급)" if result.get("condition") else "상태평가: -",
@@ -484,7 +512,7 @@ def _draw_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_
                 rows.append(row)
             grid(cols7, rows, row_h=13, size=7)
             y += 5
-        ss_rows = [(k, r) for k in (*MEMBERS, *STEEL_MEMBERS) for r in ((mem.get(k) or {}).get("items", {}).get("SS") or {}).get("rows", [])]
+        ss_rows = [(k, r) for k in STEEL_KINDS for r in (((mem.get(k) or {}).get("steel") or {}).get("SS") or {}).get("rows", [])]
         if ss_rows:
             label_row("강재규격(측정값/설계값:mm²)")
             grid([("평가부재", 1.3), ("부재", 1), ("기호", 1), ("설계 규격", 1.4), ("측정 규격", 1.4), ("측정값/설계값(mm²)", 1.4), ("등급", 0.7)],
@@ -523,6 +551,22 @@ def _selfcheck() -> None:
     assert defect_item("미장균열") is None and defect_item("균열") == "CR" and defect_item("박락") == "spalling" and defect_item("누수·백태") == "leak"
     assert defect_grade("CR", "0.1", None, "3")[0] == "b" and defect_grade("CR", "0.3", None, "25")[0] == "e" and defect_grade("scaling", None, None, None)[0] == "b"
     assert defect_grade("spalling", None, "20", "5")[0] == "d" and defect_grade("leak", None, None, "7")[0] == "c"
+    # 강재(10/15 SafetyMan 직접 비교 값): 철골조 층 기둥 = 규격 e + 용접 a → 5.0, 작은보 = 규격 a + 볼트 5/10 → 6.6, 내력벽 제외 /
+    # SRC 층 = 콘크리트 층 + 같은 층 철골조 표본층(강재 쪽, 큰보 규격 e → 9)
+    sec = lambda fl, sub, g: {"floor": fl, "member": "강재", "sub": sub, "grade": g}  # noqa: E731
+    tv = {"sample": {"floors": [{"floor": 2, "start": 1, "end": 3, "label": "지상2층", "range_label": "지상1층~지상3층", "material": "RC"},
+                                {"floor": 5, "start": 4, "end": 6, "label": "지상5층", "range_label": "지상4층~지상6층", "material": "SRC"},
+                                {"floor": 8, "start": 7, "end": 10, "label": "지상8층", "range_label": "지상7층~지상10층", "material": "철골"}]},
+          "strength": {"rows": []}, "carbonation": {"rows": []}, "sections": [sec(8, "기둥", "e"), sec(8, "작은보", "a"), sec(5, "큰보", "e")],
+          "tilt": {"grade": "a"}, "settlement": {"grade": "a"}}
+    counts = {"2": {"기둥": 10, "슬래브": 10}, "5": {"기둥": 10, "큰보": 10}, "8": {"기둥": 10, "내력벽": 10, "슬래브": 10}}
+    joints = {"8": {"기둥": {"weld_n": 6, "weld_g": "a"}, "작은보": {"bolt_bad": 5, "bolt_n": 10}}}
+    agg = aggregate([], tv, counts, above=10, below=0, joints=joints)
+    res = evaluate(agg)
+    assert [(f["floor"], f["material"], bool(f.get("steel_part"))) for f in agg["floors"]] == [(2, "RC", False), (5, "SRC", False), (5, "철골", True), (8, "철골", False)]
+    got = [{m["kind"]: m["condition"] for m in f["members"] if m["condition"] is not None} for f in res["floors"]]
+    assert got[1] == {"기둥": 1.0, "큰보": 1.0} and got[2] == {"큰보": 9.0}, got
+    assert abs(got[3]["기둥"] - 5.0) < 1e-9 and abs(got[3]["작은보"] - 6.6) < 1e-9 and got[3]["슬래브"] == 1.0 and "내력벽" not in got[3], got
     print("상태평가 집계 검증 통과")
 
 

@@ -464,7 +464,7 @@ def _fill_summary_table(root, D: Data) -> int:
         if txt == "조사결과" and (r, 9) in cells:
             _set(cells, r, 9, (D.rv["result"]["deform"]["grade"] if D.rv["result"] and D.rv["result"].get("deform") else "-"))
     # 부재별 상태평가 — 표의 층 묶음(첫 칸에 "층"이 있고 rowSpan 4) 차례로 위층부터
-    floors = sorted(D.rv["floors"], key=lambda f: -f["floor"])
+    floors = sorted([f for f in D.rv["floors"] if not f.get("steel_part")], key=lambda f: -f["floor"])  # SRC의 강재 쪽 표본층(SafetyMan 형 방식)은 요약표에 따로 안 넣음
     blocks = sorted([(r, tc) for (r, c), tc in cells.items() if c == 0 and rb._span(tc, "rowSpan") >= 3 and "층" in rb._cell_text(tc)], key=lambda x: x[0])
     if len(floors) > len(blocks) and blocks:  # 틀은 층 묶음 2개 — 마지막 묶음(부재 4줄)을 복사해 뒤에(부재 이름 열은 남기고 층·등급·결함·보수 칸만 비움, 10/14 숭의 3개층)
         r0, tc0 = blocks[-1]

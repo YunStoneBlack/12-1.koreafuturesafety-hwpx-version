@@ -8,7 +8,7 @@ SafetyMan PDF와 쪽 수·모양이 같게 나옴 — 10/15 확인.)
   47~50 최종결과 / 51~52 입력자료 / 53~54 묶음 제목 / 55~56·57·59 콘크리트강도(평가부재 줄 반복) / 60~69 균열 / 70~71·72·73 중성화 /
   74~83 박리 / 84~93 박락·층분리 / 94~101 누수·백태 / 102~109 철근노출 / 110 묶음 사이 / 281~282·283·285 강재규격 / 286~293 용접 /
   294~297 볼트 / 298~305 강재부식도 / 306~309 내화피복 / 310~315 기울기 및 침하·메모.
-SRC 묶음(철골+철콘)의 강재 규격 줄은 SafetyMan처럼 따로 "N층(N층 ~ N층) 라멘(철골조)" 묶음으로 보여 줌(형 SafetyMan 입력 방식).
+SRC 층은 콘크리트 묶음 "라멘(RC)" + 같은 층 "N층(N층 ~ N층) 라멘(철골조)" 묶음(형 SafetyMan 입력 방식 — 집계가 steel_part 층으로 따로 평가, condition.aggregate).
 """
 from __future__ import annotations
 
@@ -129,26 +129,18 @@ def _n(x) -> str:
 
 
 def _groups(agg: dict, result: dict | None) -> list[dict]:
-    """평가결과·입력자료 묶음 — 결과 층(순서·점수) + 집계 층(입력). SRC 층의 강재 규격 줄은 따로 철골조 묶음."""
-    res_by_key = {}
-    for f in (result or {}).get("floors", []):
-        res_by_key[f.get("key", f.get("floor"))] = f
-    out, steels = [], []
-    order = sorted(agg["floors"], key=lambda f: -f["floor"])  # SafetyMan: 위층부터(12층 → 5층 → -1층), 철골조 묶음은 맨 뒤
-    for fl in order:
-        res = res_by_key.get(fl["floor"]) or next((x for x in (result or {}).get("floors", []) if x.get("label", "").startswith(fl["label"])), None)
-        rng = fl.get("range_label", "")
-        steel = [(m["kind"], r) for m in fl["members"] for r in ((m.get("items") or {}).get("SS") or {}).get("rows", [])]
-        if fl["material"] == "철골":  # 철골조 층 — SafetyMan "라멘(철골조)" 묶음(콘크리트 표는 빈 모양 + 강재 표)
-            out.append({"agg": fl, "res": res, "kind": "steel", "name": _floor_name(fl["floor"]), "range": rng, "structure": f"{fl['structure']}(철골조)", "steel": steel})
-            continue
-        split = fl["material"] == "SRC" and steel
-        out.append({"agg": fl, "res": res, "kind": "rc", "name": _floor_name(fl["floor"]), "range": rng,
-                    "structure": f"{fl['structure']}({'RC' if split else fl['material']})"})
-        if split:
-            steels.append({"agg": fl, "res": res, "kind": "steel", "name": _floor_name(fl["floor"]), "range": f"{_floor_name(fl['floor'])} ~ {_floor_name(fl['floor'])}",
-                           "structure": f"{fl['structure']}(철골조)", "steel": steel})
-    return out + steels
+    """평가결과·입력자료 묶음 — 집계 층(입력)과 결과 층(점수)은 같은 차례(condition.aggregate). SRC의 강재 쪽(steel_part)은 맨 뒤 철골조 묶음."""
+    res = list((result or {}).get("floors", []))
+    pairs = [(fl, res[i] if i < len(res) else None) for i, fl in enumerate(agg["floors"])]
+    order = sorted([p for p in pairs if not p[0].get("steel_part")], key=lambda p: -p[0]["floor"]) + [p for p in pairs if p[0].get("steel_part")]  # SafetyMan: 위층부터(12층 → 5층 → -1층)
+    out = []
+    for fl, r in order:
+        steel = fl["material"] == "철골"  # 철골조 층 — SafetyMan "라멘(철골조)" 묶음(콘크리트 표 + 강재 표)
+        mat = "철골조" if steel else "RC" if fl["material"] == "SRC" else fl["material"]
+        out.append({"agg": fl, "res": r, "kind": "steel" if steel else "rc", "name": _floor_name(fl["floor"]), "range": fl.get("range_label", ""),
+                    "structure": f"{fl['structure']}({mat})",
+                    "steel": [(m["kind"], x) for m in fl["members"] for x in (((m.get("steel") or {}).get("SS") or {}).get("rows", []))]})
+    return out
 
 
 def _range_text(fl: dict) -> str:
@@ -197,17 +189,10 @@ def build(dest: Path, agg: dict, result: dict | None, building: dict, tests_view
         B.put("B", r0, f"{g['name']} \n({_range_text(g['range'])})\n{g['structure']}")
         B.clear(RES_COLS + ("BQ", "BX"), r0 + 1)
         B.put("BX", r0, None)
-        scores = {}
-        if g["kind"] == "rc" and g["res"]:
+        scores, total = {}, None
+        if g["res"]:
             scores = {m["kind"]: m.get("condition") for m in g["res"].get("members", []) if m["kind"] in MEMBERS}
             total = g["res"].get("condition")
-        else:
-            total = None
-            for k, rr in g["steel"]:
-                sc = rating.member_condition({"SS": rr.get("grade")})["score"]
-                k = _steel_slot(k, rr)
-                scores[k] = sc if scores.get(k) is None else max(scores[k], sc)
-            total = max(scores.values()) if scores else None
         for k, col in zip(MEMBERS, RES_COLS):
             v = scores.get(k)
             B.put(col, r0 + 1, "-" if v is None else round(float(v), 2))
@@ -224,7 +209,7 @@ def build(dest: Path, agg: dict, result: dict | None, building: dict, tests_view
     B.block(51, 52)
     for i, g in enumerate(groups):
         fl = g["agg"]
-        mem = {m["kind"]: m for m in fl["members"]} if g["kind"] == "rc" else {}
+        mem = {m["kind"]: m for m in fl["members"]}
         r = B.block(53, 54)
         B.put("B", r, f"{g['name']}[{_range_text(g['range']).replace(' ', '')}]{g['structure']}")
         _test_rows(B, mem, "DS", (55, 56), 57, 59, (229, 231), lambda x: f"{_n(x.get('est'))}, 0,\n0 / {_n(x.get('design'))}" + ("(D)" if x.get("damaged") else ""))

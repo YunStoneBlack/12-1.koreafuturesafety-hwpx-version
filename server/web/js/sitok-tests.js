@@ -133,7 +133,7 @@
     const pvs = (prevIn() || {}).sections || [];
     const rows = view.sections.map((r, i) => `<tr><td>B${i + 1}</td><td><select data-path="sections.${i}.floor">${floorOptions(r.floor)}</select></td>
       <td><input class="l" data-path="sections.${i}.position" value="${esc(r.position)}" placeholder="C1 / X3-Y3" />${hint(pvs[i] && !r.design ? `${pvs[i].position || ""} ${pvs[i].member} ${pvs[i].design}${pvs[i].measured && pvs[i].measured !== pvs[i].design ? " → " + pvs[i].measured : ""}`.trim() : "")}</td>
-      <td><select data-path="sections.${i}.member">${opts(MEMBERS, r.member, "부재")}</select>${r.member === "강재" ? `<select data-path="sections.${i}.sub" title="강재가 어느 부재인지 — 상태평가 강재기둥/강재보">${opts(["기둥", "큰보", "작은보"], r.sub || "기둥")}</select>` : ""}</td>
+      <td><select data-path="sections.${i}.member">${opts(MEMBERS, r.member, "부재")}</select>${r.member === "강재" ? `<select data-path="sections.${i}.sub" title="강재가 어느 부재인지 — 상태평가 강재 기둥·큰보·작은보">${opts(["기둥", "큰보", "작은보"], r.sub || "기둥")}</select>` : ""}</td>
       <td>${dimCell(`sections.${i}.design`, r.design, r.member)}</td>
       <td class="st-measured"><select data-same="${i}"><option value="1"${r.same ? " selected" : ""}>일치</option><option value="0"${r.same ? "" : " selected"}>다름</option></select>
         ${r.same ? `<span class="calc">${esc(r.design || "-")}</span>` : dimCell(`sections.${i}.measured`, r.measured, r.member)}</td>

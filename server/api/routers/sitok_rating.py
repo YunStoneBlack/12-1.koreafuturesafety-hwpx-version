@@ -1,7 +1,7 @@
 """시특법 정밀안전점검 상태평가(2026-10-13 밤, ③ 단계) — 표본층별 부재 전체 개수 입력 → 결함현황표·재료시험과 합쳐 SafetyMan 갑지와 같은 결과.
 
 - `GET /sitok/reports/{id}/rating` — 입력(counts·prev_grade·note, 비었으면 지난 정밀 회차 개수) + 결과(rating.evaluate) + 근거(층·부재·항목·결함) + 제외/미배정 결함.
-- `PATCH /sitok/reports/{id}/rating` — 입력 저장 → 같은 보기. joints = 강재 표본층의 용접·볼트·부식 개수(10/15 — SafetyMan 입력자료 표에만, 점수엔 안 들어감).
+- `PATCH /sitok/reports/{id}/rating` — 입력 저장 → 같은 보기. joints = 강재 표본층(철골·SRC)의 용접·볼트·부식 개수 — 강재 부재 점수에 들어감(10/15 SafetyMan 직접 비교).
 - `GET /sitok/reports/{id}/rating/pdf` — 부록 "상태평가 결과 자료" PDF(건축물 평가결과 + 입력자료, server/sitok/condition.make_pdf) — 회차 폴더 상태평가/.
 화면 sitok-rating.html(js/sitok-rating.js). 정밀 회차 카드 [📊 상태평가]."""
 from __future__ import annotations
@@ -70,7 +70,7 @@ def _norm_counts(v) -> dict:
             continue
         row = {}
         for m, n in (members or {}).items():
-            if m in condition.MEMBERS or m in condition.STEEL_MEMBERS:
+            if m in condition.MEMBERS:
                 try:
                     row[m] = max(0, int(float(str(n).replace(",", "")))) if str(n).strip() not in ("", "None") else 0
                 except ValueError:
@@ -99,19 +99,19 @@ def _compute(db: Session, r: SitokReport) -> dict:
     if not prev_grade and prev is not None:
         try:
             pres = condition.evaluate(condition.aggregate(_defects_for_cost(db, prev.id), tests_view(db, prev), _norm_counts((prev.rating or {}).get("counts")),
-                                                         above=f.floors_above or 0, below=f.floors_below or 0))
+                                                         above=f.floors_above or 0, below=f.floors_below or 0, joints=_norm_joints((prev.rating or {}).get("joints"))))
             prev_auto = pres["total"]["grade"] if pres and pres.get("total") else ""
         except Exception:  # noqa: BLE001 — 지난 회차가 덜 됐으면 그냥 빈칸
             prev_auto = ""
+    joints = _norm_joints(raw.get("joints"))
     agg = condition.aggregate(_defects_for_cost(db, r.id), tv, counts, above=f.floors_above or 0, below=f.floors_below or 0,
-                              tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"])
+                              tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"], joints=joints)
     result = condition.evaluate(agg)
-    steel = any(fl.get("material") == "철골" for fl in tv["sample"]["floors"])  # 철골조면 강재기둥·강재보 열(10/14)
-    steel_floors = [{"floor": fl["floor"], "label": fl["label"], "range_label": fl["range_label"], "material": fl["material"]} for fl in agg["floors"]
-                    if fl["material"] == "철골" or (fl["material"] == "SRC" and any((m.get("items") or {}).get("SS") for m in fl["members"]))]
-    return {"report": tv["report"], "building": tv["building"], "sample_floors": tv["sample"]["floors"], "members": list(condition.MEMBERS) + (list(condition.STEEL_MEMBERS) if steel else []),
+    steel_floors = [{"floor": fl["floor"], "label": fl["label"], "range_label": fl.get("range_label", ""), "material": fl["material"]} for fl in tv["sample"]["floors"]
+                    if fl.get("material") in ("철골", "SRC")]  # 용접·볼트·부식 입력 칸(철골조 층, SRC 층의 강재 쪽)
+    return {"report": tv["report"], "building": tv["building"], "sample_floors": tv["sample"]["floors"], "members": list(condition.MEMBERS),
             "counts": counts, "carried": carried, "prev_grade": prev_grade, "prev_auto": prev_auto, "prev_report": {"id": prev.id, "year": prev.year, "half": prev.half} if prev else None,
-            "note": raw.get("note") or "", "joints": _norm_joints(raw.get("joints")), "steel_floors": steel_floors, "joint_members": list(JOINT_MEMBERS), "result": result, "floors": agg["floors"], "deform": agg["deform"], "excluded": agg["excluded"], "unassigned": agg["unassigned"],
+            "note": raw.get("note") or "", "joints": joints, "steel_floors": steel_floors, "joint_members": list(JOINT_MEMBERS), "result": result, "floors": agg["floors"], "deform": agg["deform"], "excluded": agg["excluded"], "unassigned": agg["unassigned"],
             "labels": {"items": condition.ITEM_LABEL, "surface": condition.SURFACE_LABEL, "crack_rows": condition.CRACK_ROWS, "scaling_rows": condition.SCALING_ROWS,
                        "spalling_rows": condition.SPALLING_ROWS, "leak_rows": condition.LEAK_ROWS, "rebar_rows": condition.REBAR_ROWS}}
 

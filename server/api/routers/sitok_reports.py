@@ -98,7 +98,7 @@ def rating_result_pdf(db: Session, r: SitokReport, f: SitokFacility, rv: dict, t
           "total_area": area(f.total_area), "coverage": pct(led.get("coverage_ratio")), "far": pct(led.get("floor_area_ratio")),
           "above": f.floors_above or 0, "below": f.floors_below or 0, "kind_label": f"{r.kind or '정기'}점검",
           "when": when.isoformat()}  # 평가기관·연락처는 양식(SafetyMan 설정) 그대로
-    agg = condition.aggregate(_defects_for_cost(db, r.id), tv, rv["counts"], above=f.floors_above or 0, below=f.floors_below or 0,
+    agg = condition.aggregate(_defects_for_cost(db, r.id), tv, rv["counts"], above=f.floors_above or 0, below=f.floors_below or 0, joints=rv.get("joints"),
                               tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"])
     ph = overview_photos(db, r)
     dest = _report_dir(f, r) / "상태평가" / "상태평가결과.pdf"

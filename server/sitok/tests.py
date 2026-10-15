@@ -271,7 +271,7 @@ def normalize(raw: dict | None) -> dict:
         if same:
             measured = design  # 조사결과 "일치" → 설계값 그대로(10/14 형)
         member = member_of(r.get("member"))
-        sub = (r.get("sub") if r.get("sub") in ("기둥", "큰보", "작은보") else "기둥") if member == "강재" else ""  # 강재 줄: 어느 부재인지(상태평가 강재기둥/강재보, 10/14)
+        sub = (r.get("sub") if r.get("sub") in ("기둥", "큰보", "작은보") else "기둥") if member == "강재" else ""  # 강재 줄: 어느 부재인지(상태평가 철골조 기둥·큰보·작은보, 10/15 SafetyMan 강재 표)
         secs.append({"floor": _i(r.get("floor")), "position": str(r.get("position") or "").strip(), "member": member,
                      "design": design, "measured": measured, "same": same, "sub": sub})
     base["sections"] = secs

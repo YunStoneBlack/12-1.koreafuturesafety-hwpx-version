@@ -51,7 +51,7 @@
     $("sr-note").addEventListener("change", (e) => save({ note: e.target.value }));
   }
 
-  // 강재 접합·부식 개수(10/15 형 "SafetyMan과 100% 일치") — 부록 결과자료의 용접접합상태·볼트접합상태·강재부식도 표에만, 점수엔 안 들어감(정밀점검은 강재 규격만)
+  // 강재 접합·부식 개수(10/15) — 부록 결과자료의 용접접합상태·볼트접합상태·강재부식도 표 + 강재 부재 점수(SafetyMan 직접 비교: 강재규격 0.5·용접 0.7·볼트 0.7·부식 0.9 Choquet)
   const WELD = [["a", "매우양호(결함없음)"], ["b", "전반적양호(국부적 미세결함)"], ["c", "보통(부분적 결함)"], ["d", "내력저하 우려(광범위한 결함)"], ["e", "매우불량(내력저하 심각)"]];
   const CORR = [["a", "부식 거의 없음(양호)"], ["b", "판두께 감소 5% 이내"], ["c", "판두께 감소 10% 이내"], ["d", "판두께 감소 15% 이내"], ["e", "판두께 감소 15% 이상"]];
   function drawJoints() {
@@ -62,8 +62,8 @@
     const val = (f, m, k) => ((view.joints[String(f)] || {})[m] || {})[k];
     const num = (f, m, k) => `<input class="n" inputmode="numeric" data-f="${f}" data-m="${esc(m)}" data-k="${k}" value="${esc(val(f, m, k) || "")}" />`;
     const sel = (f, m, k, opts) => `<select data-f="${f}" data-m="${esc(m)}" data-k="${k}">${opts.map(([g, t]) => `<option value="${g}"${(val(f, m, k) || "a") === g ? " selected" : ""}>${g.toUpperCase()} ${esc(t)}</option>`).join("")}</select>`;
-    box.innerHTML = `<h3>강재 접합·부식 개수 <small class="page-sub">부록 결과자료(SafetyMan 표)의 용접·볼트·부식 칸에만 들어가고 점수엔 안 들어갑니다(정밀점검은 강재 규격만). 빈칸 = 표에 비움</small></h3>
-      ${fl.map((f) => `<div class="sr-jfloor"><b>${esc(f.label)}</b> <small>${esc(f.range_label)} · ${f.material === "SRC" ? "철골철근콘크리트(강재 쪽)" : "철골조"}</small>
+    box.innerHTML = `<h3>강재 접합·부식 개수 <small class="page-sub">강재 기둥·보 점수에 들어갑니다(SafetyMan과 같게 강재 규격과 함께 합산) · 부록 결과자료 용접·볼트·부식 표에도. 빈칸 = 조사 안 함</small></h3>
+      ${fl.map((f) => `<div class="sr-jfloor"><b>${esc(f.label)}</b> <small>${esc(f.range_label)} · ${f.material === "SRC" ? "SRC — 강재 쪽은 같은 층 철골조 표본층으로 따로 평가" : "철골조"}</small>
         <div class="st-tbl"><table><thead><tr><th rowspan="2">부재</th><th colspan="2">용접접합</th><th colspan="2">볼트접합</th><th colspan="2">강재부식</th></tr>
           <tr><th>개수</th><th>상태</th><th>불량</th><th>전체</th><th>개수</th><th>상태</th></tr></thead>
           <tbody>${view.joint_members.map((m) => `<tr><td class="l">${esc(m)}</td><td>${num(f.floor, m, "weld_n")}</td><td>${sel(f.floor, m, "weld_g", WELD)}</td>
@@ -112,6 +112,15 @@
     return `<div class="sr-item"><b>${esc(label)} ${grade(g)}</b>${body}</div>`;
   }
   const countsText = (c) => ["a", "b", "c", "d", "e"].map((g) => `${g.toUpperCase()} ${c[g] || 0}`).join(" · ");
+  const steelBox = (label, x, body) => `<div class="sr-item"><b>${esc(label)} <span class="cnt">${Number(x.score).toFixed(2)}점</span></b>${body}</div>`;
+  function steelBoxes(st) {  // 강재 항목 — 점수는 반올림 없는 평균(SafetyMan)
+    const out = [];
+    if (st.SS) out.push(steelBox("강재 규격", st.SS, `<span class="cnt">${st.SS.rows.map((r) => `${esc(r.design || r.measured || r.position || "")} → ${String(r.grade || "-").toUpperCase()}`).join(", ")}</span>`));
+    if (st.WE) out.push(steelBox("용접 접합상태", st.WE, `<span class="cnt">${st.WE.n}개 ${st.WE.grade.toUpperCase()}</span>`));
+    if (st.BO) out.push(steelBox("볼트 접합상태", st.BO, `<span class="cnt">불량 ${st.BO.bad}/${st.BO.n} → ${st.BO.grade.toUpperCase()}</span>`));
+    if (st.SC) out.push(steelBox("강재 부식도", st.SC, `<span class="cnt">${st.SC.n}개 ${st.SC.grade.toUpperCase()}</span>`));
+    return out;
+  }
   const defectList = (ds) => (ds.length ? `<ul class="sr-defects">${ds.map((d) => `<li>${esc(d.floor)} ${d.seq}번 ${esc(d.member)} ${esc(d.dtype)} ×${d.n} → ${d.grade.toUpperCase()} <small>(${esc(d.why)})</small></li>`).join("")}</ul>` : "");
 
   function drawDetail() {
@@ -125,13 +134,15 @@
         if (it.CR) boxes.push(itemBox(`균열 (전체 ${it.CR.total})`, it.CR.grade, `<span class="cnt">${countsText(it.CR.counts)}</span>${defectList(it.CR.defects)}`));
         if (it.SD) boxes.push(itemBox(`표면노후 (전체 ${it.SD.total})`, it.SD.grade, Object.entries(it.SD.sub).map(([k, s]) =>
           `<div><small>${esc(L.surface[k])} ${grade(s.grade)} <span class="cnt">${countsText(s.counts)}</span></small>${defectList(s.defects)}</div>`).join("")));
+        if (m.steel) boxes.push(...steelBoxes(m.steel));
         const poss = m.possibility ? Object.entries(m.possibility).map(([g, p]) => `${g.toUpperCase()} ${Number(p).toFixed(2)}`).join(" · ") : "";
-        return `<div class="sr-member"><h4>${esc(m.kind)} → <b>${m.score === null ? "-" : Number(m.score).toFixed(1)}</b> ${grade(m.score === null ? "" : gradeOf(m.score))}
-            <span class="sr-poss">가능성 ${poss}</span></h4><div class="sr-items">${boxes.join("")}</div></div>`;
+        const st = m.steel && Object.keys(m.steel).length;
+        return `<div class="sr-member"><h4>${esc(m.kind)}${st ? "(강재)" : ""} → <b>${m.score === null ? "-" : Number(m.score).toFixed(st ? 2 : 1)}</b> ${grade(m.score === null ? "" : gradeOf(m.score))}
+            ${poss ? `<span class="sr-poss">가능성 ${poss}</span>` : ""}</h4><div class="sr-items">${boxes.join("")}</div></div>`;
       }).join("");
       const skipped = fl.members.filter((m) => m.skip).map((m) => m.kind);
-      return `<details class="sr-floor" open><summary>${esc(fl.label)} <small>${esc(fl.range_label)} · ${esc(fl.structure)}(${esc(fl.material)})</small>
-          ${skipped.length ? `<small class="page-sub">평가 제외(개수·시험 없음): ${esc(skipped.join(", "))}</small>` : ""}</summary>
+      return `<details class="sr-floor" open><summary>${esc(fl.label)}${fl.steel_part ? " 강재 쪽" : ""} <small>${esc(fl.range_label)} · ${esc(fl.structure)}(${esc(fl.material === "철골" ? "철골조" : fl.material)})${fl.steel_part ? " — SRC 층을 철골조 표본층으로 하나 더(SafetyMan 형 방식)" : ""}</small>
+          ${skipped.length ? `<small class="page-sub">평가 제외(${fl.material === "철골" ? "강재 항목·개수 없음" : "개수·시험 없음"}): ${esc(skipped.join(", "))}</small>` : ""}</summary>
         <div class="sr-body">${members || '<p class="page-sub">평가할 부재가 없습니다 — 위에서 부재 개수를 넣으세요.</p>'}</div></details>`;
     }).join("");
     const ex = view.excluded, un = view.unassigned;
