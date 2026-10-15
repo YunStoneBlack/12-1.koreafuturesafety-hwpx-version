@@ -19,7 +19,6 @@
 
 <div class="crumb"><a href="sitok.html">시설물 목록</a> › <span id="sk-crumb">시설물</span></div>
 <div id="error" class="error"></div>
-<div class="sk-dong-tabs" id="sk-dong-tabs" hidden></div>
 
 <section class="panel" id="sk-rep-panel" hidden>
   <div class="panel-head"><h2>점검 회차</h2><span class="panel-count">회차를 누르면 현장 조사·재료시험·보고서 만들기 화면으로 갑니다</span></div>
@@ -29,6 +28,7 @@
 <details class="panel sk-fold" id="sk-info-panel">
   <summary class="panel-head"><h2>🏢 시설물 정보·서류</h2><span class="panel-count">관리대장·건축물대장·도면·같이 점검하는 동·시설물 칸 — 바뀌기 전까지 모든 회차가 같이 씀</span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body">
+    <div class="sk-dong-pick" id="sk-dong-pick" hidden></div>
     <div class="sk-drops" id="sk-pdfs">
       <label class="sk-drop" data-kind="ledger"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
         <b>📄 시설물관리대장 PDF</b><span class="sk-drop-msg">FMS에서 출력한 관리대장 — 올리면 AI가 읽어 아래 시설물 칸을 채웁니다(10~30초)</span></label>

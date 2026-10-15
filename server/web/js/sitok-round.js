@@ -1,7 +1,8 @@
 // 시특법 회차 화면(sitok-round.html?report=, 2026-10-14 형 피드백 ⑦ 3층 구조) — 시설물 화면의 회차 카드(js/sitok-reports.js)에 있던 것을 한 회차만 크게.
 // 위 = 현장 점검 버튼(📱 현장 조사 → 📐 재료시험·📊 상태평가(정밀) → 📝 면담·변경사항), 가운데 = 보고서(🏢 시설물 현황·🤖 AI 초안·[보고서 만들기]·파일·지난 보고서 한글),
 // 아래 = 접힌 회차 정보(계약·종류·점검기간·제출일·기술자·묶음 금액·삭제). 창(현황·면담·AI)은 js/sitok-detail.js·sitok-survey.js·sitok-ai.js 그대로.
-// 묶음(여러 동 한 보고서)이면 현장 점검·보고서 칸을 동마다 한 줄(사용자 10/15 "2개동인데 조사 섹터는 1개") — 버튼은 그 동 회차로(GET /sitok/reports/{id}.group_rounds).
+// 묶음(여러 동 한 보고서)이면 현장 점검 칸에 동 이름만(민재형 10/15 그림 "시설물명만 2개 → 누르면 1개 시설물일 때 화면") — 누르면 ?report=그 동 회차&one=1
+// (한 동 화면: 현장 조사·재료시험·상태평가·면담·현황·AI 초안). 묶음 공통(만들기·합본·FMS·회차 정보)은 동 고르기 화면에도. 동 목록 = GET /sitok/reports/{id}.group_rounds.
 // 만들기는 백그라운드(한글 PDF 몇 분) — 3초마다 진행 확인. 서버 server/api/routers/sitok_reports.py.
 
 (function () {
@@ -15,6 +16,7 @@
   let data = null; // 시설물 회차 목록 응답(persons·group·group_contracts)
   let contracts = [];
   let timer = null;
+  const one = new URLSearchParams(location.search).get("one") === "1"; // 묶음에서 한 동만 보는 화면
   if (!rid) { err(new Error("회차가 없습니다 (?report=)")); return; }
 
   const title = () => `${r.year}년 ${r.half}`;
@@ -22,12 +24,14 @@
   const big = (href, icon, label, on, sub) => `<a class="rd-btn${on ? " on" : ""}" href="${href}"><span class="rd-ic">${icon}</span><span class="rd-lb">${label}${on ? ' <em class="rd-ok">✓</em>' : ""}</span>${sub ? `<span class="rd-sub">${sub}</span>` : ""}</a>`;
   const bigBtn = (cls, icon, label, on, sub) => `<button type="button" class="rd-btn ${cls}${on ? " on" : ""}"><span class="rd-ic">${icon}</span><span class="rd-lb">${label}${on ? ' <em class="rd-ok">✓</em>' : ""}</span>${sub ? `<span class="rd-sub">${sub}</span>` : ""}</button>`;
 
-  // 묶음 동 한 줄 — 회차가 아직 없으면(묶음 보고서 만들기 때 같이 생김) 안내만
-  const withRid = (html, d) => html.replace("<button ", `<button data-rid="${d.report_id}" data-name="${esc(d.name)}" `);
-  const dongRow = (d, buttons) => `<div class="rd-dong${d.current ? " cur" : ""}">
-      <div class="rd-dong-h"><b>제${d.index}장 ${esc(d.name)}</b>${d.current ? '<span class="rd-dong-tag">이 화면</span>'
-        : d.report_id ? `<a class="rd-dong-go" href="sitok-round.html?report=${d.report_id}">이 동 회차 화면 ›</a>` : ""}</div>
-      ${d.report_id ? `<div class="rd-btns">${buttons()}</div>` : '<div class="sk-help">이 반기 회차가 아직 없습니다 — [묶음 보고서 만들기]를 누르면 같이 생깁니다.</div>'}</div>`;
+  // 묶음 동 고르기 버튼 — 진행 표시는 아래 작은 글, 회차가 아직 없으면(묶음 보고서 만들기 때 같이 생김) 안내만
+  function dongPick(d) {
+    if (!d.report_id) return `<div class="rd-btn rd-off"><span class="rd-ic">🏢</span><span class="rd-lb">제${d.index}장 ${esc(d.name)}</span><span class="rd-sub">이 반기 회차가 아직 없습니다 — [묶음 보고서 만들기] 때 같이 생깁니다</span></div>`;
+    const pre = (d.kind || "정기") === "정밀";
+    const steps = [["현장 조사", d.has_field], ...(pre ? [["재료시험", d.has_tests], ["상태평가", d.has_rating]] : []), ["면담", d.has_survey], ["현황", d.has_detail], ["AI 초안", d.has_ai]];
+    const done = d.has_field && (!pre || (d.has_tests && d.has_rating));
+    return big(`sitok-round.html?report=${d.report_id}&one=1`, "🏢", `제${d.index}장 ${esc(d.name)}`, done, steps.map(([t, ok]) => `${t}${ok ? " ✓" : ""}`).join(" · "));
+  }
 
   // 만들기 끝 안내 — 줄마다 하나(요약 / 끼운 자료 / ⚠ 알림마다, 사용자 10/15 "알림 1개당 줄바꿈"). 예전 안내(" · "로 이어 붙임)도 ⚠ 앞에서 나눔
   function doneText() {
@@ -43,27 +47,22 @@
     $("rd-fac-link").textContent = r.facility_name;
     $("rd-fac-link").href = `sitok-facility.html?id=${r.facility_id}`;
     $("rd-crumb").textContent = title();
-    $("rd-head").innerHTML = `<h1>${esc(r.facility_name)} <span class="rd-round">${title()}</span><button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button></h1>
+    const dongs = !r.past && !one && (r.group_rounds || []).length > 1 ? r.group_rounds : null;
+    $("rd-head").innerHTML = `<h1>${esc(dongs && g ? g.name : r.facility_name)} <span class="rd-round">${title()}</span><button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button></h1>
       <div class="rd-src">${r.past ? "이미 낸 보고서를 등록한 회차 — 다음 회차가 이 보고서의 데이터를 씁니다"
         : r.has_source ? `전회차 보고서: ${esc(r.source_note)}` : "전회차 보고서 없음 — 처음 맡는 시설물(우리가 하던 시설물이면 아래 [지난 보고서 한글 올리기])"}
         ${r.period_start ? ` · 점검기간 ${ymdDot(r.period_start)} ~ ${ymdDot(r.period_end)}` : ""}</div>
       ${g && !r.past ? `<div class="sk-rep-group">📚 묶음 보고서 <b>${esc(g.name)}</b> — ${g.members.map((m, i) => `제${i + 1}장 ${esc(m.name)}`).join(" · ")}
-        <span class="sk-help">점검기간·제출일·기술자는 묶인 동 회차도 같이 바뀝니다. 현장 조사·현황·AI 초안은 동마다.</span></div>` : ""}`;
+        <span class="sk-help">점검기간·제출일·기술자는 묶인 동 회차도 같이 바뀝니다. 현장 조사·현황·AI 초안은 동마다.</span></div>` : ""}
+      ${g && one && !r.past ? `<a class="rd-back" href="sitok-round.html?report=${r.id}">← ${esc(g.name)} 동 고르기</a>` : ""}`;
 
-    const dongs = !r.past && (r.group_rounds || []).length > 1 ? r.group_rounds : null;
-    $("rd-field").className = dongs ? "rd-dongs" : "rd-btns";
-    $("rd-report").className = dongs ? "rd-dongs" : "rd-btns";
     if (dongs) {
-      // 묶음 — 동마다 한 줄(제N장 동 이름 + 버튼), 지금 화면의 동은 파란 테두리
-      $("rd-field").innerHTML = dongs.map((d) => dongRow(d, () => {
-        const k = d.kind || "정기";
-        return big(`sitok-field.html?report=${d.report_id}`, "📱", "현장 조사", d.has_field, "")
-          + (k === "정밀" ? big(`sitok-tests.html?report=${d.report_id}`, "📐", "재료시험", d.has_tests, "") + big(`sitok-rating.html?report=${d.report_id}`, "📊", "상태평가", d.has_rating, "") : "")
-          + withRid(bigBtn("rd-survey", "📝", "면담·변경사항", d.has_survey, ""), d);
-      })).join("");
-      $("rd-report").innerHTML = dongs.map((d) => dongRow(d, () => withRid(bigBtn("rd-detail", "🏢", "시설물 현황", d.has_detail, ""), d)
-        + withRid(bigBtn("rd-ai", "🤖", "AI 초안", d.has_ai, ""), d))).join("");
+      // 묶음 — 동 이름만(누르면 그 동 화면), 보고서 칸은 묶음 공통(만들기·합본)만
+      $("rd-field").innerHTML = dongs.map(dongPick).join("");
+      $("rd-report").innerHTML = "";
+      $("rd-report").hidden = true;
     } else {
+      $("rd-report").hidden = false;
       // 현장 점검
       $("rd-field").innerHTML = r.past ? '<div class="empty-note">이미 낸 보고서를 등록한 회차라 현장 점검은 없습니다.</div>'
         : big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, "결함·전경사진·공중이용·기타시설" + (kind === "정밀" ? "·자료수집·하중" : ""))
@@ -98,7 +97,7 @@
         <label>제출일 <span class="sk-help">표지·제출문 연월, 비우면 점검기간 끝</span><input type="date" data-k="report_date" value="${esc(r.report_date)}" /></label>
         <label>책임기술자<select data-k="chief_id">${personOptions(r.chief_id)}</select></label>
         <label>참여기술자<select data-k="p0">${personOptions(parts[0])}</select></label>
-        ${g && !r.past ? `<label>이 동 점검금액(천원) <span class="sk-help">같은 계약서를 여러 동이 같이 쓰면 꼭 — 비면 계약 금액</span>
+        ${g && !r.past && !dongs ? `<label>이 동 점검금액(천원) <span class="sk-help">같은 계약서를 여러 동이 같이 쓰면 꼭 — 비면 계약 금액</span>
           <input data-k="amount_k" inputmode="numeric" value="${esc(r.amount_k)}" placeholder="예: 550" /></label>` : ""}
       </div>
       <div class="rd-info-foot"><span class="sk-help">계약서를 바꾸거나 더하려면 시설물 화면의 "계약" 칸에서.</span><button type="button" class="secondary btn-sm rd-del">이 회차 삭제</button></div>`;

@@ -474,7 +474,7 @@
       link.href = `sitok-facility.html?id=${data.report.facility_id}`;
       const rl = document.getElementById("sf-round-link"); // 회차 화면(10/14 3층 구조)
       rl.textContent = `${data.report.year}년 ${data.report.half}`;
-      rl.href = `sitok-round.html?report=${rid}`;
+      rl.href = `sitok-round.html?report=${rid}&one=1`;
       const empty = !data.defects.length && !started;
       document.getElementById("sf-empty").hidden = !empty;
       document.getElementById("sf-main").hidden = empty;

@@ -128,14 +128,19 @@
     if (fac) {
       document.getElementById("sk-crumb").textContent = fac.name;
       document.title = `${fac.name} - 시특법`;
-      const g = fac.group && fac.group.members.length > 1 ? fac.group : null; // 묶음이면 동 바꾸기 탭(10/15 — 목록은 묶음 카드 하나)
-      const tabs = document.getElementById("sk-dong-tabs");
-      tabs.hidden = !g;
+      const g = fac.group && fac.group.members.length > 1 ? fac.group : null; // 묶음 — 시설물 정보·서류 안에서 동 고르기(민재형 10/15 "생성한 시설물 누르면 안에 업로드")
+      const pick = document.getElementById("sk-dong-pick");
+      pick.hidden = !g;
       if (g) {
         document.getElementById("sk-crumb").textContent = `${g.name} › ${fac.name}`;
-        tabs.innerHTML = `<span class="sk-dong-tabs-h">📚 ${esc(g.name)} <small>${g.members.length}동 한 보고서</small></span>` + g.members.map((m, i) =>
+        pick.innerHTML = `<span class="sk-dong-pick-h">동을 고르면 그 동의 관리대장·건축물대장·도면·시설물 칸이 아래에 나옵니다</span>` + g.members.map((m, i) =>
           m.id === fac.id ? `<span class="sk-dong-tab on" aria-current="page">제${i + 1}장 ${esc(m.name)}</span>`
-            : `<a class="sk-dong-tab" href="sitok-facility.html?id=${m.id}">제${i + 1}장 ${esc(m.name)}</a>`).join("");
+            : `<a class="sk-dong-tab" href="sitok-facility.html?id=${m.id}#info">제${i + 1}장 ${esc(m.name)}</a>`).join("");
+        if (location.hash === "#info") { // 다른 동에서 넘어옴 — 서류 칸을 열어 둠
+          const panel = document.getElementById("sk-info-panel");
+          panel.open = true;
+          setTimeout(() => panel.scrollIntoView({ block: "start" }), 50);
+        }
       }
       (fac.contracts || []).forEach((c) => cons.appendChild(conCard(c)));
       const lead = g && g.members[0].id !== fac.id ? g.members[0] : null; // 묶음의 다른 동 — 계약서는 보통 대표 동에(한 계약에 여러 동, 10/15)

@@ -331,7 +331,7 @@
     link.textContent = r.facility_name;
     link.href = `sitok-facility.html?id=${r.facility_id}`;
     $("st-round-link").textContent = `${r.year}년 ${r.half}`; // 회차 화면(10/14 3층 구조)
-    $("st-round-link").href = `sitok-round.html?report=${rid}`;
+    $("st-round-link").href = `sitok-round.html?report=${rid}&one=1`;
     drawSample();
     drawSections();
     drawStrength();
