@@ -97,7 +97,22 @@ function writeSidebarCache(html) {
 
 // 지금 화면에 맞는 메뉴 줄 켜기 — 그룹웨어 조각은 늘 "보고서 자동화"를 켜서 주므로 서류 화면이면 "서류 자동화"로 바꾸고,
 // 그 아래 소메뉴(산안법/시특법) 중 이 화면 쪽을 켠다. 예전 조각(data-menu 없음)이면 주소로 찾는다.
+// 서류 자동화 아래 "실적"(10/15 민재형 "서류 자동화 밑에 실적 탭") — 그룹웨어 조각에 아직 그 줄이 없으면 여기서 더한다
+// (그룹웨어 appshell.html에도 같은 줄을 넣어 두었고, 그쪽이 배포되면 이미 있으니 안 더함).
+function addPerformanceItem(aside) {
+  const docs = aside.querySelector('.nav-item[data-menu="docs"]');
+  const subs = docs ? docs.nextElementSibling : null;
+  if (!subs || !subs.classList.contains("nav-sub") || subs.querySelector('.nav-subitem[data-law="perf"]')) return;
+  const a = document.createElement("a");
+  a.className = "nav-subitem";
+  a.dataset.law = "perf";
+  a.href = "docs-performance.html";
+  a.textContent = "실적";
+  subs.appendChild(a);
+}
+
 function markSidebar(aside) {
+  addPerformanceItem(aside);
   const want = isDocsPage() ? "docs" : "report";
   const parent = aside.querySelector(`.nav-item[data-menu="${want}"]`)
     || aside.querySelector(want === "docs" ? '.nav-item[href$="docs.html"]' : '.nav-item[href$="/report/"]');
@@ -106,7 +121,8 @@ function markSidebar(aside) {
   parent.classList.add("active");
   const subs = parent.nextElementSibling;
   if (subs && subs.classList.contains("nav-sub")) {
-    subs.querySelector(`.nav-subitem[data-law="${pageLaw()}"]`)?.classList.add("active");
+    const law = document.body.dataset.docsTab === "performance" ? "perf" : pageLaw();  // 실적 화면이면 "실적" 줄
+    subs.querySelector(`.nav-subitem[data-law="${law}"]`)?.classList.add("active");
   }
 }
 
