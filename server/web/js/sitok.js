@@ -64,7 +64,7 @@
   document.querySelectorAll(".sk-sector-f button").forEach((b) => b.addEventListener("click", () => { sector = b.dataset.sector; if (sector === "민간") badge.kind = ""; render(); }));
   const sectorOf = (f) => f.sector || contractOf(f)?.sector || "민간";
   const badgeOk = (f) => (!badge.field || f.badge_field === badge.field) && (!badge.kind || f.badge_kind === badge.kind);
-  const FIELDS = ["건축", "토목", "건축·토목"], KINDS = ["학교", "일반", "내진"];
+  const FIELDS = ["건축", "토목", "건축·토목"], KINDS = ["학교", "일반"];
   // 뱃지 칩(10/15 민재형 "뱃지를 달면 그 뱃지 개수 파악·그 뱃지만") — 지금 구분·목록함 안에서 셈, 누르면 거르기(한 번 더 = 풀기)
   function renderBadges() {
     const box = document.getElementById("sk-badges");

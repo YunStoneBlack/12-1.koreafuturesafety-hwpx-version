@@ -57,7 +57,7 @@
     };
     const bEl = document.getElementById("ss-badges");
     bEl.innerHTML = `<span class="sk-badge-l">분야</span>${["건축", "토목", "건축·토목"].map((v) => chip("field", v)).join("")}` +
-      (view.sector === "민간" ? "" : `<span class="sk-badge-l">관급</span>${["학교", "일반", "내진"].map((v) => chip("kind", v)).join("")}`);
+      (view.sector === "민간" ? "" : `<span class="sk-badge-l">관급</span>${["학교", "일반"].map((v) => chip("kind", v)).join("")}`);
     bEl.querySelectorAll(".sk-badge-f").forEach((b) => b.addEventListener("click", () => { view[b.dataset.dim] = view[b.dataset.dim] === b.dataset.v ? "" : b.dataset.v; render(); }));
     // 숫자 칸
     const base = baseRows();

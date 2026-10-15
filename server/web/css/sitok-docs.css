@@ -107,3 +107,11 @@
 }
 .sd-ftitle .site-no { display: inline-block; margin-right: 4px; padding: 2px 8px; border-radius: 6px; background: var(--blue-soft); color: var(--blue);
   font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* 번호 바꾸기(10/15 밤) — 번호표를 누름 */
+.main button.site-no.sd-no { margin: 0 4px 0 0; padding: 2px 8px; border: 1px dashed transparent; border-radius: 6px; background: var(--blue-soft); color: var(--blue);
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; }
+.main button.site-no.sd-no:hover { border-color: var(--blue); filter: none; }
+.sd-no-row { display: flex; align-items: center; gap: 6px; }
+.sd-no-row input { width: 110px; margin: 0; }
+.sd-auto-note { font-size: 12px; color: var(--muted, #6b7280); }

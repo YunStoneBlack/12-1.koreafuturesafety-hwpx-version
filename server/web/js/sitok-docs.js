@@ -69,7 +69,7 @@
   const conText = (c) => `${c.title} ${c.auto_title} ${c.client} ${c.facility_name} ${c.contract_no} ${c.client_manager} ${c.site_manager}`.toLowerCase();
   const TABS = [["", "전체", "시설물 카드", (k) => true], ["민간", "민간", "계약서를 우리가 작성", (k) => k.sector === "민간"],
     ["관급", "관급", "나라장터 계약 · 착수계", (k) => k.sector === "관급"]];
-  const FIELDS = ["건축", "토목", "건축·토목"], KINDS = ["학교", "일반", "내진"];
+  const FIELDS = ["건축", "토목", "건축·토목"], KINDS = ["학교", "일반"]; // 내진성능평가는 따로(10/15 밤)
   const badgeOk = (k) => (!view.field || k.badge_field === view.field) && (!view.kind || k.badge_kind === view.kind);
 
   function render() {
@@ -133,7 +133,7 @@
     const cons = contractsOf(k);
     el.innerHTML = `
       <div class="sd-fhead"><div class="sd-fmain">
-        <div class="sd-ftitle">${k.mgmt_no ? `<span class="site-no">${esc(k.mgmt_no)}</span>` : ""}<span class="sd-chip ${k.sector === "관급" ? "gov" : "civil"}">${esc(k.sector)}</span>
+        <div class="sd-ftitle">${k.mgmt_no ? `<button type="button" class="site-no sd-no" title="번호 바꾸기">${esc(k.mgmt_no)}</button>` : ""}<span class="sd-chip ${k.sector === "관급" ? "gov" : "civil"}">${esc(k.sector)}</span>
           <a href="sitok-facility.html?id=${k.id}" title="보고서 자동화 · 시설물 화면"><b>${esc(cardName(k))}</b></a>${multi ? `<span class="sk-dong-n">${k.members.length}동</span>` : ""}
           ${k.badge_field ? `<span class="sk-badge b-field">${esc(k.badge_field)}</span>` : ""}${k.badge_kind ? `<span class="sk-badge b-kind">${esc(k.badge_kind)}</span>` : ""}
           <span class="sd-ftype">${esc(TYPE_SHORT[k.contract_type] || k.contract_type || "")}</span></div>
@@ -148,9 +148,45 @@
     for (const c of cons) body.appendChild(row(c, true));
     el.querySelector(".sd-fnew").addEventListener("click", () => openContract(null, k.sector, { card: k }));
     el.querySelector(".sd-fbadge").addEventListener("click", () => editBadges(k));
+    const noBtn = el.querySelector(".sd-no");
+    if (noBtn) noBtn.addEventListener("click", () => editNumber(k));
     const links = siteLinkButtons(k.contact_phone, k.address);
     if (links) el.querySelector(".sd-fmain").appendChild(links);
     return el;
+  }
+
+  // 번호 바꾸기(10/15 민재형) — 앞 글자는 구분(관급·민간), 숫자만. 겹치면 서버가 알림, 묶인 동 같이, 다음 자동 번호는 가장 큰 번호 + 1
+  function editNumber(k) {
+    const cur = Number((String(k.mgmt_no).match(/-(\d+)$/) || [])[1]) || "";
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = `<div class="mail-box sd-badge-box" role="dialog" aria-modal="true">
+      <div class="mail-head"><b># 번호 바꾸기</b><span class="mail-sub">${esc(cardName(k))} — 보고서 자동화 시설물도 같은 번호</span></div>
+      <label class="cd-field"><span>번호</span><span class="sd-no-row"><b>${esc(k.sector)}-</b><input class="n-no" type="number" min="1" value="${cur}" /></span></label>
+      <div class="mail-note">다른 카드가 쓰는 번호는 안 됩니다. 새 카드는 지금 가장 큰 번호 다음부터 자동으로 붙습니다.</div>
+      <div class="mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="n-close">닫기</button><button type="button" class="mail-primary n-save">저장</button></div></div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector(".n-close").addEventListener("click", close);
+    const inp = overlay.querySelector(".n-no");
+    inp.focus();
+    inp.select();
+    const save = async () => {
+      try {
+        await apiPost(`${P}/facilities/${k.id}/number`, { n: Number(inp.value) });
+        close();
+        load();
+      } catch (err) {
+        const m = overlay.querySelector(".mail-msg");
+        m.hidden = false;
+        m.className = "mail-msg bad";
+        m.textContent = err.message;
+      }
+    };
+    overlay.querySelector(".n-save").addEventListener("click", save);
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
   }
 
   // 뱃지 바꾸기 — 묶인 동은 같이(PATCH /sitok/facilities/{id})
@@ -161,7 +197,7 @@
       <div class="mail-head"><b>🏷 뱃지</b><span class="mail-sub">${esc(k.mgmt_no)} ${esc(cardName(k))}</span></div>
       <label class="cd-field"><span>분야</span><select class="b-field">${FIELDS.map((v) => `<option${k.badge_field === v ? " selected" : ""}>${v}</option>`).join("")}</select></label>
       ${k.sector === "관급" ? `<label class="cd-field"><span>관급 종류</span><select class="b-kind">${KINDS.map((v) => `<option${k.badge_kind === v ? " selected" : ""}>${v}</option>`).join("")}</select></label>
-        <div class="mail-note">내진 = 주기 없는 내진성능평가 — 카드 안 계약의 반기 표시가 "해당없음"이 됩니다.</div>` : ""}
+        <div class="mail-note">계약서를 읽을 때 자동으로 정하는데, 여기서 바꾸면 그다음부턴 자동으로 안 바꿉니다.</div>` : '<div class="mail-note">계약서를 읽을 때 자동으로 정하는데, 여기서 바꾸면 그다음부턴 자동으로 안 바꿉니다.</div>'}
       <div class="mail-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="b-close">닫기</button><button type="button" class="mail-primary b-save">저장</button></div></div>`;
     document.body.appendChild(overlay);
@@ -216,6 +252,12 @@
       try { q(".nc-no").textContent = `번호 ${(await api(`/sitok/next-mgmt-no?sector=${encodeURIComponent(s)}`)).mgmt_no}`; } catch { q(".nc-no").textContent = ""; }
     };
     overlay.querySelectorAll('input[name="nc-sector"]').forEach((r) => r.addEventListener("change", onSector));
+    const guess = () => { // 이름·관리주체로 뱃지 미리(서버 guess_badges와 같은 말 — 학교·유치원·교육청이면 학교)
+      const t = `${q(".nc-name").value}${q(".nc-owner").value}`.replace(/\s/g, "");
+      q(".nc-kind").value = /학교|유치원|교육청|교육지원청/.test(t) ? "학교" : "일반";
+    };
+    q(".nc-name").addEventListener("input", guess);
+    q(".nc-owner").addEventListener("input", guess);
     onSector();
     q(".nc-name").focus();
     q(".nc-save").addEventListener("click", async () => {
@@ -445,7 +487,8 @@
         else st = await api(`${P}/contracts/${st.id}`, { method: "PUT", body: JSON.stringify(b) });
         st.bldgs = (st.buildings || []).slice();
         draw(true);
-        if (!quiet) msg("✓ 저장했습니다.", "ok");
+        if (st.auto_card) msg(esc(st.auto_card) + (st.report_id ? ` — 이번 반기 회차까지 만들었습니다 <a href="sitok-round.html?report=${st.report_id}">회차 화면</a>` : ""), "ok"); // 저장 = 카드(10/15)
+        else if (!quiet) msg("✓ 저장했습니다.", "ok");
         return true;
       } catch (err) {
         msg(esc(err.message), "bad");
@@ -498,9 +541,9 @@
         <div class="mail-head"><b>${civil ? "📝 민간 계약서" : "📑 관급 계약"}</b>
           <span class="mail-sub">${esc(st.title || (civil && st.facility_name && st.auto_title) || "새 계약")}</span>
           <div class="cd-site-line mail-sub">현장: ${f ? `<a href="sitok-facility.html?id=${f.id}">${esc(f.name)}</a>` : '<span class="dc-nosite">연결 안 됨</span>'}
-            <button type="button" class="cd-link-btn sd-link">${f ? "바꾸기" : "🔗 현장 연결"}</button>
-            ${f ? `<button type="button" class="cd-link-btn sd-tofac" title="이 계약(계약서 PDF 포함)을 시설물 화면의 계약으로 — 보고서에 씀">${st.report_contract_id ? "보고서 쪽 계약 다시 넣기" : "📋 보고서 쪽 계약으로 넣기"}</button>`
-              : `<button type="button" class="cd-link-btn sd-tofac" title="올린 관리대장(없으면 시설물명·위치·관리주체 칸)으로 시설물 카드를 만들고 이 계약을 넣고 이번 반기 회차까지 만듭니다">🏢 시설물 카드 만들어 넣기</button>`}</div></div>
+            <button type="button" class="cd-link-btn sd-link">${f ? "다른 카드로" : "🔗 카드 고르기"}</button>
+            <span class="sd-auto-note">${f ? (st.report_contract_id ? "· 보고서 쪽 계약 ✓" : "· 계약서를 올리면 저장할 때 보고서 쪽 계약까지 자동")
+              : "· 계약서를 올리면 저장할 때 시설물 카드에 자동으로 들어갑니다(같은 시설물 카드가 있으면 그 카드로)"}</span></div></div>
         <div class="sd-sector">${["민간", "관급"].map((s) => `<label><input type="radio" name="sd-sector" value="${s}"${st.sector === s ? " checked" : ""} /> ${s === "민간" ? "민간 — 계약서를 우리가 작성" : "관급 — 나라장터 계약서"}</label>`).join("")}</div>
         <div class="mail-label">서류 올리기 <span class="mail-note">— 읽어서 빈 칸을 채웁니다(PDF·한글·사진, 끌어다 놓아도 됨)</span></div>
         <div class="sd-ups${civil ? "" : " two"}">
@@ -651,23 +694,6 @@
         if (!(await save(true))) return;
         pickFacility(st, (out) => { st = out; draw(true); msg(out.facility ? `✓ 현장 "${esc(out.facility.name)}"에 연결했습니다.` : "연결을 끊었습니다.", "ok"); });
       });
-      const toFac = box.querySelector(".sd-tofac");
-      if (toFac) toFac.addEventListener("click", async () => {
-        if (!(await save(true))) return;
-        busy = true;
-        try {
-          const out = await apiPost(`${P}/contracts/${st.id}/to-facility`);
-          st = out;
-          draw(true);
-          msg(out.created_facility
-            ? `✓ 시설물 카드 "${esc(out.facility_name)}"를 만들고 이 계약을 넣었습니다${out.report_id ? " — 이번 반기 회차까지 만들었습니다" : ""}. <a href="${out.report_id ? `sitok-round.html?report=${out.report_id}` : `sitok-facility.html?id=${out.facility.id}`}">${out.report_id ? "회차 화면으로" : "시설물 화면으로"}</a>`
-            : `✓ "${esc(out.facility_name)}" 시설물의 보고서 쪽 계약으로 넣었습니다(계약서 PDF 포함) — <a href="sitok-facility.html?id=${out.facility.id}">시설물 화면</a>`, "ok");
-        } catch (err) {
-          msg(esc(err.message), "bad");
-        } finally {
-          busy = false;
-        }
-      });
       box.querySelectorAll(".sd-to-gov").forEach((b) => b.addEventListener("click", async () => { // 관급: 저장하고 착수계·완료계 창
         if (!(await save(true))) return;
         openSitokGov(st.id, b.dataset.kind, async () => { st = await api(`${P}/contracts/${st.id}`); draw(true); });
@@ -729,6 +755,7 @@
             } catch (err) { msg(esc(err.message), "bad"); }
           });
         } else if (out.error) msg(esc(out.error), "warn");
+        else if (out.auto_card) msg(`${filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")}<br>` : ""}${esc(out.auto_card)}`, "ok");
         else if (kind === "signed") msg("✓ 올렸습니다.", "ok");
         else msg(filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")} — 노란 칸을 확인하세요.` : "읽었지만 새로 채울 빈 칸이 없었습니다.", filled.length ? "ok" : "");
       } catch (err) {

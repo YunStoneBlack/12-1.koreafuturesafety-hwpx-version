@@ -103,7 +103,7 @@ HALF_TAGS = ("상반기", "하반기", "상·하반기", "해당없음")  # 시�
 def half_auto(c: SitokDocContract, f: SitokFacility | None) -> str:
     """반기 표시 자동 — 주기 없는 내진성능평가(시설물 뱃지 내진·계약건명 "내진") = 해당없음, 끝 없는 계약 = 상·하반기,
     민간 회차 줄의 반기들, 없으면 용역 기간(시작·끝이 같은 해 같은 반기면 그 반기, 아니면 상·하반기). 날짜도 없으면 빈칸."""
-    if (f is not None and f.badge_kind == "내진") or "내진" in (c.title or ""):
+    if "내진" in (c.title or ""):  # 주기 없는 내진성능평가(뱃지는 10/15 밤 뺌 — 따로 관리)
         return "해당없음"
     if c.open_ended:
         return "상·하반기"
@@ -286,9 +286,35 @@ def create_card(body: CardIn, user: User = Depends(get_current_user), db: Sessio
                                   contract_type=body.contract_type or default_type(body.sector)))
     f.mgmt_no = (body.mgmt_no or "").strip() or next_mgmt_no(db, user.company_id, body.sector)
     default_badges(f)
+    from server.api.routers.sitok import guess_badges
+    g_field, g_kind = guess_badges([body.name, body.owner_name])
+    f.badge_manual = f.badge_field != g_field or (f.sector == "관급" and f.badge_kind != g_kind)  # 이름으로 짐작한 것과 다르게 골랐으면 사람이 고른 것
     db.add(f)
     db.commit()
     return card_out(f, [f])
+
+
+class NumberIn(BaseModel):
+    n: int
+
+
+@router.post("/facilities/{fid}/number")
+def set_number(fid: int, body: NumberIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """카드 번호 바꾸기(10/15 민재형 "번호를 임의로 바꿀 수 있게") — 앞 글자는 구분(관급·민간), 숫자만. 겹치면 409, 묶인 동 같이. 다음 자동 번호는 가장 큰 번호 + 1."""
+    from server.api.routers.sitok import check_number
+
+    f = db.get(SitokFacility, fid)
+    if f is None or f.company_id != user.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
+    if body.n < 1 or body.n > 99999:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "번호는 1 이상 숫자로 넣어 주세요.")
+    no = f"{f.sector or '민간'}-{body.n}"
+    check_number(db, f, no)
+    members = db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id).all() if f.group_id else [f]
+    for m in members:
+        m.mgmt_no = no
+    db.commit()
+    return {"ok": True, "mgmt_no": no}
 
 
 @router.get("/contracts/{cid}")
@@ -301,7 +327,78 @@ def put_contract(cid: int, body: ContractIn, user: User = Depends(get_current_us
     c = _require(db, user, cid)
     _apply(c, body, user, db)
     db.commit()
-    return summary(db, c)
+    return auto_card(db, user, c) or summary(db, c)
+
+
+# ---------- 저장하면 시설물 카드에(10/15 민재형 "계약서 넣고 버튼을 눌러야 카드가 생기는데 — 저장 누르면 생기게") ----------
+
+def _norm(s: str | None) -> str:
+    return re.sub(r"[\s()（）·,._\-]", "", s or "")
+
+
+SCHOOL_RE = re.compile(r"([가-힣A-Za-z0-9]+(?:초등학교|중학교|고등학교|유치원|학교))")
+
+
+def school_names(*texts: str | None) -> set[str]:
+    """학교 이름("초성초등학교") — 띄어쓰기로 나뉜 말에서, 앞에 붙은 "…교육청"은 뗌."""
+    out = set()
+    for x in texts:
+        for m in SCHOOL_RE.findall(x or ""):
+            m = re.sub(r"^.*(교육지원청|교육청)", "", m)
+            if len(m) > 2:
+                out.add(m)
+    return out
+
+
+def match_card(db: Session, c: SitokDocContract) -> SitokFacility | None:
+    """같은 시설물 카드 — 시설물명·발주처가 카드 이름·관리주체와 (띄어쓰기 빼고) 같거나, 학교 이름("초성초등학교")이 같으면. 둘 이상이면 못 정함(None)."""
+    keys = {_norm(x) for x in (c.facility_name, c.client) if _norm(x)}
+    schools = school_names(c.facility_name, c.client)
+    hits = {}
+    for f in db.query(SitokFacility).filter(SitokFacility.company_id == c.company_id, SitokFacility.sector == c.sector):
+        names = {_norm(f.name), _norm(f.owner_name)} - {""}
+        fs = school_names(f.name, f.owner_name)
+        if keys & names or (schools and schools & fs):
+            lead = f
+            if f.group_id:
+                lead = db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id).order_by(SitokFacility.group_order, SitokFacility.id).first() or f
+            hits[lead.id] = lead
+    return next(iter(hits.values())) if len(hits) == 1 else None
+
+
+def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
+    """계약서 PDF가 있으면 저장할 때 카드에 넣고 보고서 쪽 계약까지(to_facility) — 카드가 없으면 같은 시설물 카드를 찾아 넣고, 없으면 새 카드.
+    같은 계약번호 계약이 이미 있으면(중복) 안 함. 넣을 수 없으면 None(그냥 저장)."""
+    has_pdf = (c.contract_pdf and Path(c.contract_pdf).exists()) or (folder(c) / "계약서.pdf").exists()
+    if not has_pdf or duplicate_of(db, c) is not None or not (c.facility_name or c.client or c.title):
+        return None
+    joined = None
+    if c.facility_id is None:
+        f = match_card(db, c)
+        if f is not None:
+            c.facility_id = f.id
+            joined = f
+            db.flush()
+    elif c.report_contract_id and not getattr(c, "_force", False):
+        rc = db.get(SitokContract, c.report_contract_id)
+        if rc is not None and rc.facility_id == c.facility_id and (rc.start_date, rc.end_date, rc.contract_no, rc.amount) == (c.start_date, c.end_date, c.contract_no, c.amount if c.sector == "관급" else rc.amount):
+            return None  # 이미 넣었고 바뀐 것 없음
+    try:
+        out = to_facility(c.id, user, db)
+    except HTTPException:
+        db.rollback()
+        return None
+    from server.api.routers.sitok import auto_badges
+
+    f = db.get(SitokFacility, c.facility_id)
+    if f is not None:
+        auto_badges(db, f)
+        db.commit()
+    no = f.mgmt_no if f is not None else ""
+    msg = (f"✓ 새 시설물 카드 {no} {out['facility_name']}를 만들어 넣었습니다(보고서 자동화에도 생김)" if out.get("created_facility")
+           else f"✓ 같은 시설물 카드 {no} {out['facility_name']}에 넣었습니다" if joined is not None
+           else f"✓ {no} {out['facility_name']} 카드의 보고서 쪽 계약으로 넣었습니다")
+    return summary(db, c) | {"auto_card": msg, "report_id": out.get("report_id")}
 
 
 @router.delete("/contracts/{cid}")
@@ -403,10 +500,12 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
     if c.contract_pdf and not Path(c.contract_pdf).exists():
         c.contract_pdf = str(folder(c) / "날인본.pdf")
     db.commit()
-    if c.facility_id and kind in ("g2b", "existing"):  # 카드 안 계약 — 계약서를 읽어 기간이 생기면 방문 달력 일정(10/15)
+    dup = duplicate_of(db, c)
+    auto = auto_card(db, user, c) if kind in ("g2b", "existing", "signed") else None  # 계약서를 올리면 바로 카드에(10/15 — 저장 = 카드)
+    if auto is None and c.facility_id and kind in ("g2b", "existing"):  # 카드 안 계약 — 기간이 생기면 방문 달력 일정(10/15)
         from server.sitok.visit_plan import fill_quietly
         fill_quietly(db, user.company_id, user.display_name or "", [c.facility_id])
-    return summary(db, c) | {"filled": filled, "error": error, "duplicate_of": duplicate_of(db, c)}
+    return (auto or summary(db, c)) | {"filled": filled, "error": error, "duplicate_of": dup}
 
 
 def duplicate_of(db: Session, c: SitokDocContract) -> dict | None:
@@ -602,6 +701,9 @@ def _new_facility_from(db: Session, user: User, c: SitokDocContract) -> SitokFac
     f.sector = c.sector or "민간"
     f.mgmt_no = next_mgmt_no(db, user.company_id, f.sector)
     default_badges(f)
+    from server.api.routers.sitok import guess_badges
+    f.badge_field, kind = guess_badges([c.client, c.facility_name, c.title, c.spec, f.name, f.use_type, f.main_use])
+    f.badge_kind = kind if f.sector == "관급" else ""
     f.contract_type = default_type(c.sector)
     return f
 

@@ -492,6 +492,7 @@ class SitokFacility(Base):
     sector: Mapped[str] = mapped_column(Text, default="민간")
     badge_field: Mapped[str] = mapped_column(Text, default="건축")
     badge_kind: Mapped[str] = mapped_column(Text, default="")
+    badge_manual: Mapped[bool] = mapped_column(Boolean, default=False)  # 사람이 뱃지를 바꿈 — 계약서 읽을 때 자동으로 다시 안 정함(0051)
     contact_name: Mapped[str] = mapped_column(Text, default="")
     contact_phone: Mapped[str] = mapped_column(Text, default="")
     contract_type: Mapped[str] = mapped_column(Text, default="1회성")

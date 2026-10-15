@@ -47,7 +47,12 @@ FIELDS = ("교량 및 터널", "건축", "항만", "수리시설")
 CONTRACT_TYPES = ("장기", "1회성", "종료")
 # 시설물 카드 뱃지(10/15 민재형 문서번호 일치화): 분야(민간·관급) + 관급 종류 — 목록에서 뱃지별 개수·거르기
 BADGE_FIELDS = ("건축", "토목", "건축·토목")
-BADGE_KINDS = ("학교", "일반", "내진")
+BADGE_KINDS = ("학교", "일반")  # 내진성능평가는 따로 빼기로(민재형 10/15 밤)
+# 뱃지 자동(민재형 10/15 "계약서 보고 뱃지 자동선택") — 발주처·시설물명·계약건명·제원·용도에 이 말이 있으면(주소는 안 봄 — "○○로"가 도로로 잡힘)
+SCHOOL_WORDS = ("학교", "유치원", "교육청", "교육지원청")
+BUILD_WORDS = ("건축물", "건물", "교사동", "체육관", "강당", "교회", "아파트", "공동주택", "기숙사", "청사", "주택", "빌딩", "센터", "병원", "어린이집", "학교", "유치원")
+CIVIL_WORDS = ("교량", "터널", "옹벽", "사면", "절토", "도로", "하천", "제방", "배수", "수문", "육교", "지하차도", "상수도", "하수도", "댐", "항만", "방조제",
+               "저수지", "수리시설", "토목")
 FAC_FIELDS = ("fms_no", "name", "template", "kind", "use_type", "main_use", "address", "owner_name", "owner_type", "owner_phone",
               "completion_date", "structure", "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "memo", "legal",
               "mgmt_no", "contact_name", "contact_phone", "contract_type", "sector", "badge_field", "badge_kind")
@@ -265,6 +270,32 @@ def next_mgmt_no(db: Session, company_id: int, sector: str | None = None) -> str
     return f"{sector}-{max(nums, default=0) + 1}"
 
 
+def guess_badges(texts: list[str]) -> tuple[str, str]:
+    """글들 → (분야, 관급 종류). 건물 말만 → 건축, 토목 말만 → 토목, 둘 다 → 건축·토목, 아무것도 없으면 건축. 학교 말 → 학교, 아니면 일반."""
+    t = "".join(x for x in texts if x).replace(" ", "")
+    b, c = any(w in t for w in BUILD_WORDS), any(w in t for w in CIVIL_WORDS)
+    return ("건축·토목" if b and c else "토목" if c else "건축"), ("학교" if any(w in t for w in SCHOOL_WORDS) else "일반")
+
+
+def auto_badges(db: Session, f: SitokFacility) -> None:
+    """카드(묶인 동 같이) 뱃지를 이름·용도·계약들 글로 다시 정함 — 사람이 바꾼 카드(badge_manual)는 그대로."""
+    from core.models_web import SitokDocContract
+
+    members = db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id).all() if f.group_id else [f]
+    if any(m.badge_manual for m in members):
+        return
+    ids = [m.id for m in members]
+    texts = [x for m in members for x in (m.name, m.owner_name, m.use_type, m.main_use, m.kind if m.kind != "건축물" else "")]
+    for d in db.query(SitokDocContract).filter(SitokDocContract.facility_id.in_(ids)):
+        texts += [d.client, d.facility_name, d.title, d.spec]
+    for c in db.query(SitokContract).filter(SitokContract.facility_id.in_(ids)):
+        texts.append(c.title)
+    field, kind = guess_badges(texts)
+    for m in members:
+        m.badge_field = field
+        m.badge_kind = kind if m.sector == "관급" else ""
+
+
 def default_badges(f: SitokFacility, field: str | None = None) -> None:
     """새 시설물 뱃지 기본값 — 분야는 계약 수행분야(건축 → 건축, 그 밖 → 토목), 관급 종류는 보고서 틀(3종학교 → 학교, 그 밖 → 일반). 목록에서 바꿈."""
     if not f.badge_field:
@@ -273,6 +304,14 @@ def default_badges(f: SitokFacility, field: str | None = None) -> None:
         f.badge_kind = "학교" if f.template == "3종학교" else "일반"
     if f.sector != "관급":
         f.badge_kind = ""
+
+
+def check_number(db: Session, f: SitokFacility, no: str) -> None:
+    """번호가 다른 카드와 겹치면 409(묶인 동끼리는 같은 번호라 괜찮음)."""
+    other = db.query(SitokFacility).filter(SitokFacility.company_id == f.company_id, SitokFacility.mgmt_no == no, SitokFacility.id != f.id).all()
+    other = [o for o in other if not (f.group_id and o.group_id == f.group_id)]
+    if other:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{no}은(는) {other[0].name}이(가) 쓰고 있습니다 — 다른 번호를 고르세요.")
 
 
 def default_type(sector: str | None) -> str:
@@ -484,6 +523,10 @@ def update_facility(facility_id: int, body: FacilityIn, ledger_token: str | None
                     user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     f = _require_facility(db, user, facility_id)
     old_dir = _facility_dir(f)
+    if (body.badge_field is not None and body.badge_field != f.badge_field) or (body.badge_kind is not None and (body.badge_kind or "") != (f.badge_kind or "")):
+        f.badge_manual = True  # 사람이 뱃지를 바꿈 — 자동이 다시 덮어쓰지 않게(10/15)
+    if body.mgmt_no is not None and body.mgmt_no.strip() and body.mgmt_no.strip() != f.mgmt_no:
+        check_number(db, f, body.mgmt_no.strip())
     _apply_facility(f, body)
     if _facility_dir(f) != old_dir and old_dir.exists():  # 이름이 바뀌면 폴더도
         old_dir.rename(_facility_dir(f))
