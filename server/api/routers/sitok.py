@@ -524,26 +524,6 @@ def _delete_facility(db: Session, f: SitokFacility) -> None:
     shutil.rmtree(folder, ignore_errors=True)
 
 
-class BulkDeleteIn(BaseModel):
-    ids: list[int]
-    password: str = ""
-
-
-@router.post("/facilities/delete")
-def delete_facilities(body: BulkDeleteIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """목록에서 고른 시설물 한꺼번에 지우기(10/14 형 피드백 ③) — 비밀번호 한 번, 지워지는 범위는 하나 지우기와 같음."""
-    _check_delete_password(user, body.password)
-    names = []
-    for fid in body.ids:
-        f = db.query(SitokFacility).filter(SitokFacility.id == fid, SitokFacility.company_id == user.company_id).first()
-        if f is None:
-            continue
-        names.append(f.name)
-        _delete_facility(db, f)
-    db.commit()
-    return {"ok": True, "deleted": names}
-
-
 @router.post("/facilities/{facility_id}/contracts")
 def add_contract(facility_id: int, body: ContractIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     f = _require_facility(db, user, facility_id)
