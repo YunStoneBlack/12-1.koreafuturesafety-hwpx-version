@@ -128,20 +128,28 @@ def worst(*grades: str | None) -> str | None:
     return max(gs, key=GRADES.index) if gs else None
 
 
+def score_grade(score: float) -> str:
+    """평가점수(1~9) → 등급: 자리 = (점수 - 1) / 2 를 **0.5 올림**(SafetyMan 직접 비교 10/15 — 파이썬 round는 0.5를 짝수로 보내 a·b 평균 2.0이 a가 됐음, SafetyMan은 b)."""
+    return GRADES[min(4, max(0, math.floor((score - 1) / 2 + 0.5 + 1e-9)))]
+
+
 def mean_grade(grades: list[str]) -> str:
     """단위부재 여러 측정값의 평가점수 평균 → 등급(표 6.21 "부재 평가점수 = 측정결과의 평균값")."""
     if not grades:
         raise ValueError("측정값이 없습니다.")
-    return GRADES[min(4, max(0, round((sum(SCORE[g] for g in grades) / len(grades) - 1) / 2)))]
+    return score_grade(sum(SCORE[g] for g in grades) / len(grades))
 
 
 MIN_RANGE = {"기둥": 0.2, "내력벽": 0.2, "큰보": 0.3, "작은보": 0.3, "슬래브": 0.3, "테두리보": 0.3}  # 균열·표면노후 대푯값 최소범위(표 6.23)
 
 
-def grade_from_counts(counts: dict[str, int], member: str) -> str | None:
+def grade_from_counts(counts: dict[str, int], member: str, area_ge: int = 0) -> str | None:
     """균열·표면노후처럼 부재 개수를 등급 칸에 넣는 항목(SafetyMan 입력 방식) → 부재 대푯값.
     표 6.23: "결함·손상부재를 포함해 평가대상 부재수의 최소범위(기둥·벽 20%, 보·슬래브 30%)에 대한 결함·손상부재의 평가점수의 평균값" —
-    나쁜 등급부터 최소범위 개수만큼 모아 점수 평균 → 등급. 예: 내력벽 a 4개 + b 1개 → 최소범위 1개 = b(조훈빌딩 SafetyMan 3.00과 일치)."""
+    나쁜 등급부터 최소범위 개수만큼 모아 점수 평균 → 등급. 예: 내력벽 a 4개 + b 1개 → 최소범위 1개 = b(조훈빌딩 SafetyMan 3.00과 일치).
+    area_ge = 균열 면적률 20% 이상 부재 수(SafetyMan 균열 "면적율" 표) — 평균 점수 × (1 + 0.1 × area_ge ÷ 전체 개수)
+    (10/15 SafetyMan 직접 비교 — 개수 0~10을 하나씩 바꾼 표로 확인: a7·b2·c1은 10개 다일 때만 b→c, a5·b1·c1·d2·e1은 5개부터 d→e,
+    a7·c3 + 10개 → c 그대로 / a26·e1 + 23개 → b)."""
     total = sum(int(v or 0) for v in counts.values())
     if total <= 0:
         return None
@@ -151,7 +159,7 @@ def grade_from_counts(counts: dict[str, int], member: str) -> str | None:
         for _ in range(int(counts.get(g) or 0)):
             if len(picked) < n:
                 picked.append(g)
-    return mean_grade(picked)
+    return score_grade(sum(SCORE[g] for g in picked) / len(picked) * (1 + 0.1 * int(area_ge or 0) / total))
 
 
 # ---------- 2) 부재 상태평가(퍼지 합성 — 요령 2.1.1·2.2.2, 내구성계수 Table p151~152) ----------
@@ -244,6 +252,8 @@ def choquet(pairs: list[tuple[float, float]]) -> float:
     pairs = [(h, g) for h, g in pairs if g > 0 and h is not None]
     if not pairs:
         raise ValueError("점수가 없습니다.")
+    if len(pairs) == 1:  # 하나뿐이면 그 점수(전체 집합 척도 = 1) — 철골조 묶음 부재 하나·표본층 하나·상태만 있는 종합(10/15 SafetyMan 직접 비교, 예전엔 점수×중요도)
+        return float(pairs[0][0])
     lam = fuzzy_lambda([g for _, g in pairs])
     order = sorted(pairs, key=lambda p: -p[0])
     total, prefix = 0.0, []
@@ -403,6 +413,20 @@ def _selfcheck() -> None:
     assert abs(choquet([(1, 0.9), (1, 0.9), (1, 0.7), (2, 0.5), (1, 0.3)]) - 1.5) < 0.01 and abs(choquet([(1.5, 0.9), (1.0, 0.1)]) - 1.45) < 0.01
     assert abs(choquet([(1, 0.9), (1, 0.9), (1, 0.7), (3, 0.5), (1, 0.3)]) - 2.0) < 0.01 and abs(choquet([(1, 0.9), (7, 0.9), (1, 0.7), (1, 0.5), (1, 0.3)]) - 6.4) < 0.01
     assert grade_from_counts({"a": 41, "b": 7}, "슬래브") == "a"
+    # 10/15 SafetyMan 직접 비교(.sfm 만들어 평가 — scratchpad sfm/): 0.5 올림, 균열 면적률 20%↑ > a 개수면 올림, 하나뿐인 Choquet = 그 점수
+    assert grade_from_counts({"a": 9, "b": 1}, "기둥") == "b" and grade_from_counts({"a": 8, "b": 1, "e": 1}, "기둥") == "d"  # 평균 2.0 → b, 6.0 → d
+    assert grade_from_counts({"a": 28, "b": 1, "c": 1}, "내력벽") == "b"
+    assert grade_from_counts({"a": 7, "b": 2, "c": 1}, "큰보", 10) == "c" and grade_from_counts({"a": 7, "b": 2, "c": 1}, "슬래브", 5) == "b"
+    assert grade_from_counts({"a": 7, "c": 3}, "큰보", 10) == "c" and grade_from_counts({"a": 8, "b": 1, "c": 1}, "슬래브", 10) == "b"
+    assert grade_from_counts({"a": 5, "b": 3, "c": 3, "d": 1, "e": 3}, "작은보", 6) == "e" and grade_from_counts({"a": 5, "b": 3, "c": 3, "d": 1, "e": 3}, "작은보", 1) == "d"
+    assert grade_from_counts({"a": 19, "b": 12, "c": 7, "d": 5}, "슬래브", 36) == "d" and grade_from_counts({"a": 19, "b": 12, "c": 7, "d": 5}, "슬래브") == "c"
+    assert grade_from_counts({"a": 26, "e": 1}, "큰보", 23) == "b" and grade_from_counts({"a": 9, "b": 10, "c": 7, "d": 6, "e": 5}, "큰보", 14) == "d"
+    assert grade_from_counts({"a": 12, "b": 8, "c": 8, "d": 3, "e": 5}, "슬래브", 13) == "d" and grade_from_counts({"a": 2, "b": 4, "d": 2, "e": 1}, "작은보", 3) == "d"
+    for area, want in ((9, "b"), (10, "c")):  # 면적률 개수 표(t_area): a7·b2·c1 보·슬래브
+        assert grade_from_counts({"a": 7, "b": 2, "c": 1}, "큰보", area) == want, area
+    for area, want in ((4, "d"), (5, "e")):  # a5·b1·c1·d2·e1
+        assert grade_from_counts({"a": 5, "b": 1, "c": 1, "d": 2, "e": 1}, "슬래브", area) == want, area
+    assert choquet([(6.35, 0.3)]) == 6.35 and choquet([(1.0, 0.7)]) == 1.0
     # 항목 등급
     assert grade_strength(27.6, 27) == "a" and grade_strength(27.6, 27, damaged=True) == "b" and grade_strength(20, 27) == "d"
     assert grade_carbonation(1.326, 6.1) == "a" and grade_carbonation(3.5, 6.1) == "c"
