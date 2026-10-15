@@ -228,6 +228,30 @@ class K2bSubmission(Base):
     finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
 
 
+class FmsSubmission(Base):
+    """웹판 전용 — 시특법 FMS 제출 작업(2026-10-15 alembic 0046). 회차 화면 [FMS …] → queued, 작업 프로그램(server/worker/fms_worker.py)이 하나씩.
+    stage = practice(채워 보기만) | contract(계약 등록 → 승인요청 → 관리주체 승인) | result(실적보고·e-보고서 → 승인요청 → 관리주체 승인).
+    report_ids = 같이 내는 회차들(묶음 동), project_no = FMS 계약 번호, result = 단계별 결과·FMS에서 읽은 값, shots = 화면(저장소 기준)."""
+
+    __tablename__ = "fms_submission"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    report_ids: Mapped[list | None] = mapped_column(JSON, default=None)
+    stage: Mapped[str] = mapped_column(Text, default="practice")
+    status: Mapped[str] = mapped_column(Text, default="queued")
+    options: Mapped[dict | None] = mapped_column(JSON, default=None)
+    project_no: Mapped[str] = mapped_column(Text, default="")
+    result: Mapped[dict | None] = mapped_column(JSON, default=None)
+    message: Mapped[str] = mapped_column(Text, default="")
+    log: Mapped[str] = mapped_column(Text, default="")
+    shots: Mapped[list | None] = mapped_column(JSON, default=None)
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)
+    started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
 class VisitPlan(Base):
     """웹판 전용 — 방문 달력의 "방문 예정"(2026-09-30). 날짜·현장·요원·메모. 그 현장·그 날짜 보고서가 생기면 달력에선 "다녀온 방문"으로
     바뀌어 보이고(행은 그대로 둠), 날짜가 지났는데 보고서가 없으면 "지난 예정"(server/api/routers/calendar.py). 현장이 지워지면 같이
@@ -456,6 +480,9 @@ class SitokFacility(Base):
     contact_name: Mapped[str] = mapped_column(Text, default="")
     contact_phone: Mapped[str] = mapped_column(Text, default="")
     contract_type: Mapped[str] = mapped_column(Text, default="1회성")
+    # 관리주체 FMS 계정(0046, 형 10/15 "시설물 카드에 입력") — 있으면 FMS 승인까지 자동, 비밀번호는 암호화(server/api/k2b_secret, K2B와 같은 열쇠)
+    fms_owner_id: Mapped[str] = mapped_column(Text, default="")
+    fms_owner_pw: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
@@ -570,6 +597,8 @@ class SitokReport(Base):
     tests: Mapped[dict | None] = mapped_column(JSON, default=None)
     # 정밀 상태평가 입력(0045) {counts: {표본층: {부재: 전체 개수}}, prev_grade 전회차 등급, note} — 결과는 server/sitok/condition.py가 계산
     rating: Mapped[dict | None] = mapped_column(JSON, default=None)
+    # FMS 제출 상태(0046) {project_no, contract: {status, at, by, job}, result: {…}} — server/api/routers/sitok_fms.py
+    fms: Mapped[dict | None] = mapped_column(JSON, default=None)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 

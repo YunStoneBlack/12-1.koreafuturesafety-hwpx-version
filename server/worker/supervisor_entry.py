@@ -33,8 +33,22 @@ def _k2b_loop() -> None:
             time.sleep(5)
 
 
+def _fms_loop() -> None:
+    """시특법 FMS 제출 작업(server/worker/fms_worker.py, 2026-10-15) — K2B처럼 별도 스레드. 죽으면 5초 뒤 다시."""
+    from server.worker import fms_worker
+
+    while True:
+        try:
+            fms_worker.run_forever()
+        except Exception:  # noqa: BLE001
+            print("[supervisor] fms_worker가 예기치 않게 종료됨, 5초 후 재시작:")
+            traceback.print_exc()
+            time.sleep(5)
+
+
 if __name__ == "__main__":
     threading.Thread(target=_k2b_loop, name="k2b_worker", daemon=True).start()
+    threading.Thread(target=_fms_loop, name="fms_worker", daemon=True).start()
     while True:
         try:
             run_forever()
