@@ -107,7 +107,8 @@ def half_auto(c: SitokDocContract, f: SitokFacility | None) -> str:
         return "해당없음"
     if c.open_ended:
         return "상·하반기"
-    halves = {r.get("half") for r in (c.rounds or []) if r.get("half") in ("상반기", "하반기")}
+    # 관급은 용역 기간만(10/15 사용자 "용역기간을 읽어 선택" — 회차 줄은 민간만 씀, 관급 창에 남던 기본 회차 줄 때문에 다 하반기로 나왔음)
+    halves = {r.get("half") for r in (c.rounds or []) if r.get("half") in ("상반기", "하반기")} if c.sector == "민간" else set()
     if not halves and c.start_date:
         end = c.end_date or c.start_date
         h = lambda d: "상반기" if d.month <= 6 else "하반기"  # noqa: E731
@@ -402,7 +403,24 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
     if c.contract_pdf and not Path(c.contract_pdf).exists():
         c.contract_pdf = str(folder(c) / "날인본.pdf")
     db.commit()
-    return summary(db, c) | {"filled": filled, "error": error}
+    if c.facility_id and kind in ("g2b", "existing"):  # 카드 안 계약 — 계약서를 읽어 기간이 생기면 방문 달력 일정(10/15)
+        from server.sitok.visit_plan import fill_quietly
+        fill_quietly(db, user.company_id, user.display_name or "", [c.facility_id])
+    return summary(db, c) | {"filled": filled, "error": error, "duplicate_of": duplicate_of(db, c)}
+
+
+def duplicate_of(db: Session, c: SitokDocContract) -> dict | None:
+    """같은 계약번호(나라장터)의 다른 계약 — 창을 닫고 다시 올려 계약이 둘 생기는 것 막기(10/15 민재형 "연동이 안 됨"). 카드에 든 것을 먼저."""
+    no = (c.contract_no or "").strip()
+    if not no:
+        return None
+    rows = db.query(SitokDocContract).filter(SitokDocContract.company_id == c.company_id, SitokDocContract.id != c.id,
+                                             SitokDocContract.contract_no == no).order_by(SitokDocContract.facility_id.is_(None), SitokDocContract.id).all()
+    if not rows:
+        return None
+    d = rows[0]
+    f = db.get(SitokFacility, d.facility_id) if d.facility_id else None
+    return {"id": d.id, "title": d.title or d.client, "facility": {"id": f.id, "mgmt_no": f.mgmt_no, "name": f.name} if f else None}
 
 
 # ---------- 민간 계약서 만들기 ----------
@@ -529,7 +547,7 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
     rc.halves = "연간" if c.sector == "관급" or c.open_ended or len(halves) != 1 else next(iter(halves))
     rc.amount = c.amount if c.sector == "관급" else per_half  # 보고서 쪽 민간 금액 = 반기 한 번 금액(회차마다 다르면 회차 카드 "이 동 점검금액")
     rc.rep_name = re.sub(r"^대표자\s*", "", c.client_rep or "")
-    rc.rounds = (c.rounds or []) + ([{"open_ended": True, **c.unit}] if c.open_ended and c.unit else [])  # 회차 종류(정기/정밀) 자동 선택에 씀(0043)
+    rc.rounds = ((c.rounds or []) + ([{"open_ended": True, **c.unit}] if c.open_ended and c.unit else [])) if c.sector == "민간" else None  # 회차 종류(정기/정밀) 자동 선택에 씀(0043) — 관급은 기간·계약건명으로
     dest = _facility_dir(f) / f"계약서_{rc.id}.pdf"
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src, dest)

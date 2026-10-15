@@ -92,7 +92,7 @@
     el.className = "ss-grid ss-docs ss-row";
     const f = r.facility, c = r.contract;
     el.innerHTML = `
-      <div class="ss-fac">${f ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<span class="sk-sector ${c.sector === "관급" ? "gov" : "pri"}">${esc(c.sector)}</span>
+      <div class="ss-fac">${f ? "" : '<span class="ss-nocard">카드 없음 <button type="button" class="ss-mini ss-link">🔗 카드에 넣기</button><button type="button" class="ss-mini ss-del">🗑 지우기</button></span>'}${f ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<span class="sk-sector ${c.sector === "관급" ? "gov" : "pri"}">${esc(c.sector)}</span>
         <b>${esc(f ? f.name : c.client || "(시설물 카드 없음)")}</b>${c.half ? `<span class="sd-half${c.half === "해당없음" ? " na" : ""}">${esc(c.half)}</span>` : ""}
         ${f && f.badge_field ? `<span class="sk-badge b-field">${esc(f.badge_field)}</span>` : ""}${f && f.badge_kind ? `<span class="sk-badge b-kind">${esc(f.badge_kind)}</span>` : ""}
         <span class="sub">${esc([c.title, c.period].filter(Boolean).join(" · "))}</span></div>
@@ -100,7 +100,44 @@
       <div class="ss-c" data-label="완수계">${r.done ? `<button type="button" class="ss-cell" data-item="done">${doneBadge(r)}</button>` : doneBadge(r)}</div>
       <div class="ss-c" data-label="계산서 발행"><button type="button" class="ss-cell" data-item="invoice">${r.invoice.date ? badge("ok", `✓ ${md(r.invoice.date)} 발행`) : badge("todo", "안 함")}</button></div>`;
     el.querySelectorAll(".ss-cell").forEach((b) => b.addEventListener("click", () => openCell(r, b.dataset.item)));
+    const lk = el.querySelector(".ss-link");
+    if (lk) lk.addEventListener("click", () => linkCard(r));
+    const dl = el.querySelector(".ss-del");
+    if (dl) dl.addEventListener("click", async () => {
+      const pw = await dcAskPassword(`"${r.contract.title || r.contract.client || "계약"}" — 시설물 카드에 안 넣은 계약을 지웁니다(올린 파일까지). 되돌릴 수 없습니다.`);
+      if (pw == null) return;
+      try { await api(`/sitok/docs/contracts/${r.contract.id}`, { method: "DELETE", body: JSON.stringify({ password: pw }) }); load(); } catch (err) { showError(errorEl, err); }
+    });
     return el;
+  }
+
+  // 카드 없는 계약 → 있는 시설물 카드에 넣기 / 새 카드 만들어 넣기(계약서 PDF로 시설물 + 보고서 쪽 계약·회차까지 — 계약 목록의 [🏢 시설물 카드 만들어 넣기]와 같음)
+  async function linkCard(r) {
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = '<div class="mail-box ss-mark" role="dialog" aria-modal="true"><div class="mail-wait">불러오는 중…</div></div>';
+    document.body.appendChild(overlay);
+    const box = overlay.querySelector(".mail-box");
+    const close = () => overlay.remove();
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    let cards = [];
+    try { cards = (await api("/sitok/docs/facilities")).facilities.filter((k) => k.sector === r.contract.sector); } catch (err) { box.innerHTML = `<div class="mail-msg bad">${esc(err.message)}</div>`; return; }
+    box.innerHTML = `<div class="mail-head"><b>🔗 시설물 카드에 넣기</b><span class="mail-sub">${esc(r.contract.title || r.contract.client)}</span></div>
+      <label class="cd-field"><span>있는 카드</span><select class="lc-pick"><option value="">— 카드 고르기 —</option>${cards.map((k) => `<option value="${k.id}">${esc(k.mgmt_no)} ${esc(k.members.length > 1 ? k.group_name || k.name : k.name)}</option>`).join("")}</select></label>
+      <div class="mail-note">없으면 계약서 PDF로 새 카드를 만들어 넣습니다(보고서 자동화에도 같은 번호로 생기고 이번 반기 회차까지).</div>
+      <div class="mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="lc-close">닫기</button><button type="button" class="lc-new">🏢 새 카드 만들어 넣기</button><button type="button" class="mail-primary lc-ok">카드에 넣기</button></div>`;
+    const bad = (err) => { const m = box.querySelector(".mail-msg"); m.hidden = false; m.className = "mail-msg bad"; m.textContent = err.message; };
+    box.querySelector(".lc-close").addEventListener("click", close);
+    box.querySelector(".lc-ok").addEventListener("click", async () => {
+      const fid = Number(box.querySelector(".lc-pick").value);
+      if (!fid) return;
+      try { await apiPost(`/sitok/docs/contracts/${r.contract.id}/link`, { facility_id: fid }); close(); load(); } catch (err) { bad(err); }
+    });
+    box.querySelector(".lc-new").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      try { await apiPost(`/sitok/docs/contracts/${r.contract.id}/to-facility`, {}); close(); load(); } catch (err) { bad(err); e.target.disabled = false; }
+    });
   }
 
   // 칸 창 — 착수계·완수계: [서류 창 열기](관급) + 직접 제출함 날짜, 계산서: 발행일

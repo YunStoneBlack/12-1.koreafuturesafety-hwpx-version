@@ -516,8 +516,14 @@ def _check_delete_password(user: User, password: str) -> None:
 
 
 def _delete_facility(db: Session, f: SitokFacility) -> None:
-    """계약·회차·올린 서류·만든 보고서 폴더까지. 서류 자동화 쪽 계약(SitokDocContract)은 연결만 끊김(FK SET NULL)."""
+    """계약·회차·올린 서류·만든 보고서 폴더까지 + 이 시설물 카드에 든 서류 자동화 계약(계약 폴더까지, 10/15 민재형 — 예전엔 연결만 끊겨 "카드 없음"으로 남았음)."""
+    from core.models_web import SitokDocContract
+    from server.api.routers.sitok_docs import folder as doc_folder
+
     folder = _facility_dir(f)
+    for d in db.query(SitokDocContract).filter(SitokDocContract.facility_id == f.id).all():
+        shutil.rmtree(doc_folder(d), ignore_errors=True)
+        db.delete(d)
     db.query(SitokContract).filter(SitokContract.facility_id == f.id).delete()
     db.delete(f)
     db.flush()

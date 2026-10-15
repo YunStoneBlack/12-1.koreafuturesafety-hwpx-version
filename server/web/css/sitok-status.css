@@ -34,3 +34,8 @@
   .ss-fac { grid-column: 1 / -1; }
   .ss-c::before { content: attr(data-label); display: block; font-size: 11.5px; color: var(--muted, #6b7280); margin-bottom: 2px; }
 }
+
+/* 카드 없는 계약 줄(10/15 민재형 "연동이 안 됨") — [카드에 넣기]·[지우기] */
+.ss-nocard { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--warn, #b45309); margin-right: 6px; }
+.main button.ss-mini { margin: 0; padding: 2px 8px; font-size: 11.5px; font-weight: 600; border-radius: 999px; background: var(--surface, #fff); color: var(--ink, inherit); border: 1px solid var(--line, #e2e5ea); }
+.main button.ss-mini.ss-del { color: var(--crit, #b42318); }

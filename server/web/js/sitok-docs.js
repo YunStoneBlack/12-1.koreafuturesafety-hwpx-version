@@ -378,7 +378,7 @@
       st.location = st.location || k.address || "";
       st.client = st.client || k.owner_name || "";
     }
-    if (!id && !st.rounds.length) { // 새 민간 계약: 올해·지금 반기·정기 한 줄
+    if (!id && !st.rounds.length && st.sector === "민간") { // 새 민간 계약: 올해·지금 반기·정기 한 줄(관급은 회차 줄 없음 — 반기는 용역 기간으로, 10/15)
       const now = new Date();
       st.rounds = [{ year: now.getFullYear(), half: now.getMonth() < 6 ? "상반기" : "하반기", kind: "정기", amount: null }];
     }
@@ -426,7 +426,7 @@
     }
     function body() {
       sync();
-      const b = { sector: st.sector, open_ended: !!st.open_ended, unit: st.unit || null, rounds: st.rounds.filter((r) => r.year), half_tag: st.half_tag || "" };
+      const b = { sector: st.sector, open_ended: !!st.open_ended, unit: st.unit || null, rounds: st.sector === "민간" ? st.rounds.filter((r) => r.year) : [], half_tag: st.half_tag || "" };
       if (!st.id && st.facility_id) b.facility_id = st.facility_id;
       for (const k of TEXT) b[k] = st[k] ?? "";
       for (const k of DATES) b[k] = st[k] || null;
@@ -713,7 +713,22 @@
         st = out;
         filled = out.filled || [];
         draw(true);
-        if (out.error) msg(esc(out.error), "warn");
+        const dup = out.duplicate_of; // 같은 계약번호가 이미 있음(10/15 — 창을 닫고 다시 올려 계약이 둘 생기던 것)
+        if (dup) {
+          msg(`⚠ 같은 계약번호 계약이 이미 있습니다 — ${dup.facility ? `<b>${esc(dup.facility.mgmt_no)} ${esc(dup.facility.name)}</b> 카드` : "카드에 안 넣은 계약"}(${esc(dup.title || "")}).
+            이 계약은 지우고 그 계약을 쓰세요. <button type="button" class="sd-dup-del">🗑 이 계약 지우고 닫기</button>`, "warn");
+          box.querySelector(".sd-dup-del").addEventListener("click", async () => {
+            const pw = await dcAskPassword("같은 계약번호로 새로 만든 이 계약을 지웁니다(올린 파일까지). 이미 있는 계약은 그대로입니다.");
+            if (pw == null) return;
+            try {
+              await api(`${P}/contracts/${st.id}`, { method: "DELETE", body: JSON.stringify({ password: pw }) });
+              busy = false;
+              overlay.remove();
+              document.removeEventListener("keydown", onKey, true);
+              load();
+            } catch (err) { msg(esc(err.message), "bad"); }
+          });
+        } else if (out.error) msg(esc(out.error), "warn");
         else if (kind === "signed") msg("✓ 올렸습니다.", "ok");
         else msg(filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")} — 노란 칸을 확인하세요.` : "읽었지만 새로 채울 빈 칸이 없었습니다.", filled.length ? "ok" : "");
       } catch (err) {

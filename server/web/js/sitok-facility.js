@@ -213,7 +213,7 @@
   });
 
   document.getElementById("sk-del").addEventListener("click", async () => {
-    const pw = await askPassword(`${fac.name} — 계약·올린 PDF까지 지워지고 되돌릴 수 없습니다.`);
+    const pw = await askPassword(`${fac.name} — 계약·회차·결함·올린 PDF·만든 보고서, 서류 자동화의 이 카드 계약까지 지워지고 되돌릴 수 없습니다.`);
     if (pw == null) return;
     try {
       await api(`/sitok/facilities/${id}`, { method: "DELETE", body: JSON.stringify({ password: pw }) });
