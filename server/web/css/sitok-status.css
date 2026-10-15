@@ -7,7 +7,7 @@
 .ss-cards { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .main button.st-card.warn .n { color: var(--warn, #b45309); }
 .ds-cards { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.ss-grid { display: grid; grid-template-columns: minmax(260px, 2.4fr) repeat(5, minmax(84px, .5fr)); /* 상태 칸 50%, 시설물 칸 넓게(10/16) */ align-items: center; gap: 8px; padding: 10px 16px; }
+.ss-grid { display: grid; grid-template-columns: minmax(260px, 2.4fr) minmax(84px, .4fr) minmax(84px, .4fr) minmax(100px, .4fr) minmax(84px, .4fr) minmax(84px, .4fr); /* 상태 칸 40%, 시설물 칸 넓게(10/16) — FMS는 "✓ 실적 10/15"가 들어가게 100px 이상 */ align-items: center; gap: 8px; padding: 10px 16px; }
 .ss-grid.ss-docs { grid-template-columns: minmax(260px, 2.4fr) repeat(3, minmax(96px, .7fr)); }
 .ss-head:not(.ss-docs) > span:not(:first-child) { text-align: center; } /* 보고서·이메일·FMS·출력·택배 머리글 가운데(10/16) — 칸 안 표시는 그대로 */
 .ss-head { font-size: 12.5px; color: var(--muted, #6b7280); border-bottom: 1px solid var(--line, #e2e5ea); padding-top: 8px; padding-bottom: 8px; }
