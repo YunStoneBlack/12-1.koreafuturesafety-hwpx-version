@@ -1,0 +1,57 @@
+/* 11번 제공자료 — AI 추천 이유·다른 후보, 고르기 창 분류 단추·AI/PDF 표시, 자료 올리기(2026-10-15). PC 우선, 폰은 한 줄씩 */
+.mat-suggest { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.ms-head { font-size: 13px; font-weight: 700; color: var(--ink); margin: 2px 0 6px; }
+.ms-head small { font-weight: 500; color: var(--muted); margin-left: 6px; font-size: 12px; }
+.ms-why { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.ms-why b { display: inline-block; min-width: 38px; color: var(--blue); }
+.ms-why span { color: var(--muted); }
+.ms-others { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; }
+.ms-card { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.ms-card img { width: 56px; height: 72px; object-fit: contain; background: var(--paper); border-radius: 4px; flex: none; }
+.ms-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; font-size: 12.5px; line-height: 1.35; }
+.ms-body b { font-weight: 600; color: var(--ink); }
+.ms-body small { color: var(--muted); font-size: 12px; }
+.main .ms-btns { display: flex; gap: 6px; margin-top: 4px; }
+.main .ms-btns button { margin: 0; padding: 4px 10px; font-size: 12px; }
+.ms-note { margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+.main .mat-picker-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.main .mat-picker-head h3 { margin: 0; flex: 1; min-width: 180px; }
+.main .mat-picker-head button { margin-top: 0; }
+#mat-picker.drag { outline: 2px dashed var(--blue); outline-offset: 2px; background: var(--blue-soft); }
+
+.mat-cats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.main .mat-cat { margin: 0; padding: 4px 10px; font-size: 12px; font-weight: 500; border-radius: 999px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+.main .mat-cat small { color: var(--faint); font-size: 11px; margin-left: 2px; }
+.main .mat-cat:hover { border-color: var(--blue); filter: none; }
+.main .mat-cat.on { background: var(--blue); color: #fff; border-color: var(--blue); }
+.main .mat-cat.on small { color: rgba(255, 255, 255, .8); }
+
+.lib-img { position: relative; display: block; }
+.lib-img i { position: absolute; top: 4px; font-style: normal; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 999px; }
+.lib-img .lib-ai { left: 4px; background: var(--blue); color: #fff; }
+.lib-img .lib-pdf { right: 4px; background: rgba(0, 0, 0, .55); color: #fff; }
+
+.mat-upload-result { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.main .mu-head { display: flex; gap: 10px; align-items: center; }
+.main .mu-head b { font-size: 13px; }
+.main .mu-head .mu-prog { flex: 1; font-size: 12.5px; color: var(--muted); }
+.main .mu-head button { margin: 0; padding: 4px 10px; font-size: 12px; }
+.mu-rule { margin: 6px 0 8px; font-size: 12px; color: var(--muted); }
+.mu-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+.main .mu-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; padding: 6px 8px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); }
+.mu-row img { width: 34px; height: 44px; object-fit: contain; background: var(--paper); border-radius: 3px; }
+.main .mu-row input { flex: 1; min-width: 160px; margin: 0; padding: 5px 8px; font-size: 12.5px; }
+.main .mu-btns { display: flex; gap: 6px; }
+.main .mu-btns button { margin: 0; padding: 4px 10px; font-size: 12px; }
+.mu-file { flex: 1; min-width: 140px; color: var(--ink); overflow-wrap: anywhere; }
+.mu-state { color: var(--muted); font-size: 12px; }
+.mu-row.skip { background: transparent; }
+.mu-row.skip .mu-state { color: var(--crit, #c0392b); }
+
+@media (max-width: 760px) {
+  .ms-others { grid-template-columns: 1fr; }
+  .mat-cats { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; } /* 분류 27개 — 폰은 한 줄 옆으로 밀기 */
+  .main .mat-cat { flex: none; }
+  .main .mu-row input { min-width: 0; flex-basis: 100%; }
+}

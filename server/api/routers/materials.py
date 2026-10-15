@@ -4,7 +4,10 @@
 - 슬롯마다 라이브러리 자료(`material_id`) 또는 직접 올린 이미지(`custom_photo_path`) 중 하나. 렌더러
   (`report_builder_hwpx_images.py`)는 직접 올린 이미지를 우선하므로, 라이브러리 자료를 고르면 직접 올린
   이미지를 지우고, 이미지를 올리면 라이브러리 선택을 해제해 화면과 보고서가 어긋나지 않게 한다.
-- "추천"은 이 보고서 8번 지적사항 키워드로 자료 제목/태그를 매칭(`core/material_recommender.py`, AI 아님).
+- "추천"은 [✨ AI 추천] 버튼을 누를 때만 AI가 지적사항·진행 공정·방문 월·지난 회차 자료를 보고 2개 + 후보 6개(`server/api/material_ai.py`,
+  2026-10-15). AI를 못 쓰면 분류 겹침으로. (예전 `core/material_recommender.py` 단어 겹침은 데스크톱만 씀)
+- 라이브러리 [📤 자료 올리기](2026-10-15): PDF·JPG·PNG 한 파일씩, 4쪽 넘는 PDF·같은 이름 자료는 거름, 이름 다듬기·분류
+  (`server/api/material_lib.py`). 올린 직후 이름 고치기·빼기(보고서에 안 쓰인 것만).
 - 선택이 바뀔 때마다 10-1 TBM "교육내용"을 고른 자료 제목(쉼표 나열)으로 맞춘다(데스크톱
   `_sync_education_content_from_materials`와 같은 동작 — 그 뒤에 직접 고쳐 쓰는 건 자유).
 - 라이브러리는 회사 구분 없는 공용 참조 데이터(`material_library`, 서버 시작 시 시딩 — core/db.py).
@@ -19,11 +22,10 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.material_recommender import recommend_materials
-from core.models_db import Finding, MaterialLibrary, ProvidedMaterial, SafetyEducation
+from core.models_db import MaterialLibrary, ProvidedMaterial, SafetyEducation
 from core.models_web import User
 from core.thumbnail_generator import resolve_material_path
-from server.api import repo, storage
+from server.api import material_ai, material_lib, repo, storage
 from server.api.deps import get_current_user, get_db
 from server.api.photo_thumbs import photo_response
 from server.schemas.support import MaterialIn, MaterialOut
@@ -37,6 +39,18 @@ _MATERIAL_SLOTS = range(1, 3)
 class LibraryItemOut(BaseModel):
     id: int
     title: str
+    categories: list[str] = []  # 고르기 창 분류 단추(형 Dropbox 폴더 이름 바탕, 제목·태그로 매김)
+    kind: str = ""  # "pdf" | "image"
+
+
+class LibraryUploadOut(BaseModel):
+    ok: bool
+    reason: str = ""
+    item: LibraryItemOut | None = None
+
+
+class LibraryTitleIn(BaseModel):
+    title: str
 
 
 class MaterialsChangedOut(BaseModel):
@@ -44,6 +58,7 @@ class MaterialsChangedOut(BaseModel):
 
     items: list[MaterialOut]
     education_content: str
+    suggest: dict | None = None  # AI 추천 결과 {source, note, picks[{id,title,reason}], others[...]}
 
 
 def _require_report(db: Session, company_id: int, report_id: int):
@@ -104,9 +119,55 @@ def _drop_custom_file(row: ProvidedMaterial) -> None:
 # ---------- 공용 라이브러리 ----------
 
 
+def _lib_out(m: MaterialLibrary) -> LibraryItemOut:
+    return LibraryItemOut(id=m.id, title=m.title, categories=material_lib.categories_of(m),
+                          kind="pdf" if (m.file_path or "").lower().endswith(".pdf") else "image")
+
+
 @router.get("/material-library", response_model=list[LibraryItemOut])
 def list_library(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return [LibraryItemOut(id=m.id, title=m.title) for m in db.query(MaterialLibrary).order_by(MaterialLibrary.id)]
+    return [_lib_out(m) for m in db.query(MaterialLibrary).order_by(MaterialLibrary.id)]
+
+
+@router.post("/material-library", response_model=LibraryUploadOut)
+async def upload_library(file: UploadFile, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[📤 자료 올리기] — 한 파일씩(화면이 여러 파일을 차례로 보냄). 못 넣으면 ok=false + 이유(오류 아님 — 다음 파일 계속)."""
+    row, reason = material_lib.add_material(db, await file.read(), file.filename or "자료")
+    if row is None:
+        db.rollback()
+        return LibraryUploadOut(ok=False, reason=reason)
+    db.commit()
+    return LibraryUploadOut(ok=True, item=_lib_out(row))
+
+
+@router.patch("/material-library/{material_id}", response_model=LibraryItemOut)
+def rename_library(material_id: int, body: LibraryTitleIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """올린 직후 이름 고치기. 이미 고른 보고서 칸의 제목은 그대로(칸마다 따로 저장됨)."""
+    item = db.get(MaterialLibrary, material_id)
+    title = body.title.strip()
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "자료가 없습니다.")
+    if not title:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "이름을 적어 주세요.")
+    item.title = title
+    db.commit()
+    return _lib_out(item)
+
+
+@router.delete("/material-library/{material_id}")
+def delete_library(material_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """잘못 올린 자료 빼기 — 어느 보고서에도 안 쓰인 것만(쓰인 자료를 빼면 그 보고서 그림이 사라짐)."""
+    item = db.get(MaterialLibrary, material_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "자료가 없습니다.")
+    if db.query(ProvidedMaterial).filter(ProvidedMaterial.material_id == material_id).first():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "이미 보고서에 쓰인 자료라 뺄 수 없습니다.")
+    for path in (resolve_material_path(item.file_path), resolve_material_path(item.thumbnail_path)):
+        if path is not None and path.parent.name in ("_자료실", "thumbnails"):
+            path.unlink(missing_ok=True)
+    db.delete(item)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/material-library/{material_id}/thumbnail")
@@ -178,19 +239,16 @@ def clear_material(report_id: int, slot: int, user: User = Depends(get_current_u
 
 @router.post("/reports/{report_id}/materials/recommend", response_model=MaterialsChangedOut)
 def recommend(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """8번 지적사항 키워드로 자료 2개를 골라 슬롯 1·2에 바로 채운다(데스크톱 "추천"과 같이 기존 선택을
-    바꾼다). 관련 자료가 없으면 아무것도 안 바꾸고 빈 결과(화면에서 안내)."""
-    _require_report(db, user.company_id, report_id)
-    findings = [
-        {"title": f.title, "content": f.content}
-        for f in db.query(Finding).filter(Finding.report_id == report_id).all()
-        if (f.title or "").strip() or (f.content or "").strip()
-    ]
-    if not findings:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "8번 지적사항을 먼저 입력해야 관련 자료를 추천할 수 있습니다.")
-    picked = recommend_materials(findings, db.query(MaterialLibrary).all(), limit=len(_MATERIAL_SLOTS))
+    """[✨ AI 추천] — AI가 고른 2개로 칸 1·2를 바꾸고(데스크톱 "추천"처럼 기존 선택을 바꿈), 고른 이유와 다음 후보를 같이 돌려준다.
+    고를 게 없으면 칸은 그대로 두고 빈 결과(화면에서 안내)."""
+    report = _require_report(db, user.company_id, report_id)
+    try:
+        sug = material_ai.recommend(db, user.company_id, report)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    picked = [db.get(MaterialLibrary, it["id"]) for it in sug["picks"]]
     if not picked:
-        return MaterialsChangedOut(items=[], education_content="")
+        return MaterialsChangedOut(items=[], education_content="", suggest=sug)
     for slot in _MATERIAL_SLOTS:
         row = repo.get_slot_row(db, ProvidedMaterial, report_id, slot)
         if slot <= len(picked):
@@ -203,7 +261,9 @@ def recommend(report_id: int, user: User = Depends(get_current_user), db: Sessio
             _drop_custom_file(row)
             db.delete(row)
     db.commit()
-    return _changed(db, report_id)
+    out = _changed(db, report_id)
+    out.suggest = sug
+    return out
 
 
 @router.post("/reports/{report_id}/materials/{slot}/photo", response_model=MaterialsChangedOut)

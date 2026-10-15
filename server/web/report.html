@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/k2b-submit.css" />
 <link rel="stylesheet" href="css/photo-viewer.css" />
+<link rel="stylesheet" href="css/materials.css" />
 </head>
 <body class="has-toc" data-report-tab="sites" data-tabs-only>
 <div class="app">
@@ -200,16 +201,22 @@
 <section class="panel">
   <div class="panel-head"><h2>11. 제공자료</h2></div>
   <div class="panel-body">
-  <p class="page-sub" style="margin:0 0 12px;">자료 라이브러리에서 고르거나 직접 이미지를 올립니다(최대 2개). 고른 자료 제목은 10번 "교육내용"에 자동으로 들어갑니다.</p>
-  <button type="button" class="secondary" id="mat-recommend" style="margin-top:0;">✨ 지적사항 기반 추천</button>
+  <p class="page-sub" style="margin:0 0 12px;">자료 라이브러리에서 고르거나 직접 이미지를 올립니다(최대 2개). 고른 자료 제목은 10번 "교육내용"에 자동으로 들어갑니다.
+    [✨ AI 추천]은 8번 지적사항·진행 공정·방문 월을 보고 2개를 칸에 넣고, 다른 후보도 보여 줍니다.</p>
+  <button type="button" class="secondary" id="mat-recommend" style="margin-top:0;">✨ AI 추천</button>
   <div id="mat-recommend-status" class="status"></div>
+  <div id="mat-suggest" class="mat-suggest" style="display:none;"></div>
   <div id="materials-slots" style="margin-top:12px;"></div>
   <div id="mat-picker" class="sub-card" style="display:none;">
-    <div style="display:flex; gap:8px; align-items:center;">
-      <h3 id="mat-picker-title" style="margin:0; flex:1;">자료 선택</h3>
-      <button type="button" class="secondary" id="mat-picker-close" style="margin-top:0;">닫기</button>
+    <div class="mat-picker-head">
+      <h3 id="mat-picker-title">자료 선택</h3>
+      <button type="button" class="secondary" id="mat-upload-open" title="PDF·JPG·PNG 여러 개를 한 번에 — 이 창에 끌어다 놓아도 됩니다">📤 자료 올리기</button>
+      <button type="button" class="secondary" id="mat-picker-close">닫기</button>
+      <input type="file" id="mat-upload-input" multiple accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:none;" /><!-- display:none = shell.js 파일 칸 꾸미기에서 빠짐(자체 버튼) -->
     </div>
-    <input id="mat-picker-search" placeholder="자료명 검색 (예: 추락, 굴착기, 사다리)" style="margin-top:10px;" />
+    <div id="mat-upload-result" class="mat-upload-result" style="display:none;"></div>
+    <input id="mat-picker-search" placeholder="자료명·분류 검색 (예: 추락, 굴착기, 안전모)" style="margin-top:10px;" />
+    <div id="mat-picker-cats" class="mat-cats"></div>
     <div id="mat-picker-grid" class="lib-grid"></div>
   </div>
   </div>

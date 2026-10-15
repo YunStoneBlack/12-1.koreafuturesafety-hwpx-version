@@ -185,6 +185,7 @@ function applyMaterialsChange(out) {
 }
 
 function renderMaterials(items) {
+  matItems = items;
   const container = document.getElementById("materials-slots");
   container.innerHTML = "";
   for (const data of items) {
@@ -257,13 +258,81 @@ function renderMaterials(items) {
     });
   }
   collapseEmptySlots(container, (card) => card.dataset.empty === "1", "제공자료");
+  renderSuggest();
+}
+
+// ---------- 11번 AI 추천·다른 후보·고르기 창 분류·자료 올리기 (2026-10-15 사용자·민재형) ----------
+// [✨ AI 추천]을 누를 때만 AI가 지적사항·진행 공정·방문 월·지난 회차 자료를 보고 2개를 칸에 넣고, 이유와 다른 후보(최대 6개)를 돌려준다
+// (서버 material_ai.py). 후보는 [칸 1]·[칸 2]로 바로 바꿔 넣고, 고르기 창에서도 ✨ AI 후보가 맨 앞에 보인다.
+// 고르기 창: 분류 단추(형 Dropbox 폴더 이름 바탕) + 검색(이름·분류) + [📤 자료 올리기](여러 파일을 한 파일씩 차례로, 끌어다 놓기 가능,
+// 4쪽 넘는 PDF·같은 자료는 서버가 거름, 올린 직후 이름 고치기·빼기).
+let matSuggest = null;
+let matItems = [];
+let matCat = "";
+const matEsc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const matThumb = (id) => `${BASE}/api/material-library/${id}/thumbnail`;
+const matFile = (id) => `${BASE}/api/material-library/${id}/file`;
+
+async function putMaterial(slot, id) {
+  errorEl.style.display = "none";
+  try {
+    applyMaterialsChange(await apiPatch(`${matBase}/${slot}`, { material_id: id }));
+    return true;
+  } catch (err) {
+    showError(errorEl, err);
+    return false;
+  }
+}
+
+function suggestList() {
+  return matSuggest ? [...matSuggest.picks, ...matSuggest.others] : [];
+}
+
+function renderSuggest() {
+  const box = document.getElementById("mat-suggest");
+  const all = suggestList();
+  if (!all.length) { box.style.display = "none"; box.innerHTML = ""; return; }
+  const reason = new Map(all.map((x) => [x.id, x.reason]));
+  const filled = new Set(matItems.map((x) => x.material_id).filter(Boolean));
+  const why = matItems.filter((x) => x.material_id && reason.has(x.material_id))
+    .map((x) => `<li><b>칸 ${x.slot}</b> ${matEsc(x.title)}<span> — ${matEsc(reason.get(x.material_id))}</span></li>`).join("");
+  const cands = all.filter((x) => !filled.has(x.id));
+  box.innerHTML = `
+    ${why ? `<div class="ms-head">✨ AI가 고른 이유</div><ul class="ms-why">${why}</ul>` : ""}
+    ${cands.length ? `<div class="ms-head">다른 후보 <small>[칸 1]·[칸 2]를 누르면 그 칸에 바꿔 넣습니다</small></div>
+    <div class="ms-others">${cands.map((x) => `<div class="ms-card">
+      <a href="${matFile(x.id)}" target="_blank" rel="noopener" title="크게 보기"><img loading="lazy" src="${matThumb(x.id)}" alt="" /></a>
+      <div class="ms-body"><b>${matEsc(x.title)}</b><small>${matEsc(x.reason)}</small>
+        <div class="ms-btns"><button type="button" class="secondary" data-put="1" data-id="${x.id}">칸 1</button><button type="button" class="secondary" data-put="2" data-id="${x.id}">칸 2</button></div></div></div>`).join("")}</div>` : ""}
+    ${matSuggest.note ? `<div class="ms-note">${matEsc(matSuggest.note)}</div>` : ""}`;
+  box.style.display = "block";
+  box.querySelectorAll("[data-put]").forEach((b) => b.addEventListener("click", () => putMaterial(Number(b.dataset.put), Number(b.dataset.id))));
+}
+
+function renderMaterialPickerCats() {
+  const el = document.getElementById("mat-picker-cats");
+  const counts = new Map();
+  for (const m of matLibrary) for (const c of m.categories || []) counts.set(c, (counts.get(c) || 0) + 1);
+  const sugN = new Set(suggestList().map((x) => x.id)).size;
+  if (matCat === "__ai" && !sugN) matCat = "";
+  const chip = (key, label, n) => `<button type="button" class="mat-cat${matCat === key ? " on" : ""}" data-cat="${matEsc(key)}">${matEsc(label)} <small>${n}</small></button>`;
+  el.innerHTML = chip("", "전체", matLibrary.length) + (sugN ? chip("__ai", "✨ AI 후보", sugN) : "")
+    + [...counts].sort((a, b) => b[1] - a[1]).map(([c, n]) => chip(c, c, n)).join("");
+  el.querySelectorAll(".mat-cat").forEach((b) => b.addEventListener("click", () => {
+    matCat = b.dataset.cat;
+    renderMaterialPickerCats();
+    renderMaterialPickerGrid();
+  }));
 }
 
 function renderMaterialPickerGrid() {
   const grid = document.getElementById("mat-picker-grid");
-  const q = document.getElementById("mat-picker-search").value.trim().replace(/\s+/g, "");
+  const q = document.getElementById("mat-picker-search").value.trim().replace(/\s+/g, "").toLowerCase();
+  const order = new Map(suggestList().map((x, i) => [x.id, i]));
+  const shown = matLibrary.filter((m) => (!q || (m.title + (m.categories || []).join("")).replace(/\s+/g, "").toLowerCase().includes(q))
+    && (!matCat || (matCat === "__ai" ? order.has(m.id) : (m.categories || []).includes(matCat))));
+  shown.sort((a, b) => (order.has(a.id) ? order.get(a.id) : 1e9) - (order.has(b.id) ? order.get(b.id) : 1e9)); // AI 후보 먼저, 나머지는 원래 순서
   grid.innerHTML = "";
-  const shown = matLibrary.filter((m) => !q || m.title.replace(/\s+/g, "").includes(q));
   if (!shown.length) {
     grid.innerHTML = '<div class="empty-note">검색 결과가 없습니다.</div>';
     return;
@@ -272,19 +341,17 @@ function renderMaterialPickerGrid() {
     const tile = document.createElement("button");
     tile.type = "button";
     tile.className = "lib-tile";
-    tile.innerHTML = `<img loading="lazy" src="${BASE}/api/material-library/${m.id}/thumbnail" alt="" /><span></span>`;
-    tile.querySelector("span").textContent = m.title;
+    tile.innerHTML = `<span class="lib-img"><img loading="lazy" src="${matThumb(m.id)}" alt="" />${order.has(m.id) ? '<i class="lib-ai">✨ AI</i>' : ""}${m.kind === "pdf" ? '<i class="lib-pdf">PDF</i>' : ""}</span><span class="lib-name"></span>`;
+    tile.querySelector(".lib-name").textContent = m.title;
     tile.addEventListener("click", async () => {
-      errorEl.style.display = "none";
-      try {
-        applyMaterialsChange(await apiPatch(`${matBase}/${matPickerSlot}`, { material_id: m.id }));
-        document.getElementById("mat-picker").style.display = "none";
-      } catch (err) {
-        showError(errorEl, err);
-      }
+      if (await putMaterial(matPickerSlot, m.id)) document.getElementById("mat-picker").style.display = "none";
     });
     grid.appendChild(tile);
   }
+}
+
+function setPickerTitle() {
+  document.getElementById("mat-picker-title").textContent = `제공자료 ${matPickerSlot}에 넣을 자료 선택 (${matLibrary.length}개)`;
 }
 
 async function openMaterialPicker(slot) {
@@ -296,34 +363,131 @@ async function openMaterialPicker(slot) {
     return;
   }
   matPickerSlot = slot;
-  document.getElementById("mat-picker-title").textContent = `제공자료 ${slot}에 넣을 자료 선택 (${matLibrary.length}개)`;
+  setPickerTitle();
   const picker = document.getElementById("mat-picker");
   picker.style.display = "block";
+  renderMaterialPickerCats();
   renderMaterialPickerGrid();
   picker.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function refreshLibrary() {
+  matLibrary = await api("/material-library");
+  setPickerTitle();
+  renderMaterialPickerCats();
+  renderMaterialPickerGrid();
+}
+
+function renderAddedRow(row, item) {
+  row.className = "mu-row ok";
+  row.innerHTML = `<img src="${matThumb(item.id)}" alt="" /><input aria-label="자료 이름" />
+    <span class="mu-btns"><button type="button" class="secondary mu-save">이름 저장</button><button type="button" class="secondary mu-del">빼기</button></span>
+    <span class="mu-state">${matEsc((item.categories || []).join(" · ") || "분류 없음")}</span>`;
+  const input = row.querySelector("input");
+  input.value = item.title;
+  const state = row.querySelector(".mu-state");
+  row.querySelector(".mu-save").addEventListener("click", async () => {
+    try {
+      const out = await apiPatch(`/material-library/${item.id}`, { title: input.value });
+      input.value = out.title;
+      state.textContent = "이름 저장됨";
+      await refreshLibrary();
+    } catch (err) { state.textContent = err.message; }
+  });
+  row.querySelector(".mu-del").addEventListener("click", async () => {
+    if (!confirm(`"${input.value}" 자료를 라이브러리에서 뺄까요?`)) return;
+    try {
+      await api(`/material-library/${item.id}`, { method: "DELETE" });
+      row.className = "mu-row skip";
+      row.innerHTML = `<span class="mu-file">${matEsc(input.value)}</span><span class="mu-state">뺐습니다</span>`;
+      await refreshLibrary();
+    } catch (err) { state.textContent = err.message; }
+  });
+}
+
+async function uploadLibraryFiles(fileList) {
+  const files = [...fileList];
+  if (!files.length) return;
+  const box = document.getElementById("mat-upload-result");
+  box.style.display = "block";
+  box.innerHTML = `<div class="mu-head"><b>자료 올리기</b><span class="mu-prog"></span><button type="button" class="secondary mu-close">닫기</button></div>
+    <div class="mu-rule">PDF·JPG·PNG만 넣고, PDF는 4쪽까지만 넣습니다(책자·절차서는 보고서가 길어짐). 이름은 자동으로 다듬었으니 필요하면 고쳐 주세요.</div>
+    <div class="mu-list"></div>`;
+  box.querySelector(".mu-close").addEventListener("click", () => { box.style.display = "none"; });
+  const prog = box.querySelector(".mu-prog");
+  const list = box.querySelector(".mu-list");
+  let ok = 0, skip = 0;
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    prog.textContent = `${i + 1} / ${files.length} 올리는 중…`;
+    const row = document.createElement("div");
+    row.className = "mu-row";
+    row.innerHTML = `<span class="mu-file"></span><span class="mu-state">올리는 중…</span>`;
+    row.querySelector(".mu-file").textContent = f.name;
+    list.appendChild(row);
+    try {
+      const form = new FormData();
+      form.append("file", f);
+      const out = await apiUpload("/material-library", form);
+      if (out.ok) { ok++; renderAddedRow(row, out.item); } else { skip++; row.classList.add("skip"); row.querySelector(".mu-state").textContent = `넣지 않음 — ${out.reason}`; }
+    } catch (err) {
+      skip++;
+      row.classList.add("skip");
+      row.querySelector(".mu-state").textContent = `실패 — ${err.message}`;
+    }
+  }
+  prog.textContent = `넣음 ${ok} · 안 넣음 ${skip}`;
+  try { await refreshLibrary(); } catch (err) { showError(errorEl, err); }
 }
 
 document.getElementById("mat-picker-search").addEventListener("input", renderMaterialPickerGrid);
 document.getElementById("mat-picker-close").addEventListener("click", () => {
   document.getElementById("mat-picker").style.display = "none";
 });
+document.getElementById("mat-upload-open").addEventListener("click", () => document.getElementById("mat-upload-input").click());
+document.getElementById("mat-upload-input").addEventListener("change", (e) => {
+  uploadLibraryFiles(e.target.files).finally(() => { e.target.value = ""; });
+});
+(() => {
+  const picker = document.getElementById("mat-picker");
+  picker.addEventListener("dragover", (e) => { e.preventDefault(); picker.classList.add("drag"); });
+  picker.addEventListener("dragleave", (e) => { if (!picker.contains(e.relatedTarget)) picker.classList.remove("drag"); });
+  picker.addEventListener("drop", (e) => {
+    e.preventDefault();
+    picker.classList.remove("drag");
+    if (e.dataTransfer && e.dataTransfer.files.length) uploadLibraryFiles(e.dataTransfer.files);
+  });
+})();
 
 document.getElementById("mat-recommend").addEventListener("click", async () => {
   errorEl.style.display = "none";
+  const btn = document.getElementById("mat-recommend");
   const st = document.getElementById("mat-recommend-status");
   st.className = "status";
-  st.textContent = "";
+  st.textContent = "AI가 지적사항·공정을 보고 자료를 고르는 중… (몇 초)";
+  btn.disabled = true;
   try {
     const out = await apiPost(`${matBase}/recommend`, {});
+    matSuggest = out.suggest || null;
     if (!out.items.length) {
-      st.textContent = "지적사항과 관련된 자료를 찾지 못했습니다. '라이브러리에서 선택'으로 직접 고르세요.";
+      st.textContent = "맞는 자료를 찾지 못했습니다. '라이브러리에서 선택'으로 직접 고르세요.";
+      renderSuggest();
       return;
     }
     applyMaterialsChange(out);
     st.className = "status ok";
-    st.textContent = "지적사항과 관련된 자료로 채웠습니다. 10번 교육내용에도 반영했습니다.";
+    st.textContent = matSuggest && matSuggest.source === "ai"
+      ? "AI가 고른 자료로 칸 1·2를 채웠습니다. 10번 교육내용에도 반영했습니다."
+      : "AI를 쓰지 못해 분류가 맞는 자료로 채웠습니다. 10번 교육내용에도 반영했습니다.";
+    if (document.getElementById("mat-picker").style.display !== "none" && matLibrary) {
+      renderMaterialPickerCats();
+      renderMaterialPickerGrid();
+    }
   } catch (err) {
+    st.textContent = "";
     showError(errorEl, err);
+  } finally {
+    btn.disabled = false;
   }
 });
 
