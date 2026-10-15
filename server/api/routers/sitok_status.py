@@ -6,6 +6,8 @@
 
 - `GET /sitok/status/reports?year=&half=` — 줄 목록
 - `POST /sitok/status/reports/{report_id}/mark` {item: mail|fms|print|parcel, action: done|na|clear, date?} — 표시(na = FMS 해당없음만)
+- `GET /sitok/status/docs?year=&half=` — 서류 자동화 제출 현황(관급 착수계·완수계, 민간 계약서, 계산서 발행일)
+- `POST /sitok/status/docs/{cid}/mark` {item: start|done|invoice, action: done|clear, date?, key?} — 직접 제출함·계산서 발행일
 """
 from __future__ import annotations
 
@@ -132,3 +134,98 @@ def mark(report_id: int, body: MarkIn, user: User = Depends(get_current_user), d
         x.submit = sub
     db.commit()
     return {"ok": True, "item": body.item, "value": value}
+
+
+# ---------- 서류 제출 현황(서류 자동화 · 시특법 — 10/15 민재형 문서 "서류 제출현황 관리") ----------
+# 상·하반기로, 한 줄 = 그 반기에 걸친 계약(관급 = 용역 기간이 반기와 겹침, 민간 = 그 반기 회차 줄·끝 없는 계약).
+# 칸: 관급 착수계·완수계(첨부 넣고 [만들기]로 PDF까지 = 제출로 봄, 프로그램 쓰기 전 낸 것은 "직접 제출함"), 민간 계약서(만듦·날인본),
+# 계산서 발행일(민간 = 반기마다 "2026-하반기", 관급 = 계약 하나 "all"). 표시는 sitok_doc_contract.marks(0048).
+
+def _doc_key(c: SitokDocContract, year: int, half: str, is_now: bool) -> str | None:
+    """이 반기에 보일 계약이면 계산서 칸 열쇠, 아니면 None. 날짜가 없는 계약은 지금 반기에만."""
+    from server.api.routers.sitok import half_range
+
+    a, b = half_range(year, half)
+    if c.sector == "관급":
+        if c.start_date is None:
+            return "all" if is_now else None
+        return "all" if c.start_date <= b and (c.end_date or c.start_date) >= a else None
+    key = f"{year}-{half}"
+    rounds = c.rounds or []
+    if any(r.get("year") == year and r.get("half") == half for r in rounds):
+        return key
+    if c.open_ended:
+        return key if c.start_date is not None and c.start_date <= b else (key if c.start_date is None and is_now else None)
+    if not rounds:
+        if c.start_date is None:
+            return key if is_now else None
+        return key if c.start_date <= b and (c.end_date or c.start_date) >= a else None
+    return None
+
+
+@router.get("/docs")
+def doc_rows(year: int | None = None, half: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.api.routers.sitok_docs import folder, half_auto
+    from server.sitok import civil
+
+    y0, h0 = current_half()
+    year, half = year or y0, half if half in HALVES else h0
+    rows = []
+    for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id).order_by(SitokDocContract.id):
+        key = _doc_key(c, year, half, (year, half) == (y0, h0))
+        if key is None:
+            continue
+        f = db.get(SitokFacility, c.facility_id) if c.facility_id else None
+        mk = c.marks or {}
+        made = lambda at: at.strftime("%Y-%m-%d") if at else ""  # noqa: E731
+        signed = bool(c.contract_pdf and Path(c.contract_pdf).exists())
+        rows.append({
+            "contract": {"id": c.id, "sector": c.sector, "title": c.title or civil.default_title(c), "half": c.half_tag or half_auto(c, f),
+                         "period": f"{c.start_date or ''} ~ {'계약 해지 시까지' if c.open_ended else (c.end_date or '')}" if c.start_date else "",
+                         "client": c.client},
+            "facility": {"id": f.id, "mgmt_no": f.mgmt_no, "name": f.name, "sector": f.sector or "민간", "badge_field": f.badge_field or "",
+                         "badge_kind": f.badge_kind or ""} if f is not None else None,
+            "start": {"made": made(c.start_made_at) if c.sector == "관급" else made(c.made_at), "signed": signed if c.sector == "민간" else False,
+                      "pdf": (folder(c) / "착수계.pdf").exists() if c.sector == "관급" else False, "mark": mk.get("start")},
+            "done": {"made": made(c.done_made_at), "mark": mk.get("done")} if c.sector == "관급" else None,
+            "invoice": {"key": key, "date": (mk.get("invoice") or {}).get(key) or ""},
+        })
+    return {"year": year, "half": half, "rows": rows}
+
+
+class DocMarkIn(BaseModel):
+    item: str  # start | done | invoice
+    action: str = "done"  # done | clear
+    date: str | None = None
+    key: str | None = None  # 계산서 칸 열쇠("2026-하반기" / "all")
+
+
+@router.post("/docs/{cid}/mark")
+def doc_mark(cid: int, body: DocMarkIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = db.get(SitokDocContract, cid)
+    if c is None or c.company_id != user.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "계약을 찾을 수 없습니다.")
+    if body.item not in ("start", "done", "invoice") or body.action not in ("done", "clear"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "표시할 칸이 아닙니다.")
+    try:
+        day = datetime.date.fromisoformat(body.date) if body.date else datetime.date.today()
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "날짜가 맞지 않습니다.") from err
+    mk = dict(c.marks or {})
+    if body.item == "invoice":
+        key = body.key or ("all" if c.sector == "관급" else "")
+        if not key:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "계산서 반기가 없습니다.")
+        inv = dict(mk.get("invoice") or {})
+        if body.action == "clear":
+            inv.pop(key, None)
+        else:
+            inv[key] = day.isoformat()
+        mk["invoice"] = inv
+    elif body.action == "clear":
+        mk.pop(body.item, None)
+    else:
+        mk[body.item] = {"at": day.isoformat(), "by": user.display_name or ""}
+    c.marks = mk
+    db.commit()
+    return {"ok": True, "marks": mk}
