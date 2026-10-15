@@ -695,6 +695,10 @@ class SitokDocContract(Base):
     half_tag: Mapped[str] = mapped_column(Text, default="")  # 시설물 카드의 반기 표시(0047) — 비우면 기간·회차로 자동(내진성능평가 = 해당없음)
     # 서류 제출 표시(0048) {start: {at, by}(착수계 직접 제출함), done: {...}(완료계), invoice: {"2026-하반기": "2026-12-20" | 관급 "all"}(계산서 발행일)}
     marks: Mapped[dict | None] = mapped_column(JSON, default=None)
+    # 계약 하나 ↔ 시설물 여럿(0052, 보고서 따로 — 관급-6-1·6-2): 덮는 시설물 id 목록(비면 [facility_id]), 시설물별 금액 {id: 원}, 시설물별 보고서 쪽 계약 {id: sitok_contract id}
+    facility_ids: Mapped[list | None] = mapped_column(JSON, default=None)
+    amounts: Mapped[dict | None] = mapped_column(JSON, default=None)
+    report_contracts: Mapped[dict | None] = mapped_column(JSON, default=None)
     client: Mapped[str] = mapped_column(Text, default="")  # 관리주체(발주처) — 계약서 "갑"
     client_rep: Mapped[str] = mapped_column(Text, default="")  # 서명 칸 대표자(예: "관리사무소장 김춘화")
     client_biz_no: Mapped[str] = mapped_column(Text, default="")  # 사업자등록번호(사업자등록증에서)

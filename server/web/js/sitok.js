@@ -27,8 +27,8 @@
   try { sort = { ...sort, ...JSON.parse(localStorage.getItem(SORT_KEY) || "{}") }; } catch { /* 기억 못 하면 기본 */ }
   const mgmtKey = (f) => { // "관급-3" < "민간-1"(구분끼리 묶고 그 안에서 번호), 예전 "26-4"는 맨 뒤
     const s = String(f.mgmt_no || "");
-    const m = s.match(/^(관급|민간)-0*(\d+)$/);
-    if (m) return (m[1] === "관급" ? 1e8 : 2e8) + Number(m[2]);
+    const m = s.match(/^(관급|민간)-0*(\d+)(?:-0*(\d+))?$/); // 시설물 여럿 카드 "관급-6-2"(10/15 밤)
+    if (m) return (m[1] === "관급" ? 1e8 : 2e8) + Number(m[2]) * 100 + Number(m[3] || 0);
     const o = s.match(/^(\d{2}|\d{4})-0*(\d+)$/);
     return o ? 3e8 + Number(o[1].slice(-2)) * 1e5 + Number(o[2]) : null;
   };

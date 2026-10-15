@@ -133,7 +133,9 @@ def needs_for(db: Session, u: Unit, today: datetime.date) -> list[Need]:
             found[i] = Need(u, i, kind or "정기", lo, hi, why, pri)
 
     ids = u.ids
-    for c in db.query(SitokDocContract).filter(SitokDocContract.facility_id.in_(ids)).order_by(SitokDocContract.id):
+    docs = [d for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == u.lead.company_id).order_by(SitokDocContract.id)
+            if set(int(x) for x in (d.facility_ids or ([d.facility_id] if d.facility_id else []))) & set(ids)]  # 시설물 여럿 계약(0052)도
+    for c in docs:
         if c.sector == "관급":
             if c.start_date is None:
                 continue

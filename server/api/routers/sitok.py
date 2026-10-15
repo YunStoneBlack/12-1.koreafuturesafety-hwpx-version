@@ -217,7 +217,9 @@ def kind_known(db: Session, c: SitokContract | None, year: int, half: str) -> st
     unit = next((r for r in rounds if r.get("open_ended")), None)
     k = civil.kind_for(rounds, unit, unit is not None, year, half)
     if k is None:
-        doc = db.query(SitokDocContract).filter(SitokDocContract.report_contract_id == c.id).first()
+        doc = db.query(SitokDocContract).filter(SitokDocContract.report_contract_id == c.id).first() or next(
+            (d for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == c.company_id, SitokDocContract.report_contracts.isnot(None))
+             if c.id in [int(v) for v in (d.report_contracts or {}).values()]), None)  # 시설물 여럿 계약(0052) — 둘째 시설물의 보고서 쪽 계약
         if doc is not None:
             k = civil.kind_for(doc.rounds, doc.unit, doc.open_ended, year, half)
     if k is None:
@@ -261,12 +263,29 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
     return out
 
 
+NO_RE = re.compile(r"^(관급|민간)-0*(\d+)(?:-0*(\d+))?$")  # "관급-6" / 시설물 여럿 카드 "관급-6-2"(10/15 밤)
+
+
+def base_no(no: str | None) -> str:
+    """카드 번호(앞 번호) — "관급-6-2" → "관급-6". 모양이 다르면 그대로."""
+    m = NO_RE.match((no or "").strip())
+    return f"{m[1]}-{int(m[2])}" if m else (no or "").strip()
+
+
+def card_facilities(db: Session, f: SitokFacility) -> list[SitokFacility]:
+    """같은 시설물 카드(같은 앞 번호)의 시설물 전부 — 시설물 여럿 카드(6-1·6-2)와 묶인 동 포함. 번호가 없으면 자기 묶음만."""
+    b = base_no(f.mgmt_no)
+    if not b:
+        return db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id).all() if f.group_id else [f]
+    return [x for x in db.query(SitokFacility).filter(SitokFacility.company_id == f.company_id).order_by(SitokFacility.id) if base_no(x.mgmt_no) == b]
+
+
 def next_mgmt_no(db: Session, company_id: int, sector: str | None = None) -> str:
     """다음 번호표 "민간-5"·"관급-2" — 그 구분 번호 중 가장 큰 것 + 1(10/15 민재형 문서번호 일치화: 드롭박스 폴더를 관급·민간으로만 나눠 번호,
     서류 자동화 시설물 카드·보고서 자동화 시설물이 같은 번호, 연도 없음). 시특법은 산안법과 따로 매김."""
     sector = sector if sector in SECTORS else "민간"
-    nums = [int(m[1]) for (no,) in db.query(SitokFacility.mgmt_no).filter(SitokFacility.company_id == company_id)
-            if (m := re.match(rf"^{sector}-0*(\d+)$", (no or "").strip()))]
+    nums = [int(m[2]) for (no,) in db.query(SitokFacility.mgmt_no).filter(SitokFacility.company_id == company_id)
+            if (m := NO_RE.match((no or "").strip())) and m[1] == sector]  # 관급-6-2도 앞 번호 6으로 셈
     return f"{sector}-{max(nums, default=0) + 1}"
 
 
@@ -564,7 +583,16 @@ def _delete_facility(db: Session, f: SitokFacility) -> None:
     from server.api.routers.sitok_docs import folder as doc_folder
 
     folder = _facility_dir(f)
-    for d in db.query(SitokDocContract).filter(SitokDocContract.facility_id == f.id).all():
+    for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == f.company_id).all():
+        ids = [int(x) for x in (d.facility_ids or ([d.facility_id] if d.facility_id else []))]
+        if f.id not in ids:
+            continue
+        rest = [x for x in ids if x != f.id]
+        if rest:  # 계약 하나에 시설물 여럿(0052) — 이 시설물만 뺌
+            d.facility_ids, d.facility_id = rest, rest[0]
+            d.amounts = {k: v for k, v in (d.amounts or {}).items() if str(k) != str(f.id)} or None
+            d.report_contracts = {k: v for k, v in (d.report_contracts or {}).items() if str(k) != str(f.id)} or None
+            continue
         shutil.rmtree(doc_folder(d), ignore_errors=True)
         db.delete(d)
     db.query(SitokContract).filter(SitokContract.facility_id == f.id).delete()

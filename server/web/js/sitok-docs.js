@@ -54,16 +54,20 @@
   }
 
   // ---------- 시설물 카드(10/15 민재형 문서번호 일치화) ----------
-  const cardOf = (c) => (c.facility ? cards.find((k) => k.members.some((m) => m.id === c.facility.id)) : null);
-  const contractsOf = (k) => all.filter((c) => c.facility && k.members.some((m) => m.id === c.facility.id))
+  const cardOf = (c) => { // 계약이 덮는 시설물(여럿이면 아무거나 — 0052)이 든 카드
+    const ids = (c.facility_ids && c.facility_ids.length ? c.facility_ids : c.facility ? [c.facility.id] : []);
+    return ids.length ? cards.find((k) => k.members.some((m) => ids.includes(m.id))) || null : null;
+  };
+  const unitsOf = (k) => k.units || [{ id: k.id, mgmt_no: k.mgmt_no, name: k.name, members: k.members }];
+  const contractsOf = (k) => all.filter((c) => cardOf(c) === k)
     .sort((a, b) => (a.start_date || a.contract_date || "9999").localeCompare(b.start_date || b.contract_date || "9999") || a.id - b.id); // 차례로 쌓임(옛것 위)
-  const noKey = (k) => { // "관급-3" < "민간-1"(구분끼리, 그 안에서 번호), 그 밖 번호는 맨 뒤
-    const m = String(k.mgmt_no || "").match(/^(관급|민간)-0*(\d+)$/);
+  const noKey = (k) => { // "관급-3" < "민간-1"(구분끼리, 그 안에서 번호), 그 밖 번호는 맨 뒤 — "관급-6-2"는 6으로
+    const m = String(k.mgmt_no || "").match(/^(관급|민간)-0*(\d+)(?:-\d+)?$/);
     return m ? (m[1] === "관급" ? 1e8 : 2e8) + Number(m[2]) : 3e8 + k.id;
   };
   const byNo = (a, b) => { const x = noKey(a), y = noKey(b); return Math.floor(x / 1e8) - Math.floor(y / 1e8) || (sort.desc ? y - x : x - y); };
   const sortCards = (list) => (sort.mode === "viewed" ? list.sort((a, b) => (b.viewed_at || "").localeCompare(a.viewed_at || "") || byNo(a, b)) : list.sort(byNo));
-  const cardName = (k) => (k.members.length > 1 ? k.group_name || k.name : k.name);
+  const cardName = (k) => { const us = unitsOf(k); return us.length > 1 ? `${us[0].name} 외 ${us.length - 1}` : (k.members.length > 1 ? k.group_name || k.name : k.name); };
   const cardText = (k) => [k.mgmt_no, cardName(k), k.address, k.owner_name, ...k.members.map((m) => m.name),
     ...contractsOf(k).flatMap((c) => [c.title, c.auto_title, c.client, c.contract_no, c.client_manager, c.site_manager])].join(" ").toLowerCase();
   const conText = (c) => `${c.title} ${c.auto_title} ${c.client} ${c.facility_name} ${c.contract_no} ${c.client_manager} ${c.site_manager}`.toLowerCase();
@@ -129,18 +133,22 @@
   function cardEl(k) {
     const el = document.createElement("div");
     el.className = `sd-fcard${k.contract_type === "종료" ? " ended" : ""}`;
-    const multi = k.members.length > 1;
+    const us = unitsOf(k);
+    const many = us.length > 1; // 시설물 여럿(보고서 따로, 0052)
+    const multi = !many && k.members.length > 1; // 한 시설물의 묶인 동(한 보고서)
     const cons = contractsOf(k);
     el.innerHTML = `
       <div class="sd-fhead"><div class="sd-fmain">
         <div class="sd-ftitle">${k.mgmt_no ? `<button type="button" class="site-no sd-no" title="번호 바꾸기">${esc(k.mgmt_no)}</button>` : ""}<span class="sd-chip ${k.sector === "관급" ? "gov" : "civil"}">${esc(k.sector)}</span>
-          <a href="sitok-facility.html?id=${k.id}" title="보고서 자동화 · 시설물 화면"><b>${esc(cardName(k))}</b></a>${multi ? `<span class="sk-dong-n">${k.members.length}동</span>` : ""}
+          ${many ? `<b>${esc(cardName(k))}</b><span class="sk-dong-n">시설물 ${us.length}곳 · 보고서 따로</span>` : `<a href="sitok-facility.html?id=${k.id}" title="보고서 자동화 · 시설물 화면"><b>${esc(cardName(k))}</b></a>`}${multi ? `<span class="sk-dong-n">${k.members.length}동</span>` : ""}
           ${k.badge_field ? `<span class="sk-badge b-field">${esc(k.badge_field)}</span>` : ""}${k.badge_kind ? `<span class="sk-badge b-kind">${esc(k.badge_kind)}</span>` : ""}
           <span class="sd-ftype">${esc(TYPE_SHORT[k.contract_type] || k.contract_type || "")}</span></div>
-        <div class="dc-meta">${esc([k.address, k.owner_name].filter(Boolean).join(" · "))}${multi ? ` · ${esc(k.members.map((m) => m.name).join(", "))}` : ""}</div></div>
+        <div class="dc-meta">${esc([k.address, k.owner_name].filter(Boolean).join(" · "))}${multi ? ` · ${esc(k.members.map((m) => m.name).join(", "))}` : ""}</div>
+        ${many ? `<div class="sd-units">${us.map((u) => `<a class="sd-unit" href="sitok-facility.html?id=${u.id}" title="보고서 자동화 · 시설물 화면"><span class="site-no">${esc(u.mgmt_no)}</span>${esc(u.name)}${u.members.length > 1 ? ` <small>${u.members.length}동</small>` : ""}</a>`).join("")}</div>` : ""}</div>
         <div class="sd-facts">
           <button type="button" class="secondary sd-fnew">${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}</button>
           <button type="button" class="secondary sd-fbadge" title="분야·관급 종류 뱃지 바꾸기">🏷 뱃지</button>
+          <button type="button" class="secondary sd-fadd" title="같은 계약·발주처인데 보고서가 따로 나오는 시설물(관급-6 → 6-1·6-2). 한 보고서에 들어가는 동은 시설물 화면의 동 묶음으로">+ 시설물 추가 — 보고서 따로</button>
         </div>
       </div>
       <div class="sd-fbody">${cons.length ? "" : `<div class="mail-note sd-fempty">아직 계약이 없습니다 — [${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}]로 넣으세요.</div>`}</div>`;
@@ -148,6 +156,7 @@
     for (const c of cons) body.appendChild(row(c, true));
     el.querySelector(".sd-fnew").addEventListener("click", () => openContract(null, k.sector, { card: k }));
     el.querySelector(".sd-fbadge").addEventListener("click", () => editBadges(k));
+    el.querySelector(".sd-fadd").addEventListener("click", () => addFacility(k));
     const noBtn = el.querySelector(".sd-no");
     if (noBtn) noBtn.addEventListener("click", () => editNumber(k));
     const links = siteLinkButtons(k.contact_phone, k.address);
@@ -155,9 +164,50 @@
     return el;
   }
 
+  // [+ 시설물 추가 — 보고서 따로](10/15 밤 민재형) — 관급-6 → 6-1·6-2. 동 묶음(한 보고서)과 다름
+  function addFacility(k) {
+    const us = unitsOf(k);
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = `<div class="mail-box sd-card-new" role="dialog" aria-modal="true">
+      <div class="mail-head"><b>+ 시설물 추가 — 보고서 따로</b><span class="mail-sub">${esc(k.mgmt_no)} ${esc(cardName(k))}</span></div>
+      <div class="mail-note">같은 계약·발주처인데 <b>보고서가 따로 나오는</b> 시설물입니다(예: 학교 건물 + 옹벽, 청소년수련관 + 어린이집).
+        ${us.length > 1 ? `새 시설물은 ${esc(String(k.mgmt_no).replace(/-\d+$/, ""))}-${us.length + 1}이 됩니다.` : `지금 시설물은 ${esc(k.mgmt_no)}-1, 새 시설물은 ${esc(k.mgmt_no)}-2가 됩니다.`}
+        한 보고서에 같이 들어가는 동이면 이게 아니라 시설물 화면의 동 묶음을 쓰세요.</div>
+      <div class="cd-grid">
+        <label class="cd-field cd-wide"><span>시설물 이름</span><input class="af-name" value="${esc(k.name)} " /></label>
+        <label class="cd-field cd-wide"><span>주소</span><input class="af-addr" value="${esc(k.address || "")}" /></label>
+      </div>
+      <div class="mail-note">관리주체·FMS 계정이 다르면 만든 뒤 그 시설물 화면에서 바꾸세요. 카드 안 계약이 이 시설물도 하는 계약이면 계약 창에서 체크하세요.</div>
+      <div class="mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="af-close">닫기</button><button type="button" class="mail-primary af-save">추가</button></div></div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector(".af-close").addEventListener("click", close);
+    const nameEl = overlay.querySelector(".af-name");
+    nameEl.focus();
+    nameEl.setSelectionRange(nameEl.value.length, nameEl.value.length);
+    overlay.querySelector(".af-save").addEventListener("click", async () => {
+      try {
+        const out = await apiPost(`${P}/facilities/${k.id}/add`, { name: nameEl.value, address: overlay.querySelector(".af-addr").value });
+        close();
+        await load();
+        const m = document.getElementById("sd-new-msg");
+        m.className = "status ok";
+        m.textContent = `✓ ${out.mgmt_no} 시설물을 추가했습니다 — 보고서 자동화에도 따로 생겼습니다. 계약이 이 시설물도 하면 계약 창에서 체크하세요.`;
+      } catch (err) {
+        const m = overlay.querySelector(".mail-msg");
+        m.hidden = false;
+        m.className = "mail-msg bad";
+        m.textContent = err.message;
+      }
+    });
+  }
+
   // 번호 바꾸기(10/15 민재형) — 앞 글자는 구분(관급·민간), 숫자만. 겹치면 서버가 알림, 묶인 동 같이, 다음 자동 번호는 가장 큰 번호 + 1
   function editNumber(k) {
-    const cur = Number((String(k.mgmt_no).match(/-(\d+)$/) || [])[1]) || "";
+    const cur = Number((String(k.mgmt_no).match(/^(?:관급|민간)-0*(\d+)/) || [])[1]) || ""; // 앞 번호(관급-6-2 → 6)
     const overlay = document.createElement("div");
     overlay.className = "mail-overlay";
     overlay.innerHTML = `<div class="mail-box sd-badge-box" role="dialog" aria-modal="true">
@@ -308,10 +358,12 @@
     const meta = [c.client, c.contract_no, periodText(c), moneyText(c)].filter(Boolean).join(" · ");
     const year = c.sector === "관급" && (c.start_date || c.contract_date) ? `<span class="sd-year">${(c.start_date || c.contract_date).slice(0, 4)}년</span>` : "";
     const half = c.half ? `<span class="sd-half${c.half === "해당없음" ? " na" : ""}" title="${c.half_tag ? "직접 고른 반기" : "용역 기간으로 자동"}">${esc(c.half)}</span>` : "";
+    const kc = inCard ? cardOf(c) : null;
+    const tg = kc && unitsOf(kc).length > 1 && c.targets && c.targets.length ? `<div class="dc-meta sd-targets">시설물 ${c.targets.map((t) => `<span class="site-no">${esc(t.mgmt_no)}</span>${esc(t.name)}${c.amounts && c.amounts[t.id] ? ` ${won(c.amounts[t.id])}원` : ""}`).join(" · ")}</div>` : "";
     el.innerHTML = `
       <div class="dc-main">
         <div class="dc-title">${inCard ? `${year}${half}` : `<span class="sd-chip ${c.sector === "민간" ? "civil" : "gov"}">${c.sector}</span>${half}`}${esc(c.title || (c.sector === "민간" && c.auto_title) || "(계약건명 없음 — 계약 정보를 채우세요)")}</div>
-        <div class="dc-meta">${esc(meta)}</div>
+        <div class="dc-meta">${esc(meta)}</div>${tg}
         ${contactLine(c, "client", "계약 담당")}${contactLine(c, "site", "현장 담당")}
         ${inCard ? "" : `<div class="dc-site">${c.facility ? `현장 <a href="sitok-facility.html?id=${c.facility.id}">${esc(c.facility.name)}</a>` : '<span class="dc-nosite">시설물 카드에 안 넣음</span>'}
           <button type="button" class="dc-link">${c.facility ? "바꾸기" : "🔗 카드에 넣기"}</button></div>`}
@@ -419,7 +471,10 @@
       st.facility_name = st.facility_name || (k.members.length > 1 ? k.group_name || k.name : k.name);
       st.location = st.location || k.address || "";
       st.client = st.client || k.owner_name || "";
+      if (unitsOf(k).length > 1) st.facility_ids = unitsOf(k).map((u) => u.id); // 시설물 여럿 카드 — 기본 전부(계약 창에서 줄임)
     }
+    if (st.facility_ids && st.facility_ids.length) st.facility_ids = st.facility_ids.slice();
+    st.amounts = { ...(st.amounts || {}) };
     if (!id && !st.rounds.length && st.sector === "민간") { // 새 민간 계약: 올해·지금 반기·정기 한 줄(관급은 회차 줄 없음 — 반기는 용역 기간으로, 10/15)
       const now = new Date();
       st.rounds = [{ year: now.getFullYear(), half: now.getMonth() < 6 ? "상반기" : "하반기", kind: "정기", amount: null }];
@@ -469,6 +524,12 @@
     function body() {
       sync();
       const b = { sector: st.sector, open_ended: !!st.open_ended, unit: st.unit || null, rounds: st.sector === "민간" ? st.rounds.filter((r) => r.year) : [], half_tag: st.half_tag || "" };
+      const ub = box.querySelector(".sd-ufac");
+      if (ub) { // 이 계약의 시설물(0052)
+        st.facility_ids = [...ub.querySelectorAll(".uf-chk:checked")].map((i) => Number(i.value));
+        st.amounts = Object.fromEntries([...ub.querySelectorAll(".uf-amt")].map((i) => [i.dataset.id, num(i.value)]).filter(([, v]) => v));
+      }
+      if (st.facility_ids && st.facility_ids.length && (st.id || st.facility_id)) { b.facility_ids = st.facility_ids; b.amounts = st.amounts || {}; }
       if (!st.id && st.facility_id) b.facility_id = st.facility_id;
       for (const k of TEXT) b[k] = st[k] ?? "";
       for (const k of DATES) b[k] = st[k] || null;
@@ -533,6 +594,21 @@
           <span class="sd-total">${total ? `총 합 금 ${won(total)}원 (VAT포함)` : ""}</span></div>`;
     }
 
+    // 이 계약의 시설물(카드에 시설물 여럿 — 보고서 따로, 0052): 체크 + 둘 이상이면 시설물별 금액(합 = 계약금액)
+    function unitBox() {
+      const k = st.facility ? cards.find((x) => x.members.some((m) => m.id === st.facility.id)) : null;
+      const us = k ? unitsOf(k) : [];
+      if (us.length < 2) return "";
+      const on = new Set((st.facility_ids && st.facility_ids.length ? st.facility_ids : [st.facility.id]).map(Number));
+      const total = st.sector === "관급" ? st.amount : null;
+      const sum = us.filter((u) => on.has(u.id)).reduce((t, u) => t + (Number((st.amounts || {})[u.id]) || 0), 0);
+      return `<div class="mail-label">이 계약의 시설물 <span class="mail-note">— 보고서가 따로 나오는 시설물마다 보고서 쪽 계약이 생깁니다. 둘 이상이면 시설물별 금액(보고서 표지·FMS)</span></div>
+        <div class="sd-ufac">${us.map((u) => `<label class="uf-row"><input type="checkbox" class="uf-chk" value="${u.id}"${on.has(u.id) ? " checked" : ""} />
+            <span class="site-no">${esc(u.mgmt_no)}</span> ${esc(u.name)}
+            <span class="uf-amt-wrap">${on.has(u.id) && on.size > 1 ? `금 <input class="uf-amt sd-won" data-id="${u.id}" inputmode="numeric" value="${won((st.amounts || {})[u.id])}" placeholder="이 시설물 금액" /> 원` : ""}</span></label>`).join("")}
+          ${on.size > 1 && total ? `<div class="mail-note${sum && sum !== total ? " uf-bad" : ""}">시설물별 금액 합 ${won(sum) || 0}원 / 계약금액 ${won(total)}원${sum && sum !== total ? " — 합이 계약금액과 다릅니다" : ""}</div>` : ""}</div>`;
+    }
+
     // clean = 서버에서 막 받은 상태(닫을 때 "고친 게 있나" 비교 기준) — 화면에서만 바꾼 뒤 다시 그릴 땐 기준을 안 바꿈
     function draw(clean) {
       const civil = st.sector === "민간";
@@ -552,6 +628,7 @@
           ${civil ? upChip(st.made_at ? "signed" : "existing", "날인본(도장 찍은 계약서)", "날인본.pdf", st.made_at ? "도장 찍어 받은 계약서 보관" : "이미 만든 계약서면 계약 칸까지 읽음")
             : upChip("g2b", "나라장터 계약서", "날인본.pdf", "읽어서 계약 칸을 채움(다시 올리면 읽은 칸만 바뀜)")}
         </div>
+        ${unitBox()}
         <div class="mail-label">${civil ? "관리주체(갑)" : "발주처"}</div>
         <div class="cd-grid">
           ${field("client", civil ? "관리주체" : "발주처", { ph: civil ? "예: 청천영진아파트(위탁관리회사:미래티엠에스(주))" : "" })}
@@ -621,6 +698,13 @@
         }
       });
       box.querySelectorAll('input[name="sd-sector"]').forEach((r) => r.addEventListener("change", () => { sync(); st.sector = r.value; filled = []; draw(); }));
+      box.querySelectorAll(".uf-chk").forEach((i) => i.addEventListener("change", () => { // 시설물 체크 바꾸면 금액 칸 다시
+        sync();
+        const ub = box.querySelector(".sd-ufac");
+        st.facility_ids = [...ub.querySelectorAll(".uf-chk:checked")].map((x) => Number(x.value));
+        st.amounts = { ...(st.amounts || {}), ...Object.fromEntries([...ub.querySelectorAll(".uf-amt")].map((x) => [x.dataset.id, num(x.value)])) };
+        draw();
+      }));
       box.querySelectorAll(".sd-won").forEach((i) => i.addEventListener("blur", () => { i.value = won(num(i.value)); }));
       const chk = box.querySelector(".sd-open-chk");
       if (chk) chk.addEventListener("change", () => { sync(); draw(); });

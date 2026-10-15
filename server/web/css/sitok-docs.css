@@ -115,3 +115,17 @@
 .sd-no-row { display: flex; align-items: center; gap: 6px; }
 .sd-no-row input { width: 110px; margin: 0; }
 .sd-auto-note { font-size: 12px; color: var(--muted, #6b7280); }
+
+/* 시설물 여럿 카드(10/15 밤 — 보고서 따로, 관급-6-1·6-2) */
+.sd-units { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.sd-unit { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px 3px 4px; border: 1px solid var(--line, #e2e5ea); border-radius: 999px; background: #fff;
+  font-size: 13px; color: var(--ink, inherit); text-decoration: none; }
+.sd-unit:hover { border-color: var(--blue); }
+.sd-unit .site-no, .sd-targets .site-no, .sd-ufac .site-no { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--blue-soft); color: var(--blue);
+  font-size: 11.5px; font-weight: 700; margin-right: 2px; }
+.sd-ufac { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line, #e2e5ea); border-radius: 10px; margin-bottom: 8px; }
+.uf-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13.5px; }
+.uf-row input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
+.uf-amt-wrap { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
+.uf-amt-wrap input { width: 140px; margin: 0; }
+.uf-bad { color: var(--crit, #b42318); font-weight: 600; }

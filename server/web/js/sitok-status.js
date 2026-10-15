@@ -75,7 +75,7 @@
     list.innerHTML = `<div class="ss-grid ss-head"><span>시설물</span><span>보고서</span><span>발주처 이메일</span><span>FMS</span><span>합본 출력</span><span>택배</span></div>`;
     for (const r of shown) list.appendChild(rowEl(r));
   }
-  const noKey = (f) => { const m = String(f.mgmt_no || "").match(/^(관급|민간)-0*(\d+)$/); return m ? (m[1] === "관급" ? 2e8 : 1e8) + Number(m[2]) : 0; };
+  const noKey = (f) => { const m = String(f.mgmt_no || "").match(/^(관급|민간)-0*(\d+)(?:-0*(\d+))?$/); return m ? (m[1] === "관급" ? 2e8 : 1e8) + Number(m[2]) * 100 + Number(m[3] || 0) : 0; };
 
   const REP = { none: ["회차 없음", "todo"], writing: ["작성 중", "todo"], running: ["만드는 중", "pdf"], failed: ["만들기 실패", "bad"], done: ["완료", "ok"] };
   function markBadge(v) { return v ? (v.na ? '<span class="ss-b na">해당없음</span>' : `<span class="ss-b ok">✓ ${md(v.at)}</span>`) : '<span class="ss-b todo">안 함</span>'; }
