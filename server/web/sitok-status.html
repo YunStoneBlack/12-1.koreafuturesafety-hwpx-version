@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>시특법 - 제출 현황</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/sitok-status.css" />
+</head>
+<!-- 보고서 자동화 · 시특법 — 제출 현황(2026-10-15 민재형 문서번호 일치화 문서). 상·하반기로 봄(산안법은 달마다).
+     칸: 보고서 · 발주처 이메일 제출 · FMS 처리(자동 기록 / 직접 처리함 / 해당없음) · 합본 출력 · 택배. 화면 js/sitok-status.js, API server/api/routers/sitok_status.py -->
+<body data-report-tab="status" data-law="sitok">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<div class="ss-toolbar">
+  <div class="ss-half">
+    <button type="button" id="ss-prev" aria-label="이전 반기">◀</button><b id="ss-label"></b><button type="button" id="ss-next" aria-label="다음 반기">▶</button>
+  </div>
+  <span class="site-sort ss-sector" role="group" aria-label="민간·관급"><button type="button" data-sector="">전체</button><button type="button" data-sector="민간">민간</button><button type="button" data-sector="관급">관급</button></span>
+  <input id="ss-search" type="search" placeholder="번호·시설물 검색" autocomplete="off" />
+</div>
+<div class="sk-badges" id="ss-badges" role="group" aria-label="뱃지별 시설물 수"></div>
+<div class="st-cards ss-cards" id="ss-cards"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2 id="ss-title">제출 현황</h2><span class="panel-count" id="ss-count"></span></div>
+  <div id="ss-list"><div class="empty-note">불러오는 중...</div></div>
+</section>
+<p class="page-sub">칸을 누르면 날짜를 넣어 표시하거나 지웁니다. FMS는 회차 화면 [📤 FMS 제출] 기록이 자동으로 들어오고, FMS 대상이 아닌 시설물은 "해당없음"으로 둡니다. 묶인 동은 한 줄(표시도 같이).</p>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="mail.js"></script>
+<script src="shell.js"></script>
+<script src="js/sitok-status.js"></script>
+</body>
+</html>

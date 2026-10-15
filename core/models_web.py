@@ -603,6 +603,8 @@ class SitokReport(Base):
     rating: Mapped[dict | None] = mapped_column(JSON, default=None)
     # FMS 제출 상태(0046) {project_no, contract: {status, at, by, job}, result: {…}} — server/api/routers/sitok_fms.py
     fms: Mapped[dict | None] = mapped_column(JSON, default=None)
+    # 보고서 제출 표시(0048, 제출 현황 탭) {mail(발주처 이메일 제출)·fms(직접 처리함 / na 해당없음)·print(합본 출력)·parcel(택배): {at, by}}
+    submit: Mapped[dict | None] = mapped_column(JSON, default=None)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
@@ -659,6 +661,8 @@ class SitokDocContract(Base):
     sector: Mapped[str] = mapped_column(Text, default="민간")  # 민간 / 관급
     doc_no: Mapped[str] = mapped_column(Text, default="")  # 문서번호 — 민간 KFSC-26-0504(연도·월일), 관급 KFSC21C_계약번호_월일(산안법 규칙)
     half_tag: Mapped[str] = mapped_column(Text, default="")  # 시설물 카드의 반기 표시(0047) — 비우면 기간·회차로 자동(내진성능평가 = 해당없음)
+    # 서류 제출 표시(0048) {start: {at, by}(착수계 직접 제출함), done: {...}(완료계), invoice: {"2026-하반기": "2026-12-20" | 관급 "all"}(계산서 발행일)}
+    marks: Mapped[dict | None] = mapped_column(JSON, default=None)
     client: Mapped[str] = mapped_column(Text, default="")  # 관리주체(발주처) — 계약서 "갑"
     client_rep: Mapped[str] = mapped_column(Text, default="")  # 서명 칸 대표자(예: "관리사무소장 김춘화")
     client_biz_no: Mapped[str] = mapped_column(Text, default="")  # 사업자등록번호(사업자등록증에서)
