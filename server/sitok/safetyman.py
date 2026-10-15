@@ -139,6 +139,9 @@ def _groups(agg: dict, result: dict | None) -> list[dict]:
         res = res_by_key.get(fl["floor"]) or next((x for x in (result or {}).get("floors", []) if x.get("label", "").startswith(fl["label"])), None)
         rng = fl.get("range_label", "")
         steel = [(m["kind"], r) for m in fl["members"] for r in ((m.get("items") or {}).get("SS") or {}).get("rows", [])]
+        if fl["material"] == "철골":  # 철골조 층 — SafetyMan "라멘(철골조)" 묶음(콘크리트 표는 빈 모양 + 강재 표)
+            out.append({"agg": fl, "res": res, "kind": "steel", "name": _floor_name(fl["floor"]), "range": rng, "structure": f"{fl['structure']}(철골조)", "steel": steel})
+            continue
         split = fl["material"] == "SRC" and steel
         out.append({"agg": fl, "res": res, "kind": "rc", "name": _floor_name(fl["floor"]), "range": rng,
                     "structure": f"{fl['structure']}({'RC' if split else fl['material']})"})
@@ -164,7 +167,7 @@ def _range_text(fl: dict) -> str:
     return " ~ ".join(one(p) for p in parts) if parts else ""
 
 
-def build(dest: Path, agg: dict, result: dict | None, building: dict, tests_view: dict, photo: Path | None = None) -> Path:
+def build(dest: Path, agg: dict, result: dict | None, building: dict, tests_view: dict, photo: Path | None = None, joints: dict | None = None) -> Path:
     """SafetyMan 모양 엑셀(dest .xlsx)."""
     B = Book()
     bi = building
@@ -202,6 +205,7 @@ def build(dest: Path, agg: dict, result: dict | None, building: dict, tests_view
             total = None
             for k, rr in g["steel"]:
                 sc = rating.member_condition({"SS": rr.get("grade")})["score"]
+                k = _steel_slot(k, rr)
                 scores[k] = sc if scores.get(k) is None else max(scores[k], sc)
             total = max(scores.values()) if scores else None
         for k, col in zip(MEMBERS, RES_COLS):
@@ -231,7 +235,7 @@ def build(dest: Path, agg: dict, result: dict | None, building: dict, tests_view
         _count_table(B, mem, (94, 101), "SD", "leak", area=False)
         _count_table(B, mem, (102, 109), "SD", "rebar", area=False)
         if g["kind"] == "steel":
-            _steel_inputs(B, g)  # 강재 표 끝(내화피복) 바로 다음이 기울기 및 침하
+            _steel_inputs(B, g, joints)  # 강재 표 끝(내화피복) 바로 다음이 기울기 및 침하
         elif i < len(groups) - 1:
             B.block(110, 110)
     # ---- 기울기 및 침하
@@ -288,12 +292,21 @@ def _count_table(B: Book, mem: dict, rows: tuple, item: str, sub: str | None, ar
                 B.put(col, r0 + 7, int(tot))
 
 
-def _steel_inputs(B: Book, g: dict) -> None:
-    """철골조 묶음 — 강재규격(측정값/설계값 mm²) 평가부재 줄 + 용접·볼트·부식·내화피복 표(개수는 우리 입력에 없어 비움)."""
+def _steel_slot(kind: str, row: dict) -> str:
+    """강재 줄 → SafetyMan 강재 칸(기둥·큰보·작은보) — 재료시험 줄의 sub가 먼저, 없으면 부재 이름."""
+    if row.get("sub") in STEEL_DS_COLS:
+        return row["sub"]
+    if kind in STEEL_DS_COLS:
+        return kind
+    return "기둥" if "기둥" in kind else "큰보"
+
+
+def _steel_inputs(B: Book, g: dict, joints: dict | None = None) -> None:
+    """철골조 묶음 — 강재규격(측정값/설계값 mm²) 평가부재 줄 + 용접·볼트·부식·내화피복 표. 용접·볼트·부식 개수는 상태평가 화면 입력(joints,
+    그 층 {기둥|큰보|작은보: {weld_n, weld_g, bolt_bad, bolt_n, corr_n, corr_g}}) — 없으면 빈칸(10/15)."""
     by: dict[str, list] = {}
     for k, r in g["steel"]:
-        sub = r.get("sub") if r.get("sub") in STEEL_DS_COLS else (k if k in STEEL_DS_COLS else ("기둥" if "기둥" in k else "큰보"))
-        by.setdefault(sub, []).append(r)
+        by.setdefault(_steel_slot(k, r), []).append(r)
     n = max((len(v) for v in by.values()), default=0)
     B.block(281, 282)
     for i in range(n):
@@ -309,8 +322,17 @@ def _steel_inputs(B: Book, g: dict) -> None:
                 else:
                     B.put(col, r, f"{x.get('measured') or '-'} / {x.get('design') or '-'}")
     B.block(285, 285)
+    jt = (joints or {}).get(str(g["agg"]["floor"])) or {}
     for a, b, rows in ((286, 293, range(288, 293)), (294, 297, range(296, 297)), (298, 305, range(300, 305))):
         r0 = B.block(a, b)
         for rr in rows:
             B.clear(tuple(STEEL_CNT_COLS.values()), r0 + rr - a)
+        for m, col in STEEL_CNT_COLS.items():
+            x = jt.get(m) or {}
+            if a == 286 and x.get("weld_n"):  # 용접접합상태 — 상태 줄(a 매우양호 ~ e 매우불량)에 개수
+                B.put(col, r0 + 2 + "abcde".index(x.get("weld_g") or "a"), int(x["weld_n"]))
+            elif a == 294 and (x.get("bolt_n") or x.get("bolt_bad")):  # 볼트접합부 — 불량/전체(SafetyMan "0/20")
+                B.put(col, r0 + 2, f"{int(x.get('bolt_bad') or 0)}/{int(x.get('bolt_n') or 0)}")
+            elif a == 298 and x.get("corr_n"):  # 강재부식도 — 상태 줄(a 거의 없음 ~ e 15%이상)에 개수
+                B.put(col, r0 + 2 + "abcde".index(x.get("corr_g") or "a"), int(x["corr_n"]))
     B.block(306, 309)

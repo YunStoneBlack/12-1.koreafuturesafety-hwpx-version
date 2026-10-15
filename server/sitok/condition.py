@@ -255,7 +255,8 @@ BLUE = (0.1, 0.2, 0.75)
 HEAD_FILL = (0.96, 0.96, 0.85)  # SafetyMan 머리칸(연노랑)
 
 
-def make_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_view: dict, prev_grade: str = "", photo: Path | None = None) -> Path:
+def make_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_view: dict, prev_grade: str = "", photo: Path | None = None,
+             joints: dict | None = None) -> Path:
     """건축물 평가결과(부록 5. 상태평가 결과 자료) — SafetyMan 출력 엑셀을 양식으로 같은 모양(safetyman.py, 10/15 민재형 "100% 일치") → LibreOffice PDF.
     양식 엑셀이나 LibreOffice가 없으면 예전 그림(_draw_pdf)."""
     import logging
@@ -264,7 +265,7 @@ def make_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_v
         from server.contract_docs.to_pdf import office_to_pdf
         from server.sitok import safetyman
 
-        xlsx = safetyman.build(dest.with_suffix(".xlsx"), agg, result, building, tests_view, photo)
+        xlsx = safetyman.build(dest.with_suffix(".xlsx"), agg, result, building, tests_view, photo, joints)
         return office_to_pdf(xlsx, dest)
     except Exception:  # noqa: BLE001 — 결과 자료는 꼭 나와야 함
         logging.getLogger(__name__).exception("SafetyMan 모양 상태평가 결과 실패 — 예전 그림으로")

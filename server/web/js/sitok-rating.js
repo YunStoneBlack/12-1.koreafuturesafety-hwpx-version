@@ -51,6 +51,35 @@
     $("sr-note").addEventListener("change", (e) => save({ note: e.target.value }));
   }
 
+  // 강재 접합·부식 개수(10/15 형 "SafetyMan과 100% 일치") — 부록 결과자료의 용접접합상태·볼트접합상태·강재부식도 표에만, 점수엔 안 들어감(정밀점검은 강재 규격만)
+  const WELD = [["a", "매우양호(결함없음)"], ["b", "전반적양호(국부적 미세결함)"], ["c", "보통(부분적 결함)"], ["d", "내력저하 우려(광범위한 결함)"], ["e", "매우불량(내력저하 심각)"]];
+  const CORR = [["a", "부식 거의 없음(양호)"], ["b", "판두께 감소 5% 이내"], ["c", "판두께 감소 10% 이내"], ["d", "판두께 감소 15% 이내"], ["e", "판두께 감소 15% 이상"]];
+  function drawJoints() {
+    const box = $("sr-joints");
+    const fl = view.steel_floors || [];
+    box.hidden = !fl.length;
+    if (!fl.length) { box.innerHTML = ""; return; }
+    const val = (f, m, k) => ((view.joints[String(f)] || {})[m] || {})[k];
+    const num = (f, m, k) => `<input class="n" inputmode="numeric" data-f="${f}" data-m="${esc(m)}" data-k="${k}" value="${esc(val(f, m, k) || "")}" />`;
+    const sel = (f, m, k, opts) => `<select data-f="${f}" data-m="${esc(m)}" data-k="${k}">${opts.map(([g, t]) => `<option value="${g}"${(val(f, m, k) || "a") === g ? " selected" : ""}>${g.toUpperCase()} ${esc(t)}</option>`).join("")}</select>`;
+    box.innerHTML = `<h3>강재 접합·부식 개수 <small class="page-sub">부록 결과자료(SafetyMan 표)의 용접·볼트·부식 칸에만 들어가고 점수엔 안 들어갑니다(정밀점검은 강재 규격만). 빈칸 = 표에 비움</small></h3>
+      ${fl.map((f) => `<div class="sr-jfloor"><b>${esc(f.label)}</b> <small>${esc(f.range_label)} · ${f.material === "SRC" ? "철골철근콘크리트(강재 쪽)" : "철골조"}</small>
+        <div class="st-tbl"><table><thead><tr><th rowspan="2">부재</th><th colspan="2">용접접합</th><th colspan="2">볼트접합</th><th colspan="2">강재부식</th></tr>
+          <tr><th>개수</th><th>상태</th><th>불량</th><th>전체</th><th>개수</th><th>상태</th></tr></thead>
+          <tbody>${view.joint_members.map((m) => `<tr><td class="l">${esc(m)}</td><td>${num(f.floor, m, "weld_n")}</td><td>${sel(f.floor, m, "weld_g", WELD)}</td>
+            <td>${num(f.floor, m, "bolt_bad")}</td><td>${num(f.floor, m, "bolt_n")}</td><td>${num(f.floor, m, "corr_n")}</td><td>${sel(f.floor, m, "corr_g", CORR)}</td></tr>`).join("")}</tbody></table></div></div>`).join("")}`;
+    box.querySelectorAll("input, select").forEach((el) => el.addEventListener("change", () => {
+      const joints = {};
+      box.querySelectorAll("[data-k]").forEach((x) => {
+        const f = String(x.dataset.f), m = x.dataset.m;
+        joints[f] = joints[f] || {};
+        joints[f][m] = joints[f][m] || {};
+        joints[f][m][x.dataset.k] = x.tagName === "SELECT" ? x.value : (x.value.trim() === "" ? 0 : Number(x.value));
+      });
+      save({ joints });
+    }));
+  }
+
   function drawResult() {
     const r = view.result;
     const note = $("sr-result-note");
@@ -121,6 +150,7 @@
     $("sr-round-link").textContent = `${r.year}년 ${r.half}`; // 회차 화면(10/14 3층 구조)
     $("sr-round-link").href = `sitok-round.html?report=${rid}`;
     drawCounts();
+    drawJoints();
     drawResult();
     drawDetail();
   }

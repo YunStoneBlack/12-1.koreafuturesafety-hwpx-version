@@ -29,4 +29,11 @@
 .sr-ex { margin-top: 12px; font-size: 12.5px; }
 .sr-ex summary { cursor: pointer; color: var(--muted); }
 .sr-ex ul { margin: 4px 0 0; padding-left: 16px; color: var(--muted); }
+.sr-joints { margin-top: 14px; }
+.sr-joints h3 { font-size: 14px; margin: 0 0 6px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.sr-joints h3 small { font-weight: 400; font-size: 12px; }
+.sr-jfloor { margin-top: 8px; font-size: 13px; }
+.sr-jfloor small { color: var(--muted); }
+.sr-jfloor .st-tbl { margin-top: 4px; }
+.sr-jfloor select { width: auto; max-width: 190px; padding: 3px 6px; font-size: 12px; margin: 0; }
 @media (max-width: 640px) { .sr-items { grid-template-columns: 1fr; } }

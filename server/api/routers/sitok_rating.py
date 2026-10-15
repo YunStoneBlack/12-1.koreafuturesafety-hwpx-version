@@ -1,7 +1,7 @@
 """시특법 정밀안전점검 상태평가(2026-10-13 밤, ③ 단계) — 표본층별 부재 전체 개수 입력 → 결함현황표·재료시험과 합쳐 SafetyMan 갑지와 같은 결과.
 
 - `GET /sitok/reports/{id}/rating` — 입력(counts·prev_grade·note, 비었으면 지난 정밀 회차 개수) + 결과(rating.evaluate) + 근거(층·부재·항목·결함) + 제외/미배정 결함.
-- `PATCH /sitok/reports/{id}/rating` — 입력 저장 → 같은 보기.
+- `PATCH /sitok/reports/{id}/rating` — 입력 저장 → 같은 보기. joints = 강재 표본층의 용접·볼트·부식 개수(10/15 — SafetyMan 입력자료 표에만, 점수엔 안 들어감).
 - `GET /sitok/reports/{id}/rating/pdf` — 부록 "상태평가 결과 자료" PDF(건축물 평가결과 + 입력자료, server/sitok/condition.make_pdf) — 회차 폴더 상태평가/.
 화면 sitok-rating.html(js/sitok-rating.js). 정밀 회차 카드 [📊 상태평가]."""
 from __future__ import annotations
@@ -26,6 +26,39 @@ class RatingIn(BaseModel):
     counts: dict | None = None
     prev_grade: str | None = None
     note: str | None = None
+    joints: dict | None = None  # {층: {기둥|큰보|작은보: {weld_n, weld_g, bolt_bad, bolt_n, corr_n, corr_g}}}
+
+
+JOINT_MEMBERS = ("기둥", "큰보", "작은보")  # SafetyMan 강재 표 열
+
+
+def _norm_joints(v) -> dict:
+    """강재 용접·볼트·부식 입력 — 개수는 0 이상 정수, 상태는 a~e(기본 a)."""
+    def num(x):
+        try:
+            return max(0, int(float(str(x).replace(",", "")))) if str(x).strip() not in ("", "None") else 0
+        except ValueError:
+            return 0
+
+    out = {}
+    for key, members in (v or {}).items():
+        try:
+            k = str(int(key))
+        except (TypeError, ValueError):
+            continue
+        row = {}
+        for m in JOINT_MEMBERS:
+            x = (members or {}).get(m) or {}
+            y = {"weld_n": num(x.get("weld_n")), "weld_g": str(x.get("weld_g") or "a").lower()[:1], "bolt_bad": num(x.get("bolt_bad")),
+                 "bolt_n": num(x.get("bolt_n")), "corr_n": num(x.get("corr_n")), "corr_g": str(x.get("corr_g") or "a").lower()[:1]}
+            for g in ("weld_g", "corr_g"):
+                if y[g] not in "abcde":
+                    y[g] = "a"
+            if y["weld_n"] or y["bolt_n"] or y["bolt_bad"] or y["corr_n"]:
+                row[m] = y
+        if row:
+            out[k] = row
+    return out
 
 
 def _norm_counts(v) -> dict:
@@ -74,9 +107,11 @@ def _compute(db: Session, r: SitokReport) -> dict:
                               tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"])
     result = condition.evaluate(agg)
     steel = any(fl.get("material") == "철골" for fl in tv["sample"]["floors"])  # 철골조면 강재기둥·강재보 열(10/14)
+    steel_floors = [{"floor": fl["floor"], "label": fl["label"], "range_label": fl["range_label"], "material": fl["material"]} for fl in agg["floors"]
+                    if fl["material"] == "철골" or (fl["material"] == "SRC" and any((m.get("items") or {}).get("SS") for m in fl["members"]))]
     return {"report": tv["report"], "building": tv["building"], "sample_floors": tv["sample"]["floors"], "members": list(condition.MEMBERS) + (list(condition.STEEL_MEMBERS) if steel else []),
             "counts": counts, "carried": carried, "prev_grade": prev_grade, "prev_auto": prev_auto, "prev_report": {"id": prev.id, "year": prev.year, "half": prev.half} if prev else None,
-            "note": raw.get("note") or "", "result": result, "floors": agg["floors"], "deform": agg["deform"], "excluded": agg["excluded"], "unassigned": agg["unassigned"],
+            "note": raw.get("note") or "", "joints": _norm_joints(raw.get("joints")), "steel_floors": steel_floors, "joint_members": list(JOINT_MEMBERS), "result": result, "floors": agg["floors"], "deform": agg["deform"], "excluded": agg["excluded"], "unassigned": agg["unassigned"],
             "labels": {"items": condition.ITEM_LABEL, "surface": condition.SURFACE_LABEL, "crack_rows": condition.CRACK_ROWS, "scaling_rows": condition.SCALING_ROWS,
                        "spalling_rows": condition.SPALLING_ROWS, "leak_rows": condition.LEAK_ROWS, "rebar_rows": condition.REBAR_ROWS}}
 
@@ -101,6 +136,8 @@ def save_rating(report_id: int, body: RatingIn, user: User = Depends(get_current
         cur["prev_grade"] = g
     if "note" in data:
         cur["note"] = (data["note"] or "").strip()
+    if "joints" in data:
+        cur["joints"] = _norm_joints(data["joints"])
     r.rating = cur
     db.commit()
     return _compute(db, r)

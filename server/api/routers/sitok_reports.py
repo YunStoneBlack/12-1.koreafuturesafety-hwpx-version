@@ -90,7 +90,7 @@ def rating_result_pdf(db: Session, r: SitokReport, f: SitokFacility, rv: dict, t
                               tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"])
     ph = overview_photos(db, r)
     dest = _report_dir(f, r) / "상태평가" / "상태평가결과.pdf"
-    return condition.make_pdf(dest, agg, rv["result"], bi, tv, rv["prev_grade"] or rv["prev_auto"], photo=Path(ph[0][0]) if ph else None)
+    return condition.make_pdf(dest, agg, rv["result"], bi, tv, rv["prev_grade"] or rv["prev_auto"], photo=Path(ph[0][0]) if ph else None, joints=rv.get("joints"))
 
 
 def _out(r: SitokReport) -> dict:
