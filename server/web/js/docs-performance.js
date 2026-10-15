@@ -33,6 +33,9 @@
   function chart() {
     const m = law && data.monthly.law ? data.monthly.law[law] : data.monthly;  // [전체·시특법·산안법] 버튼을 따름
     $("pf-chart-title").textContent = `월별 계약금액${law ? ` · ${law}` : ""}`;
+    // 범례 = 막대 순서(작년 왼쪽·올해 오른쪽) + 연도별 합계(작년 전체 · 올해 오늘까지, 구분 버튼 따라) — 10/15 사용자
+    const s = data.summary;
+    const k = law === "시특법" ? "sitok" : law === "산안법" ? "sanan" : "total";
     const vals = [...m.this, ...m.prev];
     const max = Math.max(...vals, 1);
     const W = 760, H = 220, L = 54, B = 28, T = 16;
@@ -51,7 +54,7 @@
     }
     const grid = [0, 0.5, 1].map((f) => `<line x1="${L}" x2="${W - 10}" y1="${yv(max * f)}" y2="${yv(max * f)}" class="pf-grid" /><text x="${L - 6}" y="${yv(max * f) + 4}" text-anchor="end" class="pf-ax">${man(max * f)}</text>`).join("");
     $("pf-chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${data.year}년과 ${data.year - 1}년 월별 계약금액${law ? ` (${law})` : ""}">${grid}${rows.join("")}</svg>
-      <div class="pf-legend"><span><i style="background:#2A7DE1"></i>${data.year}년</span><span><i style="background:#C2410C"></i>${data.year - 1}년</span></div>`;
+      <div class="pf-legend"><span><i style="background:#C2410C"></i>${data.year - 1}년 전체 <b>${man(s.prev_full[k])}원</b></span><span><i style="background:#2A7DE1"></i>${data.year}년 ${s.cutoff ? `${ymd(data.today).slice(5)}까지` : "전체"} <b>${man(s.this[k])}원</b></span></div>`;
     $("pf-chart-note").textContent = `계약일(민간 반기는 반기 시작일) 기준 · 값 표시는 올해 큰 달 두 곳, 나머지는 막대에 마우스`;
   }
 
