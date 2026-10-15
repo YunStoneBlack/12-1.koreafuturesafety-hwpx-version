@@ -427,7 +427,9 @@
   function row(c, inCard) {
     const el = document.createElement("div");
     el.className = `row dc-row${inCard ? " in-card" : ""}`;
-    const meta = [c.client, c.contract_no, periodText(c), moneyText(c)].filter(Boolean).join(" · ");
+    // 10/16 사용자: 한 줄에 다 붙이면 지저분 — 발주처·계약번호 / 기간·금액 두 줄, 날짜·번호 중간에서 안 끊김(발주처는 띄어쓰기에서만)
+    const metaLine = (xs) => xs.filter((x) => x[1]).map(([cls, v]) => `<span class="${cls}">${esc(v)}</span>`).join('<span class="sd-mdot"> · </span>');
+    const meta1 = metaLine([["sd-mc", c.client], ["sd-mi", c.contract_no]]), meta2 = metaLine([["sd-mi", periodText(c)], ["sd-mi", moneyText(c)]]);
     const year = c.sector === "관급" && (c.start_date || c.contract_date) ? `<span class="sd-year">${(c.start_date || c.contract_date).slice(0, 4)}년</span>` : "";
     const half = c.half ? `<span class="sd-half${c.half === "해당없음" ? " na" : ""}" title="${c.half_tag ? "직접 고른 반기" : "용역 기간으로 자동"}">${esc(c.half)}</span>` : "";
     const kc = inCard ? cardOf(c) : null;
@@ -436,7 +438,7 @@
     el.innerHTML = `
       <div class="dc-main">
         <div class="dc-title">${inCard ? `${dno}${year}${half}` : `<span class="sd-chip ${c.sector === "민간" ? "civil" : "gov"}">${c.sector}</span>${half}`}${esc(c.title || (c.sector === "민간" && c.auto_title) || "(계약건명 없음 — 계약 정보를 채우세요)")}</div>
-        <div class="dc-meta">${esc(meta)}</div>${tg}
+        ${meta1 ? `<div class="dc-meta sd-meta">${meta1}</div>` : ""}${meta2 ? `<div class="dc-meta sd-meta">${meta2}</div>` : ""}${tg}
         ${contactLine(c, "client", "계약 담당")}${contactLine(c, "site", "현장 담당")}
         ${inCard ? "" : `<div class="dc-site">${c.facility ? `현장 <a href="sitok-facility.html?id=${c.facility.id}">${esc(c.facility.name)}</a>` : '<span class="dc-nosite">시설물 카드에 안 넣음</span>'}
           <button type="button" class="dc-link">${c.facility ? "바꾸기" : "🔗 카드에 넣기"}</button></div>`}

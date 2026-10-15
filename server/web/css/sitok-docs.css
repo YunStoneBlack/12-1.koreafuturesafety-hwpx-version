@@ -143,3 +143,7 @@
 .af-cons .uf-row input { flex: none; margin-top: 3px; }
 .sd-dno { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 12px; font-weight: 700; }
 .n-merge-row { margin-top: 8px; }
+
+/* 계약 줄 정보 두 줄(10/16) — 발주처·계약번호 / 기간·금액, 날짜·번호 중간에서 안 끊김 */
+.dc-meta.sd-meta { word-break: keep-all; overflow-wrap: anywhere; }
+.sd-meta .sd-mi { white-space: nowrap; }
