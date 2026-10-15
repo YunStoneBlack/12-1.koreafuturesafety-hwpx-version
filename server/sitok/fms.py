@@ -179,7 +179,7 @@ def payload(db, reports: list) -> dict:
         "bid_method": BID.get(c.bid_method if c else "수의계약", "03"),
         "eval_method": EVAL["기타"],
         "contract_method": CONTRACT["총액계약"],
-        "price_method": PRICE["실비정액가산방식" if sector == "민간" else "공사비요율방식"],
+        "price_method": PRICE["실비정액가산방식"],  # 대가산출 — 민간·관급 둘 다(민재형 10/15)
         "tech_field": FIELD.get(c.field if c else "건축", "2"),
         "etc_comment": "",
     }
