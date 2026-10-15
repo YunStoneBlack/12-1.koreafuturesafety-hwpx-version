@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>시특법 - 방문 달력</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/site-info.css" />
+<link rel="stylesheet" href="css/docs.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/sitok-calendar.css" />
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+</head>
+<!-- 보고서 자동화 · 시특법 — 방문 달력(2026-10-15 민재형 문서번호 일치화 문서 "보고서 달력관리"). 시설물 카드마다 반기 하루씩 자동(같은 시·군 같은 날,
+     하루 건물 4개, 관급은 착수일 1주일 안), 끌어서 다른 날로(📌), 일정 없는 시설물 알림 + [자동으로 잡기]. js/sitok-calendar.js, API server/api/routers/sitok_calendar.py -->
+<body data-report-tab="calendar" data-law="sitok">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<div class="sc-notice" id="sc-notice" hidden></div>
+<div class="dk-wrap">
+  <section class="panel">
+    <div class="panel-body">
+      <div id="sc-cal"></div>
+      <div class="dk-legend sc-legend"><span><i class="k-reg"></i>정기</span><span><i class="k-pre"></i>정밀</span><span><i class="s-done"></i>✓ 보고서 만듦</span>
+        <span><i class="s-missed"></i>지난 날 · 보고서 없음</span><span>📌 사람이 정한 날</span><span class="sc-cap-note">날짜 옆 숫자 = 그날 건물 수(4 넘으면 빨강)</span></div>
+    </div>
+  </section>
+  <section class="panel dk-day" id="sc-day">
+    <div class="panel-body" id="sc-day-body"></div>
+  </section>
+</div>
+<div class="dk-list" id="sc-list"></div>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="mail.js"></script>
+<script src="shell.js"></script>
+<script src="js/sitok-calendar.js"></script>
+</body>
+</html>

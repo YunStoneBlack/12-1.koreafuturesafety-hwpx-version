@@ -218,6 +218,9 @@ def create(body: ContractIn | None = None, user: User = Depends(get_current_user
     _apply(c, body or ContractIn(), user, db)
     db.add(c)
     db.commit()
+    if c.facility_id:  # 시설물 카드 안 [+ 계약] — 방문 달력에 반기마다 점검 날(10/15)
+        from server.sitok.visit_plan import fill_quietly
+        fill_quietly(db, user.company_id, user.display_name or "", [c.facility_id])
     return summary(db, c)
 
 
@@ -539,6 +542,8 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
     if created is not None:  # 새 시설물이면 이번 반기(계약이 덮으면) 회차까지
         report_id = _first_report(db, user, f, rc)
     db.commit()
+    from server.sitok.visit_plan import fill_quietly
+    fill_quietly(db, user.company_id, user.display_name or "", [f.id])  # 방문 달력 반기마다 점검 날(10/15)
     return summary(db, c) | {"report_contract": rc.id, "facility_name": f.name, "created_facility": created, "report_id": report_id}
 
 

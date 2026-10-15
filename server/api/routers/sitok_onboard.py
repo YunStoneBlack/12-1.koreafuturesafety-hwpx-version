@@ -168,6 +168,9 @@ def onboard(body: OnboardIn, user: User = Depends(get_current_user), db: Session
     if len(facs) > 1:
         _group_reports(db, r, by)
     db.commit()
+    from server.sitok.visit_plan import fill_quietly
+    if fill_quietly(db, user.company_id, by, [f.id for f in facs]):  # 방문 달력에 반기마다 점검 날(10/15)
+        notes.append("방문 달력에 이 시설물 점검 날을 반기마다 잡았습니다 — 보고서 자동화 · 시특법 [방문 달력]에서 바꿀 수 있어요")
     if prior_pdf is not None:
         if len(facs) == 1 and r.status != "done":
             try:

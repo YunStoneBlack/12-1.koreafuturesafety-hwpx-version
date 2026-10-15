@@ -491,6 +491,26 @@ class SitokFacility(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
 
+class SitokVisit(Base):
+    """웹판 전용 — 시특법 방문 달력(0049, 10/15 민재형 문서번호 일치화 문서 "보고서 달력관리"). 시설물(묶인 동은 대표 동) 반기마다 현장 점검 날.
+    자동(source=auto) = 계약이 덮는 반기에 하루씩, 같은 시·군끼리 같은 날, 하루 건물 4개까지, 관급은 착수일 1주일 안(server/sitok/visit_plan.py).
+    사람이 넣거나 끌어 옮긴 날 = manual(📌, 자동 배치가 안 건드림). 한 반기에 날을 더 넣을 수 있음."""
+
+    __tablename__ = "sitok_visit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    facility_id: Mapped[int] = mapped_column(ForeignKey("sitok_facility.id", ondelete="CASCADE"), index=True)
+    year: Mapped[int] = mapped_column(Integer)
+    half: Mapped[str] = mapped_column(Text)  # 상반기 / 하반기
+    kind: Mapped[str] = mapped_column(Text, default="정기")  # 정기 / 정밀
+    plan_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    source: Mapped[str] = mapped_column(Text, default="auto")  # auto / manual(📌)
+    memo: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
 class SitokView(Base):
     """웹판 전용 — 사람마다 시특법 시설물을 마지막으로 연 때(2026-10-13 alembic 0042) — 시설물 목록 "최근 열람순"(산안법 SiteView와 같음).
     시설물 화면·회차(현장 조사·보고서) 화면을 열면 기록(server/api/routers/sitok.py mark_view)."""
