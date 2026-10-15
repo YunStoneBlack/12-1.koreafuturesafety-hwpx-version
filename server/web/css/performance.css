@@ -38,7 +38,7 @@
 .pf-row { border-bottom: 1px solid var(--line); font-size: 13.5px; }
 .pf-row:last-child { border-bottom: none; }
 .pf-head .r, .pf-row .r { text-align: right; font-variant-numeric: tabular-nums; }
-.pf-head > span, .pf-head > span.r { text-align: center; } /* 머리글만 가운데(10/16 사용자) — 칸 안(금액 오른쪽 등)은 그대로 */
+.pf-head > span { text-align: center; } /* 머리글 가운데(10/16 사용자) — 금액 두 열(.r)은 숫자처럼 오른쪽 */
 .pf-no { font-size: 12px; font-weight: 700; color: var(--blue); background: var(--blue-soft); padding: 2px 8px; border-radius: 6px; text-align: center; }
 .pf-kind { justify-self: start; max-width: 100%; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* 색 칸 = 글자 길이(10/16) */
 @media (min-width: 761px) { .pf-row .pf-kind { justify-self: center; } .pf-row .pf-date { text-align: center; } } /* 구분·계약일 열만 표시 가운데(10/16 사용자) — 금액 등 다른 열은 그대로, 폰은 그대로 */
