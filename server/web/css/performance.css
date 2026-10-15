@@ -40,7 +40,8 @@
 .pf-head .r, .pf-row .r { text-align: right; font-variant-numeric: tabular-nums; }
 .pf-head > span, .pf-head > span.r { text-align: center; } /* 머리글만 가운데(10/16 사용자) — 칸 안(금액 오른쪽 등)은 그대로 */
 .pf-no { font-size: 12px; font-weight: 700; color: var(--blue); background: var(--blue-soft); padding: 2px 8px; border-radius: 6px; text-align: center; }
-.pf-kind { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-kind { justify-self: start; max-width: 100%; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* 색 칸 = 글자 길이(10/16) */
+@media (min-width: 761px) { .pf-row .pf-kind { justify-self: center; } .pf-row .pf-amt, .pf-row .pf-total, .pf-row .pf-date { text-align: center; } } /* 표시도 머리글 가운데에(10/16) — 용역명·발주처는 왼쪽 그대로, 폰은 그대로 */
 .pf-kind.sitok { background: #fbeadc; color: #b4541a; }
 .pf-kind.sanan { background: var(--blue-soft); color: var(--blue); }
 .pf-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
