@@ -29,7 +29,8 @@
         <span class="pf-s">${data.year - 1}년 ${s.cutoff ? "같은 기간" : ""} ${man(s.prev[k])}원${s.cutoff ? ` · ${data.year - 1}년 전체 ${man(s.prev_full[k])}원` : ""}</span></div>`;
   }
 
-  // 월별 막대 — 올해·작년 두 묶음(SVG). 색은 dataviz 검증(#2A7DE1·#C2410C, CVD ΔE 29). 막대 위에 값은 최대 두 개(가장 큰 달)만, 나머지는 hover 툴팁.
+  // 월별 막대 — 올해·작년 두 묶음(SVG). 색은 dataviz 검증(#2A7DE1·#C2410C, CVD ΔE 29). 막대 위에 값은 최대 두 개(가장 큰 달)만,
+  // 다른 달은 그 달 칸에 마우스를 올리거나(폰은 누르면) 말풍선에 두 해 금액(10/15 사용자 "마우스를 올려도 금액이 안 보임" — 예전 SVG <title>은 1초쯤 가만히 둬야 뜨고 폰은 안 뜸).
   function chart() {
     const m = law && data.monthly.law ? data.monthly.law[law] : data.monthly;  // [전체·시특법·산안법] 버튼을 따름
     $("pf-chart-title").textContent = `월별 계약금액${law ? ` · ${law}` : ""}`;
@@ -47,15 +48,39 @@
       const x = L + i * bw;
       const h1 = H - B - yv(m.this[i]), h2 = H - B - yv(m.prev[i]);
       rows.push(`<g class="pf-bar" data-i="${i}">
-        <rect x="${x + 6}" y="${yv(m.prev[i])}" width="${bw / 2 - 8}" height="${h2}" rx="3" fill="#C2410C" opacity=".85"><title>${data.year - 1}년 ${i + 1}월 ${won(m.prev[i])}</title></rect>
-        <rect x="${x + bw / 2 + 2}" y="${yv(m.this[i])}" width="${bw / 2 - 8}" height="${h1}" rx="3" fill="#2A7DE1"><title>${data.year}년 ${i + 1}월 ${won(m.this[i])}</title></rect>
+        <rect class="pf-hit" x="${x}" y="${T - 6}" width="${bw}" height="${H - T + 6}" rx="6" />
+        <rect x="${x + 6}" y="${yv(m.prev[i])}" width="${bw / 2 - 8}" height="${h2}" rx="3" fill="#C2410C" opacity=".85" />
+        <rect x="${x + bw / 2 + 2}" y="${yv(m.this[i])}" width="${bw / 2 - 8}" height="${h1}" rx="3" fill="#2A7DE1" />
         ${top.includes(i) ? `<text x="${x + bw / 2 + 2 + (bw / 2 - 8) / 2}" y="${yv(m.this[i]) - 4}" text-anchor="middle" class="pf-val">${man(m.this[i])}</text>` : ""}
         <text x="${x + bw / 2}" y="${H - 8}" text-anchor="middle" class="pf-ax">${i + 1}월</text></g>`);
     }
     const grid = [0, 0.5, 1].map((f) => `<line x1="${L}" x2="${W - 10}" y1="${yv(max * f)}" y2="${yv(max * f)}" class="pf-grid" /><text x="${L - 6}" y="${yv(max * f) + 4}" text-anchor="end" class="pf-ax">${man(max * f)}</text>`).join("");
     $("pf-chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${data.year}년과 ${data.year - 1}년 월별 계약금액${law ? ` (${law})` : ""}">${grid}${rows.join("")}</svg>
+      <div class="pf-tip" id="pf-tip" hidden></div>
       <div class="pf-legend"><span><i style="background:#C2410C"></i>${data.year - 1}년 전체 <b>${man(s.prev_full[k])}원</b></span><span><i style="background:#2A7DE1"></i>${data.year}년 ${s.cutoff ? `${ymd(data.today).slice(5)}까지` : "전체"} <b>${man(s.this[k])}원</b></span></div>`;
-    $("pf-chart-note").textContent = `계약일(민간 반기는 반기 시작일) 기준 · 값 표시는 올해 큰 달 두 곳, 나머지는 막대에 마우스`;
+    $("pf-chart-note").textContent = `계약일(민간 반기는 반기 시작일) 기준 · 숫자는 올해 큰 두 달, 다른 달은 막대에 마우스를 올리거나 누르면 보입니다`;
+    const tip = $("pf-tip");
+    const amt = (v) => (v ? `<b>${man(v)}원</b><small>${won(v)}</small>` : "<b>없음</b>");
+    const show = (g) => {
+      const i = Number(g.dataset.i);
+      $("pf-chart").querySelectorAll(".pf-bar.on").forEach((x) => x.classList.remove("on"));
+      g.classList.add("on");
+      tip.innerHTML = `<div class="pf-tip-m">${i + 1}월</div>
+        <div class="pf-tip-r"><i style="background:#C2410C"></i>${data.year - 1}년 ${amt(m.prev[i])}</div>
+        <div class="pf-tip-r"><i style="background:#2A7DE1"></i>${data.year}년 ${amt(m.this[i])}</div>`;
+      tip.style.left = `${((L + i * bw + bw / 2) / W) * 100}%`;
+      tip.style.transform = `translateX(${i < 2 ? -15 : i > 9 ? -85 : -50}%)`; // 양 끝 달은 그래프 밖으로 안 나가게
+      tip.hidden = false;
+    };
+    const hide = () => {
+      tip.hidden = true;
+      $("pf-chart").querySelectorAll(".pf-bar.on").forEach((x) => x.classList.remove("on"));
+    };
+    $("pf-chart").querySelectorAll(".pf-bar").forEach((g) => {
+      g.addEventListener("mouseenter", () => show(g));
+      g.addEventListener("mouseleave", hide);
+      g.addEventListener("click", () => show(g)); // 폰 — 누르면 그 달
+    });
   }
 
   function list() {

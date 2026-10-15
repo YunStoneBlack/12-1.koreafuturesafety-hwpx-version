@@ -16,7 +16,19 @@
 .pf-grid { stroke: var(--line); stroke-width: 1; }
 .pf-ax { font-size: 10px; fill: var(--faint); }
 .pf-val { font-size: 10px; fill: var(--muted); font-weight: 600; }
-.pf-bar rect:hover { opacity: 1; filter: brightness(1.08); }
+.pf-chart { position: relative; }
+.pf-bar { cursor: pointer; }
+.pf-hit { fill: transparent; }
+.pf-bar.on .pf-hit { fill: rgba(42, 125, 225, .08); } /* 말풍선이 가리키는 달 칸 */
+/* 말풍선(10/15) — 그 달 칸 위 가운데, 양 끝 달은 안쪽으로 */
+.pf-tip { position: absolute; top: 0; z-index: 2; min-width: 170px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, .12); font-size: 12px; color: var(--muted); pointer-events: none; white-space: nowrap; }
+.pf-tip[hidden] { display: none; }
+.pf-tip-m { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+.pf-tip-r { display: flex; align-items: baseline; gap: 6px; line-height: 1.7; }
+.pf-tip-r i { width: 10px; height: 10px; border-radius: 3px; align-self: center; }
+.pf-tip-r b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.pf-tip-r small { color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
 .pf-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: flex-end; margin-top: 6px; font-size: 12px; color: var(--muted); }
 .pf-legend b { color: var(--ink); font-weight: 700; margin-left: 2px; font-variant-numeric: tabular-nums; }
 .pf-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
