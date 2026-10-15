@@ -491,3 +491,4 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
 .sk-badge-f b { font-weight: 700; margin-left: 2px; }
 .main button.sk-badge-f.b-field.on { background: #2f6b34; border-color: #2f6b34; color: #fff; }
 .main button.sk-badge-f.b-kind.on { background: #5b3d8f; border-color: #5b3d8f; color: #fff; }
+.main button.sk-badge-f.sk-badge-clear { border-style: dashed; color: var(--muted, #6b7280); } /* 거르기 풀기(10/16) */

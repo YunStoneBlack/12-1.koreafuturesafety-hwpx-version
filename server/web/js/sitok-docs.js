@@ -82,7 +82,12 @@
     cardsEl.innerHTML = TABS.map(([key, label, sub, ok]) => `<button type="button" class="st-card${view.tab === key ? " active" : ""}" data-tab="${key}">
       <span class="l">${label}</span><span class="n">${cards.filter((k) => ok(k) && badgeOk(k)).length}곳</span><span class="s">${sub}</span></button>`).join("") +
       `<button type="button" class="st-card${view.tab === "loose" ? " active" : ""}" data-tab="loose"><span class="l">카드에 안 넣은 계약</span><span class="n">${loose.length}건</span><span class="s">시설물 카드와 아직 안 이음</span></button>`;
-    cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => { view.tab = b.dataset.tab; if (view.tab === "민간") view.kind = ""; render(); }));
+    cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => {
+      view.tab = b.dataset.tab;
+      if (view.tab === "민간") view.kind = "";
+      if (!view.tab) view.field = view.kind = ""; // [전체] = 칩 거르기도 풀기(10/16)
+      render();
+    }));
     // 뱃지 칩 — 지금 구분 안에서 개수, 누르면 그것만(한 번 더 = 풀기)
     const inTab = cards.filter((k) => !view.tab || view.tab === "loose" || k.sector === view.tab);
     const chip = (dim, v) => {
@@ -91,8 +96,10 @@
     };
     const bEl = document.getElementById("sd-badges");
     bEl.innerHTML = `<span class="sk-badge-l">분야</span>${FIELDS.map((v) => chip("field", v)).join("")}` +
-      (view.tab === "민간" ? "" : `<span class="sk-badge-l">관급</span>${KINDS.map((v) => chip("kind", v)).join("")}`);
-    bEl.querySelectorAll(".sk-badge-f").forEach((b) => b.addEventListener("click", () => { view[b.dataset.dim] = view[b.dataset.dim] === b.dataset.v ? "" : b.dataset.v; render(); }));
+      (view.tab === "민간" ? "" : `<span class="sk-badge-l">관급</span>${KINDS.map((v) => chip("kind", v)).join("")}`) +
+      (view.field || view.kind ? '<button type="button" class="sk-badge-f sk-badge-clear" title="분야·관급 거르기 풀기">✕ 전체 보기</button>' : "");
+    bEl.querySelectorAll(".sk-badge-f[data-dim]").forEach((b) => b.addEventListener("click", () => { view[b.dataset.dim] = view[b.dataset.dim] === b.dataset.v ? "" : b.dataset.v; render(); }));
+    bEl.querySelector(".sk-badge-clear")?.addEventListener("click", () => { view.field = view.kind = ""; render(); });
     document.querySelectorAll(".sd-sort button").forEach((b) => {
       const on = b.dataset.sort === sort.mode;
       b.classList.toggle("on", on);

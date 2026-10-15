@@ -61,7 +61,12 @@
     try { localStorage.setItem(SORT_KEY, JSON.stringify(sort)); } catch { /* 지금은 바뀜 */ }
     render();
   }));
-  document.querySelectorAll(".sk-sector-f button").forEach((b) => b.addEventListener("click", () => { sector = b.dataset.sector; if (sector === "민간") badge.kind = ""; render(); }));
+  document.querySelectorAll(".sk-sector-f button").forEach((b) => b.addEventListener("click", () => {
+    sector = b.dataset.sector;
+    if (sector === "민간") badge.kind = "";
+    if (!sector) badge.field = badge.kind = ""; // [전체] = 칩 거르기도 풀기(10/16)
+    render();
+  }));
   const sectorOf = (f) => f.sector || contractOf(f)?.sector || "민간";
   const badgeOk = (f) => (!badge.field || f.badge_field === badge.field) && (!badge.kind || f.badge_kind === badge.kind);
   const FIELDS = ["건축", "토목", "건축·토목"], KINDS = ["학교", "일반"];
@@ -74,11 +79,13 @@
       return `<button type="button" class="sk-badge-f b-${dim}${badge[dim] === v ? " on" : ""}" data-dim="${dim}" data-v="${esc(v)}" aria-pressed="${badge[dim] === v}">${esc(v)} <b>${n}</b></button>`;
     };
     box.innerHTML = `<span class="sk-badge-l">분야</span>${FIELDS.map((v) => chip("field", v)).join("")}` +
-      (sector === "민간" ? "" : `<span class="sk-badge-l">관급</span>${KINDS.map((v) => chip("kind", v)).join("")}`);
-    box.querySelectorAll(".sk-badge-f").forEach((b) => b.addEventListener("click", () => {
+      (sector === "민간" ? "" : `<span class="sk-badge-l">관급</span>${KINDS.map((v) => chip("kind", v)).join("")}`) +
+      (badge.field || badge.kind ? '<button type="button" class="sk-badge-f sk-badge-clear" title="분야·관급 거르기 풀기">✕ 전체 보기</button>' : "");
+    box.querySelectorAll(".sk-badge-f[data-dim]").forEach((b) => b.addEventListener("click", () => {
       badge[b.dataset.dim] = badge[b.dataset.dim] === b.dataset.v ? "" : b.dataset.v;
       render();
     }));
+    box.querySelector(".sk-badge-clear")?.addEventListener("click", () => { badge.field = badge.kind = ""; render(); });
   }
 
   // 묶인 동(숭의 B동)은 계약이 1번 동에 있어 — 같은 묶음의 계약을 씀(민간·관급 거르기·계약 칸)

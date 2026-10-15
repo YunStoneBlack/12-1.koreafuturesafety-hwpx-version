@@ -41,7 +41,12 @@
   };
   document.getElementById("ss-prev").addEventListener("click", () => shift(-1));
   document.getElementById("ss-next").addEventListener("click", () => shift(1));
-  document.querySelectorAll(".ss-sector button").forEach((b) => b.addEventListener("click", () => { view.sector = b.dataset.sector; if (view.sector === "민간") view.kind = ""; render(); }));
+  document.querySelectorAll(".ss-sector button").forEach((b) => b.addEventListener("click", () => {
+    view.sector = b.dataset.sector;
+    if (view.sector === "민간") view.kind = "";
+    if (!view.sector) view.field = view.kind = ""; // [전체] = 칩 거르기도 풀기(10/16)
+    render();
+  }));
   document.getElementById("ss-search").addEventListener("input", (e) => { view.q = e.target.value.trim().toLowerCase(); render(); });
 
   const baseRows = () => rows.filter((r) => (!view.sector || r.facility.sector === view.sector) && (!view.field || r.facility.badge_field === view.field) &&
@@ -57,8 +62,10 @@
     };
     const bEl = document.getElementById("ss-badges");
     bEl.innerHTML = `<span class="sk-badge-l">분야</span>${["건축", "토목", "건축·토목"].map((v) => chip("field", v)).join("")}` +
-      (view.sector === "민간" ? "" : `<span class="sk-badge-l">관급</span>${["학교", "일반"].map((v) => chip("kind", v)).join("")}`);
-    bEl.querySelectorAll(".sk-badge-f").forEach((b) => b.addEventListener("click", () => { view[b.dataset.dim] = view[b.dataset.dim] === b.dataset.v ? "" : b.dataset.v; render(); }));
+      (view.sector === "민간" ? "" : `<span class="sk-badge-l">관급</span>${["학교", "일반"].map((v) => chip("kind", v)).join("")}`) +
+      (view.field || view.kind ? '<button type="button" class="sk-badge-f sk-badge-clear" title="분야·관급 거르기 풀기">✕ 전체 보기</button>' : "");
+    bEl.querySelectorAll(".sk-badge-f[data-dim]").forEach((b) => b.addEventListener("click", () => { view[b.dataset.dim] = view[b.dataset.dim] === b.dataset.v ? "" : b.dataset.v; render(); }));
+    bEl.querySelector(".sk-badge-clear")?.addEventListener("click", () => { view.field = view.kind = ""; render(); });
     // 숫자 칸
     const base = baseRows();
     const cardsEl = document.getElementById("ss-cards");
