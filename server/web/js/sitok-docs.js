@@ -195,6 +195,7 @@
       box.querySelector(".sd-close").addEventListener("click", () => overlay.remove());
       return;
     }
+    st.bldgs = (st.buildings || []).slice(); // 동별 금액(10/15) — 동이 둘 이상이면 회차마다 동별 금액, 회차 금액 = 합
     if (!id && !st.rounds.length) { // 새 민간 계약: 올해·지금 반기·정기 한 줄
       const now = new Date();
       st.rounds = [{ year: now.getFullYear(), half: now.getMonth() < 6 ? "상반기" : "하반기", kind: "정기", amount: null }];
@@ -225,9 +226,15 @@
     // 화면 → st(다시 그리기 전에 늘 먼저)
     function sync() {
       box.querySelectorAll("[data-key]").forEach((i) => { st[i.dataset.key] = i.value; });
+      if (box.querySelector(".sd-bldgs")) st.bldgs = [...box.querySelectorAll(".b-name")].map((i) => i.value.trim());
       if (box.querySelector(".sd-rounds")) {
-        st.rounds = [...box.querySelectorAll(".sd-round")].map((r) => ({ year: num(r.querySelector(".r-year").value), half: r.querySelector(".r-half").value,
-          kind: r.querySelector(".r-kind").value, amount: num(r.querySelector(".r-amt").value) }));
+        st.rounds = [...box.querySelectorAll(".sd-round")].map((r) => {
+          const base = { year: num(r.querySelector(".r-year").value), half: r.querySelector(".r-half").value, kind: r.querySelector(".r-kind").value };
+          const parts = [...r.querySelectorAll(".r-part")];
+          if (!parts.length) return { ...base, amount: num(r.querySelector(".r-amt").value) };
+          const pp = parts.map((i) => ({ name: st.bldgs[Number(i.dataset.b)] || "", amount: num(i.value) }));
+          return { ...base, parts: pp, amount: pp.reduce((t, x) => t + (x.amount || 0), 0) };
+        });
       }
       const chk = box.querySelector(".sd-open-chk");
       if (chk) st.open_ended = chk.checked;
@@ -253,6 +260,7 @@
         const b = body();
         if (!st.id) await ensure();
         else st = await api(`${P}/contracts/${st.id}`, { method: "PUT", body: JSON.stringify(b) });
+        st.bldgs = (st.buildings || []).slice();
         draw(true);
         if (!quiet) msg("✓ 저장했습니다.", "ok");
         return true;
@@ -278,14 +286,22 @@
         return `<div class="sd-unit">매 반기 <select class="sd-unit-kind">${["정기", "정밀"].map((k) => `<option${u.kind === k ? " selected" : ""}>${k}</option>`).join("")}</select>
           금 <input class="sd-unit-amt sd-won" inputmode="numeric" value="${won(u.amount)}" placeholder="550,000" /> 원 <span class="mail-note">(VAT포함 · 총합은 안 씀)</span></div>`;
       }
-      const rows = st.rounds.map((r, i) => `<div class="sd-round" data-i="${i}">
+      const multi = st.bldgs.length >= 2;
+      const partOf = (r, j) => { const q = (r.parts || []).find((x) => x.name === st.bldgs[j]); return q ? q.amount : (j === 0 && !r.parts ? r.amount : null); };
+      const rows = st.rounds.map((r, i) => `<div class="sd-round${multi ? " multi" : ""}" data-i="${i}">
           <input class="r-year" inputmode="numeric" value="${r.year || ""}" aria-label="연도" /><span>년</span>
           <select class="r-half" aria-label="반기">${["상반기", "하반기"].map((h) => `<option${r.half === h ? " selected" : ""}>${h}</option>`).join("")}</select>
           <select class="r-kind" aria-label="점검 종류">${["정기", "정밀"].map((k) => `<option${r.kind === k ? " selected" : ""}>${k}</option>`).join("")}</select>
-          <span class="r-amt-wrap">금 <input class="r-amt sd-won" inputmode="numeric" value="${won(r.amount)}" placeholder="금액" aria-label="금액" /> 원</span>
+          ${multi ? `<span class="r-parts">${st.bldgs.map((b, j) => `<label class="r-part-l"><small>${esc(b || `${j + 1}동`)}</small><input class="r-part sd-won" data-b="${j}" inputmode="numeric" value="${won(partOf(r, j))}" placeholder="금액" aria-label="${esc(b)} 금액" /></label>`).join("")}
+              <span class="r-sum">= ${won(r.amount) || 0}원</span></span>`
+            : `<span class="r-amt-wrap">금 <input class="r-amt sd-won" inputmode="numeric" value="${won(r.amount)}" placeholder="금액" aria-label="금액" /> 원</span>`}
           <button type="button" class="cd-x r-del" title="이 회차 빼기">✕</button></div>`).join("");
       const total = st.rounds.reduce((s, r) => s + (r.amount || 0), 0);
-      return `<div class="sd-rounds">${rows || '<div class="mail-note">회차가 없습니다 — [+ 회차]로 넣으세요.</div>'}</div>
+      const bl = multi ? `<div class="sd-bldgs"><span class="mail-note">동 이름 — 대가내역서·계약서 금액 아래 줄·FMS 동별 금액</span>
+          ${st.bldgs.map((b, j) => `<span class="b-chip"><input class="b-name" value="${esc(b)}" placeholder="${j + 1}동" aria-label="동 이름" /><button type="button" class="cd-x b-del" data-b="${j}" title="이 동 빼기">✕</button></span>`).join("")}
+          <button type="button" class="b-add">+ 동</button></div>`
+        : `<button type="button" class="sd-multi" title="여러 동을 한 계약으로 — 회차마다 동별 금액을 적고 합계가 회차 금액이 됩니다">🏢 동이 여러 개 — 동별 금액</button>`;
+      return `${bl}<div class="sd-rounds">${rows || '<div class="mail-note">회차가 없습니다 — [+ 회차]로 넣으세요.</div>'}</div>
         <div class="sd-round-acts"><button type="button" class="sd-add">+ 회차</button>
           <button type="button" class="sd-fill" title="계약 시작일~종료일 사이 반기를 전부 넣음(있는 줄은 그대로)">계약기간으로 회차 채우기</button>
           <span class="sd-total">${total ? `총 합 금 ${won(total)}원 (VAT포함)` : ""}</span></div>`;
@@ -347,6 +363,9 @@
           ${civil && st.files && st.files["계약서.pdf"] ? `<a href="${fileUrl(st, "계약서.pdf")}" target="_blank" rel="noopener">PDF 보기</a>` : ""}
           <button type="button" class="sd-close">닫기</button>
           <button type="button" class="sd-save">저장</button>
+          ${st.files && st.files["대가내역서.pdf"] ? `<a href="${fileUrl(st, "대가내역서.pdf")}" target="_blank" rel="noopener">대가내역서 PDF</a>` : ""}
+          ${st.files && st.files["대가내역서.xlsx"] ? `<a href="${fileUrl(st, "대가내역서.xlsx")}">엑셀</a>` : ""}
+          <button type="button" class="sd-daega" title="계약 회차·동별 금액으로 대가내역서(형 양식) — FMS e-보고서에도 씀">📑 대가내역서</button>
           ${civil ? '<button type="button" class="mail-primary sd-make">📝 계약서 만들기</button>'
             : '<button type="button" class="sd-to-gov" data-kind="start">📑 착수계</button><button type="button" class="mail-primary sd-to-gov" data-kind="done">📑 완료계</button>'}
         </div>`;
@@ -357,6 +376,22 @@
     function wire() {
       box.querySelector(".sd-close").addEventListener("click", close);
       box.querySelector(".sd-save").addEventListener("click", () => save(false));
+      box.querySelector(".sd-daega").addEventListener("click", async () => {
+        if (!(await save(true))) return;
+        busy = true;
+        msg("대가내역서 만드는 중…", "");
+        try {
+          const out = await apiPost(`${P}/contracts/${st.id}/daega`, body());
+          st = out;
+          st.bldgs = (st.buildings || []).slice();
+          draw(true);
+          msg(out.warning ? esc(out.warning) : `✓ 대가내역서를 만들었습니다 — <a href="${fileUrl(st, "대가내역서.pdf")}" target="_blank" rel="noopener">PDF 보기</a>`, out.warning ? "warn" : "ok");
+        } catch (err) {
+          msg(esc(err.message), "bad");
+        } finally {
+          busy = false;
+        }
+      });
       box.querySelectorAll('input[name="sd-sector"]').forEach((r) => r.addEventListener("change", () => { sync(); st.sector = r.value; filled = []; draw(); }));
       box.querySelectorAll(".sd-won").forEach((i) => i.addEventListener("blur", () => { i.value = won(num(i.value)); }));
       const chk = box.querySelector(".sd-open-chk");
@@ -366,7 +401,7 @@
         sync();
         const last = st.rounds[st.rounds.length - 1];
         const now = new Date();
-        st.rounds.push(last ? { year: last.half === "하반기" ? (last.year || now.getFullYear()) + 1 : last.year, half: last.half === "하반기" ? "상반기" : "하반기", kind: last.kind, amount: last.amount }
+        st.rounds.push(last ? { year: last.half === "하반기" ? (last.year || now.getFullYear()) + 1 : last.year, half: last.half === "하반기" ? "상반기" : "하반기", kind: last.kind, amount: last.amount, ...(last.parts ? { parts: last.parts.map((x) => ({ ...x })) } : {}) }
           : { year: now.getFullYear(), half: "상반기", kind: "정기", amount: null });
         draw();
       });
@@ -380,7 +415,7 @@
         for (let y = sy; y <= ey; y++) {
           for (const h of ["상반기", "하반기"]) {
             if ((y === sy && h === "상반기" && sm > 6) || (y === ey && h === "하반기" && em <= 6)) continue;
-            out.push(st.rounds.find((r) => r.year === y && r.half === h) || { year: y, half: h, kind: last.kind, amount: last.amount });
+            out.push(st.rounds.find((r) => r.year === y && r.half === h) || { year: y, half: h, kind: last.kind, amount: last.amount, ...(last.parts ? { parts: last.parts.map((x) => ({ ...x })) } : {}) });
           }
         }
         if (out.length > 40) { msg("계약기간이 너무 깁니다(20년 넘음) — 끝 없는 계약이면 위 [끝 없는 계약]을 고르세요.", "warn"); return; }
@@ -393,6 +428,35 @@
         sync();
         const total = st.rounds.reduce((s, r) => s + (r.amount || 0), 0);
         box.querySelector(".sd-total").textContent = total ? `총 합 금 ${won(total)}원 (VAT포함)` : "";
+        box.querySelectorAll(".sd-round").forEach((row, k) => { const el = row.querySelector(".r-sum"); if (el) el.textContent = `= ${won(st.rounds[k].amount) || 0}원`; });
+      }));
+      const multiBtn = box.querySelector(".sd-multi");
+      if (multiBtn) multiBtn.addEventListener("click", () => { // 동별 금액 켜기 — 묶음 동 이름(없으면 시설물명·2동), 지금 금액은 첫 동에
+        sync();
+        st.bldgs = (st.group_names || []).length >= 2 ? st.group_names.slice() : [st.facility_name || "1동", "2동"];
+        st.rounds = st.rounds.map((r) => ({ ...r, parts: st.bldgs.map((b, j) => ({ name: b, amount: j === 0 ? r.amount : 0 })) }));
+        draw();
+        msg("동별 금액을 켰습니다 — 동 이름과 회차마다 동별 금액을 넣으세요(회차 금액은 합계).", "ok");
+      });
+      const bAdd = box.querySelector(".b-add");
+      if (bAdd) bAdd.addEventListener("click", () => { sync(); st.bldgs.push(`${st.bldgs.length + 1}동`); draw(); });
+      box.querySelectorAll(".b-del").forEach((b) => b.addEventListener("click", () => {
+        sync();
+        const j = Number(b.dataset.b), name = st.bldgs[j];
+        st.bldgs.splice(j, 1);
+        st.rounds = st.rounds.map((r) => {
+          const parts = (r.parts || []).filter((x) => x.name !== name);
+          const sum = parts.reduce((t, x) => t + (x.amount || 0), 0);
+          return parts.length >= 2 ? { ...r, parts, amount: sum } : { year: r.year, half: r.half, kind: r.kind, amount: sum };
+        });
+        if (st.bldgs.length < 2) st.bldgs = [];
+        draw();
+      }));
+      box.querySelectorAll(".b-name").forEach((inp) => inp.addEventListener("change", () => { // 동 이름을 바꾸면 회차 줄의 이름도
+        const j = [...box.querySelectorAll(".b-name")].indexOf(inp), old = st.bldgs[j];
+        sync();
+        st.rounds = st.rounds.map((r) => ({ ...r, parts: (r.parts || []).map((x) => (x.name === old ? { ...x, name: st.bldgs[j] } : x)) }));
+        draw();
       }));
       box.querySelectorAll("input[data-up]").forEach((inp) => {
         inp.addEventListener("change", () => upload(inp));

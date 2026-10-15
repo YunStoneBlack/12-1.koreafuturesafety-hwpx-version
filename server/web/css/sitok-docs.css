@@ -43,6 +43,20 @@
 .sd-total { margin-left: auto; font-weight: 700; font-size: 13px; }
 .sd-msg[hidden] { display: none; }
 
+/* 동별 금액(10/15 — 여러 동 한 계약): 동 이름 칩 + 회차 줄마다 동별 금액, 회차 금액 = 합 */
+.cd-box button.sd-multi, .cd-box button.b-add { margin: 0 0 6px; padding: 5px 12px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface);
+  color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; align-self: flex-start; }
+.cd-box button.b-add { margin: 0; border-style: solid; border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
+.sd-bldgs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
+.sd-bldgs .mail-note { width: 100%; }
+.b-chip { display: inline-flex; align-items: center; gap: 2px; }
+.cd-box.sd-box .b-chip input.b-name { width: 170px; }
+.r-parts { display: inline-flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 8px; }
+.r-part-l { display: inline-flex; flex-direction: column; gap: 2px; margin: 0; }
+.r-part-l small { font-size: 11px; color: var(--muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-box.sd-box .r-part-l input.sd-won { width: 130px; }
+.r-sum { font-weight: 700; font-size: 13px; padding-bottom: 7px; }
+
 /* 관급 착수계·완료계 창(js/sitok-docs-gov.js) — 틀은 contract-docs.css */
 .sd-gov select.sd-agent { width: 100%; }
 .sd-cover { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; }
@@ -60,4 +74,9 @@
   .r-amt-wrap { flex: 1 1 auto; }
   .cd-box.sd-box .sd-round input.sd-won { flex: 1; width: auto; }
   .sd-total { margin-left: 0; width: 100%; }
+  .r-parts { width: 100%; }
+  .r-part-l { flex: 1 1 130px; }
+  .cd-box.sd-box .r-part-l input.sd-won { width: 100%; }
+  .b-chip { flex: 1 1 100%; }
+  .cd-box.sd-box .b-chip input.b-name { width: auto; flex: 1; }
 }

@@ -39,7 +39,7 @@ from server.api.routers.sitok import _contract_out, _facility_dir, _require_faci
 def _iso(d) -> str:
     return d.isoformat() if d else ""  # sitok._iso는 빈 날짜를 None으로 — 회차 화면은 "" (date 칸 value)
 from server.contract_docs import hwp_queue
-from server.sitok import master, report_build as rb
+from server.sitok import civil, master, report_build as rb
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
 HALVES = ("상반기", "하반기")
@@ -446,6 +446,10 @@ def _new_values(db: Session, r: SitokReport, old: rb.Values, prior: rb.Values | 
         if c.amount:
             per_half = c.amount / 2 if c.sector == "관급" and c.halves == "연간" else c.amount
             new.amount_k = f"{round(per_half / 1000):,}"
+        # 계약 회차 줄의 이번 반기 금액(동별 금액이면 이 동 것, 10/15) — 민간만(관급은 나라장터 금액을 반기로 나누는 위 방식 그대로)
+        by_round = civil.amount_for(c.rounds, r.year, r.half, f.name) if c.sector == "민간" else None
+        if by_round:
+            new.amount_k = f"{round(by_round / 1000):,}"
     else:
         warn.append("계약을 고르지 않아 대표자·점검금액은 전회차 보고서 값입니다" if prior else "계약을 고르지 않아 대표자·점검금액이 비었습니다")
     if (r.amount_k or "").strip():  # 이 동 점검금액(같은 계약서를 여러 동이 같이 쓸 때 — 회차에서 넣음)
@@ -833,7 +837,7 @@ def _run_precision_group_build(db: Session, r: SitokReport) -> None:
         for _, x in pairs:
             x.status, x.message, x.kind = "running", "묶음 정밀 보고서 만드는 중…", "정밀"
         db.commit()
-        _group_amounts(pairs)
+        _group_amounts(pairs, db)
         missing = [m.name for m, x in pairs if not (x.period_start and x.period_end)]
         if missing:
             raise ValueError("점검기간이 없는 동: " + ", ".join(missing))
@@ -953,13 +957,20 @@ def _page_check(pdf: Path, hwpx: Path, skip: list[int] | None = None) -> list[st
     return [f"쪽 확인 — {' / '.join(found)}"] if found else []
 
 
-def _group_amounts(pairs: list[tuple[SitokFacility, SitokReport]]) -> None:
-    """같은 계약서를 여러 동이 같이 쓰면 동별 점검금액(회차 amount_k)이 있어야 — 없으면 이상한 것이라 물어봄(사용자 10/12)."""
+def _group_amounts(pairs: list[tuple[SitokFacility, SitokReport]], db: Session | None = None) -> None:
+    """같은 계약서를 여러 동이 같이 쓰면 동별 점검금액(회차 amount_k 또는 계약 회차 줄의 동별 금액, 10/15)이 있어야 — 없으면 이상한 것이라 물어봄(사용자 10/12)."""
     shared: dict[int, list] = {}
     for m, x in pairs:
         if x.contract_id:
             shared.setdefault(x.contract_id, []).append((m, x))
-    missing = [m.name for lst in shared.values() if len(lst) > 1 for m, x in lst if not (x.amount_k or "").strip()]
+
+    def has(m, x) -> bool:
+        if (x.amount_k or "").strip():
+            return True
+        c = db.get(SitokContract, x.contract_id) if db is not None else None
+        return bool(c and (civil.round_of(c.rounds, x.year, x.half) or {}).get("parts") and civil.amount_for(c.rounds, x.year, x.half, m.name))
+
+    missing = [m.name for lst in shared.values() if len(lst) > 1 for m, x in lst if not has(m, x)]
     if missing:
         raise ValueError("같은 계약서를 여러 동이 같이 써서 동별 점검금액을 알 수 없습니다 — 회차의 '이 동 점검금액(천원)'을 넣어 주세요: " + ", ".join(missing))
 
@@ -975,7 +986,7 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         for _, x in pairs:
             x.status, x.message = "running", "묶음 보고서 만드는 중…"
         db.commit()
-        _group_amounts(pairs)
+        _group_amounts(pairs, db)
         missing = [m.name for m, x in pairs if not (x.period_start and x.period_end)]
         if missing:
             raise ValueError("점검기간이 없는 동: " + ", ".join(missing))

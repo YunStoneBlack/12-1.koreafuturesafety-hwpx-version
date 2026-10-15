@@ -35,7 +35,7 @@ from server.api.deps import get_current_user, get_db
 from server.api.routers import contract_library as lib
 from server.api.security import verify_password
 from server.contract_docs import attachments, build
-from server.sitok import civil, gov_docs
+from server.sitok import civil, daega, gov_docs
 
 router = APIRouter(prefix="/sitok/docs", tags=["sitok"])
 ROOT = DATA_DIR / "_시특법_계약"
@@ -44,7 +44,8 @@ TEXT = ("sector", "doc_no", "client", "client_rep", "client_biz_no", "client_add
         "guarantee", "delay_rate", "client_manager", "client_phone", "client_email", "site_manager", "site_phone", "site_email", "memo")
 DATES = ("contract_date", "start_date", "end_date")
 FILES = {"계약서.hwpx": "application/octet-stream", "계약서.pdf": "application/pdf", "날인본.pdf": "application/pdf",
-         "시설물관리대장.pdf": "application/pdf", "사업자등록증.pdf": "application/pdf", "결과보고서_표지.pdf": "application/pdf"}
+         "시설물관리대장.pdf": "application/pdf", "사업자등록증.pdf": "application/pdf", "결과보고서_표지.pdf": "application/pdf",
+         "대가내역서.pdf": "application/pdf", "대가내역서.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}  # 대가내역서(10/15 — FMS e-보고서)
 GOV = {"start": "착수계", "done": "완료계"}  # 관급 서류 — 계약 폴더 착수계.xlsx·착수계.pdf …
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 # 관급 기술자 서류: 착수계 장 종류(build.PERSON_DOCS 이름) ← SubmitDoc 종류 — 교육수료증은 정밀안전진단(견본), 자격증·경력증명서는 산안법과 같은 그림
@@ -90,6 +91,12 @@ def _files(c: SitokDocContract) -> dict:
     return {n: (base / n).exists() for n in FILES} | {"날인본.pdf": bool(c.contract_pdf and Path(c.contract_pdf).exists())}
 
 
+def _group_names(db: Session, f) -> list[str]:
+    if f is None or not f.group_id:
+        return []
+    return [x.name for x in db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id).order_by(SitokFacility.group_order, SitokFacility.id)]
+
+
 def summary(db: Session, c: SitokDocContract) -> dict:
     f = db.get(SitokFacility, c.facility_id) if c.facility_id else None
     k = civil.kinds_of(c.rounds, c.unit, c.open_ended)
@@ -98,6 +105,8 @@ def summary(db: Session, c: SitokDocContract) -> dict:
             "kind": k, "kind_word": civil.kind_word(k), "total": civil.total(c.rounds) if not c.open_ended else None,
             "auto_title": civil.default_title(c), "auto_doc_no": civil.default_doc_no(c.contract_date),
             "facility": {"id": f.id, "name": f.name} if f else None, "report_contract_id": c.report_contract_id,
+            # 동별 금액(10/15): 회차 줄에 나오는 동 이름, 연결한 시설물이 묶음이면 묶음 동 이름(동별 금액을 처음 켤 때 기본값)
+            "buildings": civil.buildings(c.rounds), "group_names": _group_names(db, f),
             "files": _files(c), "made_at": c.made_at.strftime("%Y-%m-%d %H:%M") if c.made_at else "",
             "gov": {k: _gov_made(c, k) for k in GOV},
             "updated": f"{c.updated_at:%Y-%m-%d %H:%M} {c.updated_by}" if c.updated_at else ""}
@@ -331,6 +340,23 @@ def make(cid: int, body: ContractIn | None = None, user: User = Depends(get_curr
     c.made_at = datetime.datetime.now()
     db.commit()
     return summary(db, c) | {"warning": warn}
+
+
+@router.post("/contracts/{cid}/daega")
+def make_daega(cid: int, body: ContractIn | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """대가내역서 엑셀·PDF(server/sitok/daega.py — 형 양식, 계약 회차 줄·동별 금액으로). FMS e-보고서 "계약서 및 대가내역서"에도 씀."""
+    c = _require(db, user, cid)
+    if body is not None:
+        _apply(c, body, user)
+        db.commit()
+    if not c.open_ended and not c.rounds and not c.amount:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "계약 회차(연도·반기·정기/정밀·금액)나 계약금액을 먼저 넣어 주세요.")
+    base = folder(c)
+    try:
+        daega.build_pdf(c, base / "대가내역서.xlsx", base / "대가내역서.pdf")
+    except (RuntimeError, ValueError) as err:  # LibreOffice 없음·변환 실패 — 엑셀은 남음
+        return summary(db, c) | {"warning": f"엑셀은 만들었지만 PDF로 바꾸지 못했습니다: {str(err)[:150]}"}
+    return summary(db, c) | {"warning": ""}
 
 
 @router.get("/contracts/{cid}/file/{name}")

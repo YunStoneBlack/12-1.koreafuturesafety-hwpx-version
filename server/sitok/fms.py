@@ -132,7 +132,9 @@ def payload(db, reports: list) -> dict:
     facs = []
     for r, rr in zip(reports, res):
         f = db.get(SitokFacility, r.facility_id)
-        amt = int(re.sub(r"\D", "", r.amount_k or "") or 0) or (_k(c.amount) if c and len(reports) == 1 else 0)
+        from server.sitok import civil
+        by_round = civil.amount_for(c.rounds, r.year, r.half, f.name) if c else None  # 계약 회차 줄(동별 금액)
+        amt = int(re.sub(r"\D", "", r.amount_k or "") or 0) or (_k(by_round) if by_round else 0) or (_k(c.amount) if c and len(reports) == 1 else 0)
         if not amt:
             notes.append(f"{f.name}: 이 동 점검금액(천원)이 없습니다")
         if not f.fms_no:
@@ -321,3 +323,25 @@ def apply_engineers(payload: dict, found: dict) -> list[str]:
             e["parti_field"] = ("안전관리" if "안전" in field else "토목") + "(교량및터널)"
         e["fms_field"] = field
     return diffs
+
+
+def contract_files(db, reports: list) -> tuple[list[dict], list[str]]:
+    """e-보고서 "계약서 및 대가내역서" 폴더에 더할 대가내역서 — 이 회차 계약과 이어진 서류 자동화 계약(보고서 쪽 계약으로 넣은 것, 없으면 같은 시설물 연결)으로
+    만든 대가내역서.pdf(없으면 지금 만듦, server/sitok/daega.py). → (파일들, 알림)."""
+    from core.models_web import SitokDocContract
+    from server.api.routers.sitok_docs import folder
+    from server.sitok import daega
+
+    r0 = reports[0]
+    q = db.query(SitokDocContract)
+    c = (q.filter(SitokDocContract.report_contract_id == r0.contract_id).order_by(SitokDocContract.id.desc()).first() if r0.contract_id else None) \
+        or q.filter(SitokDocContract.facility_id.in_([r.facility_id for r in reports])).order_by(SitokDocContract.id.desc()).first()
+    if c is None:
+        return [], ["대가내역서: 이어진 서류 자동화 계약이 없어 못 만듦 — 서류 자동화 · 시특법 계약에서 [📑 대가내역서]"]
+    pdf = folder(c) / "대가내역서.pdf"
+    if not pdf.exists():
+        try:
+            daega.build_pdf(c, pdf.with_suffix(".xlsx"), pdf)
+        except Exception as e:  # noqa: BLE001
+            return [], [f"대가내역서를 만들지 못했습니다: {str(e)[:100]}"]
+    return [{"folder": "계약서 및 대가내역서", "name": "대가내역서", "file": str(pdf)}], []
