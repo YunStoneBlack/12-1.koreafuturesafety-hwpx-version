@@ -354,6 +354,7 @@ class ServiceContract(Base):
     end_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     settle_amount: Mapped[int | None] = mapped_column(BigInteger, default=None)
     actual_end_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    invoice_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)  # 계산서 발행일(제출 현황 칸, 0050 — 사용자 10/15)
     # 완수계 "검사 및 납품조서" 표(2026-10-08 형·사용자, alembic 0024) — {qty, supply, vat, total, done_qty, done_supply, done_vat, done_total}.
     # 붙임 완수내역서 PDF에서 읽어 채우고(contract_docs/inspection.py) 화면에서 고칠 수 있음. 준공 total = 정산금액
     inspection: Mapped[dict | None] = mapped_column(JSON, default=None)
@@ -424,6 +425,16 @@ class ContractSubmit(Base):
     to_addr: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_by: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class ContractView(Base):
+    """웹판 전용 — 사람마다 용역 계약(착수계 창)을 마지막으로 연 때(0050, 사용자 10/15 "서류 자동화 계약 목록도 최근 열람순"). site_view와 같은 방식."""
+
+    __tablename__ = "contract_view"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
+    contract_id: Mapped[int] = mapped_column(ForeignKey("service_contract.id", ondelete="CASCADE"), primary_key=True)
+    viewed_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
 
 class SiteView(Base):

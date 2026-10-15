@@ -133,6 +133,7 @@ def summary(db: Session, row: ServiceContract) -> dict:
     dates = contract_status.plan_dates(row)
     return {
         "id": row.id, "title": row.title, "management_no": row.management_no or "", "label": contract_label(row),
+        "short_no": short_mgmt(row.management_no), "invoice_date": _iso(row.invoice_date),
         **{k: getattr(row, k) or "" for k in CONTACT_FIELDS}, "client": row.client, "contract_no": row.contract_no, "amount": row.amount,
         "contract_date": _iso(row.contract_date), "start_date": _iso(row.start_date), "end_date": _iso(row.end_date),
         "site_id": row.site_id, "site_label": site_label(site) if site else "",
@@ -150,8 +151,42 @@ def get_next_management_no(user: User = Depends(get_current_user), db: Session =
 
 @router.get("")
 def list_contracts(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from core.models_web import ContractView
+
     rows = db.query(ServiceContract).filter(ServiceContract.company_id == user.company_id).order_by(ServiceContract.id.desc()).all()
-    return {"contracts": [summary(db, r) for r in rows], "stages": contract_status.STAGES}
+    seen = {k: v.isoformat(timespec="seconds") for k, v in db.query(ContractView.contract_id, ContractView.viewed_at).filter(ContractView.user_id == user.id)}
+    return {"contracts": [summary(db, r) | {"viewed_at": seen.get(r.id, "")} for r in rows], "stages": contract_status.STAGES}
+
+
+def mark_view(db: Session, user_id: int, contract_id: int) -> None:
+    """계약 목록 "최근 열람순" — 착수계·완수계 창을 열면 지금으로(실패해도 창은 열리게)."""
+    from core.models_web import ContractView
+
+    try:
+        v = db.get(ContractView, (user_id, contract_id))
+        if v is None:
+            db.add(ContractView(user_id=user_id, contract_id=contract_id, viewed_at=datetime.datetime.now()))
+        else:
+            v.viewed_at = datetime.datetime.now()
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+
+
+class InvoiceIn(BaseModel):
+    date: str | None = None  # 계산서 발행일(비우면 지움)
+
+
+@router.post("/{contract_id}/invoice")
+def set_invoice(contract_id: int, body: InvoiceIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """제출 현황 계산서 발행일(사용자 10/15 "계산서 발행 날짜 달력")."""
+    row = _require(db, user, contract_id)
+    try:
+        row.invoice_date = datetime.date.fromisoformat(body.date[:10]) if body.date else None
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "날짜 형식이 아닙니다.") from err
+    db.commit()
+    return summary(db, row)
 
 
 def _new(db: Session, user: User) -> ServiceContract:
@@ -280,6 +315,7 @@ def get_contract(contract_id: int, user: User = Depends(get_current_user), db: S
     row = _require(db, user, contract_id)
     if row.inspection is None and _read_inspection(row, overwrite_settle=False):  # 이 기능 전에 올린 완수내역서(10/8)
         db.commit()
+    mark_view(db, user.id, row.id)
     return state(db, user, row)
 
 

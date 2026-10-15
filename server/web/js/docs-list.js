@@ -1,11 +1,40 @@
 // ---------- 서류 자동화 — 계약 목록(docs.html, 2026-10-06) ----------
 // 위: 검색 + [+ 새 계약](빈 착수계 창 — 계약서 PDF를 놓거나 올리거나 직접 적기). 화면에 계약서 PDF를 끌어다 놓으면 바로 읽어서 새 계약. 단계 칸(전체·착수계 전·착수계 제출·완수계 제출)을 누르면 거름.
 // 한 줄: 용역명 · 발주처·계약번호·금액·기간 · 현장(연결/연결 안 됨 [🔗 연결]) · 착수계·완수계 상태 · [📑 착수계][📑 완수계][삭제].
+// 10/15 사용자 "보고서 자동화 현장 목록처럼": 번호는 "26-68)_" 대신 파란 번호표, [최근 열람순](착수계·완수계 창을 연 때 — contract_view) [번호순 ▼▲](이 기기에 기억).
 
 (function () {
   const errorEl = document.getElementById("error");
   const view = { stage: "", q: "" };
   let data = { contracts: [], stages: [] };
+  // ---------- 정렬(현장 목록 dashboard.html과 같음) ----------
+  const SORT_KEY = "kfsc-report:docs-sort";
+  let sort = { mode: "no", desc: true };
+  try { sort = { ...sort, ...JSON.parse(localStorage.getItem(SORT_KEY) || "{}") }; } catch { /* 기억 못 하면 기본 */ }
+  const mgmtKey = (c) => { const m = String(c.management_no || "").match(/^(\d{2}|\d{4})-0*(\d+)$/); return m ? Number(m[1].slice(-2)) * 1e7 + Number(m[2]) : null; };
+  const byNumber = (a, b, desc) => {
+    const x = mgmtKey(a), y = mgmtKey(b);
+    if (x === null || y === null) return x === null ? (y === null ? b.id - a.id : 1) : -1;
+    return desc ? y - x : x - y;
+  };
+  const sortList = (list) => (sort.mode === "viewed"
+    ? list.sort((a, b) => (b.viewed_at || "").localeCompare(a.viewed_at || "") || byNumber(a, b, true))
+    : list.sort((a, b) => byNumber(a, b, sort.desc)));
+  function drawSort() {
+    document.querySelectorAll(".dc-sort button").forEach((b) => {
+      const on = b.dataset.sort === sort.mode;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on);
+      if (b.dataset.sort === "no") b.textContent = `번호순 ${on ? (sort.desc ? "▼" : "▲") : ""}`.trim();
+    });
+  }
+  document.querySelectorAll(".dc-sort button").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.sort === "no" && sort.mode === "no") sort.desc = !sort.desc; // 번호순 한 번 더 → 방향 바꿈
+    else if (b.dataset.sort === "no") sort.desc = true;
+    sort.mode = b.dataset.sort;
+    try { localStorage.setItem(SORT_KEY, JSON.stringify(sort)); } catch { /* 지금은 바뀜 */ }
+    render();
+  }));
 
   async function load() {
     try {
@@ -27,7 +56,8 @@
     cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => { view.stage = b.dataset.stage; render(); }));
 
     const words = view.q.toLowerCase().split(/\s+/).filter(Boolean);
-    const shown = all.filter((c) => (!view.stage || c.stage === view.stage) && words.every((w) => dcSearchText(c).includes(w)));
+    drawSort();
+    const shown = sortList(all.filter((c) => (!view.stage || c.stage === view.stage) && words.every((w) => dcSearchText(c).includes(w))));
     document.getElementById("dc-count").textContent = `${shown.length}건`;
     const list = document.getElementById("dc-list");
     if (!shown.length) {
@@ -55,7 +85,7 @@
     }).join("");
     el.innerHTML = `
       <div class="dc-main">
-        <div class="dc-title">${mailEsc(c.title ? c.label : "(용역명 없음 — 계약 정보를 채우세요)")}</div>
+        <div class="dc-title">${c.short_no ? `<span class="site-no">${mailEsc(c.short_no)}</span>` : ""}${mailEsc(c.title || "(용역명 없음 — 계약 정보를 채우세요)")}</div>
         <div class="dc-meta">${mailEsc(meta)}</div>
         ${contactLine(c, "client", "계약 담당")}${contactLine(c, "biz", "사업 담당")}
         <div class="dc-site">${c.site_id ? `현장 <a href="site.html?id=${c.site_id}">${mailEsc(c.site_label)}</a>` : '<span class="dc-nosite">현장 연결 안 됨</span>'}
