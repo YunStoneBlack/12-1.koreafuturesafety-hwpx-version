@@ -1,6 +1,7 @@
 // 시특법 회차 화면(sitok-round.html?report=, 2026-10-14 형 피드백 ⑦ 3층 구조) — 시설물 화면의 회차 카드(js/sitok-reports.js)에 있던 것을 한 회차만 크게.
 // 위 = 현장 점검 버튼(📱 현장 조사 → 📐 재료시험·📊 상태평가(정밀) → 📝 면담·변경사항), 가운데 = 보고서(🏢 시설물 현황·🤖 AI 초안·[보고서 만들기]·파일·지난 보고서 한글),
 // 아래 = 접힌 회차 정보(계약·종류·점검기간·제출일·기술자·묶음 금액·삭제). 창(현황·면담·AI)은 js/sitok-detail.js·sitok-survey.js·sitok-ai.js 그대로.
+// 묶음(여러 동 한 보고서)이면 현장 점검·보고서 칸을 동마다 한 줄(사용자 10/15 "2개동인데 조사 섹터는 1개") — 버튼은 그 동 회차로(GET /sitok/reports/{id}.group_rounds).
 // 만들기는 백그라운드(한글 PDF 몇 분) — 3초마다 진행 확인. 서버 server/api/routers/sitok_reports.py.
 
 (function () {
@@ -21,6 +22,13 @@
   const big = (href, icon, label, on, sub) => `<a class="rd-btn${on ? " on" : ""}" href="${href}"><span class="rd-ic">${icon}</span><span class="rd-lb">${label}${on ? ' <em class="rd-ok">✓</em>' : ""}</span>${sub ? `<span class="rd-sub">${sub}</span>` : ""}</a>`;
   const bigBtn = (cls, icon, label, on, sub) => `<button type="button" class="rd-btn ${cls}${on ? " on" : ""}"><span class="rd-ic">${icon}</span><span class="rd-lb">${label}${on ? ' <em class="rd-ok">✓</em>' : ""}</span>${sub ? `<span class="rd-sub">${sub}</span>` : ""}</button>`;
 
+  // 묶음 동 한 줄 — 회차가 아직 없으면(묶음 보고서 만들기 때 같이 생김) 안내만
+  const withRid = (html, d) => html.replace("<button ", `<button data-rid="${d.report_id}" data-name="${esc(d.name)}" `);
+  const dongRow = (d, buttons) => `<div class="rd-dong${d.current ? " cur" : ""}">
+      <div class="rd-dong-h"><b>제${d.index}장 ${esc(d.name)}</b>${d.current ? '<span class="rd-dong-tag">이 화면</span>'
+        : d.report_id ? `<a class="rd-dong-go" href="sitok-round.html?report=${d.report_id}">이 동 회차 화면 ›</a>` : ""}</div>
+      ${d.report_id ? `<div class="rd-btns">${buttons()}</div>` : '<div class="sk-help">이 반기 회차가 아직 없습니다 — [묶음 보고서 만들기]를 누르면 같이 생깁니다.</div>'}</div>`;
+
   function draw() {
     const kind = r.kind || "정기";
     const g = data.group;
@@ -35,15 +43,30 @@
       ${g && !r.past ? `<div class="sk-rep-group">📚 묶음 보고서 <b>${esc(g.name)}</b> — ${g.members.map((m, i) => `제${i + 1}장 ${esc(m.name)}`).join(" · ")}
         <span class="sk-help">점검기간·제출일·기술자는 묶인 동 회차도 같이 바뀝니다. 현장 조사·현황·AI 초안은 동마다.</span></div>` : ""}`;
 
-    // 현장 점검
-    $("rd-field").innerHTML = r.past ? '<div class="empty-note">이미 낸 보고서를 등록한 회차라 현장 점검은 없습니다.</div>'
-      : big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, "결함·전경사진·공중이용·기타시설" + (kind === "정밀" ? "·자료수집·하중" : ""))
-        + (kind === "정밀" ? big(`sitok-tests.html?report=${r.id}`, "📐", "재료시험", r.has_tests, "표본층·규격·강도·탄산화·기울기·부등침하")
-          + big(`sitok-rating.html?report=${r.id}`, "📊", "상태평가", r.has_rating, "부재 개수 → 상태평가 등급") : "")
-        + bigBtn("rd-survey", "📝", "면담·변경사항", r.has_survey, "1.2.7 보수 이력 · 1.2.8 변경사항");
-    // 보고서
-    $("rd-report").innerHTML = r.past ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, "1.1 현황표 · 1.2 구조·마감·용도")
-      + bigBtn("rd-ai", "🤖", "AI 초안", r.has_ai, kind === "정밀" ? "22항목 — 결함·시험·상태평가 글" : "결과표·외관조사 서술·종합결론·등급");
+    const dongs = !r.past && (r.group_rounds || []).length > 1 ? r.group_rounds : null;
+    $("rd-field").className = dongs ? "rd-dongs" : "rd-btns";
+    $("rd-report").className = dongs ? "rd-dongs" : "rd-btns";
+    if (dongs) {
+      // 묶음 — 동마다 한 줄(제N장 동 이름 + 버튼), 지금 화면의 동은 파란 테두리
+      $("rd-field").innerHTML = dongs.map((d) => dongRow(d, () => {
+        const k = d.kind || "정기";
+        return big(`sitok-field.html?report=${d.report_id}`, "📱", "현장 조사", d.has_field, "")
+          + (k === "정밀" ? big(`sitok-tests.html?report=${d.report_id}`, "📐", "재료시험", d.has_tests, "") + big(`sitok-rating.html?report=${d.report_id}`, "📊", "상태평가", d.has_rating, "") : "")
+          + withRid(bigBtn("rd-survey", "📝", "면담·변경사항", d.has_survey, ""), d);
+      })).join("");
+      $("rd-report").innerHTML = dongs.map((d) => dongRow(d, () => withRid(bigBtn("rd-detail", "🏢", "시설물 현황", d.has_detail, ""), d)
+        + withRid(bigBtn("rd-ai", "🤖", "AI 초안", d.has_ai, ""), d))).join("");
+    } else {
+      // 현장 점검
+      $("rd-field").innerHTML = r.past ? '<div class="empty-note">이미 낸 보고서를 등록한 회차라 현장 점검은 없습니다.</div>'
+        : big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, "결함·전경사진·공중이용·기타시설" + (kind === "정밀" ? "·자료수집·하중" : ""))
+          + (kind === "정밀" ? big(`sitok-tests.html?report=${r.id}`, "📐", "재료시험", r.has_tests, "표본층·규격·강도·탄산화·기울기·부등침하")
+            + big(`sitok-rating.html?report=${r.id}`, "📊", "상태평가", r.has_rating, "부재 개수 → 상태평가 등급") : "")
+          + bigBtn("rd-survey", "📝", "면담·변경사항", r.has_survey, "1.2.7 보수 이력 · 1.2.8 변경사항");
+      // 보고서
+      $("rd-report").innerHTML = r.past ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, "1.1 현황표 · 1.2 구조·마감·용도")
+        + bigBtn("rd-ai", "🤖", "AI 초안", r.has_ai, kind === "정밀" ? "22항목 — 결함·시험·상태평가 글" : "결과표·외관조사 서술·종합결론·등급");
+    }
     const stateText = r.status === "running" ? `<span class="sk-rep-st run">⏳ ${esc(r.message)}</span>`
       : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`
         : r.status === "done" ? `<span class="sk-rep-st ok">✓ ${esc(r.made_at)} 만듦 — ${esc(r.message)}</span>` : '<span class="sk-rep-st">아직 안 만듦</span>';
@@ -98,9 +121,11 @@
       if (!confirm(`${title()} 보고서를 지울까요? 만든 한글·PDF도 지워집니다.`)) return;
       try { await api(`/sitok/reports/${r.id}`, { method: "DELETE" }); location.href = `sitok-facility.html?id=${r.facility_id}`; } catch (e) { err(e); }
     });
-    document.querySelector(".rd-ai")?.addEventListener("click", () => openSitokAi(r.id, title(), load));
-    document.querySelector(".rd-detail")?.addEventListener("click", () => openSitokDetail(r.id, title(), load));
-    document.querySelector(".rd-survey")?.addEventListener("click", () => openSitokSurvey(r.id, title(), load));
+    const opener = (sel, open) => document.querySelectorAll(sel).forEach((b) => b.addEventListener("click", () => // 묶음이면 그 동 회차(data-rid)
+      open(b.dataset.rid ? Number(b.dataset.rid) : r.id, b.dataset.name ? `${b.dataset.name} ${title()}` : title(), load)));
+    opener(".rd-ai", openSitokAi);
+    opener(".rd-detail", openSitokDetail);
+    opener(".rd-survey", openSitokSurvey);
     document.querySelector(".sk-rep-build")?.addEventListener("click", async () => {
       try { await apiPost(`/sitok/reports/${r.id}/build`); load(); } catch (e) { err(e); }
     });
@@ -139,7 +164,7 @@
       data = d;
       contracts = f.contracts || [];
       const fresh = d.reports.find((x) => x.id === rid); // 목록 쪽 _out(진행 표시)과 같음
-      if (fresh) r = { ...fresh, facility_id: r.facility_id, facility_name: r.facility_name };
+      if (fresh) r = { ...fresh, facility_id: r.facility_id, facility_name: r.facility_name, group_rounds: r.group_rounds };
       draw();
     } catch (e) { err(e); }
   }

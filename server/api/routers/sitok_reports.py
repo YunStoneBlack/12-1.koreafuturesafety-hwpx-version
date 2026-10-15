@@ -1092,7 +1092,24 @@ def get_report(report_id: int, user: User = Depends(get_current_user), db: Sessi
     r = _require(db, user, report_id)
     mark_view(db, user.id, r.facility_id)  # 시설물 목록 "최근 열람순"(10/13) — 현장 조사·보고서 화면도
     f = db.get(SitokFacility, r.facility_id)
-    return {**_out(r), "facility_id": f.id, "facility_name": f.name}  # 회차 화면(sitok-round.html, 10/14)이 경로 표시에 씀
+    return {**_out(r), "facility_id": f.id, "facility_name": f.name,  # 회차 화면(sitok-round.html, 10/14)이 경로 표시에 씀
+            "group_rounds": _group_rounds(db, f, r)}
+
+
+def _group_rounds(db: Session, f: SitokFacility, r: SitokReport) -> list[dict]:
+    """묶인 동마다 같은 반기 회차와 진행 표시 — 회차 화면이 현장 점검·보고서 칸을 동마다 한 줄씩(사용자 10/15 "동별로 조사가 생겨야"). 묶음 아니면 []."""
+    if not f.group_id:
+        return []
+    from server.api.routers.sitok_groups import members
+
+    keys = ("kind", "past", "has_field", "has_tests", "has_rating", "has_survey", "has_detail", "has_ai")
+    out = []
+    for i, m in enumerate(members(db, f.group_id), 1):
+        x = r if m.id == f.id else db.query(SitokReport).filter(SitokReport.facility_id == m.id, SitokReport.year == r.year, SitokReport.half == r.half).first()
+        o = _out(x) if x is not None else {}
+        out.append({"index": i, "facility_id": m.id, "name": m.name, "report_id": x.id if x is not None else None, "current": m.id == f.id,
+                    **{k: o.get(k) for k in keys}})
+    return out
 
 
 @router.get("/reports/{report_id}/file/{kind}")
