@@ -76,7 +76,7 @@
     return `<div class="fms-jobs"><b>작업 기록</b>${info.jobs.map((j) => `<div class="fms-job ${j.status}">
         <div class="fms-job-h"><span class="fms-tag ${j.status}">${ST[j.status] || j.status}</span> <b>${esc(j.stage_label)}</b> <small>${esc(j.created_at)} ${esc(j.created_by)}${j.finished_at ? ` → ${esc(j.finished_at)}` : ""}</small>
           ${j.project_no ? `<small>FMS ${esc(j.project_no)}</small>` : ""}</div>
-        ${j.message ? `<div class="fms-job-m">${esc(j.message)}</div>` : ""}
+        ${j.message ? `<div class="fms-job-m">${esc(String(j.message).split(/\s*={3,}/)[0].split("\n")[0])}</div>` : ""}
         ${running(j) && j.log.length ? `<div class="fms-job-log">${j.log.slice(-3).map(esc).join("<br>")}</div>` : ""}
         ${j.shots ? `<div class="fms-shots">${Array.from({ length: j.shots }, (_, k) => `<a href="${BASE}/api/sitok/fms-jobs/${j.id}/shot?n=${k + 1}" target="_blank" rel="noopener">화면 ${k + 1}</a>`).join("")}</div>` : ""}
         ${!running(j) && j.log.length ? `<details class="fms-log"><summary>기록 ${j.log.length}줄</summary><div>${j.log.map(esc).join("<br>")}</div></details>` : ""}</div>`).join("")}</div>`;

@@ -435,6 +435,9 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
 .rd-dong .rd-ic { font-size: 19px; }
 .rd-dong .rd-lb { font-size: 14px; }
 .rd-build { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.rd-build .sk-rep-st > div { margin: 1px 0; }
+.rd-build .sk-rep-st .rd-note { color: var(--muted); }
+.rd-build .sk-rep-st .rd-warn { color: #b45309; }
 .rd-build .sk-rep-foot { margin-top: 0; }
 .rd-source { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: 12.5px; }
 .main .rd-source .secondary-link { padding: 5px 12px; font-size: 12.5px; cursor: pointer; }

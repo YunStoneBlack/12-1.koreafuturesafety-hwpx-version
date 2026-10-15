@@ -29,6 +29,13 @@
         : d.report_id ? `<a class="rd-dong-go" href="sitok-round.html?report=${d.report_id}">이 동 회차 화면 ›</a>` : ""}</div>
       ${d.report_id ? `<div class="rd-btns">${buttons()}</div>` : '<div class="sk-help">이 반기 회차가 아직 없습니다 — [묶음 보고서 만들기]를 누르면 같이 생깁니다.</div>'}</div>`;
 
+  // 만들기 끝 안내 — 줄마다 하나(요약 / 끼운 자료 / ⚠ 알림마다, 사용자 10/15 "알림 1개당 줄바꿈"). 예전 안내(" · "로 이어 붙임)도 ⚠ 앞에서 나눔
+  function doneText() {
+    const lines = String(r.message || "").replace(/ · (?=⚠)/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
+    const [head, ...rest] = lines;
+    return `<div class="sk-rep-st ok"><div>✓ ${esc(r.made_at)} 만듦 — ${esc(head || "")}</div>${rest.map((s) => `<div class="${s.startsWith("⚠") ? "rd-warn" : "rd-note"}">${esc(s)}</div>`).join("")}</div>`;
+  }
+
   function draw() {
     const kind = r.kind || "정기";
     const g = data.group;
@@ -69,7 +76,7 @@
     }
     const stateText = r.status === "running" ? `<span class="sk-rep-st run">⏳ ${esc(r.message)}</span>`
       : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`
-        : r.status === "done" ? `<span class="sk-rep-st ok">✓ ${esc(r.made_at)} 만듦 — ${esc(r.message)}</span>` : '<span class="sk-rep-st">아직 안 만듦</span>';
+        : r.status === "done" ? doneText() : '<span class="sk-rep-st">아직 안 만듦</span>';
     const v = encodeURIComponent(r.made_at || "");
     $("rd-build").innerHTML = `<div class="sk-rep-foot">${stateText}
       ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf?v=${v}" target="_blank" rel="noopener">${kind === "정밀" ? "합본 PDF" : "PDF 보기"}</a>` : ""}

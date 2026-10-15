@@ -210,8 +210,8 @@ def missing_photo_note(db: Session, report_id: int) -> str:
     miss = [d for d in rows if not (d.photo and Path(d.photo).exists()) and not (d.check == "repaired" or d.mark == "보수")]
     if not miss:
         return ""
-    where = ", ".join(f"{d.floor} {d.seq}번" for d in miss[:6]) + (f" 외 {len(miss) - 6}건" if len(miss) > 6 else "")
-    return f"결함 {len(rows)}건 중 이번 회차 사진 없음 {len(miss)}건({where}) — 사진 칸은 비워 두었습니다"
+    where = ", ".join(f"{d.floor} {d.seq}번" for d in miss[:3]) + (f" 외 {len(miss) - 3}건" if len(miss) > 3 else "")  # 짧게(10/15 "글자 늘어뜨리지 말고")
+    return f"결함 {len(rows)}건 중 이번 회차 사진 없음 {len(miss)}건({where}) — 사진 칸은 비움"
 
 
 def _defects_for_cost(db: Session, report_id: int) -> list[SitokDefect]:

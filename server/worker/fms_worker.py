@@ -92,7 +92,8 @@ def _process(job_id: int) -> None:
                     r.fms = st
         except Exception as e:  # noqa: BLE001
             job.status = "failed"
-            job.message = f"작업 오류: {str(e)[:300]}"
+            first = next((ln.strip() for ln in str(e).splitlines() if ln.strip() and not ln.strip().startswith("=")), type(e).__name__)
+            job.message = f"작업 오류: {first[:160]}"  # 첫 줄만(10/15 — Playwright "==== logs ====" 덩어리는 아래 기록에)
             job.log = (job.log or "") + "\n" + traceback.format_exc()[-1500:]
         job.finished_at = datetime.datetime.now()
         db.commit()

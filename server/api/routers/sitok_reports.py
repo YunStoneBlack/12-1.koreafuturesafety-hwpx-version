@@ -67,6 +67,18 @@ def _report_dir(f: SitokFacility, r: SitokReport) -> Path:
     return _facility_dir(f) / f"{r.year}_{r.half}"
 
 
+def _done_msg(head: str, label: str, by_dong: dict[str, list[str]], warn: list[str]) -> str:
+    """만들기 끝 안내 — 한 줄에 하나(사용자 10/15 "알림 1개당 줄바꿈"): 요약 / 끼운 자료(동마다 같으면 한 번) / ⚠ 알림마다. 화면(sitok-round.js)이 줄로 나눠 보여 줌."""
+    lists = [v for v in by_dong.values() if v]
+    if not lists:
+        attached = ""
+    elif len(lists) == len(by_dong) and all(v == lists[0] for v in lists):
+        attached = f"{label}: {'·'.join(lists[0])}" + (" (동마다)" if len(by_dong) > 1 else "")
+    else:
+        attached = f"{label}: " + " / ".join(f"{n} {'·'.join(v)}" for n, v in by_dong.items() if v)
+    return "\n".join([head] + ([attached] if attached else []) + [f"⚠ {w}" for w in warn])
+
+
 def rating_result_pdf(db: Session, r: SitokReport, f: SitokFacility, rv: dict, tv: dict) -> Path:
     """상태평가 결과 자료 PDF(SafetyMan 모양, 전경사진 첫 장) — 상태평가 화면 [PDF]·부록 5.·본문 그림(5.1.3·7.3)이 같이 씀."""
     from server.api.routers.sitok_defects import _defects_for_cost
@@ -846,7 +858,7 @@ def _run_precision_build(db: Session, r: SitokReport) -> None:
         pages = pymupdf.open(full).page_count
         r.survey = {**(r.survey or {}), "appendix_hwpx": str(appx), "appendix_pdf": str(apdf), "body_pdf": str(pdf)}
         r.out_pdf, r.status, r.made_at = str(full), "done", datetime.datetime.now()
-        r.message = " · ".join([f"합본 {pages}쪽(본문 {body_pages}), {changed + changed2}곳 바꿈" + (f", 부록에 {'·'.join(merged)} 끼움" if merged else "")] + [f"⚠ {w}" for w in warn])
+        r.message = _done_msg(f"합본 {pages}쪽(본문 {body_pages}), {changed + changed2}곳 바꿈", "부록에 끼움", {f.name: merged}, warn)
     except Exception as err:  # noqa: BLE001
         _fail([r], err)
     db.commit()
@@ -899,7 +911,8 @@ def _run_precision_group_build(db: Session, r: SitokReport) -> None:
         drawn = D.insert(pdf, chapters, finder=lambda pg, n: n <= len(hits) and pg.number == hits[n - 1]) if any(p for _, p in chapters) else []
         warn = _page_check(pdf, hwpx, drawn) + warn
         body_pages = pymupdf.open(pdf).page_count
-        apdfs, merged_all, changed2 = [], [], 0
+        apdfs, changed2 = [], 0
+        merged_all: dict[str, list[str]] = {}  # 동 이름 → 부록에 끼운 자료
         for k, (m, x) in enumerate(pairs, 1):
             for _, y in pairs:
                 y.message = f"본문 {body_pages}쪽 — 부록 만드는 중 {k}/{len(pairs)}동…"
@@ -910,7 +923,7 @@ def _run_precision_group_build(db: Session, r: SitokReport) -> None:
             warn += [f"{m.name}: {s}" for s in w2 if f"{m.name}: {s}" not in warn]
             apdf = appx.with_suffix(".pdf")
             _convert_appendix(appx, apdf)
-            merged_all += [f"{m.name} {s}" for s in _precision_appendix_pdf(db, x, m, apdf)]
+            merged_all[m.name] = _precision_appendix_pdf(db, x, m, apdf)
             x.survey = {**(x.survey or {}), "appendix_hwpx": str(appx)}
             apdfs.append((m.name, apdf))
         apdf_all = folder / f"{base}(부록).pdf"
@@ -921,7 +934,7 @@ def _run_precision_group_build(db: Session, r: SitokReport) -> None:
             out.insert_pdf(b)
             out.save(full, garbage=3, deflate=True)
         pages = pymupdf.open(full).page_count
-        msg = " · ".join([f"{len(pairs)}동 묶음 합본 {pages}쪽(본문 {body_pages}), {total + changed2}곳 바꿈" + (f", 부록에 {'·'.join(merged_all)} 끼움" if merged_all else "")] + [f"⚠ {w}" for w in warn])
+        msg = _done_msg(f"{len(pairs)}동 묶음 합본 {pages}쪽(본문 {body_pages}), {total + changed2}곳 바꿈", "부록에 끼움", merged_all, warn)
         now = datetime.datetime.now()
         for _, y in pairs:
             y.survey = {**(y.survey or {}), "appendix_pdf": str(apdf_all), "body_pdf": str(pdf)}
@@ -960,7 +973,7 @@ def _run_build(report_id: int) -> None:
                 warn.append(missing_photo_note(db, r.id))
             r.out_pdf, r.status, r.made_at = str(pdf), "done", datetime.datetime.now()
             pages = pymupdf.open(pdf).page_count
-            r.message = " · ".join([f"{pages}쪽, {changed}곳 바꿈" + (f", {'·'.join(merged)} 합본" if merged else "")] + [f"⚠ {w}" for w in warn])
+            r.message = _done_msg(f"{pages}쪽, {changed}곳 바꿈", "합본", {f.name: merged}, warn)
         except Exception as err:  # noqa: BLE001 — 이유를 남김
             _fail([r], err)
         db.commit()
@@ -1058,7 +1071,7 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         from server.api.routers.sitok_defects import missing_photo_note
         warn += [f"{m.name}: {missing_photo_note(db, y.id)}" for m, y in pairs if missing_photo_note(db, y.id)]
         pages = pymupdf.open(pdf).page_count
-        msg = " · ".join([f"{len(pairs)}동 묶음 {pages}쪽, {total}곳 바꿈" + (f", {'·'.join(merged)} 합본" if merged else "")] + [f"⚠ {w}" for w in warn])
+        msg = _done_msg(f"{len(pairs)}동 묶음 {pages}쪽, {total}곳 바꿈", "합본", {"": merged}, warn)
         now = datetime.datetime.now()
         for _, y in pairs:
             y.out_pdf, y.status, y.made_at, y.message = str(pdf), "done", now, msg
