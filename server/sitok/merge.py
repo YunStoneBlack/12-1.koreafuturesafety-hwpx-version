@@ -20,6 +20,8 @@ from pathlib import Path
 from lxml import etree
 
 from server.sitok import report_build as rb
+from server.sitok.borders import Borders
+from server.sitok.borders import defs as border_defs
 
 HP = rb.HP
 CORE = rb.CORE
@@ -108,10 +110,13 @@ def _renew_ids(el) -> None:
 
 
 class _Bins:
-    """다른 동 파일의 그림을 이 파일로 — 새 이름(g{k}_원래이름)."""
+    """다른 동 파일의 그림을 이 파일로 — 새 이름(g{k}_원래이름). borders(이 파일 테두리 모양)를 주면 칸 테두리 번호도 정의 기준으로 이 파일 번호로
+    (동마다 줄 복사 테두리 모양을 따로 더해 번호가 서로 다를 수 있음, 10/15)."""
 
-    def __init__(self):
+    def __init__(self, borders: Borders | None = None):
         self.add: dict[str, tuple[str, bytes]] = {}
+        self.borders = borders
+        self._defs: dict[int, dict[str, str]] = {}
 
     def take(self, el, z: zipfile.ZipFile, k: int) -> None:
         hrefs = dict(re.findall(r'<opf:item id="([^"]+)" href="([^"]+)"', z.read("Contents/content.hpf").decode("utf-8")))
@@ -123,6 +128,14 @@ class _Bins:
             if new not in self.add and hrefs.get(old) in z.namelist():
                 self.add[new] = (Path(hrefs[old]).suffix.lower() or ".jpg", z.read(hrefs[old]))
             img.set("binaryItemIDRef", new)
+        if self.borders is not None:
+            if k not in self._defs:
+                self._defs[k] = border_defs(z.read("Contents/header.xml").decode("utf-8"))
+            d = self._defs[k]
+            for x in el.iter():
+                old = x.get("borderFillIDRef")
+                if old and old in d and self.borders.by_id.get(old) != d[old]:
+                    x.set("borderFillIDRef", self.borders.adopt(d[old]))
 
 
 def _sub_pieces(el, pat: str, repl, first_only: bool = False) -> int:
@@ -237,8 +250,8 @@ def _divider_table(root, names: list[str]) -> None:
 def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> list[str]:
     """parts = [{hwpx, name, title, row: [구분, 건물명, 준공연도, 층수, 연면적, 구조], area: float}] 동 순서(첫 동 = 대표). 안내를 돌려줌."""
     notes: list[str] = []
-    bins = _Bins()
     zs = [zipfile.ZipFile(p["hwpx"]) for p in parts]
+    bins = _Bins(Borders(zs[0].read("Contents/header.xml").decode("utf-8")))
     try:
         secs = rb._sections(zs[0])
         roots = [etree.fromstring(zs[0].read(n)) for n in secs]
@@ -286,8 +299,9 @@ def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> l
             if "︻" in "".join(rb._cell_text(c) for c in rb._cells(tbl).values()):
                 _sub_pieces(tbl, re.escape(parts[0]["name"]), group_name)
         # --- 공통편
-        _general_table(roots[1], [p["row"] for p in parts], f"{sum(p.get('area') or 0 for p in parts):,.2f}㎡")
-        _divider_table(roots[1], [p["name"] for p in parts])
+        with rb.using_borders(bins.borders):  # 동 수만큼 줄 복사 — 맞닿는 선 얇게(10/15)
+            _general_table(roots[1], [p["row"] for p in parts], f"{sum(p.get('area') or 0 for p in parts):,.2f}㎡")
+            _divider_table(roots[1], [p["name"] for p in parts])
         # --- 시설물편: 2동째부터 장 복사
         body = roots[2]
         app = _tops(body)[_appendix(body)]
@@ -320,6 +334,8 @@ def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> l
                     items = "".join(f'<opf:item id="{k}" href="BinData/{k}{ext}" media-type="{MEDIA.get(ext, "image/jpg")}" isEmbeded="1"/>'
                                     for k, (ext, _) in bins.add.items())
                     data = data.decode("utf-8").replace("</opf:manifest>", items + "</opf:manifest>").encode("utf-8")
+                elif info.filename == "Contents/header.xml":
+                    data = bins.borders.result(data.decode("utf-8")).encode("utf-8")
                 elif info.filename == "Preview/PrvImage.png":
                     continue
                 zout.writestr(info, data, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)

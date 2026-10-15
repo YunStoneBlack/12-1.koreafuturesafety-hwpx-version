@@ -20,6 +20,7 @@ from lxml import etree
 
 from server.sitok import merge as M
 from server.sitok import report_build as rb
+from server.sitok.borders import Borders
 
 HP = rb.HP
 SHARED_APPENDIX = (1, 2, 4, 5)  # 동마다 한 벌 — 관리대장·사진첩·성과표·상태평가 결과자료
@@ -213,8 +214,8 @@ def _summary_toc(front, parts: list[dict]) -> None:
 def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str) -> list[str]:
     """parts = [{hwpx, name, title}] 동 순서(첫 동 = 대표). 안내를 돌려줌."""
     notes: list[str] = []
-    bins = M._Bins()
     zs = [zipfile.ZipFile(p["hwpx"]) for p in parts]
+    bins = M._Bins(Borders(zs[0].read("Contents/header.xml").decode("utf-8")))  # 다른 동 칸 테두리 번호 → 이 파일 번호(10/15)
     try:
         secs = rb._sections(zs[0])
         roots = [etree.fromstring(zs[0].read(n)) for n in secs]
@@ -282,7 +283,8 @@ def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str)
             M._replace_titles(root, [p["title"] for p in parts], group_title)
             for el in list(root.iter(f"{{{HP}}}linesegarray")):
                 el.getparent().remove(el)
-        _fill_general_rows(roots, general, notes)  # 대상시설물 현황 표 3곳 — 동마다 줄
+        with rb.using_borders(bins.borders):  # 동 수만큼 줄 복사 — 맞닿는 선 얇게(형 10/15 "3·4개동도 가운데 줄 진하지 않게")
+            _fill_general_rows(roots, general, notes)  # 대상시설물 현황 표 3곳 — 동마다 줄
         for p in M._tops(roots[0]):  # 1.2 표가 늘어 1.4 위치도 지도 표가 다음 쪽으로 통째로 넘어가 제목만 남음 → 위치도는 새 쪽에서(10/14)
             if _text(p) == "위치도" and p.get("pageBreak") != "1":
                 p.set("pageBreak", "1")
@@ -301,6 +303,8 @@ def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str)
                     items = "".join(f'<opf:item id="{k}" href="BinData/{k}{ext}" media-type="{M.MEDIA.get(ext, "image/jpg")}" isEmbeded="1"/>'
                                     for k, (ext, _) in bins.add.items())
                     data = data.decode("utf-8").replace("</opf:manifest>", items + "</opf:manifest>").encode("utf-8")
+                elif info.filename == "Contents/header.xml":
+                    data = bins.borders.result(data.decode("utf-8")).encode("utf-8")
                 elif info.filename == "Preview/PrvImage.png":
                     continue
                 zout.writestr(info, data, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
@@ -480,11 +484,11 @@ def _divider_page(doc, like, text: str) -> None:
 
 def _dong_divider_page(doc, like, text: str) -> None:
     """부록 구간마다 동 간지(사용자 10/15 "동 간지 바꾸되 부록 간지보다 심플하게") — 부록 간지(쪽 테두리·굵은 막대·회색 띠)에서
-    테두리와 막대를 빼고 가운데 회색 띠 + 위아래 가는 선 + 동 이름(굵게)만."""
+    테두리와 막대를 빼고 회색 띠 + 위아래 가는 선 + "N. 동 이름"(굵게)만. 띠는 쪽 위 1/4쯤(형 10/15 "위로 올리고")."""
     font = next((p for p in (r"C:\Windows\Fonts\malgunbd.ttf", r"C:\Windows\Fonts\malgun.ttf") if Path(p).exists()), None)
     W, H = like.rect.width, like.rect.height
     page = doc.new_page(width=W, height=H)
-    band = pymupdf.Rect(W * 0.2, H * 0.42, W * 0.8, H * 0.42 + 50)
+    band = pymupdf.Rect(W * 0.2, H * 0.24, W * 0.8, H * 0.24 + 50)
     page.draw_rect(band, color=None, fill=(0.8, 0.8, 0.8))
     for y in (band.y0 - 5, band.y1 + 5):
         page.draw_line((band.x0, y), (band.x1, y), color=(0.1, 0.1, 0.1), width=1.2)
@@ -515,7 +519,7 @@ def merge_appendix_pdfs(items: list[tuple[str, Path]], dest: Path) -> list[str]:
         ls_, le = span(ld, n, lead.page_count)
         le = _trim_tail(lead, ls_, le)  # 첫 동 구간 끝의 작은 간지(장비측정위치도 [후면첨부]) 앞에 둘째 동을 끼움
         adds = []
-        for name, p in items[1:]:
+        for k, (name, p) in enumerate(items[1:], 2):
             d = pymupdf.open(p)
             dv = _dividers(d)
             if n not in dv:
@@ -525,7 +529,7 @@ def merge_appendix_pdfs(items: list[tuple[str, Path]], dest: Path) -> list[str]:
             s, e = span(dv, n, d.page_count)
             e = _trim_tail(d, s, e)
             if e > s:  # 그 동에 그 자료가 없으면(관리대장·사진첩 없음) 간지도 안 넣음
-                adds.append((name, d, s, e))
+                adds.append((f"{k}. {name}", d, s, e))
             else:
                 d.close()
         if adds:
@@ -543,7 +547,7 @@ def merge_appendix_pdfs(items: list[tuple[str, Path]], dest: Path) -> list[str]:
             d.close()
         if le > ls_:  # 첫 동 구간 앞에도 동 이름 간지(형 10/15 "간지가 B동만 있음 — 부록 다른 항목도 마찬가지")
             piece = pymupdf.open()
-            _dong_divider_page(piece, lead[0], items[0][0])
+            _dong_divider_page(piece, lead[0], f"1. {items[0][0]}")
             lead.insert_pdf(piece, start_at=ls_)
             piece.close()
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -573,8 +577,8 @@ def _selfcheck() -> None:
         m = pymupdf.open(out)
         texts = [pg.get_text().strip() for pg in m]
         # 구간마다 첫 동 간지 "본관" + 첫 동 내용, 간지 "B동" + 둘째 동 내용 — 1번(1쪽)·2번(2쪽)·4번(1쪽)·5번(1쪽) → 12 + 4×2 + (1+2+1+1) = 25
-        assert m.page_count == 25 and texts.count("B동") == 4 and texts.count("본관") == 4 and not notes, (m.page_count, texts.count("B동"), notes)
-        assert texts[2] == "본관" and texts[3] == "관리대장 내용" and texts[4] == "B동" and texts[5] == "관리대장 내용", texts[:7]
+        assert m.page_count == 25 and texts.count("2. B동") == 4 and texts.count("1. 본관") == 4 and not notes, (m.page_count, texts.count("2. B동"), notes)
+        assert texts[2] == "1. 본관" and texts[3] == "관리대장 내용" and texts[4] == "2. B동" and texts[5] == "관리대장 내용", texts[:7]
         m.close()
     print("정밀 묶음 부록 합치기 검증 통과")
 

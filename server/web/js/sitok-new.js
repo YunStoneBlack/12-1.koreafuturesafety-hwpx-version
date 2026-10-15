@@ -6,7 +6,7 @@
   const errorEl = document.getElementById("error");
   const { FAC, CON, setValues, values } = SitokFields;
   const SHOW = ["name", "fms_no", "template", "legal", "kind", "use_type", "main_use", "address", "owner_name", "owner_type", "owner_phone",
-    "completion_date", "structure", "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area"];
+    "completion_date", "structure", "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "land_area", "coverage_ratio", "floor_area_ratio"];
   let opts = null;
   let prior = null; // {token, kind, name, year, half, chapters, ours, has_defects}
   let conToken = null;

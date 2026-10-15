@@ -6,17 +6,15 @@
 화면 sitok-rating.html(js/sitok-rating.js). 정밀 회차 카드 [📊 상태평가]."""
 from __future__ import annotations
 
-import datetime
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.models_web import Company, SitokFacility, SitokReport, User
+from core.models_web import SitokFacility, SitokReport, User
 from server.api.deps import get_current_user, get_db
 from server.api.routers.sitok_defects import _defects_for_cost
-from server.api.routers.sitok_reports import _order, _report_dir, _require
+from server.api.routers.sitok_reports import _order, _require, rating_result_pdf
 from server.api.routers.sitok_tests import _view as tests_view
 from server.sitok import condition
 
@@ -115,15 +113,5 @@ def rating_pdf(report_id: int, user: User = Depends(get_current_user), db: Sessi
     v = _compute(db, r)
     if v["result"] is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "평가할 부재가 없습니다 — 표본층을 고르고 부재 개수를 넣으세요.")
-    tv = tests_view(db, r)
-    co = db.get(Company, user.company_id)
-    when = r.period_start or r.report_date or datetime.date.today()
-    bi = {"name": f.name, "address": f.address, "owner": f.owner_name, "completion": f"{f.completion_date.year}년 {f.completion_date.month}월" if f.completion_date else "",
-          "use": f.main_use or f.use_type, "structure": f.structure, "land_area": "", "building_area": f"{f.building_area:,.1f} ㎡" if f.building_area else "",
-          "total_area": f"{f.total_area:,.1f} ㎡" if f.total_area else "", "above": f.floors_above or 0, "below": f.floors_below or 0,
-          "company": co.name if co else "", "phone": getattr(co, "phone", "") or "", "when": when.isoformat()}
-    agg = condition.aggregate(_defects_for_cost(db, r.id), tv, v["counts"], above=f.floors_above or 0, below=f.floors_below or 0,
-                              tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"])
-    dest = _report_dir(f, r) / "상태평가" / "상태평가결과.pdf"
-    condition.make_pdf(dest, agg, v["result"], bi, tv, v["prev_grade"] or v["prev_auto"])
+    dest = rating_result_pdf(db, r, f, v, tests_view(db, r))
     return FileResponse(dest, media_type="application/pdf", filename=f"상태평가결과_{f.name}.pdf", content_disposition_type="inline")

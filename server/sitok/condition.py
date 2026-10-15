@@ -255,8 +255,24 @@ BLUE = (0.1, 0.2, 0.75)
 HEAD_FILL = (0.96, 0.96, 0.85)  # SafetyMan 머리칸(연노랑)
 
 
-def make_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_view: dict, prev_grade: str = "") -> Path:
-    """건축물 평가결과 — SafetyMan 출력(형 10/14 "상태평가결과 엑셀과 똑같은 양식, 지침이 SafetyMan 사용")과 같은 짜임:
+def make_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_view: dict, prev_grade: str = "", photo: Path | None = None) -> Path:
+    """건축물 평가결과(부록 5. 상태평가 결과 자료) — SafetyMan 출력 엑셀을 양식으로 같은 모양(safetyman.py, 10/15 민재형 "100% 일치") → LibreOffice PDF.
+    양식 엑셀이나 LibreOffice가 없으면 예전 그림(_draw_pdf)."""
+    import logging
+
+    try:
+        from server.contract_docs.to_pdf import office_to_pdf
+        from server.sitok import safetyman
+
+        xlsx = safetyman.build(dest.with_suffix(".xlsx"), agg, result, building, tests_view, photo)
+        return office_to_pdf(xlsx, dest)
+    except Exception:  # noqa: BLE001 — 결과 자료는 꼭 나와야 함
+        logging.getLogger(__name__).exception("SafetyMan 모양 상태평가 결과 실패 — 예전 그림으로")
+        return _draw_pdf(dest, agg, result, building, tests_view, prev_grade)
+
+
+def _draw_pdf(dest: Path, agg: dict, result: dict | None, building: dict, tests_view: dict, prev_grade: str = "") -> Path:
+    """(예전, 10/14) 건축물 평가결과 — SafetyMan 출력(형 10/14 "상태평가결과 엑셀과 똑같은 양식, 지침이 SafetyMan 사용")과 같은 짜임:
     건물개요(한 열 이름·값) → 평가결과(층 묶음마다 부재 머리줄 + '상태' 줄, 오른쪽 '기울기 및 침하' 세로 칸, 종합·최종은 빨강) → 최종결과 →
     입력자료(층 묶음마다 콘크리트강도·균열·중성화·박리·박락·누수·철근노출·강재규격, SafetyMan 줄 이름·값 꼴 "24.2, 0, 0 / 24(D)") → 기울기 및 침하. A4 세로, pymupdf."""
     import pymupdf

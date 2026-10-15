@@ -67,6 +67,32 @@ def _report_dir(f: SitokFacility, r: SitokReport) -> Path:
     return _facility_dir(f) / f"{r.year}_{r.half}"
 
 
+def rating_result_pdf(db: Session, r: SitokReport, f: SitokFacility, rv: dict, tv: dict) -> Path:
+    """상태평가 결과 자료 PDF(SafetyMan 모양, 전경사진 첫 장) — 상태평가 화면 [PDF]·부록 5.·본문 그림(5.1.3·7.3)이 같이 씀."""
+    from server.api.routers.sitok_defects import _defects_for_cost
+    from server.api.routers.sitok_overview import photos as overview_photos
+    from server.sitok import condition
+
+    def area(v):
+        return f"{v:.1f} ㎡" if v else ""  # SafetyMan: 쉼표 없이 "2037.3 ㎡"
+
+    def pct(v):
+        return f"{v:.2f}%" if v else ""
+
+    when = r.period_start or r.report_date or datetime.date.today()
+    led = f.ledger or {}
+    bi = {"name": f.name, "address": f.address, "owner": f.owner_name, "completion": f"{f.completion_date.year}년 {f.completion_date.month}월" if f.completion_date else "",
+          "use": f.main_use or f.use_type, "structure": f.structure, "land_area": area(led.get("land_area")), "building_area": area(f.building_area),
+          "total_area": area(f.total_area), "coverage": pct(led.get("coverage_ratio")), "far": pct(led.get("floor_area_ratio")),
+          "above": f.floors_above or 0, "below": f.floors_below or 0, "kind_label": f"{r.kind or '정기'}점검",
+          "when": when.isoformat()}  # 평가기관·연락처는 양식(SafetyMan 설정) 그대로
+    agg = condition.aggregate(_defects_for_cost(db, r.id), tv, rv["counts"], above=f.floors_above or 0, below=f.floors_below or 0,
+                              tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"])
+    ph = overview_photos(db, r)
+    dest = _report_dir(f, r) / "상태평가" / "상태평가결과.pdf"
+    return condition.make_pdf(dest, agg, rv["result"], bi, tv, rv["prev_grade"] or rv["prev_auto"], photo=Path(ph[0][0]) if ph else None)
+
+
 def _out(r: SitokReport) -> dict:
     return {"id": r.id, "contract_id": r.contract_id, "year": r.year, "half": r.half, "kind": r.kind or "정기",
             "period_start": _iso(r.period_start), "period_end": _iso(r.period_end), "report_date": _iso(r.report_date),
@@ -651,9 +677,10 @@ def _insert_after_page(doc, keys: tuple, add_bytes: bytes | None, label: str, do
     done.append(label)
 
 
-def _replace_back_page(doc, keys: tuple, add_bytes: bytes | None, label: str, done: list) -> None:
+def _replace_back_page(doc, keys: tuple, add_bytes: bytes | None, label: str, done: list, wide: bool = False) -> None:
     """부록 "2-1. … 측정데이터 [후면첨부]"처럼 빈 틀만 있는 쪽 → 그 쪽의 제목(틀 위)·꼬리(틀 아래)는 그대로 두고 틀 자리에 붙는 자료 첫 쪽을 줄여 넣음,
-    자료 나머지 쪽은 뒤에 그대로(형 10/15 "수기 작업 때 편의상 그런 것 — 프로그램이니 이렇게 넣고 합본 가능?"). 틀 쪽을 못 찾으면 예전처럼 간지 뒤에 끼움."""
+    자료 나머지 쪽은 뒤에 그대로(형 10/15 "수기 작업 때 편의상 그런 것 — 프로그램이니 이렇게 넣고 합본 가능?"). 틀 쪽을 못 찾으면 예전처럼 간지 뒤에 끼움.
+    wide = 자료 내용이 가로로 넓으면 그 쪽을 가로 쪽으로(제목은 왼쪽 위 그대로, 틀 대신 쪽 여백 안 가득 — 2-1 강도 성과표, 형 10/15 "가로로")."""
     if not add_bytes:
         return
     page = next((i for i in range(len(doc) - 1, -1, -1) if all(k in doc[i].get_text() for k in keys) and "후면첨부" in doc[i].get_text()
@@ -669,17 +696,28 @@ def _replace_back_page(doc, keys: tuple, add_bytes: bytes | None, label: str, do
         return
     box = pymupdf.Rect(min(b.x0 for b in boxes), min(b.y0 for b in boxes), max(b.x1 for b in boxes), max(b.y1 for b in boxes))
     with pymupdf.open(stream=add_bytes, filetype="pdf") as add, pymupdf.open() as new:
-        pg = new.new_page(width=W, height=H)
-        top, bottom = pymupdf.Rect(0, 0, W, box.y0 - 1), pymupdf.Rect(0, box.y1 + 1, W, H)
-        pg.show_pdf_page(top, doc, page, clip=top)
-        if bottom.height > 2:
-            pg.show_pdf_page(bottom, doc, page, clip=bottom)
         a0 = add[0]
         parts = [pymupdf.Rect(b_[:4]) for b_ in a0.get_text("blocks")] + [d["rect"] for d in a0.get_drawings()] + [r_ for info in a0.get_images(full=True) for r_ in a0.get_image_rects(info[0])]
         parts = [r_ for r_ in parts if r_.is_valid and not r_.is_empty or r_.width > 0 or r_.height > 0]
         clip = pymupdf.Rect(min(r_.x0 for r_ in parts), min(r_.y0 for r_ in parts), max(r_.x1 for r_ in parts), max(r_.y1 for r_ in parts)) if parts else a0.rect
         clip = (clip + (-6, -6, 6, 6)) & a0.rect  # 자료 쪽 여백은 빼고 내용만 크게
-        target = pymupdf.Rect(box.x0, box.y0, box.x1, box.y0 + min(box.height, box.width * clip.height / max(clip.width, 1)))  # 위에 붙여
+        top, bottom = pymupdf.Rect(0, 0, W, box.y0 - 1), pymupdf.Rect(0, box.y1 + 1, W, H)
+        if wide and clip.width > clip.height * 1.15:  # 가로 쪽(H × W) — 제목 띠는 왼쪽 위 그대로, 꼬리(쪽 번호 등)는 아래 가운데
+            LW, LH = H, W
+            pg = new.new_page(width=LW, height=LH)
+            pg.show_pdf_page(top, doc, page, clip=top)
+            if bottom.height > 2:
+                pg.show_pdf_page(pymupdf.Rect((LW - W) / 2, LH - bottom.height, (LW + W) / 2, LH), doc, page, clip=bottom)
+            area = pymupdf.Rect(box.x0, box.y0, LW - (W - box.x1), LH - max(bottom.height, box.x0))
+            k = min(area.width / max(clip.width, 1), area.height / max(clip.height, 1))
+            target = pymupdf.Rect(area.x0, area.y0, area.x0 + clip.width * k, area.y0 + clip.height * k)
+            target += ((area.width - target.width) / 2, 0, (area.width - target.width) / 2, 0)  # 가로 가운데
+        else:
+            pg = new.new_page(width=W, height=H)
+            pg.show_pdf_page(top, doc, page, clip=top)
+            if bottom.height > 2:
+                pg.show_pdf_page(bottom, doc, page, clip=bottom)
+            target = pymupdf.Rect(box.x0, box.y0, box.x1, box.y0 + min(box.height, box.width * clip.height / max(clip.width, 1)))  # 위에 붙여
         pg.show_pdf_page(target, add, 0, clip=clip)
         if len(add) > 1:
             new.insert_pdf(add, from_page=1)
@@ -690,11 +728,11 @@ def _replace_back_page(doc, keys: tuple, add_bytes: bytes | None, label: str, do
 
 def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: Path) -> list[str]:
     """부록 PDF에 끼우기(간지 글자로 쪽 찾기, 뒤 간지부터): 7-5 계약서 · 5 상태평가 결과자료(③ PDF) · 3-1 탄산화 사진현황(10/14) · 2-1 강도 측정데이터(슈미트 xlsx → PDF) · 2 외관조사 사진첩 · 1 관리대장."""
-    from server.api.routers.sitok_defects import _defects_for_cost, album_floors
+    from server.api.routers.sitok_defects import album_floors
     from server.api.routers.sitok_rating import _compute as rating_view
     from server.api.routers.sitok_tests import _view as tests_view
     from server.contract_docs.attachments import to_pdf_bytes
-    from server.sitok import album_make, condition
+    from server.sitok import album_make
 
     doc = pymupdf.open(pdf)
     done: list[str] = []
@@ -703,17 +741,7 @@ def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: 
         _insert_after_page(doc, ("7-5", "계약서"), Path(c.contract_pdf).read_bytes(), "계약서", done)
     rv = rating_view(db, r)
     if rv["result"] is not None:
-        tv = tests_view(db, r)
-        from core.models_web import Company
-        co = db.get(Company, r.company_id)
-        when = r.period_start or r.report_date or datetime.date.today()
-        bi = {"name": f.name, "address": f.address, "owner": f.owner_name, "completion": f"{f.completion_date.year}년 {f.completion_date.month}월" if f.completion_date else "",
-              "use": f.main_use or f.use_type, "structure": f.structure, "land_area": "", "building_area": f"{f.building_area:,.1f} ㎡" if f.building_area else "",
-              "total_area": f"{f.total_area:,.1f} ㎡" if f.total_area else "", "above": f.floors_above or 0, "below": f.floors_below or 0, "company": co.name if co else "", "phone": "",
-              "when": when.isoformat()}
-        agg = condition.aggregate(_defects_for_cost(db, r.id), tv, rv["counts"], above=f.floors_above or 0, below=f.floors_below or 0, tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"])
-        out = _report_dir(f, r) / "상태평가" / "상태평가결과.pdf"
-        condition.make_pdf(out, agg, rv["result"], bi, tv, rv["prev_grade"] or rv["prev_auto"])
+        out = rating_result_pdf(db, r, f, rv, tests_view(db, r))
         _insert_after_page(doc, ("5.", "상태평가 결과 자료"), out.read_bytes(), "상태평가 결과자료", done)
     try:  # 3-1 탄산화 사진현황(재료시험 탭 탄산화 줄 사진, 10/14)
         from server.api.routers.sitok_tests import carb_photo_pdf
@@ -725,7 +753,7 @@ def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: 
     xlsx = _report_dir(f, r) / "재료시험" / "슈미트_시험성과표.xlsx"
     if xlsx.exists():
         try:
-            _replace_back_page(doc, ("2-1", "측정데이터"), to_pdf_bytes(xlsx.read_bytes(), xlsx.name), "강도 측정데이터", done)
+            _replace_back_page(doc, ("2-1", "측정데이터"), to_pdf_bytes(xlsx.read_bytes(), xlsx.name), "강도 측정데이터", done, wide=True)
         except Exception:  # noqa: BLE001 — 엑셀 변환이 안 되면 빼고 감
             pass
     floors = album_floors(db, r.id)

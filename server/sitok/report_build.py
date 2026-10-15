@@ -10,15 +10,19 @@ read_history·read_survey·read_texts·read_overview·read_eval_items·read_faci
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import datetime
 import random
 import re
+import threading
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from lxml import etree
+
+from server.sitok.borders import Borders
 
 HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
 CORE = "http://www.hancom.co.kr/hwpml/2011/core"
@@ -526,6 +530,49 @@ def _make_cell(tmpl, r: int, lines: list[str], span: int, height: int):
     return tc
 
 
+_TL = threading.local()  # 지금 채우는 파일의 테두리 모양(borders.Borders) — 파일 쓰는 쪽이 using_borders로(동시에 여러 보고서를 만들어도 섞이지 않게 스레드마다)
+
+
+@contextlib.contextmanager
+def using_borders(b):
+    """with using_borders(Borders(header_xml)) as b: … 표 채우기 … header.xml = b.result(xml) — 줄 복사한 곳 맞닿는 선을 얇게(형 10/15)."""
+    old = getattr(_TL, "borders", None)
+    _TL.borders = b
+    try:
+        yield b
+    finally:
+        _TL.borders = old
+
+
+def pad_cells(tbl, lr: int | None = 425, tb: int = 283) -> None:
+    """표 칸 안 여백(HWPUNIT, 283 = 1mm) — 양식이 0이라 글이 선에 붙던 표(형 10/15 "셀 위아래 너무 붙어있음"). 칸마다 따로 여백을 쓰는 칸(hasMargin=1)은 그대로."""
+    m = tbl.find(f"{{{HP}}}inMargin")
+    if m is None:
+        return
+    if lr is not None:  # None = 왼쪽·오른쪽은 그대로
+        m.set("left", str(lr))
+        m.set("right", str(lr))
+    m.set("top", str(tb))
+    m.set("bottom", str(tb))
+
+
+def _thin_seams(tbl, seams) -> bool:
+    """복사한 줄끼리 맞닿는 곳(seams = 위쪽 줄 번호들) — 그 선에 닿는 칸의 위·아래 선이 굵거나 이중선이면 칸의 얇은 선으로(형 10/15 "가운데 줄 진함").
+    테두리 모양 틀(using_borders)이 없으면 아무것도 안 함 → False."""
+    b = getattr(_TL, "borders", None)
+    if b is None:
+        return False
+    seams = set(seams)
+    for (r, _c), tc in _cells(tbl).items():
+        bottom = r + int(tc.find(f"{{{HP}}}cellSpan").get("rowSpan")) - 1
+        top_on, bottom_on = (r - 1) in seams, bottom in seams
+        if top_on or bottom_on:
+            new = b.thin(tc.get("borderFillIDRef"), top_on, bottom_on)
+            if new:
+                tc.set("borderFillIDRef", new)
+    return True
+
+
 def _fill_rows(tbl, rows: list, tmpl: dict, head_h: int, heights: list, merge: int, keep_tail: list | None = None) -> None:
     """tbl의 데이터 줄을 rows(줄마다 [칸마다 글줄 목록])로 — 앞 merge칸은 값이 같으면 세로로 합침. keep_tail = 뒤에 그대로 둘 줄(합계 등,
     줄 번호만 다시). 표 높이·테두리 구역·줄 수도 맞춤."""
@@ -559,6 +606,7 @@ def _fill_rows(tbl, rows: list, tmpl: dict, head_h: int, heights: list, merge: i
             cz.set("endRowAddr", str(new_last))
     tbl.set("rowCnt", str(new_last + 1))
     tbl.find(f"{{{HP}}}sz").set("height", str(total))
+    _thin_seams(tbl, range(1, len(rows)))  # 데이터 줄이 다 한 양식 줄(위 이중선) 복사 — 줄 사이는 얇게
 
 
 LINE_H = 1450  # 글줄 하나 높이 어림(HWPUNIT, 9pt 안팎 — 광숭 시험 PDF에서 맞춤)
@@ -1485,7 +1533,7 @@ def _add_row(tbl) -> None:
         tc.find(f"{{{HP}}}cellSz").set("height", str(h))
         _set_lines(tc, [""])
         tr.append(tc)
-    if len(trs) > 2:  # 예전 마지막 줄은 이제 가운데 줄 — 아래 굵은 테두리 대신 그 위 줄 테두리 모양으로
+    if getattr(_TL, "borders", None) is None and len(trs) > 2:  # 예전 마지막 줄은 이제 가운데 줄 — 아래 굵은 테두리 대신 그 위 줄 테두리 모양으로(테두리 틀이 없을 때)
         above = {tc.find(f"{{{HP}}}cellAddr").get("colAddr"): tc.get("borderFillIDRef") for tc in trs[-2].findall(f"{{{HP}}}tc")}
         for tc in trs[-1].findall(f"{{{HP}}}tc"):
             b = above.get(tc.find(f"{{{HP}}}cellAddr").get("colAddr"))
@@ -1493,6 +1541,7 @@ def _add_row(tbl) -> None:
                 tc.set("borderFillIDRef", b)
     trs[-1].addnext(tr)
     tbl.set("rowCnt", str(n + 1))
+    _thin_seams(tbl, [n - 1])  # 예전 끝줄과 새 줄 사이 선을 얇게(틀이 있을 때)
     for cz in tbl.iter(f"{{{HP}}}cellzone"):
         if int(cz.get("endRowAddr", "0")) >= n - 1:
             cz.set("endRowAddr", str(n))
@@ -1556,6 +1605,8 @@ def _dup_rows(tbl, start: int, count: int, times: int, clear_cols: set | None = 
                     _set_lines(tc, [""])
             last.addnext(new)
             last = new
+    if _thin_seams(tbl, [start + count * t - 1 for t in range(1, times + 1)]):  # 묶음끼리 맞닿는 선만 얇게(형 10/15 — 3·4개동도)
+        return
     if start + count == len(trs) and start - count >= 1:  # 묶음이 표 끝이었으면 원래 끝줄의 굵은 아래 테두리를 그 위 묶음 모양으로(위가 머리줄이면 회색 배경이 따라오므로 안 함, 10/14)
         for src, dst in zip(trs[start - count:start], block):
             above = {tc.find(f"{{{HP}}}cellAddr").get("colAddr"): tc.get("borderFillIDRef") for tc in src.findall(f"{{{HP}}}tc")}
@@ -1593,7 +1644,8 @@ def engineer_rows(root, persons: list[tuple[str, str]]) -> int:
         if len(row) < 3:
             continue
         _set_lines(row[1], [_spaced(name) if len(name) <= 4 else name])
-        _set_lines(row[-1], [grade or "-"])
+        g = grade or "-"
+        _set_lines(row[-1], g.split(" ", 1) if len(g) > 10 and " " in g else [g])  # "안전관리 건축분야고급기술자" — 칸이 좁아 "기술/자"로 잘림 → 두 줄(형 10/15)
         n += 1
     extra = rows[len(persons):]
     if extra:
@@ -1651,8 +1703,9 @@ def engineer_list(root, persons: list[tuple[str, str]]) -> int:
     return 0
 
 
-def _table_row_heights(tbl) -> dict[int, int]:
-    """줄마다 어림 높이(HWPUNIT) — _est_height와 같은 셈(칸 높이 vs 글 줄 수 × LINE_H)."""
+def _table_row_heights(tbl, text_only: bool = False) -> dict[int, int]:
+    """줄마다 어림 높이(HWPUNIT) — _est_height와 같은 셈(칸 높이 vs 글 줄 수 × LINE_H). text_only = 글 칸은 지금 칸 높이를 바닥으로 쓰지 않음
+    (복사한 줄이 본 줄 높이를 그대로 물려받아 빈 칸이 커지던 것 — 표 4.2 셋째 줄, 10/15)."""
     import math
 
     rows: dict[int, int] = {}
@@ -1673,6 +1726,8 @@ def _table_row_heights(tbl) -> dict[int, int]:
                 t = "".join(x.text or "" for x in p.iter(T))
                 lines += max(1, math.ceil(len(t) * CHAR_W / max(w - mx, 1000)))
             est = min(lines, 200) * LINE_H + my
+            if text_only:
+                h = 0
         rows[r] = max(rows.get(r, 0), h, est)
     return rows
 
@@ -2243,88 +2298,90 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
         ordered = _sections(zin)
         sections = set(ordered)
         keep = _KeepHeads(zin.read("Contents/header.xml")) if "Contents/header.xml" in zin.namelist() else None  # 제목 + 다음 문단 함께(10/12)
-        for info in zin.infolist():
-            data = zin.read(info.filename)
-            if info.filename == "Contents/header.xml" and keep is not None:
-                continue  # 제목 문단 모양을 더해 맨 뒤에 씀
-            if info.filename in sections:
-                root = etree.fromstring(data)
-                is_front = info.filename == ordered[0]
-                heights = table_heights(root) if not is_front else {}  # 내용 넣기 전 표 높이 어림(_let_split — 늘어난 표만 나눔)
-                changed += _apply(root, whole, parts, front, is_front)
-                if is_front and new.persons:
-                    changed += engineer_rows(root, new.persons)  # 결과표 기술자 줄은 위치로(글자 바꾸기 충돌 방지, 10/14)
-                if extras.base:
-                    changed += _base_reset(root, is_front, ordered.index(info.filename), extras.base, extras.blank, add_image)
-                for img, kind, idx in _doc_pics(root, is_front):
-                    path = extras.images.get((kind, idx))
-                    if path and Path(path).exists():
-                        img.set("binaryItemIDRef", add_image(_fit_to_pic(path, img, crop=False)))  # 서류는 자르지 않고 틀 비율로(형 10/15 "수료증 사진 짤림")
+        bd = Borders(zin.read("Contents/header.xml").decode("utf-8")) if keep is not None else None  # 줄 복사 테두리(10/15)
+        with using_borders(bd):
+            for info in zin.infolist():
+                data = zin.read(info.filename)
+                if info.filename == "Contents/header.xml" and keep is not None:
+                    continue  # 제목 문단 모양을 더해 맨 뒤에 씀
+                if info.filename in sections:
+                    root = etree.fromstring(data)
+                    is_front = info.filename == ordered[0]
+                    heights = table_heights(root) if not is_front else {}  # 내용 넣기 전 표 높이 어림(_let_split — 늘어난 표만 나눔)
+                    changed += _apply(root, whole, parts, front, is_front)
+                    if is_front and new.persons:
+                        changed += engineer_rows(root, new.persons)  # 결과표 기술자 줄은 위치로(글자 바꾸기 충돌 방지, 10/14)
+                    if extras.base:
+                        changed += _base_reset(root, is_front, ordered.index(info.filename), extras.base, extras.blank, add_image)
+                    for img, kind, idx in _doc_pics(root, is_front):
+                        path = extras.images.get((kind, idx))
+                        if path and Path(path).exists():
+                            img.set("binaryItemIDRef", add_image(_fit_to_pic(path, img, crop=False)))  # 서류는 자르지 않고 틀 비율로(형 10/15 "수료증 사진 짤림")
+                            changed += 1
+                    if extras.equipment:
+                        note = _equipment(root, extras.equipment, add_image)
+                        if note:
+                            extras.notes.append(note)
+                    if extras.positions:
+                        _positions(root, extras.positions)
+                    if extras.history and _add_history(root, old):
                         changed += 1
-                if extras.equipment:
-                    note = _equipment(root, extras.equipment, add_image)
-                    if note:
-                        extras.notes.append(note)
-                if extras.positions:
-                    _positions(root, extras.positions)
-                if extras.history and _add_history(root, old):
-                    changed += 1
-                if is_front and extras.overview:
-                    changed += _overview(root, extras.overview, extras.blank, add_image)
-                if is_front and extras.summary and _summary_table(root, extras.summary):
-                    changed += 1
-                if not is_front and extras.priority and _priority_table(root, extras.priority):
-                    changed += 1
-                if not is_front and extras.cost is not None and _cost_table(root, extras.cost[0], extras.cost[1]):
-                    changed += 1
-                if extras.ai:
-                    changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template, old.grade)
-                if is_front and new.persons:
-                    changed += engineer_list(root, new.persons)  # 참여기술자 명단도 이번 회차 사람으로(10/14)
-                if is_front:
-                    for tbl in root.iter(f"{{{HP}}}tbl"):  # 정기 결과표 "점검 주요결과"가 길면 앞 쪽 몫 + (계속) 줄로(10/14)
-                        c0 = _cells(tbl)
-                        if {"용역명", "점검기간", "관리주체명"} <= {re.sub(r"\s", "", _cell_text(v)) for v in c0.values()}:
-                            if split_findings_row(root, tbl, REGULAR_RESULT_FIT):
-                                changed += 1
-                            break
-                if extras.survey and not is_front:
-                    changed += _apply_survey(root, extras.survey)
-                if extras.survey and extras.survey.get("detail") and not is_front:
-                    from server.sitok import detail as _detail
-                    changed += _detail.apply(root, extras.survey["detail"])
-                if extras.ai and extras.ai.get("facility") and not is_front:
-                    changed += _apply_facility(root, extras.ai["facility"])
-                if extras.ai and extras.ai.get("items") and not is_front:
-                    changed += _apply_eval(root, extras.ai["items"], extras.ai.get("eval_opinion") or "")
-                if not is_front:  # 1.3 사진 표(빈칸 규칙 10/12)·1.2.7 마무리 — 회사 원본으로 만들 때 늘
-                    changed += _photo_tables(root, extras.rep_photos or {}, add_image)
-                    if extras.parts is not None:
-                        changed += _parts_tables(root, extras.parts, add_image)
-                    changed += _finish_repairs(root)
-                    changed += _let_split(root, heights)  # 줄이 느는 표·한 쪽을 넘게 커진 표는 쪽에서 나눔(10/12)
-                    if not extras.has_drawings:  # 1.2.9 관련 설계도면 — 붙일 도면이 없으면 "후면첨부"라고 남지 않게
-                        for q in root.iter(f"{{{HP}}}p"):
-                            if re.fullmatch(r"-?\s*후면\s*첨부\s*-?", _top_text(q) or ""):
-                                _set_para(q, "-")
-                                changed += 1
-                if keep is not None and not is_front:
-                    keep.apply(root)
-                for el in list(root.iter(f"{{{HP}}}linesegarray")):
-                    el.getparent().remove(el)
-                texts.append("\r\n".join("".join(t.text or "" for t in p.iter(T)) for p in root.iter(f"{{{HP}}}p")))
-                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
-            elif info.filename == "Preview/PrvText.txt":
-                continue
-            elif info.filename == "Preview/PrvImage.png":
-                continue  # 지난 회차 첫 쪽 그림 — 새것과 달라 지움
-            elif info.filename == "Contents/content.hpf":
-                hpf = data  # 새 그림 목록을 붙여 맨 뒤에 씀
-                continue
-            compress = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
-            zout.writestr(info, data, compress_type=compress)
+                    if is_front and extras.overview:
+                        changed += _overview(root, extras.overview, extras.blank, add_image)
+                    if is_front and extras.summary and _summary_table(root, extras.summary):
+                        changed += 1
+                    if not is_front and extras.priority and _priority_table(root, extras.priority):
+                        changed += 1
+                    if not is_front and extras.cost is not None and _cost_table(root, extras.cost[0], extras.cost[1]):
+                        changed += 1
+                    if extras.ai:
+                        changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template, old.grade)
+                    if is_front and new.persons:
+                        changed += engineer_list(root, new.persons)  # 참여기술자 명단도 이번 회차 사람으로(10/14)
+                    if is_front:
+                        for tbl in root.iter(f"{{{HP}}}tbl"):  # 정기 결과표 "점검 주요결과"가 길면 앞 쪽 몫 + (계속) 줄로(10/14)
+                            c0 = _cells(tbl)
+                            if {"용역명", "점검기간", "관리주체명"} <= {re.sub(r"\s", "", _cell_text(v)) for v in c0.values()}:
+                                if split_findings_row(root, tbl, REGULAR_RESULT_FIT):
+                                    changed += 1
+                                break
+                    if extras.survey and not is_front:
+                        changed += _apply_survey(root, extras.survey)
+                    if extras.survey and extras.survey.get("detail") and not is_front:
+                        from server.sitok import detail as _detail
+                        changed += _detail.apply(root, extras.survey["detail"])
+                    if extras.ai and extras.ai.get("facility") and not is_front:
+                        changed += _apply_facility(root, extras.ai["facility"])
+                    if extras.ai and extras.ai.get("items") and not is_front:
+                        changed += _apply_eval(root, extras.ai["items"], extras.ai.get("eval_opinion") or "")
+                    if not is_front:  # 1.3 사진 표(빈칸 규칙 10/12)·1.2.7 마무리 — 회사 원본으로 만들 때 늘
+                        changed += _photo_tables(root, extras.rep_photos or {}, add_image)
+                        if extras.parts is not None:
+                            changed += _parts_tables(root, extras.parts, add_image)
+                        changed += _finish_repairs(root)
+                        changed += _let_split(root, heights)  # 줄이 느는 표·한 쪽을 넘게 커진 표는 쪽에서 나눔(10/12)
+                        if not extras.has_drawings:  # 1.2.9 관련 설계도면 — 붙일 도면이 없으면 "후면첨부"라고 남지 않게
+                            for q in root.iter(f"{{{HP}}}p"):
+                                if re.fullmatch(r"-?\s*후면\s*첨부\s*-?", _top_text(q) or ""):
+                                    _set_para(q, "-")
+                                    changed += 1
+                    if keep is not None and not is_front:
+                        keep.apply(root)
+                    for el in list(root.iter(f"{{{HP}}}linesegarray")):
+                        el.getparent().remove(el)
+                    texts.append("\r\n".join("".join(t.text or "" for t in p.iter(T)) for p in root.iter(f"{{{HP}}}p")))
+                    data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                elif info.filename == "Preview/PrvText.txt":
+                    continue
+                elif info.filename == "Preview/PrvImage.png":
+                    continue  # 지난 회차 첫 쪽 그림 — 새것과 달라 지움
+                elif info.filename == "Contents/content.hpf":
+                    hpf = data  # 새 그림 목록을 붙여 맨 뒤에 씀
+                    continue
+                compress = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
+                zout.writestr(info, data, compress_type=compress)
         if keep is not None:
-            zout.writestr("Contents/header.xml", keep.header())
+            zout.writestr("Contents/header.xml", bd.result(keep.header().decode("utf-8")).encode("utf-8"))
         zout.writestr("Preview/PrvText.txt", "\r\n".join(texts)[:2000].encode("utf-8"))
         items = "".join(f'<opf:item id="{k}" href="BinData/{k}.jpg" media-type="image/jpg" isEmbeded="1"/>' for k, _ in added)
         zout.writestr("Contents/content.hpf", hpf.decode("utf-8").replace("</opf:manifest>", items + "</opf:manifest>").encode("utf-8"))

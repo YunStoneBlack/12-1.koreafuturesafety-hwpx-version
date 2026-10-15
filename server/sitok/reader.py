@@ -25,6 +25,7 @@ LEDGER_PROMPT = """첨부는 국토안전관리원 FMS에서 출력한 "시설�
  "completion_date": "준공(사용승인)일", "construction_end": "설계/시공 공사기간의 끝 날짜", "defect_end": "하자담보책임 만료일",
  "owner_rep": "소유자·관리주체의 대표자 이름(사람 이름)", "structure": "구조형식", "floors_above": null, "floors_below": null, "floors_roof": null,
  "max_height": null, "total_area": "연면적(건축 연면적)", "building_area": "건축면적(1층 바닥 — 연면적보다 작음)",
+ "land_area": "대지면적(없으면 null)", "coverage_ratio": "건폐율 % 숫자(없으면 null)", "floor_area_ratio": "용적률 % 숫자(없으면 null)",
  "use_type_guess": "결과표 '종류' 칸에 쓸 건축법 용도 분류 추정(예: 종교시설·교육연구시설·업무시설) — 주용도로 판단"}"""
 
 CONTRACT_PROMPT = """첨부는 시설물 정기안전점검 용역 계약서입니다(계약상대자 = 점검 회사 (주)한국미래안전). 두 종류 중 하나입니다:
@@ -130,6 +131,7 @@ def read_ledger(pdf: Path, company_id: int) -> dict:
         "owner_phone": _str(d.get("owner_phone")), "completion_date": _completion(d, pdf), "owner_rep": _str(d.get("owner_rep")), "structure": _str(d.get("structure")),
         "floors_above": _int(d.get("floors_above")), "floors_below": _int(d.get("floors_below")), "floors_roof": _int(d.get("floors_roof")),
         "max_height": _num(d.get("max_height")), "total_area": _num(d.get("total_area")), "building_area": _num(d.get("building_area")),
+        "land_area": _num(d.get("land_area")), "coverage_ratio": _num(d.get("coverage_ratio")), "floor_area_ratio": _num(d.get("floor_area_ratio")),
         "ledger": {"facility_class": _str(d.get("facility_class"))},
     }
 

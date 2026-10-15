@@ -80,6 +80,9 @@ class FacilityIn(BaseModel):
     contract_type: str | None = None  # 장기 / 1회성 / 종료
     base_wall: float | None = None  # 면적률 기준 면적(㎡) — ledger JSON에 보관(10/11)
     base_slab: float | None = None
+    land_area: float | None = None  # 대지면적(㎡)·건폐율(%)·용적율(%) — SafetyMan 건물개요(10/15 민재형), ledger JSON에 보관
+    coverage_ratio: float | None = None
+    floor_area_ratio: float | None = None
 
 
 class ContractIn(BaseModel):
@@ -152,6 +155,7 @@ def _check(field: str, value, allowed) -> None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{field}은(는) {'·'.join(allowed)} 중 하나입니다.")
 
 
+LEDGER_KEYS = ("base_wall", "base_slab", "land_area", "coverage_ratio", "floor_area_ratio")  # 표 열 없이 ledger JSON에 두는 시설물 칸
 BASE_WALL, BASE_SLAB = 24.5, 49.0  # 기준 면적 기본값 — 벽 한 면 = 기둥간격 7m × 층고 3.5m, 슬래브 한 칸 = 7m × 7m
 
 
@@ -165,7 +169,7 @@ def _apply_facility(row: SitokFacility, body: FacilityIn) -> None:
     data = body.model_dump(exclude_unset=True)
     _check("보고서 틀", data.get("template"), TEMPLATES)
     _check("계약 구분", data.get("contract_type"), CONTRACT_TYPES)
-    bases = {k: data.pop(k) for k in ("base_wall", "base_slab") if k in data}
+    bases = {k: data.pop(k) for k in LEDGER_KEYS if k in data}
     if bases:
         row.ledger = {**(row.ledger or {}), **bases}
     for k, v in data.items():
@@ -229,7 +233,7 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
                  .order_by(SitokContract.start_date.desc().nullslast(), SitokContract.id.desc()).all())
     out = {"id": f.id, **{k: _iso(getattr(f, k)) for k in FAC_FIELDS}, "ledger": f.ledger or {},
            "has_ledger_pdf": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()), "has_register": register_path(f).exists(),
-           "base_wall": (f.ledger or {}).get("base_wall"), "base_slab": (f.ledger or {}).get("base_slab"),
+           **{k: (f.ledger or {}).get(k) for k in LEDGER_KEYS},
            "latest": _contract_out(contracts[0]) if contracts else None, "contract_count": len(contracts)}
     from server.api.routers.sitok_groups import group_out
     out["group"] = group_out(db, f)  # 한 보고서로 묶인 동(10/12)

@@ -20,6 +20,7 @@ from pathlib import Path
 from lxml import etree
 
 from server.sitok import condition, master, precision_text, report_build as rb, tests as TESTS
+from server.sitok.borders import Borders
 
 HP, CORE, T = rb.HP, rb.CORE, rb.T
 HEAD_RE = re.compile(r"^(【|제\s*\d+\s*장|\d+\.\d+(\.\d+)?[\s)]|[가-힣]\.\s|\d\)\s*[가-힣]|■|▣)")
@@ -611,6 +612,7 @@ def _fill_compare(root, D: Data) -> int:
         last = max(k[0] for k in cells)
         _set(cells, last, 0, "검토")
         _set(cells, last, 1, t.get("prev_compare", ""))
+        rb.pad_cells(tbl)  # 양식은 칸 여백 0 — 글이 위아래 선에 붙음(형 10/15)
         n += 1
     return n
 
@@ -709,6 +711,8 @@ def _fill_status_tables(root, D: Data) -> int:
         "층수": f"지하{f.floors_below or 0}층/지상{f.floors_above or 0}층", "최고높이": f"{f.max_height:g}m" if f.max_height else "-", "주용도": f.main_use or f.use_type or "-",
         "사용승인일": f.completion_date.strftime("%Y.%m.%d") if f.completion_date else "-", "준공후경과년수": f"약 {age}년 경과" if age is not None else "-",
     }
+    if (f.ledger or {}).get("land_area"):  # 시설 카드 대지면적(10/15 — SafetyMan 건물개요와 같은 값)
+        values["대지면적"] = f"{f.ledger['land_area']:,.2f}㎡"
     blank = ("대지면적", "기본모듈", "최고층고", "기초형식", "콘크리트설계강도", "철근종류", "철골종류", "설계자", "시공자", "감리자", "공사기간", "부대시설")
     have = set(((D.detail or {}).get("fields") or {}).keys())
     n = 0
@@ -826,15 +830,36 @@ def _fill_docs(root, D: Data) -> int:
         _set(cells, r, 2, g["status"])
         _set(cells, r, 3, g["detail"])
     _rows_to_text(tbl)
-    rb._splittable(tbl, 1)  # 목록이 길어져 쪽을 넘으면 줄 단위로
+    if sum(rb._table_row_heights(tbl).values()) > rb.BODY_H - 4000:
+        rb._splittable(tbl, 1)  # 목록이 길어 한 쪽을 넘으면 줄 단위로
+    else:  # 한 쪽 안이면 틀대로 통째로(나누지 않음) — 쪽 끝에서 나뉘어 마지막 한 줄만 다음 쪽에 가던 것(형 10/15), 제목·표 번호도 같이 넘어감
+        _keep_with_table(tbl)
     return 1
 
 
 def _rows_to_text(tbl, first: int = 1) -> None:
-    """줄 높이를 글 줄 수 어림에 맞춤(틀 높이가 고정이라 글이 늘면 아래 선에 걸림 — 10/15 표 2.1)."""
-    for r, h in rb._table_row_heights(tbl).items():
+    """줄 높이를 글 줄 수 어림에 맞춤(틀 높이가 고정이라 글이 늘면 아래 선에 걸림 — 10/15 표 2.1). 양식 줄 높이는 바닥으로 안 씀(복사한 짧은 줄이 커지던 것),
+    칸 위아래 여백 0.5mm(글이 선에 붙지 않게) + 반 줄 여유(한 줄 여유는 빈 칸이 커져 표가 쪽을 넘김 — 형 10/15 "조절이 필요함")."""
+    rb.pad_cells(tbl, lr=None, tb=141)
+    for r, h in rb._table_row_heights(tbl, text_only=True).items():
         if r >= first:
-            _set_row_height(tbl, r, h + rb.LINE_H)  # 어림이 한 줄쯤 모자람(표 2.1 마지막 줄이 선에 걸림) — 한 줄 여유
+            _set_row_height(tbl, r, h + rb.LINE_H // 2)
+
+
+def _keep_with_table(tbl, n: int = 2) -> None:
+    """표 앞 문단(제목·【표 N】) n개를 표와 같은 쪽에(다음 문단과 함께) — 표가 통째로 다음 쪽으로 갈 때 제목만 남지 않게."""
+    p = tbl
+    while p is not None and not (p.tag == f"{{{HP}}}p" and p.getparent() is not None and p.getparent().tag.endswith("}sec")):
+        p = p.getparent()
+    if p is None or _HDR is None:
+        return
+    q = p.getprevious()
+    while q is not None and n > 0:
+        if q.tag == f"{{{HP}}}p" and q.get("paraPrIDRef") is not None:
+            q.set("paraPrIDRef", _HDR.keep_next(q.get("paraPrIDRef")))
+            if _para_text(q).strip():
+                n -= 1
+        q = q.getprevious()
 
 
 def _fill_docs_appendix(root, D: Data) -> int:
@@ -974,6 +999,14 @@ def _fill_manage(root, D: Data) -> int:
     if tbl is not None:
         from server.sitok import precision as PR
 
+        c0 = rb._cells(tbl)
+        r1 = next((r for (r, c) in sorted(c0) if c == 1 and rb._cell_text(c0[(r, c)]).strip().startswith("□")), None)
+        wide = r1 is not None and all(int(c0[(r1, c)].find(f"{{{HP}}}cellSz").get("width") or 0) > 3800 for c in (3, 5) if (r1, c) in c0)
+        if wide and (r1, 3) in c0 and (r1, 5) in c0:  # ■ 하나 들어가는 없다·있다 칸(2칸 합침) 폭을 유형·비고 칸으로(형 10/15 "글자 어떻게 좀")
+            _move_width(tbl, 9, 3, 550)  # 유형 +1,100 — 없다·있다 머리칸 "(양호)"가 안 꺾일 만큼만
+            _move_width(tbl, 9, 5, 550)
+            _move_width(tbl, 11, 1, 600)  # 비고 +600 — 넓은 점검내용 칸에서
+            rb.pad_cells(tbl, lr=283, tb=141)  # 양식 좌우 여백 1.8mm → 1mm(좁은 칸 글 자리)
         cells = rb._cells(tbl)
         rows = [r for r in sorted({k[0] for k in cells}) if (r, 1) in cells and rb._cell_text(cells[(r, 1)]).strip().startswith("□")]
         auto = PR.auto_checklist(D.defects) if not m["checklist"] else {}  # 점검자가 체크한 게 없으면 결함 목록으로(10/14)
@@ -984,10 +1017,11 @@ def _fill_manage(root, D: Data) -> int:
             _set(cells, r, 3, "" if bad else "■")
             _set(cells, r, 5, "■" if bad else "")
             _set(cells, r, 7, "■" if a else "")
-            _set(cells, r, 9, "·".join(a["types"][:2]) if a else "")
+            types = [ln for t_ in (a["types"][:2] if a else []) for ln in (re.sub(r"·(?=.)", "·|", t_).split("|") if len(t_) > 4 and "·" in t_ else [t_])]
+            _set(cells, r, 9, types or "")  # 종류마다 한 줄, 긴 이름은 "·" 뒤에서(좁은 칸에 "박리·재료분리"·"누수·백태"가 글자마다 꺾이던 것, 형 10/15)
             if (r, 11) in cells:
                 where = [w for w in (a["where"].split(", ") if a else []) if w]
-                note = (", ".join(where[:2]) + (f" 외 {len(where) - 2}곳" if len(where) > 2 else "")) if a else (m["note"] if bad and not note_done else "")
+                note = (where[:2] + ([f"외 {len(where) - 2}곳"] if len(where) > 2 else [])) if a else (m["note"] if bad and not note_done else "")
                 _set(cells, r, 11, note)
                 if bad and m["note"] and not a:
                     note_done = True
@@ -1484,6 +1518,9 @@ def _put_rating_pic(pic, D: Data, add_image, holder=None) -> bool:
         if cw:
             w = min(w, cw - 1200) if w > cw - 1200 else w
     h = int(w / ratio)
+    if h > rb.BODY_H - 7000:  # 평가결과 묶음이 많아 그림이 길면(숭의 본관 4묶음) 제목과 한 쪽에 들어가게 줄임 — 넘치면 제목만 남고 그림 다음 쪽 + 빈 쪽(10/15)
+        h = rb.BODY_H - 7000
+        w = int(h * ratio)
     _reset_pic(pic, w, h)
     img.set("binaryItemIDRef", add_image(_px_for_frame(jpg, w, h)))
     if holder is not None:
@@ -1755,55 +1792,56 @@ def _fill(src: Path, dest: Path, D: Data) -> int:
         ordered = rb._sections(zin)
         _HDR = _Header(zin.read("Contents/header.xml").decode("utf-8"))
         hdr_info = None
-        for info in zin.infolist():
-            data = zin.read(info.filename)
-            if info.filename == "Contents/header.xml":  # 문단·글자 모양을 더할 수 있게 맨 끝에 씀
-                hdr_info = info
-                continue
-            if info.filename in ordered:
-                root = etree.fromstring(data)
-                is_front = info.filename == ordered[0]
-                if D.replace:
-                    changed += rb._apply(root, D.replace, [], set(), is_front)
-                tpl = next((copy.deepcopy(p) for p in root.iter(f"{{{HP}}}pic")), None)
-                changed += _fill_compare(root, D) + _fill_limit(root, D) + _fill_priority(root, D) + _fill_analysis_tables(root, D) + _fill_status_tables(root, D) + _fill_general_tables(root, D)
-                if is_front:
-                    changed += _fill_result_table(root, D) + _fill_summary_table(root, D) + _fill_seismic(root, D)
-                    for tbl in _result_tables(root):  # 결과표가 길어지면 통째로 다음 쪽으로 넘어가지 않고 줄 단위로 나뉘게(사용자 10/14 — 원본은 pageBreak TABLE)
-                        rb._splittable(tbl, 0)
-                        tbl.set("repeatHeader", "0")  # "가. 일반현황" 줄이 다음 쪽에 또 찍히지 않게
-                        if rb.split_findings_row(root, tbl, RESULT_EST_FIT):  # "점검 주요결과"가 쪽을 넘으면 앞 쪽 몫 + (계속) 줄로(형 10/14 — 칸 안에서 잘리면 테두리 끊김)
-                            changed += 1
-                        elif _split_result_table(root, tbl):  # 그래도 넘칠 것 같으면 '다.'부터 새 쪽
-                            changed += 1
-                    if D.result_fields:
-                        changed += rb._set_result_fields(root, D.result_fields)
-                    if D.cost is not None and rb._cost_table(root, D.cost[0], D.cost[1]):  # 요약문 2.7 개략공사비
-                        changed += 1 + _cost_inline(root)  # 표 + ※ 주석 한 덩어리(10/15)
-                    changed += _fill_front_pics(root, D, add_image)
-                    for tbl in root.iter(f"{{{HP}}}tbl"):  # 결과표 뒤 "시험명 | 개소 | 조사결과 | 책임기술자 의견" 표
-                        cells = rb._cells(tbl)
-                        if rb._cell_text(cells.get((0, 0), tbl)).replace(" ", "") == "시험명":
-                            changed += _fill_test_rows(cells, D)
-                    for p in _tops(root):
-                        if "에 대한 정밀안전점검 결과" in _para_text(p) and "안전등급은" in _para_text(p):
-                            rb._set_para(p, D.texts.get("conclusion", ""))
-                            changed += 1
-                else:
-                    changed += (_fill_docs(root, D) + _fill_repairs(root, D) + _fill_history(root, D) + _fill_seismic_body(root, D) + _fill_uses(root, D)
-                                + _fill_manage(root, D) + _fill_prev_review(root, D) + _fill_ch3(root, D, tpl, add_image) + _fill_survey_pics(root, D, tpl, add_image) + _fill_ch4(root, D)
-                                + _fill_ch5_7(root, D, add_image) + _fill_maint(root, D, tpl, add_image) + _cost_inline(root) + _chapter_breaks(root))
-                for el in list(root.iter(f"{{{HP}}}linesegarray")):
-                    el.getparent().remove(el)
-                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
-            elif info.filename == "Contents/content.hpf":
-                hpf = data
-                continue
-            elif info.filename in ("Preview/PrvImage.png",):
-                continue
-            zout.writestr(info, data, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+        with rb.using_borders(Borders(_HDR.xml)) as bd:  # 줄 복사한 표의 맞닿는 선을 얇게(형 10/15)
+            for info in zin.infolist():
+                data = zin.read(info.filename)
+                if info.filename == "Contents/header.xml":  # 문단·글자 모양을 더할 수 있게 맨 끝에 씀
+                    hdr_info = info
+                    continue
+                if info.filename in ordered:
+                    root = etree.fromstring(data)
+                    is_front = info.filename == ordered[0]
+                    if D.replace:
+                        changed += rb._apply(root, D.replace, [], set(), is_front)
+                    tpl = next((copy.deepcopy(p) for p in root.iter(f"{{{HP}}}pic")), None)
+                    changed += _fill_compare(root, D) + _fill_limit(root, D) + _fill_priority(root, D) + _fill_analysis_tables(root, D) + _fill_status_tables(root, D) + _fill_general_tables(root, D)
+                    if is_front:
+                        changed += _fill_result_table(root, D) + _fill_summary_table(root, D) + _fill_seismic(root, D)
+                        for tbl in _result_tables(root):  # 결과표가 길어지면 통째로 다음 쪽으로 넘어가지 않고 줄 단위로 나뉘게(사용자 10/14 — 원본은 pageBreak TABLE)
+                            rb._splittable(tbl, 0)
+                            tbl.set("repeatHeader", "0")  # "가. 일반현황" 줄이 다음 쪽에 또 찍히지 않게
+                            if rb.split_findings_row(root, tbl, RESULT_EST_FIT):  # "점검 주요결과"가 쪽을 넘으면 앞 쪽 몫 + (계속) 줄로(형 10/14 — 칸 안에서 잘리면 테두리 끊김)
+                                changed += 1
+                            elif _split_result_table(root, tbl):  # 그래도 넘칠 것 같으면 '다.'부터 새 쪽
+                                changed += 1
+                        if D.result_fields:
+                            changed += rb._set_result_fields(root, D.result_fields)
+                        if D.cost is not None and rb._cost_table(root, D.cost[0], D.cost[1]):  # 요약문 2.7 개략공사비
+                            changed += 1 + _cost_inline(root)  # 표 + ※ 주석 한 덩어리(10/15)
+                        changed += _fill_front_pics(root, D, add_image)
+                        for tbl in root.iter(f"{{{HP}}}tbl"):  # 결과표 뒤 "시험명 | 개소 | 조사결과 | 책임기술자 의견" 표
+                            cells = rb._cells(tbl)
+                            if rb._cell_text(cells.get((0, 0), tbl)).replace(" ", "") == "시험명":
+                                changed += _fill_test_rows(cells, D)
+                        for p in _tops(root):
+                            if "에 대한 정밀안전점검 결과" in _para_text(p) and "안전등급은" in _para_text(p):
+                                rb._set_para(p, D.texts.get("conclusion", ""))
+                                changed += 1
+                    else:
+                        changed += (_fill_docs(root, D) + _fill_repairs(root, D) + _fill_history(root, D) + _fill_seismic_body(root, D) + _fill_uses(root, D)
+                                    + _fill_manage(root, D) + _fill_prev_review(root, D) + _fill_ch3(root, D, tpl, add_image) + _fill_survey_pics(root, D, tpl, add_image) + _fill_ch4(root, D)
+                                    + _fill_ch5_7(root, D, add_image) + _fill_maint(root, D, tpl, add_image) + _cost_inline(root) + _chapter_breaks(root))
+                    for el in list(root.iter(f"{{{HP}}}linesegarray")):
+                        el.getparent().remove(el)
+                    data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                elif info.filename == "Contents/content.hpf":
+                    hpf = data
+                    continue
+                elif info.filename in ("Preview/PrvImage.png",):
+                    continue
+                zout.writestr(info, data, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
         if hdr_info is not None:
-            zout.writestr(hdr_info, _HDR.result().encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
+            zout.writestr(hdr_info, bd.result(_HDR.result()).encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
         _HDR = None
         items = "".join(f'<opf:item id="{k}" href="BinData/{k}.jpg" media-type="image/jpg" isEmbeded="1"/>' for k, _ in added)
         zout.writestr("Contents/content.hpf", hpf.decode("utf-8").replace("</opf:manifest>", items + "</opf:manifest>").encode("utf-8"))
@@ -1819,25 +1857,21 @@ def _rating_png(db, r, rv: dict, tv: dict, facility, company_name: str) -> bytes
         return None
     import pymupdf
 
-    from server.api.routers.sitok_defects import _defects_for_cost
-    from server.api.routers.sitok_reports import _report_dir
+    from server.api.routers.sitok_reports import rating_result_pdf
 
-    when = r.period_start or r.report_date or datetime.date.today()
-    bi = {"name": facility.name, "address": facility.address, "owner": facility.owner_name,
-          "completion": f"{facility.completion_date.year}년 {facility.completion_date.month}월" if facility.completion_date else "", "use": facility.main_use or facility.use_type,
-          "structure": facility.structure, "land_area": "", "building_area": f"{facility.building_area:,.1f} ㎡" if facility.building_area else "",
-          "total_area": f"{facility.total_area:,.1f} ㎡" if facility.total_area else "", "above": facility.floors_above or 0, "below": facility.floors_below or 0,
-          "company": company_name, "phone": "", "when": when.isoformat()}
-    agg = condition.aggregate(_defects_for_cost(db, r.id), tv, rv["counts"], above=facility.floors_above or 0, below=facility.floors_below or 0,
-                              tilt_note=tv["tilt"]["note"], settlement_note=tv["settlement"]["note"])
-    dest = _report_dir(facility, r) / "상태평가" / "상태평가결과.pdf"
-    condition.make_pdf(dest, agg, rv["result"], bi, tv, rv["prev_grade"] or rv["prev_auto"])
+    dest = rating_result_pdf(db, r, facility, rv, tv)
     doc = pymupdf.open(dest)
     page = doc[0]
     rect = page.rect
     hit = page.search_for("입력자료")
-    bottom = hit[0].y0 - 6 if hit else rect.y0 + rect.height * 0.62
-    clip = pymupdf.Rect(rect.x0, rect.y0, rect.x1, min(rect.y1, bottom))  # 건물개요·평가결과·최종결과까지
+    limit = hit[0].y0 - 2 if hit else rect.y1
+    boxes = [pymupdf.Rect(b[:4]) for b in page.get_text("blocks") if b[3] <= limit] + [d["rect"] for d in page.get_drawings() if d["rect"].y1 <= limit]
+    if boxes:  # 건물개요·평가결과·최종결과까지(SafetyMan 모양 — 쪽 여백 빼고 내용 둘레 + 6pt)
+        x0, y0 = min(b.x0 for b in boxes), min(b.y0 for b in boxes)
+        x1, y1 = max(b.x1 for b in boxes), max(b.y1 for b in boxes)
+        clip = pymupdf.Rect(max(rect.x0, x0 - 6), max(rect.y0, y0 - 6), min(rect.x1, x1 + 6), min(rect.y1, y1 + 6))
+    else:
+        clip = pymupdf.Rect(rect.x0, rect.y0, rect.x1, rect.y0 + rect.height * 0.62)
     pix = page.get_pixmap(dpi=170, clip=clip)
     png = pix.tobytes("png")
     doc.close()
@@ -2139,6 +2173,10 @@ def _fill_appendix_docs(root, D: Data, infos: list[dict], state: dict, when) -> 
             if "과업지시서 검토결과" in t and len(infos) > 1:
                 names = " 및 ".join(i["f"].name for i in infos)
                 n += M._sub_pieces(p, re.escape(infos[0]["f"].name) + r"[은는]", names + _josa(names), first_only=True)
+    for tbl in root.iter(f"{{{HP}}}tbl"):  # 4.3 과업내용 표 — 글자처럼 취급(통째로)이라 제목 뒤가 반 쪽 넘게 비고 다음 쪽에서 시작(형 10/15) → 줄 단위로 나눔
+        if next(tbl.iterancestors(f"{{{HP}}}tbl"), None) is None and _head(tbl, 3) == ["과업항목", "지침상기본과업", "금회과업내용"]:
+            rb._splittable(tbl, 1)
+            n += 1
     for tbl in root.iter(f"{{{HP}}}tbl"):  # 좁은 머리칸 "정밀안전점검"이 "정밀안전점/검"으로 끊기지 않게 두 줄로
         for tc in rb._cells(tbl).values():
             if re.sub(r"\s", "", rb._cell_text(tc)) == "정밀안전점검" and int(tc.find(f"{{{HP}}}cellSz").get("width") or 0) < 9000:
@@ -2203,34 +2241,39 @@ def build_appendix(db, r, dest: Path, D_body: Data | None = None) -> tuple[list[
     when = r.period_start or r.report_date or datetime.date.today()
     with zipfile.ZipFile(tmp) as zin, zipfile.ZipFile(dest.with_suffix(".tmp"), "w", zipfile.ZIP_DEFLATED) as zout:
         ordered = rb._sections(zin)
-        for info in zin.infolist():
-            data = zin.read(info.filename)
-            if info.filename in ordered:
-                root = etree.fromstring(data)
-                if D.replace:
-                    changed += rb._apply(root, D.replace, [], set(), False)
-                changed += _fill_test_tables(root, D) + _fill_quantity(root, D)
-                changed += _fill_appendix_docs(root, D, infos, state, when)  # 과업수행계획서·사전검토보고서(동마다 줄·날짜·정밀 글·4.2~4.4·결론, 10/15)
-                for tbl in _tables(root, ["건물명"], 2):  # 과업지시서 3. 건축물 개요
-                    cells = rb._cells(tbl)
-                    age = TESTS.age_years(f.completion_date, r.period_start)
-                    vals = {"건물명": f.name, "위치": f.address or "-", "건축면적": f"{f.building_area:,.2f}㎡" if f.building_area else "-", "연면적": f"{f.total_area:,.2f}㎡" if f.total_area else "-",
-                            "구조": f.structure or "-", "층수": f"지상{f.floors_above or 0}층 / 지하{f.floors_below or 0}층", "최초건축년도": f"{f.completion_date.year}년" if f.completion_date else "-",
-                            "경과년수": f"{age}년" if age is not None else "-"}
-                    for (r_, c_), tc in list(cells.items()):
-                        label = rb._cell_text(tc).replace(" ", "")
-                        if c_ == 0 and label in vals and (r_, 1) in cells:
-                            _set(cells, r_, 1, vals[label])
-                    changed += 1
-                for el in list(root.iter(f"{{{HP}}}linesegarray")):
-                    el.getparent().remove(el)
-                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
-            elif info.filename == "Contents/content.hpf":
-                hpf = data
-                continue
-            elif info.filename in ("Preview/PrvImage.png",):
-                continue
-            zout.writestr(info, data, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+        hdr = zin.read("Contents/header.xml").decode("utf-8")
+        with rb.using_borders(Borders(hdr)) as bd:
+            for info in zin.infolist():
+                data = zin.read(info.filename)
+                if info.filename == "Contents/header.xml":  # 줄 복사 테두리 모양을 더해 맨 뒤에 씀(10/15)
+                    continue
+                if info.filename in ordered:
+                    root = etree.fromstring(data)
+                    if D.replace:
+                        changed += rb._apply(root, D.replace, [], set(), False)
+                    changed += _fill_test_tables(root, D) + _fill_quantity(root, D)
+                    changed += _fill_appendix_docs(root, D, infos, state, when)  # 과업수행계획서·사전검토보고서(동마다 줄·날짜·정밀 글·4.2~4.4·결론, 10/15)
+                    for tbl in _tables(root, ["건물명"], 2):  # 과업지시서 3. 건축물 개요
+                        cells = rb._cells(tbl)
+                        age = TESTS.age_years(f.completion_date, r.period_start)
+                        vals = {"건물명": f.name, "위치": f.address or "-", "건축면적": f"{f.building_area:,.2f}㎡" if f.building_area else "-", "연면적": f"{f.total_area:,.2f}㎡" if f.total_area else "-",
+                                "구조": f.structure or "-", "층수": f"지상{f.floors_above or 0}층 / 지하{f.floors_below or 0}층", "최초건축년도": f"{f.completion_date.year}년" if f.completion_date else "-",
+                                "경과년수": f"{age}년" if age is not None else "-"}
+                        for (r_, c_), tc in list(cells.items()):
+                            label = rb._cell_text(tc).replace(" ", "")
+                            if c_ == 0 and label in vals and (r_, 1) in cells:
+                                _set(cells, r_, 1, vals[label])
+                        changed += 1
+                    for el in list(root.iter(f"{{{HP}}}linesegarray")):
+                        el.getparent().remove(el)
+                    data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                elif info.filename == "Contents/content.hpf":
+                    hpf = data
+                    continue
+                elif info.filename in ("Preview/PrvImage.png",):
+                    continue
+                zout.writestr(info, data, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+        zout.writestr("Contents/header.xml", bd.result(hdr).encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
         items = "".join(f'<opf:item id="{k}" href="BinData/{k}.jpg" media-type="image/jpg" isEmbeded="1"/>' for k, _ in added)
         zout.writestr("Contents/content.hpf", hpf.decode("utf-8").replace("</opf:manifest>", items + "</opf:manifest>").encode("utf-8"))
         for k, b in added:
