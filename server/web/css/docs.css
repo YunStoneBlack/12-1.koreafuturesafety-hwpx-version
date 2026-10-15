@@ -23,7 +23,7 @@
 
 /* 제출 현황 표 */
 .ds-table { display: flex; flex-direction: column; }
-.ds-head, .ds-row { display: grid; grid-template-columns: minmax(0, 1fr) 200px 200px 160px; /* 용역명은 넓게, 착수계·완수계·계산서(10/15)는 배지만큼 */ gap: 10px; align-items: center; padding: 10px 18px; }
+.ds-head, .ds-row { display: grid; grid-template-columns: minmax(0, 1fr) 140px 140px 100px; /* 용역명은 넓게, 착수계·완수계·계산서는 가장 긴 배지만큼(10/16 — "✓ 10/15 E-mail 제출" 138px·"✓ 10/15 발행" 98px, 더 줄이면 잘림) */ gap: 10px; align-items: center; padding: 10px 18px; }
 /* 번호표(10/15 — 현장 목록과 같은 파란 칸) */
 .dc-title .site-no, .ds-name .site-no { display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 6px; background: var(--blue-soft); color: var(--blue);
   font-size: 12px; font-weight: 700; vertical-align: 1px; font-variant-numeric: tabular-nums; }
@@ -31,6 +31,7 @@
 .ds-mini { max-width: 440px; }
 .main .ds-mini > button.secondary { margin: 4px 0 8px; }
 .ds-head { font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); }
+@media (min-width: 761px) { .ds-head > span, .ds-cell { text-align: center; } } /* 머리글 전부·착수계·완수계·계산서 표시 가운데(10/16) — 용역 계약 칸 안은 그대로, 폰은 그대로 */
 .ds-row { border-bottom: 1px solid var(--line); }
 .ds-row:last-child { border-bottom: none; }
 .ds-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13.5px; }
