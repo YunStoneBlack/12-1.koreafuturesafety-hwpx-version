@@ -165,7 +165,7 @@ def _doc_key(c: SitokDocContract, year: int, half: str, is_now: bool) -> str | N
 
 @router.get("/docs")
 def doc_rows(year: int | None = None, half: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    from server.api.routers.sitok_docs import folder, half_auto
+    from server.api.routers.sitok_docs import card_no, covered_ids, folder, half_auto
     from server.sitok import civil
 
     y0, h0 = current_half()
@@ -183,8 +183,9 @@ def doc_rows(year: int | None = None, half: str | None = None, user: User = Depe
             "contract": {"id": c.id, "sector": c.sector, "title": c.title or civil.default_title(c), "half": c.half_tag or half_auto(c, f),
                          "period": f"{c.start_date or ''} ~ {'계약 해지 시까지' if c.open_ended else (c.end_date or '')}" if c.start_date else "",
                          "client": c.client},
-            "facility": {"id": f.id, "mgmt_no": f.mgmt_no, "name": f.name, "sector": f.sector or "민간", "badge_field": f.badge_field or "",
-                         "badge_kind": f.badge_kind or ""} if f is not None else None,
+            # 번호 = 서류 번호(계약이 시설물 여럿 = 관급-9, 하나 = 관급-9-1 — 10/15 민재형)
+            "facility": {"id": f.id, "mgmt_no": card_no(db, c) or f.mgmt_no, "name": " · ".join(x.name for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x) or f.name,
+                         "sector": f.sector or "민간", "badge_field": f.badge_field or "", "badge_kind": f.badge_kind or ""} if f is not None else None,
             "start": {"made": made(c.start_made_at) if c.sector == "관급" else made(c.made_at), "signed": signed if c.sector == "민간" else False,
                       "pdf": (folder(c) / "착수계.pdf").exists() if c.sector == "관급" else False, "mark": mk.get("start")},
             "done": {"made": made(c.done_made_at), "mark": mk.get("done")} if c.sector == "관급" else None,

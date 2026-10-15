@@ -129,3 +129,17 @@
 .uf-amt-wrap { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
 .uf-amt-wrap input { width: 140px; margin: 0; }
 .uf-bad { color: var(--crit, #b42318); font-weight: 600; }
+
+/* [+ 시설물 추가] 관리대장·같은 계약/따로, 서류 번호(10/15 밤) */
+.af-drop { margin-top: 8px; }
+.af-drop-msg { margin: 4px 0 8px; }
+.af-modes { display: flex; flex-direction: column; gap: 6px; }
+.af-mode { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--line, #e5e7eb); border-radius: 8px; cursor: pointer; }
+.af-mode input { margin-top: 3px; }
+.af-mode small { display: block; margin-top: 2px; color: var(--muted, #6b7280); font-size: 12px; }
+.af-mode:has(input:checked) { border-color: var(--blue); background: var(--blue-soft); }
+.af-cons { margin: 0 0 0 26px; }
+.af-cons .uf-row { display: flex; align-items: flex-start; gap: 8px; flex-wrap: nowrap; }
+.af-cons .uf-row input { flex: none; margin-top: 3px; }
+.sd-dno { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 12px; font-weight: 700; }
+.n-merge-row { margin-top: 8px; }

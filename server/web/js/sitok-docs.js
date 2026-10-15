@@ -165,42 +165,96 @@
   }
 
   // [+ 시설물 추가 — 보고서 따로](10/15 밤 민재형) — 관급-6 → 6-1·6-2. 동 묶음(한 보고서)과 다름
+  // 10/15 밤 민재형: 관리대장을 올려 칸 채우기(FMS 계정은 나중에 시설물 화면), 계약이 같은지(서류 9 · 보고서 9-1·9-2) 따로인지(서류 9-1↔9-1·9-2↔9-2)
   function addFacility(k) {
     const us = unitsOf(k);
+    const base = String(k.mgmt_no).replace(/^((?:관급|민간)-\d+)-\d+$/, "$1");
+    const nxt = Math.max(...us.map((u) => Number((String(u.mgmt_no).match(/^(?:관급|민간)-\d+-(\d+)$/) || [])[1]) || 1)) + 1;
+    const cons = contractsOf(k);
+    const today = new Date().toISOString().slice(0, 10);
+    const conLabel = (c) => `${c.title || c.auto_title || "(계약건명 없음)"}${periodText(c) ? ` · ${periodText(c)}` : ""}`;
+    const subs = us.length > 1 ? us.map((u) => u.mgmt_no.replace(`${base}-`, "")).join("·") : "1";
     const overlay = document.createElement("div");
     overlay.className = "mail-overlay";
     overlay.innerHTML = `<div class="mail-box sd-card-new" role="dialog" aria-modal="true">
       <div class="mail-head"><b>+ 시설물 추가 — 보고서 따로</b><span class="mail-sub">${esc(k.mgmt_no)} ${esc(cardName(k))}</span></div>
-      <div class="mail-note">같은 계약·발주처인데 <b>보고서가 따로 나오는</b> 시설물입니다(예: 학교 건물 + 옹벽, 청소년수련관 + 어린이집).
-        ${us.length > 1 ? `새 시설물은 ${esc(String(k.mgmt_no).replace(/-\d+$/, ""))}-${us.length + 1}이 됩니다.` : `지금 시설물은 ${esc(k.mgmt_no)}-1, 새 시설물은 ${esc(k.mgmt_no)}-2가 됩니다.`}
+      <div class="mail-note">같은 발주처인데 <b>보고서가 따로 나오는</b> 시설물입니다(예: 학교 건물 + 옹벽, 청소년수련관 + 어린이집).
+        ${us.length > 1 ? `새 시설물은 <b>${esc(base)}-${nxt}</b>이 됩니다.` : `지금 시설물은 ${esc(base)}-1, 새 시설물은 <b>${esc(base)}-2</b>가 됩니다.`}
         한 보고서에 같이 들어가는 동이면 이게 아니라 시설물 화면의 동 묶음을 쓰세요.</div>
+      <label class="drop-box drop-sm sd-up-box af-drop"><b>📎 시설물관리대장</b><input type="file" class="af-file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
+      <div class="mail-note af-drop-msg">PDF·한글·사진 — 읽어서 이름·주소·관리주체·FMS 시설물번호를 채웁니다(없으면 아래 칸에 직접). FMS 계정은 나중에 시설물 화면에서.</div>
       <div class="cd-grid">
         <label class="cd-field cd-wide"><span>시설물 이름</span><input class="af-name" value="${esc(k.name)} " /></label>
-        <label class="cd-field cd-wide"><span>주소</span><input class="af-addr" value="${esc(k.address || "")}" /></label>
+        <label class="cd-field"><span>주소</span><input class="af-addr" value="${esc(k.address || "")}" /></label>
+        <label class="cd-field"><span>관리주체</span><input class="af-owner" value="${esc(k.owner_name || "")}" /></label>
       </div>
-      <div class="mail-note">관리주체·FMS 계정이 다르면 만든 뒤 그 시설물 화면에서 바꾸세요. 카드 안 계약이 이 시설물도 하는 계약이면 계약 창에서 체크하세요.</div>
+      ${cons.length ? `<div class="mail-label">계약</div>
+        <div class="af-modes">
+          <label class="af-mode"><input type="radio" name="af-mode" value="same" /> <span><b>같은 계약</b> — 카드 안 계약이 이 시설물도 맡음<small>서류 ${esc(base)} · 보고서 ${esc(base)}-${subs}·${nxt}</small></span></label>
+          <div class="sd-ufac af-cons" hidden>${cons.map((c) => `<label class="uf-row"><input type="checkbox" class="af-con" value="${c.id}"${!c.end_date || c.end_date >= today ? " checked" : ""} /> ${esc(conLabel(c))}</label>`).join("")}</div>
+          <label class="af-mode"><input type="radio" name="af-mode" value="split" /> <span><b>계약이 따로</b> — 이 시설물 계약은 나중에 올림<small>서류도 시설물마다 — ${us.length > 1 ? "" : `서류 ${esc(base)}-1 ↔ 보고서 ${esc(base)}-1 · `}서류 ${esc(base)}-${nxt} ↔ 보고서 ${esc(base)}-${nxt}</small></span></label>
+        </div>` : '<div class="mail-note">카드에 아직 계약이 없습니다 — 계약을 올리면 계약 정보의 "이 계약의 시설물"에서 고릅니다.</div>'}
       <div class="mail-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="af-close">닫기</button><button type="button" class="mail-primary af-save">추가</button></div></div>`;
     document.body.appendChild(overlay);
+    const q = (s) => overlay.querySelector(s);
     const close = () => overlay.remove();
     overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
-    overlay.querySelector(".af-close").addEventListener("click", close);
-    const nameEl = overlay.querySelector(".af-name");
+    q(".af-close").addEventListener("click", close);
+    const nameEl = q(".af-name");
     nameEl.focus();
     nameEl.setSelectionRange(nameEl.value.length, nameEl.value.length);
-    overlay.querySelector(".af-save").addEventListener("click", async () => {
+    const say = (text, cls) => { const m = q(".mail-msg"); m.hidden = false; m.className = `mail-msg ${cls}`; m.textContent = text; };
+    overlay.querySelectorAll('input[name="af-mode"]').forEach((r) => r.addEventListener("change", () => { q(".af-cons").hidden = r.value !== "same" || !r.checked; }));
+    let ledger = null, reading = false;
+    const file = q(".af-file");
+    file.addEventListener("change", async () => {
+      const f = file.files[0];
+      file.value = "";
+      if (!f) return;
+      const note = q(".af-drop-msg");
+      reading = true;
+      q(".af-save").disabled = true;
+      note.textContent = `${f.name} — 읽는 중…(AI로 읽느라 10~30초)`;
       try {
-        const out = await apiPost(`${P}/facilities/${k.id}/add`, { name: nameEl.value, address: overlay.querySelector(".af-addr").value });
+        const fd = new FormData();
+        fd.append("file", f);
+        ledger = await apiUpload(`${P}/facilities/${k.id}/add/read`, fd);
+        const v = ledger.fields || {};
+        if (v.name) nameEl.value = v.name;
+        if (v.address) q(".af-addr").value = v.address;
+        if (v.owner_name) q(".af-owner").value = v.owner_name;
+        note.textContent = ledger.error || `✓ ${f.name} — ${v.name || "칸"}을(를) 채웠습니다${v.fms_no ? ` · FMS 시설물번호 ${v.fms_no}` : ""}`;
+      } catch (err) {
+        ledger = null;
+        note.textContent = err.message;
+      } finally {
+        reading = false;
+        q(".af-save").disabled = false;
+      }
+    });
+    enableFileDrop(q(".af-drop"), file);
+    q(".af-save").addEventListener("click", async () => {
+      if (reading) return;
+      const mode = q('input[name="af-mode"]:checked');
+      if (cons.length && !mode) { say("계약이 같은지(서류 하나) 따로인지(서류도 따로) 고르세요.", "bad"); return; }
+      const ids = mode && mode.value === "same" ? [...overlay.querySelectorAll(".af-con:checked")].map((i) => Number(i.value)) : [];
+      if (mode && mode.value === "same" && !ids.length) { say("이 시설물도 맡는 계약을 고르세요.", "bad"); return; }
+      try {
+        const fields = ledger && ledger.fields ? { ...ledger.fields } : null;
+        const extra = fields ? fields.ledger || null : null;
+        if (fields) delete fields.ledger;
+        const out = await apiPost(`${P}/facilities/${k.id}/add`, { name: nameEl.value, address: q(".af-addr").value, owner_name: q(".af-owner").value,
+          ledger_token: ledger ? ledger.token : null, fields, ledger_extra: extra, contract_ids: ids });
         close();
         await load();
         const m = document.getElementById("sd-new-msg");
         m.className = "status ok";
-        m.textContent = `✓ ${out.mgmt_no} 시설물을 추가했습니다 — 보고서 자동화에도 따로 생겼습니다. 계약이 이 시설물도 하면 계약 창에서 체크하세요.`;
+        m.innerHTML = `✓ ${esc(out.mgmt_no)} 시설물을 추가했습니다 — 보고서 자동화에도 따로 생겼습니다. ${out.joined && out.joined.length
+          ? `계약 ${out.joined.length}건이 이 시설물도 맡습니다(서류 ${esc(base)}) — 계약 정보에서 시설물별 금액을 나눠 넣으세요.`
+          : `이 시설물 계약을 올리면 계약 정보의 "이 계약의 시설물"로 ${esc(out.mgmt_no)}에 들어갑니다.`}${out.report_id ? ` 이번 반기 회차도 만들었습니다 — <a href="sitok-round.html?report=${out.report_id}">회차 화면</a>` : ""}`;
       } catch (err) {
-        const m = overlay.querySelector(".mail-msg");
-        m.hidden = false;
-        m.className = "mail-msg bad";
-        m.textContent = err.message;
+        say(err.message, "bad");
       }
     });
   }
@@ -213,7 +267,7 @@
     overlay.innerHTML = `<div class="mail-box sd-badge-box" role="dialog" aria-modal="true">
       <div class="mail-head"><b># 번호 바꾸기</b><span class="mail-sub">${esc(cardName(k))} — 보고서 자동화 시설물도 같은 번호</span></div>
       <label class="cd-field"><span>번호</span><span class="sd-no-row"><b>${esc(k.sector)}-</b><input class="n-no" type="number" min="1" value="${cur}" /></span></label>
-      <div class="mail-note">다른 카드가 쓰는 번호는 안 됩니다. 새 카드는 지금 가장 큰 번호 다음부터 자동으로 붙습니다.</div>
+      <div class="mail-note">다른 카드가 쓰는 번호를 넣으면 그 카드의 시설물(보고서 따로 — 같은 발주처가 나눈 계약)로 합칠지 묻습니다. 새 카드는 지금 가장 큰 번호 다음부터 자동으로 붙습니다.</div>
       <div class="mail-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="n-close">닫기</button><button type="button" class="mail-primary n-save">저장</button></div></div>`;
     document.body.appendChild(overlay);
@@ -224,15 +278,33 @@
     inp.focus();
     inp.select();
     const save = async () => {
+      const n = Number(inp.value);
       try {
-        await apiPost(`${P}/facilities/${k.id}/number`, { n: Number(inp.value) });
+        await apiPost(`${P}/facilities/${k.id}/number`, { n });
         close();
         load();
       } catch (err) {
         const m = overlay.querySelector(".mail-msg");
         m.hidden = false;
         m.className = "mail-msg bad";
-        m.textContent = err.message;
+        if (err.status !== 409) { m.textContent = err.message; return; }
+        // 다른 카드 번호 — 같은 발주처가 계약을 나눈 거면 그 카드의 시설물(보고서 따로)로 합침(10/15 밤 민재형 "앞 번호 9를 같이 써서 같은 발주처인 줄 알게")
+        m.className = "mail-msg warn";
+        m.innerHTML = `${esc(err.message)}<br>같은 발주처가 계약을 나눈 거면 이 카드를 <b>${esc(k.sector)}-${n}</b> 카드의 시설물(보고서 따로)로 넣을 수 있습니다 — 계약·보고서는 그대로 따라갑니다.
+          <div class="n-merge-row"><button type="button" class="secondary n-merge">${esc(k.sector)}-${n} 카드에 시설물로 넣기</button></div>`;
+        m.querySelector(".n-merge").addEventListener("click", async () => {
+          try {
+            const out = await apiPost(`${P}/facilities/${k.id}/number`, { n, merge: true });
+            close();
+            await load();
+            const s = document.getElementById("sd-new-msg");
+            s.className = "status ok";
+            s.textContent = `✓ ${k.sector}-${n} 카드의 시설물 ${(out.merged || []).join(" · ")}(으)로 넣었습니다 — 보고서 자동화 번호도 같이 바뀌었습니다.`;
+          } catch (e2) {
+            m.className = "mail-msg bad";
+            m.textContent = e2.message;
+          }
+        });
       }
     };
     overlay.querySelector(".n-save").addEventListener("click", save);
@@ -359,10 +431,11 @@
     const year = c.sector === "관급" && (c.start_date || c.contract_date) ? `<span class="sd-year">${(c.start_date || c.contract_date).slice(0, 4)}년</span>` : "";
     const half = c.half ? `<span class="sd-half${c.half === "해당없음" ? " na" : ""}" title="${c.half_tag ? "직접 고른 반기" : "용역 기간으로 자동"}">${esc(c.half)}</span>` : "";
     const kc = inCard ? cardOf(c) : null;
+    const dno = kc && unitsOf(kc).length > 1 && c.card_no ? `<span class="site-no sd-dno" title="서류 번호 — 계약이 시설물 여럿을 맡으면 카드 번호, 하나면 그 시설물 번호">서류 ${esc(c.card_no)}</span>` : ""; // 10/15 밤
     const tg = kc && unitsOf(kc).length > 1 && c.targets && c.targets.length ? `<div class="dc-meta sd-targets">시설물 ${c.targets.map((t) => `<span class="site-no">${esc(t.mgmt_no)}</span>${esc(t.name)}${c.amounts && c.amounts[t.id] ? ` ${won(c.amounts[t.id])}원` : ""}`).join(" · ")}</div>` : "";
     el.innerHTML = `
       <div class="dc-main">
-        <div class="dc-title">${inCard ? `${year}${half}` : `<span class="sd-chip ${c.sector === "민간" ? "civil" : "gov"}">${c.sector}</span>${half}`}${esc(c.title || (c.sector === "민간" && c.auto_title) || "(계약건명 없음 — 계약 정보를 채우세요)")}</div>
+        <div class="dc-title">${inCard ? `${dno}${year}${half}` : `<span class="sd-chip ${c.sector === "민간" ? "civil" : "gov"}">${c.sector}</span>${half}`}${esc(c.title || (c.sector === "민간" && c.auto_title) || "(계약건명 없음 — 계약 정보를 채우세요)")}</div>
         <div class="dc-meta">${esc(meta)}</div>${tg}
         ${contactLine(c, "client", "계약 담당")}${contactLine(c, "site", "현장 담당")}
         ${inCard ? "" : `<div class="dc-site">${c.facility ? `현장 <a href="sitok-facility.html?id=${c.facility.id}">${esc(c.facility.name)}</a>` : '<span class="dc-nosite">시설물 카드에 안 넣음</span>'}
