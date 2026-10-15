@@ -4,6 +4,8 @@
 // [📞 전화](담당자, 없으면 관리주체 전화) [📍 지도](시설물 주소 — PC 네이버 지도, 폰 티맵·네이버 고르기, app.js siteLinkButtons), [전체·민간·관급] 거르기,
 // 목록함 구분 카드 장기·지속계약 / 1회성·입찰계약 / 지속계약 종료(누르면 그것만) + 줄마다 바꾸는 버튼(서로 옮김, 묶인 동은 같이 — 산안법 공사 상태 4칸처럼).
 // 10/15 민재형 "같은 계약인데 시설물 카드가 2개 — 이상함": 한 보고서로 묶인 동은 카드 하나(묶음 이름 + N동, 동 칩 → 그 동 화면, 줄 → 대표 동). 속 자료는 동마다 따로(FMS·결과표).
+// 10/15 민재형 문서번호 일치화: 번호 "민간-3"·"관급-1"(서류 자동화 시설물 카드와 같은 번호), 민간·관급은 시설물 칸(sector),
+// 뱃지(분야 건축/토목/건축·토목, 관급 종류 학교/일반/내진) 줄마다 + 뱃지 칩(개수, 누르면 그것만).
 
 (function () {
   const errorEl = document.getElementById("error");
@@ -16,19 +18,24 @@
   let rows = [];
   let typeFilter = "";
   let sector = "";
+  const badge = { field: "", kind: "" };
 
   // ---------- 정렬(산안법과 같음) ----------
   const SORT_KEY = "kfsc-report:sitok-sort";
   let sort = { mode: "no", desc: true };
   try { sort = { ...sort, ...JSON.parse(localStorage.getItem(SORT_KEY) || "{}") }; } catch { /* 기억 못 하면 기본 */ }
-  const mgmtKey = (f) => {
-    const m = String(f.mgmt_no || "").match(/^(\d{2}|\d{4})-0*(\d+)$/);
-    return m ? Number(m[1].slice(-2)) * 1e7 + Number(m[2]) : null;
+  const mgmtKey = (f) => { // "관급-3" < "민간-1"(구분끼리 묶고 그 안에서 번호), 예전 "26-4"는 맨 뒤
+    const s = String(f.mgmt_no || "");
+    const m = s.match(/^(관급|민간)-0*(\d+)$/);
+    if (m) return (m[1] === "관급" ? 1e8 : 2e8) + Number(m[2]);
+    const o = s.match(/^(\d{2}|\d{4})-0*(\d+)$/);
+    return o ? 3e8 + Number(o[1].slice(-2)) * 1e5 + Number(o[2]) : null;
   };
   const byNumber = (a, b, desc) => {
     const x = mgmtKey(a), y = mgmtKey(b);
     if (x === null || y === null) return x === null ? (y === null ? b.id - a.id : 1) : -1;
-    return (desc ? y - x : x - y) || a.id - b.id;
+    const block = (k) => Math.floor(k / 1e8); // 구분(관급·민간) 차례는 그대로, 그 안의 번호만 ▼▲
+    return block(x) - block(y) || (desc ? y - x : x - y) || a.id - b.id;
   };
   const sortRows = (list) => (sort.mode === "viewed"
     ? list.sort((a, b) => (b.viewed_at || "").localeCompare(a.viewed_at || "") || byNumber(a, b, true))
@@ -53,7 +60,25 @@
     try { localStorage.setItem(SORT_KEY, JSON.stringify(sort)); } catch { /* 지금은 바뀜 */ }
     render();
   }));
-  document.querySelectorAll(".sk-sector-f button").forEach((b) => b.addEventListener("click", () => { sector = b.dataset.sector; render(); }));
+  document.querySelectorAll(".sk-sector-f button").forEach((b) => b.addEventListener("click", () => { sector = b.dataset.sector; if (sector === "민간") badge.kind = ""; render(); }));
+  const sectorOf = (f) => f.sector || contractOf(f)?.sector || "민간";
+  const badgeOk = (f) => (!badge.field || f.badge_field === badge.field) && (!badge.kind || f.badge_kind === badge.kind);
+  const FIELDS = ["건축", "토목", "건축·토목"], KINDS = ["학교", "일반", "내진"];
+  // 뱃지 칩(10/15 민재형 "뱃지를 달면 그 뱃지 개수 파악·그 뱃지만") — 지금 구분·목록함 안에서 셈, 누르면 거르기(한 번 더 = 풀기)
+  function renderBadges() {
+    const box = document.getElementById("sk-badges");
+    const base = units().filter((f) => (!sector || sectorOf(f) === sector) && (!typeFilter || f.contract_type === typeFilter));
+    const chip = (dim, v) => {
+      const n = base.filter((f) => (dim === "field" ? f.badge_field : f.badge_kind) === v).length;
+      return `<button type="button" class="sk-badge-f b-${dim}${badge[dim] === v ? " on" : ""}" data-dim="${dim}" data-v="${esc(v)}" aria-pressed="${badge[dim] === v}">${esc(v)} <b>${n}</b></button>`;
+    };
+    box.innerHTML = `<span class="sk-badge-l">분야</span>${FIELDS.map((v) => chip("field", v)).join("")}` +
+      (sector === "민간" ? "" : `<span class="sk-badge-l">관급</span>${KINDS.map((v) => chip("kind", v)).join("")}`);
+    box.querySelectorAll(".sk-badge-f").forEach((b) => b.addEventListener("click", () => {
+      badge[b.dataset.dim] = badge[b.dataset.dim] === b.dataset.v ? "" : b.dataset.v;
+      render();
+    }));
+  }
 
   // 묶인 동(숭의 B동)은 계약이 1번 동에 있어 — 같은 묶음의 계약을 씀(민간·관급 거르기·계약 칸)
   const contractOf = (f) => f.latest || (f.group ? rows.find((x) => x.group && x.group.id === f.group.id && x.latest)?.latest : null) || null;
@@ -81,7 +106,7 @@
 
   function renderCards() {
     const box = document.getElementById("sk-cards");
-    const base = units().filter((f) => !sector || contractOf(f)?.sector === sector);
+    const base = units().filter((f) => (!sector || sectorOf(f) === sector) && badgeOk(f));
     const total = base.length;
     box.innerHTML = [["", "전체", "등록한 시설물 전부"], ...TYPES].map(([t, label, sub]) => {
       const n = t ? base.filter((f) => f.contract_type === t).length : total;
@@ -133,12 +158,13 @@
 
   function render() {
     renderCards();
+    renderBadges();
     drawSort();
     const q = document.getElementById("sk-search").value.trim().replace(/\s+/g, "").toLowerCase();
     const all = units();
-    const shown = sortRows(all.filter((f) => (!typeFilter || f.contract_type === typeFilter) && (!sector || contractOf(f)?.sector === sector) &&
+    const shown = sortRows(all.filter((f) => (!typeFilter || f.contract_type === typeFilter) && (!sector || sectorOf(f) === sector) && badgeOk(f) &&
       (!q || unitText(f).some((v) => (v || "").replace(/\s+/g, "").toLowerCase().includes(q)))));
-    const filtered = q || typeFilter || sector;
+    const filtered = q || typeFilter || sector || badge.field || badge.kind;
     document.getElementById("sk-count").textContent = filtered ? `${shown.length} / ${all.length}곳` : `${all.length}곳`;
     const list = document.getElementById("sk-list");
     if (!rows.length) {
@@ -160,7 +186,7 @@
       const on = ids.every((id) => selected.has(id));
       const c = contractOf(f);
       const contract = c
-        ? `<span class="sk-sector ${c.sector === "관급" ? "gov" : "pri"}">${esc(c.sector)}</span> ${ymd(c.start_date)} ~ ${ymd(c.end_date)}` +
+        ? `${ymd(c.start_date)} ~ ${ymd(c.end_date)}` +
           `${c.amount ? ` · ${money(c.amount)}${c.sector === "민간" && c.halves === "연간" ? "(반기)" : ""}` : ""}`
         : '<span class="sk-none">계약 없음</span>';
       const rn = f.renew; // 장기·지속 계약 끝나기 60일 전부터(10/13)
@@ -176,8 +202,9 @@
       // 산안법 현장 목록처럼(10/13 사용자): 번호표·이름·틀 / 주소 · 관리주체 / 시설물번호 · 종류 · 담당 / [📞][📍][주소 복사] 를 이름 칸 한 곳에
       row.innerHTML = `
         <div class="sk-main">
-          <div class="sk-title">${f.mgmt_no ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<b>${esc(multi ? f.group_name : f.name)}</b>
-            ${multi ? `<span class="sk-dong-n">${ids.length}동</span>` : ""}<span class="sk-tpl t${esc(f.template)}">${esc(TEMPLATE_LABEL[f.template] || f.template)}</span></div>
+          <div class="sk-title">${f.mgmt_no ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<span class="sk-sector ${sectorOf(f) === "관급" ? "gov" : "pri"}">${esc(sectorOf(f))}</span><b>${esc(multi ? f.group_name : f.name)}</b>
+            ${multi ? `<span class="sk-dong-n">${ids.length}동</span>` : ""}<span class="sk-tpl t${esc(f.template)}">${esc(TEMPLATE_LABEL[f.template] || f.template)}</span>
+            ${f.badge_field ? `<span class="sk-badge b-field">${esc(f.badge_field)}</span>` : ""}${f.badge_kind ? `<span class="sk-badge b-kind">${esc(f.badge_kind)}</span>` : ""}</div>
           <div class="sk-sub">${esc([f.address, f.owner_name].filter(Boolean).join(" · "))}</div>
           ${multi ? `<div class="sk-dong-chips">${f.members.map((m, i) => `<span class="sk-dong-chip" data-href="sitok-facility.html?id=${m.id}" title="${esc(m.name)} 화면">제${i + 1}장 ${esc(m.name)}${m.fms_no ? ` <small>${esc(m.fms_no)}</small>` : ""}</span>`).join("")}</div>`
             : `<div class="sk-sub">${esc([f.fms_no, f.use_type || f.main_use, f.contact_name && `담당 ${f.contact_name}`].filter(Boolean).join(" · "))}</div>`}

@@ -5,7 +5,9 @@ const SitokFields = (() => {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   // [키, 이름, 종류, 도움말]
   const FAC = [
-    ["name", "시설물명", "text", ""], ["mgmt_no", "번호", "text", "목록 번호표(예: 26-4) — 새 등록 때 자동, 묶인 동은 같은 번호"],
+    ["name", "시설물명", "text", ""], ["mgmt_no", "번호", "text", "민간-3·관급-1처럼 — 새 등록 때 자동(서류 자동화 시설물 카드·드롭박스 폴더와 같은 번호), 묶인 동은 같은 번호"],
+    ["sector", "민간·관급", "sector", "번호 앞 글자"], ["badge_field", "분야 뱃지", "badge_fields", "목록 거르기·개수"],
+    ["badge_kind", "관급 종류 뱃지", "badge_kinds", "관급만 — 학교·일반·내진"],
     ["fms_no", "시설물번호(FMS)", "text", "예: AR2004-0004955"],
     ["template", "보고서 틀", "template", "2종 / 3종 일반(+안전등급 평가) / 3종 학교(+치장벽돌·내진보강 점검)"],
     ["legal", "법정 시설물", "legal", "1·2·3종이 아닌 자체 점검이면 '법정 외' — 결과표 종별 해당없음"],
@@ -39,7 +41,7 @@ const SitokFields = (() => {
     if (type === "legal") {
       field = `<select id="${idAttr}" data-key="${key}" data-type="legal">${LEGAL.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select>`;
     } else if (type === "template" || type === "sector" || type === "halves" || type.endsWith("s")) {
-      const list = { template: opts.templates, sector: opts.sectors, halves: opts.halves }[type] || opts[type];
+      const list = { template: opts.templates, sector: opts.sectors, halves: opts.halves, badge_kinds: ["", ...(opts.badge_kinds || [])] }[type] || opts[type] || [];
       field = `<select id="${idAttr}" data-key="${key}">${list.map((v) => `<option value="${esc(v)}">${esc(TEMPLATE_LABEL[v] || v)}</option>`).join("")}</select>`;
     } else {
       const t = type === "date" ? "date" : type === "int" || type === "num" ? "number" : "text";

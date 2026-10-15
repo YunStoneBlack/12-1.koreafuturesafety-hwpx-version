@@ -9,6 +9,8 @@
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/contract-docs.css" />
 <link rel="stylesheet" href="css/docs.css" />
+<link rel="stylesheet" href="css/site-info.css" />
+<link rel="stylesheet" href="css/sitok.css" />
 <link rel="stylesheet" href="css/sitok-docs.css" />
 </head>
 <!-- 서류 자동화 · 시특법 — 계약 목록(2026-10-12, js/sitok-docs.js · API server/api/routers/sitok_docs.py). 산안법(docs.html)처럼 보고서 쪽과 따로, 현장(시설물) 연결.
@@ -21,8 +23,9 @@
 <div id="error" class="error"></div>
 
 <div class="list-toolbar">
-  <input id="sd-search" type="search" placeholder="계약건명·관리주체·시설물·담당자로 검색" autocomplete="off" />
-  <button type="button" class="dc-new" id="sd-new-civil">+ 민간 계약서 만들기</button>
+  <input id="sd-search" type="search" placeholder="번호(민간-3)·시설물·계약건명·관리주체·담당자로 검색" autocomplete="off" />
+  <button type="button" class="dc-new" id="sd-new-card">+ 새 시설물 카드</button>
+  <button type="button" class="dc-new secondary" id="sd-new-civil">+ 민간 계약서 만들기</button>
   <button type="button" class="dc-new secondary" id="sd-new-gov">+ 관급 계약</button>
 </div>
 <!-- 이미 만든(도장 찍은) 민간 계약서 올리기 — 읽어서 새 계약(10/12 사용자 "이미 만들어놓은 계약 건(민간) 올릴수있게") -->
@@ -35,9 +38,13 @@
 <div id="sd-new-msg" class="status"></div>
 
 <div class="st-cards" id="sd-cards"></div>
+<!-- 10/15 민재형 문서번호 일치화: 뱃지(분야·관급 종류)별 개수 — 누르면 그것만 -->
+<div class="sk-badges" id="sd-badges" role="group" aria-label="뱃지별 시설물 수"></div>
 
 <section class="panel">
-  <div class="panel-head"><h2>점검 계약</h2><span class="dc-count" id="sd-count"></span></div>
+  <div class="panel-head"><h2 id="sd-list-title">시설물 카드</h2>
+    <span class="site-sort sd-sort" role="group" aria-label="정렬"><button type="button" data-sort="viewed">최근 열람순</button><button type="button" data-sort="no">번호순</button></span>
+    <span class="dc-count" id="sd-count"></span></div>
   <div class="rows" id="sd-list"><div class="empty-note">불러오는 중...</div></div>
 </section>
 

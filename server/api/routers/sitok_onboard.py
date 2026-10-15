@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from core.models_web import SitokFacility, SitokGroup, TechPerson, User
 from server.api.deps import get_current_user, get_db
 from server.api.routers.sitok import (UPLOAD_DIR, ContractIn, FacilityIn, _add_contract, _apply_facility, _clean_uploads, _facility_dir,
-                                      _facility_out, _take, default_type, next_mgmt_no)
+                                      _facility_out, _take, default_badges, default_type, next_mgmt_no)
 from server.api.routers.sitok_reports import HALVES, _chapter_count, _group_reports, _new_report, _out, register_prior_file
 from server.contract_docs import hwp_queue
 from server.sitok import report_build as rb
@@ -121,9 +121,12 @@ def onboard(body: OnboardIn, user: User = Depends(get_current_user), db: Session
         facs.append(f)
     lead = facs[0]
     # 번호표·계약 구분(10/13) — 묶인 동은 한 번호(1번 동에 적은 번호, 없으면 다음 번호), 구분은 계약(민간 = 장기·지속, 관급 = 1회성)
-    no = lead.mgmt_no or next_mgmt_no(db, user.company_id)
+    sector = (body.contract.sector if body.contract else None) or lead.sector or "민간"
+    no = lead.mgmt_no or next_mgmt_no(db, user.company_id, sector)
     for f in facs:
         f.mgmt_no = no
+        f.sector = sector
+        default_badges(f, body.contract.field if body.contract else None)
         if body.buildings[0].facility.contract_type is None:
             f.contract_type = default_type(body.contract.sector if body.contract else None)
     # 2) 묶음(2동 이상)

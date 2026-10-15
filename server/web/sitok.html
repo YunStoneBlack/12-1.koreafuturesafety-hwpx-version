@@ -20,7 +20,7 @@
 <div id="error" class="error"></div>
 
 <div class="list-toolbar sk-toolbar">
-  <input id="sk-search" type="search" placeholder="시설물명·번호·주소·관리주체·시설물번호 검색" />
+  <input id="sk-search" type="search" placeholder="시설물명·번호(민간-3)·주소·관리주체·시설물번호 검색" />
   <a class="sk-new" href="sitok-new.html">+ 점검 대상 등록</a>
 </div>
 <!-- 10/13 사용자: 산안법 현장 목록과 같은 정렬(최근 열람순·번호순 ▼▲) + 민간·관급 거르기, 민재형: 목록함 구분 카드(장기·지속 / 1회성·입찰 / 지속계약 종료) -->
@@ -29,6 +29,8 @@
   <span class="site-sort sk-sort" role="group" aria-label="정렬"><button type="button" data-sort="viewed">최근 열람순</button><button type="button" data-sort="no">번호순</button></span>
 </div>
 <div class="sc-cards sk-cards" id="sk-cards" role="group" aria-label="계약 구분별 시설물 수"></div>
+<!-- 10/15 민재형 문서번호 일치화: 뱃지(분야·관급 종류)별 개수 — 누르면 그것만 -->
+<div class="sk-badges" id="sk-badges" role="group" aria-label="뱃지별 시설물 수"></div>
 
 <section class="panel">
   <div class="panel-head"><h2>시설물 목록</h2><span class="panel-count" id="sk-count"></span>

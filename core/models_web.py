@@ -476,7 +476,11 @@ class SitokFacility(Base):
     drawings: Mapped[dict | None] = mapped_column(JSON, default=None)
     # 시설물 목록(0042, 사용자·민재형 10/13 — 산안법 현장 목록과 같게): 번호표 "26-4"(새 등록 때 자동, 묶인 동은 같은 번호), 담당자(관리소장 등) 📞,
     # 계약 구분 장기(장기·지속계약 — 연락·일정 관리 대상) / 1회성(1회성·입찰계약) / 종료(지속계약 종료 — 장기 모음에서 빠짐). 서로 옮길 수 있음
-    mgmt_no: Mapped[str] = mapped_column(Text, default="")
+    mgmt_no: Mapped[str] = mapped_column(Text, default="")  # 0047부터 "민간-3"·"관급-1"(구분별 순번 — 서류 자동화 시설물 카드·드롭박스 폴더와 같은 번호)
+    # 0047(10/15 민재형 문서번호 일치화): 시설물 카드 구분 민간/관급 + 뱃지(분야 건축/토목/건축·토목, 관급 종류 학교/일반/내진) — 목록 거르기·개수
+    sector: Mapped[str] = mapped_column(Text, default="민간")
+    badge_field: Mapped[str] = mapped_column(Text, default="건축")
+    badge_kind: Mapped[str] = mapped_column(Text, default="")
     contact_name: Mapped[str] = mapped_column(Text, default="")
     contact_phone: Mapped[str] = mapped_column(Text, default="")
     contract_type: Mapped[str] = mapped_column(Text, default="1회성")
@@ -654,6 +658,7 @@ class SitokDocContract(Base):
     facility_id: Mapped[int | None] = mapped_column(ForeignKey("sitok_facility.id", ondelete="SET NULL"), default=None, index=True)  # 현장 연결
     sector: Mapped[str] = mapped_column(Text, default="민간")  # 민간 / 관급
     doc_no: Mapped[str] = mapped_column(Text, default="")  # 문서번호 — 민간 KFSC-26-0504(연도·월일), 관급 KFSC21C_계약번호_월일(산안법 규칙)
+    half_tag: Mapped[str] = mapped_column(Text, default="")  # 시설물 카드의 반기 표시(0047) — 비우면 기간·회차로 자동(내진성능평가 = 해당없음)
     client: Mapped[str] = mapped_column(Text, default="")  # 관리주체(발주처) — 계약서 "갑"
     client_rep: Mapped[str] = mapped_column(Text, default="")  # 서명 칸 대표자(예: "관리사무소장 김춘화")
     client_biz_no: Mapped[str] = mapped_column(Text, default="")  # 사업자등록번호(사업자등록증에서)

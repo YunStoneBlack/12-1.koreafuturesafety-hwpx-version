@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from core import config
 from core.db import DATA_DIR
-from core.models_web import SitokContract, SitokDocContract, SitokFacility, SitokReport, TechPerson, User
+from core.models_web import SitokContract, SitokDocContract, SitokFacility, SitokGroup, SitokReport, TechPerson, User
 from server.api import storage
 from server.api.deps import get_current_user, get_db
 from server.api.routers import contract_library as lib
@@ -97,14 +97,34 @@ def _group_names(db: Session, f) -> list[str]:
     return [x.name for x in db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id).order_by(SitokFacility.group_order, SitokFacility.id)]
 
 
+HALF_TAGS = ("상반기", "하반기", "상·하반기", "해당없음")  # 시설물 카드 안 계약의 반기 표시(10/15 민재형 문서번호 일치화)
+
+
+def half_auto(c: SitokDocContract, f: SitokFacility | None) -> str:
+    """반기 표시 자동 — 주기 없는 내진성능평가(시설물 뱃지 내진·계약건명 "내진") = 해당없음, 끝 없는 계약 = 상·하반기,
+    민간 회차 줄의 반기들, 없으면 용역 기간(시작·끝이 같은 해 같은 반기면 그 반기, 아니면 상·하반기). 날짜도 없으면 빈칸."""
+    if (f is not None and f.badge_kind == "내진") or "내진" in (c.title or ""):
+        return "해당없음"
+    if c.open_ended:
+        return "상·하반기"
+    halves = {r.get("half") for r in (c.rounds or []) if r.get("half") in ("상반기", "하반기")}
+    if not halves and c.start_date:
+        end = c.end_date or c.start_date
+        h = lambda d: "상반기" if d.month <= 6 else "하반기"  # noqa: E731
+        halves = {h(c.start_date)} if (c.start_date.year, h(c.start_date)) == (end.year, h(end)) else {"상반기", "하반기"}
+    return "상·하반기" if len(halves) > 1 else next(iter(halves), "")
+
+
 def summary(db: Session, c: SitokDocContract) -> dict:
     f = db.get(SitokFacility, c.facility_id) if c.facility_id else None
     k = civil.kinds_of(c.rounds, c.unit, c.open_ended)
+    auto = half_auto(c, f)
     return {"id": c.id, **{x: getattr(c, x) for x in TEXT}, **{x: _iso(getattr(c, x)) for x in DATES},
             "amount": c.amount, "rounds": c.rounds or [], "open_ended": c.open_ended, "unit": c.unit,
             "kind": k, "kind_word": civil.kind_word(k), "total": civil.total(c.rounds) if not c.open_ended else None,
             "auto_title": civil.default_title(c), "auto_doc_no": civil.default_doc_no(c.contract_date),
-            "facility": {"id": f.id, "name": f.name} if f else None, "report_contract_id": c.report_contract_id,
+            "facility": {"id": f.id, "name": f.name, "mgmt_no": f.mgmt_no} if f else None, "report_contract_id": c.report_contract_id,
+            "half_tag": c.half_tag or "", "half_auto": auto, "half": c.half_tag or auto,
             # 동별 금액(10/15): 회차 줄에 나오는 동 이름, 연결한 시설물이 묶음이면 묶음 동 이름(동별 금액을 처음 켤 때 기본값)
             "buildings": civil.buildings(c.rounds), "group_names": _group_names(db, f),
             "files": _files(c), "made_at": c.made_at.strftime("%Y-%m-%d %H:%M") if c.made_at else "",
@@ -140,12 +160,23 @@ class ContractIn(BaseModel):
     rounds: list[dict] | None = None
     open_ended: bool | None = None
     unit: dict | None = None
+    half_tag: str | None = None  # 시설물 카드 반기 표시 — "" = 자동(half_auto)
+    facility_id: int | None = None  # 시설물 카드 안 [+ 계약]으로 만들 때 그 카드(10/15)
 
 
-def _apply(c: SitokDocContract, body: ContractIn, user: User) -> None:
+def _apply(c: SitokDocContract, body: ContractIn, user: User, db: Session | None = None) -> None:
     data = body.model_dump(exclude_unset=True)
     if "sector" in data and data["sector"] not in SECTORS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "계약 구분은 민간·관급 중 하나입니다.")
+    if "half_tag" in data:
+        if data["half_tag"] and data["half_tag"] not in HALF_TAGS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "반기 표시는 상반기·하반기·상·하반기·해당없음 중 하나입니다.")
+        c.half_tag = data["half_tag"] or ""
+    if data.get("facility_id") and db is not None:
+        f = db.get(SitokFacility, data["facility_id"])
+        if f is None or f.company_id != c.company_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
+        c.facility_id = f.id
     for k in TEXT:
         if k in data and data[k] is not None:
             setattr(c, k, str(data[k]).strip())
@@ -184,10 +215,76 @@ def blank(sector: str = "민간", user: User = Depends(get_current_user), db: Se
 @router.post("/contracts")
 def create(body: ContractIn | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = SitokDocContract(company_id=user.company_id, created_by=user.display_name or "", rounds=[], guarantee="-", delay_rate="-")
-    _apply(c, body or ContractIn(), user)
+    _apply(c, body or ContractIn(), user, db)
     db.add(c)
     db.commit()
     return summary(db, c)
+
+
+# ---------- 시설물 카드(10/15 민재형 문서번호 일치화 — 서류 자동화도 시설물 기준, 번호 민간-N·관급-N은 보고서 자동화와 같음) ----------
+
+def card_out(f: SitokFacility, members: list[SitokFacility], viewed: str = "") -> dict:
+    return {"id": f.id, "mgmt_no": f.mgmt_no, "name": f.name, "sector": f.sector or "민간", "badge_field": f.badge_field or "", "badge_kind": f.badge_kind or "",
+            "contract_type": f.contract_type, "address": f.address, "owner_name": f.owner_name, "template": f.template,
+            "contact_name": f.contact_name, "contact_phone": f.contact_phone or f.owner_phone,
+            "group_id": f.group_id, "members": [{"id": m.id, "name": m.name} for m in members], "viewed_at": viewed,
+            "created_at": f.created_at.isoformat(timespec="seconds") if f.created_at else ""}
+
+
+@router.get("/facilities")
+def list_cards(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """시설물 카드 — 시설물 하나(묶인 동은 대표 동 하나) + 계약은 /contracts의 facility(묶음 동 아무나)로 카드에 넣음(화면)."""
+    from core.models_web import SitokView
+
+    rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id).order_by(SitokFacility.group_order, SitokFacility.id).all()
+    seen = {k: v.isoformat(timespec="seconds") for k, v in db.query(SitokView.facility_id, SitokView.viewed_at).filter(SitokView.user_id == user.id)}
+    groups: dict[int, list[SitokFacility]] = {}
+    for f in rows:
+        if f.group_id:
+            groups.setdefault(f.group_id, []).append(f)
+    out, done = [], set()
+    for f in rows:
+        if f.group_id and f.group_id in done:
+            continue
+        members = groups.get(f.group_id, [f]) if f.group_id else [f]
+        done.add(f.group_id)
+        card = card_out(members[0], members, max((seen.get(m.id, "") for m in members), default=""))
+        if len(members) > 1:
+            g = db.get(SitokGroup, f.group_id)
+            card["group_name"] = g.name if g else ""
+        out.append(card)
+    return {"facilities": out}
+
+
+class CardIn(BaseModel):
+    sector: str = "민간"
+    name: str = ""
+    address: str = ""
+    owner_name: str = ""
+    badge_field: str = "건축"
+    badge_kind: str = ""
+    contract_type: str | None = None
+    mgmt_no: str | None = None
+
+
+@router.post("/facilities")
+def create_card(body: CardIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """새 시설물 카드 — 보고서 자동화 시설물 목록에도 같은 번호로 바로 생김(같은 시설물 표). 관리대장·계약은 나중에."""
+    from server.api.routers.sitok import FacilityIn, _apply_facility, default_badges, default_type, next_mgmt_no
+
+    if not body.name.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "시설물명을 넣어 주세요.")
+    if body.sector not in SECTORS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "민간·관급 중 하나를 고르세요.")
+    f = SitokFacility(company_id=user.company_id, created_by=user.display_name or "")
+    _apply_facility(f, FacilityIn(name=body.name, address=body.address, owner_name=body.owner_name, sector=body.sector,
+                                  badge_field=body.badge_field or "건축", badge_kind=body.badge_kind if body.sector == "관급" else "",
+                                  contract_type=body.contract_type or default_type(body.sector)))
+    f.mgmt_no = (body.mgmt_no or "").strip() or next_mgmt_no(db, user.company_id, body.sector)
+    default_badges(f)
+    db.add(f)
+    db.commit()
+    return card_out(f, [f])
 
 
 @router.get("/contracts/{cid}")
@@ -198,7 +295,7 @@ def get_contract(cid: int, user: User = Depends(get_current_user), db: Session =
 @router.put("/contracts/{cid}")
 def put_contract(cid: int, body: ContractIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _require(db, user, cid)
-    _apply(c, body, user)
+    _apply(c, body, user, db)
     db.commit()
     return summary(db, c)
 
@@ -447,7 +544,7 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
 
 def _new_facility_from(db: Session, user: User, c: SitokDocContract) -> SitokFacility:
     """서류 자동화 계약 → 시설물 카드: 올린 관리대장(AI로 다시 읽어 칸 전부)이 있으면 그것, 없으면 계약 칸의 시설물명·위치·관리주체만. 번호표·계약 구분은 새 등록과 같음."""
-    from server.api.routers.sitok import FacilityIn, _apply_facility, _facility_dir, default_type, next_mgmt_no
+    from server.api.routers.sitok import FacilityIn, _apply_facility, _facility_dir, default_badges, default_type, next_mgmt_no
     from server.sitok import reader
 
     ledger = folder(c) / "시설물관리대장.pdf"
@@ -479,7 +576,9 @@ def _new_facility_from(db: Session, user: User, c: SitokDocContract) -> SitokFac
     if bizreg.exists():
         dest = _facility_dir(f) / "사업자등록증.pdf"
         shutil.copyfile(bizreg, dest)
-    f.mgmt_no = next_mgmt_no(db, user.company_id)
+    f.sector = c.sector or "민간"
+    f.mgmt_no = next_mgmt_no(db, user.company_id, f.sector)
+    default_badges(f)
     f.contract_type = default_type(c.sector)
     return f
 

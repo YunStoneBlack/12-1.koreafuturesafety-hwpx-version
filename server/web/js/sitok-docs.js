@@ -5,12 +5,19 @@
 // 창: 서류 올리기(관리대장·사업자등록증·날인본) → 관리주체 → 시설물 → 계약 회차(연도·반기·정기/정밀·금액) 또는 계약 해지 시까지(매 반기 단가)
 //     → 계약(계약일·기간·문서번호·계약건명) → 담당자 → [저장] [📝 계약서 만들기]. 닫으면 고친 내용 저장.
 // 관급(2단계): 나라장터 계약서를 올리면 읽어서 칸 채움 → [📑 착수계] [📑 완료계] 창(js/sitok-docs-gov.js).
+// 10/15 민재형 문서번호 일치화: 목록 = 시설물 카드(번호 민간-N·관급-N — 보고서 자동화 시설물과 같은 카드·번호, 묶인 동은 카드 하나).
+//   카드 안에 민간은 계약서가 차례로, 관급은 착수계(계약)가 연도별로 쌓임. 계약마다 반기 표시(상반기·하반기·상·하반기·해당없음 — 기간으로 자동, 내진 = 해당없음).
+//   [+ 새 시설물 카드] = 보고서 자동화에도 같은 번호로 바로 생김. 뱃지(분야·관급 종류) 칩 = 개수·거르기. 카드에 안 넣은 계약은 맨 아래.
 
 (function () {
   const errorEl = document.getElementById("error");
   const P = "/sitok/docs";
-  const view = { tab: "", q: "" };
+  const view = { tab: "", q: "", field: "", kind: "" };
   let all = [];
+  let cards = [];
+  const SORT_KEY = "kfsc-report:sitok-docs-sort";
+  let sort = { mode: "no", desc: true };
+  try { sort = { ...sort, ...JSON.parse(localStorage.getItem(SORT_KEY) || "{}") }; } catch { /* 기억 못 하면 기본 */ }
 
   const esc = mailEsc;
   const won = (n) => (n || n === 0) && n !== "" ? Number(n).toLocaleString("ko-KR") : "";
@@ -37,35 +44,199 @@
 
   async function load() {
     try {
-      all = (await api(`${P}/contracts`)).contracts;
+      const [a, b] = await Promise.all([api(`${P}/contracts`), api(`${P}/facilities`)]);
+      all = a.contracts;
+      cards = b.facilities;
       render();
     } catch (err) {
       showError(errorEl, err);
     }
   }
 
-  const TABS = [["", "전체", "등록된 점검 계약", () => true], ["민간", "민간", "계약서를 우리가 작성", (c) => c.sector === "민간"],
-    ["관급", "관급", "나라장터 계약", (c) => c.sector === "관급"], ["nolink", "현장 연결 안 됨", "시설물과 아직 안 이음", (c) => !c.facility]];
+  // ---------- 시설물 카드(10/15 민재형 문서번호 일치화) ----------
+  const cardOf = (c) => (c.facility ? cards.find((k) => k.members.some((m) => m.id === c.facility.id)) : null);
+  const contractsOf = (k) => all.filter((c) => c.facility && k.members.some((m) => m.id === c.facility.id))
+    .sort((a, b) => (a.start_date || a.contract_date || "9999").localeCompare(b.start_date || b.contract_date || "9999") || a.id - b.id); // 차례로 쌓임(옛것 위)
+  const noKey = (k) => { // "관급-3" < "민간-1"(구분끼리, 그 안에서 번호), 그 밖 번호는 맨 뒤
+    const m = String(k.mgmt_no || "").match(/^(관급|민간)-0*(\d+)$/);
+    return m ? (m[1] === "관급" ? 1e8 : 2e8) + Number(m[2]) : 3e8 + k.id;
+  };
+  const byNo = (a, b) => { const x = noKey(a), y = noKey(b); return Math.floor(x / 1e8) - Math.floor(y / 1e8) || (sort.desc ? y - x : x - y); };
+  const sortCards = (list) => (sort.mode === "viewed" ? list.sort((a, b) => (b.viewed_at || "").localeCompare(a.viewed_at || "") || byNo(a, b)) : list.sort(byNo));
+  const cardName = (k) => (k.members.length > 1 ? k.group_name || k.name : k.name);
+  const cardText = (k) => [k.mgmt_no, cardName(k), k.address, k.owner_name, ...k.members.map((m) => m.name),
+    ...contractsOf(k).flatMap((c) => [c.title, c.auto_title, c.client, c.contract_no, c.client_manager, c.site_manager])].join(" ").toLowerCase();
+  const conText = (c) => `${c.title} ${c.auto_title} ${c.client} ${c.facility_name} ${c.contract_no} ${c.client_manager} ${c.site_manager}`.toLowerCase();
+  const TABS = [["", "전체", "시설물 카드", (k) => true], ["민간", "민간", "계약서를 우리가 작성", (k) => k.sector === "민간"],
+    ["관급", "관급", "나라장터 계약 · 착수계", (k) => k.sector === "관급"]];
+  const FIELDS = ["건축", "토목", "건축·토목"], KINDS = ["학교", "일반", "내진"];
+  const badgeOk = (k) => (!view.field || k.badge_field === view.field) && (!view.kind || k.badge_kind === view.kind);
 
   function render() {
+    const loose = all.filter((c) => !cardOf(c));
     const cardsEl = document.getElementById("sd-cards");
     cardsEl.innerHTML = TABS.map(([key, label, sub, ok]) => `<button type="button" class="st-card${view.tab === key ? " active" : ""}" data-tab="${key}">
-      <span class="l">${label}</span><span class="n">${all.filter(ok).length}건</span><span class="s">${sub}</span></button>`).join("");
-    cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => { view.tab = b.dataset.tab; render(); }));
+      <span class="l">${label}</span><span class="n">${cards.filter((k) => ok(k) && badgeOk(k)).length}곳</span><span class="s">${sub}</span></button>`).join("") +
+      `<button type="button" class="st-card${view.tab === "loose" ? " active" : ""}" data-tab="loose"><span class="l">카드에 안 넣은 계약</span><span class="n">${loose.length}건</span><span class="s">시설물 카드와 아직 안 이음</span></button>`;
+    cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => { view.tab = b.dataset.tab; if (view.tab === "민간") view.kind = ""; render(); }));
+    // 뱃지 칩 — 지금 구분 안에서 개수, 누르면 그것만(한 번 더 = 풀기)
+    const inTab = cards.filter((k) => !view.tab || view.tab === "loose" || k.sector === view.tab);
+    const chip = (dim, v) => {
+      const n = inTab.filter((k) => (dim === "field" ? k.badge_field : k.badge_kind) === v).length;
+      return `<button type="button" class="sk-badge-f b-${dim}${view[dim] === v ? " on" : ""}" data-dim="${dim}" data-v="${esc(v)}" aria-pressed="${view[dim] === v}">${esc(v)} <b>${n}</b></button>`;
+    };
+    const bEl = document.getElementById("sd-badges");
+    bEl.innerHTML = `<span class="sk-badge-l">분야</span>${FIELDS.map((v) => chip("field", v)).join("")}` +
+      (view.tab === "민간" ? "" : `<span class="sk-badge-l">관급</span>${KINDS.map((v) => chip("kind", v)).join("")}`);
+    bEl.querySelectorAll(".sk-badge-f").forEach((b) => b.addEventListener("click", () => { view[b.dataset.dim] = view[b.dataset.dim] === b.dataset.v ? "" : b.dataset.v; render(); }));
+    document.querySelectorAll(".sd-sort button").forEach((b) => {
+      const on = b.dataset.sort === sort.mode;
+      b.classList.toggle("on", on);
+      if (b.dataset.sort === "no") b.textContent = `번호순 ${on ? (sort.desc ? "▼" : "▲") : ""}`.trim();
+    });
 
-    const ok = TABS.find((t) => t[0] === view.tab)[3];
     const words = view.q.toLowerCase().split(/\s+/).filter(Boolean);
-    const text = (c) => `${c.title} ${c.auto_title} ${c.client} ${c.facility_name} ${c.contract_no} ${c.client_manager} ${c.site_manager} ${c.facility ? c.facility.name : ""}`.toLowerCase();
-    const shown = all.filter((c) => ok(c) && words.every((w) => text(c).includes(w)));
-    document.getElementById("sd-count").textContent = `${shown.length}건`;
     const list = document.getElementById("sd-list");
-    if (!shown.length) {
-      list.innerHTML = `<div class="empty-note">${all.length ? "맞는 계약이 없습니다." : "아직 점검 계약이 없습니다 — [+ 민간 계약서 만들기]로 시작하거나 이미 만든 계약서를 위 점선 상자에 끌어다 놓으세요."}</div>`;
+    const title = document.getElementById("sd-list-title");
+    list.innerHTML = "";
+    if (view.tab === "loose") {
+      title.textContent = "카드에 안 넣은 계약";
+      const shown = loose.filter((c) => words.every((w) => conText(c).includes(w)));
+      document.getElementById("sd-count").textContent = `${shown.length}건`;
+      if (!shown.length) { list.innerHTML = '<div class="empty-note">카드에 안 넣은 계약이 없습니다.</div>'; return; }
+      for (const c of shown) list.appendChild(row(c));
       return;
     }
-    list.innerHTML = "";
-    for (const c of shown) list.appendChild(row(c));
+    title.textContent = "시설물 카드";
+    const ok = TABS.find((t) => t[0] === view.tab)[3];
+    const shown = sortCards(cards.filter((k) => ok(k) && badgeOk(k) && words.every((w) => cardText(k).includes(w))));
+    document.getElementById("sd-count").textContent = `${shown.length}곳${loose.length ? ` · 카드에 안 넣은 계약 ${loose.length}건` : ""}`;
+    if (!shown.length) {
+      list.innerHTML = `<div class="empty-note">${cards.length ? "맞는 시설물 카드가 없습니다." : "아직 시설물 카드가 없습니다 — [+ 새 시설물 카드]로 시작하세요."}</div>`;
+      return;
+    }
+    for (const k of shown) list.appendChild(cardEl(k));
   }
+  document.querySelectorAll(".sd-sort button").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.sort === "no" && sort.mode === "no") sort.desc = !sort.desc;
+    else if (b.dataset.sort === "no") sort.desc = true;
+    sort.mode = b.dataset.sort;
+    try { localStorage.setItem(SORT_KEY, JSON.stringify(sort)); } catch { /* 지금은 바뀜 */ }
+    render();
+  }));
+
+  const TYPE_SHORT = { "장기": "장기·지속", "1회성": "1회성·입찰", "종료": "계약 종료" };
+  function cardEl(k) {
+    const el = document.createElement("div");
+    el.className = `sd-fcard${k.contract_type === "종료" ? " ended" : ""}`;
+    const multi = k.members.length > 1;
+    const cons = contractsOf(k);
+    el.innerHTML = `
+      <div class="sd-fhead"><div class="sd-fmain">
+        <div class="sd-ftitle">${k.mgmt_no ? `<span class="site-no">${esc(k.mgmt_no)}</span>` : ""}<span class="sd-chip ${k.sector === "관급" ? "gov" : "civil"}">${esc(k.sector)}</span>
+          <a href="sitok-facility.html?id=${k.id}" title="보고서 자동화 · 시설물 화면"><b>${esc(cardName(k))}</b></a>${multi ? `<span class="sk-dong-n">${k.members.length}동</span>` : ""}
+          ${k.badge_field ? `<span class="sk-badge b-field">${esc(k.badge_field)}</span>` : ""}${k.badge_kind ? `<span class="sk-badge b-kind">${esc(k.badge_kind)}</span>` : ""}
+          <span class="sd-ftype">${esc(TYPE_SHORT[k.contract_type] || k.contract_type || "")}</span></div>
+        <div class="dc-meta">${esc([k.address, k.owner_name].filter(Boolean).join(" · "))}${multi ? ` · ${esc(k.members.map((m) => m.name).join(", "))}` : ""}</div></div>
+        <div class="sd-facts">
+          <button type="button" class="secondary sd-fnew">${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}</button>
+          <button type="button" class="secondary sd-fbadge" title="분야·관급 종류 뱃지 바꾸기">🏷 뱃지</button>
+        </div>
+      </div>
+      <div class="sd-fbody">${cons.length ? "" : `<div class="mail-note sd-fempty">아직 계약이 없습니다 — [${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}]로 넣으세요.</div>`}</div>`;
+    const body = el.querySelector(".sd-fbody");
+    for (const c of cons) body.appendChild(row(c, true));
+    el.querySelector(".sd-fnew").addEventListener("click", () => openContract(null, k.sector, { card: k }));
+    el.querySelector(".sd-fbadge").addEventListener("click", () => editBadges(k));
+    const links = siteLinkButtons(k.contact_phone, k.address);
+    if (links) el.querySelector(".sd-fmain").appendChild(links);
+    return el;
+  }
+
+  // 뱃지 바꾸기 — 묶인 동은 같이(PATCH /sitok/facilities/{id})
+  function editBadges(k) {
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = `<div class="mail-box sd-badge-box" role="dialog" aria-modal="true">
+      <div class="mail-head"><b>🏷 뱃지</b><span class="mail-sub">${esc(k.mgmt_no)} ${esc(cardName(k))}</span></div>
+      <label class="cd-field"><span>분야</span><select class="b-field">${FIELDS.map((v) => `<option${k.badge_field === v ? " selected" : ""}>${v}</option>`).join("")}</select></label>
+      ${k.sector === "관급" ? `<label class="cd-field"><span>관급 종류</span><select class="b-kind">${KINDS.map((v) => `<option${k.badge_kind === v ? " selected" : ""}>${v}</option>`).join("")}</select></label>
+        <div class="mail-note">내진 = 주기 없는 내진성능평가 — 카드 안 계약의 반기 표시가 "해당없음"이 됩니다.</div>` : ""}
+      <div class="mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="b-close">닫기</button><button type="button" class="mail-primary b-save">저장</button></div></div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector(".b-close").addEventListener("click", close);
+    overlay.querySelector(".b-save").addEventListener("click", async () => {
+      const b = { badge_field: overlay.querySelector(".b-field").value };
+      const kind = overlay.querySelector(".b-kind");
+      if (kind) b.badge_kind = kind.value;
+      try {
+        for (const m of k.members) await api(`/sitok/facilities/${m.id}`, { method: "PATCH", body: JSON.stringify(b) });
+        close();
+        load();
+      } catch (err) {
+        const m = overlay.querySelector(".mail-msg");
+        m.hidden = false;
+        m.className = "mail-msg bad";
+        m.textContent = err.message;
+      }
+    });
+  }
+
+  // [+ 새 시설물 카드] — 보고서 자동화 시설물 목록에도 같은 번호로 바로 생김
+  async function newCard() {
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = `<div class="mail-box sd-card-new" role="dialog" aria-modal="true">
+      <div class="mail-head"><b>🏢 새 시설물 카드</b><span class="mail-sub">보고서 자동화 · 시특법 시설물 목록에도 같은 번호로 생깁니다</span></div>
+      <div class="sd-sector">${["민간", "관급"].map((s) => `<label><input type="radio" name="nc-sector" value="${s}"${s === "민간" ? " checked" : ""} /> ${s}</label>`).join("")}
+        <span class="nc-no mail-note"></span></div>
+      <div class="cd-grid">
+        <label class="cd-field cd-wide"><span>시설물명</span><input class="nc-name" placeholder="예: 동안교회" /></label>
+        <label class="cd-field cd-wide"><span>주소</span><input class="nc-addr" placeholder="일정 지역 묶기에 씀" /></label>
+        <label class="cd-field"><span>관리주체</span><input class="nc-owner" /></label>
+        <label class="cd-field"><span>분야</span><select class="nc-field">${FIELDS.map((v) => `<option>${v}</option>`).join("")}</select></label>
+        <label class="cd-field nc-kind-l" hidden><span>관급 종류</span><select class="nc-kind">${KINDS.map((v) => `<option${v === "일반" ? " selected" : ""}>${v}</option>`).join("")}</select></label>
+        <label class="cd-field"><span>계약 구분</span><select class="nc-type"><option value="장기">장기·지속계약</option><option value="1회성">1회성·입찰계약</option></select></label>
+      </div>
+      <div class="mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="nc-close">닫기</button><button type="button" class="mail-primary nc-save">만들기</button></div></div>`;
+    document.body.appendChild(overlay);
+    const q = (s) => overlay.querySelector(s);
+    const close = () => overlay.remove();
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    q(".nc-close").addEventListener("click", close);
+    const sectorNow = () => overlay.querySelector('input[name="nc-sector"]:checked').value;
+    const onSector = async () => {
+      const s = sectorNow();
+      q(".nc-kind-l").hidden = s !== "관급";
+      q(".nc-type").value = s === "민간" ? "장기" : "1회성";
+      try { q(".nc-no").textContent = `번호 ${(await api(`/sitok/next-mgmt-no?sector=${encodeURIComponent(s)}`)).mgmt_no}`; } catch { q(".nc-no").textContent = ""; }
+    };
+    overlay.querySelectorAll('input[name="nc-sector"]').forEach((r) => r.addEventListener("change", onSector));
+    onSector();
+    q(".nc-name").focus();
+    q(".nc-save").addEventListener("click", async () => {
+      const s = sectorNow();
+      try {
+        const out = await apiPost(`${P}/facilities`, { sector: s, name: q(".nc-name").value, address: q(".nc-addr").value, owner_name: q(".nc-owner").value,
+          badge_field: q(".nc-field").value, badge_kind: s === "관급" ? q(".nc-kind").value : "", contract_type: q(".nc-type").value });
+        close();
+        await load();
+        const m = document.getElementById("sd-new-msg");
+        m.className = "status ok";
+        m.textContent = `✓ ${out.mgmt_no} ${out.name} 카드를 만들었습니다 — 보고서 자동화 시설물 목록에도 생겼습니다.`;
+      } catch (err) {
+        const m = q(".mail-msg");
+        m.hidden = false;
+        m.className = "mail-msg bad";
+        m.textContent = err.message;
+      }
+    });
+  }
+  document.getElementById("sd-new-card").addEventListener("click", newCard);
 
   function contactLine(c, who, label) {
     const name = c[`${who}_manager`], phone = c[`${who}_phone`], mail = c[`${who}_email`];
@@ -89,17 +260,19 @@
     return out.join("");
   }
 
-  function row(c) {
+  function row(c, inCard) {
     const el = document.createElement("div");
-    el.className = "row dc-row";
+    el.className = `row dc-row${inCard ? " in-card" : ""}`;
     const meta = [c.client, c.contract_no, periodText(c), moneyText(c)].filter(Boolean).join(" · ");
+    const year = c.sector === "관급" && (c.start_date || c.contract_date) ? `<span class="sd-year">${(c.start_date || c.contract_date).slice(0, 4)}년</span>` : "";
+    const half = c.half ? `<span class="sd-half${c.half === "해당없음" ? " na" : ""}" title="${c.half_tag ? "직접 고른 반기" : "용역 기간으로 자동"}">${esc(c.half)}</span>` : "";
     el.innerHTML = `
       <div class="dc-main">
-        <div class="dc-title"><span class="sd-chip ${c.sector === "민간" ? "civil" : "gov"}">${c.sector}</span>${esc(c.title || (c.sector === "민간" && c.auto_title) || "(계약건명 없음 — 계약 정보를 채우세요)")}</div>
+        <div class="dc-title">${inCard ? `${year}${half}` : `<span class="sd-chip ${c.sector === "민간" ? "civil" : "gov"}">${c.sector}</span>${half}`}${esc(c.title || (c.sector === "민간" && c.auto_title) || "(계약건명 없음 — 계약 정보를 채우세요)")}</div>
         <div class="dc-meta">${esc(meta)}</div>
         ${contactLine(c, "client", "계약 담당")}${contactLine(c, "site", "현장 담당")}
-        <div class="dc-site">${c.facility ? `현장 <a href="sitok-facility.html?id=${c.facility.id}">${esc(c.facility.name)}</a>` : '<span class="dc-nosite">현장 연결 안 됨</span>'}
-          <button type="button" class="dc-link">${c.facility ? "바꾸기" : "🔗 현장 연결"}</button></div>
+        ${inCard ? "" : `<div class="dc-site">${c.facility ? `현장 <a href="sitok-facility.html?id=${c.facility.id}">${esc(c.facility.name)}</a>` : '<span class="dc-nosite">시설물 카드에 안 넣음</span>'}
+          <button type="button" class="dc-link">${c.facility ? "바꾸기" : "🔗 카드에 넣기"}</button></div>`}
       </div>
       <div class="dc-docs">${docLines(c)}</div>
       <div class="dc-actions">
@@ -113,7 +286,8 @@
     });
     el.querySelector(".sd-edit").addEventListener("click", () => openContract(c.id, c.sector));
     el.querySelectorAll(".sd-gov").forEach((b) => b.addEventListener("click", () => openSitokGov(c.id, b.dataset.kind, load)));
-    el.querySelector(".dc-link").addEventListener("click", () => pickFacility(c, () => load()));
+    const lk = el.querySelector(".dc-link");
+    if (lk) lk.addEventListener("click", () => pickFacility(c, () => load()));
     el.querySelector(".dc-del").addEventListener("click", async () => {
       const pw = await dcAskPassword(`"${c.title || c.auto_title || "점검 계약"}"을(를) 지웁니다. 올린·만든 계약서 파일도 같이 지워집니다(보고서 쪽에 넣은 계약은 그대로). 되돌릴 수 없습니다.`);
       if (pw == null) return;
@@ -196,6 +370,14 @@
       return;
     }
     st.bldgs = (st.buildings || []).slice(); // 동별 금액(10/15) — 동이 둘 이상이면 회차마다 동별 금액, 회차 금액 = 합
+    if (!id && intro && intro.card) { // 시설물 카드 안 [+ 계약] — 그 카드에 넣고 시설물 칸 미리 채움(10/15)
+      const k = intro.card;
+      st.facility_id = k.id;
+      st.facility = { id: k.id, name: k.name, mgmt_no: k.mgmt_no };
+      st.facility_name = st.facility_name || (k.members.length > 1 ? k.group_name || k.name : k.name);
+      st.location = st.location || k.address || "";
+      st.client = st.client || k.owner_name || "";
+    }
     if (!id && !st.rounds.length) { // 새 민간 계약: 올해·지금 반기·정기 한 줄
       const now = new Date();
       st.rounds = [{ year: now.getFullYear(), half: now.getMonth() < 6 ? "상반기" : "하반기", kind: "정기", amount: null }];
@@ -244,7 +426,8 @@
     }
     function body() {
       sync();
-      const b = { sector: st.sector, open_ended: !!st.open_ended, unit: st.unit || null, rounds: st.rounds.filter((r) => r.year) };
+      const b = { sector: st.sector, open_ended: !!st.open_ended, unit: st.unit || null, rounds: st.rounds.filter((r) => r.year), half_tag: st.half_tag || "" };
+      if (!st.id && st.facility_id) b.facility_id = st.facility_id;
       for (const k of TEXT) b[k] = st[k] ?? "";
       for (const k of DATES) b[k] = st[k] || null;
       if (st.sector === "관급") b.amount = st.amount ?? null;
@@ -347,6 +530,8 @@
           ${civil && st.open_ended ? '<div class="cd-field"><span>계약 종료일</span><div class="cd-plain">계약 해지 시까지</div></div>' : field("end_date", "계약 종료일", { type: "date" })}
           ${civil ? field("doc_no", "문서번호", { em: "비우면 KFSC-연도-월일(계약일)", ph: st.auto_doc_no }) : ""}
           ${field("title", civil ? "계약건명" : "용역명", { wide: true, em: civil ? "비우면 자동" : "", ph: civil ? st.auto_title : "" })}
+          <label class="cd-field"><span>반기 표시 <em>시설물 카드</em></span><select data-key="half_tag">
+            <option value="">자동${st.half_auto ? `(${esc(st.half_auto)})` : ""}</option>${["상반기", "하반기", "상·하반기", "해당없음"].map((h) => `<option${st.half_tag === h ? " selected" : ""}>${h}</option>`).join("")}</select></label>
           ${civil ? `${field("guarantee", "계약보증액")}${field("delay_rate", "지체상금율")}` : ""}
         </div>
         <div class="mail-label">담당자 <span class="mail-note">— 계약 담당·현장 담당(관리소장 등)</span></div>

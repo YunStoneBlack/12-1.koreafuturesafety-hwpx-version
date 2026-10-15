@@ -45,9 +45,12 @@ BID_METHODS = ("일반경쟁", "제한경쟁", "지명경쟁", "수의계약", "
 FIELDS = ("교량 및 터널", "건축", "항만", "수리시설")
 # 시설물 목록함 구분(10/13 민재형): 장기·지속계약(연락·일정 관리 대상) / 1회성·입찰계약 / 지속계약 종료 — 서로 옮길 수 있음
 CONTRACT_TYPES = ("장기", "1회성", "종료")
+# 시설물 카드 뱃지(10/15 민재형 문서번호 일치화): 분야(민간·관급) + 관급 종류 — 목록에서 뱃지별 개수·거르기
+BADGE_FIELDS = ("건축", "토목", "건축·토목")
+BADGE_KINDS = ("학교", "일반", "내진")
 FAC_FIELDS = ("fms_no", "name", "template", "kind", "use_type", "main_use", "address", "owner_name", "owner_type", "owner_phone",
               "completion_date", "structure", "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "memo", "legal",
-              "mgmt_no", "contact_name", "contact_phone", "contract_type")
+              "mgmt_no", "contact_name", "contact_phone", "contract_type", "sector", "badge_field", "badge_kind")
 CON_FIELDS = ("sector", "title", "contract_no", "contract_date", "start_date", "end_date", "halves", "first_half_end", "second_half_start",
               "amount", "rep_name", "joint_type", "joint_pct", "bid_method", "field")
 DATES = {"completion_date", "contract_date", "start_date", "end_date", "first_half_end", "second_half_start"}
@@ -74,7 +77,10 @@ class FacilityIn(BaseModel):
     building_area: float | None = None
     memo: str | None = None
     legal: bool | None = None  # 법정(1·2·3종) 시설물 — False = 자체 점검(관리대장 없음, 결과표 종별 "해당없음")
-    mgmt_no: str | None = None  # 목록 번호표 "26-4"(10/13) — 비우고 새 등록하면 자동
+    mgmt_no: str | None = None  # 목록 번호표 "민간-3"·"관급-1"(10/15, 예전 "26-4") — 비우고 새 등록하면 구분별 다음 번호
+    sector: str | None = None  # 시설물 카드 구분 민간 / 관급(번호 앞 글자)
+    badge_field: str | None = None  # 건축 / 토목 / 건축·토목
+    badge_kind: str | None = None  # 관급 종류 학교 / 일반 / 내진(민간은 빈칸)
     contact_name: str | None = None  # 담당자(관리소장 등) — 목록 📞
     contact_phone: str | None = None
     contract_type: str | None = None  # 장기 / 1회성 / 종료
@@ -169,6 +175,10 @@ def _apply_facility(row: SitokFacility, body: FacilityIn) -> None:
     data = body.model_dump(exclude_unset=True)
     _check("보고서 틀", data.get("template"), TEMPLATES)
     _check("계약 구분", data.get("contract_type"), CONTRACT_TYPES)
+    _check("민간·관급", data.get("sector"), SECTORS)
+    _check("분야", data.get("badge_field"), BADGE_FIELDS)
+    if data.get("badge_kind"):
+        _check("관급 종류", data.get("badge_kind"), BADGE_KINDS)
     bases = {k: data.pop(k) for k in LEDGER_KEYS if k in data}
     if bases:
         row.ledger = {**(row.ledger or {}), **bases}
@@ -246,12 +256,23 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
     return out
 
 
-def next_mgmt_no(db: Session, company_id: int, year: int | None = None) -> str:
-    """다음 번호표 "26-5" — 올해(두 자리) 번호 중 가장 큰 것 + 1(시특법은 산안법과 따로 매김, 10/13)."""
-    yy = (year or datetime.date.today().year) % 100
+def next_mgmt_no(db: Session, company_id: int, sector: str | None = None) -> str:
+    """다음 번호표 "민간-5"·"관급-2" — 그 구분 번호 중 가장 큰 것 + 1(10/15 민재형 문서번호 일치화: 드롭박스 폴더를 관급·민간으로만 나눠 번호,
+    서류 자동화 시설물 카드·보고서 자동화 시설물이 같은 번호, 연도 없음). 시특법은 산안법과 따로 매김."""
+    sector = sector if sector in SECTORS else "민간"
     nums = [int(m[1]) for (no,) in db.query(SitokFacility.mgmt_no).filter(SitokFacility.company_id == company_id)
-            if (m := re.match(rf"^{yy:02d}-0*(\d+)$", (no or "").strip()))]
-    return f"{yy:02d}-{max(nums, default=0) + 1}"
+            if (m := re.match(rf"^{sector}-0*(\d+)$", (no or "").strip()))]
+    return f"{sector}-{max(nums, default=0) + 1}"
+
+
+def default_badges(f: SitokFacility, field: str | None = None) -> None:
+    """새 시설물 뱃지 기본값 — 분야는 계약 수행분야(건축 → 건축, 그 밖 → 토목), 관급 종류는 보고서 틀(3종학교 → 학교, 그 밖 → 일반). 목록에서 바꿈."""
+    if not f.badge_field:
+        f.badge_field = "건축" if (field or "건축") == "건축" else "토목"
+    if f.sector == "관급" and not f.badge_kind:
+        f.badge_kind = "학교" if f.template == "3종학교" else "일반"
+    if f.sector != "관급":
+        f.badge_kind = ""
 
 
 def default_type(sector: str | None) -> str:
@@ -364,12 +385,12 @@ def guess_template(grade: str, use_type: str, main_use: str) -> str:
 def options(user: User = Depends(get_current_user)):
     """화면 고르기 칸의 선택지(제출 사이트와 같은 이름)."""
     return {"templates": TEMPLATES, "sectors": SECTORS, "halves": HALVES, "joint_types": JOINT_TYPES, "bid_methods": BID_METHODS, "fields": FIELDS,
-            "contract_types": CONTRACT_TYPES}
+            "contract_types": CONTRACT_TYPES, "badge_fields": BADGE_FIELDS, "badge_kinds": BADGE_KINDS}
 
 
 @router.get("/next-mgmt-no")
-def get_next_mgmt_no(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return {"mgmt_no": next_mgmt_no(db, user.company_id)}
+def get_next_mgmt_no(sector: str = "민간", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return {"mgmt_no": next_mgmt_no(db, user.company_id, sector)}
 
 
 @router.get("/facilities")
@@ -411,9 +432,12 @@ def create_facility(body: CreateIn, user: User = Depends(get_current_user), db: 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "시설물명을 넣어 주세요.")
     f = SitokFacility(company_id=user.company_id, created_by=user.display_name or "", ledger=body.ledger_extra or None)
     _apply_facility(f, body.facility)
-    f.mgmt_no = f.mgmt_no or next_mgmt_no(db, user.company_id)
+    if body.facility.sector is None:
+        f.sector = (body.contract.sector if body.contract else None) or "민간"
+    f.mgmt_no = f.mgmt_no or next_mgmt_no(db, user.company_id, f.sector)
+    default_badges(f, body.contract.field if body.contract else None)
     if body.facility.contract_type is None:
-        f.contract_type = default_type(body.contract.sector if body.contract else None)
+        f.contract_type = default_type(f.sector)
     db.add(f)
     db.flush()
     f.ledger_pdf = _take(body.ledger_token, _facility_dir(f) / "시설물관리대장.pdf")
