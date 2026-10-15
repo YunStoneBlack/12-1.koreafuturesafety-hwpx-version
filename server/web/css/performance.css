@@ -38,6 +38,7 @@
 .pf-row { border-bottom: 1px solid var(--line); font-size: 13.5px; }
 .pf-row:last-child { border-bottom: none; }
 .pf-head .r, .pf-row .r { text-align: right; font-variant-numeric: tabular-nums; }
+.pf-head > span, .pf-head > span.r { text-align: center; } /* 머리글만 가운데(10/16 사용자) — 칸 안(금액 오른쪽 등)은 그대로 */
 .pf-no { font-size: 12px; font-weight: 700; color: var(--blue); background: var(--blue-soft); padding: 2px 8px; border-radius: 6px; text-align: center; }
 .pf-kind { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pf-kind.sitok { background: #fbeadc; color: #b4541a; }
