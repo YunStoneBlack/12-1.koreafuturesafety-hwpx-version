@@ -350,10 +350,13 @@ def school_names(*texts: str | None) -> set[str]:
     return out
 
 
-def match_card(db: Session, c: SitokDocContract) -> SitokFacility | None:
-    """같은 시설물 카드 — 시설물명·발주처가 카드 이름·관리주체와 (띄어쓰기 빼고) 같거나, 학교 이름("초성초등학교")이 같으면. 둘 이상이면 못 정함(None)."""
+def match_card(db: Session, c: SitokDocContract) -> SitokFacility | None | bool:
+    """같은 시설물 카드 — 시설물명·발주처가 카드 이름·관리주체와 (띄어쓰기 빼고) 같거나, 학교 이름("초성초등학교")이 같으면.
+    없으면 None, 둘 이상이면 False(못 정함 — 사람이 고름), 계약서에 학교가 둘 이상 적혀 있어도 False."""
     keys = {_norm(x) for x in (c.facility_name, c.client) if _norm(x)}
     schools = school_names(c.facility_name, c.client)
+    if len(schools) > 1:
+        return False
     hits = {}
     for f in db.query(SitokFacility).filter(SitokFacility.company_id == c.company_id, SitokFacility.sector == c.sector):
         names = {_norm(f.name), _norm(f.owner_name)} - {""}
@@ -363,7 +366,7 @@ def match_card(db: Session, c: SitokDocContract) -> SitokFacility | None:
             if f.group_id:
                 lead = db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id).order_by(SitokFacility.group_order, SitokFacility.id).first() or f
             hits[lead.id] = lead
-    return next(iter(hits.values())) if len(hits) == 1 else None
+    return next(iter(hits.values())) if len(hits) == 1 else (False if hits else None)
 
 
 def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
@@ -375,6 +378,8 @@ def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
     joined = None
     if c.facility_id is None:
         f = match_card(db, c)
+        if f is False:  # 같은 시설물로 보이는 카드가 여럿·학교가 둘 — 새 카드를 만들지 않고 사람이 [카드 고르기]
+            return None
         if f is not None:
             c.facility_id = f.id
             joined = f
