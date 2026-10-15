@@ -28,6 +28,7 @@
 .ss-b.bad { background: var(--crit-soft, #fde8e8); color: var(--crit, #b42318); }
 .ss-b.na { background: #f1f2f4; color: #6b7280; }
 .ss-mark { max-width: 440px; }
+@media (min-width: 901px) { .ss-grid:not(.ss-docs) > .ss-c { text-align: center; } } /* 보고서 현황 칸 안 표시도 머리글 가운데에 맞춤(10/16) — 폰은 그대로 */
 @media (max-width: 900px) {
   .ss-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ss-head { display: none; }
