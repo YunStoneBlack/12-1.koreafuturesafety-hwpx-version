@@ -128,10 +128,24 @@
     if (fac) {
       document.getElementById("sk-crumb").textContent = fac.name;
       document.title = `${fac.name} - 시특법`;
+      const g = fac.group && fac.group.members.length > 1 ? fac.group : null; // 묶음이면 동 바꾸기 탭(10/15 — 목록은 묶음 카드 하나)
+      const tabs = document.getElementById("sk-dong-tabs");
+      tabs.hidden = !g;
+      if (g) {
+        document.getElementById("sk-crumb").textContent = `${g.name} › ${fac.name}`;
+        tabs.innerHTML = `<span class="sk-dong-tabs-h">📚 ${esc(g.name)} <small>${g.members.length}동 한 보고서</small></span>` + g.members.map((m, i) =>
+          m.id === fac.id ? `<span class="sk-dong-tab on" aria-current="page">제${i + 1}장 ${esc(m.name)}</span>`
+            : `<a class="sk-dong-tab" href="sitok-facility.html?id=${m.id}">제${i + 1}장 ${esc(m.name)}</a>`).join("");
+      }
       (fac.contracts || []).forEach((c) => cons.appendChild(conCard(c)));
-      if (!fac.contracts?.length) cons.innerHTML = '<div class="empty-note">계약이 없습니다. [+ 계약 추가]로 넣으세요.</div>';
-      document.getElementById("sk-con-count").textContent = fac.contracts?.length ? `${fac.contracts.length}건 — 최근 계약이 위, 카드마다 쓰는 회차` : "계약이 없습니다 — 회차를 만들 때 계약서를 올리거나 [+ 계약 추가]";
-      if (!fac.contracts?.length) document.getElementById("sk-con-panel").open = true;
+      const lead = g && g.members[0].id !== fac.id ? g.members[0] : null; // 묶음의 다른 동 — 계약서는 보통 대표 동에(한 계약에 여러 동, 10/15)
+      if (!fac.contracts?.length) {
+        cons.innerHTML = lead ? `<div class="empty-note">묶음 계약을 같이 씁니다 — 계약서는 대표 동 <a href="sitok-facility.html?id=${lead.id}">제1장 ${esc(lead.name)}</a>에 있습니다.</div>`
+          : '<div class="empty-note">계약이 없습니다. [+ 계약 추가]로 넣으세요.</div>';
+      }
+      document.getElementById("sk-con-count").textContent = fac.contracts?.length ? `${fac.contracts.length}건 — 최근 계약이 위, 카드마다 쓰는 회차`
+        : lead ? `묶음 계약 — 대표 동(${lead.name})에 있음` : "계약이 없습니다 — 회차를 만들 때 계약서를 올리거나 [+ 계약 추가]";
+      if (!fac.contracts?.length && !lead) document.getElementById("sk-con-panel").open = true;
       document.getElementById("sk-register-msg").textContent = fac.has_register
         ? "올려 둠 ✓ — 바꾸려면 다시 올리기 · 시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 읽습니다" : "시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 읽습니다(층별 용도·면적·변동사항) — 눌러서 고르거나 끌어다 놓기";
       document.getElementById("sk-register").classList.toggle("has", !!fac.has_register);

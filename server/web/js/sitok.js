@@ -3,6 +3,7 @@
 // 10/13 사용자·민재형 — 산안법 현장 목록(dashboard.html)과 같게: 이름 앞 번호표 "26-4", [최근 열람순] [번호순 ▼▲](이 기기에 기억),
 // [📞 전화](담당자, 없으면 관리주체 전화) [📍 지도](시설물 주소 — PC 네이버 지도, 폰 티맵·네이버 고르기, app.js siteLinkButtons), [전체·민간·관급] 거르기,
 // 목록함 구분 카드 장기·지속계약 / 1회성·입찰계약 / 지속계약 종료(누르면 그것만) + 줄마다 바꾸는 버튼(서로 옮김, 묶인 동은 같이 — 산안법 공사 상태 4칸처럼).
+// 10/15 민재형 "같은 계약인데 시설물 카드가 2개 — 이상함": 한 보고서로 묶인 동은 카드 하나(묶음 이름 + N동, 동 칩 → 그 동 화면, 줄 → 대표 동). 속 자료는 동마다 따로(FMS·결과표).
 
 (function () {
   const errorEl = document.getElementById("error");
@@ -57,9 +58,30 @@
   // 묶인 동(숭의 B동)은 계약이 1번 동에 있어 — 같은 묶음의 계약을 씀(민간·관급 거르기·계약 칸)
   const contractOf = (f) => f.latest || (f.group ? rows.find((x) => x.group && x.group.id === f.group.id && x.latest)?.latest : null) || null;
 
+  // 목록 한 줄 = 시설물 하나 또는 묶음 하나(대표 동 값 + members, 최근 열람은 동 중 가장 최근)
+  function units() {
+    const out = [];
+    const byGroup = new Map();
+    for (const f of rows) {
+      const g = f.group && f.group.members.length > 1 ? f.group : null;
+      if (!g) { out.push({ ...f, members: [f] }); continue; }
+      if (!byGroup.has(g.id)) byGroup.set(g.id, []);
+      byGroup.get(g.id).push(f);
+    }
+    for (const list of byGroup.values()) {
+      const g = list[0].group;
+      const order = g.members.map((m) => m.id);
+      list.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+      const lead = list[0];
+      out.push({ ...lead, members: list, group_name: g.name, viewed_at: list.map((x) => x.viewed_at || "").sort().pop() });
+    }
+    return out;
+  }
+  const unitText = (u) => u.members.flatMap((f) => [f.name, f.address, f.owner_name, f.fms_no, f.mgmt_no, f.contact_name]).concat(u.group_name || "");
+
   function renderCards() {
     const box = document.getElementById("sk-cards");
-    const base = rows.filter((f) => !sector || contractOf(f)?.sector === sector);
+    const base = units().filter((f) => !sector || contractOf(f)?.sector === sector);
     const total = base.length;
     box.innerHTML = [["", "전체", "등록한 시설물 전부"], ...TYPES].map(([t, label, sub]) => {
       const n = t ? base.filter((f) => f.contract_type === t).length : total;
@@ -113,10 +135,11 @@
     renderCards();
     drawSort();
     const q = document.getElementById("sk-search").value.trim().replace(/\s+/g, "").toLowerCase();
-    const shown = sortRows(rows.filter((f) => (!typeFilter || f.contract_type === typeFilter) && (!sector || contractOf(f)?.sector === sector) &&
-      (!q || [f.name, f.address, f.owner_name, f.fms_no, f.mgmt_no, f.contact_name].some((v) => (v || "").replace(/\s+/g, "").toLowerCase().includes(q)))));
+    const all = units();
+    const shown = sortRows(all.filter((f) => (!typeFilter || f.contract_type === typeFilter) && (!sector || contractOf(f)?.sector === sector) &&
+      (!q || unitText(f).some((v) => (v || "").replace(/\s+/g, "").toLowerCase().includes(q)))));
     const filtered = q || typeFilter || sector;
-    document.getElementById("sk-count").textContent = filtered ? `${shown.length} / ${rows.length}곳` : `${rows.length}곳`;
+    document.getElementById("sk-count").textContent = filtered ? `${shown.length} / ${all.length}곳` : `${all.length}곳`;
     const list = document.getElementById("sk-list");
     if (!rows.length) {
       list.innerHTML = '<div class="empty-note">아직 등록한 시설물이 없습니다. 오른쪽 위 [+ 점검 대상 등록]에서 시설물관리대장·계약서 PDF를 올리면 칸이 채워집니다.</div>';
@@ -129,9 +152,12 @@
       return;
     }
     list.innerHTML = "";
-    shownIds = shown.map((f) => f.id);
+    shownIds = shown.flatMap((f) => f.members.map((m) => m.id));
     drawBulk();
     for (const f of shown) {
+      const ids = f.members.map((m) => m.id);
+      const multi = ids.length > 1;
+      const on = ids.every((id) => selected.has(id));
       const c = contractOf(f);
       const contract = c
         ? `<span class="sk-sector ${c.sector === "관급" ? "gov" : "pri"}">${esc(c.sector)}</span> ${ymd(c.start_date)} ~ ${ymd(c.end_date)}` +
@@ -140,23 +166,25 @@
       const rn = f.renew; // 장기·지속 계약 끝나기 60일 전부터(10/13)
       const renew = rn ? `<span class="sk-renew-tag${rn.days < 0 ? " over" : ""}">${rn.days < 0 ? "⚠ 계약 끝남 — 다음 계약서 필요" : `⏳ ${rn.days}일 뒤 계약 끝 — 다음 계약서 준비`}</span>` : "";
       const row = document.createElement("a");
-      row.className = `sk-row${f.contract_type === "종료" ? " ended" : ""}${selected.has(f.id) ? " sel" : ""}`;
+      row.className = `sk-row${f.contract_type === "종료" ? " ended" : ""}${on ? " sel" : ""}`;
       row.href = `sitok-facility.html?id=${f.id}`;
-      const chk = document.createElement("label"); // 골라서 지우기(10/14 형 피드백 ③) — 줄은 링크라 체크 칸 클릭은 링크로 안 가게
+      const chk = document.createElement("label"); // 골라서 지우기(10/14 형 피드백 ③) — 줄은 링크라 체크 칸 클릭은 링크로 안 가게, 묶음은 동 전부
       chk.className = "sk-check";
-      chk.innerHTML = `<input type="checkbox" aria-label="${esc(f.name)} 선택"${selected.has(f.id) ? " checked" : ""} />`;
+      chk.innerHTML = `<input type="checkbox" aria-label="${esc(f.group_name || f.name)} 선택"${on ? " checked" : ""} />`;
       chk.addEventListener("click", (e) => e.stopPropagation());
-      chk.querySelector("input").addEventListener("change", (e) => { if (e.target.checked) selected.add(f.id); else selected.delete(f.id); row.classList.toggle("sel", e.target.checked); drawBulk(); });
+      chk.querySelector("input").addEventListener("change", (e) => { ids.forEach((id) => (e.target.checked ? selected.add(id) : selected.delete(id))); row.classList.toggle("sel", e.target.checked); drawBulk(); });
       // 산안법 현장 목록처럼(10/13 사용자): 번호표·이름·틀 / 주소 · 관리주체 / 시설물번호 · 종류 · 담당 / [📞][📍][주소 복사] 를 이름 칸 한 곳에
       row.innerHTML = `
         <div class="sk-main">
-          <div class="sk-title">${f.mgmt_no ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<b>${esc(f.name)}</b>
-            <span class="sk-tpl t${esc(f.template)}">${esc(TEMPLATE_LABEL[f.template] || f.template)}</span></div>
+          <div class="sk-title">${f.mgmt_no ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<b>${esc(multi ? f.group_name : f.name)}</b>
+            ${multi ? `<span class="sk-dong-n">${ids.length}동</span>` : ""}<span class="sk-tpl t${esc(f.template)}">${esc(TEMPLATE_LABEL[f.template] || f.template)}</span></div>
           <div class="sk-sub">${esc([f.address, f.owner_name].filter(Boolean).join(" · "))}</div>
-          <div class="sk-sub">${esc([f.fms_no, f.use_type || f.main_use, f.contact_name && `담당 ${f.contact_name}`].filter(Boolean).join(" · "))}</div>
+          ${multi ? `<div class="sk-dong-chips">${f.members.map((m, i) => `<span class="sk-dong-chip" data-href="sitok-facility.html?id=${m.id}" title="${esc(m.name)} 화면">제${i + 1}장 ${esc(m.name)}${m.fms_no ? ` <small>${esc(m.fms_no)}</small>` : ""}</span>`).join("")}</div>`
+            : `<div class="sk-sub">${esc([f.fms_no, f.use_type || f.main_use, f.contact_name && `담당 ${f.contact_name}`].filter(Boolean).join(" · "))}</div>`}
         </div>
         <div class="sk-contract">${contract}${renew}</div>`;
       row.prepend(chk); // innerHTML 뒤에 넣어야 안 지워짐
+      row.querySelectorAll(".sk-dong-chip").forEach((c) => c.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); location.href = c.dataset.href; }));
       const links = siteLinkButtons(f.contact_phone || f.owner_phone, f.address); // [📞 전화] [📍 지도]
       if (links) row.querySelector(".sk-main").appendChild(links);
       row.appendChild(typeSwitch(f));
