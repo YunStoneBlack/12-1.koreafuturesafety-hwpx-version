@@ -12,23 +12,27 @@
   let law = "";
   let year = Number(new URLSearchParams(location.search).get("year")) || new Date().getFullYear();
 
+  // 카드 — [시특법·산안법]을 고르면 그 카드에 테두리, 전년 대비 카드는 그 구분 금액끼리 비교(10/15 민재형)
   function cards() {
     const s = data.summary;
-    const diff = s.this.total - s.prev.total;
-    const pct = s.prev.total ? Math.round((diff / s.prev.total) * 100) : null;
+    const k = law === "시특법" ? "sitok" : law === "산안법" ? "sanan" : "total";
+    const diff = s.this[k] - s.prev[k];
+    const pct = s.prev[k] ? Math.round((diff / s.prev[k]) * 100) : null;
     const tone = pct === null ? "" : pct >= 0 ? "up" : "down";
+    const sel = (key) => (key === k && law ? " sel" : "");
     $("pf-cards").innerHTML = `
       <div class="pf-card"><span class="pf-k">${data.year}년 계약 합계</span><b class="pf-v">${man(s.this.total)}원</b><span class="pf-s">${won(s.this.total)} · ${s.this.count}건</span></div>
-      <div class="pf-card"><span class="pf-k">시특법</span><b class="pf-v">${man(s.this.sitok)}원</b><span class="pf-s">${won(s.this.sitok)}</span></div>
-      <div class="pf-card"><span class="pf-k">산안법 기술지도</span><b class="pf-v">${man(s.this.sanan)}원</b><span class="pf-s">${won(s.this.sanan)}</span></div>
-      <div class="pf-card ${tone}"><span class="pf-k">전년 ${s.cutoff ? `같은 기간(~${ymd(s.cutoff).slice(5)})` : "전체"} 대비</span>
+      <div class="pf-card${sel("sitok")}"><span class="pf-k">시특법</span><b class="pf-v">${man(s.this.sitok)}원</b><span class="pf-s">${won(s.this.sitok)}</span></div>
+      <div class="pf-card${sel("sanan")}"><span class="pf-k">산안법 기술지도</span><b class="pf-v">${man(s.this.sanan)}원</b><span class="pf-s">${won(s.this.sanan)}</span></div>
+      <div class="pf-card ${tone}"><span class="pf-k">${law ? `${law} · ` : ""}전년 ${s.cutoff ? `같은 기간(~${ymd(s.cutoff).slice(5)})` : "전체"} 대비</span>
         <b class="pf-v">${pct === null ? "—" : `${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct)}%`}</b>
-        <span class="pf-s">${data.year - 1}년 ${s.cutoff ? "같은 기간" : ""} ${man(s.prev.total)}원${s.cutoff ? ` · ${data.year - 1}년 전체 ${man(s.prev_full.total)}원` : ""}</span></div>`;
+        <span class="pf-s">${data.year - 1}년 ${s.cutoff ? "같은 기간" : ""} ${man(s.prev[k])}원${s.cutoff ? ` · ${data.year - 1}년 전체 ${man(s.prev_full[k])}원` : ""}</span></div>`;
   }
 
   // 월별 막대 — 올해·작년 두 묶음(SVG). 색은 dataviz 검증(#2A7DE1·#C2410C, CVD ΔE 29). 막대 위에 값은 최대 두 개(가장 큰 달)만, 나머지는 hover 툴팁.
   function chart() {
-    const m = data.monthly;
+    const m = law && data.monthly.law ? data.monthly.law[law] : data.monthly;  // [전체·시특법·산안법] 버튼을 따름
+    $("pf-chart-title").textContent = `월별 계약금액${law ? ` · ${law}` : ""}`;
     const vals = [...m.this, ...m.prev];
     const max = Math.max(...vals, 1);
     const W = 760, H = 220, L = 54, B = 28, T = 16;
@@ -46,7 +50,7 @@
         <text x="${x + bw / 2}" y="${H - 8}" text-anchor="middle" class="pf-ax">${i + 1}월</text></g>`);
     }
     const grid = [0, 0.5, 1].map((f) => `<line x1="${L}" x2="${W - 10}" y1="${yv(max * f)}" y2="${yv(max * f)}" class="pf-grid" /><text x="${L - 6}" y="${yv(max * f) + 4}" text-anchor="end" class="pf-ax">${man(max * f)}</text>`).join("");
-    $("pf-chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${data.year}년과 ${data.year - 1}년 월별 계약금액">${grid}${rows.join("")}</svg>
+    $("pf-chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${data.year}년과 ${data.year - 1}년 월별 계약금액${law ? ` (${law})` : ""}">${grid}${rows.join("")}</svg>
       <div class="pf-legend"><span><i style="background:#2A7DE1"></i>${data.year}년</span><span><i style="background:#C2410C"></i>${data.year - 1}년</span></div>`;
     $("pf-chart-note").textContent = `계약일(민간 반기는 반기 시작일) 기준 · 값 표시는 올해 큰 달 두 곳, 나머지는 막대에 마우스`;
   }
@@ -82,6 +86,9 @@
   document.querySelectorAll(".pf-law button").forEach((b) => b.addEventListener("click", () => {
     law = b.dataset.law;
     document.querySelectorAll(".pf-law button").forEach((x) => x.classList.toggle("on", x === b));
+    if (!data) return;
+    cards();
+    chart();
     list();
   }));
   load();

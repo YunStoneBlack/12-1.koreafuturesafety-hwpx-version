@@ -1,7 +1,7 @@
 """실적(2026-10-14 사용자 — "실적은 내가 보기 위함, 계약 기준 얼마인지 파악해야 영업 공격성을 조절, 전년 동기 대비") — 서류 자동화 "실적" 탭.
 시특법 계약(sitok_contract) + 산안법 용역계약(service_contract)에서 자동, 직접 입력 없음(프로그램 밖 업무는 이번엔 안 넣음).
 
-- `GET /performance?year=2026` — {year, years, rows[계약 1건 = 1줄: law·kind·no·title·client·amount(그 해 몫)·date·start·end·halves], summary{this, prev(전년 같은 날짜까지), prev_full}, monthly{this[12], prev[12]}}.
+- `GET /performance?year=2026` — {year, years, rows[계약 1건 = 1줄: law·kind·no·title·client·amount(그 해 몫)·date·start·end·halves], summary{this, prev(전년 같은 날짜까지), prev_full}, monthly{this[12], prev[12], law{시특법·산안법: {this, prev}}}}.
   금액 몫(portion): 시특법 민간 = 계약기간 안 반기마다 반기 금액(회차 줄이 있으면 그 금액) — 그 해에 드는 반기만 / 시특법 관급·산안법 = 계약일(없으면 착수일)이 든 해에 계약금액 전부.
 - `GET /performance/xlsx?year=` — 같은 표 엑셀 한 장(+ 합계).
 """
@@ -100,13 +100,14 @@ def _build(db: Session, company_id: int, year: int) -> dict:
             cutoff = today.replace(year=year - 1)
         except ValueError:  # 2월 29일
             cutoff = today.replace(year=year - 1, day=28)
-    monthly = {"this": [0] * 12, "prev": [0] * 12}
+    # 월별 — 합계(this·prev) + 구분별(law: 시특법·산안법, 화면 [전체·시특법·산안법] 버튼이 고름, 10/15 민재형 "그래프가 안 바뀜")
+    monthly = {"this": [0] * 12, "prev": [0] * 12, "law": {k: {"this": [0] * 12, "prev": [0] * 12} for k in ("시특법", "산안법")}}
     for r in all_rows:
         for p in r["portions"]:
-            if p["date"].year == year:
-                monthly["this"][p["date"].month - 1] += p["amount"]
-            elif p["date"].year == year - 1:
-                monthly["prev"][p["date"].month - 1] += p["amount"]
+            key = "this" if p["date"].year == year else "prev" if p["date"].year == year - 1 else None
+            if key:
+                monthly[key][p["date"].month - 1] += p["amount"]
+                monthly["law"][r["law"]][key][p["date"].month - 1] += p["amount"]
     return {"year": year, "years": years, "today": today.isoformat(), "rows": rows,
             "summary": {"this": total(year), "prev": total(year - 1, cutoff), "prev_full": total(year - 1), "cutoff": _iso(cutoff)}, "monthly": monthly}
 
