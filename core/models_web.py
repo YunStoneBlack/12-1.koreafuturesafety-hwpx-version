@@ -699,6 +699,9 @@ class SitokDocContract(Base):
     facility_ids: Mapped[list | None] = mapped_column(JSON, default=None)
     amounts: Mapped[dict | None] = mapped_column(JSON, default=None)
     report_contracts: Mapped[dict | None] = mapped_column(JSON, default=None)
+    # 맡는 건물을 정한 방식(0053, 10/16) — "" 사람이 고름(예전 계약) · auto 건명·내역서·전 계약 · check 못 정함(⚠, 건물 둘 이상일 때) · all 현장 전체 확인. 새 계약은 check부터
+    cover: Mapped[str] = mapped_column(Text, default="check", server_default="")
+    est_parts: Mapped[list | None] = mapped_column(JSON, default=None)  # 관급 내역서에서 읽은 건물·사업장별 [{name, amount}](0053)
     client: Mapped[str] = mapped_column(Text, default="")  # 관리주체(발주처) — 계약서 "갑"
     client_rep: Mapped[str] = mapped_column(Text, default="")  # 서명 칸 대표자(예: "관리사무소장 김춘화")
     client_biz_no: Mapped[str] = mapped_column(Text, default="")  # 사업자등록번호(사업자등록증에서)

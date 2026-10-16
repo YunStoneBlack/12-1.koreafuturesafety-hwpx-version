@@ -45,6 +45,15 @@ rounds = 점검 회차마다 한 줄(예: 장기 계약서의 "26년 상반기 �
 연 3회 계약(D·E등급 — "해빙기(정기)·우기(정기)·동절기(정기)")이면 half에 해빙기·우기·동절기를 그대로."""
 
 
+ESTIMATE_PROMPT = """첨부는 시설물 안전점검 용역의 내역서입니다(산출내역서·견적(세부)내역서·과업내용서 중 하나). 점검 대상 시설물(건물·동·사업장·옹벽 등)마다
+이름과 금액을 찾아 JSON 객체 하나로만 답하세요(설명 없이). 없거나 불확실하면 "" 또는 null — 추측 금지. 금액은 원 단위 정수만.
+
+{"parts": [{"name": "시설물·건물·동·사업장 이름 그대로(예: 본관, 체육관, 세종국책연구단지)", "amount": 그 시설물의 총 금액(여러 회차·항목이면 합, 없으면 null)}],
+ "total": 총합계 금액(없으면 null)}
+- 합계·소계·총합계·부가가치세·제경비 같은 줄은 parts에 넣지 말 것(시설물 이름 줄만).
+- 시설물이 하나뿐이거나 시설물 구분이 없으면 parts는 그 하나(이름을 모르면 빈 목록 [])."""
+
+
 def _date(v) -> datetime.date | None:
     try:
         return datetime.date.fromisoformat(str(v).strip()[:10]) if v else None
@@ -159,3 +168,17 @@ def read_contract(pdf: Path, company_id: int) -> dict:
         "owner_name": _str(d.get("owner_name")), "address": _str(d.get("address")),
         "rounds": civil.normalize_rounds(d.get("rounds")) if isinstance(d.get("rounds"), list) else [],  # 회차 종류 정기/정밀(0043)
     }
+
+
+def read_estimate(pdf: Path, company_id: int) -> list[dict]:
+    """관급 내역서(산출내역서·견적세부내역서·과업내용서) → 건물·사업장별 [{name, amount}](10/16 민재형 — 계약이 맡는 건물·건물별 금액)."""
+    d = _ask(pdf, ESTIMATE_PROMPT, company_id)
+    out, seen = [], set()
+    for x in d.get("parts") or []:
+        name = _str((x or {}).get("name"))
+        if not name or name in seen or any(w in name.replace(" ", "") for w in ("합계", "소계", "총계", "부가가치세", "부가세")):
+            continue
+        seen.add(name)
+        amt = _int((x or {}).get("amount"))
+        out.append({"name": name, "amount": amt if amt and amt > 0 else None})
+    return out

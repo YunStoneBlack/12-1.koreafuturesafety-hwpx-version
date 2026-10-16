@@ -561,7 +561,8 @@
     const half = c.half ? `<span class="sd-half${c.half === "해당없음" ? " na" : ""}" title="${c.half_tag ? "직접 고른 반기" : "용역 기간으로 자동"}">${esc(c.half)}</span>` : "";
     const kc = inCard ? cardOf(c) : null;
     const dno = kc && unitsOf(kc).length > 1 && c.card_no ? `<span class="site-no sd-dno" title="서류 번호 — 계약이 시설물 여럿을 맡으면 카드 번호, 하나면 그 시설물 번호">서류 ${esc(c.card_no)}</span>` : ""; // 10/15 밤
-    const tg = kc && unitsOf(kc).length > 1 && c.targets && c.targets.length ? `<div class="dc-meta sd-targets">시설물 ${c.targets.map((t) => `<span class="site-no">${esc(t.mgmt_no)}</span>${esc(t.name)}${c.amounts && c.amounts[t.id] ? ` ${won(c.amounts[t.id])}원` : ""}`).join(" · ")}</div>` : "";
+    const chk = kc && unitsOf(kc).length > 1 && c.cover === "check" ? ' <span class="sd-cover-chk" title="건명·내역서로 맡는 건물을 못 정해 현장 전체(또는 남은 건물)로 넣었습니다 — [계약 정보]에서 확인">⚠ 맡는 건물 확인</span>' : "";
+    const tg = kc && unitsOf(kc).length > 1 && c.targets && c.targets.length ? `<div class="dc-meta sd-targets">시설물 ${c.targets.map((t) => `<span class="site-no">${esc(t.mgmt_no)}</span>${esc(t.name)}${c.amounts && c.amounts[t.id] ? ` ${won(c.amounts[t.id])}원` : ""}`).join(" · ")}${chk}</div>` : "";
     el.innerHTML = `
       <div class="dc-main">
         <div class="dc-title">${inCard ? `${dno}${year}${half}` : `<span class="sd-chip ${c.sector === "민간" ? "civil" : "gov"}">${c.sector}</span>${half}`}${esc(c.title || (c.sector === "민간" && c.auto_title) || "(계약건명 없음 — 계약 정보를 채우세요)")}</div>
@@ -732,6 +733,8 @@
         st.amounts = Object.fromEntries([...ub.querySelectorAll(".uf-amt")].map((i) => [i.dataset.id, num(i.value)]).filter(([, v]) => v));
       }
       if (st.facility_ids && st.facility_ids.length && (st.id || st.facility_id)) { b.facility_ids = st.facility_ids; b.amounts = st.amounts || {}; }
+      if (st.cover_touched) b.cover_touched = true;
+      if (st.cover_ok) b.cover_ok = true;
       if (!st.id && st.facility_id) b.facility_id = st.facility_id;
       for (const k of TEXT) b[k] = st[k] ?? "";
       for (const k of DATES) b[k] = st[k] || null;
@@ -771,7 +774,7 @@
       return `<div class="sd-up">
         <label class="drop-box drop-sm sd-up-box"><b>📎 내역서</b><input type="file" data-up="estimate" accept=".pdf,.hwp,.hwpx,.xlsx,.xls,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
         <span class="mail-note">${names.length ? names.map((n) => `<a href="${url(n)}" target="_blank" rel="noopener">✓ ${esc(n.replace(/^\d+_/, "").replace(/\.pdf$/, ""))}</a>`).join(" · ")
-          : "산출내역서·과업내용서 → 착수계 붙임에 자동"}</span></div>`;
+          : "산출내역서·과업내용서 → 착수계 붙임에 자동"}${(st.est_parts || []).length ? `<br>읽은 건물: ${st.est_parts.map((x) => esc(x.name)).join(" · ")}` : ""}</span></div>`;
     };
     const upChip = (kind, label, file, hint) => `<div class="sd-up">
         <label class="drop-box drop-sm sd-up-box"><b>📎 ${label}</b><input type="file" data-up="${kind}" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
@@ -812,8 +815,10 @@
       const on = new Set((st.facility_ids && st.facility_ids.length ? st.facility_ids : [st.facility.id]).map(Number));
       const total = st.sector === "관급" ? st.amount : null;
       const sum = us.filter((u) => on.has(u.id)).reduce((t, u) => t + (Number((st.amounts || {})[u.id]) || 0), 0);
+      const warn = st.cover === "check" && !st.cover_touched ? `<div class="sd-cover-warn">⚠ 건명·내역서로 맡는 건물을 못 정해 ${on.size === us.length ? "현장 전체" : "이 기간 다른 계약이 안 맡은 건물"}로 넣었습니다.
+          맞으면 <button type="button" class="sd-cover-ok">✓ 맞음</button>, 아니면 아래 체크를 고치세요(내역서를 올리면 이름으로 다시 정함).</div>` : "";
       return `<div class="mail-label">이 계약의 시설물 <span class="mail-note">— 보고서가 따로 나오는 시설물마다 보고서 쪽 계약이 생깁니다. 둘 이상이면 시설물별 금액(보고서 표지·FMS)</span></div>
-        <div class="sd-ufac">${us.map((u) => `<label class="uf-row"><input type="checkbox" class="uf-chk" value="${u.id}"${on.has(u.id) ? " checked" : ""} />
+        ${warn}<div class="sd-ufac">${us.map((u) => `<label class="uf-row"><input type="checkbox" class="uf-chk" value="${u.id}"${on.has(u.id) ? " checked" : ""} />
             <span class="site-no">${esc(u.mgmt_no)}</span> ${esc(u.name)}
             <span class="uf-amt-wrap">${on.has(u.id) && on.size > 1 ? `금 <input class="uf-amt sd-won" data-id="${u.id}" inputmode="numeric" value="${won((st.amounts || {})[u.id])}" placeholder="이 시설물 금액" /> 원` : ""}</span></label>`).join("")}
           ${on.size > 1 && total ? `<div class="mail-note${sum && sum !== total ? " uf-bad" : ""}">시설물별 금액 합 ${won(sum) || 0}원 / 계약금액 ${won(total)}원${sum && sum !== total ? " — 합이 계약금액과 다릅니다" : ""}</div>` : ""}</div>`;
@@ -911,8 +916,13 @@
         }
       });
       box.querySelectorAll('input[name="sd-sector"]').forEach((r) => r.addEventListener("change", () => { sync(); st.sector = r.value; filled = []; draw(); }));
+      box.querySelector(".sd-cover-ok")?.addEventListener("click", async () => { // ⚠ 맡는 건물 확인 끄기(현장 전체면 나중에 늘어난 건물까지)
+        st.cover_ok = true;
+        if (await save(true)) msg("✓ 맡는 건물을 확인했습니다.", "ok");
+      });
       box.querySelectorAll(".uf-chk").forEach((i) => i.addEventListener("change", () => { // 시설물 체크 바꾸면 금액 칸 다시
         sync();
+        st.cover_touched = true; // 사람이 고름 — 그 뒤로 자동으로 안 바꿈
         const ub = box.querySelector(".sd-ufac");
         st.facility_ids = [...ub.querySelectorAll(".uf-chk:checked")].map((x) => Number(x.value));
         st.amounts = { ...(st.amounts || {}), ...Object.fromEntries([...ub.querySelectorAll(".uf-amt")].map((x) => [x.dataset.id, num(x.value)])) };
@@ -1055,9 +1065,8 @@
         } else if (out.error) msg(esc(out.error), "warn");
         else if (out.auto_card) msg(`${filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")}<br>` : ""}${esc(out.auto_card)}`, "ok");
         else if (kind === "signed") msg("✓ 올렸습니다.", "ok");
-        else if (kind === "estimate") msg("✓ 내역서를 붙였습니다 — 착수계 붙임 \"산출내역서\"에 그대로 들어갑니다.", "ok");
-        else msg((filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")} — 노란 칸을 확인하세요.` : "읽었지만 새로 채울 빈 칸이 없었습니다.")
-          + (out.renamed ? `<br>✓ 카드 제목을 관리대장 시설물명 "${esc(out.renamed)}"(으)로 바꿨습니다.` : ""), filled.length || out.renamed ? "ok" : "");
+        else if (kind === "estimate") msg(`✓ 내역서를 붙였습니다 — 착수계 붙임 "산출내역서"에 그대로 들어갑니다.${out.est_note ? `<br>${esc(out.est_note)}` : ""}${out.error ? `<br>⚠ ${esc(out.error)}` : ""}`, out.error ? "warn" : "ok");
+        else msg(filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")} — 노란 칸을 확인하세요.` : "읽었지만 새로 채울 빈 칸이 없었습니다.", filled.length ? "ok" : "");
       } catch (err) {
         msg(esc(err.message), "bad");
       } finally {
@@ -1131,7 +1140,7 @@
           const fe = new FormData();
           fe.append("file", pendingEst);
           out = { ...out, ...(await apiUpload(`${P}/contracts/${out.id}/estimate`, fe)) };
-          estMsg = "<br>✓ 내역서도 붙였습니다(착수계 붙임 산출내역서).";
+          estMsg = `<br>✓ 내역서도 붙였습니다(착수계 붙임 산출내역서).${out.est_note ? ` ${esc(out.est_note)}` : ""}`;
           pendingEst = null;
           showEst();
         } catch (err) { estMsg = `<br>⚠ 내역서는 못 붙였습니다 — 계약 창의 [📎 내역서]로 다시 올려 주세요. (${esc(err.message)})`; }

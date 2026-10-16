@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 import datetime
+import difflib
+import os
 import re
 import secrets
 import shutil
@@ -161,7 +163,7 @@ def summary(db: Session, c: SitokDocContract) -> dict:
             "auto_title": civil.default_title(c), "auto_doc_no": civil.default_doc_no(c.contract_date),
             "facility": {"id": f.id, "name": f.name, "mgmt_no": f.mgmt_no} if f else None, "report_contract_id": c.report_contract_id,
             "half_tag": c.half_tag or "", "half_auto": auto, "half": c.half_tag or auto,
-            "facility_ids": covered_ids(c), "amounts": c.amounts or {}, "card_no": card_no(db, c),
+            "facility_ids": covered_ids(c), "amounts": c.amounts or {}, "card_no": card_no(db, c), "cover": c.cover or "", "est_parts": c.est_parts or [],
             "targets": [{"id": t.id, "mgmt_no": t.mgmt_no, "name": t.name} for t in (db.get(SitokFacility, x) for x in covered_ids(c)) if t is not None],
             # 동별 금액(10/15): 회차 줄에 나오는 동 이름, 연결한 시설물이 묶음이면 묶음 동 이름(동별 금액을 처음 켤 때 기본값)
             "buildings": civil.buildings(c.rounds), "group_names": _group_names(db, f),
@@ -203,6 +205,8 @@ class ContractIn(BaseModel):
     facility_id: int | None = None  # 시설물 카드 안 [+ 계약]으로 만들 때 그 카드(10/15)
     facility_ids: list[int] | None = None  # 이 계약이 덮는 시설물(시설물 여럿 카드 — 보고서 따로, 0052)
     amounts: dict | None = None  # 시설물별 금액 {시설물 id: 원}
+    cover_touched: bool | None = None  # 계약 창에서 사람이 건물 체크를 바꿈 → 그 뒤로 자동으로 안 바꿈(cover "")
+    cover_ok: bool | None = None  # [✓ 맞음] — ⚠ 맡는 건물 확인을 끔(현장 전체면 "all" — 늘어난 건물까지)
 
 
 def _apply(c: SitokDocContract, body: ContractIn, user: User, db: Session | None = None) -> None:
@@ -223,7 +227,12 @@ def _apply(c: SitokDocContract, body: ContractIn, user: User, db: Session | None
         fs = [db.get(SitokFacility, x) for x in ids]
         if not ids or any(f is None or f.company_id != c.company_id for f in fs):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "이 계약의 시설물을 하나 이상 고르세요.")
+        if data.get("cover_touched") and ids != covered_ids(c):
+            c.cover = ""
         c.facility_ids, c.facility_id = ids, ids[0]
+    if data.get("cover_ok") and db is not None and c.facility_id:
+        lead = db.get(SitokFacility, c.facility_id)
+        c.cover = "all" if lead is not None and set(covered_ids(c)) == {u.id for u in _card_units(db, lead)} else ""
     if "amounts" in data and data["amounts"] is not None:
         c.amounts = {str(k): int(str(v).replace(",", "")) for k, v in data["amounts"].items() if str(v).replace(",", "").strip().isdigit()} or None
     for k in TEXT:
@@ -641,13 +650,79 @@ def _pattern(t: str | None) -> str:
     return re.sub(r"상·하반기|상반기|하반기|\d+|년|[\s()（）·,._\-\[\]]", "", t or "")
 
 
-def _pick_units(db: Session, c: SitokDocContract, lead: SitokFacility) -> list[SitokFacility]:
-    """관급 계약이 맡을 카드 시설물(10/15 민재형 — 계약 하나에 보고서 9-1·9-2 / 발주처가 계약을 나눔 서류 9-1↔보고서 9-1·9-2↔9-2).
-    이 계약 기간에 다른 계약이 이미 맡은 시설물은 빼고(내진성능평가 계약은 따로) → 계약건명에 이름이 있는 시설물 →
-    전에 같은 건명 모양 계약이 맡던 시설물 → 남은 시설물 전부. 다 맡겨져 있으면 [](같은 발주처가 나눈 새 계약 — 새 카드)."""
+def _key(s: str | None) -> str:
+    """건물 이름 비교용 — 띄어쓰기·괄호 빼고 끝 "동"은 뗌("본관동" = "본관", "가동"·"A동"은 그대로)."""
+    n = _norm(s)
+    return n[:-1] if n.endswith("동") and len(n) >= 3 else n
+
+
+def _short_names(units: list[SitokFacility]) -> dict[int, str]:
+    """카드 안 건물 이름에서 같은 앞부분(학교·단지 이름)을 뗀 이름 — "분당영덕여고 본관" → "본관"."""
+    names = {u.id: _norm(u.name) for u in units}
+    pre = os.path.commonprefix(list(names.values())) if len(units) > 1 else ""
+    return {i: _key(n[len(pre):] if len(n) > len(pre) else n) for i, n in names.items()}
+
+
+def _same_name(a: str, b: str) -> bool:
+    """내역서 이름 ↔ 건물 이름 — 같거나, 3글자 넘게 한쪽이 다른 쪽에 들거나, 거의 같음("캠코캐피타타워" ≈ "캠코캐피탈타워")."""
+    if not a or not b:
+        return False
+    if a == b or (min(len(a), len(b)) >= 3 and (a in b or b in a)):
+        return True
+    return min(len(a), len(b)) >= 4 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.8
+
+
+def _cands(u: SitokFacility, short: dict[int, str], site: set[str]) -> set[str]:
+    """건물 하나를 가리키는 이름들(전체·앞부분 뗀 것) — 현장 이름(발주처·시설물명 칸)에 드는 말은 건물 근거가 아님."""
+    return {x for x in (_key(u.name), short.get(u.id, "")) if len(x) >= 2 and not any(x in t for t in site)}
+
+
+def _named_units(c: SitokDocContract, units: list[SitokFacility]) -> list[SitokFacility]:
+    """계약건명·내역서(est_parts)에 이름이 나오는 건물."""
+    title = _norm(c.title)
+    site = {_key(c.client), _key(c.facility_name)} - {""}
+    parts = [_key(x.get("name")) for x in c.est_parts or [] if x.get("name")]
+    short = _short_names(units)
+    out = []
+    for u in units:
+        cs = _cands(u, short, site)
+        if any(x in title for x in cs) or any(_same_name(q, x) for q in parts for x in cs):
+            out.append(u)
+    return out
+
+
+def _est_amounts(c: SitokDocContract, units: list[SitokFacility]) -> dict | None:
+    """관급 내역서의 건물별 금액 → {시설물 id: 원}. 건물마다 다 맞아야 씀, 계약이 내역서 건물 전부를 맡으면 합을 계약금액(VAT 포함)에 맞춤."""
+    parts = [(_key(x.get("name")), int(x["amount"])) for x in c.est_parts or [] if x.get("name") and x.get("amount")]
+    if c.sector != "관급" or not parts or len(units) < 2:
+        return None
+    short, got, used = _short_names(units), {}, set()
+    for u in units:
+        cs = {_key(u.name), short.get(u.id, "")} - {""}
+        hit = next(((i, amt) for i, (n, amt) in enumerate(parts) if i not in used and any(_same_name(n, x) for x in cs)), None)
+        if hit is None:
+            return None
+        used.add(hit[0])
+        got[str(u.id)] = hit[1]
+    total, sm = c.amount, sum(got.values())
+    if total and sm and sm != total and len(used) == len(parts):
+        keys, acc = list(got), 0
+        for k in keys[:-1]:
+            got[k] = round(got[k] * total / sm)
+            acc += got[k]
+        got[keys[-1]] = total - acc
+    return got
+
+
+def decide_cover(db: Session, c: SitokDocContract, lead: SitokFacility) -> tuple[list[SitokFacility], str]:
+    """계약이 맡는 건물(10/16 민재형 개편) — ① 계약건명·내역서에 이름이 나오는 건물 → ② 같은 건명 모양 전 계약이 맡던 건물 →
+    ③ 현장 전체(이 기간 다른 계약이 맡은 건물이 있으면 그것만 뺌) + ⚠ 확인. 돌려주는 방식: auto(①②) / check(③)."""
     units = _card_units(db, lead)
-    if "내진" in (c.title or ""):
-        return units
+    named = _named_units(c, units)
+    if named:
+        return named, "auto"
+    if len(units) == 1 or "내진" in (c.title or ""):
+        return units, "check"
     ids = {u.id for u in units}
     taken, prev = set(), None
     for o in db.query(SitokDocContract).filter(SitokDocContract.company_id == c.company_id, SitokDocContract.id != c.id):
@@ -659,27 +734,66 @@ def _pick_units(db: Session, c: SitokDocContract, lead: SitokFacility) -> list[S
         elif o.start_date and c.start_date and o.start_date < c.start_date and _pattern(o.title) and _pattern(o.title) == _pattern(c.title) \
                 and (prev is None or o.start_date > prev[0]):
             prev = (o.start_date, cov)
-    free = [u for u in units if u.id not in taken]
-    if len(free) <= 1 or len(units) == 1:
-        return free
-    title = _norm(c.title)
-    named = [u for u in free if len(_norm(u.name)) >= 4 and _norm(u.name) in title]
-    if named:
-        return named
-    if prev and [u for u in free if u.id in prev[1]]:
-        return [u for u in free if u.id in prev[1]]
-    return free
+    if prev and [u for u in units if u.id in prev[1]]:
+        return [u for u in units if u.id in prev[1]], "auto"
+    return [u for u in units if u.id not in taken] or units, "check"
+
+
+def set_units(c: SitokDocContract, units: list[SitokFacility], mode: str) -> None:
+    """맡는 건물 넣기 — 둘 이상이면 내역서 건물별 금액(있으면), 빠진 건물 금액은 지움."""
+    ids = [u.id for u in units]
+    c.facility_id, c.facility_ids, c.cover = ids[0], (ids if len(ids) > 1 else None), mode
+    if len(ids) > 1:
+        c.amounts = _est_amounts(c, units) or ({k: v for k, v in (c.amounts or {}).items() if int(k) in ids} or None)
+    else:
+        c.amounts = None
+
+
+def redecide(db: Session, c: SitokDocContract, force_names: bool = False) -> bool:
+    """자동으로 정한 계약(auto·check·all)이면 맡는 건물을 다시 정함 — 바뀌면 True. force_names = 사람이 고른 계약이라도 내역서·건명에 이름이 나오면 그것으로."""
+    lead = db.get(SitokFacility, c.facility_id) if c.facility_id else None
+    if lead is None:
+        return False
+    before = (covered_ids(c), dict(c.amounts or {}))
+    if c.cover == "all":
+        set_units(c, _card_units(db, lead), "all")
+    elif c.cover:
+        set_units(c, *decide_cover(db, c, lead))
+    elif force_names:
+        named = _named_units(c, _card_units(db, lead))
+        if named:
+            set_units(c, named, "auto")
+    return (covered_ids(c), dict(c.amounts or {})) != before
+
+
+def recover_card(db: Session, user: User, lead: SitokFacility) -> list[SitokDocContract]:
+    """카드의 건물이 바뀐 뒤(보고서 자동화 등록에서 건물 따로 추가 등) — 자동으로 정한 계약의 맡는 건물을 다시 정하고 보고서 쪽 계약까지.
+    "현장 전체"(check·all) 계약은 늘어난 건물까지 맡음. 바뀐 계약들."""
+    from server.api.routers.sitok import card_facilities
+
+    all_ids = {x.id for x in card_facilities(db, lead)}
+    cons = [o for o in db.query(SitokDocContract).filter(SitokDocContract.company_id == lead.company_id) if o.cover and set(covered_ids(o)) & all_ids]
+    cons.sort(key=lambda o: (o.cover == "check", o.start_date or datetime.date.min, o.id))  # 이름으로 정한 계약 먼저 — "남은 건물" 셈이 맞게
+    changed = []
+    for o in cons:
+        if redecide(db, o):
+            db.flush()
+            changed.append(o)
+            if o.report_contracts or o.report_contract_id:
+                auto_card(db, user, o)
+    db.commit()
+    return changed
 
 
 def match_card(db: Session, c: SitokDocContract, why: dict | None = None) -> list[SitokFacility] | None | bool:
     """같은 시설물 카드 — 시설물명·발주처가 카드 이름·관리주체와 (띄어쓰기 빼고) 같거나, 학교 이름("초성초등학교")이 같거나,
     계약건명에 시설물 이름이 그대로 있으면(관급 — "2026년 남양주어린이집 정기안전점검", 10/15 밤).
     없으면 None, 둘 이상이면 False(못 정함 — 사람이 고름), 계약서에 학교가 둘 이상 적혀 있어도 False.
-    관급은 카드 안에서 맡을 시설물을 고름(_pick_units) — 이 기간 계약이 다 있으면 None + why["full"] = 그 카드 번호(새 카드, 번호를 같게 바꾸면 합침)."""
+    번호 = 현장(10/16 민재형): 같은 현장이면 계약이 달라도 같은 카드, 카드 안에서 맡을 건물은 decide_cover(why["mode"] = auto·check)."""
     from server.api.routers.sitok import base_no
 
     keys = {_norm(x) for x in (c.facility_name, c.client) if _norm(x)}
-    schools = school_names(c.facility_name, c.client)
+    schools = school_names(c.facility_name, c.client, c.title if c.sector == "관급" else None)  # 관급은 학교 이름이 건명에만 있기도(발주처 = 교육청)
     if len(schools) > 1:
         return False
     gov = c.sector == "관급"
@@ -715,15 +829,11 @@ def match_card(db: Session, c: SitokDocContract, why: dict | None = None) -> lis
     bases = {base_no(h.mgmt_no) for h in hits.values()}
     if len(hits) > 1 and not (len(bases) == 1 and next(iter(bases))):  # 다른 카드 여럿 — 못 정함
         return False
-    lead = next(iter(hits.values()))
-    if c.sector == "관급":
-        units = _pick_units(db, c, lead)
-        if not units and why is not None:
-            why["full"] = base_no(lead.mgmt_no) or lead.mgmt_no
-        return units or None
-    if len(hits) > 1:  # 민간 — 같은 카드(관급-6-1·6-2 — 앞 번호 같음)면 맞은 시설물 전부(계약 창에서 체크로 줄임)
-        return sorted(hits.values(), key=lambda h: h.mgmt_no or "")
-    return [lead]
+    lead = sorted(hits.values(), key=lambda h: h.mgmt_no or "")[0]
+    units, mode = decide_cover(db, c, lead)
+    if why is not None:
+        why["mode"] = mode
+    return units
 
 
 def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
@@ -738,8 +848,7 @@ def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
         if f is False:  # 같은 시설물로 보이는 카드가 여럿·학교가 둘 — 새 카드를 만들지 않고 사람이 [카드 고르기]
             return None
         if f is not None:  # [시설물들] — 시설물 여럿 카드면 전부(보고서 따로)
-            c.facility_id = f[0].id
-            c.facility_ids = [x.id for x in f] if len(f) > 1 else None
+            set_units(c, f, why.get("mode") or "check")
             joined = f[0]
             db.flush()
     elif c.report_contract_id:
@@ -772,14 +881,13 @@ def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
     msg = (f"✓ 새 시설물 카드 {no} {out['facility_name']}를 만들어 넣었습니다(보고서 자동화에도 생김)" if out.get("created_facility")
            else f"✓ 같은 시설물 카드 {card_no(db, c)} {out['facility_name']}에 넣었습니다" if joined is not None
            else f"✓ {card_no(db, c)} {out['facility_name']} 카드의 보고서 쪽 계약으로 넣었습니다")
-    if out.get("created_facility") and why.get("full"):  # 같은 발주처 카드가 이 기간 계약이 이미 있음 — 나눈 계약이면 번호로 합치기
-        n = why["full"].split("-", 1)[-1]
-        msg += f" — 같은 발주처 카드 {why['full']}는 이 기간 계약이 이미 있어 새 카드로 했습니다. 발주처가 계약을 나눈 거면 번호표를 눌러 {n}(으)로 바꾸면 {why['full']} 카드의 시설물(보고서 따로)로 들어갑니다"
-    elif out.get("created_facility") and why.get("client"):
+    if out.get("created_facility") and why.get("client"):
         n = why["client"].split("-", 1)[-1]
         msg += f" — 발주처가 같은 카드 {why['client']}가 있지만 건명이 달라 다른 시설물로 봤습니다. 같은 발주처가 나눈 계약(보고서만 따로)이면 번호표를 눌러 {n}(으)로 바꾸면 {why['client']} 카드에 들어갑니다"
     elif joined is not None and f is not None and len(_card_units(db, f)) > 1:
-        msg += f" — 이 계약의 시설물 {' · '.join(x.mgmt_no for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x)}(다르면 계약 정보의 \"이 계약의 시설물\"에서 고르세요)"
+        msg += f" — 이 계약의 시설물 {' · '.join(x.mgmt_no for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x)}"
+        msg += (" ⚠ 건명·내역서로 맡는 건물을 못 정해 현장 전체로 넣었습니다 — 계약 정보에서 확인하세요" if c.cover == "check"
+                else "(다르면 계약 정보의 \"이 계약의 시설물\"에서 고르세요)")
     return summary(db, c) | {"auto_card": msg, "report_id": out.get("report_id")}
 
 
@@ -852,12 +960,30 @@ def from_g2b(file: UploadFile = File(...), user: User = Depends(get_current_user
 @router.post("/contracts/{cid}/estimate")
 def add_estimate(cid: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """관급 내역서(산출내역서·과업내용서) — 계약 단계에서 붙이면 착수계 붙임 "산출내역서" 칸에 그대로 들어감(같은 폴더, 10/16 민재형)."""
+    from server.sitok import reader
+
     c = _require(db, user, cid)
     try:
-        attachments.add_file(folder(c), "sitok_start", "calc", file.file.read(), file.filename or "내역서")
+        path = attachments.add_file(folder(c), "sitok_start", "calc", file.file.read(), file.filename or "내역서")
     except (ValueError, RuntimeError) as err:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
-    return summary(db, c) | {"filled": [], "error": ""}
+    error, note = "", ""
+    try:
+        parts = reader.read_estimate(path, user.company_id)
+    except Exception as err:  # noqa: BLE001 — 붙임은 됐음, 건물은 손으로
+        parts, error = [], f"내역서는 붙였지만 건물을 읽지 못했습니다 — 맡는 건물은 직접 고르세요. ({str(err).splitlines()[0][:120]})"
+    if parts:
+        c.est_parts = parts
+        note = "읽은 건물: " + " · ".join(x["name"] + (f" {x['amount']:,}원" if x.get("amount") else "") for x in parts)
+        if redecide(db, c, force_names=True):
+            db.flush()
+            out = auto_card(db, user, c) if (c.report_contracts or c.report_contract_id) else None
+            note += " → 이 계약의 시설물 " + " · ".join(x.mgmt_no for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x)
+            if out is not None:
+                note += "(보고서 쪽 계약도 맞춤)"
+    c.updated_at, c.updated_by = datetime.datetime.now(), user.display_name or ""
+    db.commit()
+    return summary(db, c) | {"filled": [], "error": error, "est_note": note}
 
 
 @router.post("/contracts/{cid}/upload/{kind}")
@@ -879,11 +1005,10 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
     (base / target).write_bytes(pdf)
     if target == "날인본.pdf":
         c.contract_pdf = str(base / target)
-    filled, error, ledger_name = [], "", ""
+    filled, error = [], ""
     try:
         if kind == "ledger":
             d = reader.read_ledger(base / target, user.company_id)
-            ledger_name = (d.get("name") or "").strip()
             got = {"facility_name": d.get("name"), "location": d.get("address"), "client": d.get("owner_name"),
                    "client_rep": d.get("owner_rep"), "spec": f"연면적 {d['total_area']:,.2f}m²" if d.get("total_area") else ""}
             filled = _fill(c, got, False)
@@ -904,31 +1029,15 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
     folder(c)  # 이름이 바뀌었으면 폴더도
     if c.contract_pdf and not Path(c.contract_pdf).exists():
         c.contract_pdf = str(folder(c) / "날인본.pdf")
-    full = False
-    lead = db.get(SitokFacility, c.facility_id) if c.facility_id else None
-    if kind in ("g2b", "existing") and lead is not None and not c.report_contracts and not c.report_contract_id and len(_card_units(db, lead)) > 1:
-        # 시설물 여럿 카드 안 [+ 계약](10/15 밤) — 기간을 읽었으니 맡을 시설물을 고름: 이 기간 다른 계약이 맡은 시설물은 빼고(나눈 계약이면 9-2만)
-        picked = _pick_units(db, c, lead) if c.sector == "관급" else []
-        if picked:
-            c.facility_id, c.facility_ids = picked[0].id, ([u.id for u in picked] if len(picked) > 1 else None)
-        elif c.sector == "관급":
-            full = True
-            error = (error + " ") if error else ""
-            error += "이 기간 계약이 카드의 시설물마다 이미 있습니다 — 다른 시설물 계약이면 카드의 [+ 시설물 추가]로 시설물을 먼저 만들고 \"이 계약의 시설물\"에서 고르세요."
+    if kind in ("g2b", "existing") and c.facility_id:  # 카드 안 [+ 계약] — 기간·건명을 읽었으니 맡을 건물을 다시 정함(사람이 고른 계약은 그대로)
+        redecide(db, c)
     db.commit()
-    renamed = ""
-    ids = covered_ids(c)
-    f1 = db.get(SitokFacility, ids[0]) if kind == "ledger" and ledger_name and len(ids) == 1 else None
-    if f1 is not None and not f1.group_id and f1.name != ledger_name:  # 카드 제목 = 관리대장 시설물명(10/16 민재형 — 그 전엔 발주처 이름)
-        from server.api.routers.sitok import FacilityIn, update_facility
-        update_facility(f1.id, FacilityIn(name=ledger_name), None, user, db)  # 시설물 폴더·파일 경로도 같이
-        renamed = ledger_name
     dup = duplicate_of(db, c)
-    auto = auto_card(db, user, c) if kind in ("g2b", "existing", "signed") and not full else None  # 계약서를 올리면 바로 카드에(10/15 — 저장 = 카드)
+    auto = auto_card(db, user, c) if kind in ("g2b", "existing", "signed") else None  # 계약서를 올리면 바로 카드에(10/15 — 저장 = 카드)
     if auto is None and c.facility_id and kind in ("g2b", "existing"):  # 카드 안 계약 — 기간이 생기면 방문 달력 일정(10/15)
         from server.sitok.visit_plan import fill_quietly
         fill_quietly(db, user.company_id, user.display_name or "", [c.facility_id])
-    return (auto or summary(db, c)) | {"filled": filled, "error": error, "duplicate_of": dup, "renamed": renamed}
+    return (auto or summary(db, c)) | {"filled": filled, "error": error, "duplicate_of": dup}
 
 
 def duplicate_of(db: Session, c: SitokDocContract) -> dict | None:
