@@ -140,9 +140,15 @@
       <span>확인 ${s.total - s.unchecked} / ${s.total}</span>
       <span class="ok">그대로 ${s.same}</span><span class="grew">진행 ${s.grew}</span><span class="rep">보수 ${s.repaired}</span><span class="new">신규 ${s.new}</span>
       <button type="button" class="secondary sf-cause-ai" title="원인이 비었거나 뭉뚱그린 낱말인 결함만 AI가 사진을 보고 구체적으로 — 카드에서 다시 고칠 수 있음">🤖 원인 추천</button>
+      ${!data.defects.length ? '<button type="button" class="secondary sf-back-import" title="[전회차 없이 시작]을 잘못 눌렀을 때 — 지난 보고서 PDF·직전 회차에서 가져오는 화면으로">↩ 전회차 결함 가져오기</button>' : ""}
       ${off ? `<div class="sf-offbar">⚠ 목록에 없는 이름 ${off}건(지난 보고서 이름) <button type="button" class="secondary btn-sm sf-remap">🤖 한꺼번에 정리</button></div>` : ""}`;
     document.querySelector(".sf-cause-ai").addEventListener("click", suggestCauses);
     document.querySelector(".sf-remap")?.addEventListener("click", remapNames);
+    document.querySelector(".sf-back-import")?.addEventListener("click", () => { // 10/16: [전회차 없이 시작]을 잘못 눌러도 결함이 없으면 되돌림
+      started = false;
+      try { sessionStorage.removeItem(`sf-started-${rid}`); } catch (_) { /* */ }
+      refresh();
+    });
   }
 
   async function remapNames(e) { // 목록 밖 이름 — 조합별로 AI 제안 → 점검자가 확인·고쳐서 한꺼번에
