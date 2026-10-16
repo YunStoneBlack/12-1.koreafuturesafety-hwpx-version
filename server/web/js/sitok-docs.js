@@ -145,9 +145,10 @@
   }));
 
   const TYPE_SHORT = { "장기": "장기·지속", "1회성": "1회성·입찰", "종료": "계약 종료" };
+  const openCards = new Set(); // 폰: 카드는 접힌 한 줄, 누르면 펼침(10/16 사용자 "목록이 너무 많아") — 펼친 카드 번호
   function cardEl(k) {
     const el = document.createElement("div");
-    el.className = `sd-fcard${k.contract_type === "종료" ? " ended" : ""}`;
+    el.className = `sd-fcard${k.contract_type === "종료" ? " ended" : ""}${openCards.has(k.id) ? " open" : ""}`;
     const us = unitsOf(k);
     const many = us.length > 1; // 시설물 여럿(보고서 따로, 0052)
     const multi = !many && k.members.length > 1; // 한 시설물의 묶인 동(한 보고서)
@@ -158,7 +159,8 @@
           ${many ? `<b>${esc(cardName(k))}</b><span class="sk-dong-n">시설물 ${us.length}곳 · 보고서 따로</span>` : `<a href="sitok-facility.html?id=${k.id}" title="보고서 자동화 · 시설물 화면"><b>${esc(cardName(k))}</b></a>`}${multi ? `<span class="sk-dong-n">${k.members.length}동</span>` : ""}
           ${k.badge_field ? `<span class="sk-badge b-field">${esc(k.badge_field)}</span>` : ""}${k.badge_kind ? `<span class="sk-badge b-kind">${esc(k.badge_kind)}</span>` : ""}
           <span class="sd-ftype">${esc(TYPE_SHORT[k.contract_type] || k.contract_type || "")}</span></div>
-        <div class="dc-meta">${esc([k.address, k.owner_name].filter(Boolean).join(" · "))}${multi ? ` · ${esc(k.members.map((m) => m.name).join(", "))}` : ""}</div>
+        <div class="sd-fsum">${cons.length ? `계약 ${cons.length}건 · ${esc(periodText(cons[cons.length - 1]) || cons[cons.length - 1].title || "")}` : "계약 없음"}<span class="sd-fchev" aria-hidden="true">▾</span></div>
+        <div class="dc-meta sd-faddr">${esc([k.address, k.owner_name].filter(Boolean).join(" · "))}${multi ? ` · ${esc(k.members.map((m) => m.name).join(", "))}` : ""}</div>
         ${many ? `<div class="sd-units">${us.map((u) => `<a class="sd-unit" href="sitok-facility.html?id=${u.id}" title="보고서 자동화 · 시설물 화면"><span class="site-no">${esc(u.mgmt_no)}</span>${esc(u.name)}${u.members.length > 1 ? ` <small>${u.members.length}동</small>` : ""}</a>`).join("")}</div>` : ""}</div>
         <div class="sd-facts">
           <button type="button" class="secondary sd-fnew">${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}</button>
@@ -178,6 +180,16 @@
     if (noBtn) noBtn.addEventListener("click", () => editNumber(k));
     const links = siteLinkButtons(k.contact_phone, k.address);
     if (links) el.querySelector(".sd-fmain").appendChild(links);
+    el.querySelector(".sd-fhead").addEventListener("click", (e) => { // 폰: 머리를 누르면 펼침·접음(버튼·링크는 그대로, 접혀 있을 땐 이름을 눌러도 먼저 펼침)
+      if (!window.matchMedia("(max-width: 760px)").matches) return;
+      const hit = e.target.closest("a, button, input, select");
+      const nameLink = hit && hit.tagName === "A" && hit.closest(".sd-ftitle") && !el.classList.contains("open");
+      if (hit && !nameLink) return;
+      if (nameLink) e.preventDefault();
+      if (openCards.has(k.id)) openCards.delete(k.id);
+      else openCards.add(k.id);
+      el.classList.toggle("open", openCards.has(k.id));
+    });
     return el;
   }
 
