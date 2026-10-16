@@ -80,10 +80,10 @@ def add_visit(body: VisitIn, user: User = Depends(get_current_user), db: Session
         raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
     um = _unit_map(db, user.company_id)
     u = um.get(f.id)
-    y, h = V.h_of(V.d_index(body.plan_date))
+    y, h = V.slot_of(db, u, body.plan_date)  # 반기, 연 3회 시설물이면 그 날이 드는 해빙기·우기·동절기(10/16)
     kind = body.kind if body.kind in ("정기", "정밀") else None
     if kind is None:  # 그 반기 할 일(계약)의 종류, 없으면 그 반기 다른 날의 종류, 없으면 정기
-        need = next((n for n in V.needs_for(db, u, min(datetime.date.today(), body.plan_date - V.DAY)) if n.index == V.h_index(y, h)), None) if u else None
+        need = next((n for n in V.needs_for(db, u, min(datetime.date.today(), body.plan_date - V.DAY)) if n.key == (y, h)), None) if u else None
         old = db.query(SitokVisit).filter(SitokVisit.facility_id.in_(u.ids if u else [f.id]), SitokVisit.year == y, SitokVisit.half == h).first()
         kind = need.kind if need else old.kind if old else "정기"
     v = SitokVisit(company_id=user.company_id, facility_id=(u.lead.id if u else f.id), year=y, half=h, kind=kind, plan_date=body.plan_date,
@@ -111,7 +111,7 @@ def patch_visit(vid: int, body: VisitPatch, user: User = Depends(get_current_use
     v = _require(db, user, vid)
     if body.plan_date is not None and body.plan_date != v.plan_date:
         v.plan_date = body.plan_date
-        v.year, v.half = V.h_of(V.d_index(body.plan_date))  # 다른 반기로 옮기면 그 반기 점검이 됨
+        v.year, v.half = V.slot_of(db, _unit_map(db, user.company_id).get(v.facility_id), body.plan_date)  # 다른 반기(연 3회면 시기)로 옮기면 그 점검이 됨
         v.source = "manual"  # 사람이 옮긴 날 = 📌(자동 배치가 안 건드림)
     if body.memo is not None:
         v.memo = body.memo.strip()

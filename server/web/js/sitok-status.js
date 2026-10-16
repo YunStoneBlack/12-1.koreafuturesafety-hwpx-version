@@ -96,7 +96,7 @@
     el.innerHTML = `
       <div class="ss-fac"><span class="site-no">${esc(f.mgmt_no)}</span><span class="sk-sector ${f.sector === "관급" ? "gov" : "pri"}">${esc(f.sector)}</span>
         <a href="sitok-facility.html?id=${f.id}"><b>${esc(f.name)}</b></a>${f.members.length > 1 ? `<span class="sk-dong-n">${f.members.length}동</span>` : ""}
-        ${r.kind ? `<span class="ss-kind">${esc(r.kind)}</span>` : ""}${f.badge_field ? `<span class="sk-badge b-field">${esc(f.badge_field)}</span>` : ""}${f.badge_kind ? `<span class="sk-badge b-kind">${esc(f.badge_kind)}</span>` : ""}</div>
+        ${r.season ? `<span class="ss-kind ss-season" title="연 3회 — 이 반기 칸 안의 시기">${esc(r.season)}</span>` : ""}${r.kind ? `<span class="ss-kind">${esc(r.kind)}</span>` : ""}${f.badge_field ? `<span class="sk-badge b-field">${esc(f.badge_field)}</span>` : ""}${f.badge_kind ? `<span class="sk-badge b-kind">${esc(f.badge_kind)}</span>` : ""}</div>
       <div class="ss-c" data-label="보고서"><a class="ss-b ${rt}" href="${roundHref}">${rl}${r.report.at ? ` ${esc(r.report.at)}` : ""}</a></div>
       <div class="ss-c" data-label="발주처 이메일"><button type="button" class="ss-cell" data-item="mail">${markBadge(r.mail)}</button></div>
       <div class="ss-c" data-label="FMS"><button type="button" class="ss-cell" data-item="fms">${fmsAuto || markBadge(r.fms.mark)}</button></div>
@@ -115,7 +115,7 @@
     const overlay = document.createElement("div");
     overlay.className = "mail-overlay";
     overlay.innerHTML = `<div class="mail-box ss-mark" role="dialog" aria-modal="true">
-      <div class="mail-head"><b>${ITEM[item]}</b><span class="mail-sub">${esc(r.facility.mgmt_no)} ${esc(r.facility.name)}${r.kind ? ` · ${esc(r.kind)}` : ""}</span></div>
+      <div class="mail-head"><b>${ITEM[item]}</b><span class="mail-sub">${esc(r.facility.mgmt_no)} ${esc(r.facility.name)}${r.season ? ` · ${esc(r.season)}` : ""}${r.kind ? ` · ${esc(r.kind)}` : ""}</span></div>
       ${item === "fms" && r.fms.auto ? `<div class="mail-note">FMS 자동 제출 기록: ${r.fms.auto === "done" ? "실적보고까지 끝" : "계약 등록까지"} ${esc(r.fms.auto_at)}</div>` : ""}
       ${item === "mail" && r.email ? `<div class="mail-note">계약 담당 이메일: <a href="mailto:${esc(r.email)}">${esc(r.email)}</a></div>` : ""}
       <div class="mail-note">${mk ? (mk.na ? `지금: 해당없음 (${esc(mk.by || "")})` : `지금: ✓ ${esc(mk.at)} (${esc(mk.by || "")})`) : "지금: 표시 없음"}</div>

@@ -77,8 +77,11 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
     y0, h0 = current_half()
     year, half = year or y0, half if half in HALVES else h0
     facs = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id).order_by(SitokFacility.group_order, SitokFacility.id).all()
-    reps = {r.facility_id: r for r in db.query(SitokReport).filter(SitokReport.company_id == user.company_id, SitokReport.year == year,
-                                                                   SitokReport.half == half).order_by(SitokReport.id)}
+    from server.sitok import seasons
+    reps_by: dict[int, dict[str, SitokReport]] = {}  # 시설물 → {시기: 회차} — 연 3회(해빙기·우기·동절기)는 반기 칸 안에서 시기마다(10/16)
+    for x in db.query(SitokReport).filter(SitokReport.company_id == user.company_id, SitokReport.year == year,
+                                          SitokReport.half.in_(seasons.in_bucket(half))).order_by(SitokReport.id):
+        reps_by.setdefault(x.facility_id, {}).setdefault(x.half, x)
     docs = {}
     for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id, SitokDocContract.facility_id.isnot(None)).order_by(SitokDocContract.id):
         docs[d.facility_id] = d
@@ -88,26 +91,27 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
     rows = []
     for key, members in units.items():
         lead = members[0]
-        mr = [reps[m.id] for m in members if m.id in reps]
-        r = next((reps[m.id] for m in members if m.id in reps), None)
-        if r is None:
-            if lead.contract_type == "종료" or contract_for(db, lead, year, half) is None:
-                continue  # 이 반기 계약도 회차도 없음
         name = lead.name
         if key[0] == "g" and len(members) > 1:
             g = db.get(SitokGroup, key[1])
             name = (g.name if g else "") or lead.name
         doc = next((docs[m.id] for m in members if m.id in docs), None)
-        sub = (r.submit or {}) if r is not None else {}
-        states = [report_state(x) for x in mr] or [report_state(None)]
-        rep = next((s for s in states if s["state"] != "done"), states[0])  # 묶음은 한 동이라도 안 끝나면 안 끝남
-        rows.append({
-            "facility": {"id": lead.id, "mgmt_no": lead.mgmt_no, "name": name, "sector": lead.sector or "민간", "badge_field": lead.badge_field or "",
-                         "badge_kind": lead.badge_kind or "", "contract_type": lead.contract_type, "members": [{"id": m.id, "name": m.name} for m in members]},
-            "report_id": r.id if r is not None else None, "report_ids": [x.id for x in mr], "kind": r.kind if r is not None else "",
-            "report": rep, "mail": sub.get("mail"), "fms": fms_state(r), "print": sub.get("print"), "parcel": sub.get("parcel"),
-            "email": (doc.site_email or doc.client_email) if doc is not None else "",
-        })
+        for hh in sorted({h for m in members for h in reps_by.get(m.id, {})}, key=seasons.order) or [half]:  # 연 3회면 시기마다 한 줄
+            mr = [reps_by[m.id][hh] for m in members if hh in reps_by.get(m.id, {})]
+            r = mr[0] if mr else None
+            if r is None and (lead.contract_type == "종료" or contract_for(db, lead, year, half) is None):
+                continue  # 이 반기 계약도 회차도 없음
+            sub = (r.submit or {}) if r is not None else {}
+            states = [report_state(x) for x in mr] or [report_state(None)]
+            rep = next((s for s in states if s["state"] != "done"), states[0])  # 묶음은 한 동이라도 안 끝나면 안 끝남
+            rows.append({
+                "facility": {"id": lead.id, "mgmt_no": lead.mgmt_no, "name": name, "sector": lead.sector or "민간", "badge_field": lead.badge_field or "",
+                             "badge_kind": lead.badge_kind or "", "contract_type": lead.contract_type, "members": [{"id": m.id, "name": m.name} for m in members]},
+                "report_id": r.id if r is not None else None, "report_ids": [x.id for x in mr], "kind": r.kind if r is not None else "",
+                "season": hh if seasons.is_season(hh) else "",
+                "report": rep, "mail": sub.get("mail"), "fms": fms_state(r), "print": sub.get("print"), "parcel": sub.get("parcel"),
+                "email": (doc.site_email or doc.client_email) if doc is not None else "",
+            })
     return {"year": year, "half": half, "rows": rows}
 
 
@@ -152,7 +156,8 @@ def _doc_key(c: SitokDocContract, year: int, half: str, is_now: bool) -> str | N
         return "all" if c.start_date <= b and (c.end_date or c.start_date) >= a else None
     key = f"{year}-{half}"
     rounds = c.rounds or []
-    if any(r.get("year") == year and r.get("half") == half for r in rounds):
+    from server.sitok import seasons
+    if any(r.get("year") == year and seasons.bucket(r.get("half")) == half for r in rounds):
         return key
     if c.open_ended:
         return key if c.start_date is not None and c.start_date <= b else (key if c.start_date is None and is_now else None)

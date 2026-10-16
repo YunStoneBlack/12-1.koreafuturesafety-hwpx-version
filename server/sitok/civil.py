@@ -22,7 +22,9 @@ from server.sitok import report_build as rb
 HP, T = rb.HP, rb.T
 TEMPLATE_NAME = "시특법_민간계약서_양식.hwpx"
 KINDS = ("정기", "정밀")
-HALVES = ("상반기", "하반기")
+from server.sitok import seasons  # noqa: E402
+
+HALVES = seasons.ALL  # 상반기·하반기 + 연 3회 해빙기·우기·동절기(10/16)
 TOKENS = ("문서번호", "종류", "시설물명", "관리주체", "대표자", "계약건명", "계약금액", "계약보증액", "지체상금율", "계약기간", "위치", "제원", "계약일", "목적")
 
 PURPOSE = {  # 제1조(목적) — 견본 두 개에서(서로 뒤바뀌어 있던 것을 제자리로), 섞이면 둘을 합침(형 검토)
@@ -67,7 +69,7 @@ def normalize_rounds(v) -> list[dict]:
             item["parts"] = parts
             item["amount"] = sum(p["amount"] for p in parts)
         out.append(item)
-    return sorted(out, key=lambda r: (r["year"], HALVES.index(r["half"])))
+    return sorted(out, key=lambda r: (r["year"], seasons.order(r["half"])))
 
 
 def buildings(rounds: list | None) -> list[str]:
@@ -153,7 +155,7 @@ def amount_lines(rounds: list | None, unit: dict | None, open_ended: bool) -> li
     if open_ended:
         u = unit or {}
         return [f"매 반기({u.get('kind') or '정기'}) : {money(u.get('amount'))}"]
-    rows = sorted(rounds or [], key=lambda r: (int(r.get("year") or 0), HALVES.index(r["half"]) if r.get("half") in HALVES else 0))
+    rows = sorted(rounds or [], key=lambda r: (int(r.get("year") or 0), seasons.order(r.get("half"))))
     out = []
     for r in rows:
         out.append(f"{r.get('year')}년 {r.get('half')}({r.get('kind') or '정기'}) : {money(r.get('amount'), vat=len(rows) == 1)}")
@@ -193,6 +195,14 @@ def period_text(start: datetime.date | None, end: datetime.date | None, open_end
     return f"{s}  ～ {end:%Y. %m. %d.}" if end else f"{s}  ～     .   .   ."
 
 
+def purpose(k: str, rounds: list | None) -> str:
+    """제1조(목적) — 회차 줄이 연 3회(해빙기·우기·동절기, D·E등급 — 10/16)면 "년2회 상반기와 하반기"를 "년3회 해빙기·우기·동절기"로."""
+    text = PURPOSE[k]
+    if any(seasons.is_season((r or {}).get("half")) for r in rounds or []):
+        text = text.replace("년2회 상반기와 하반기", "년3회 해빙기·우기·동절기")
+    return text
+
+
 def values(c) -> dict[str, str]:
     """계약(SitokDocContract) → 자리표시 값."""
     k = kinds_of(c.rounds, c.unit, c.open_ended)
@@ -201,7 +211,7 @@ def values(c) -> dict[str, str]:
         "종류": kind_word(k), "시설물명": c.facility_name or "", "관리주체": c.client or "", "대표자": c.client_rep or "대 표 자",
         "계약건명": c.title or default_title(c), "계약금액": "\n".join(amount_lines(c.rounds, c.unit, c.open_ended)),
         "계약보증액": c.guarantee or "-", "지체상금율": c.delay_rate or "-", "계약기간": period_text(c.start_date, c.end_date, c.open_ended),
-        "위치": c.location or "", "제원": c.spec or "", "계약일": f"{c.contract_date:%Y. %m. %d.}" if c.contract_date else "", "목적": PURPOSE[k],
+        "위치": c.location or "", "제원": c.spec or "", "계약일": f"{c.contract_date:%Y. %m. %d.}" if c.contract_date else "", "목적": purpose(k, c.rounds),
     }
 
 
@@ -352,7 +362,7 @@ EXISTING_PROMPT = """시설물 안전점검(정기안전점검·정밀안전점�
 JSON 객체 하나로만 답하세요(설명 없이, 없으면 "" 또는 null, 날짜는 YYYY-MM-DD):
 {"doc_no": "문서번호(예 KFSC-26-0504-01)", "client": "관리주체(갑) 이름 그대로", "client_rep": "서명 칸 갑의 대표자 줄(예: 관리사무소장 김춘화)",
  "facility_name": "시설물명(표지 【 】 또는 제2조)", "location": "위치", "spec": "제원(예 연면적 19,071.7m²)", "title": "계약건명",
- "rounds": [{"year": 연도, "half": "상반기|하반기", "kind": "정기|정밀", "amount": 금액(원, 정수)}] — 계약금액 칸의 회차마다(총합 줄은 빼기, 반기 표시가 없으면 계약기간으로 판단),
+ "rounds": [{"year": 연도, "half": "상반기|하반기|해빙기|우기|동절기", "kind": "정기|정밀", "amount": 금액(원, 정수)}] — 계약금액 칸의 회차마다(총합 줄은 빼기, 반기 표시가 없으면 계약기간으로 판단, 연 3회 계약의 "해빙기(정기)·우기(정기)·동절기(정기)"는 half에 그 시기 그대로),
  "open_ended": 계약기간이 "계약 해지 시까지"처럼 끝이 없으면 true, "unit": {"kind": "정기|정밀", "amount": 매 반기 금액} — 끝이 없을 때만,
  "guarantee": "계약보증액(없으면 -)", "delay_rate": "지체상금율(없으면 -)", "contract_date": "계약일", "start_date": "계약기간 시작", "end_date": "계약기간 끝"}"""
 

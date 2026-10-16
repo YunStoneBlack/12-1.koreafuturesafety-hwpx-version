@@ -41,3 +41,6 @@
 .ss-nocard { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--warn, #b45309); margin-right: 6px; }
 .main button.ss-mini { margin: 0; padding: 2px 8px; font-size: 11.5px; font-weight: 600; border-radius: 999px; background: var(--surface, #fff); color: var(--ink, inherit); border: 1px solid var(--line, #e2e5ea); }
 .main button.ss-mini.ss-del { color: var(--crit, #b42318); }
+
+/* 연 3회 시기(해빙기·우기·동절기, 10/16) */
+.ss-kind.ss-season { background: #e0f2fe; color: #0369a1; }

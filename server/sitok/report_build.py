@@ -207,7 +207,7 @@ def read_old(hwpx: Path) -> Values:
             v.findings.append(txt)
     m = re.search(r"\[(.+?)\]", v.title)
     v.name = m[1].strip() if m else ""
-    m = re.search(r"(\d{4})\s*년\s*(?:도\s*)?(상반기|하반기)", v.title)
+    m = re.search(r"(\d{4})\s*년\s*(?:도\s*)?(상반기|하반기|해빙기|우기|동절기)", v.title)  # 연 3회(10/16)
     if m:
         v.year, v.half = int(m[1]), m[2]
     # 기술자: "다. 책임(참여)기술자 현황" 아래 줄들(구분 | 성명 | 과업 참여기간 | 기술등급) — 줄 첫 칸이 "○○기술자"

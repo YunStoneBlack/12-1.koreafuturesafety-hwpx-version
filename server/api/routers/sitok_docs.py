@@ -123,7 +123,11 @@ def half_auto(c: SitokDocContract, f: SitokFacility | None) -> str:
     if c.open_ended:
         return "상·하반기"
     # 관급은 용역 기간만(10/15 사용자 "용역기간을 읽어 선택" — 회차 줄은 민간만 씀, 관급 창에 남던 기본 회차 줄 때문에 다 하반기로 나왔음)
-    halves = {r.get("half") for r in (c.rounds or []) if r.get("half") in ("상반기", "하반기")} if c.sector == "민간" else set()
+    from server.sitok import seasons
+    got = {r.get("half") for r in (c.rounds or [])} if c.sector == "민간" else set()
+    if got & set(seasons.SEASONS):  # 연 3회(해빙기·우기·동절기 — 10/16)
+        return "·".join(sorted(got & set(seasons.SEASONS), key=seasons.order))
+    halves = got & {"상반기", "하반기"}
     if not halves and c.start_date:
         end = c.end_date or c.start_date
         h = lambda d: "상반기" if d.month <= 6 else "하반기"  # noqa: E731
@@ -446,7 +450,7 @@ def add_dong(fid: int, body: DongIn, user: User = Depends(get_current_user), db:
     from core.models_web import SitokGroup
 
     from server.api.routers.sitok_groups import members
-    from server.api.routers.sitok_reports import HALVES, _group_reports
+    from server.api.routers.sitok_reports import _group_reports
 
     f = db.get(SitokFacility, fid)
     if f is None or f.company_id != user.company_id:
@@ -466,11 +470,11 @@ def add_dong(fid: int, body: DongIn, user: User = Depends(get_current_user), db:
     # 대표 동의 이번 반기 이후 회차 — 새 동도 같은 반기 회차(이미 낸 보고서로 등록한 회차는 빼고)
     today = datetime.date.today()
     now = (today.year, 0 if today.month <= 6 else 1)
-    order = {h: i for i, h in enumerate(HALVES)}
+    from server.sitok import seasons
     reps = [r for r in db.query(SitokReport).filter(SitokReport.facility_id == lead.id)
-            if (r.year, order.get(r.half, 0)) >= now and not (r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"))]
+            if (r.year, 0 if seasons.bucket(r.half) == "상반기" else 1) >= now and not (r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"))]
     report_id = None
-    for r in sorted(reps, key=lambda r: (r.year, order.get(r.half, 0))):
+    for r in sorted(reps, key=lambda r: (r.year, seasons.order(r.half))):
         for m, x in _group_reports(db, r, user.display_name or ""):
             if m.id == new.id:
                 report_id = report_id or x.id
@@ -1137,6 +1141,12 @@ def _first_report(db: Session, user: User, f: SitokFacility, rc: SitokContract) 
 
     today = datetime.date.today()
     half = "상반기" if today.month <= 6 else "하반기"
+    from server.sitok import seasons
+    ss = sorted({r.get("half") for r in (rc.rounds or []) if r.get("year") == today.year and seasons.is_season(r.get("half"))}, key=seasons.order)
+    if ss:  # 연 3회 계약(해빙기·우기·동절기, 10/16) — 오늘이 드는 시기, 지났으면 올해 다음 시기
+        half = next((x for x in ss if seasons.date_range(today.year, x)[1] >= today), None)
+        if half is None:
+            return None
     if rc.start_date and rc.end_date and not (rc.start_date <= today <= rc.end_date):
         return None
     if db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == today.year, SitokReport.half == half).first():

@@ -42,7 +42,9 @@ from server.contract_docs import hwp_queue
 from server.sitok import civil, master, report_build as rb
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
-HALVES = ("상반기", "하반기")
+from server.sitok import seasons
+
+HALVES = seasons.ALL  # 상반기·하반기 + 연 3회 해빙기·우기·동절기(10/16 — D·E등급)
 KINDS = ("정기", "정밀")  # 회차 종류(안전점검) — 계약서 그 반기 줄에서 자동, 틀리면 직접(민재형 10/13)
 PDF_WAIT = 1200  # 한글 PDF 대기(초) — 135쪽 보고서 + 앞에 산안법 보고서 작업이 있을 수도
 
@@ -147,7 +149,7 @@ def _require(db: Session, user: User, report_id: int) -> SitokReport:
 
 
 def _order(r: SitokReport) -> tuple:
-    return (r.year, HALVES.index(r.half) if r.half in HALVES else 0)
+    return (r.year, seasons.order(r.half))
 
 
 def _previous(db: Session, r: SitokReport) -> SitokReport | None:
@@ -161,7 +163,7 @@ def period_defaults(c: SitokContract | None, year: int, half: str) -> dict:
     """관급: 상반기 = 착수일 ~ 상반기 완료일, 하반기 = 하반기 시작일 ~ 완수일(반기 하나 계약이면 착수 ~ 완수). 민간: 직접(현장 간 날 ~ 낸 날)."""
     if c is None or c.sector != "관급":
         return {"period_start": None, "period_end": None}
-    if c.halves == "연간":
+    if c.halves == "연간" and half in seasons.HALVES:
         return ({"period_start": c.start_date, "period_end": c.first_half_end} if half == "상반기"
                 else {"period_start": c.second_half_start, "period_end": c.end_date})
     return {"period_start": c.start_date, "period_end": c.end_date}
@@ -173,7 +175,7 @@ def task_end(c: SitokContract | None, year: int, half: str) -> datetime.date:
         d = c.first_half_end if c.halves == "연간" and half == "상반기" else c.end_date
         if d:
             return d
-    return datetime.date(year, 6, 30) if half == "상반기" else datetime.date(year, 12, 31)
+    return seasons.date_range(year, half)[1]  # 반기 말일(6/30·12/31), 연 3회는 그 시기 말일(3/31·6/30·12/31)
 
 
 def _latest_contract(db: Session, facility_id: int) -> SitokContract | None:
@@ -206,7 +208,7 @@ def get_contract_for(facility_id: int, year: int, half: str, user: User = Depend
     """회차 만들기 전 — 그 반기를 덮는 계약(없으면 null + 마지막 계약: 화면이 "새 계약서를 올리세요")."""
     f = _require_facility(db, user, facility_id)
     if half not in HALVES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "반기는 상반기·하반기입니다.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "시기는 상반기·하반기(연 3회면 해빙기·우기·동절기)입니다.")
     c = contract_for(db, f, year, half)
     last = _latest_contract(db, f.id)
     return {"contract": _contract_out(c) if c else None, "latest": _contract_out(last) if last else None,

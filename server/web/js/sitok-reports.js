@@ -170,7 +170,7 @@
     el.className = "sk-rep-new";
     el.innerHTML = `<b>새 회차</b>
       <input type="number" class="nr-year" value="${d.year}" min="2000" max="2100" aria-label="연도" />년
-      <select class="nr-half"><option${d.half === "상반기" ? " selected" : ""}>상반기</option><option${d.half === "하반기" ? " selected" : ""}>하반기</option></select>
+      <select class="nr-half" title="연 3회(D·E등급)면 해빙기·우기·동절기">${["상반기", "하반기", "해빙기", "우기", "동절기"].map((h) => `<option${d.half === h ? " selected" : ""}>${h}</option>`).join("")}</select>
       <select class="nr-kind" title="회차 종류 — 계약서 그 반기 줄(정기/정밀)에서 자동, 틀리면 고르기"><option value="">계약서대로</option><option>정기</option><option>정밀</option></select>
       <button type="button" class="btn-sm nr-add">+ 회차 만들기</button>
       <label class="secondary-link nr-past" title="이미 낸 지난 반기 보고서 한글(.hwp·.hwpx) — 연도·반기·점검기간은 결과표에서 읽고, 다음 회차가 이걸 틀로 씁니다">이미 낸 보고서 등록<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>

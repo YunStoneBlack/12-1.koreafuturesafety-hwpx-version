@@ -393,8 +393,9 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
         fr2 = _frame(pg, "any13001")
         _set(fr2, "dign_gbn", f["dign_gbn"])
         fr2.evaluate(f"typeof changeDignGbn === 'function' && changeDignGbn('{f['dign_gbn']}')")
-        if f.get("half") in HALF_CODE:
-            _set(fr2, "regular_gbn", HALF_CODE[f["half"]])
+        from server.sitok import seasons
+        if seasons.bucket(f.get("half")) in HALF_CODE:  # 연 3회(해빙기·우기 → 상반기, 동절기 → 하반기 — FMS 시기 칸 확인 전 임시)
+            _set(fr2, "regular_gbn", HALF_CODE[seasons.bucket(f["half"])])
         for k in ("dign_amt", "design_amt", "base_amt"):
             _set(fr2, k, f[k])
         job.shot(pg, f"계약_시설물_{f['name']}")

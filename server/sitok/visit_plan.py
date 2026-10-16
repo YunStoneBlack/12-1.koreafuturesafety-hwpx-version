@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from core.models_web import SitokContract, SitokDocContract, SitokFacility, SitokGroup, SitokReport, SitokVisit
 from server.api.visit_scheduler import blocked_days, korean_holidays, region_of
+from server.sitok import seasons as SZ
 
 DAY = datetime.timedelta(days=1)
 DAY_CAP = 4  # 하루 건물 수(문서 "하루 묶을 수 있는 건물의 개수는 4개")
@@ -71,7 +72,8 @@ class Unit:
 @dataclass
 class Need:
     unit: Unit
-    index: int  # 반기(h_index)
+    year: int
+    half: str  # 상반기·하반기, 연 3회면 해빙기·우기·동절기(10/16)
     kind: str
     start: datetime.date  # 이 날부터
     end: datetime.date  # 이 날까지
@@ -79,12 +81,37 @@ class Need:
     pri: int = 0
 
     @property
-    def year(self) -> int:
-        return h_of(self.index)[0]
+    def key(self) -> tuple[int, str]:
+        return (self.year, self.half)
 
     @property
-    def half(self) -> str:
-        return h_of(self.index)[1]
+    def index(self) -> int:  # 반기 칸(해빙기·우기 = 상반기, 동절기 = 하반기)
+        return h_index(self.year, SZ.bucket(self.half))
+
+
+def key_sort(k: tuple[int, str]) -> tuple[int, int]:
+    return (k[0], SZ.order(k[1]))
+
+
+def slot_of(db: Session, u: "Unit | None", d: datetime.date) -> tuple[int, str]:
+    """그 날 점검이 드는 시기 — 연 3회 시설물(그 해 계약 회차 줄·회차에 해빙기·우기·동절기)이면 그 시기(날이 창 밖이면 가장 가까운 시기), 아니면 반기."""
+    y = d.year
+    used: set[str] = set()
+    if u is not None:
+        ids = set(u.ids)
+        for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == u.lead.company_id):
+            if set(int(x) for x in (c.facility_ids or ([c.facility_id] if c.facility_id else []))) & ids:
+                used |= {r.get("half") for r in (c.rounds or []) if r.get("year") == y and SZ.is_season(r.get("half"))}
+        for c in db.query(SitokContract).filter(SitokContract.facility_id.in_(ids)):
+            used |= {r.get("half") for r in (c.rounds or []) if r.get("year") == y and SZ.is_season(r.get("half"))}
+        used |= {r.half for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(ids), SitokReport.year == y) if SZ.is_season(r.half)}
+    if not used:
+        return h_of(d_index(d))
+
+    def gap(s: str) -> int:
+        a, b = SZ.date_range(y, s)
+        return 0 if a <= d <= b else min(abs((a - d).days), abs((d - b).days))
+    return y, min(used, key=lambda s: (gap(s), SZ.order(s)))
 
 
 def units(db: Session, company_id: int, with_ended: bool = False) -> list[Unit]:
@@ -116,21 +143,22 @@ def needs_for(db: Session, u: Unit, today: datetime.date) -> list[Need]:
     """이 시설물 카드가 지금 반기부터 점검해야 하는 반기들(창 = 그 반기 안에서 갈 수 있는 날 범위, 오늘 다음 날부터)."""
     now_i = d_index(today)
     last_i = now_i + HORIZON - 1
-    found: dict[int, Need] = {}
+    hz_end = h_range(last_i)[1]
+    found: dict[tuple[int, str], Need] = {}
 
-    def add(i: int, kind: str, a: datetime.date | None, b: datetime.date | None, pri: int, why: str = "",
+    def add(y: int, h: str, kind: str, a: datetime.date | None, b: datetime.date | None, pri: int, why: str = "",
             fb_end: datetime.date | None = None) -> None:
-        if i < now_i or i > last_i:
+        ha, hb = SZ.date_range(y, h)  # 반기, 연 3회면 해빙기 2~3월·우기 5~6월·동절기 11~12월(10/16)
+        if hb <= today or ha > hz_end:
             return
-        ha, hb = h_range(i)
         lo, hi = max(a or ha, ha, today + DAY), min(b or hb, hb)
         if lo > hi and why:  # 관급 착수 주가 지났으면 그 반기 남은 날(계약 끝까지)
             lo, hi, why = max(a or ha, ha, today + DAY), min(fb_end or hb, hb), ""
         if lo > hi:
             return
-        old = found.get(i)
+        old = found.get((y, h))
         if old is None or pri > old.pri:
-            found[i] = Need(u, i, kind or "정기", lo, hi, why, pri)
+            found[(y, h)] = Need(u, y, h, kind or "정기", lo, hi, why, pri)
 
     ids = u.ids
     docs = [d for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == u.lead.company_id).order_by(SitokDocContract.id)
@@ -143,48 +171,48 @@ def needs_for(db: Session, u: Unit, today: datetime.date) -> list[Need]:
             k = kind_of_title(c.title)
             for i in range(d_index(c.start_date), d_index(end) + 1):
                 if i == d_index(c.start_date):
-                    add(i, k, c.start_date, min(c.start_date + DAY * GOV_WEEK, end), 3, "관급 착수일 1주일 안", fb_end=end)
+                    add(*h_of(i), k, c.start_date, min(c.start_date + DAY * GOV_WEEK, end), 3, "관급 착수일 1주일 안", fb_end=end)
                 else:
-                    add(i, k, None, end, 2)
+                    add(*h_of(i), k, None, end, 2)
             continue
         rounds = [r for r in (c.rounds or []) if r.get("year") and r.get("half")]
         for r in rounds:
-            add(h_index(int(r["year"]), r["half"]), r.get("kind") or "정기", c.start_date, c.end_date, 2)
+            add(int(r["year"]), r["half"], r.get("kind") or "정기", c.start_date, c.end_date, 2)
         if c.open_ended and c.start_date:
             k = (c.unit or {}).get("kind") or "정기"
             for i in range(d_index(c.start_date), last_i + 1):
-                add(i, k, c.start_date, None, 2)
+                add(*h_of(i), k, c.start_date, None, 2)
         elif not rounds and c.start_date:
             for i in range(d_index(c.start_date), d_index(c.end_date or c.start_date) + 1):
-                add(i, kind_of_title(c.title), c.start_date, c.end_date, 2)
+                add(*h_of(i), kind_of_title(c.title), c.start_date, c.end_date, 2)
     for c in db.query(SitokContract).filter(SitokContract.facility_id.in_(ids)).order_by(SitokContract.id):
         if c.start_date is None:
             continue
         rounds = [r for r in (c.rounds or []) if r.get("year") and r.get("half")]
         if rounds:
             for r in rounds:
-                add(h_index(int(r["year"]), r["half"]), r.get("kind") or "정기", c.start_date, c.end_date, 1)
+                add(int(r["year"]), r["half"], r.get("kind") or "정기", c.start_date, c.end_date, 1)
             continue
         end_i = d_index(c.end_date) if c.end_date else last_i
         for i in range(d_index(c.start_date), end_i + 1):
             if c.halves in ("상반기", "하반기") and h_of(i)[1] != c.halves:
                 continue
             if c.sector == "관급" and i == d_index(c.start_date):
-                add(i, kind_of_title(c.title), c.start_date, min(c.start_date + DAY * GOV_WEEK, c.end_date or c.start_date + DAY * GOV_WEEK), 1,
+                add(*h_of(i), kind_of_title(c.title), c.start_date, min(c.start_date + DAY * GOV_WEEK, c.end_date or c.start_date + DAY * GOV_WEEK), 1,
                     "관급 착수일 1주일 안", fb_end=c.end_date)
             else:
-                add(i, kind_of_title(c.title), c.start_date, c.end_date, 1)
+                add(*h_of(i), kind_of_title(c.title), c.start_date, c.end_date, 1)
     # 종류: 그 반기 회차가 있으면 그 종류, 없으면 계약 회차 줄·계약건명(보고서 쪽 kind_known — 서류 자동화 회차 줄까지 봄)
     from server.api.routers.sitok import contract_for, kind_known
 
-    rep_kind = {h_index(r.year, r.half): r.kind for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(ids)) if r.kind}
+    rep_kind = {(r.year, r.half): r.kind for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(ids)) if r.kind}
     for n in found.values():
-        if n.index in rep_kind:
-            n.kind = rep_kind[n.index]
+        if n.key in rep_kind:
+            n.kind = rep_kind[n.key]
         elif n.pri < 2:
             k = kind_known(db, contract_for(db, u.lead, n.year, n.half), n.year, n.half)
             n.kind = k or n.kind
-    return sorted(found.values(), key=lambda n: n.index)
+    return sorted(found.values(), key=lambda n: key_sort(n.key))
 
 
 def missing(db: Session, company_id: int, today: datetime.date | None = None, facility_ids: list[int] | None = None) -> list[Need]:
@@ -197,9 +225,9 @@ def missing(db: Session, company_id: int, today: datetime.date | None = None, fa
         ns = needs_for(db, u, today)
         if not ns:
             continue
-        have = {h_index(v.year, v.half) for v in db.query(SitokVisit).filter(SitokVisit.facility_id.in_(u.ids))}
-        done = {h_index(r.year, r.half) for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(u.ids), SitokReport.status == "done")}
-        out += [n for n in ns if n.index not in have and n.index not in done]
+        have = {(v.year, v.half) for v in db.query(SitokVisit).filter(SitokVisit.facility_id.in_(u.ids))}
+        done = {(r.year, r.half) for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(u.ids), SitokReport.status == "done")}
+        out += [n for n in ns if n.key not in have and n.key not in done]
     return out
 
 
@@ -230,9 +258,9 @@ def plan(db: Session, company_id: int, needs: list[Need], today: datetime.date |
     hi = max(n.end for n in needs)
     blocked = blocked_days(lo, hi, korean_holidays(range(lo.year, hi.year + 1)))
     # 반기마다 시·군 차례 → 목표일(반기 창 안에 고르게)
-    targets: dict[tuple[int, str], datetime.date] = {}
-    for i in sorted({n.index for n in needs}):
-        group = [n for n in needs if n.index == i and not n.why]
+    targets: dict[tuple, datetime.date] = {}
+    for i in sorted({n.key for n in needs}, key=key_sort):
+        group = [n for n in needs if n.key == i and not n.why]
         if not group:
             continue
         regs = sorted({n.unit.region_key for n in group})
@@ -241,14 +269,14 @@ def plan(db: Session, company_id: int, needs: list[Need], today: datetime.date |
         for k, r in enumerate(regs):
             targets[(i, r)] = a + datetime.timedelta(days=int(span * (k + 0.5) / len(regs)))
     out = []
-    order = sorted(needs, key=lambda n: (0 if n.why else 1, n.index, n.unit.region_key, n.unit.lead.id))
+    order = sorted(needs, key=lambda n: (0 if n.why else 1, key_sort(n.key), n.unit.region_key, n.unit.lead.id))
     for n in order:
         days = [n.start + DAY * k for k in range((n.end - n.start).days + 1)]
         free = [d for d in days if d not in blocked] or [d for d in days if d.weekday() < 5]
         if not free:
             out.append({"need": n, "date": None, "note": "갈 수 있는 날이 없음"})
             continue
-        target = targets.get((n.index, n.unit.region_key), free[0])
+        target = targets.get((n.key, n.unit.region_key), free[0])
         near = lambda ds: min(ds, key=lambda d: (abs((d - target).days), d))  # noqa: E731
         fits = lambda d: load.get(d, DayLoad()).buildings + n.unit.buildings <= DAY_CAP  # noqa: E731
         same = [d for d in free if n.unit.region_key in load.get(d, DayLoad()).regions and fits(d)]

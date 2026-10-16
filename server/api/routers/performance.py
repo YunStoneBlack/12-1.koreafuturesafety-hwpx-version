@@ -42,7 +42,12 @@ def _sitok_rows(db: Session, company_id: int) -> list[dict]:
         base = c.contract_date or c.start_date
         portions = []
         if (c.sector or "민간") == "민간" and c.start_date and c.end_date:
-            by_round = {(r.get("year"), r.get("half")): r.get("amount") for r in (c.rounds or []) if r.get("year") and r.get("half")}
+            from server.sitok import seasons
+            by_round: dict = {}  # (연도, 반기) → 금액 — 연 3회는 해빙기·우기 = 상반기, 동절기 = 하반기로 더함(10/16)
+            for r in (c.rounds or []):
+                if r.get("year") and r.get("half"):
+                    k = (r.get("year"), seasons.bucket(r.get("half")))
+                    by_round[k] = (by_round.get(k) or 0) + int(r.get("amount") or 0)
             for y, h, d in _halves_between(c.start_date, c.end_date):
                 amt = by_round.get((y, h), c.amount) or 0
                 portions.append({"date": d, "amount": int(amt), "label": f"{y} {h}"})

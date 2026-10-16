@@ -20,6 +20,8 @@
   try { sort = { ...sort, ...JSON.parse(localStorage.getItem(SORT_KEY) || "{}") }; } catch { /* 기억 못 하면 기본 */ }
 
   const esc = mailEsc;
+  const HALF_OPTS = ["상반기", "하반기", "해빙기", "우기", "동절기"]; // 연 3회(D·E등급) = 해빙기·우기·동절기(10/16)
+  const NEXT_HALF = { 상반기: ["하반기", 0], 하반기: ["상반기", 1], 해빙기: ["우기", 0], 우기: ["동절기", 0], 동절기: ["해빙기", 1] }; // [다음 시기, 해 더하기]
   const won = (n) => (n || n === 0) && n !== "" ? Number(n).toLocaleString("ko-KR") : "";
   const num = (v) => { const d = String(v ?? "").replace(/[^\d]/g, ""); return d ? Number(d) : null; };
   const fileUrl = (c, name) => `${BASE}/api${P}/contracts/${c.id}/file/${encodeURIComponent(name)}?v=${encodeURIComponent(c.made_at || c.updated || "")}`;
@@ -823,7 +825,7 @@
       const partOf = (r, j) => { const q = (r.parts || []).find((x) => x.name === st.bldgs[j]); return q ? q.amount : (j === 0 && !r.parts ? r.amount : null); };
       const rows = st.rounds.map((r, i) => `<div class="sd-round${multi ? " multi" : ""}" data-i="${i}">
           <input class="r-year" inputmode="numeric" value="${r.year || ""}" aria-label="연도" /><span>년</span>
-          <select class="r-half" aria-label="반기">${["상반기", "하반기"].map((h) => `<option${r.half === h ? " selected" : ""}>${h}</option>`).join("")}</select>
+          <select class="r-half" aria-label="반기·시기" title="연 3회(D·E등급)면 해빙기·우기·동절기">${HALF_OPTS.map((h) => `<option${r.half === h ? " selected" : ""}>${h}</option>`).join("")}</select>
           <select class="r-kind" aria-label="점검 종류">${["정기", "정밀"].map((k) => `<option${r.kind === k ? " selected" : ""}>${k}</option>`).join("")}</select>
           ${multi ? `<span class="r-parts">${st.bldgs.map((b, j) => `<label class="r-part-l"><small>${esc(b || `${j + 1}동`)}</small><input class="r-part sd-won" data-b="${j}" inputmode="numeric" value="${won(partOf(r, j))}" placeholder="금액" aria-label="${esc(b)} 금액" /></label>`).join("")}
               <span class="r-sum">= ${won(r.amount) || 0}원</span></span>`
@@ -961,7 +963,8 @@
         sync();
         const last = st.rounds[st.rounds.length - 1];
         const now = new Date();
-        st.rounds.push(last ? { year: last.half === "하반기" ? (last.year || now.getFullYear()) + 1 : last.year, half: last.half === "하반기" ? "상반기" : "하반기", kind: last.kind, amount: last.amount, ...(last.parts ? { parts: last.parts.map((x) => ({ ...x })) } : {}) }
+        const nx = NEXT_HALF[last ? last.half : ""] || ["상반기", 0];
+        st.rounds.push(last ? { year: (last.year || now.getFullYear()) + nx[1], half: nx[0], kind: last.kind, amount: last.amount, ...(last.parts ? { parts: last.parts.map((x) => ({ ...x })) } : {}) }
           : { year: now.getFullYear(), half: "상반기", kind: "정기", amount: null });
         draw();
       });
