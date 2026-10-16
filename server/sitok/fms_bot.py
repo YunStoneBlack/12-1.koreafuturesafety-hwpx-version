@@ -19,6 +19,8 @@ import datetime
 import re
 from pathlib import Path
 
+from server.sitok import seasons
+
 BASE = "https://www.fms.or.kr"
 _WRITE = re.compile(r"(save|insert|update|delete|del\b|regist|reg\.do|apprv|approval|appr|request|req\b|confirm|complete|cmplt|submit|upload|send|trans)", re.I)
 _SAFE = re.compile(r"(list|form|view|search|select|popup|pop|find|sch|redirectEx|loginForm|login\.do|actionLogin|mainForm|menu|code|combo|detail|info)", re.I)
@@ -400,7 +402,6 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
         fr2 = _frame(pg, "any13001")
         _set(fr2, "dign_gbn", f["dign_gbn"])
         fr2.evaluate(f"typeof changeDignGbn === 'function' && changeDignGbn('{f['dign_gbn']}')")
-        from server.sitok import seasons
         if seasons.is_season(f.get("half")):  # D등급 연 3회 — FMS 정기 구분 칸 보기가 해빙기·우기·동절기로 바뀜(형 10/16), 코드를 몰라 보기 글자로 고름
             if not _set_text(fr2, "regular_gbn", f["half"]):
                 raise FmsError(f"FMS 정기 구분 칸에 '{f['half']}' 보기가 없습니다 — FMS에서 {f['name']} 시설물 등급(D·E)을 확인하세요.")

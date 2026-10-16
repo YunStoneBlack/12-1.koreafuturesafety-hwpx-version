@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from core.models_web import ServiceContract, SitokContract, SitokFacility, User
 from server.api.deps import get_current_user, get_db
+from server.sitok import seasons
 
 router = APIRouter(prefix="/performance", tags=["performance"])
 HALVES = ("상반기", "하반기")
@@ -42,7 +43,6 @@ def _sitok_rows(db: Session, company_id: int) -> list[dict]:
         base = c.contract_date or c.start_date
         portions = []
         if (c.sector or "민간") == "민간" and c.start_date and c.end_date:
-            from server.sitok import seasons
             by_round: dict = {}  # (연도, 반기) → 금액 — 연 3회는 해빙기·우기 = 상반기, 동절기 = 하반기로 더함(10/16)
             for r in (c.rounds or []):
                 if r.get("year") and r.get("half"):

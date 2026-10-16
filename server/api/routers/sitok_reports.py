@@ -40,9 +40,9 @@ def _iso(d) -> str:
     return d.isoformat() if d else ""  # sitok._iso는 빈 날짜를 None으로 — 회차 화면은 "" (date 칸 value)
 from server.contract_docs import hwp_queue
 from server.sitok import civil, master, report_build as rb
+from server.sitok import seasons
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
-from server.sitok import seasons
 
 HALVES = seasons.ALL  # 상반기·하반기 + 연 3회 해빙기·우기·동절기(10/16 — D·E등급)
 KINDS = ("정기", "정밀")  # 회차 종류(안전점검) — 계약서 그 반기 줄에서 자동, 틀리면 직접(민재형 10/13)

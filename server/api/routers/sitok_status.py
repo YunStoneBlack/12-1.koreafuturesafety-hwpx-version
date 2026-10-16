@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from core.models_web import SitokDocContract, SitokFacility, SitokGroup, SitokReport, User
 from server.api.deps import get_current_user, get_db
+from server.sitok import seasons
 
 router = APIRouter(prefix="/sitok/status", tags=["sitok-status"])
 ITEMS = ("mail", "fms", "print", "parcel")
@@ -77,7 +78,6 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
     y0, h0 = current_half()
     year, half = year or y0, half if half in HALVES else h0
     facs = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id).order_by(SitokFacility.group_order, SitokFacility.id).all()
-    from server.sitok import seasons
     reps_by: dict[int, dict[str, SitokReport]] = {}  # 시설물 → {시기: 회차} — 연 3회(해빙기·우기·동절기)는 반기 칸 안에서 시기마다(10/16)
     for x in db.query(SitokReport).filter(SitokReport.company_id == user.company_id, SitokReport.year == year,
                                           SitokReport.half.in_(seasons.in_bucket(half))).order_by(SitokReport.id):
@@ -156,7 +156,6 @@ def _doc_key(c: SitokDocContract, year: int, half: str, is_now: bool) -> str | N
         return "all" if c.start_date <= b and (c.end_date or c.start_date) >= a else None
     key = f"{year}-{half}"
     rounds = c.rounds or []
-    from server.sitok import seasons
     if any(r.get("year") == year and seasons.bucket(r.get("half")) == half for r in rounds):
         return key
     if c.open_ended:

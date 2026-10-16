@@ -18,12 +18,11 @@ from pathlib import Path
 from lxml import etree
 
 from server.sitok import report_build as rb
+from server.sitok import seasons
 
 HP, T = rb.HP, rb.T
 TEMPLATE_NAME = "시특법_민간계약서_양식.hwpx"
 KINDS = ("정기", "정밀")
-from server.sitok import seasons  # noqa: E402
-
 HALVES = seasons.ALL  # 상반기·하반기 + 연 3회 해빙기·우기·동절기(10/16)
 TOKENS = ("문서번호", "종류", "시설물명", "관리주체", "대표자", "계약건명", "계약금액", "계약보증액", "지체상금율", "계약기간", "위치", "제원", "계약일", "목적")
 

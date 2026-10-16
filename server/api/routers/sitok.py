@@ -33,6 +33,7 @@ from server.api import storage
 from server.api.deps import get_current_user, get_db
 from server.api.security import verify_password
 from server.sitok import reader
+from server.sitok import seasons
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
 ROOT = DATA_DIR / "_시특법"
@@ -359,13 +360,11 @@ RENEW_DAYS = 60  # 장기·지속 계약 끝나기 이만큼 전부터 "다음 �
 
 
 def half_range(year: int, half: str) -> tuple[datetime.date, datetime.date]:
-    from server.sitok import seasons
     return seasons.date_range(year, half)  # 상·하반기 + 연 3회 해빙기(2~3월)·우기(5~6월)·동절기(11~12월)
 
 
 def covers(c: SitokContract, year: int, half: str) -> bool:
     """계약이 그 반기를 덮는지 — 계약기간이 반기와 겹치고, 반기 하나 계약(halves 상반기/하반기)이면 그 반기만. 끝 날짜가 없으면 계속."""
-    from server.sitok import seasons
     if c.halves in ("상반기", "하반기") and c.halves != seasons.bucket(half):
         return False
     if c.start_date is None:

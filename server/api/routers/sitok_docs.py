@@ -37,6 +37,7 @@ from server.api.routers import contract_library as lib
 from server.api.security import verify_password
 from server.contract_docs import attachments, build
 from server.sitok import civil, daega, gov_docs
+from server.sitok import seasons
 
 router = APIRouter(prefix="/sitok/docs", tags=["sitok"])
 ROOT = DATA_DIR / "_시특법_계약"
@@ -123,7 +124,6 @@ def half_auto(c: SitokDocContract, f: SitokFacility | None) -> str:
     if c.open_ended:
         return "상·하반기"
     # 관급은 용역 기간만(10/15 사용자 "용역기간을 읽어 선택" — 회차 줄은 민간만 씀, 관급 창에 남던 기본 회차 줄 때문에 다 하반기로 나왔음)
-    from server.sitok import seasons
     got = {r.get("half") for r in (c.rounds or [])} if c.sector == "민간" else set()
     if got & set(seasons.SEASONS):  # 연 3회(해빙기·우기·동절기 — 10/16)
         return "·".join(sorted(got & set(seasons.SEASONS), key=seasons.order))
@@ -470,7 +470,6 @@ def add_dong(fid: int, body: DongIn, user: User = Depends(get_current_user), db:
     # 대표 동의 이번 반기 이후 회차 — 새 동도 같은 반기 회차(이미 낸 보고서로 등록한 회차는 빼고)
     today = datetime.date.today()
     now = (today.year, 0 if today.month <= 6 else 1)
-    from server.sitok import seasons
     reps = [r for r in db.query(SitokReport).filter(SitokReport.facility_id == lead.id)
             if (r.year, 0 if seasons.bucket(r.half) == "상반기" else 1) >= now and not (r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"))]
     report_id = None
@@ -676,6 +675,8 @@ def match_card(db: Session, c: SitokDocContract, why: dict | None = None) -> lis
     계약건명에 시설물 이름이 그대로 있으면(관급 — "2026년 남양주어린이집 정기안전점검", 10/15 밤).
     없으면 None, 둘 이상이면 False(못 정함 — 사람이 고름), 계약서에 학교가 둘 이상 적혀 있어도 False.
     관급은 카드 안에서 맡을 시설물을 고름(_pick_units) — 이 기간 계약이 다 있으면 None + why["full"] = 그 카드 번호(새 카드, 번호를 같게 바꾸면 합침)."""
+    from server.api.routers.sitok import base_no
+
     keys = {_norm(x) for x in (c.facility_name, c.client) if _norm(x)}
     schools = school_names(c.facility_name, c.client)
     if len(schools) > 1:
@@ -706,12 +707,10 @@ def match_card(db: Session, c: SitokDocContract, why: dict | None = None) -> lis
             if not olds or any(_pattern(o.title) and _pattern(o.title) == _pattern(c.title) for o in olds):
                 hits[lead.id] = lead
         if not hits and len(weak) == 1 and why is not None:  # 발주처가 같은 카드가 하나 — 새 카드로 하되 합치는 길 안내
-            from server.api.routers.sitok import base_no as _b
             lead = next(iter(weak.values()))
-            why["client"] = _b(lead.mgmt_no) or lead.mgmt_no
+            why["client"] = base_no(lead.mgmt_no) or lead.mgmt_no
     if not hits:
         return None
-    from server.api.routers.sitok import base_no
     bases = {base_no(h.mgmt_no) for h in hits.values()}
     if len(hits) > 1 and not (len(bases) == 1 and next(iter(bases))):  # 다른 카드 여럿 — 못 정함
         return False
@@ -1141,7 +1140,6 @@ def _first_report(db: Session, user: User, f: SitokFacility, rc: SitokContract) 
 
     today = datetime.date.today()
     half = "상반기" if today.month <= 6 else "하반기"
-    from server.sitok import seasons
     ss = sorted({r.get("half") for r in (rc.rounds or []) if r.get("year") == today.year and seasons.is_season(r.get("half"))}, key=seasons.order)
     if ss:  # 연 3회 계약(해빙기·우기·동절기, 10/16) — 오늘이 드는 시기, 지났으면 올해 다음 시기
         half = next((x for x in ss if seasons.date_range(today.year, x)[1] >= today), None)
