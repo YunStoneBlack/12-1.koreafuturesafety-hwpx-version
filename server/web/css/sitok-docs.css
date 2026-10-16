@@ -151,3 +151,12 @@
 /* 목록 머리 [전체 | 민간 | 관급](10/16 — 보고서 자동화와 같은 모양) */
 .panel-head .sd-sector { margin-left: 12px; }
 @media (max-width: 760px) { .panel-head .sd-sector { margin-left: 0; } }
+
+/* 관리대장 여러 장(10/16) — 줄마다 파일·이름·상태 */
+.lg-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; margin: 6px 0 10px; padding: 8px; border: 1px solid var(--line, #e5e7eb); border-radius: 8px; }
+.lg-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(90px, auto); gap: 8px; align-items: center; font-size: 12.5px; }
+.lg-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted, #6b7280); }
+.lg-row .lg-name { margin: 0; padding: 5px 8px; font-size: 13px; }
+.lg-st { font-size: 12px; color: var(--muted, #6b7280); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.af-drop small { font-weight: 400; color: var(--muted, #6b7280); }
+@media (max-width: 760px) { .lg-row { grid-template-columns: 1fr; gap: 2px; padding-bottom: 6px; border-bottom: 1px dashed var(--line, #e5e7eb); } }

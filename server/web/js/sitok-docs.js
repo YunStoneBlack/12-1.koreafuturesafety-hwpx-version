@@ -179,6 +179,114 @@
     return el;
   }
 
+  // 관리대장 칸(10/16) — 한 장이면 아래 칸을 채우고, 여러 장(민재형 "열몇 개 동짜리 — 한꺼번에 드래그하면 한 번에")이면 줄마다 읽어 목록으로(3장씩 같이 읽음)
+  function ledgerPicker(overlay, readUrl, fill) {
+    const q = (s) => overlay.querySelector(s);
+    const st = { one: null, rows: null, reading: 0 };
+    const file = q(".af-file");
+    file.multiple = true;
+    const note = q(".af-drop-msg");
+    const busy = (d) => { st.reading += d; q(".af-save").disabled = st.reading > 0; };
+    const read = (f) => { const fd = new FormData(); fd.append("file", f); return apiUpload(readUrl(), fd); };
+    file.addEventListener("change", async () => {
+      const fs = [...file.files];
+      file.value = "";
+      if (!fs.length) return;
+      if (fs.length === 1 && !st.rows) {
+        busy(1);
+        note.textContent = `${fs[0].name} — 읽는 중…(AI로 읽느라 10~30초)`;
+        try {
+          st.one = await read(fs[0]);
+          const v = st.one.fields || {};
+          fill(v);
+          note.textContent = st.one.error || `✓ ${fs[0].name} — ${v.name || "칸"}을(를) 채웠습니다${v.fms_no ? ` · FMS 시설물번호 ${v.fms_no}` : ""}`;
+        } catch (err) {
+          st.one = null;
+          note.textContent = err.message;
+        } finally {
+          busy(-1);
+        }
+        return;
+      }
+      st.rows = st.rows || [];
+      overlay.querySelectorAll(".lg-one").forEach((x) => { x.hidden = true; }); // 한 장 칸(이름·주소·관리주체)은 숨기고 줄마다
+      const list = q(".lg-list");
+      list.hidden = false;
+      const add = fs.map((f) => {
+        const row = document.createElement("div");
+        row.className = "lg-row";
+        row.innerHTML = `<span class="lg-file" title="${esc(f.name)}">${esc(f.name)}</span><input class="lg-name" placeholder="읽는 중…" aria-label="이름" /><span class="lg-st">읽는 중…</span>`;
+        list.appendChild(row);
+        const it = { file: f, row, ledger: null, done: false, name: () => row.querySelector(".lg-name").value.trim() };
+        st.rows.push(it);
+        return it;
+      });
+      note.textContent = `관리대장 ${st.rows.length}장 — 줄마다 읽어서 이름을 채웁니다(한 장에 10~30초, 3장씩 같이). 이름을 확인하고 [추가]를 누르세요. 더 끌어다 놓아도 됩니다.`;
+      let i = 0;
+      const worker = async () => {
+        while (i < add.length) {
+          const it = add[i++];
+          busy(1);
+          const inp = it.row.querySelector(".lg-name"), stEl = it.row.querySelector(".lg-st");
+          try {
+            it.ledger = await read(it.file);
+            const v = it.ledger.fields || {};
+            if (!inp.value) inp.value = v.name || "";
+            stEl.textContent = it.ledger.error ? "못 읽음 — 이름 직접" : `✓ 읽음${v.fms_no ? ` · ${v.fms_no}` : ""}`;
+          } catch (err) {
+            it.ledger = null;
+            stEl.textContent = "못 읽음 — 이름 직접";
+          } finally {
+            inp.placeholder = "이름";
+            busy(-1);
+          }
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+    });
+    enableFileDrop(q(".af-drop"), file);
+    return st;
+  }
+  const ledgerBody = (lg) => { // 읽은 관리대장 → 추가 요청 칸
+    const fields = lg && lg.fields ? { ...lg.fields } : null;
+    const extra = fields ? fields.ledger || null : null;
+    if (fields) delete fields.ledger;
+    return { ledger_token: lg ? lg.token : null, fields, ledger_extra: extra };
+  };
+  // 여러 장 추가 — 줄마다 차례로(번호가 차례로 붙게), 실패한 줄만 남기고 다시 누르면 그 줄만
+  async function bulkAdd(overlay, pick, post, say) {
+    const rows = pick.rows.filter((it) => !it.done && it.name());
+    if (!rows.length) { say(pick.rows.some((it) => !it.done) ? "이름이 있는 줄이 없습니다 — 못 읽은 줄은 이름을 넣어 주세요." : "이미 다 추가했습니다.", "bad"); return null; }
+    const btn = overlay.querySelector(".af-save");
+    btn.disabled = true;
+    const outs = [];
+    let bad = 0;
+    for (const [n, it] of rows.entries()) {
+      say(`추가하는 중… ${n + 1}/${rows.length}`, "");
+      const stEl = it.row.querySelector(".lg-st");
+      try {
+        const out = await post(it, (it.ledger && it.ledger.fields) || {});
+        it.done = true;
+        outs.push(out);
+        stEl.textContent = `✓ ${out.mgmt_no}${out.chapter ? ` 제${out.chapter}장` : ""}`;
+        it.row.querySelector(".lg-name").disabled = true;
+      } catch (err) {
+        bad += 1;
+        stEl.textContent = `✗ ${err.message}`;
+      }
+    }
+    btn.disabled = false;
+    await load();
+    if (bad) { say(`${outs.length}개 추가, ${bad}개 실패 — 줄 옆 ✗를 보고 고친 뒤 [추가]를 다시 누르면 실패한 줄만 추가합니다.`, "bad"); return null; }
+    return outs.length ? outs : null;
+  }
+  function bulkDone(close, text) {
+    close();
+    const m = document.getElementById("sd-new-msg");
+    m.className = "status ok";
+    m.textContent = text;
+  }
+
   // [+ 시설물 추가 — 보고서 따로](10/15 밤 민재형) — 관급-6 → 6-1·6-2. 동 묶음(한 보고서)과 다름
   // 10/15 밤 민재형: 관리대장을 올려 칸 채우기(FMS 계정은 나중에 시설물 화면), 계약이 같은지(서류 9 · 보고서 9-1·9-2) 따로인지(서류 9-1↔9-1·9-2↔9-2)
   function addFacility(k) {
@@ -196,12 +304,13 @@
       <div class="mail-note">같은 발주처인데 <b>보고서가 따로 나오는</b> 시설물입니다(예: 학교 건물 + 옹벽, 청소년수련관 + 어린이집).
         ${us.length > 1 ? `새 시설물은 <b>${esc(base)}-${nxt}</b>이 됩니다.` : `지금 시설물은 ${esc(base)}-1, 새 시설물은 <b>${esc(base)}-2</b>가 됩니다.`}
         한 보고서에 같이 들어가는 동이면 이게 아니라 시설물 화면의 동 묶음을 쓰세요.</div>
-      <label class="drop-box drop-sm sd-up-box af-drop"><b>📎 시설물관리대장</b><input type="file" class="af-file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
+      <label class="drop-box drop-sm sd-up-box af-drop"><b>📎 시설물관리대장 <small>— 여러 장 한꺼번에 가능</small></b><input type="file" class="af-file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
       <div class="mail-note af-drop-msg">PDF·한글·사진 — 읽어서 이름·주소·관리주체·FMS 시설물번호를 채웁니다(없으면 아래 칸에 직접). FMS 계정은 나중에 시설물 화면에서.</div>
+      <div class="lg-list" hidden></div>
       <div class="cd-grid">
-        <label class="cd-field cd-wide"><span>시설물 이름</span><input class="af-name" value="${esc(k.name)} " /></label>
-        <label class="cd-field"><span>주소</span><input class="af-addr" value="${esc(k.address || "")}" /></label>
-        <label class="cd-field"><span>관리주체</span><input class="af-owner" value="${esc(k.owner_name || "")}" /></label>
+        <label class="cd-field cd-wide lg-one"><span>시설물 이름</span><input class="af-name" value="${esc(k.name)} " /></label>
+        <label class="cd-field lg-one"><span>주소</span><input class="af-addr" value="${esc(k.address || "")}" /></label>
+        <label class="cd-field lg-one"><span>관리주체</span><input class="af-owner" value="${esc(k.owner_name || "")}" /></label>
       </div>
       ${cons.length ? `<div class="mail-label">계약</div>
         <div class="af-modes">
@@ -221,46 +330,26 @@
     nameEl.setSelectionRange(nameEl.value.length, nameEl.value.length);
     const say = (text, cls) => { const m = q(".mail-msg"); m.hidden = false; m.className = `mail-msg ${cls}`; m.textContent = text; };
     overlay.querySelectorAll('input[name="af-mode"]').forEach((r) => r.addEventListener("change", () => { q(".af-cons").hidden = r.value !== "same" || !r.checked; }));
-    let ledger = null, reading = false;
-    const file = q(".af-file");
-    file.addEventListener("change", async () => {
-      const f = file.files[0];
-      file.value = "";
-      if (!f) return;
-      const note = q(".af-drop-msg");
-      reading = true;
-      q(".af-save").disabled = true;
-      note.textContent = `${f.name} — 읽는 중…(AI로 읽느라 10~30초)`;
-      try {
-        const fd = new FormData();
-        fd.append("file", f);
-        ledger = await apiUpload(`${P}/facilities/${k.id}/add/read`, fd);
-        const v = ledger.fields || {};
-        if (v.name) nameEl.value = v.name;
-        if (v.address) q(".af-addr").value = v.address;
-        if (v.owner_name) q(".af-owner").value = v.owner_name;
-        note.textContent = ledger.error || `✓ ${f.name} — ${v.name || "칸"}을(를) 채웠습니다${v.fms_no ? ` · FMS 시설물번호 ${v.fms_no}` : ""}`;
-      } catch (err) {
-        ledger = null;
-        note.textContent = err.message;
-      } finally {
-        reading = false;
-        q(".af-save").disabled = false;
-      }
+    const pick = ledgerPicker(overlay, () => `${P}/facilities/${k.id}/add/read`, (v) => {
+      if (v.name) nameEl.value = v.name;
+      if (v.address) q(".af-addr").value = v.address;
+      if (v.owner_name) q(".af-owner").value = v.owner_name;
     });
-    enableFileDrop(q(".af-drop"), file);
     q(".af-save").addEventListener("click", async () => {
-      if (reading) return;
+      if (pick.reading) return;
       const mode = q('input[name="af-mode"]:checked');
       if (cons.length && !mode) { say("계약이 같은지(서류 하나) 따로인지(서류도 따로) 고르세요.", "bad"); return; }
       const ids = mode && mode.value === "same" ? [...overlay.querySelectorAll(".af-con:checked")].map((i) => Number(i.value)) : [];
       if (mode && mode.value === "same" && !ids.length) { say("이 시설물도 맡는 계약을 고르세요.", "bad"); return; }
+      if (pick.rows) { // 관리대장 여러 장 — 줄마다 시설물 하나(보고서 따로)
+        const res = await bulkAdd(overlay, pick, (it, v) => apiPost(`${P}/facilities/${k.id}/add`, { name: it.name(), address: v.address || k.address || "",
+          owner_name: v.owner_name || k.owner_name || "", ...ledgerBody(it.ledger), contract_ids: ids }), say);
+        if (res) bulkDone(close, `✓ 시설물 ${res.length}개를 추가했습니다(${res.map((o) => o.mgmt_no).join(" · ")}) — 보고서는 시설물마다 따로, 보고서 자동화에도 생겼습니다.`);
+        return;
+      }
       try {
-        const fields = ledger && ledger.fields ? { ...ledger.fields } : null;
-        const extra = fields ? fields.ledger || null : null;
-        if (fields) delete fields.ledger;
         const out = await apiPost(`${P}/facilities/${k.id}/add`, { name: nameEl.value, address: q(".af-addr").value, owner_name: q(".af-owner").value,
-          ledger_token: ledger ? ledger.token : null, fields, ledger_extra: extra, contract_ids: ids });
+          ...ledgerBody(pick.one), contract_ids: ids });
         close();
         await load();
         const m = document.getElementById("sd-new-msg");
@@ -285,12 +374,13 @@
       <div class="mail-note"><b>보고서 한 권에 같이 들어가는 동</b>입니다(예: 세명연립 가동 + 나동, 본관 + B동). 현장 조사는 동마다 따로, 보고서는 한 권으로 합쳐집니다(동마다 시설물편 제N장).
         번호는 그대로 씁니다. 보고서가 따로 나오면 [+ 시설물 추가 — 보고서 따로]를 쓰세요.</div>
       ${us.length > 1 ? `<label class="cd-field"><span>어느 시설물에</span><select class="dg-unit">${us.map((u) => `<option value="${u.id}">${esc(u.mgmt_no)} ${esc(u.name)}${u.members.length > 1 ? ` (${u.members.length}동)` : ""}</option>`).join("")}</select></label>` : ""}
-      <label class="drop-box drop-sm sd-up-box af-drop"><b>📎 시설물관리대장</b><input type="file" class="af-file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
+      <label class="drop-box drop-sm sd-up-box af-drop"><b>📎 시설물관리대장 <small>— 여러 장 한꺼번에 가능</small></b><input type="file" class="af-file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
       <div class="mail-note af-drop-msg">PDF·한글·사진 — 읽어서 동 이름·주소·관리주체·FMS 시설물번호를 채웁니다(없으면 아래 칸에 직접).</div>
+      <div class="lg-list" hidden></div>
       <div class="cd-grid">
-        <label class="cd-field cd-wide"><span>동 이름</span><input class="af-name" placeholder="예: 세명연립 나동" /></label>
-        <label class="cd-field"><span>주소</span><input class="af-addr" value="${esc(k.address || "")}" /></label>
-        <label class="cd-field"><span>관리주체</span><input class="af-owner" value="${esc(k.owner_name || "")}" /></label>
+        <label class="cd-field cd-wide lg-one"><span>동 이름</span><input class="af-name" placeholder="예: 세명연립 나동" /></label>
+        <label class="cd-field lg-one"><span>주소</span><input class="af-addr" value="${esc(k.address || "")}" /></label>
+        <label class="cd-field lg-one"><span>관리주체</span><input class="af-owner" value="${esc(k.owner_name || "")}" /></label>
         <label class="cd-field cd-wide dg-gname-f"><span>묶음 이름 <em>표지·제출문</em></span><input class="dg-gname" /></label>
       </div>
       <div class="mail-msg" hidden></div>
@@ -310,43 +400,24 @@
     if (q(".dg-unit")) q(".dg-unit").addEventListener("change", syncGroup);
     q(".af-name").focus();
     const say = (text, cls) => { const m = q(".mail-msg"); m.hidden = false; m.className = `mail-msg ${cls}`; m.textContent = text; };
-    let ledger = null, reading = false;
-    const file = q(".af-file");
-    file.addEventListener("change", async () => {
-      const f = file.files[0];
-      file.value = "";
-      if (!f) return;
-      const note = q(".af-drop-msg");
-      reading = true;
-      q(".af-save").disabled = true;
-      note.textContent = `${f.name} — 읽는 중…(AI로 읽느라 10~30초)`;
-      try {
-        const fd = new FormData();
-        fd.append("file", f);
-        ledger = await apiUpload(`${P}/facilities/${unitOf().id}/add/read`, fd);
-        const v = ledger.fields || {};
-        if (v.name) q(".af-name").value = v.name;
-        if (v.address) q(".af-addr").value = v.address;
-        if (v.owner_name) q(".af-owner").value = v.owner_name;
-        note.textContent = ledger.error || `✓ ${f.name} — ${v.name || "칸"}을(를) 채웠습니다${v.fms_no ? ` · FMS 시설물번호 ${v.fms_no}` : ""}`;
-      } catch (err) {
-        ledger = null;
-        note.textContent = err.message;
-      } finally {
-        reading = false;
-        q(".af-save").disabled = false;
-      }
+    const pick = ledgerPicker(overlay, () => `${P}/facilities/${unitOf().id}/add/read`, (v) => {
+      if (v.name) q(".af-name").value = v.name;
+      if (v.address) q(".af-addr").value = v.address;
+      if (v.owner_name) q(".af-owner").value = v.owner_name;
     });
-    enableFileDrop(q(".af-drop"), file);
     q(".af-save").addEventListener("click", async () => {
-      if (reading) return;
+      if (pick.reading) return;
+      const gname = q(".dg-gname-f").hidden ? null : q(".dg-gname").value;
+      if (pick.rows) { // 관리대장 여러 장 — 줄마다 동 하나(한 보고서)
+        const res = await bulkAdd(overlay, pick, (it, v) => apiPost(`${P}/facilities/${unitOf().id}/dong`, { name: it.name(), address: v.address || k.address || "",
+          owner_name: v.owner_name || k.owner_name || "", ...ledgerBody(it.ledger), group_name: gname }), say);
+        if (res) bulkDone(close, `✓ 동 ${res.length}개를 묶음 "${res[res.length - 1].group_name}"에 넣었습니다 — 보고서 한 권 ${res[res.length - 1].dongs}동(${res[0].mgmt_no}).`);
+        return;
+      }
       if (!q(".af-name").value.trim()) { say("동 이름을 넣어 주세요(예: 세명연립 나동).", "bad"); return; }
       try {
-        const fields = ledger && ledger.fields ? { ...ledger.fields } : null;
-        const extra = fields ? fields.ledger || null : null;
-        if (fields) delete fields.ledger;
         const out = await apiPost(`${P}/facilities/${unitOf().id}/dong`, { name: q(".af-name").value, address: q(".af-addr").value, owner_name: q(".af-owner").value,
-          ledger_token: ledger ? ledger.token : null, fields, ledger_extra: extra, group_name: q(".dg-gname-f").hidden ? null : q(".dg-gname").value });
+          ...ledgerBody(pick.one), group_name: gname });
         close();
         await load();
         const m = document.getElementById("sd-new-msg");
