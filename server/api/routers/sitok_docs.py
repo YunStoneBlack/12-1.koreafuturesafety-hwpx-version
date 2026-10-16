@@ -363,13 +363,29 @@ def add_read(fid: int, file: UploadFile = File(...), user: User = Depends(get_cu
     token = secrets.token_hex(12)
     path = UPLOAD_DIR / f"{token}.pdf"
     path.write_bytes(pdf)
-    try:
-        parsed = reader.read_ledger(path, user.company_id)
-    except Exception as err:  # noqa: BLE001 — 못 읽어도 파일은 붙이고 손으로
-        return {"token": token, "fields": {}, "error": f"자동으로 읽지 못했습니다 — 직접 입력해 주세요. ({str(err).splitlines()[0][:160] if str(err) else type(err).__name__})"}
-    fields = {k: _iso(v) for k, v in parsed.items()}
-    fields["template"] = guess_template(fields.get("grade", ""), fields.get("use_type", ""), fields.get("main_use", ""))
-    return {"token": token, "fields": fields, "error": ""}
+
+    def one(part: Path) -> dict:  # 건물 하나 — 임시 파일 token + 읽은 칸
+        t = part.stem if part == path else secrets.token_hex(12)
+        if part != path:
+            part.replace(UPLOAD_DIR / f"{t}.pdf")
+            part = UPLOAD_DIR / f"{t}.pdf"
+        try:
+            parsed = reader.read_ledger(part, user.company_id)
+        except Exception as err:  # noqa: BLE001 — 못 읽어도 파일은 붙이고 손으로
+            return {"token": t, "fields": {}, "error": f"자동으로 읽지 못했습니다 — 직접 입력해 주세요. ({str(err).splitlines()[0][:160] if str(err) else type(err).__name__})"}
+        fields = {k: _iso(v) for k, v in parsed.items()}
+        fields["template"] = guess_template(fields.get("grade", ""), fields.get("use_type", ""), fields.get("main_use", ""))
+        return {"token": t, "fields": fields, "error": ""}
+
+    parts = reader.split_ledgers(path)  # 종합 관리대장(여러 건물을 한 PDF로, 10/16 양주덕산초) — 건물마다 따로 읽음(3개씩 같이)
+    if len(parts) == 1:
+        return one(path)
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(3) as ex:
+        items = list(ex.map(one, parts))
+    path.unlink(missing_ok=True)
+    return {**items[0], "items": items}
 
 
 @router.post("/facilities/{fid}/add/read-sheets")
@@ -454,8 +470,14 @@ def add_facility(fid: int, body: AddFacilityIn, user: User = Depends(get_current
 
 
 def _child_facility(db: Session, user: User, f: SitokFacility, body, mgmt_no: str) -> SitokFacility:
-    """f를 물려받은 새 시설물(주소·관리주체·구분·뱃지·계약 구분·틀) + 관리대장에서 읽은 칸 — [+ 시설물 추가]·[+ 동 추가] 같이 씀."""
-    from server.api.routers.sitok import FacilityIn, _apply_facility, _facility_dir, _take
+    """f를 물려받은 새 시설물(주소·관리주체·구분·뱃지·계약 구분·틀) + 관리대장에서 읽은 칸 — [+ 시설물 추가]·[+ 동 추가] 같이 씀.
+    카드에 같은 시설물번호가 이미 있으면 409(10/16 관급-3 — 등록된 관리동에 관리대장을 또 올려 관리동이 둘)."""
+    from server.api.routers.sitok import FacilityIn, _apply_facility, _facility_dir, _take, card_facilities
+
+    fms = str((body.fields or {}).get("fms_no") or "").replace(" ", "").upper()
+    dup = next((x for x in card_facilities(db, f) if fms and (x.fms_no or "").replace(" ", "").upper() == fms), None) if fms else None
+    if dup is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"이미 있는 시설물입니다 — {dup.mgmt_no} {dup.name}(시설물번호 {dup.fms_no}).")
 
     own = (body.owner_name or "").strip()
     same_owner = not own or own == f.owner_name

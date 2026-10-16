@@ -80,6 +80,15 @@ def _str(v) -> str:
 def _ask(pdf: Path, prompt: str, company_id: int) -> dict:
     if not config.has_api_key(company_id):
         raise RuntimeError("Claude API 키가 없습니다 — 보고서 자동화 설정 탭에서 등록하세요.")
+    if pdf.stat().st_size > 20_000_000:  # AI가 받는 PDF는 32MB까지 — 사진이 큰 관리대장(10/16 모노폴리 4쪽 48MB)은 사진을 줄여서
+        import tempfile
+
+        from server.contract_docs import pdf_shrink
+
+        with tempfile.TemporaryDirectory() as tmp:
+            small = Path(tmp) / "작게.pdf"
+            small.write_bytes(pdf_shrink.shrink_bytes(pdf.read_bytes()))
+            return _parse_json_object(_call_claude(_encode_pdf(small), prompt, max_tokens=6000, company_id=company_id))
     return _parse_json_object(_call_claude(_encode_pdf(pdf), prompt, max_tokens=6000, company_id=company_id))
 
 
@@ -251,3 +260,36 @@ def read_sheets(pdf: Path, company_id: int) -> tuple[list[dict], int]:
             "safety_grade": _str(b.get("safety_grade"))[:1].upper(),
         })
     return out, sheets
+
+
+def ledger_starts(pdf: Path) -> list[int]:
+    """관리대장 PDF에서 건물마다 시작 쪽(0부터) — FMS 출력물은 건물마다 "시설물번호 … 내용 1. 기본현황 2. 상세제원" 표지로 시작(10/16 양주덕산초 "종합" 관리대장)."""
+    import pymupdf
+
+    starts = []
+    with pymupdf.open(pdf) as doc:
+        for i, page in enumerate(doc):
+            t = "".join(page.get_text().split())[:400]
+            if t.startswith("시설물번호") and "1.기본현황" in t:
+                starts.append(i)
+    return starts
+
+
+def split_ledgers(pdf: Path) -> list[Path]:
+    """여러 건물 관리대장을 한 PDF로 모은 것("시설물관리대장종합.pdf") → 건물마다 PDF(같은 폴더 이름_1·_2…). 하나뿐이거나 글자가 없는 스캔이면 [pdf]."""
+    import pymupdf
+
+    starts = ledger_starts(pdf)
+    if len(starts) < 2:
+        return [pdf]
+    out = []
+    with pymupdf.open(pdf) as doc:
+        bounds = starts + [doc.page_count]
+        for k in range(len(starts)):
+            sub = pymupdf.open()
+            sub.insert_pdf(doc, from_page=bounds[k], to_page=bounds[k + 1] - 1)
+            p = pdf.with_name(f"{pdf.stem}_{k + 1}.pdf")
+            sub.save(p)
+            sub.close()
+            out.append(p)
+    return out

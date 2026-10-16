@@ -1,5 +1,6 @@
 // 보고서 자동화 · 시특법 — 제출 현황(sitok-status.html, 2026-10-15 민재형 문서번호 일치화 문서 "보고서 제출현황 관리").
-// 상·하반기로(◀ ▶), 한 줄 = 그 반기 시설물 카드(묶인 동은 한 줄). 칸 = 보고서 · 발주처 이메일 · FMS · 합본 출력 · 택배.
+// 상·하반기로(◀ ▶), 한 줄 = 그 반기 시설물 카드(묶인 동은 한 줄). 칸 = 현장점검(다녀온 날) · 보고서 · 발주처 이메일 · FMS · 합본 출력 · 택배.
+// 현장점검일을 넣거나 보고서를 "밖에서 작성 완료"로 표시하면 방문 달력에서 그 반기가 빠짐(10/16 민재형). 회차가 없는 줄도 이 둘은 표시됨(회차를 만듦).
 // 칸을 누르면 작은 창: 날짜 넣고 [표시] / [지우기](FMS는 [해당없음]도). 위 숫자 칸 = 안 끝난 것 개수(누르면 그것만). 민간·관급·뱃지 거르기는 시설물 목록과 같음.
 // API: GET /sitok/status/reports?year&half, POST /sitok/status/reports/{id}/mark — server/api/routers/sitok_status.py
 
@@ -12,11 +13,12 @@
   try { cur = { ...cur, ...JSON.parse(sessionStorage.getItem(HALF_KEY) || "{}") }; } catch { /* 지금 반기 */ }
   let rows = [];
   const view = { sector: "", field: "", kind: "", card: "", q: "" };
-  const ITEM = { mail: "발주처 이메일 제출", fms: "FMS 처리", print: "합본 출력", parcel: "택배" };
+  const ITEM = { field: "현장점검일", report: "보고서 — 그룹웨어 밖에서 작성 완료", mail: "발주처 이메일 제출", fms: "FMS 처리", print: "합본 출력", parcel: "택배" };
   const md = (iso) => (iso ? `${iso.slice(5, 7)}/${iso.slice(8, 10)}` : "");
   const repDone = (r) => r.report.state === "done";
   // 안 끝난 것(숫자 칸) — 회차 없는 줄은 보고서만 셈
   const CARDS = [["", "전체", "이 반기 시설물", () => true],
+    ["field", "현장점검 안 함", "다녀온 날 없음", (r) => !r.field && !repDone(r)],
     ["report", "보고서 미완료", "합본 PDF 안 만듦", (r) => !repDone(r)],
     ["mail", "이메일 미제출", "발주처에 안 보냄", (r) => !r.mail],
     ["fms", "FMS 미처리", "해당없음 빼고", (r) => !r.fms.done],
@@ -79,7 +81,7 @@
     const list = document.getElementById("ss-list");
     if (!rows.length) { list.innerHTML = '<div class="empty-note">이 반기에 회차·계약이 있는 시설물이 없습니다.</div>'; return; }
     if (!shown.length) { list.innerHTML = '<div class="empty-note">맞는 시설물이 없습니다.</div>'; return; }
-    list.innerHTML = `<div class="ss-grid ss-head"><span>시설물</span><span>보고서</span><span>발주처 이메일</span><span>FMS</span><span>합본 출력</span><span>택배</span></div>`;
+    list.innerHTML = `<div class="ss-grid ss-head"><span>시설물</span><span>현장점검</span><span>보고서</span><span>발주처 이메일</span><span>FMS</span><span>합본 출력</span><span>택배</span></div>`;
     for (const r of shown) list.appendChild(rowEl(r));
   }
   const noKey = (f) => { const m = String(f.mgmt_no || "").match(/^(관급|민간)-0*(\d+)(?:-0*(\d+))?$/); return m ? (m[1] === "관급" ? 2e8 : 1e8) + Number(m[2]) * 100 + Number(m[3] || 0) : 0; };
@@ -97,7 +99,9 @@
       <div class="ss-fac"><span class="site-no">${esc(f.mgmt_no)}</span><span class="sk-sector ${f.sector === "관급" ? "gov" : "pri"}">${esc(f.sector)}</span>
         <a href="sitok-facility.html?id=${f.id}"><b>${esc(f.name)}</b></a>${f.members.length > 1 ? `<span class="sk-dong-n">${f.members.length}동</span>` : ""}
         ${r.season ? `<span class="ss-kind ss-season" title="연 3회 — 이 반기 칸 안의 시기">${esc(r.season)}</span>` : ""}${r.kind ? `<span class="ss-kind">${esc(r.kind)}</span>` : ""}${f.badge_field ? `<span class="sk-badge b-field">${esc(f.badge_field)}</span>` : ""}${f.badge_kind ? `<span class="sk-badge b-kind">${esc(f.badge_kind)}</span>` : ""}</div>
-      <div class="ss-c" data-label="보고서"><a class="ss-b ${rt}" href="${roundHref}">${rl}${r.report.at ? ` ${esc(r.report.at)}` : ""}</a></div>
+      <div class="ss-c" data-label="현장점검"><button type="button" class="ss-cell" data-item="field">${markBadge(r.field)}</button></div>
+      <div class="ss-c" data-label="보고서">${r.report.state === "done" && !r.report.outside ? `<a class="ss-b ${rt}" href="${roundHref}">${rl}${r.report.at ? ` ${esc(r.report.at)}` : ""}</a>`
+        : `<button type="button" class="ss-cell" data-item="report"><span class="ss-b ${rt}">${r.report.outside ? "완료(밖에서)" : rl}${r.report.at ? ` ${esc(r.report.at)}` : ""}</span></button>`}</div>
       <div class="ss-c" data-label="발주처 이메일"><button type="button" class="ss-cell" data-item="mail">${markBadge(r.mail)}</button></div>
       <div class="ss-c" data-label="FMS"><button type="button" class="ss-cell" data-item="fms">${fmsAuto || markBadge(r.fms.mark)}</button></div>
       <div class="ss-c" data-label="합본 출력"><button type="button" class="ss-cell" data-item="print">${markBadge(r.print)}</button></div>
@@ -108,8 +112,10 @@
 
   // 칸 표시 창 — 날짜(기본 오늘) [표시] / [지우기] / FMS [해당없음]
   function openMark(r, item) {
-    if (!r.report_id) { alert("이 반기 회차를 아직 안 만들었습니다 — 시설물 화면에서 회차를 만든 뒤 표시하세요."); return; }
-    const mk = item === "fms" ? r.fms.mark : r[item];
+    const visit = item === "field" || item === "report"; // 현장점검·밖에서 완료 — 회차가 없어도 됨(서버가 회차를 만듦), 표시하면 방문 달력에서 빠짐
+    if (!r.report_id && !visit) { alert("이 반기 회차를 아직 안 만들었습니다 — 시설물 화면에서 회차를 만든 뒤 표시하세요."); return; }
+    const mk = item === "fms" ? r.fms.mark : item === "report" ? (r.report.outside ? { at: r.report.at_iso || "", by: "" } : null) : r[item];
+    const roundHref = r.report_id ? `sitok-round.html?report=${r.report_id}` : `sitok-facility.html?id=${r.facility.id}`;
     const today = new Date();
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const overlay = document.createElement("div");
@@ -118,8 +124,10 @@
       <div class="mail-head"><b>${ITEM[item]}</b><span class="mail-sub">${esc(r.facility.mgmt_no)} ${esc(r.facility.name)}${r.season ? ` · ${esc(r.season)}` : ""}${r.kind ? ` · ${esc(r.kind)}` : ""}</span></div>
       ${item === "fms" && r.fms.auto ? `<div class="mail-note">FMS 자동 제출 기록: ${r.fms.auto === "done" ? "실적보고까지 끝" : "계약 등록까지"} ${esc(r.fms.auto_at)}</div>` : ""}
       ${item === "mail" && r.email ? `<div class="mail-note">계약 담당 이메일: <a href="mailto:${esc(r.email)}">${esc(r.email)}</a></div>` : ""}
-      <div class="mail-note">${mk ? (mk.na ? `지금: 해당없음 (${esc(mk.by || "")})` : `지금: ✓ ${esc(mk.at)} (${esc(mk.by || "")})`) : "지금: 표시 없음"}</div>
-      <label class="cd-field"><span>날짜</span><input type="date" class="ss-date" value="${mk && mk.at ? mk.at : iso(today)}" /></label>
+      ${item === "report" ? `<div class="mail-note">그룹웨어 쓰기 전에 냈거나 밖에서(토목 등) 쓴 보고서면 표시하세요 — 보고서 칸이 완료가 되고 방문 달력에서 빠집니다. <a href="${roundHref}">${r.report_id ? "회차 화면 열기 ›" : "시설물 화면 열기 ›"}</a></div>` : ""}
+      ${item === "field" ? '<div class="mail-note">현장에 다녀온 날 — 넣으면 방문 달력에서 이 반기가 빠집니다(지우면 다시 잡힘).</div>' : ""}
+      <div class="mail-note">${mk ? (mk.na ? `지금: 해당없음 (${esc(mk.by || "")})` : `지금: ✓ ${esc(mk.at)}${mk.by ? ` (${esc(mk.by)})` : ""}`) : "지금: 표시 없음"}</div>
+      <label class="cd-field"><span>${item === "field" ? "현장점검일" : "날짜"}</span><input type="date" class="ss-date" value="${mk && mk.at ? mk.at : iso(today)}" /></label>
       ${r.facility.members.length > 1 ? `<div class="mail-note">묶인 동(${esc(r.facility.members.map((m) => m.name).join(", "))})도 같이 표시됩니다.</div>` : ""}
       <div class="mail-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="m-close">닫기</button>${mk ? '<button type="button" class="m-clear">지우기</button>' : ""}
@@ -130,7 +138,9 @@
     overlay.querySelector(".m-close").addEventListener("click", close);
     const send = async (action) => {
       try {
-        await apiPost(`/sitok/status/reports/${r.report_id}/mark`, { item, action, date: overlay.querySelector(".ss-date").value || null });
+        const date = overlay.querySelector(".ss-date").value || null;
+        if (r.report_id) await apiPost(`/sitok/status/reports/${r.report_id}/mark`, { item, action, date });
+        else await apiPost(`/sitok/status/facilities/${r.facility.id}/mark`, { item, action, date, year: cur.year, half: r.season || cur.half });
         close();
         load();
       } catch (err) {

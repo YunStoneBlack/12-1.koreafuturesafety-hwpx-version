@@ -258,6 +258,7 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
     from server.api.routers.sitok_docs import _card_units
     us = _card_units(db, f)
     out["card_units"] = [{"id": u.id, "mgmt_no": u.mgmt_no, "name": u.name} for u in us] if len(us) > 1 else []  # 보고서 따로 시설물(N-1·N-2, 10/16 등록 칸)
+    out["card_fms"] = [{"fms_no": x.fms_no, "name": x.name, "mgmt_no": x.mgmt_no} for x in card_facilities(db, f) if x.fms_no]  # 등록 칸이 이미 있는 건물을 뺌(10/16)
     out["renew"] = renew_info(db, f)  # 장기·지속 계약 끝나기 전 알림(10/13)
     if with_contracts:
         used: dict[int, list[str]] = {}  # 계약 → 쓰는 회차(10/14 계약 패널 "쓰는 회차: 2026 상·하")

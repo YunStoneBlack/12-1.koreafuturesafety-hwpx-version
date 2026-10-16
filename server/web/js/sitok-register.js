@@ -88,16 +88,23 @@
     m.innerHTML = text;
   }
 
+  const known = (fields) => { // 카드에 이미 있는 건물(시설물번호) — 등록하지 않음(10/16 관급-3 관리동 두 번)
+    const no = String((fields || {}).fms_no || "").replace(/\s/g, "").toUpperCase();
+    return no ? (fac.card_fms || []).find((x) => String(x.fms_no || "").replace(/\s/g, "").toUpperCase() === no) || null : null;
+  };
+
   function drawRows() {
     const list = box.querySelector(".rg-list");
     list.hidden = !st.rows.length;
     box.querySelector(".rg-foot").hidden = !st.rows.length || st.mode === "one";
     list.innerHTML = "";
     const first = !registered();
-    st.rows.forEach((it, i) => {
+    const live = st.rows.filter((x) => !x.done && !known(x.fields));
+    st.rows.forEach((it) => {
       const row = document.createElement("div");
-      row.className = `lg-row${it.done ? " done" : ""}`;
-      const role = it.done ? "" : first && i === st.rows.findIndex((x) => !x.done) && !st.rows.some((x) => x.done) ? "이 시설물" : st.mode === "group" ? "새 동" : "새 시설물";
+      const dup = !it.done && known(it.fields);
+      row.className = `lg-row${it.done || dup ? " done" : ""}`;
+      const role = it.done ? "" : dup ? `이미 있음 — ${dup.mgmt_no} ${dup.name}` : first && it === live[0] && !st.rows.some((x) => x.done) ? "이 시설물" : st.mode === "group" ? "새 동" : "새 시설물";
       row.innerHTML = `<span class="lg-file" title="${esc(it.file)}">${esc(it.file)}</span>
         <input class="lg-name" value="${esc(it.name)}" placeholder="${it.reading ? "읽는 중…" : "이름"}" aria-label="이름"${it.done ? " disabled" : ""} />
         <span class="lg-st">${esc(it.status)}${!it.legal && !it.reading ? ' <span class="rg-tag">법정 외</span>' : ""}${role ? ` <span class="rg-role">${role}</span>` : ""}</span>
@@ -133,12 +140,17 @@
         try {
           const r = await read(f);
           if (st.src === "ledger") {
-            it.token = r.token;
-            it.fields = { ...(r.fields || {}) };
-            it.extra = it.fields.ledger || null;
-            delete it.fields.ledger;
-            it.name = it.name || it.fields.name || "";
-            it.status = r.error ? "못 읽음 — 이름 직접" : `✓ 읽음${it.fields.fms_no ? ` · ${it.fields.fms_no}` : ""}`;
+            (r.items || [r]).forEach((x, k) => { // 종합 관리대장(여러 건물을 한 PDF로) — 건물마다 줄
+              const row = k === 0 ? it : { file: `${f.name} (${k + 1})`, done: false, legal: true };
+              row.token = x.token;
+              row.fields = { ...(x.fields || {}) };
+              row.extra = row.fields.ledger || null;
+              delete row.fields.ledger;
+              row.name = row.name || row.fields.name || "";
+              row.status = x.error ? "못 읽음 — 이름 직접" : `✓ 읽음${row.fields.fms_no ? ` · ${row.fields.fms_no}` : ""}`;
+              row.reading = false;
+              if (k > 0) st.rows.splice(st.rows.indexOf(it) + k, 0, row);
+            });
           } else {
             const items = r.items || [];
             if (!items.length) { it.status = r.error || "못 읽음 — 이름 직접"; it.legal = false; }
@@ -174,10 +186,11 @@
     say(`${esc(f.name)} — 읽는 중…(10~60초)`);
     try {
       if (st.src === "ledger") {
-        const fd = new FormData();
-        fd.append("kind", "ledger");
-        fd.append("file", f);
-        const r = await apiUpload("/sitok/read", fd);
+        const r = await read(f);
+        if ((r.items || []).length > 1) { // 종합 관리대장 — 건물이 여럿
+          say(`⚠ 이 관리대장에 건물이 ${r.items.length}개 들어 있습니다(${r.items.map((x) => esc((x.fields || {}).name || "?")).join(" · ")}). 위에서 [보고서 따로] 또는 [동 묶음]을 고르고 다시 올리세요.`, "bad");
+          return;
+        }
         const fields = { ...(r.fields || {}), legal: true };
         const extra = fields.ledger || null;
         delete fields.ledger;
@@ -198,7 +211,7 @@
 
   async function go() { // [등록] — 줄마다 차례로(번호가 차례로 붙게), 실패한 줄은 남기고 다시 누르면 그 줄만
     if (st.reading || st.busy) return;
-    const todo = st.rows.filter((x) => !x.done && x.name.trim());
+    const todo = st.rows.filter((x) => !x.done && x.name.trim() && !known(x.fields));
     if (!todo.length) { say(st.rows.some((x) => !x.done) ? "이름이 있는 줄이 없습니다 — 못 읽은 줄은 이름을 넣어 주세요." : "이미 다 등록했습니다.", "bad"); return; }
     st.busy = true;
     drawRows();

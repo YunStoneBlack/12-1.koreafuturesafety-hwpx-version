@@ -5,7 +5,9 @@
 그 반기를 덮는 계약이 있는데 회차를 아직 안 만든 시설물도 "회차 없음"으로 보여 줌. 표시는 sitok_report.submit(0048) — 묶인 동은 같이.
 
 - `GET /sitok/status/reports?year=&half=` — 줄 목록
-- `POST /sitok/status/reports/{report_id}/mark` {item: mail|fms|print|parcel, action: done|na|clear, date?} — 표시(na = FMS 해당없음만)
+- `POST /sitok/status/reports/{report_id}/mark` {item: field|report|mail|fms|print|parcel, action: done|na|clear, date?} — 표시(na = FMS 해당없음만)
+  field = 현장점검일, report = 보고서를 그룹웨어 밖에서 작성 완료(10/16 민재형 — 그룹웨어 쓰기 전·토목 등 밖에서 쓴 보고서). 둘 중 하나가 있으면 방문 달력에서 그 반기를 뺌.
+- `POST /sitok/status/facilities/{facility_id}/mark` {year, half, item, action, date?} — 회차가 아직 없는 줄(현장점검·밖에서 완료만) — 회차를 만들어 표시
 - `GET /sitok/status/docs?year=&half=` — 서류 자동화 제출 현황(관급 착수계·완수계, 민간 계약서, 계산서 발행일)
 - `POST /sitok/status/docs/{cid}/mark` {item: start|done|invoice, action: done|clear, date?, key?} — 직접 제출함·계산서 발행일
 """
@@ -23,7 +25,8 @@ from server.api.deps import get_current_user, get_db
 from server.sitok import seasons
 
 router = APIRouter(prefix="/sitok/status", tags=["sitok-status"])
-ITEMS = ("mail", "fms", "print", "parcel")
+ITEMS = ("field", "report", "mail", "fms", "print", "parcel")
+VISIT_ITEMS = ("field", "report")  # 표시하면 방문 달력에서 그 반기를 뺌(이미 다녀옴·밖에서 끝남)
 HALVES = ("상반기", "하반기")
 
 
@@ -42,6 +45,9 @@ def report_state(r: SitokReport | None) -> dict:
         return {"state": "failed", "at": ""}
     if r.status == "done" and r.out_pdf and Path(r.out_pdf).exists():
         return {"state": "done", "at": r.made_at.strftime("%m/%d") if r.made_at else ""}
+    mk = (r.submit or {}).get("report")
+    if mk:  # 그룹웨어 밖에서 작성 완료(10/16)
+        return {"state": "done", "at": (mk.get("at") or "")[5:10].replace("-", "/"), "outside": True, "at_iso": mk.get("at") or ""}
     return {"state": "writing", "at": ""}
 
 
@@ -109,7 +115,7 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
                              "badge_kind": lead.badge_kind or "", "contract_type": lead.contract_type, "members": [{"id": m.id, "name": m.name} for m in members]},
                 "report_id": r.id if r is not None else None, "report_ids": [x.id for x in mr], "kind": r.kind if r is not None else "",
                 "season": hh if seasons.is_season(hh) else "",
-                "report": rep, "mail": sub.get("mail"), "fms": fms_state(r), "print": sub.get("print"), "parcel": sub.get("parcel"),
+                "report": rep, "field": sub.get("field"), "mail": sub.get("mail"), "fms": fms_state(r), "print": sub.get("print"), "parcel": sub.get("parcel"),
                 "email": (doc.site_email or doc.client_email) if doc is not None else "",
             })
     return {"year": year, "half": half, "rows": rows}
@@ -129,7 +135,8 @@ def mark(report_id: int, body: MarkIn, user: User = Depends(get_current_user), d
     except ValueError as err:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "날짜가 맞지 않습니다.") from err
     value = None if body.action == "clear" else {"na": True, "by": user.display_name or ""} if body.action == "na" else {"at": day.isoformat(), "by": user.display_name or ""}
-    for x in _unit_reports(db, r):
+    reps = _unit_reports(db, r)
+    for x in reps:
         sub = dict(x.submit or {})
         if value is None:
             sub.pop(body.item, None)
@@ -137,7 +144,57 @@ def mark(report_id: int, body: MarkIn, user: User = Depends(get_current_user), d
             sub[body.item] = value
         x.submit = sub
     db.commit()
+    if body.item in VISIT_ITEMS:
+        visits_after_mark(db, user, reps, value is not None)
     return {"ok": True, "item": body.item, "value": value}
+
+
+def visits_after_mark(db: Session, user: User, reps: list[SitokReport], done: bool) -> None:
+    """현장점검·밖에서 완료를 표시하면 그 반기의 앞으로 잡힌 방문 일정을 지움(지난 날은 기록으로 둠), 둘 다 지우면 다시 자동으로 잡음."""
+    from core.models_web import SitokVisit
+
+    from server.sitok.visit_plan import fill_quietly
+
+    ids = [x.facility_id for x in reps]
+    r = reps[0]
+    if done:
+        db.query(SitokVisit).filter(SitokVisit.facility_id.in_(ids), SitokVisit.year == r.year, SitokVisit.half == r.half,
+                                    SitokVisit.plan_date >= datetime.date.today()).delete(synchronize_session=False)
+        db.commit()
+    elif not any((x.submit or {}).get(k) for x in reps for k in VISIT_ITEMS):
+        fill_quietly(db, user.company_id, user.display_name or "", ids)
+
+
+class FacMarkIn(MarkIn):
+    year: int
+    half: str
+
+
+@router.post("/facilities/{facility_id}/mark")
+def mark_facility(facility_id: int, body: FacMarkIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """회차가 아직 없는 줄 — 현장점검일·밖에서 작성 완료만(10/16): 그 반기(연 3회면 시기) 회차를 만들어(묶인 동 같이) 표시."""
+    from server.api.routers.sitok import contract_for, kind_known
+    from server.api.routers.sitok_onboard import _default_people
+    from server.api.routers.sitok_reports import _group_reports, _new_report
+    from server.sitok.visit_plan import kind_of_title
+
+    f = db.get(SitokFacility, facility_id)
+    if f is None or f.company_id != user.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
+    if body.item not in VISIT_ITEMS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "회차가 없는 줄은 현장점검·밖에서 작성 완료만 표시할 수 있습니다 — 회차를 먼저 만드세요.")
+    if body.half not in seasons.ALL:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "반기가 맞지 않습니다.")
+    r = db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == body.year, SitokReport.half == body.half).first()
+    if r is None:
+        c = contract_for(db, f, body.year, seasons.bucket(body.half))
+        chief, parts = _default_people(db, user.company_id)
+        kind = kind_known(db, c, body.year, body.half) or (kind_of_title(c.title) if c is not None else "정기")
+        r = _new_report(db, user.display_name or "", f, body.year, body.half, contract_id=c.id if c else None, chief_id=chief, participant_ids=parts, kind=kind)
+        if f.group_id:
+            _group_reports(db, r, user.display_name or "")
+        db.commit()
+    return mark(r.id, MarkIn(item=body.item, action=body.action, date=body.date), user, db)
 
 
 # ---------- 서류 제출 현황(서류 자동화 · 시특법 — 10/15 민재형 문서 "서류 제출현황 관리") ----------

@@ -8,6 +8,7 @@
 - 같은 시·군 시설물은 같은 날로 묶음, 하루 건물 4개까지(묶인 동은 동 수만큼 셈). ★ 다른 시·군과는 되도록 같은 날에 안 넣고,
   반기 안에서 시·군마다 날을 고르게 벌려 놓음(한쪽에 몰리지 않게). 주말·공휴일·징검다리는 뺌(산안법 달력과 같은 규칙 — visit_scheduler).
 - 지난 날·오늘은 안 잡음. 그 반기 보고서를 이미 만들었으면(합본 PDF) 잡지 않음. 이미 그 반기 날이 있으면(자동·사람) 그대로.
+  제출 현황에서 현장점검일을 넣었거나 "밖에서 작성 완료"로 표시한 반기도 잡지 않음(10/16 민재형 — 이미 다녀온 현장).
 - 계약 정보는 서류 자동화 계약(sitok_doc_contract — 민간 회차 줄·관급 용역 기간)이 먼저, 없으면 보고서 쪽 계약(sitok_contract).
 """
 from __future__ import annotations
@@ -226,7 +227,8 @@ def missing(db: Session, company_id: int, today: datetime.date | None = None, fa
         if not ns:
             continue
         have = {(v.year, v.half) for v in db.query(SitokVisit).filter(SitokVisit.facility_id.in_(u.ids))}
-        done = {(r.year, r.half) for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(u.ids), SitokReport.status == "done")}
+        done = {(r.year, r.half) for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(u.ids))
+                if r.status == "done" or (r.submit or {}).get("field") or (r.submit or {}).get("report")}  # 다녀옴·밖에서 끝남(10/16)
         out += [n for n in ns if n.key not in have and n.key not in done]
     return out
 
