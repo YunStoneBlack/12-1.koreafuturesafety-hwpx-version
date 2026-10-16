@@ -165,17 +165,21 @@
 
   // 이 현장 보고서 N권(10/16 민재형 "보고서가 2개인 경우 한 개는 어디?") — 같은 카드의 다른 보고서로(그 반기 회차, 없으면 시설물 화면)
   let books = null;
-  function booksBar() {
+  function booksBar() { // 📚 이 현장 보고서 N권 — ① 동 타일과 같은 크기 칸(10/16 형 "버튼 크기 차이"), 지금 보는 보고서 = 파란 테두리
     if (!books || books.books.length < 2) return "";
     const here = books.books.findIndex((b) => b.ids.includes(r.facility_id));
     const nameOf = (id) => (books.buildings.find((x) => x.id === id) || {}).name || "";
-    return `<div class="rd-books">📚 이 현장 보고서 ${books.books.length}권 — ${books.books.map((b, k) => {
+    const tiles = books.books.map((b, k) => {
       const lead = books.buildings.find((x) => x.id === b.ids[0]) || {};
-      const label = `보고서 ${k + 1} · ${esc(lead.mgmt_no || "")} ${esc(b.ids.length > 1 ? (b.name || nameOf(b.ids[0])) : nameOf(b.ids[0]))}${b.ids.length > 1 ? ` <small>${b.ids.length}동</small>` : ""}`;
-      if (k === here) return `<span class="rd-book on">${label} <small>(여기)</small></span>`;
-      return lead.round ? `<a class="rd-book" href="sitok-round.html?report=${lead.round.id}">${label} ›</a>`
-        : `<a class="rd-book none" href="sitok-facility.html?id=${b.ids[0]}" title="이 반기 회차가 아직 없습니다 — 시설물 화면에서 만들기">${label} <small>회차 없음</small> ›</a>`;
-    }).join("")}</div>`;
+      const name = esc(b.ids.length > 1 ? (b.name || nameOf(b.ids[0])) : nameOf(b.ids[0]));
+      const head = `보고서 ${k + 1} · ${esc(lead.mgmt_no || "")}${b.ids.length > 1 ? ` · ${b.ids.length}동` : ""}`;
+      const inner = (right) => `<small><span>${head}</span>${right}</small><b>${name}</b>`;
+      if (k === here) return `<span class="fi-tile on" title="${name}">${inner('<em class="fi-edit">여기</em>')}</span>`;
+      return lead.round ? `<a class="fi-tile" href="sitok-round.html?report=${lead.round.id}" title="${name}">${inner("")}</a>`
+        : `<a class="fi-tile rd-none" href="sitok-facility.html?id=${b.ids[0]}" title="이 반기 회차가 아직 없습니다 — 시설물 화면에서 만들기">${inner('<em class="rd-none-t">회차 없음</em>')}</a>`;
+    });
+    return `<div class="rd-books"><div class="rd-books-h">📚 이 현장 보고서 ${books.books.length}권 <span class="fi-sub">누르면 그 보고서 회차로 — 파란 테두리가 지금 보는 보고서</span></div>
+      <div class="fi-tiles">${tiles.join("")}</div></div>`;
   }
 
   async function load() {

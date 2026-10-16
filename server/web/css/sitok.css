@@ -546,11 +546,14 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
 }
 
 /* 회차 화면 "이 현장 보고서 N권"(10/16) */
-.rd-books { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 4px; padding: 8px 12px; border-radius: 10px; background: #f3f6fb; font-size: 13px; }
-.rd-book { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); text-decoration: none; font-weight: 600; }
-.rd-book.on { border-color: var(--blue); color: var(--blue); }
-.rd-book.none { color: var(--muted); border-style: dashed; }
-.rd-book small { font-weight: 500; color: var(--muted); }
+/* 회차 화면 "📚 이 현장 보고서 N권"(10/16) — ① 동 타일(.fi-tile, 아래 ① 절)과 같은 칸, 이름이 길어 칸 폭만 넓게 */
+.rd-books { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 4px; }
+.rd-books-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 14px; font-weight: 800; color: var(--ink); }
+.rd-books .fi-tiles { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+.main .rd-books .fi-tile.on { cursor: default; }
+.main .rd-books .fi-tile.rd-none { border-style: dashed; background: var(--paper); }
+.rd-none-t { font-style: normal; color: var(--faint); font-weight: 600; white-space: nowrap; }
+@media (max-width: 760px) { .rd-books .fi-tiles { grid-template-columns: 1fr; } }
 .cp-open { margin-left: auto; font-size: 12.5px; font-weight: 600; }
 
 /* 📚 보고서 구성(10/16 민재형, js/sitok-compose.js) — 건물 칩을 보고서 상자에 끌어다(폰은 누르기) */
