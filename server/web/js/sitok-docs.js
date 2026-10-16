@@ -465,7 +465,7 @@
     const lk = el.querySelector(".dc-link");
     if (lk) lk.addEventListener("click", () => pickFacility(c, () => load()));
     el.querySelector(".dc-del").addEventListener("click", async () => {
-      const pw = await dcAskPassword(`"${c.title || c.auto_title || "점검 계약"}"을(를) 지웁니다. 올린·만든 계약서 파일도 같이 지워집니다(보고서 쪽에 넣은 계약은 그대로). 되돌릴 수 없습니다.`);
+      const pw = await dcAskPassword(`"${c.title || c.auto_title || "점검 계약"}"을(를) 지웁니다. 올린·만든 계약서 파일과 보고서 쪽에 넣은 계약도 같이 지워집니다(회차는 남음). 되돌릴 수 없습니다.`);
       if (pw == null) return;
       try {
         await api(`${P}/contracts/${c.id}`, { method: "DELETE", body: JSON.stringify({ password: pw }) });

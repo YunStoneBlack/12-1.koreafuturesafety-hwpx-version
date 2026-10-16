@@ -521,6 +521,23 @@ def school_names(*texts: str | None) -> set[str]:
     return out
 
 
+def drop_report_contracts(db: Session, c: SitokDocContract, keep: set[str] | None = None) -> None:
+    """이 서류 계약이 보고서 쪽에 넣은 계약(SitokContract) 중 keep(시설물 id 글자) 밖의 것을 지움 — 붙은 회차는 남고 계약 칸만 비움(10/16)."""
+    rcmap = {str(k): v for k, v in (c.report_contracts or {}).items()}
+    if c.report_contract_id and not rcmap and c.facility_id:
+        rcmap[str(c.facility_id)] = c.report_contract_id
+    for k in [k for k in rcmap if keep is None or k not in keep]:
+        old = db.get(SitokContract, rcmap.pop(k))
+        if old is not None and str(old.facility_id) == k:
+            db.query(SitokReport).filter(SitokReport.contract_id == old.id).update({SitokReport.contract_id: None})
+            pdf = Path(old.contract_pdf) if old.contract_pdf else None
+            db.delete(old)
+            if pdf is not None and pdf.name.startswith("계약서_") and pdf.exists():  # to_facility가 시설물 폴더에 복사한 계약서
+                pdf.unlink(missing_ok=True)
+    c.report_contracts = rcmap or None
+    c.report_contract_id = rcmap.get(str(c.facility_id)) or next(iter(rcmap.values()), None)
+
+
 def _card_units(db: Session, f: SitokFacility) -> list[SitokFacility]:
     """카드의 시설물(보고서 하나씩 — 관급-9-1·9-2), 묶인 동은 대표 동 하나(목록·계약 체크칸과 같은 id)."""
     from server.api.routers.sitok import NO_RE, card_facilities
@@ -585,16 +602,35 @@ def match_card(db: Session, c: SitokDocContract, why: dict | None = None) -> lis
     schools = school_names(c.facility_name, c.client)
     if len(schools) > 1:
         return False
-    title = _norm(c.title) if c.sector == "관급" else ""
-    hits = {}
+    gov = c.sector == "관급"
+    title = _norm(c.title) if gov else ""
+    client = _norm(c.client)
+    fac = _norm(c.facility_name) if _norm(c.facility_name) != client else ""  # 시설물명이 발주처와 같으면(관급 기본값) 시설물 근거가 아님
+    hits, weak = {}, {}
     for f in db.query(SitokFacility).filter(SitokFacility.company_id == c.company_id, SitokFacility.sector == c.sector):
         names = {_norm(f.name), _norm(f.owner_name)} - {""}
         fs = school_names(f.name, f.owner_name)
-        if keys & names or (schools and schools & fs) or (title and len(_norm(f.name)) >= 4 and _norm(f.name) in title):
-            lead = f
-            if f.group_id:
-                lead = db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id).order_by(SitokFacility.group_order, SitokFacility.id).first() or f
+        strong = (fac and fac in names) or (schools and schools & fs) or (title and len(_norm(f.name)) >= 4 and _norm(f.name) in title)
+        if not (strong or keys & names):
+            continue
+        lead = f
+        if f.group_id:
+            lead = db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id).order_by(SitokFacility.group_order, SitokFacility.id).first() or f
+        if strong or not gov:
             hits[lead.id] = lead
+        else:
+            weak[lead.id] = lead
+    if gov and not hits:  # 10/16 민재형: 발주처(경기도 포천시)만 같고 부서가 다른 별개 계약 — 그 카드 이전 계약과 건명 모양이 같거나(상·하반기 산정호수) 카드에 계약이 없을 때만 같은 카드
+        for lead in weak.values():
+            unit_ids = {u.id for u in _card_units(db, lead)}
+            olds = [o for o in db.query(SitokDocContract).filter(SitokDocContract.company_id == c.company_id, SitokDocContract.id != c.id)
+                    if set(covered_ids(o)) & unit_ids]
+            if not olds or any(_pattern(o.title) and _pattern(o.title) == _pattern(c.title) for o in olds):
+                hits[lead.id] = lead
+        if not hits and len(weak) == 1 and why is not None:  # 발주처가 같은 카드가 하나 — 새 카드로 하되 합치는 길 안내
+            from server.api.routers.sitok import base_no as _b
+            lead = next(iter(weak.values()))
+            why["client"] = _b(lead.mgmt_no) or lead.mgmt_no
     if not hits:
         return None
     from server.api.routers.sitok import base_no
@@ -659,6 +695,9 @@ def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
     if out.get("created_facility") and why.get("full"):  # 같은 발주처 카드가 이 기간 계약이 이미 있음 — 나눈 계약이면 번호로 합치기
         n = why["full"].split("-", 1)[-1]
         msg += f" — 같은 발주처 카드 {why['full']}는 이 기간 계약이 이미 있어 새 카드로 했습니다. 발주처가 계약을 나눈 거면 번호표를 눌러 {n}(으)로 바꾸면 {why['full']} 카드의 시설물(보고서 따로)로 들어갑니다"
+    elif out.get("created_facility") and why.get("client"):
+        n = why["client"].split("-", 1)[-1]
+        msg += f" — 발주처가 같은 카드 {why['client']}가 있지만 건명이 달라 다른 시설물로 봤습니다. 같은 발주처가 나눈 계약(보고서만 따로)이면 번호표를 눌러 {n}(으)로 바꾸면 {why['client']} 카드에 들어갑니다"
     elif joined is not None and f is not None and len(_card_units(db, f)) > 1:
         msg += f" — 이 계약의 시설물 {' · '.join(x.mgmt_no for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x)}(다르면 계약 정보의 \"이 계약의 시설물\"에서 고르세요)"
     return summary(db, c) | {"auto_card": msg, "report_id": out.get("report_id")}
@@ -666,7 +705,7 @@ def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
 
 @router.delete("/contracts/{cid}")
 def delete_contract(cid: int, password: str = Body("", embed=True), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """지우기(올린·만든 파일까지, 되돌릴 수 없음) — 회사 공용 삭제 비밀번호. 보고서 쪽에 넣은 계약은 그대로."""
+    """지우기(올린·만든 파일까지, 되돌릴 수 없음) — 회사 공용 삭제 비밀번호. 이 계약이 보고서 쪽에 넣은 계약도 지움(10/16 — 붙은 회차는 남고 계약 칸만 비움)."""
     h = config.get_site_delete_password_hash(user.company_id)
     if not h:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "삭제 비밀번호가 아직 없습니다. 설정에서 먼저 정하세요.")
@@ -674,6 +713,7 @@ def delete_contract(cid: int, password: str = Body("", embed=True), user: User =
         raise HTTPException(status.HTTP_403_FORBIDDEN, "삭제 비밀번호가 맞지 않습니다.")
     c = _require(db, user, cid)
     base = folder(c)
+    drop_report_contracts(db, c)
     db.delete(c)
     db.commit()
     shutil.rmtree(base, ignore_errors=True)
@@ -887,8 +927,15 @@ def link(cid: int, body: LinkIn, user: User = Depends(get_current_user), db: Ses
         f = db.get(SitokFacility, body.facility_id)
         if f is None or f.company_id != user.company_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
+    if body.facility_id != c.facility_id or c.facility_ids:  # 10/16: 예전 카드에 넣었던 보고서 쪽 계약을 지우고(회차는 남음) 새 카드로
+        drop_report_contracts(db, c)
+        c.facility_ids, c.amounts = None, None
     c.facility_id = body.facility_id
     db.commit()
+    if c.facility_id is not None:
+        out = auto_card(db, user, c)  # 계약서가 있으면 새 카드의 보고서 쪽 계약까지
+        if out is not None:
+            return out
     return summary(db, c)
 
 
@@ -943,13 +990,9 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
         if (created is not None and t.id == created) or (not t.group_id and db.query(SitokReport.id).filter(SitokReport.facility_id == t.id).first() is None):
             # 새 시설물(또는 회차가 하나도 없는 시설물 — [+ 시설물 추가]로 만든 관급-9-2 등)이면 이번 반기(계약이 덮으면) 회차까지
             report_id = _first_report(db, user, t, rc) or report_id
-    keep = {str(t.id) for t in targets}
-    for k in [k for k in rcmap if k not in keep]:  # 계약 창에서 체크를 뺀 시설물 — 그 시설물에 넣었던 보고서 쪽 계약을 지움(회차는 남고 계약 칸만 비움)
-        old = db.get(SitokContract, rcmap.pop(k))
-        if old is not None and str(old.facility_id) == k:
-            db.query(SitokReport).filter(SitokReport.contract_id == old.id).update({SitokReport.contract_id: None})
-            db.delete(old)
     c.report_contracts = rcmap
+    drop_report_contracts(db, c, {str(t.id) for t in targets})  # 계약 창에서 체크를 뺀 시설물 — 그 시설물에 넣었던 보고서 쪽 계약을 지움(회차는 남고 계약 칸만 비움)
+    rcmap = {str(k): v for k, v in (c.report_contracts or {}).items()}
     c.report_contract_id = rcmap.get(str(c.facility_id)) or next(iter(rcmap.values()), None)
     db.commit()
     from server.sitok.visit_plan import fill_quietly
