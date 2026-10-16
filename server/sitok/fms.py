@@ -84,7 +84,7 @@ def result_fields(hwpx: Path, nth: int = 0) -> dict:
     repairs = _bullets(val("주요보수·보강", "주요보수보강", "주요보수", starts=True))
     serious_t, public_t = val("중대한결함", starts=True), val("공중이이용하는부위", starts=True)
     grade = re.sub(r"\s", "", val("안전등급", starts=True))
-    m = re.search(r"[A-E]", grade)
+    m = re.search(r"[A-E]|양호|보통|미흡|불량|우수", grade)  # 3종 글자, 2종 낱말(10/16 — 2종은 양호·보통·미흡·불량)
     ops = _opinions(roots)
     no_repair = not repairs or all(re.search(r"대상\s*없음|주의관찰", r) for r in repairs)
     return {

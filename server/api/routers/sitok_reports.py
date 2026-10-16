@@ -959,7 +959,9 @@ def _run_build(report_id: int) -> None:
             folder = _report_dir(f, r)
             base = f"{r.year}년 {r.half} {r.kind or '정기'}안전점검 보고서_{f.name}"
             hwpx = folder / f"{base}.hwpx"
-            warn, changed, _ = _build_hwpx(db, r, hwpx)
+            warn, changed, new = _build_hwpx(db, r, hwpx)
+            from server.sitok import summary_doc
+            summary_doc.add_toc_line(hwpx)  # 목차 "▣ 요약문"(10/16)
             r.out_hwpx = str(hwpx)
             r.message = f"한글 만듦({changed}곳 바꿈) — PDF로 바꾸는 중(100쪽 넘으면 몇 분)…"
             db.commit()
@@ -967,6 +969,8 @@ def _run_build(report_id: int) -> None:
             _convert_pushing(hwpx, pdf)  # 한글 → PDF(+ 결과표 넘침·제목만 쪽 끝이면 고치고 한 번 더, 10/14)
             drawn = _insert_drawings(pdf, [(1, f)])  # 1.2.9 뒤 첨부 도면(10/12)
             warn = _page_check(pdf, hwpx, drawn) + warn  # 관리대장·계약서 합치기 전(본문 쪽 번호 = 최종), 도면 쪽은 빼고
+            if _add_summary(db, [(f, r)], new.title, hwpx, pdf, warn):  # 정기 요약문 — 목차 앞(10/16 민재형 견본)
+                pass
             merged = _merge(pdf, [f.ledger_pdf], [c.contract_pdf] if c else [])
             if _insert_albums(db, [r], [f.name], pdf):
                 merged.append("외관조사 사진첩")
@@ -979,6 +983,113 @@ def _run_build(report_id: int) -> None:
         except Exception as err:  # noqa: BLE001 — 이유를 남김
             _fail([r], err)
         db.commit()
+
+
+# ---------- 정기 요약문(10/16 민재형 견본 — 안산대 2026 상반기, server/sitok/summary_doc.py) ----------
+
+def _book_lead(db: Session, r: SitokReport) -> SitokReport | None:
+    """보고서 한 권(묶음이면 대표 동)의 회차 — 요약문 결언은 여기에(r.ai["summary"])."""
+    f = db.get(SitokFacility, r.facility_id)
+    if f is None or not f.group_id:
+        return r
+    pairs = _group_reports(db, r)
+    return pairs[0][1] if pairs else r
+
+
+def _summary_rows(db: Session, pairs: list) -> list[dict]:
+    """동마다 AI 초안(확정) 결론·주요결과·등급 — 결언 AI에 줌."""
+    from server.sitok import ai_draft
+
+    rows = []
+    for m, x in pairs:
+        fin = (x.ai or {}).get("final") or {}
+        g = rb.eval_score(fin["items"])["grade"] if fin.get("items") else fin.get("grade", "")
+        rows.append({"name": m.name, "grade": ai_draft.grade_label(g, m.template) if g else "-", "conclusion": fin.get("conclusion") or [],
+                     "findings": fin.get("findings") or []})
+    return rows
+
+
+def _make_summary_conclusion(db: Session, r: SitokReport, company_id: int, by: str) -> list[str]:
+    """요약문 결언 AI — 묶음 동마다 결론을 묶어 씀(동 AI 초안이 다 있어야), 대표 동 회차 ai["summary"]에 저장."""
+    from server.sitok import ai_draft
+
+    f = db.get(SitokFacility, r.facility_id)
+    pairs = _group_reports(db, r) if f.group_id else [(f, r)]
+    lead_f, lead = pairs[0]
+    from core.models_web import SitokGroup
+    g = db.get(SitokGroup, lead_f.group_id) if lead_f.group_id else None
+    title = f"{r.year}년 {seasons.bucket(r.half)} {(g.name if g else '') or lead_f.name} 정기안전점검 용역"
+    paras = ai_draft.summary_conclusion(title, r.year, seasons.bucket(r.half), _summary_rows(db, pairs), lead_f.template, company_id)
+    lead.ai = {**(lead.ai or {}), "summary": {"conclusion": paras, "made_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "by": by}}
+    db.commit()
+    return paras
+
+
+def _summary_input(db: Session, pairs: list, title: str, warn: list) -> "object":
+    """요약문 값 — 동마다 관리대장 칸(현황)·AI 초안(등급·점검 주요결과)·보수물량 표(적용공법·우선순위)·전회차 등급, 결언은 대표 동 ai.summary(없으면 기본 문장)."""
+    from server.api.routers.sitok_defects import method_map, priority_rows
+    from server.sitok import ai_draft
+    from server.sitok import summary_doc as S
+
+    lead_f, lead = pairs[0]
+    tpl = lead_f.template or "2종"
+    blds = []
+    for m, x in pairs:
+        fin = (x.ai or {}).get("final") or {}
+        g = rb.eval_score(fin["items"])["grade"] if fin.get("items") else fin.get("grade", "")
+        prio = priority_rows(db, x.id, method_map(fin.get("methods")))
+        methods = list(dict.fromkeys(p[3] for p in prio if p[3] and p[3] != "-")) or ["주의관찰"]
+        nums = sorted({int(p[6]) for p in prio if str(p[6]).isdigit()}) or [4]
+        prev = "-"
+        prior = _prior(x)
+        if prior is not None:
+            try:
+                pg = rb._letter(rb.read_old(prior).grade)
+                prev = ai_draft.grade_label(pg, m.template) if pg else "-"
+            except Exception:  # noqa: BLE001
+                prev = "-"
+        floors = " / ".join(s for s in (f"B{m.floors_below}F" if m.floors_below else "", f"{m.floors_above}F" if m.floors_above else "") if s)
+        blds.append(S.Building(name=m.name, year=f"{m.completion_date.year}년" if m.completion_date else "-", floors=floors or "-",
+                               area=f"{m.total_area:,.2f}㎡" if m.total_area else "-", structure=m.structure or "-", prev=prev,
+                               grade=ai_draft.grade_label(g, m.template) if g else "-", findings=fin.get("findings") or [],
+                               methods=", ".join(methods), prio=f"{nums[0]}순위" if nums[0] == nums[-1] else f"{nums[0]}~{nums[-1]}순위"))
+        if not fin:
+            warn.append(f"요약문: {m.name} AI 초안이 없어 등급·점검결과가 비었습니다")
+    cls = "2종" if ai_draft.is_type2(tpl) else "3종"
+    label = "미지정시설물" if lead_f.legal is False else ("제2종시설물" if cls == "2종" else "제3종시설물")
+    bad = ("미흡", "불량") if cls == "2종" else ("D", "E")
+    period = (f"{lead.period_start:%Y년 %m월 %d일} ∼ {lead.period_end:%Y년 %m월 %d일}" if lead.period_start and lead.period_end else "")
+    s = S.Summary(title=title, period=period, year=lead.year, half=seasons.bucket(lead.half), kind="정기", cls=cls, label=label,
+                  category=lead_f.kind or "건축물", buildings=blds, diag=[b.name for b in blds if b.grade in bad])
+    con = ((lead.ai or {}).get("summary") or {}).get("conclusion") or []
+    if not con:
+        warn.append("요약문 결언은 기본 문장입니다 — AI 초안 화면 [요약문 결언 AI로 쓰기]")
+    s.conclusion = con or S.fallback_conclusion(s)
+    return s
+
+
+def _add_summary(db: Session, pairs: list, title: str, hwpx: Path, pdf: Path, warn: list) -> int:
+    """정기 요약문 한글·PDF를 만들어 보고서 PDF 목차 앞에(목차 "▣ 요약문" 줄은 PDF 전에 add_toc_line) → 끼운 쪽 수. 못 하면 경고만."""
+    from server.sitok import summary_doc as S
+
+    tpl = master.master_dir() / "정기안전점검_요약문_원본.hwpx"
+    if not tpl.exists():
+        warn.append("요약문 원본(정기안전점검_요약문_원본.hwpx)이 없어 요약문을 빼고 만들었습니다")
+        return 0
+    try:
+        s = _summary_input(db, pairs, title, warn)
+        out = hwpx.with_name(hwpx.stem + "_요약문.hwpx")
+        S.build(s, tpl, out)
+        spdf = out.with_suffix(".pdf")
+        spdf.write_bytes(hwp_queue.convert_via_worker(out.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        n = S.insert_before_toc(pdf, spdf)
+        if not n:
+            warn.append("요약문: 보고서에서 목차 쪽을 못 찾아 끼우지 못했습니다(요약문 한글은 따로 있음)")
+        return n
+    except Exception as err:  # noqa: BLE001 — 요약문이 안 돼도 보고서는 그대로
+        traceback.print_exc()
+        warn.append(f"요약문을 넣지 못했습니다: {str(err).splitlines()[0][:120]}")
+        return 0
 
 
 def _insert_drawings(pdf: Path, chapters: list[tuple[int, SitokFacility]]) -> list[int]:
@@ -1055,6 +1166,8 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         base = f"{r.year}년 {r.half} {r.kind or '정기'}안전점검 보고서_{gname}"
         hwpx = folder / f"{base}.hwpx"
         warn += merge.merge(parts, hwpx, gname, gtitle)
+        from server.sitok import summary_doc
+        summary_doc.add_toc_line(hwpx)  # 목차 "▣ 요약문"(10/16)
         for _, y in pairs:
             y.out_hwpx, y.message = str(hwpx), f"{len(pairs)}동 한글 합침 — PDF로 바꾸는 중(몇 분)…"
         db.commit()
@@ -1062,6 +1175,7 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         _convert_pushing(hwpx, pdf)  # 한글 → PDF(+ 결과표 넘침·제목만 쪽 끝이면 고치고 한 번 더, 10/14)
         drawn = _insert_drawings(pdf, [(k, m) for k, (m, _) in enumerate(pairs, 1)])  # 동마다 N.2.9 뒤 첨부 도면(10/12)
         warn = _page_check(pdf, hwpx, drawn) + warn  # 관리대장·계약서 합치기 전(본문 쪽 번호 = 최종), 도면 쪽은 빼고
+        _add_summary(db, pairs, gtitle, hwpx, pdf, warn)  # 정기 요약문 — 동마다 한 줄씩, 목차 앞(10/16)
         contracts = []
         for _, y in pairs:
             c = db.get(SitokContract, y.contract_id) if y.contract_id else None
@@ -1144,7 +1258,10 @@ def report_file(report_id: int, kind: str, user: User = Depends(get_current_user
 def _ai_out(db: Session, r: SitokReport) -> dict:
     """AI 초안 + 단가표 공법 이름(창에서 보수공법 고르기용)."""
     from server.api.routers.sitok_settings import prices
-    return {**(r.ai or {}), "prices": [p.method for p in prices(db, r.company_id)]}
+    f = db.get(SitokFacility, r.facility_id)
+    lead = _book_lead(db, r)
+    return {**(r.ai or {}), "prices": [p.method for p in prices(db, r.company_id)], "template": f.template if f else "",
+            "summary": ((lead.ai or {}).get("summary") if lead is not None else None) or {}, "book": len(_group_reports(db, r)) if f and f.group_id else 1}
 
 
 def _precision_ai_out(db: Session, r: SitokReport) -> dict:
@@ -1217,7 +1334,7 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
         data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id,
                               eval_items=items, fac_items=fac_items,
                               combos=method_combos(db, r.id), price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)],
-                              parts_facts=facts)
+                              parts_facts=facts, template=f.template)
         data["parts"] = P.rows(r.parts, judged)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
@@ -1225,7 +1342,37 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
     final = {k: v for k, v in data.items() if k not in ("stats",)}
     if final.get("items"):
         final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
-    r.ai = {"draft": data, "final": final}
+    keep = {k: v for k, v in (r.ai or {}).items() if k == "summary"}
+    r.ai = {"draft": data, "final": final, **keep}
+    db.commit()
+    try:  # 요약문 결언 — 이 보고서(묶음이면 동 전부) AI 초안이 다 있으면 동마다 결론을 묶어 바로(민재형 10/16 "AI 초안 작성에 넣어줘")
+        pairs = _group_reports(db, r) if f.group_id else [(f, r)]
+        if all(((x.ai or {}).get("final")) for _, x in pairs):
+            _make_summary_conclusion(db, r, user.company_id, user.display_name or "")
+    except Exception:  # noqa: BLE001 — 결언은 [요약문 결언 AI로 쓰기]로 다시
+        traceback.print_exc()
+    return _ai_out(db, r)
+
+
+@router.post("/reports/{report_id}/ai/summary")
+def ai_summary_new(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """요약문 3.6 결언 AI로 다시(동마다 확정 AI 초안의 결론·주요결과를 묶음)."""
+    r = _require(db, user, report_id)
+    try:
+        _make_summary_conclusion(db, r, user.company_id, user.display_name or "")
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"요약문 결언을 쓰지 못했습니다: {str(err).splitlines()[0][:200]}") from err
+    return _ai_out(db, r)
+
+
+@router.put("/reports/{report_id}/ai/summary")
+def ai_summary_save(report_id: int, body: dict, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """요약문 결언 고친 글 — {conclusion: [문단]} → 대표 동 회차에."""
+    r = _require(db, user, report_id)
+    lead = _book_lead(db, r)
+    paras = [str(x).strip() for x in (body.get("conclusion") or []) if str(x).strip()]
+    lead.ai = {**(lead.ai or {}), "summary": {**((lead.ai or {}).get("summary") or {}), "conclusion": paras, "edited_by": user.display_name or "",
+                                              "edited_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}}
     db.commit()
     return _ai_out(db, r)
 
@@ -1256,8 +1403,13 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
                                       "items", "eval_opinion", "facility", "methods", "parts")}
     if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선)
         final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
+    from server.sitok import ai_draft as _AD
+
+    tpl = db.get(SitokFacility, r.facility_id).template
+    if final.get("grade"):  # 2종은 양호·보통·미흡·불량(속은 B~E) — 우수(A)는 양호로(10/16)
+        final["grade"] = _AD.to_letter(str(final["grade"]), tpl)
     if final.get("grade") and final["grade"] not in ("A", "B", "C", "D", "E"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "안전등급은 A~E 중 하나입니다.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "안전등급은 A~E(2종은 양호·보통·미흡·불량) 중 하나입니다.")
     final["edited_by"], final["edited_at"] = user.display_name or "", datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     r.ai = {**(r.ai or {}), "final": final}
     db.commit()

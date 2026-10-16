@@ -29,6 +29,11 @@ GRADES = {"A": ("우수", "문제점이 없는 최상의 상태"),
           "D": ("미흡", "주요부재에 결함이 발생하여 긴급한 보수·보강이 필요하며 사용제한 여부를 결정하여야 하는 상태"),
           "E": ("불량", "주요부재에 발생한 심각한 결함으로 인하여 시설물의 안전에 위험이 있어 즉각 사용을 금지하고 보강 또는 개축을 하여야 하는 상태")}
 WORD_TO_LETTER = {w: k for k, (w, _) in GRADES.items()}
+GRADES2 = ("양호", "보통", "미흡", "불량")  # 2종 정기 결과 — A~E·우수와 별개(형 10/16 "2종은 A~B가 없어 — 애초에 양호 보통 미흡 불량"), 속은 B~E로 저장
+
+
+def is_type2(template: str) -> bool:
+    return not (template or "").startswith("3종")
 
 
 def category_of(part: str, member: str, dtype: str) -> str:
@@ -61,8 +66,22 @@ def section_key(heading: str) -> str | None:
 
 def grade_text(letter: str, template: str) -> tuple[str, str]:
     """(결과표·종합결론에 쓸 등급 글, 등급 정의) — 2종은 낱말(보통), 3종은 글자(B)."""
+    if is_type2(template) and letter == "A":  # 2종에 우수(A)는 없음 — 양호
+        letter = "B"
     word, desc = GRADES.get(letter, ("", ""))
     return (letter if template.startswith("3종") else word), desc
+
+
+def grade_label(letter: str, template: str) -> str:
+    """요약문·화면 등급 글 — 3종 글자(B), 2종 낱말(양호·보통·미흡·불량)."""
+    return grade_text(letter, template)[0] or "-"
+
+
+def to_letter(value: str, template: str) -> str:
+    """AI·화면 등급 값 → 저장 글자. 2종은 낱말(양호…)이나 글자, A는 B로."""
+    v = (value or "").replace("등급", "").strip()
+    g = WORD_TO_LETTER.get(v) or (v.upper()[:1] if v[:1].upper() in "ABCDE" else "")
+    return "B" if is_type2(template) and g == "A" else g
 
 
 def stats(defects: list) -> dict:
@@ -124,7 +143,7 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 - 공중이 이용하는 부위·기타시설 현장 사진 판단이 있으면 sections.public·sections.other·결과표 public은 그 판단(항목·상태)을 근거로 구체적으로
   (해당없음 항목은 "해당없음", 사진이 없는 항목은 언급하지 말 것). 결함 집계의 공중이용·기타 결함도 함께.
   보고서 글에는 a~e 같은 평가 글자를 쓰지 말고 상태를 말로(예: "전반적으로 양호한 상태로 유지되고 있다", "일부 균열 등이 발생한 것으로 조사되었다").
-- 안전등급은 A~E 중 추천 하나와 근거 한두 문장. 등급 이름: A 우수, B 양호, C 보통, D 미흡, E 불량(중대결함 없고 비구조체 위주면 보통 B~C).
+{grade_rule}
 
 아래 JSON 객체 하나로만 답하세요(설명 없이):
 {{"critical": "결과표 중대결함 칸(예: 없음 / 일상적인 유지관리 실시)",
@@ -134,7 +153,7 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
  "next_focus": "차기 정기점검 시 중점 점검부위(한 줄)",
  "sections": {{"crack": "", "leak": "", "spall": "", "steel": "", "nonstruct": "", "public": "", "other": ""}},
  "conclusion": ["종합결론 글머리 — 항목별 한 개씩(결함 없는 항목도 짧게)"],
- "grade": "A~E 중 하나", "grade_reason": "근거"{items_spec}}}"""
+ "grade": "{grade_pick}", "grade_reason": "근거"{items_spec}}}"""
 
 ITEMS_SPEC = """,
  "items": [{{"no": 항목번호, "rating": "우수|양호|보통|미흡|불량|해당없음", "repair": "○ 또는 ×", "opinion": "점검자 의견 15자 안팎(예: 일부 균열 발생)", "basis": "근거 결함 — 아래 결함 목록의 층·번호와 크기(예: 지상5층 2·5번 균열 최대 0.3mm), 걸린 결함이 없으면 빈 글"}} — 아래 18항목 전부],
@@ -169,8 +188,13 @@ METHOD_SPEC = """,
 {combos}"""
 
 
+GRADE_RULE3 = "- 안전등급은 A~E 중 추천 하나와 근거 한두 문장. 등급 이름: A 우수, B 양호, C 보통, D 미흡, E 불량(중대결함 없고 비구조체 위주면 보통 B~C)."
+GRADE_RULE2 = ("- 점검결과 등급(제2종시설물)은 양호·보통·미흡·불량 중 하나와 근거 한두 문장 — 2종은 A~E·우수가 없는 별개 체계"
+               "(중대결함 없고 비구조체 위주면 보통 양호~보통, 주요부재 결함으로 긴급 보수가 필요하면 미흡, 위험하면 불량).")
+
+
 def draft(facility: str, period: str, defects: list, old_text: str, company_id: int, eval_items: list | None = None,
-          fac_items: list | None = None, combos: list | None = None, price_list: list | None = None, parts_facts: str = "") -> dict:
+          fac_items: list | None = None, combos: list | None = None, price_list: list | None = None, parts_facts: str = "", template: str = "3종일반") -> dict:
     st = stats(defects)
     lines = []
     for k, _, n in CATEGORIES:
@@ -193,7 +217,9 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
                                    combos="\n".join(f"{i} | {c['part']} | {c['member']} | {c['dtype']}{' (0.3mm 이상)' if c['wide'] else ''} | {c['count']}개소 | "
                                                      f"{c['qty']}{c['unit']} | {c['max_width'] if c['max_width'] is not None else '-'} | {', '.join(c['causes']) or '-'} | "
                                                      f"{c['default']}" for i, c in enumerate(combos, 1)))
-    prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), parts=parts_facts, old=old_text[:6000] or "(없음)", items_spec=spec)
+    two = is_type2(template) and not eval_items
+    prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), parts=parts_facts, old=old_text[:6000] or "(없음)", items_spec=spec,
+                           grade_rule=GRADE_RULE2 if two else GRADE_RULE3, grade_pick="양호|보통|미흡|불량 중 하나" if two else "A~E 중 하나")
     from server.sitok import vision
 
     text = vision.ask(company_id, [], prompt, max_tokens=32000)  # 3종 18항목·1.4·보수공법까지 쓰면 답이 김
@@ -206,8 +232,7 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
         data[k] = [str(x).strip() for x in (data.get(k) or []) if str(x).strip()]
     for k in ("critical", "public", "next_focus", "grade_reason"):
         data[k] = str(data.get(k) or "").strip()
-    g = str(data.get("grade") or "").strip().upper()[:1]
-    data["grade"] = g if g in GRADES else ""
+    data["grade"] = to_letter(str(data.get("grade") or ""), template)
     data["stats"] = {k: {x: st[k][x] for x in ("count", "grew", "new", "repaired", "max_width", "qty")} for k in st}
     if eval_items:  # 항목 이름·영역은 지난 보고서 표 것, 평가만 AI
         got = {int(x.get("no", 0)): x for x in (data.get("items") or []) if str(x.get("no", "")).isdigit() or isinstance(x.get("no"), int)}
@@ -249,3 +274,34 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
     else:
         data.pop("methods", None)
     return data
+
+
+SUMMARY_PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법) 보고서를 쓰는 책임기술자입니다. 보고서 앞 "요약문 3.6 결언"의 본문을 쓰세요.
+결언 첫 문단("금회 점검은 … 점검결과를 요약하면 다음과 같다.")은 이미 있으니 그 다음 문단들만 씁니다.
+
+[용역] {title}
+[시설물별 결과 — {n}개]
+{rows}
+
+규칙:
+- 시설물마다의 종합결론·점검 주요결과를 묶어서 쓰되, 위에 없는 사실·숫자를 지어내지 말 것. 보고서 문어체("~판단된다", "~바람직할 것으로 판단된다").
+- 문단 3개 안팎:
+  1) "금번 {year}년 {half} 시설물 정기안전점검 점검결과, 전체 {n}개 시설물에 발생된 손상들은 …(주된 원인)… 구조안전성 판단 … 보수 필요 여부" (시설물이 하나면 "대상 시설물에").
+  2) 등급별로 — 낮게 평가된 시설물(이름)과 그 결함·조치(관리주체가 유지관리계획에 따라 보수 …), 그 이외 시설물(이름)은 보고서 공법을 토대로 유지관리 계획 … .
+  3) "이 외의 시설물에 대해서는 주기적인 점검을 통한 관찰로 유지관리를 실시한다면, 시설물의 사용성에는 문제가 없을 것으로 판단된다." 취지로 마무리.
+- 등급 표기: {grade_note}
+아래 JSON 하나로만 답하세요(설명 없이): {{"paragraphs": ["문단1", "문단2", "문단3"]}}"""
+
+
+def summary_conclusion(title: str, year: int, half: str, rows: list[dict], template: str, company_id: int) -> list[str]:
+    """요약문 3.6 결언 본문(10/16 민재형 "각 시설물의 결론을 묶어 AI 작성") — rows = [{name, grade, conclusion, findings}] 동마다."""
+    from server.sitok import vision
+
+    lines = "\n".join(f"- {x['name']} | 금회 등급 {x['grade'] or '-'} | 종합결론: {' / '.join(x.get('conclusion') or [])[:700]} | 주요결과: {' / '.join(x.get('findings') or [])[:500]}"
+                      for x in rows)
+    note = "2종 — 양호·보통·미흡·불량(낱말 그대로, \"등급\"을 붙이지 않음)" if is_type2(template) else "3종 — A~E 글자에 \"등급\"(예: B등급)"
+    text = vision.ask(company_id, [], SUMMARY_PROMPT.format(title=title, year=year, half=half, n=len(rows), rows=lines, grade_note=note), max_tokens=4000)
+    m = re.search(r"\{.*\}", text, re.S)
+    if not m:
+        raise ValueError("AI 답에서 JSON을 찾지 못했습니다.")
+    return [str(x).strip() for x in (json.loads(m.group(0)).get("paragraphs") or []) if str(x).strip()]

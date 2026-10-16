@@ -4,6 +4,7 @@
 const SITOK_AI_SECTIONS = [["crack", "1) 콘크리트 구조체 균열"], ["leak", "2) 누수 및 백화"], ["spall", "3) 박리·박락·철근노출·부식"], ["steel", "4) 강재구조"],
   ["nonstruct", "5) 비구조체"], ["public", "6) 공중이 이용하는 부위·부대시설"], ["other", "7) 기타시설"]];
 const SITOK_GRADES = { A: "A 우수", B: "B 양호", C: "C 보통", D: "D 미흡", E: "E 불량" };
+const SITOK_GRADES2 = { B: "양호", C: "보통", D: "미흡", E: "불량" }; // 2종 — A~E·우수와 별개(형 10/16), 속은 B~E
 // 3종 안전등급 평가(18항목) — 점수·등급 계산은 서버 report_build.eval_score와 같은 식(화면에서 바로 보여 주려고 여기도)
 const SITOK_RATINGS = [["우수", 10], ["양호", 8], ["보통", 5], ["미흡", 2], ["불량", 0], ["해당없음", null]];
 function sitokEvalScore(items) {
@@ -99,6 +100,10 @@ async function openSitokAi(reportId, title, onSaved) {
       return;
     }
     const lines = (a) => esc((a || []).join("\n"));
+    const two = !String(ai.template || "3종").startsWith("3종"); // 2종 = 양호·보통·미흡·불량
+    const GR = two ? SITOK_GRADES2 : SITOK_GRADES;
+    const curGrade = two && f.grade === "A" ? "B" : f.grade;
+    const sum = ai.summary || {};
     const priceNames = new Set((ai.prices || []).map((p) => p.replace(/\s/g, "")));
     const known = (m) => priceNames.has(String(m || "").replace(/\s/g, ""));
     const st = d.stats || {};
@@ -112,8 +117,8 @@ async function openSitokAi(reportId, title, onSaved) {
         <label>주요 보수·보강 <span class="sk-help">한 줄에 하나</span><textarea data-k="repairs" data-lines rows="4">${lines(f.repairs)}</textarea></label>
         <label>차기 정기점검 시 중점 점검부위<input data-k="next_focus" value="${esc(f.next_focus)}" /></label>
         ${(f.items || []).length ? `<div class="ai-grade3">안전등급 <b class="ai-calc"></b> <span class="sk-help">3종 — 아래 18항목 평가로 자동 계산(평가를 바꾸면 바로 바뀜)</span></div>`
-          : `<label>안전등급 <span class="sk-help">AI 추천 ${esc(SITOK_GRADES[d.grade] || "-")} — ${esc(d.grade_reason || "")}</span>
-          <select data-k="grade"><option value="">바꾸지 않음(지난 보고서 그대로)</option>${Object.entries(SITOK_GRADES).map(([k, v]) => `<option value="${k}"${f.grade === k ? " selected" : ""}>${v}</option>`).join("")}</select></label>`}
+          : `<label>${two ? "점검결과 등급 <small>(2종 — 양호·보통·미흡·불량)</small>" : "안전등급"} <span class="sk-help">AI 추천 ${esc(GR[two && d.grade === "A" ? "B" : d.grade] || "-")} — ${esc(d.grade_reason || "")}</span>
+          <select data-k="grade"><option value="">바꾸지 않음(지난 보고서 그대로)</option>${Object.entries(GR).map(([k, v]) => `<option value="${k}"${curGrade === k ? " selected" : ""}>${v}</option>`).join("")}</select></label>`}
         <h4>1.3 외관조사 실시결과(항목별 서술 — 결과의 분석 표에도 같은 글)</h4>
         ${SITOK_AI_SECTIONS.map(([k, label]) => `<label>${label} <span class="sk-help">결함 ${st[k]?.count ?? 0}건${st[k]?.grew ? ` · 진행 ${st[k].grew}` : ""}${st[k]?.new ? ` · 신규 ${st[k].new}` : ""}${st[k]?.repaired ? ` · 보수 ${st[k].repaired}` : ""}</span>
           <textarea data-k="sections.${k}" rows="3">${esc((f.sections || {})[k])}</textarea></label>`).join("")}
@@ -140,6 +145,10 @@ async function openSitokAi(reportId, title, onSaved) {
           <datalist id="ai-prices">${(ai.prices || []).map((p) => `<option value="${esc(p)}">`).join("")}</datalist>` : ""}
         <h4>종합결론</h4>
         <label>종합결론 글머리 <span class="sk-help">한 줄에 하나</span><textarea data-k="conclusion" data-lines rows="7">${lines(f.conclusion)}</textarea></label>
+        <h4>요약문 결언 <span class="sk-help">보고서 앞 요약문 3.6 — ${ai.book > 1 ? `묶음 동 ${ai.book}개` : "이 시설물"}의 종합결론을 묶어 AI가 씀(동마다 AI 초안이 다 있으면 자동), 비우면 기본 문장</span></h4>
+        <label>결언 본문 <span class="sk-help">한 줄에 문단 하나</span><textarea class="ai-sum" rows="6">${lines(sum.conclusion)}</textarea></label>
+        <div class="ai-sum-acts"><button type="button" class="secondary btn-sm ai-sum-redo">🤖 요약문 결언 AI로 쓰기</button>
+          <span class="sk-help ai-sum-msg">${sum.made_at ? `AI ${esc(sum.made_at)}${sum.edited_at ? ` · ${esc(sum.edited_by || "")} 고침 ${esc(sum.edited_at)}` : ""}` : "아직 없음"}</span></div>
       </div>
       <div class="mail-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="secondary ai-redo">AI로 다시 쓰기</button><button type="button" class="mail-cancel">닫기</button>
@@ -163,6 +172,16 @@ async function openSitokAi(reportId, title, onSaved) {
     calc();
     box.querySelector(".mail-cancel").addEventListener("click", close);
     box.querySelector(".ai-redo").addEventListener("click", () => { if (confirm("AI가 처음부터 다시 씁니다. 고친 글은 사라집니다. 할까요?")) makeDraft(); });
+    box.querySelector(".ai-sum-redo").addEventListener("click", async (e) => { // 요약문 결언 — 동마다 확정 AI 초안 결론을 묶어(10/16)
+      const btn = e.currentTarget, m = box.querySelector(".ai-sum-msg");
+      btn.disabled = true;
+      m.textContent = "AI가 결언을 쓰는 중…(10~30초)";
+      try {
+        const next = await apiPost(`/sitok/reports/${reportId}/ai/summary`);
+        box.querySelector(".ai-sum").value = ((next.summary || {}).conclusion || []).join("\n");
+        m.textContent = `AI ${(next.summary || {}).made_at || ""}`;
+      } catch (err) { m.textContent = err.message; } finally { btn.disabled = false; }
+    });
     box.querySelector(".ai-save").addEventListener("click", async () => {
       const body = { sections: {} };
       box.querySelectorAll("[data-k]").forEach((el) => {
@@ -186,6 +205,8 @@ async function openSitokAi(reportId, title, onSaved) {
       const msg = box.querySelector(".mail-msg");
       try {
         await api(`/sitok/reports/${reportId}/ai`, { method: "PUT", body: JSON.stringify(body) });
+        const conc = box.querySelector(".ai-sum").value.split("\n").map((x) => x.trim()).filter(Boolean);
+        if (conc.join("\n") !== (sum.conclusion || []).join("\n")) await api(`/sitok/reports/${reportId}/ai/summary`, { method: "PUT", body: JSON.stringify({ conclusion: conc }) });
         msg.hidden = false; msg.className = "mail-msg ok"; msg.textContent = "저장했습니다 — [보고서 만들기]를 누르면 들어갑니다.";
         if (onSaved) onSaved();
       } catch (e) { msg.hidden = false; msg.className = "mail-msg bad"; msg.textContent = e.message; }

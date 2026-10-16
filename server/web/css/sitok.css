@@ -183,6 +183,10 @@
 .ai-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
 .ai-form input, .ai-form select { font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); }
 .ai-form textarea { font: inherit; font-size: 13px; line-height: 1.55; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; color: var(--ink); }
+/* 요약문 결언 [🤖 요약문 결언 AI로 쓰기] — 아래 창 버튼과 같은 모양(10/16) */
+.ai-sum-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ai-sum-acts button { padding: 7px 14px; font-size: 13px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; font-family: inherit; font-weight: 600; }
+.ai-sum-acts button:disabled { opacity: .6; cursor: default; }
 .mail-msg.ok { color: var(--green); }
 
 /* 3종 안전등급 평가 18항목(AI 초안 창) */
