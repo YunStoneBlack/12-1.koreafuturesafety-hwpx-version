@@ -147,3 +147,7 @@
 /* 계약 줄 정보 두 줄(10/16) — 발주처·계약번호 / 기간·금액, 날짜·번호 중간에서 안 끊김 */
 .dc-meta.sd-meta { word-break: keep-all; overflow-wrap: anywhere; }
 .sd-meta .sd-mi { white-space: nowrap; }
+
+/* 목록 머리 [전체 | 민간 | 관급](10/16 — 보고서 자동화와 같은 모양) */
+.panel-head .sd-sector { margin-left: 12px; }
+@media (max-width: 760px) { .panel-head .sd-sector { margin-left: 0; } }

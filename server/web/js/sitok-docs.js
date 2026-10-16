@@ -67,7 +67,10 @@
   };
   const byNo = (a, b) => { const x = noKey(a), y = noKey(b); return Math.floor(x / 1e8) - Math.floor(y / 1e8) || (sort.desc ? y - x : x - y); };
   const sortCards = (list) => (sort.mode === "viewed" ? list.sort((a, b) => (b.viewed_at || "").localeCompare(a.viewed_at || "") || byNo(a, b)) : list.sort(byNo));
-  const cardName = (k) => { const us = unitsOf(k); return us.length > 1 ? `${us[0].name} 외 ${us.length - 1}` : (k.members.length > 1 ? k.group_name || k.name : k.name); };
+  const cardName = (k) => { // 여러 개면 "첫 시설물 등 N개소"(10/16 민재형 — 외 몇 개 말고 전체 개수, 동·시설물 모두 셈)
+    const all = unitsOf(k).flatMap((u) => u.members);
+    return all.length > 1 ? `${all[0].name} 등 ${all.length}개소` : k.name;
+  };
   const cardText = (k) => [k.mgmt_no, cardName(k), k.address, k.owner_name, ...k.members.map((m) => m.name),
     ...contractsOf(k).flatMap((c) => [c.title, c.auto_title, c.client, c.contract_no, c.client_manager, c.site_manager])].join(" ").toLowerCase();
   const conText = (c) => `${c.title} ${c.auto_title} ${c.client} ${c.facility_name} ${c.contract_no} ${c.client_manager} ${c.site_manager}`.toLowerCase();
@@ -82,12 +85,8 @@
     cardsEl.innerHTML = TABS.map(([key, label, sub, ok]) => `<button type="button" class="st-card${view.tab === key ? " active" : ""}" data-tab="${key}">
       <span class="l">${label}</span><span class="n">${cards.filter((k) => ok(k) && badgeOk(k)).length}곳</span><span class="s">${sub}</span></button>`).join("") +
       `<button type="button" class="st-card${view.tab === "loose" ? " active" : ""}" data-tab="loose"><span class="l">카드에 안 넣은 계약</span><span class="n">${loose.length}건</span><span class="s">시설물 카드와 아직 안 이음</span></button>`;
-    cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => {
-      view.tab = b.dataset.tab;
-      if (view.tab === "민간") view.kind = "";
-      if (!view.tab) view.field = view.kind = ""; // [전체] = 칩 거르기도 풀기(10/16)
-      render();
-    }));
+    cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+    document.querySelectorAll(".sd-sector button").forEach((b) => b.classList.toggle("on", b.dataset.sector === view.tab));
     // 뱃지 칩 — 지금 구분 안에서 개수, 누르면 그것만(한 번 더 = 풀기)
     const inTab = cards.filter((k) => !view.tab || view.tab === "loose" || k.sector === view.tab);
     const chip = (dim, v) => {
@@ -128,6 +127,13 @@
     }
     for (const k of shown) list.appendChild(cardEl(k));
   }
+  function setTab(tab) { // 위 구분 칸·목록 머리 [전체 | 민간 | 관급](10/16) 같이 씀
+    view.tab = tab;
+    if (view.tab === "민간") view.kind = ""; // 민간은 분야 칩만(학교·일반은 관급 구분)
+    if (!view.tab) view.field = view.kind = ""; // [전체] = 칩 거르기도 풀기(10/16)
+    render();
+  }
+  document.querySelectorAll(".sd-sector button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.sector)));
   document.querySelectorAll(".sd-sort button").forEach((b) => b.addEventListener("click", () => {
     if (b.dataset.sort === "no" && sort.mode === "no") sort.desc = !sort.desc;
     else if (b.dataset.sort === "no") sort.desc = true;
@@ -1012,7 +1018,8 @@
         } else if (out.error) msg(esc(out.error), "warn");
         else if (out.auto_card) msg(`${filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")}<br>` : ""}${esc(out.auto_card)}`, "ok");
         else if (kind === "signed") msg("✓ 올렸습니다.", "ok");
-        else msg(filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")} — 노란 칸을 확인하세요.` : "읽었지만 새로 채울 빈 칸이 없었습니다.", filled.length ? "ok" : "");
+        else msg((filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")} — 노란 칸을 확인하세요.` : "읽었지만 새로 채울 빈 칸이 없었습니다.")
+          + (out.renamed ? `<br>✓ 카드 제목을 관리대장 시설물명 "${esc(out.renamed)}"(으)로 바꿨습니다.` : ""), filled.length || out.renamed ? "ok" : "");
       } catch (err) {
         msg(esc(err.message), "bad");
       } finally {

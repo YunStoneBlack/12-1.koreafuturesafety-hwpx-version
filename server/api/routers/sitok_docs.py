@@ -854,10 +854,11 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
     (base / target).write_bytes(pdf)
     if target == "날인본.pdf":
         c.contract_pdf = str(base / target)
-    filled, error = [], ""
+    filled, error, ledger_name = [], "", ""
     try:
         if kind == "ledger":
             d = reader.read_ledger(base / target, user.company_id)
+            ledger_name = (d.get("name") or "").strip()
             got = {"facility_name": d.get("name"), "location": d.get("address"), "client": d.get("owner_name"),
                    "client_rep": d.get("owner_rep"), "spec": f"연면적 {d['total_area']:,.2f}m²" if d.get("total_area") else ""}
             filled = _fill(c, got, False)
@@ -890,12 +891,19 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
             error = (error + " ") if error else ""
             error += "이 기간 계약이 카드의 시설물마다 이미 있습니다 — 다른 시설물 계약이면 카드의 [+ 시설물 추가]로 시설물을 먼저 만들고 \"이 계약의 시설물\"에서 고르세요."
     db.commit()
+    renamed = ""
+    ids = covered_ids(c)
+    f1 = db.get(SitokFacility, ids[0]) if kind == "ledger" and ledger_name and len(ids) == 1 else None
+    if f1 is not None and not f1.group_id and f1.name != ledger_name:  # 카드 제목 = 관리대장 시설물명(10/16 민재형 — 그 전엔 발주처 이름)
+        from server.api.routers.sitok import FacilityIn, update_facility
+        update_facility(f1.id, FacilityIn(name=ledger_name), None, user, db)  # 시설물 폴더·파일 경로도 같이
+        renamed = ledger_name
     dup = duplicate_of(db, c)
     auto = auto_card(db, user, c) if kind in ("g2b", "existing", "signed") and not full else None  # 계약서를 올리면 바로 카드에(10/15 — 저장 = 카드)
     if auto is None and c.facility_id and kind in ("g2b", "existing"):  # 카드 안 계약 — 기간이 생기면 방문 달력 일정(10/15)
         from server.sitok.visit_plan import fill_quietly
         fill_quietly(db, user.company_id, user.display_name or "", [c.facility_id])
-    return (auto or summary(db, c)) | {"filled": filled, "error": error, "duplicate_of": dup}
+    return (auto or summary(db, c)) | {"filled": filled, "error": error, "duplicate_of": dup, "renamed": renamed}
 
 
 def duplicate_of(db: Session, c: SitokDocContract) -> dict | None:
