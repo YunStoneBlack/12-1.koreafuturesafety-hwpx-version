@@ -539,6 +539,21 @@ def set_contract_type(facility_id: int, body: TypeIn, user: User = Depends(get_c
     return {"ok": True, "ids": [m.id for m in members], "contract_type": body.contract_type}
 
 
+def move_defect_photos(db: Session, facility_id: int, old_dir: Path, new_dir: Path) -> int:
+    """시설물 폴더 이름이 바뀌면(이름 고침·관리대장 시설물명) 결함 사진(이번·전회차) 경로도 새 폴더로 — 10/16 양주덕산초 "전회차 사진이 다 없어짐"."""
+    from core.models_web import SitokDefect
+
+    old_s, new_s, n = str(old_dir), str(new_dir), 0
+    rids = [r for (r,) in db.query(SitokReport.id).filter(SitokReport.facility_id == facility_id)]
+    for d in db.query(SitokDefect).filter(SitokDefect.report_id.in_(rids)) if rids else []:
+        for k in ("photo", "prev_photo"):
+            v = getattr(d, k)
+            if v and v.startswith(old_s):
+                setattr(d, k, new_s + v[len(old_s):])
+                n += 1
+    return n
+
+
 @router.patch("/facilities/{facility_id}")
 def update_facility(facility_id: int, body: FacilityIn, ledger_token: str | None = None,
                     user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -554,6 +569,7 @@ def update_facility(facility_id: int, body: FacilityIn, ledger_token: str | None
         f.ledger_pdf = str(_facility_dir(f) / Path(f.ledger_pdf).name) if f.ledger_pdf else ""
         for c in db.query(SitokContract).filter(SitokContract.facility_id == f.id):
             c.contract_pdf = str(_facility_dir(f) / Path(c.contract_pdf).name) if c.contract_pdf else ""
+        move_defect_photos(db, f.id, old_dir, _facility_dir(f))
     if ledger_token:
         f.ledger_pdf = _take(ledger_token, _facility_dir(f) / "시설물관리대장.pdf") or f.ledger_pdf
     db.commit()
