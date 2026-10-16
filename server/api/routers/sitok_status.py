@@ -165,7 +165,7 @@ def _doc_key(c: SitokDocContract, year: int, half: str, is_now: bool) -> str | N
 
 @router.get("/docs")
 def doc_rows(year: int | None = None, half: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    from server.api.routers.sitok_docs import card_no, covered_ids, folder, half_auto
+    from server.api.routers.sitok_docs import card_no, covered_ids, folder, half_auto, signed_pdf
     from server.sitok import civil
 
     y0, h0 = current_half()
@@ -178,7 +178,7 @@ def doc_rows(year: int | None = None, half: str | None = None, user: User = Depe
         f = db.get(SitokFacility, c.facility_id) if c.facility_id else None
         mk = c.marks or {}
         made = lambda at: at.strftime("%Y-%m-%d") if at else ""  # noqa: E731
-        signed = bool(c.contract_pdf and Path(c.contract_pdf).exists())
+        signed = signed_pdf(c) is not None
         rows.append({
             "contract": {"id": c.id, "sector": c.sector, "title": c.title or civil.default_title(c), "half": c.half_tag or half_auto(c, f),
                          "period": f"{c.start_date or ''} ~ {'계약 해지 시까지' if c.open_ended else (c.end_date or '')}" if c.start_date else "",

@@ -69,6 +69,20 @@ def folder(c: SitokDocContract) -> Path:
     return want
 
 
+def signed_pdf(c: SitokDocContract) -> Path | None:
+    """날인본(올린 계약서) 경로 — 계약 폴더 이름이 바뀌면(발주처·시설물명을 고침, folder()) 저장된 경로가 옛 폴더를 가리킴 → 지금 폴더의 같은 파일(10/16 민간-8)."""
+    if not c.contract_pdf:
+        return None
+    p = Path(c.contract_pdf)
+    if p.exists():
+        return p
+    q = folder(c) / p.name
+    if q.exists():
+        c.contract_pdf = str(q)
+        return q
+    return None
+
+
 def _iso(v):
     return v.isoformat() if isinstance(v, (datetime.date, datetime.datetime)) else v
 
@@ -89,7 +103,7 @@ def _require(db: Session, user: User, cid: int) -> SitokDocContract:
 
 def _files(c: SitokDocContract) -> dict:
     base = folder(c)
-    return {n: (base / n).exists() for n in FILES} | {"날인본.pdf": bool(c.contract_pdf and Path(c.contract_pdf).exists())}
+    return {n: (base / n).exists() for n in FILES} | {"날인본.pdf": signed_pdf(c) is not None}
 
 
 def _group_names(db: Session, f) -> list[str]:
@@ -556,6 +570,7 @@ def get_contract(cid: int, user: User = Depends(get_current_user), db: Session =
 def put_contract(cid: int, body: ContractIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _require(db, user, cid)
     _apply(c, body, user, db)
+    signed_pdf(c)  # 이름을 고쳐 폴더가 바뀌었으면 날인본 경로도(10/16)
     db.commit()
     return auto_card(db, user, c) or summary(db, c)
 
@@ -710,7 +725,7 @@ def match_card(db: Session, c: SitokDocContract, why: dict | None = None) -> lis
 def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
     """계약서 PDF가 있으면 저장할 때 카드에 넣고 보고서 쪽 계약까지(to_facility) — 카드가 없으면 같은 시설물 카드를 찾아 넣고, 없으면 새 카드.
     같은 계약번호 계약이 이미 있으면(중복) 안 함. 넣을 수 없으면 None(그냥 저장)."""
-    has_pdf = (c.contract_pdf and Path(c.contract_pdf).exists()) or (folder(c) / "계약서.pdf").exists()
+    has_pdf = signed_pdf(c) is not None or (folder(c) / "계약서.pdf").exists()
     if not has_pdf or duplicate_of(db, c) is not None or not (c.facility_name or c.client or c.title):
         return None
     joined, why = None, {}
@@ -954,7 +969,7 @@ def get_file(cid: int, name: str, inline: bool = True, user: User = Depends(get_
     c = _require(db, user, cid)
     if name not in FILES:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
-    p = Path(c.contract_pdf) if name == "날인본.pdf" and c.contract_pdf else folder(c) / name
+    p = (signed_pdf(c) or Path(c.contract_pdf)) if name == "날인본.pdf" and c.contract_pdf else folder(c) / name
     if not p.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
     label = re.sub(r'[\\/:*?"<>|]', "_", f"{c.facility_name or c.client or '계약'}_{name}")
@@ -1005,7 +1020,7 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
     from server.api.routers.sitok import _facility_dir
 
     c = _require(db, user, cid)
-    src = Path(c.contract_pdf) if c.contract_pdf and Path(c.contract_pdf).exists() else folder(c) / "계약서.pdf"
+    src = signed_pdf(c) or folder(c) / "계약서.pdf"
     if not src.exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "넣을 계약서가 없습니다 — 날인본을 올리거나 계약서를 만드세요.")
     f = db.get(SitokFacility, c.facility_id) if c.facility_id else None

@@ -780,6 +780,8 @@
 
     // clean = 서버에서 막 받은 상태(닫을 때 "고친 게 있나" 비교 기준) — 화면에서만 바꾼 뒤 다시 그릴 땐 기준을 안 바꿈
     function draw(clean) {
+      if (!Array.isArray(st.bldgs)) st.bldgs = (st.buildings || []).slice(); // 서버에서 막 받은 st(올리기·계약서 만들기·다른 카드로 뒤)엔 화면용 동 목록이 없음 — 10/16 "reading 'length'"
+      if (!Array.isArray(st.rounds)) st.rounds = [];
       const civil = st.sector === "민간";
       const f = st.facility;
       box.innerHTML = `
