@@ -347,7 +347,7 @@ def add_facility(fid: int, body: AddFacilityIn, user: User = Depends(get_current
     """[+ 시설물 추가 — 보고서 따로](10/15 밤 민재형): 같은 카드에 보고서가 따로 나오는 시설물 — 관급-6 → 6-1, 새 것 6-2(다음 6-3).
     동 추가(묶음 — 한 보고서)와 다름. 새 시설물은 카드의 주소·관리주체·구분·뱃지·계약 구분을 물려받음(관리대장을 올렸으면 그 칸·관리주체).
     contract_ids = 같은 계약(그 계약이 이 시설물도 맡음 — 보고서 쪽 계약·이번 반기 회차까지), 비면 계약 따로(나중에 올리는 계약이 맡음)."""
-    from server.api.routers.sitok import NO_RE, FacilityIn, _apply_facility, _facility_dir, _take, base_no, card_facilities
+    from server.api.routers.sitok import NO_RE, base_no, card_facilities
 
     f = db.get(SitokFacility, fid)
     if f is None or f.company_id != user.company_id:
@@ -366,26 +366,7 @@ def add_facility(fid: int, body: AddFacilityIn, user: User = Depends(get_current
             subs.append(1)
         elif m:
             subs.append(int(m[3]))
-    own = (body.owner_name or "").strip()
-    same_owner = not own or own == f.owner_name
-    new = SitokFacility(company_id=user.company_id, created_by=user.display_name or "", name=body.name.strip(), address=(body.address or f.address or "").strip(),
-                        owner_name=own or f.owner_name, owner_type=f.owner_type if same_owner else "", owner_phone=f.owner_phone if same_owner else "",
-                        sector=f.sector, badge_field=f.badge_field,
-                        badge_kind=f.badge_kind, badge_manual=f.badge_manual, contract_type=f.contract_type, template=f.template, kind=f.kind,
-                        contact_name=f.contact_name, contact_phone=f.contact_phone, legal=True if body.ledger_token else f.legal, ledger=body.ledger_extra or None)
-    if body.fields:  # 관리대장에서 읽은 칸 — 이름·주소·관리주체는 창에서 고친 값, 구분·뱃지·번호·계약 구분은 카드 것
-        keep = {"name", "address", "owner_name", "sector", "badge_field", "badge_kind", "contract_type", "mgmt_no", "legal"}
-        for k, v in body.fields.items():
-            if k in FacilityIn.model_fields and k not in keep and v not in (None, ""):
-                try:
-                    _apply_facility(new, FacilityIn(**{k: v}))
-                except (ValueError, HTTPException):  # 못 읽은 모양의 칸은 건너뜀(시설물 화면에서)
-                    pass
-    new.mgmt_no = f"{base}-{max(subs, default=1) + 1}"
-    db.add(new)
-    db.flush()
-    if body.ledger_token:
-        new.ledger_pdf = _take(body.ledger_token, _facility_dir(new) / "시설물관리대장.pdf") or new.ledger_pdf
+    new = _child_facility(db, user, f, body, f"{base}-{max(subs, default=1) + 1}")
     ids_in_card = {x.id for x in card}
     joined = []
     for cid in dict.fromkeys(body.contract_ids or []):
@@ -405,6 +386,84 @@ def add_facility(fid: int, body: AddFacilityIn, user: User = Depends(get_current
             except HTTPException:
                 db.rollback()
     return {"ok": True, "id": new.id, "mgmt_no": new.mgmt_no, "joined": [c.id for c in joined], "report_id": report_id}
+
+
+def _child_facility(db: Session, user: User, f: SitokFacility, body, mgmt_no: str) -> SitokFacility:
+    """f를 물려받은 새 시설물(주소·관리주체·구분·뱃지·계약 구분·틀) + 관리대장에서 읽은 칸 — [+ 시설물 추가]·[+ 동 추가] 같이 씀."""
+    from server.api.routers.sitok import FacilityIn, _apply_facility, _facility_dir, _take
+
+    own = (body.owner_name or "").strip()
+    same_owner = not own or own == f.owner_name
+    new = SitokFacility(company_id=user.company_id, created_by=user.display_name or "", name=body.name.strip(), address=(body.address or f.address or "").strip(),
+                        owner_name=own or f.owner_name, owner_type=f.owner_type if same_owner else "", owner_phone=f.owner_phone if same_owner else "",
+                        sector=f.sector, badge_field=f.badge_field,
+                        badge_kind=f.badge_kind, badge_manual=f.badge_manual, contract_type=f.contract_type, template=f.template, kind=f.kind,
+                        contact_name=f.contact_name, contact_phone=f.contact_phone, legal=True if body.ledger_token else f.legal, ledger=body.ledger_extra or None)
+    if body.fields:  # 관리대장에서 읽은 칸 — 이름·주소·관리주체는 창에서 고친 값, 구분·뱃지·번호·계약 구분은 카드 것
+        keep = {"name", "address", "owner_name", "sector", "badge_field", "badge_kind", "contract_type", "mgmt_no", "legal"}
+        for k, v in body.fields.items():
+            if k in FacilityIn.model_fields and k not in keep and v not in (None, ""):
+                try:
+                    _apply_facility(new, FacilityIn(**{k: v}))
+                except (ValueError, HTTPException):  # 못 읽은 모양의 칸은 건너뜀(시설물 화면에서)
+                    pass
+    new.mgmt_no = mgmt_no
+    db.add(new)
+    db.flush()
+    if body.ledger_token:
+        new.ledger_pdf = _take(body.ledger_token, _facility_dir(new) / "시설물관리대장.pdf") or new.ledger_pdf
+    return new
+
+
+class DongIn(BaseModel):
+    name: str
+    address: str | None = None
+    owner_name: str | None = None
+    ledger_token: str | None = None
+    fields: dict | None = None
+    ledger_extra: dict | None = None
+    group_name: str | None = None  # 처음 묶을 때 묶음 이름(표지·제출문) — 비우면 대표 동 이름
+
+
+@router.post("/facilities/{fid}/dong")
+def add_dong(fid: int, body: DongIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[+ 동 추가 — 한 보고서](10/16 사용자): 이 시설물(보고서 하나)에 같이 점검하는 동 — 새 시설물을 만들어 바로 묶음에(번호 같음, 시설물편 제N장).
+    [+ 시설물 추가 — 보고서 따로]와 다름. 대표 동의 이번·다음 반기 회차가 있으면 새 동 회차도(점검기간·기술자 같이)."""
+    from core.models_web import SitokGroup
+
+    from server.api.routers.sitok_groups import members
+    from server.api.routers.sitok_reports import HALVES, _group_reports
+
+    f = db.get(SitokFacility, fid)
+    if f is None or f.company_id != user.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
+    if not body.name.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "동 이름을 넣어 주세요(예: 세명연립 나동).")
+    lead = members(db, f.group_id)[0] if f.group_id else f
+    if not lead.group_id:
+        g = SitokGroup(company_id=user.company_id, name=(body.group_name or "").strip() or lead.name)
+        db.add(g)
+        db.flush()
+        lead.group_id, lead.group_order = g.id, 0
+    new = _child_facility(db, user, lead, body, lead.mgmt_no)
+    new.group_id = lead.group_id
+    new.group_order = max((m.group_order or 0 for m in members(db, lead.group_id)), default=0) + 1
+    db.flush()
+    # 대표 동의 이번 반기 이후 회차 — 새 동도 같은 반기 회차(이미 낸 보고서로 등록한 회차는 빼고)
+    today = datetime.date.today()
+    now = (today.year, 0 if today.month <= 6 else 1)
+    order = {h: i for i, h in enumerate(HALVES)}
+    reps = [r for r in db.query(SitokReport).filter(SitokReport.facility_id == lead.id)
+            if (r.year, order.get(r.half, 0)) >= now and not (r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"))]
+    report_id = None
+    for r in sorted(reps, key=lambda r: (r.year, order.get(r.half, 0))):
+        for m, x in _group_reports(db, r, user.display_name or ""):
+            if m.id == new.id:
+                report_id = report_id or x.id
+    db.commit()
+    ms = members(db, lead.group_id)
+    return {"ok": True, "id": new.id, "mgmt_no": new.mgmt_no, "chapter": next((i for i, m in enumerate(ms, 1) if m.id == new.id), len(ms)),
+            "dongs": len(ms), "group_name": db.get(SitokGroup, lead.group_id).name, "report_id": report_id}
 
 
 class CardIn(BaseModel):

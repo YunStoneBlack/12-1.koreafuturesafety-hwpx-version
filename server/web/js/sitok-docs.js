@@ -155,7 +155,8 @@
         <div class="sd-facts">
           <button type="button" class="secondary sd-fnew">${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}</button>
           <button type="button" class="secondary sd-fbadge" title="분야·관급 종류 뱃지 바꾸기">🏷 뱃지</button>
-          <button type="button" class="secondary sd-fadd" title="같은 계약·발주처인데 보고서가 따로 나오는 시설물(관급-6 → 6-1·6-2). 한 보고서에 들어가는 동은 시설물 화면의 동 묶음으로">+ 시설물 추가 — 보고서 따로</button>
+          <button type="button" class="secondary sd-fdong" title="보고서 한 권에 같이 들어가는 동(세명연립 가동 + 나동, 본관 + B동) — 번호 그대로, 동마다 시설물편 제N장">+ 동 추가 — 한 보고서</button>
+          <button type="button" class="secondary sd-fadd" title="같은 계약·발주처인데 보고서가 따로 나오는 시설물(관급-6 → 6-1·6-2)">+ 시설물 추가 — 보고서 따로</button>
         </div>
       </div>
       <div class="sd-fbody">${cons.length ? "" : `<div class="mail-note sd-fempty">아직 계약이 없습니다 — [${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}]로 넣으세요.</div>`}</div>`;
@@ -164,6 +165,7 @@
     el.querySelector(".sd-fnew").addEventListener("click", () => openContract(null, k.sector, { card: k }));
     el.querySelector(".sd-fbadge").addEventListener("click", () => editBadges(k));
     el.querySelector(".sd-fadd").addEventListener("click", () => addFacility(k));
+    el.querySelector(".sd-fdong").addEventListener("click", () => addDong(k));
     const noBtn = el.querySelector(".sd-no");
     if (noBtn) noBtn.addEventListener("click", () => editNumber(k));
     const links = siteLinkButtons(k.contact_phone, k.address);
@@ -260,6 +262,91 @@
         m.innerHTML = `✓ ${esc(out.mgmt_no)} 시설물을 추가했습니다 — 보고서 자동화에도 따로 생겼습니다. ${out.joined && out.joined.length
           ? `계약 ${out.joined.length}건이 이 시설물도 맡습니다(서류 ${esc(base)}) — 계약 정보에서 시설물별 금액을 나눠 넣으세요.`
           : `이 시설물 계약을 올리면 계약 정보의 "이 계약의 시설물"로 ${esc(out.mgmt_no)}에 들어갑니다.`}${out.report_id ? ` 이번 반기 회차도 만들었습니다 — <a href="sitok-round.html?report=${out.report_id}">회차 화면</a>` : ""}`;
+      } catch (err) {
+        say(err.message, "bad");
+      }
+    });
+  }
+
+  // [+ 동 추가 — 한 보고서](10/16 사용자) — 관리대장 올려 동을 만들고 바로 묶음에(번호 그대로, 시설물편 제N장). 시설물이 여럿인 카드면 어느 시설물에 넣을지 고름
+  function addDong(k) {
+    const us = unitsOf(k);
+    const dongName = (n) => String(n || "").replace(/\s*\S+동$/, "").trim() || n; // "세명연립 가동" → 묶음 이름 "세명연립"
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = `<div class="mail-box sd-card-new" role="dialog" aria-modal="true">
+      <div class="mail-head"><b>+ 동 추가 — 한 보고서</b><span class="mail-sub">${esc(k.mgmt_no)} ${esc(cardName(k))}</span></div>
+      <div class="mail-note"><b>보고서 한 권에 같이 들어가는 동</b>입니다(예: 세명연립 가동 + 나동, 본관 + B동). 현장 조사는 동마다 따로, 보고서는 한 권으로 합쳐집니다(동마다 시설물편 제N장).
+        번호는 그대로 씁니다. 보고서가 따로 나오면 [+ 시설물 추가 — 보고서 따로]를 쓰세요.</div>
+      ${us.length > 1 ? `<label class="cd-field"><span>어느 시설물에</span><select class="dg-unit">${us.map((u) => `<option value="${u.id}">${esc(u.mgmt_no)} ${esc(u.name)}${u.members.length > 1 ? ` (${u.members.length}동)` : ""}</option>`).join("")}</select></label>` : ""}
+      <label class="drop-box drop-sm sd-up-box af-drop"><b>📎 시설물관리대장</b><input type="file" class="af-file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
+      <div class="mail-note af-drop-msg">PDF·한글·사진 — 읽어서 동 이름·주소·관리주체·FMS 시설물번호를 채웁니다(없으면 아래 칸에 직접).</div>
+      <div class="cd-grid">
+        <label class="cd-field cd-wide"><span>동 이름</span><input class="af-name" placeholder="예: 세명연립 나동" /></label>
+        <label class="cd-field"><span>주소</span><input class="af-addr" value="${esc(k.address || "")}" /></label>
+        <label class="cd-field"><span>관리주체</span><input class="af-owner" value="${esc(k.owner_name || "")}" /></label>
+        <label class="cd-field cd-wide dg-gname-f"><span>묶음 이름 <em>표지·제출문</em></span><input class="dg-gname" /></label>
+      </div>
+      <div class="mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="af-close">닫기</button><button type="button" class="mail-primary af-save">추가</button></div></div>`;
+    document.body.appendChild(overlay);
+    const q = (s) => overlay.querySelector(s);
+    const close = () => overlay.remove();
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    q(".af-close").addEventListener("click", close);
+    const unitOf = () => us.find((u) => u.id === Number(q(".dg-unit") ? q(".dg-unit").value : us[0].id)) || us[0];
+    const syncGroup = () => { // 이미 묶음이면 묶음 이름은 시설물 화면에서(여기선 안 받음)
+      const u = unitOf();
+      q(".dg-gname-f").hidden = u.members.length > 1;
+      q(".dg-gname").value = dongName(u.name);
+    };
+    syncGroup();
+    if (q(".dg-unit")) q(".dg-unit").addEventListener("change", syncGroup);
+    q(".af-name").focus();
+    const say = (text, cls) => { const m = q(".mail-msg"); m.hidden = false; m.className = `mail-msg ${cls}`; m.textContent = text; };
+    let ledger = null, reading = false;
+    const file = q(".af-file");
+    file.addEventListener("change", async () => {
+      const f = file.files[0];
+      file.value = "";
+      if (!f) return;
+      const note = q(".af-drop-msg");
+      reading = true;
+      q(".af-save").disabled = true;
+      note.textContent = `${f.name} — 읽는 중…(AI로 읽느라 10~30초)`;
+      try {
+        const fd = new FormData();
+        fd.append("file", f);
+        ledger = await apiUpload(`${P}/facilities/${unitOf().id}/add/read`, fd);
+        const v = ledger.fields || {};
+        if (v.name) q(".af-name").value = v.name;
+        if (v.address) q(".af-addr").value = v.address;
+        if (v.owner_name) q(".af-owner").value = v.owner_name;
+        note.textContent = ledger.error || `✓ ${f.name} — ${v.name || "칸"}을(를) 채웠습니다${v.fms_no ? ` · FMS 시설물번호 ${v.fms_no}` : ""}`;
+      } catch (err) {
+        ledger = null;
+        note.textContent = err.message;
+      } finally {
+        reading = false;
+        q(".af-save").disabled = false;
+      }
+    });
+    enableFileDrop(q(".af-drop"), file);
+    q(".af-save").addEventListener("click", async () => {
+      if (reading) return;
+      if (!q(".af-name").value.trim()) { say("동 이름을 넣어 주세요(예: 세명연립 나동).", "bad"); return; }
+      try {
+        const fields = ledger && ledger.fields ? { ...ledger.fields } : null;
+        const extra = fields ? fields.ledger || null : null;
+        if (fields) delete fields.ledger;
+        const out = await apiPost(`${P}/facilities/${unitOf().id}/dong`, { name: q(".af-name").value, address: q(".af-addr").value, owner_name: q(".af-owner").value,
+          ledger_token: ledger ? ledger.token : null, fields, ledger_extra: extra, group_name: q(".dg-gname-f").hidden ? null : q(".dg-gname").value });
+        close();
+        await load();
+        const m = document.getElementById("sd-new-msg");
+        m.className = "status ok";
+        m.innerHTML = `✓ ${esc(out.mgmt_no)} 묶음 "${esc(out.group_name)}"에 동을 넣었습니다 — 보고서 한 권 ${out.dongs}동(이 동은 시설물편 제${out.chapter}장).
+          ${out.report_id ? `이번 반기 회차도 만들었습니다 — <a href="sitok-round.html?report=${out.report_id}">회차 화면</a>` : "다음 회차를 만들 때 이 동 회차도 같이 생깁니다."}`;
       } catch (err) {
         say(err.message, "bad");
       }
