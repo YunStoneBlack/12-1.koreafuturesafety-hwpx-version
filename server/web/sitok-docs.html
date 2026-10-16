@@ -22,22 +22,46 @@
 
 <div id="error" class="error"></div>
 
-<div class="list-toolbar">
-  <input id="sd-search" type="search" placeholder="번호(민간-3)·시설물·계약건명·관리주체·담당자로 검색" autocomplete="off" />
-  <button type="button" class="dc-new" id="sd-new-card">+ 새 시설물 카드</button>
-  <button type="button" class="dc-new secondary" id="sd-new-civil">+ 민간 계약서 만들기</button>
-  <button type="button" class="dc-new secondary" id="sd-new-gov">+ 관급 계약</button>
+<!-- 계약 시작 대시보드(10/16 민재형 "한눈에 딱 구분되게") — 민간: 계약서 불러오기(발주처 양식·발주서·날인본) · 새 계약서 만들기,
+     관급: 나라장터 계약서 불러오기 · 내역서(착수계 붙임 산출내역서로 그대로). 시설물(동·건물) 관리는 보고서 자동화에서만. -->
+<div class="sd-dash">
+  <section class="sd-dash-p civil">
+    <div class="sd-dash-h"><span class="sd-chip civil">민간</span><b>민간 계약</b><span class="mail-note">계약서를 받았으면 불러오고, 없으면 새로 만듭니다</span></div>
+    <div class="sd-dash-acts">
+      <label class="drop-box sd-drop" id="sd-drop-civil">
+        <span class="drop-ico">📄</span>
+        <span class="drop-txt"><b>계약서 불러오기</b>
+          <span>발주처 양식·발주서·날인본<br><span class="drop-pc">끌어다 놓거나 눌러서 고르기</span><span class="drop-touch">눌러서 고르기</span></span></span>
+        <input id="sd-existing" type="file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" />
+      </label>
+      <button type="button" class="sd-dash-btn" id="sd-new-civil"><span class="drop-ico">📝</span>
+        <span class="drop-txt"><b>새 계약서 만들기</b><span>시설물관리대장·사업자등록증을<br>올리면 칸이 채워짐</span></span></button>
+    </div>
+  </section>
+  <section class="sd-dash-p gov">
+    <div class="sd-dash-h"><span class="sd-chip gov">관급</span><b>관급 계약</b><span class="mail-note">나라장터 계약서 → 착수계·완료계</span></div>
+    <div class="sd-dash-acts">
+      <label class="drop-box sd-drop" id="sd-drop-gov">
+        <span class="drop-ico">📄</span>
+        <span class="drop-txt"><b>나라장터 계약서 불러오기</b>
+          <span>읽어서 새 관급 계약으로<br><span class="drop-pc">끌어다 놓거나 눌러서 고르기</span><span class="drop-touch">눌러서 고르기</span></span></span>
+        <input id="sd-g2b" type="file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" />
+      </label>
+      <label class="drop-box sd-drop" id="sd-drop-est">
+        <span class="drop-ico">📎</span>
+        <span class="drop-txt"><b>내역서</b>
+          <span id="sd-est-note">산출내역서·과업내용서<br>착수계 붙임에 자동으로 들어감</span></span>
+        <input id="sd-est" type="file" accept=".pdf,.hwp,.hwpx,.xlsx,.xls,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" />
+      </label>
+    </div>
+  </section>
 </div>
-<!-- 이미 만든(도장 찍은) 민간 계약서 올리기 — 읽어서 새 계약(10/12 사용자 "이미 만들어놓은 계약 건(민간) 올릴수있게") -->
-<label class="drop-box sd-drop">
-  <span class="drop-ico">📄</span>
-  <span class="drop-txt"><b class="drop-pc">이미 만든 민간 계약서를 여기에 끌어다 놓으세요</b><b class="drop-touch">눌러서 이미 만든 민간 계약서 고르기</b>
-    <span>PDF·한글·사진 — 읽어서 새 계약으로 등록합니다(날인본으로 보관)<span class="drop-pc"> · 눌러서 고를 수도 있어요</span></span></span>
-  <input id="sd-existing" type="file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" />
-</label>
 <div id="sd-new-msg" class="status"></div>
 
-<div class="st-cards" id="sd-cards"></div>
+<div class="list-toolbar sd-find">
+  <input id="sd-search" type="search" placeholder="번호(민간-3)·시설물·계약건명·관리주체·담당자로 검색" autocomplete="off" />
+  <button type="button" class="sd-loose" id="sd-loose" hidden></button>
+</div>
 <!-- 10/15 민재형 문서번호 일치화: 뱃지(분야·관급 종류)별 개수 — 누르면 그것만 -->
 <div class="sk-badges" id="sd-badges" role="group" aria-label="뱃지별 시설물 수"></div>
 

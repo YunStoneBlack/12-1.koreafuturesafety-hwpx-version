@@ -165,7 +165,8 @@ def summary(db: Session, c: SitokDocContract) -> dict:
             "targets": [{"id": t.id, "mgmt_no": t.mgmt_no, "name": t.name} for t in (db.get(SitokFacility, x) for x in covered_ids(c)) if t is not None],
             # 동별 금액(10/15): 회차 줄에 나오는 동 이름, 연결한 시설물이 묶음이면 묶음 동 이름(동별 금액을 처음 켤 때 기본값)
             "buildings": civil.buildings(c.rounds), "group_names": _group_names(db, f),
-            "files": _files(c), "made_at": c.made_at.strftime("%Y-%m-%d %H:%M") if c.made_at else "",
+            "files": _files(c), "estimate": [x.name for x in attachments.list_files(folder(c), "sitok_start", "calc")] if c.id else [],
+            "made_at": c.made_at.strftime("%Y-%m-%d %H:%M") if c.made_at else "",
             "gov": {k: _gov_made(c, k) for k in GOV},
             "updated": f"{c.updated_at:%Y-%m-%d %H:%M} {c.updated_by}" if c.updated_at else ""}
 
@@ -836,6 +837,27 @@ def from_existing(file: UploadFile = File(...), user: User = Depends(get_current
     dup = next((o for o in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id, SitokDocContract.id != c.id)
                 if key and key in {(o.facility_name or "").replace(" ", ""), (o.client or "").replace(" ", "")}), None)
     return out | {"duplicate_of": {"id": dup.id, "title": dup.title or civil.default_title(dup)} if dup else None}
+
+
+@router.post("/contracts/from-g2b")
+def from_g2b(file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """나라장터 계약서로 새 관급 계약(10/16 대시보드) — 파일을 PDF로 못 바꾸면 아무것도 안 만듦, 읽기는 못 해도 파일은 붙임(손으로 채움)."""
+    pdf = _pdf(file)
+    c = SitokDocContract(company_id=user.company_id, created_by=user.display_name or "", sector="관급", rounds=[], guarantee="-", delay_rate="-")
+    db.add(c)
+    db.flush()
+    return _store(db, c, "g2b", pdf, user)
+
+
+@router.post("/contracts/{cid}/estimate")
+def add_estimate(cid: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """관급 내역서(산출내역서·과업내용서) — 계약 단계에서 붙이면 착수계 붙임 "산출내역서" 칸에 그대로 들어감(같은 폴더, 10/16 민재형)."""
+    c = _require(db, user, cid)
+    try:
+        attachments.add_file(folder(c), "sitok_start", "calc", file.file.read(), file.filename or "내역서")
+    except (ValueError, RuntimeError) as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    return summary(db, c) | {"filled": [], "error": ""}
 
 
 @router.post("/contracts/{cid}/upload/{kind}")

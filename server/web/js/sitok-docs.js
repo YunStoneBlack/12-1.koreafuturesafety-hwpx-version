@@ -83,11 +83,11 @@
 
   function render() {
     const loose = all.filter((c) => !cardOf(c));
-    const cardsEl = document.getElementById("sd-cards");
-    cardsEl.innerHTML = TABS.map(([key, label, sub, ok]) => `<button type="button" class="st-card${view.tab === key ? " active" : ""}" data-tab="${key}">
-      <span class="l">${label}</span><span class="n">${cards.filter((k) => ok(k) && badgeOk(k)).length}곳</span><span class="s">${sub}</span></button>`).join("") +
-      `<button type="button" class="st-card${view.tab === "loose" ? " active" : ""}" data-tab="loose"><span class="l">카드에 안 넣은 계약</span><span class="n">${loose.length}건</span><span class="s">시설물 카드와 아직 안 이음</span></button>`;
-    cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+    if (view.tab === "loose" && !loose.length) view.tab = "";
+    const looseBtn = document.getElementById("sd-loose"); // 숫자 카드 4개는 목록 머리 [전체 | 민간 | 관급]과 겹쳐 뺌(10/16) — 카드에 안 넣은 계약만 있을 때 알림
+    looseBtn.hidden = !loose.length && view.tab !== "loose";
+    looseBtn.classList.toggle("on", view.tab === "loose");
+    looseBtn.textContent = view.tab === "loose" ? "← 시설물 카드로" : `⚠ 카드에 안 넣은 계약 ${loose.length}건`;
     document.querySelectorAll(".sd-sector button").forEach((b) => b.classList.toggle("on", b.dataset.sector === view.tab));
     // 뱃지 칩 — 지금 구분 안에서 개수, 누르면 그것만(한 번 더 = 풀기)
     const inTab = cards.filter((k) => !view.tab || view.tab === "loose" || k.sector === view.tab);
@@ -122,20 +122,21 @@
     title.textContent = "시설물 카드";
     const ok = TABS.find((t) => t[0] === view.tab)[3];
     const shown = sortCards(cards.filter((k) => ok(k) && badgeOk(k) && words.every((w) => cardText(k).includes(w))));
-    document.getElementById("sd-count").textContent = `${shown.length}곳${loose.length ? ` · 카드에 안 넣은 계약 ${loose.length}건` : ""}`;
+    document.getElementById("sd-count").textContent = `${shown.length}곳`;
     if (!shown.length) {
-      list.innerHTML = `<div class="empty-note">${cards.length ? "맞는 시설물 카드가 없습니다." : "아직 시설물 카드가 없습니다 — [+ 새 시설물 카드]로 시작하세요."}</div>`;
+      list.innerHTML = `<div class="empty-note">${cards.length ? "맞는 시설물 카드가 없습니다." : "아직 시설물 카드가 없습니다 — 위 [계약서 불러오기]로 시작하세요."}</div>`;
       return;
     }
     for (const k of shown) list.appendChild(cardEl(k));
   }
-  function setTab(tab) { // 위 구분 칸·목록 머리 [전체 | 민간 | 관급](10/16) 같이 씀
+  function setTab(tab) { // 목록 머리 [전체 | 민간 | 관급] · 위 "카드에 안 넣은 계약" 알림(10/16) 같이 씀
     view.tab = tab;
     if (view.tab === "민간") view.kind = ""; // 민간은 분야 칩만(학교·일반은 관급 구분)
     if (!view.tab) view.field = view.kind = ""; // [전체] = 칩 거르기도 풀기(10/16)
     render();
   }
   document.querySelectorAll(".sd-sector button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.sector)));
+  document.getElementById("sd-loose").addEventListener("click", () => setTab(view.tab === "loose" ? "" : "loose"));
   document.querySelectorAll(".sd-sort button").forEach((b) => b.addEventListener("click", () => {
     if (b.dataset.sort === "no" && sort.mode === "no") sort.desc = !sort.desc;
     else if (b.dataset.sort === "no") sort.desc = true;
@@ -528,65 +529,6 @@
     });
   }
 
-  // [+ 새 시설물 카드] — 보고서 자동화 시설물 목록에도 같은 번호로 바로 생김
-  async function newCard() {
-    const overlay = document.createElement("div");
-    overlay.className = "mail-overlay";
-    overlay.innerHTML = `<div class="mail-box sd-card-new" role="dialog" aria-modal="true">
-      <div class="mail-head"><b>🏢 새 시설물 카드</b><span class="mail-sub">보고서 자동화 · 시특법 시설물 목록에도 같은 번호로 생깁니다</span></div>
-      <div class="sd-sector">${["민간", "관급"].map((s) => `<label><input type="radio" name="nc-sector" value="${s}"${s === "민간" ? " checked" : ""} /> ${s}</label>`).join("")}
-        <span class="nc-no mail-note"></span></div>
-      <div class="cd-grid">
-        <label class="cd-field cd-wide"><span>시설물명</span><input class="nc-name" placeholder="예: 동안교회" /></label>
-        <label class="cd-field cd-wide"><span>주소</span><input class="nc-addr" placeholder="일정 지역 묶기에 씀" /></label>
-        <label class="cd-field"><span>관리주체</span><input class="nc-owner" /></label>
-        <label class="cd-field"><span>분야</span><select class="nc-field">${FIELDS.map((v) => `<option>${v}</option>`).join("")}</select></label>
-        <label class="cd-field nc-kind-l" hidden><span>관급 종류</span><select class="nc-kind">${KINDS.map((v) => `<option${v === "일반" ? " selected" : ""}>${v}</option>`).join("")}</select></label>
-        <label class="cd-field"><span>계약 구분</span><select class="nc-type"><option value="장기">장기·지속계약</option><option value="1회성">1회성·입찰계약</option></select></label>
-      </div>
-      <div class="mail-msg" hidden></div>
-      <div class="mail-foot"><button type="button" class="nc-close">닫기</button><button type="button" class="mail-primary nc-save">만들기</button></div></div>`;
-    document.body.appendChild(overlay);
-    const q = (s) => overlay.querySelector(s);
-    const close = () => overlay.remove();
-    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
-    q(".nc-close").addEventListener("click", close);
-    const sectorNow = () => overlay.querySelector('input[name="nc-sector"]:checked').value;
-    const onSector = async () => {
-      const s = sectorNow();
-      q(".nc-kind-l").hidden = s !== "관급";
-      q(".nc-type").value = s === "민간" ? "장기" : "1회성";
-      try { q(".nc-no").textContent = `번호 ${(await api(`/sitok/next-mgmt-no?sector=${encodeURIComponent(s)}`)).mgmt_no}`; } catch { q(".nc-no").textContent = ""; }
-    };
-    overlay.querySelectorAll('input[name="nc-sector"]').forEach((r) => r.addEventListener("change", onSector));
-    const guess = () => { // 이름·관리주체로 뱃지 미리(서버 guess_badges와 같은 말 — 학교·유치원·교육청이면 학교)
-      const t = `${q(".nc-name").value}${q(".nc-owner").value}`.replace(/\s/g, "");
-      q(".nc-kind").value = /학교|유치원|교육청|교육지원청/.test(t) ? "학교" : "일반";
-    };
-    q(".nc-name").addEventListener("input", guess);
-    q(".nc-owner").addEventListener("input", guess);
-    onSector();
-    q(".nc-name").focus();
-    q(".nc-save").addEventListener("click", async () => {
-      const s = sectorNow();
-      try {
-        const out = await apiPost(`${P}/facilities`, { sector: s, name: q(".nc-name").value, address: q(".nc-addr").value, owner_name: q(".nc-owner").value,
-          badge_field: q(".nc-field").value, badge_kind: s === "관급" ? q(".nc-kind").value : "", contract_type: q(".nc-type").value });
-        close();
-        await load();
-        const m = document.getElementById("sd-new-msg");
-        m.className = "status ok";
-        m.textContent = `✓ ${out.mgmt_no} ${out.name} 카드를 만들었습니다 — 보고서 자동화 시설물 목록에도 생겼습니다.`;
-      } catch (err) {
-        const m = q(".mail-msg");
-        m.hidden = false;
-        m.className = "mail-msg bad";
-        m.textContent = err.message;
-      }
-    });
-  }
-  document.getElementById("sd-new-card").addEventListener("click", newCard);
-
   function contactLine(c, who, label) {
     const name = c[`${who}_manager`], phone = c[`${who}_phone`], mail = c[`${who}_email`];
     if (!name && !phone && !mail) return "";
@@ -823,6 +765,14 @@
         <input data-key="${key}" type="${opts.type || "text"}" value="${esc(v)}" placeholder="${esc(opts.ph || "")}" /></label>`;
     };
     const ct = (key, ph, type = "text") => `<input data-key="${key}" type="${type}" placeholder="${ph}" value="${esc(st[key] || "")}" aria-label="${ph}" />`;
+    const estChip = () => { // 관급 내역서 = 착수계 붙임 "산출내역서" 칸(같은 곳, 10/16) — 여러 개 가능
+      const names = st.estimate || [];
+      const url = (n) => `${BASE}/api${P}/contracts/${st.id}/gov/start/attach/calc/${encodeURIComponent(n)}`;
+      return `<div class="sd-up">
+        <label class="drop-box drop-sm sd-up-box"><b>📎 내역서</b><input type="file" data-up="estimate" accept=".pdf,.hwp,.hwpx,.xlsx,.xls,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
+        <span class="mail-note">${names.length ? names.map((n) => `<a href="${url(n)}" target="_blank" rel="noopener">✓ ${esc(n.replace(/^\d+_/, "").replace(/\.pdf$/, ""))}</a>`).join(" · ")
+          : "산출내역서·과업내용서 → 착수계 붙임에 자동"}</span></div>`;
+    };
     const upChip = (kind, label, file, hint) => `<div class="sd-up">
         <label class="drop-box drop-sm sd-up-box"><b>📎 ${label}</b><input type="file" data-up="${kind}" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
         <span class="mail-note">${st.files && st.files[file] ? `<a href="${fileUrl(st, file)}" target="_blank" rel="noopener">✓ 올림 · 보기</a>` : hint}</span></div>`;
@@ -884,11 +834,12 @@
               : "· 계약서를 올리면 저장할 때 시설물 카드에 자동으로 들어갑니다(같은 시설물 카드가 있으면 그 카드로)"}</span></div></div>
         <div class="sd-sector">${["민간", "관급"].map((s) => `<label><input type="radio" name="sd-sector" value="${s}"${st.sector === s ? " checked" : ""} /> ${s === "민간" ? "민간 — 계약서를 우리가 작성" : "관급 — 나라장터 계약서"}</label>`).join("")}</div>
         <div class="mail-label">서류 올리기 <span class="mail-note">— 읽어서 빈 칸을 채웁니다(PDF·한글·사진, 끌어다 놓아도 됨)</span></div>
-        <div class="sd-ups${civil ? "" : " two"}">
+        <div class="sd-ups">
           ${upChip("ledger", "시설물관리대장", "시설물관리대장.pdf", "시설물명·위치·제원·관리주체")}
           ${civil ? upChip("bizreg", "사업자등록증", "사업자등록증.pdf", "관리주체·대표자·번호·주소") : ""}
           ${civil ? upChip(st.made_at ? "signed" : "existing", "날인본(도장 찍은 계약서)", "날인본.pdf", st.made_at ? "도장 찍어 받은 계약서 보관" : "이미 만든 계약서면 계약 칸까지 읽음")
             : upChip("g2b", "나라장터 계약서", "날인본.pdf", "읽어서 계약 칸을 채움(다시 올리면 읽은 칸만 바뀜)")}
+          ${civil ? "" : estChip()}
         </div>
         ${unitBox()}
         <div class="mail-label">${civil ? "관리주체(갑)" : "발주처"}</div>
@@ -1075,14 +1026,14 @@
       if (!file) return;
       const kind = inp.dataset.up;
       busy = true;
-      msg(kind === "signed" ? "올리는 중…" : "읽는 중… (AI로 읽느라 20~40초)", "");
+      msg(kind === "signed" || kind === "estimate" ? "올리는 중…" : "읽는 중… (AI로 읽느라 20~40초)", "");
       try {
         const b = body();
         if (!st.id) await ensure();
         else st = await api(`${P}/contracts/${st.id}`, { method: "PUT", body: JSON.stringify(b) });
         const fd = new FormData();
         fd.append("file", file);
-        const out = await apiUpload(`${P}/contracts/${st.id}/upload/${kind}`, fd);
+        const out = await apiUpload(kind === "estimate" ? `${P}/contracts/${st.id}/estimate` : `${P}/contracts/${st.id}/upload/${kind}`, fd);
         st = out;
         filled = out.filled || [];
         draw(true);
@@ -1104,6 +1055,7 @@
         } else if (out.error) msg(esc(out.error), "warn");
         else if (out.auto_card) msg(`${filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")}<br>` : ""}${esc(out.auto_card)}`, "ok");
         else if (kind === "signed") msg("✓ 올렸습니다.", "ok");
+        else if (kind === "estimate") msg("✓ 내역서를 붙였습니다 — 착수계 붙임 \"산출내역서\"에 그대로 들어갑니다.", "ok");
         else msg((filled.length ? `✓ 읽어서 채움: ${filled.map((k) => LABEL[k] || k).join(" · ")} — 노란 칸을 확인하세요.` : "읽었지만 새로 채울 빈 칸이 없었습니다.")
           + (out.renamed ? `<br>✓ 카드 제목을 관리대장 시설물명 "${esc(out.renamed)}"(으)로 바꿨습니다.` : ""), filled.length || out.renamed ? "ok" : "");
       } catch (err) {
@@ -1120,7 +1072,6 @@
   // ---------- 위쪽 버튼 ----------
   document.getElementById("sd-search").addEventListener("input", (e) => { view.q = e.target.value; render(); });
   document.getElementById("sd-new-civil").addEventListener("click", () => openContract(null, "민간"));
-  document.getElementById("sd-new-gov").addEventListener("click", () => openContract(null, "관급"));
 
   // 이미 만든 민간 계약서 → 읽어서 새 계약(파일을 못 읽으면 아무것도 안 만듦)
   const existing = document.getElementById("sd-existing");
@@ -1145,7 +1096,56 @@
       m.className = "status bad";
     }
   });
-  enableFileDrop(document.querySelector(".sd-drop"), existing);
+  enableFileDrop(document.getElementById("sd-drop-civil"), existing);
+
+  // 관급 — 나라장터 계약서를 읽어 새 관급 계약. 내역서를 먼저 골라 두면 계약서를 올릴 때 같이 붙임(계약서 먼저면 계약 창의 [📎 내역서])
+  let pendingEst = null;
+  const est = document.getElementById("sd-est"), estNote = document.getElementById("sd-est-note");
+  const EST_HINT = estNote.innerHTML;
+  const showEst = () => {
+    estNote.innerHTML = pendingEst ? `✓ ${esc(pendingEst.name)} — 나라장터 계약서를 올리면 같이 붙습니다 <button type="button" class="sd-est-x" title="빼기">✕</button>` : EST_HINT;
+    document.getElementById("sd-drop-est").classList.toggle("on", !!pendingEst);
+    estNote.querySelector(".sd-est-x")?.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); pendingEst = null; showEst(); });
+  };
+  est.addEventListener("change", () => {
+    if (est.files[0]) pendingEst = est.files[0];
+    est.value = "";
+    showEst();
+  });
+  enableFileDrop(document.getElementById("sd-drop-est"), est);
+  const g2b = document.getElementById("sd-g2b");
+  g2b.addEventListener("change", async () => {
+    const file = g2b.files[0];
+    g2b.value = "";
+    if (!file) return;
+    const m = document.getElementById("sd-new-msg");
+    m.textContent = "나라장터 계약서를 읽는 중… (20~40초)";
+    m.className = "status";
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      let out = await apiUpload(`${P}/contracts/from-g2b`, fd);
+      let estMsg = "";
+      if (pendingEst) {
+        try {
+          const fe = new FormData();
+          fe.append("file", pendingEst);
+          out = { ...out, ...(await apiUpload(`${P}/contracts/${out.id}/estimate`, fe)) };
+          estMsg = "<br>✓ 내역서도 붙였습니다(착수계 붙임 산출내역서).";
+          pendingEst = null;
+          showEst();
+        } catch (err) { estMsg = `<br>⚠ 내역서는 못 붙였습니다 — 계약 창의 [📎 내역서]로 다시 올려 주세요. (${esc(err.message)})`; }
+      }
+      m.textContent = "";
+      await load();
+      openContract(out.id, "관급", { filled: out.filled, message: (out.error ? esc(out.error) : out.auto_card ? esc(out.auto_card)
+        : "✓ 나라장터 계약서를 읽어 새 관급 계약으로 등록했습니다 — 노란 칸을 확인하세요.") + estMsg, tone: out.error ? "warn" : "ok" });
+    } catch (err) {
+      m.textContent = err.message;
+      m.className = "status bad";
+    }
+  });
+  enableFileDrop(document.getElementById("sd-drop-gov"), g2b);
 
   // 민간 계약서 양식 받기·올리기
   document.getElementById("sd-tpl-get").href = `${BASE}/api${P}/template`;

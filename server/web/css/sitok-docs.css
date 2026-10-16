@@ -1,7 +1,44 @@
 /* 서류 자동화 · 시특법 계약 목록(sitok-docs.html, js/sitok-docs.js, 2026-10-12) — 목록 줄·창 틀은 css/docs.css·contract-docs.css·mail.css를 같이 씀 */
 
-.main .list-toolbar button#sd-new-gov { margin-left: 0; }
-.sd-drop { margin-bottom: 4px; }
+/* 계약 시작 대시보드(10/16 민재형) — 민간(파랑)·관급(초록) 두 칸, 칸마다 [불러오기][만들기 또는 내역서]. 폰은 위아래로 */
+.sd-dash { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 12px; }
+.sd-dash-p { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-top: 4px solid var(--blue);
+  border-radius: 12px; background: var(--surface); min-width: 0; }
+.sd-dash-p.gov { border-top-color: var(--green); }
+.sd-dash-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.sd-dash-h b { font-size: 15px; }
+.sd-dash-h .sd-chip { margin-right: 0; }
+.sd-dash-h .mail-note { flex: 1 1 auto; text-align: right; }
+.sd-dash-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.main .sd-dash .drop-box, .main .sd-dash .sd-dash-btn { min-height: 76px; margin: 0; padding: 12px 14px; gap: 10px; } /* app.css .main label 아래 여백 없앰 */
+.sd-dash .drop-box .drop-txt > span, .main .sd-dash .sd-dash-btn .drop-txt > span { font-size: 12px; line-height: 1.45; }
+.main .sd-dash .sd-dash-btn { display: flex; align-items: center; width: 100%; margin: 0; border: 2px solid var(--blue); border-radius: 12px; background: var(--blue-soft);
+  color: var(--muted); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; box-shadow: none; } /* 그룹웨어 app.css .main button(파란 바탕)보다 우선 */
+.main .sd-dash .sd-dash-btn:hover { background: #DCEAFB; }
+.sd-dash-btn .drop-ico { font-size: 24px; line-height: 1; }
+.sd-dash-btn .drop-txt { display: flex; flex-direction: column; gap: 2px; }
+.sd-dash-btn b { color: var(--blue); font-size: 14px; font-weight: 700; }
+.sd-dash .gov .drop-box:hover { border-color: var(--green); }
+.main .sd-dash #sd-drop-est.on { border-style: solid; border-color: var(--green); background: var(--green-soft); }
+.sd-est-x { margin-left: 4px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
+.sd-est-x:hover { background: var(--line); color: var(--ink); }
+/* 검색 + "⚠ 카드에 안 넣은 계약 N건"(있을 때만) */
+.main .list-toolbar.sd-find { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.main .list-toolbar.sd-find input { flex: 1 1 320px; }
+.main .sd-loose { margin: 0; padding: 7px 14px; border: 1px solid #F0D2A4; border-radius: 8px; background: var(--warn-soft); color: var(--warn);
+  font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.main .sd-loose.on { border-color: var(--line); background: var(--surface); color: var(--ink); }
+@media (max-width: 900px) {
+  .sd-dash { grid-template-columns: 1fr; gap: 10px; }
+  .sd-dash-h .mail-note { flex-basis: 100%; text-align: left; }
+}
+@media (max-width: 520px) {
+  .sd-dash-p { padding: 12px; }
+  .sd-dash-acts { gap: 8px; }
+  .sd-dash-acts { grid-template-columns: 1fr; }
+  .main .sd-dash .drop-box, .main .sd-dash .sd-dash-btn { min-height: 0; padding: 10px 12px; }
+  .main .sd-loose { flex: 1 1 100%; }
+}
 .sd-chip { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 10px; font-size: 11.5px; font-weight: 700; vertical-align: 1px; }
 .sd-chip.civil { background: var(--blue-soft); color: var(--blue); }
 .sd-chip.gov { background: var(--green-soft); color: var(--green); }
@@ -20,7 +57,6 @@
 .sd-sector label { display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; font-weight: 500; }
 .sd-sector input { margin: 0; accent-color: var(--blue); }
 .sd-ups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.sd-ups.two { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* 관급: 관리대장·나라장터 계약서 */
 .sd-up { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .sd-up .mail-note { text-align: center; }
 .sd-up-box input[type="file"] { display: none !important; }
@@ -66,7 +102,7 @@
 
 @media (max-width: 760px) {
   #sd-list .row.dc-row { grid-template-columns: 1fr; }
-  .sd-ups, .sd-ups.two { grid-template-columns: 1fr; }
+  .sd-ups { grid-template-columns: 1fr; }
   .sd-up { flex-direction: row; align-items: center; }
   .sd-up .sd-up-box { flex: 1; }
   .sd-up .mail-note { flex: 1; text-align: left; }
