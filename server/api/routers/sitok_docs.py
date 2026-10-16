@@ -344,6 +344,8 @@ class AddFacilityIn(BaseModel):
     fields: dict | None = None  # 관리대장에서 읽은 시설물 칸(FMS 시설물번호·용도·준공일 …)
     ledger_extra: dict | None = None
     contract_ids: list[int] | None = None  # 같은 계약 — 이 시설물도 맡는 카드 안 계약(서류 관급-9 · 보고서 9-1·9-2). 비면 계약 따로(서류 9-1·9-2)
+    join_active: bool = False  # 보고서 자동화 등록(10/16) — 카드의 지금 계약(끝나지 않은, 사람이 고른 계약)이 이 시설물도 맡음
+    legal: bool | None = None  # False = 법정 외(관리대장 없는 자체점검 — 결과표로 등록)
 
 
 @router.post("/facilities/{fid}/add/read")
@@ -368,6 +370,35 @@ def add_read(fid: int, file: UploadFile = File(...), user: User = Depends(get_cu
     fields = {k: _iso(v) for k, v in parsed.items()}
     fields["template"] = guess_template(fields.get("grade", ""), fields.get("use_type", ""), fields.get("main_use", ""))
     return {"token": token, "fields": fields, "error": ""}
+
+
+@router.post("/facilities/{fid}/add/read-sheets")
+def add_read_sheets(fid: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """관리대장이 없는 자체점검(10/16 민재형 — 안산대·연성대): 전회차 보고서나 동마다 결과표 + 시설물 현황을 모은 PDF → 건물(동)마다 시설물 칸.
+    결과표 양식은 회사가 달라도 같음. found = 글자로 센 결과표 개수(AI가 읽은 건물 수와 다르면 화면에서 알림). FMS 시설물번호가 없으면 법정 외."""
+    from server.api.routers.sitok import _iso, guess_template
+    from server.sitok import reader
+
+    f = db.get(SitokFacility, fid)
+    if f is None or f.company_id != user.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
+    pdf = _pdf(file)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "결과표.pdf"
+        path.write_bytes(pdf)
+        try:
+            items, found = reader.read_sheets(path, user.company_id)
+        except Exception as err:  # noqa: BLE001
+            return {"items": [], "found": 0, "error": f"자동으로 읽지 못했습니다 — 이름을 직접 넣어 주세요. ({str(err).splitlines()[0][:160] if str(err) else type(err).__name__})"}
+    out = []
+    for it in items:
+        fields = {k: _iso(v) for k, v in it.items() if v not in (None, "")}
+        fields["template"] = guess_template(fields.get("grade", ""), fields.get("use_type", ""), fields.get("main_use", ""))
+        fields["legal"] = bool(fields.get("fms_no"))
+        if not fields["legal"] and fields["template"] == "3종학교":  # 법정 외는 2종·3종 일반 틀만(시설물 칸과 같은 규칙)
+            fields["template"] = "3종일반"
+        out.append({"fields": fields})
+    return {"items": out, "found": found, "error": "" if out else "결과표에서 건물을 찾지 못했습니다 — 결과표·시설물 현황 쪽이 들어 있는지 보세요."}
 
 
 @router.post("/facilities/{fid}/add")
@@ -397,7 +428,12 @@ def add_facility(fid: int, body: AddFacilityIn, user: User = Depends(get_current
     new = _child_facility(db, user, f, body, f"{base}-{max(subs, default=1) + 1}")
     ids_in_card = {x.id for x in card}
     joined = []
-    for cid in dict.fromkeys(body.contract_ids or []):
+    want = list(body.contract_ids or [])
+    if body.join_active:
+        today = datetime.date.today()
+        want += [c.id for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id)
+                 if not c.cover and set(covered_ids(c)) & ids_in_card and (c.open_ended or not c.end_date or c.end_date >= today)]
+    for cid in dict.fromkeys(want):
         c = db.get(SitokDocContract, cid)
         if c is None or c.company_id != user.company_id or not (set(covered_ids(c)) & ids_in_card):
             continue
@@ -413,6 +449,7 @@ def add_facility(fid: int, body: AddFacilityIn, user: User = Depends(get_current
                 report_id = to_facility(c.id, user, db).get("report_id") or report_id
             except HTTPException:
                 db.rollback()
+    recover_card(db, user, new)  # 자동으로 정한 계약(현장 전체 등) — 늘어난 시설물까지
     return {"ok": True, "id": new.id, "mgmt_no": new.mgmt_no, "joined": [c.id for c in joined], "report_id": report_id}
 
 
@@ -426,7 +463,8 @@ def _child_facility(db: Session, user: User, f: SitokFacility, body, mgmt_no: st
                         owner_name=own or f.owner_name, owner_type=f.owner_type if same_owner else "", owner_phone=f.owner_phone if same_owner else "",
                         sector=f.sector, badge_field=f.badge_field,
                         badge_kind=f.badge_kind, badge_manual=f.badge_manual, contract_type=f.contract_type, template=f.template, kind=f.kind,
-                        contact_name=f.contact_name, contact_phone=f.contact_phone, legal=True if body.ledger_token else f.legal, ledger=body.ledger_extra or None)
+                        contact_name=f.contact_name, contact_phone=f.contact_phone, ledger=body.ledger_extra or None,
+                        legal=True if body.ledger_token else (body.legal if getattr(body, "legal", None) is not None else f.legal))
     if body.fields:  # 관리대장에서 읽은 칸 — 이름·주소·관리주체는 창에서 고친 값, 구분·뱃지·번호·계약 구분은 카드 것
         keep = {"name", "address", "owner_name", "sector", "badge_field", "badge_kind", "contract_type", "mgmt_no", "legal"}
         for k, v in body.fields.items():
@@ -451,6 +489,7 @@ class DongIn(BaseModel):
     fields: dict | None = None
     ledger_extra: dict | None = None
     group_name: str | None = None  # 처음 묶을 때 묶음 이름(표지·제출문) — 비우면 대표 동 이름
+    legal: bool | None = None  # False = 법정 외(관리대장 없는 자체점검)
 
 
 @router.post("/facilities/{fid}/dong")

@@ -182,3 +182,72 @@ def read_estimate(pdf: Path, company_id: int) -> list[dict]:
         amt = _int((x or {}).get("amount"))
         out.append({"name": name, "amount": amt if amt and amt > 0 else None})
     return out
+
+
+SHEET_PROMPT = """첨부는 건축물 안전점검 보고서에서 뽑은 쪽들입니다 — 건물(동)마다 "정기안전점검 결과표"(가. 일반현황 — 용역명·관리주체명·종별·준공일·안전등급·시설물위치·
+시설물규모)와 "시설물 현황"(시설물명·시설물번호·준공년월일·건축면적·연면적·층수·주용도·구조형식·최고높이)이 있습니다. 다른 회사 보고서여도 결과표 양식은 같습니다.
+건물(동)마다 하나씩 아래 값을 찾아 JSON 객체 하나로만 답하세요(설명 없이). 없거나 불확실하면 "" 또는 null — 절대 추측하지 마세요. 날짜 YYYY-MM-DD, 숫자는 단위 없이.
+결과표와 시설물 현황이 같은 건물이면 한 줄로 합치고(시설물 현황 값이 더 자세하면 그것), 건물 순서는 문서 순서대로.
+
+{"buildings": [{"name": "시설물명(동 이름까지 — 예: 안산대학교 본관동)", "fms_no": "시설물번호(예: AR2004-0004955, 없으면 빈 글자)",
+  "address": "시설물 위치 한 줄", "owner_name": "관리주체명", "grade": "종별 숫자만(1·2·3 — 해당없음·없으면 빈 글자)", "safety_grade": "안전등급 글자(A~E)",
+  "use_type_guess": "결과표 '종류' 칸(예: 교육연구시설)", "main_use": "주용도", "completion_date": "준공일(사용승인일)", "structure": "구조형식",
+  "floors_above": null, "floors_below": null, "floors_roof": null, "max_height": null, "total_area": "연면적", "building_area": "건축면적(연면적보다 작음)"}]}"""
+
+
+def sheet_pages(pdf: Path) -> tuple[list[int], int]:
+    """결과표·시설물 현황이 있는 쪽 번호(0부터)와 결과표 개수(= 건물 수, 글자가 있는 PDF일 때). 글자가 없으면([], 0) — 스캔은 AI가 앞쪽을 봄."""
+    import pymupdf
+
+    keep, sheets = [], 0
+    with pymupdf.open(pdf) as doc:
+        for i, page in enumerate(doc):
+            t = "".join(page.get_text().split())
+            if "결과표" in t and ("일반현황" in t or "용역명" in t) and "목차" not in t:
+                sheets += 1
+                keep.append(i)
+            elif ("시설물현황" in t or "시설물명" in t) and "연면적" in t and "목차" not in t:
+                keep.append(i)
+    return keep, sheets
+
+
+def read_sheets(pdf: Path, company_id: int) -> tuple[list[dict], int]:
+    """전회차 보고서·동마다 결과표+시설물 현황을 모은 PDF → 건물(동)마다 시설물 칸(read_ledger와 같은 모양), 글자로 센 결과표 개수.
+    관리대장이 없는 자체점검(법정 외 — 안산대·연성대, 10/16 민재형 개편). 보고서 전체 대신 결과표·현황 쪽만 AI에 보냄(없으면 앞 20쪽)."""
+    import pymupdf
+
+    keep, sheets = sheet_pages(pdf)
+    with pymupdf.open(pdf) as doc:
+        pages = keep[:60] if keep else list(range(min(doc.page_count, 20)))
+        if len(pages) < doc.page_count:
+            sub = pymupdf.open()
+            for i in pages:
+                sub.insert_pdf(doc, from_page=i, to_page=i)
+            part = pdf.with_name(pdf.stem + "_결과표쪽.pdf")
+            sub.save(part)
+            sub.close()
+        else:
+            part = pdf
+    try:
+        d = _ask(part, SHEET_PROMPT, company_id)
+    finally:
+        if part != pdf:
+            part.unlink(missing_ok=True)
+    out = []
+    for b in d.get("buildings") or []:
+        b = b or {}
+        total, built = _num(b.get("total_area")), _num(b.get("building_area"))
+        if built and (total is None or built > total):
+            total, built = max(built, total or 0), (total if total and total < built else None)
+        name = _str(b.get("name"))
+        if not name:
+            continue
+        out.append({
+            "fms_no": _str(b.get("fms_no")).replace(" ", ""), "name": name, "kind": "건축물", "grade": _str(b.get("grade"))[:1],
+            "main_use": _str(b.get("main_use")), "use_type": _str(b.get("use_type_guess")), "address": _str(b.get("address")),
+            "owner_name": _str(b.get("owner_name")), "completion_date": _date(b.get("completion_date")), "structure": _str(b.get("structure")),
+            "floors_above": _int(b.get("floors_above")), "floors_below": _int(b.get("floors_below")), "floors_roof": _int(b.get("floors_roof")),
+            "max_height": _num(b.get("max_height")), "total_area": total, "building_area": built,
+            "safety_grade": _str(b.get("safety_grade"))[:1].upper(),
+        })
+    return out, sheets

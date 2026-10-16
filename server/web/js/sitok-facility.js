@@ -268,6 +268,19 @@
   });
   enableFileDrop(regZone, regInput);
 
+  // 맨 위 "① 시설물 등록" 칸(js/sitok-register.js, 10/16) — 읽은 관리대장·결과표를 아래 시설물 칸에(저장은 [시설물 저장])
+  window.SitokFacilityPage = {
+    fill(fields, token, extra) {
+      if (token !== undefined) { ledgerToken = token || null; ledgerExtra = extra || null; }
+      ownerRep = fields.owner_rep || ownerRep;
+      const box = document.getElementById("sk-fac");
+      setValues(box, fields, false);
+      const legal = box.querySelector('[data-key="legal"]');
+      if (legal && fields.legal !== undefined) { legal.value = String(!!fields.legal); legal.dispatchEvent(new Event("change")); }
+      document.getElementById("sk-form").scrollIntoView({ block: "start", behavior: "smooth" });
+    },
+  };
+
   (async () => {
     try {
       opts = await api("/sitok/options");
@@ -275,6 +288,7 @@
       // 고치기 화면의 맨 위 PDF 칸은 관리대장만(계약서는 계약 카드마다)
       document.querySelector('.sk-drop[data-kind="contract"]')?.remove(); // 고치기 화면엔 계약서 칸이 없음(계약 카드마다, 10/14)
       draw();
+      window.dispatchEvent(new CustomEvent("sitok-facility-loaded", { detail: fac }));
     } catch (err) {
       showError(errorEl, err);
     }
