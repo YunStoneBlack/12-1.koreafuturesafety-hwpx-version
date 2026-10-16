@@ -123,6 +123,13 @@ def _set(fr, name: str, value) -> bool:
         ['input', 'keyup', 'change', 'blur'].forEach(t => e.dispatchEvent(new Event(t, {bubbles: true}))); return true; }""", [name, str(value)])
 
 
+def _set_text(fr, name: str, text: str) -> str:
+    """선택 칸에서 보기 글자로 고르기(코드를 모를 때 — 10/16 D등급 정기 구분 해빙기·우기·동절기). 고른 값, 없으면 ""."""
+    return fr.evaluate("""([n, t]) => { const e = document.getElementsByName(n)[0] || document.getElementById(n); if (!e || e.tagName !== 'SELECT') return '';
+        const o = [...e.options].find((x) => x.text.replace(/\\s/g, '').includes(t)); if (!o) return '';
+        e.value = o.value; ['input', 'change', 'blur'].forEach(k => e.dispatchEvent(new Event(k, {bubbles: true}))); return o.value; }""", [name, text])
+
+
 def _check(fr, name: str, on: bool) -> None:
     fr.evaluate("([n, on]) => { const e = document.getElementsByName(n)[0]; if (e && e.checked !== on) { e.click(); } }", [name, bool(on)])
 
@@ -394,8 +401,11 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
         _set(fr2, "dign_gbn", f["dign_gbn"])
         fr2.evaluate(f"typeof changeDignGbn === 'function' && changeDignGbn('{f['dign_gbn']}')")
         from server.sitok import seasons
-        if seasons.bucket(f.get("half")) in HALF_CODE:  # 연 3회(해빙기·우기 → 상반기, 동절기 → 하반기 — FMS 시기 칸 확인 전 임시)
-            _set(fr2, "regular_gbn", HALF_CODE[seasons.bucket(f["half"])])
+        if seasons.is_season(f.get("half")):  # D등급 연 3회 — FMS 정기 구분 칸 보기가 해빙기·우기·동절기로 바뀜(형 10/16), 코드를 몰라 보기 글자로 고름
+            if not _set_text(fr2, "regular_gbn", f["half"]):
+                raise FmsError(f"FMS 정기 구분 칸에 '{f['half']}' 보기가 없습니다 — FMS에서 {f['name']} 시설물 등급(D·E)을 확인하세요.")
+        elif f.get("half") in HALF_CODE:
+            _set(fr2, "regular_gbn", HALF_CODE[f["half"]])
         for k in ("dign_amt", "design_amt", "base_amt"):
             _set(fr2, k, f[k])
         job.shot(pg, f"계약_시설물_{f['name']}")
