@@ -498,3 +498,13 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
 .panel-head .sk-sector-f { margin-left: 12px; }
 .panel-head .sk-sort { margin-left: auto; margin-right: 10px; }
 @media (max-width: 760px) { .panel-head .sk-sector-f { margin-left: 0; } .panel-head .sk-sort { margin-left: 0; } }
+
+/* 폰: 시설물 목록 머리 — 서류 자동화와 같게(10/16) 1줄 제목+개수, 2줄 [전체|민간|관급], 3줄 정렬(둘 다 폭에 꽉, 글자 가운데) */
+@media (max-width: 760px) {
+  .panel-head:has(> .sk-sector-f) { justify-content: flex-start; }
+  .panel-head:has(> .sk-sector-f) > h2 { order: 0; }
+  .panel-head:has(> .sk-sector-f) > #sk-count { order: 1; margin-left: 8px; }
+  .panel-head .sk-sector-f { order: 2; flex: 1 1 100%; display: flex; margin: 8px 0 0; }
+  .panel-head .sk-sort { order: 3; flex: 1 1 100%; display: flex; margin: 6px 0 0; }
+  .main .panel-head .sk-sector-f button, .main .panel-head .sk-sort button { flex: 1; justify-content: center; text-align: center; }
+}
