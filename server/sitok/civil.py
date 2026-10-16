@@ -58,6 +58,8 @@ def normalize_rounds(v) -> list[dict]:
     for r in v or []:
         try:
             y = int(r.get("year"))
+            if 0 < y < 100:  # 계약서 "26년 상반기"를 26으로 읽은 것(10/16 숭의교회) → 2026
+                y += 2000
         except (TypeError, ValueError, AttributeError):
             continue
         if r.get("half") not in HALVES:
@@ -394,6 +396,8 @@ def read_existing(data: bytes, filename: str, company_id: int) -> dict:
     rounds = []
     for r in d.get("rounds") or []:
         y, amt = _int(r.get("year")), _int(r.get("amount"))
+        if y and 0 < y < 100:  # "26년" → 2026
+            y += 2000
         if y and r.get("half") in HALVES:
             rounds.append({"year": y, "half": r["half"], "kind": r.get("kind") if r.get("kind") in KINDS else "정기", "amount": amt or 0})
     unit = d.get("unit") or None
