@@ -546,6 +546,14 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
   .rg-list .rg-x { grid-column: 2; grid-row: 1; }
 }
 
+/* 회차 화면 "이 현장 보고서 N권"(10/16) */
+.rd-books { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 4px; padding: 8px 12px; border-radius: 10px; background: #f3f6fb; font-size: 13px; }
+.rd-book { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); text-decoration: none; font-weight: 600; }
+.rd-book.on { border-color: var(--blue); color: var(--blue); }
+.rd-book.none { color: var(--muted); border-style: dashed; }
+.rd-book small { font-weight: 500; color: var(--muted); }
+.cp-open { margin-left: auto; font-size: 12.5px; font-weight: 600; }
+
 /* 📚 보고서 구성(10/16 민재형, js/sitok-compose.js) — 건물 칩을 보고서 상자에 끌어다(폰은 누르기) */
 .cp-top, .cp-tools, .cp-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .cp-tools { margin: 10px 0; }

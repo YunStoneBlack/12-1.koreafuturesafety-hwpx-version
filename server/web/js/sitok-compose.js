@@ -55,6 +55,7 @@
         <span class="sk-help cp-tip">PC: 건물을 끌어다 상자에 놓기 · 폰: 건물을 누른 뒤 넣을 상자를 누르기</span></div>
       <div class="cp-books">${books.map((b, k) => `<div class="cp-book${b.ids.length ? "" : " empty"}" data-k="${k}">
           <div class="cp-head"><b>보고서 ${books.slice(0, k + 1).filter((x) => x.ids.length).length || "—"}</b>${b.ids.length ? `<span class="site-no">${esc(noOf(k))}</span>` : ""}
+            ${b.ids.length && !dirty ? (bld(b.ids[0]).round ? `<a class="cp-open" href="sitok-round.html?report=${bld(b.ids[0]).round.id}">회차 열기 ›</a>` : '<span class="sk-help">이 반기 회차 없음</span>') : ""}
             ${b.ids.length > 1 ? `<span class="sk-help">동 묶음 ${b.ids.length}동</span>` : ""}
             ${b.ids.length ? "" : '<button type="button" class="link-btn cp-del">상자 빼기</button>'}</div>
           ${b.ids.length > 1 ? `<label class="cp-name"><span>묶음 이름 <em>표지·제출문</em></span><input class="cp-name-in" value="${esc(b.name)}" placeholder="비우면 ${esc(common(b.ids.map((i) => bld(i).name)))}" /></label>` : ""}

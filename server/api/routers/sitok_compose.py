@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.models_web import SitokDocContract, SitokFacility, SitokGroup, SitokReport, User
+from core.models_web import SitokContract, SitokDocContract, SitokFacility, SitokGroup, SitokReport, User
 from server.api.deps import get_current_user, get_db
 from server.api.routers.sitok import NO_RE, _require_facility, base_no, card_facilities
 from server.api.routers.sitok_groups import members
@@ -197,6 +197,8 @@ def save_compose(facility_id: int, body: ComposeIn, user: User = Depends(get_cur
                 notes.append(f"계약 \"{(c.title or '')[:30]}\"이(가) 보고서 {len(mine)}개를 맡습니다 — 서류 자동화 계약 정보에서 보고서별 금액을 나눠 넣으세요.")
     db.commit()
     # 이 반기 회차 — 상자(묶음)마다 동 회차를 맞추고 계약 칸을 그 상자 계약으로
+    have_round = db.query(SitokReport.id).filter(SitokReport.facility_id.in_(list(card)), SitokReport.year == body.year,
+                                                 SitokReport.half.in_(seasons.in_bucket(body.half))).first() is not None
     for k, lead in enumerate(leads):
         c = next((x for x in cons if x.id == pick[k]), None)
         rc_id = None
@@ -214,6 +216,18 @@ def save_compose(facility_id: int, body: ComposeIn, user: User = Depends(get_cur
         if rc_id:
             for r in reps:
                 r.contract_id = rc_id
+        if not reps and rc_id and have_round:  # 계약이 이 반기를 덮는데 회차가 없는 보고서 — 다른 보고서에 이 반기 회차가 있으면 같이 만듦(제출 현황·달력에 나오게, 10/16 관급-10 옹벽)
+            from server.api.routers.sitok import kind_known
+            from server.api.routers.sitok_onboard import _default_people
+            from server.api.routers.sitok_reports import _new_report
+
+            rc = db.get(SitokContract, rc_id)
+            chief, parts = _default_people(db, user.company_id)
+            r = _new_report(db, user.display_name or "", lead, body.year, body.half, contract_id=rc_id, chief_id=chief, participant_ids=parts,
+                            kind=kind_known(db, rc, body.year, body.half) or "정기")
+            if lead.group_id:
+                _group_reports(db, r, user.display_name or "")
+            notes.append(f"보고서 {k + 1}({lead.mgmt_no} {lead.name})에 {body.year}년 {body.half} 회차를 만들었습니다.")
     db.commit()
     fill_quietly(db, user.company_id, user.display_name or "", list(card))
     out = get_compose(facility_id, body.year, body.half, user, db)

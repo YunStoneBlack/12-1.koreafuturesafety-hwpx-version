@@ -54,7 +54,7 @@
         ${r.period_start ? ` · 점검기간 ${ymdDot(r.period_start)} ~ ${ymdDot(r.period_end)}` : ""}</div>
       ${g && !r.past ? `<div class="sk-rep-group">📚 묶음 보고서 <b>${esc(g.name)}</b> — ${g.members.map((m, i) => `제${i + 1}장 ${esc(m.name)}`).join(" · ")}
         <span class="sk-help">점검기간·제출일·기술자는 묶인 동 회차도 같이 바뀝니다. 현장 조사·현황·AI 초안은 동마다.</span></div>` : ""}
-      ${g && one && !r.past ? `<a class="rd-back" href="sitok-round.html?report=${r.id}">← ${esc(g.name)} 동 고르기</a>` : ""}`;
+      ${g && one && !r.past ? `<a class="rd-back" href="sitok-round.html?report=${r.id}">← ${esc(g.name)} 동 고르기</a>` : ""}${booksBar()}`;
 
     if (dongs) {
       // 묶음 — 동 이름만(누르면 그 동 화면), 보고서 칸은 묶음 공통(만들기·합본)만
@@ -163,9 +163,25 @@
     }, 3000);
   }
 
+  // 이 현장 보고서 N권(10/16 민재형 "보고서가 2개인 경우 한 개는 어디?") — 같은 카드의 다른 보고서로(그 반기 회차, 없으면 시설물 화면)
+  let books = null;
+  function booksBar() {
+    if (!books || books.books.length < 2) return "";
+    const here = books.books.findIndex((b) => b.ids.includes(r.facility_id));
+    const nameOf = (id) => (books.buildings.find((x) => x.id === id) || {}).name || "";
+    return `<div class="rd-books">📚 이 현장 보고서 ${books.books.length}권 — ${books.books.map((b, k) => {
+      const lead = books.buildings.find((x) => x.id === b.ids[0]) || {};
+      const label = `보고서 ${k + 1} · ${esc(lead.mgmt_no || "")} ${esc(b.ids.length > 1 ? (b.name || nameOf(b.ids[0])) : nameOf(b.ids[0]))}${b.ids.length > 1 ? ` <small>${b.ids.length}동</small>` : ""}`;
+      if (k === here) return `<span class="rd-book on">${label} <small>(여기)</small></span>`;
+      return lead.round ? `<a class="rd-book" href="sitok-round.html?report=${lead.round.id}">${label} ›</a>`
+        : `<a class="rd-book none" href="sitok-facility.html?id=${b.ids[0]}" title="이 반기 회차가 아직 없습니다 — 시설물 화면에서 만들기">${label} <small>회차 없음</small> ›</a>`;
+    }).join("")}</div>`;
+  }
+
   async function load() {
     try {
       r = await api(`/sitok/reports/${rid}`);
+      try { books = await api(`/sitok/facilities/${r.facility_id}/compose?year=${r.year}&half=${encodeURIComponent(["해빙기", "우기", "상반기"].includes(r.half) ? "상반기" : "하반기")}`); } catch { books = null; }
       const [d, f] = await Promise.all([api(`/sitok/facilities/${r.facility_id}/reports`), api(`/sitok/facilities/${r.facility_id}`)]);
       data = d;
       contracts = f.contracts || [];
