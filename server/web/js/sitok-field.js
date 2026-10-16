@@ -141,9 +141,27 @@
       <span class="ok">그대로 ${s.same}</span><span class="grew">진행 ${s.grew}</span><span class="rep">보수 ${s.repaired}</span><span class="new">신규 ${s.new}</span>
       <button type="button" class="secondary sf-cause-ai" title="원인이 비었거나 뭉뚱그린 낱말인 결함만 AI가 사진을 보고 구체적으로 — 카드에서 다시 고칠 수 있음">🤖 원인 추천</button>
       ${!data.defects.length ? '<button type="button" class="secondary sf-back-import" title="[전회차 없이 시작]을 잘못 눌렀을 때 — 지난 보고서 PDF·직전 회차에서 가져오는 화면으로">↩ 전회차 결함 가져오기</button>' : ""}
+      ${data.defects.some((d) => d.prev) ? '<button type="button" class="secondary sf-reimport" title="다른 보고서·잘못된 결함표를 가져왔을 때 — 목록을 비우고 가져오기 화면으로">↺ 전회차 결함 다시 가져오기</button>' : ""}
       ${off ? `<div class="sf-offbar">⚠ 목록에 없는 이름 ${off}건(지난 보고서 이름) <button type="button" class="secondary btn-sm sf-remap">🤖 한꺼번에 정리</button></div>` : ""}`;
     document.querySelector(".sf-cause-ai").addEventListener("click", suggestCauses);
     document.querySelector(".sf-remap")?.addEventListener("click", remapNames);
+    document.querySelector(".sf-reimport")?.addEventListener("click", async () => { // 10/16 민재형: 결함표·보고서를 잘못 가져왔을 때 — 비우고 다시
+      const all = data.defects.length;
+      const checked = data.defects.filter((d) => d.check).length;
+      const fresh = data.defects.filter((d) => !d.prev).length;
+      const warn = checked || fresh
+        ? `
+
+⚠ 현장에서 확인한 결함 ${checked}개${fresh ? `·신규로 넣은 결함 ${fresh}개` : ""}도 같이 지워집니다(이번에 찍은 사진 연결도). 되돌릴 수 없습니다.` : "";
+      if (!confirm(`가져온 전회차 결함 ${all}개를 비우고 가져오기 화면(지난 보고서 PDF·직전 회차)으로 돌아갈까요?${warn}`)) return;
+      if (warn && !confirm(`정말 지울까요? 확인한 ${checked}개${fresh ? `·신규 ${fresh}개` : ""}를 포함해 ${all}개를 지웁니다.`)) return;
+      try {
+        await api(`/sitok/reports/${rid}/defects${warn ? "?force=true" : ""}`, { method: "DELETE" });
+        started = false;
+        try { sessionStorage.removeItem(`sf-started-${rid}`); } catch (_) { /* */ }
+        refresh();
+      } catch (e) { err(e); }
+    });
     document.querySelector(".sf-back-import")?.addEventListener("click", () => { // 10/16: [전회차 없이 시작]을 잘못 눌러도 결함이 없으면 되돌림
       started = false;
       try { sessionStorage.removeItem(`sf-started-${rid}`); } catch (_) { /* */ }

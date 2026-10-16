@@ -430,12 +430,13 @@ def carry(report_id: int, user: User = Depends(get_current_user), db: Session = 
 
 
 @router.delete("/reports/{report_id}/defects")
-def clear(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """목록 비우기(다시 가져오기 전) — 이미 현장에서 확인한 줄이 있으면 막음."""
+def clear(report_id: int, force: bool = False, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """목록 비우기(다시 가져오기 전 — 10/16 민재형 "다른 보고서 결함표를 잘못 넣으면 고칠 수 없음") — 현장에서 확인한 줄이 있으면 force(화면이 개수를 보여 주고 다시 물음)일 때만."""
     r = _require_report(db, user, report_id)
     rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id).all()
-    if any(d.check for d in rows):
+    if any(d.check for d in rows) and not force:
         raise HTTPException(status.HTTP_409_CONFLICT, "현장에서 확인한 결함이 있어 비울 수 없습니다.")
+    IMPORTS.pop(r.id, None)  # 타회사 PDF 읽기 실패 표시도 지움
     for d in rows:
         db.delete(d)
     db.commit()
