@@ -745,8 +745,10 @@ def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
         for fid in ids:
             rc = db.get(SitokContract, rcmap.get(str(fid))) if rcmap.get(str(fid)) else None
             want_amount = (c.amounts or {}).get(str(fid)) if multi else (c.amount if c.sector == "관급" else None)
+            want_rounds = ((c.rounds or []) + ([{"open_ended": True, **c.unit}] if c.open_ended and c.unit else [])) if c.sector == "민간" else None
             if rc is None or rc.facility_id != fid or (rc.start_date, rc.end_date, rc.contract_no) != (c.start_date, c.end_date, c.contract_no) \
-                    or (want_amount is not None and rc.amount != want_amount):
+                    or (want_amount is not None and rc.amount != want_amount) or rc.title != (c.title or civil.default_title(c)) \
+                    or (want_rounds is not None and (rc.rounds or []) != want_rounds):  # 건명·회차 줄을 고쳐도 보고서 쪽에(10/16 민간-8 2025 → 2026)
                 same = False
                 break
         if same:
