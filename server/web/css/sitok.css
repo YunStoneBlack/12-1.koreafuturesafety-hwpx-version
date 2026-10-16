@@ -545,3 +545,30 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
   .rg-list .lg-file, .rg-list .lg-st { grid-column: 1; }
   .rg-list .rg-x { grid-column: 2; grid-row: 1; }
 }
+
+/* 📚 보고서 구성(10/16 민재형, js/sitok-compose.js) — 건물 칩을 보고서 상자에 끌어다(폰은 누르기) */
+.cp-top, .cp-tools, .cp-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.cp-tools { margin: 10px 0; }
+.cp-half { font-size: 14px; }
+.cp-books { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.cp-book { display: flex; flex-direction: column; gap: 8px; min-height: 120px; padding: 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--surface); }
+.cp-book.empty { border-style: dashed; background: var(--paper); }
+.cp-book.over { border-color: var(--blue); background: var(--blue-soft); }
+.cp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cp-head .link-btn { margin-left: auto; }
+.main .cp-name, .main .cp-con { display: flex; flex-direction: column; gap: 3px; margin: 0; font-size: 12px; font-weight: 600; }
+.cp-name em { font-style: normal; color: var(--muted); font-weight: 400; }
+.main .cp-name input, .main .cp-con select { margin: 0; padding: 5px 8px; font-size: 13px; }
+.cp-drop { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; flex: 1; min-height: 40px; }
+.cp-chip { display: inline-flex; flex-direction: column; gap: 1px; padding: 6px 10px; border: 1px solid #c9d6ea; border-radius: 8px; background: var(--blue-soft);
+  color: var(--ink); font-size: 13px; font-weight: 600; cursor: grab; user-select: none; }
+.cp-chip small { font-size: 11px; font-weight: 500; color: var(--muted); }
+.cp-chip.on { outline: 2px solid var(--blue); background: #dbe9fb; }
+.cp-chip.drag { opacity: .5; }
+.main .cp-add { min-height: 120px; margin: 0; border: 1.5px dashed var(--line); border-radius: 12px; background: transparent; color: var(--muted); font-weight: 600; box-shadow: none; }
+.main .cp-add:hover { border-color: var(--blue); color: var(--blue); background: transparent; }
+.cp-foot { justify-content: flex-end; margin-top: 12px; }
+.cp-foot .cp-msg { margin-right: auto; }
+.cp-msg.bad { color: var(--crit); }
+@media (hover: hover) { .cp-tip::before { content: ""; } }
+@media (max-width: 760px) { .cp-books { grid-template-columns: 1fr; } .main .cp-add { min-height: 48px; } }

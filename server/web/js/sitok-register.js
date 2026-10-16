@@ -1,6 +1,7 @@
 // 보고서 자동화 시설물 화면 맨 위 "① 시설물 등록"(sitok-facility.html?id=, 2026-10-16 민재형 개편) — 시설물(건물·동) 관리는 여기서만.
-// 보고서를 어떻게 내는지 [이 시설물 하나 | 보고서 따로 — 건물마다 N-1·N-2 | 동 묶음 — 보고서 한 권] × 자료 [시설물관리대장 | 관리대장 없음 — 자체점검·법정 외]를
-// 고르고 파일을 올리면 줄마다 읽어(3개씩 같이) 이름을 채우고 [등록]으로 시설물·동을 만듦. 등록 전 시설물이면 첫 줄이 이 시설물(이름도 관리대장·결과표 시설물명으로).
+// 건물 등록만(10/16 민재형 "몇 개든 등록시키고 → 보고서 구성") — 자료 [시설물관리대장 | 관리대장 없음 — 자체점검·법정 외]를 고르고 파일을 올리면
+// 줄마다 읽어(3개씩 같이) 이름을 채우고 [등록]으로 건물을 만듦. 등록 전 시설물이면 첫 줄이 이 시설물(이름도 관리대장·결과표 시설물명으로).
+// 몇 권으로 낼지(묶음·따로)·계약 연결은 아래 📚 보고서 구성(js/sitok-compose.js)에서 — 새 건물은 처음엔 따로 보고서.
 // 관리대장이 없으면 결과표·시설물 현황(전회차 보고서 그대로, 또는 동마다 그 쪽만 모은 PDF)을 AI가 읽음 — 결과표 개수 = 동 수(양식은 회사가 달라도 같음).
 // 서버 /sitok/docs/facilities/{id}/add/read(관리대장)·add/read-sheets(결과표)·add(따로 — 지금 계약이 같이 맡음)·dong(묶음), 이 시설물은 PATCH /sitok/facilities/{id}.
 // "하나"는 읽은 값을 아래 시설물 칸에 채우고 [시설물 저장](js/sitok-facility.js SitokFacilityPage.fill).
@@ -14,7 +15,7 @@
   const FAC_KEYS = ["fms_no", "template", "kind", "use_type", "main_use", "address", "owner_name", "owner_type", "owner_phone", "completion_date", "structure",
     "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "land_area", "coverage_ratio", "floor_area_ratio"];
   let fac = null;
-  const st = { mode: "one", src: "ledger", rows: [], reading: 0, busy: false };
+  const st = { mode: "split", src: "ledger", rows: [], reading: 0, busy: false }; // 건물은 따로 등록하고 묶음은 보고서 구성에서
 
   const base = () => String(fac.mgmt_no || "").replace(/^((?:관급|민간)-\d+)-\d+$/, "$1");
   const grouped = () => !!(fac.group && fac.group.members.length > 1);
@@ -32,38 +33,25 @@
   }
 
   function texts() {
-    const many = st.mode !== "one";
-    const unit = st.mode === "group" ? "동" : "건물";
     if (st.src === "ledger") {
-      return [many ? `시설물관리대장 — ${unit}마다 한 장, 여러 장 한꺼번에` : "시설물관리대장 PDF",
-        many ? "PDF·한글·사진 — 줄마다 읽어 이름을 채웁니다(한 장에 10~30초, 3장씩 같이). 이름을 확인하고 [등록]"
-          : "읽어서 아래 시설물 칸을 채웁니다(이름도 관리대장 시설물명으로) — 확인하고 [시설물 저장]"];
+      return ["시설물관리대장 — 건물마다 한 장, 여러 장 한꺼번에(종합 관리대장도 됨)",
+        "PDF·한글·사진 — 줄마다 읽어 이름을 채웁니다(한 장에 10~30초, 3장씩 같이). 이름을 확인하고 [등록] → 아래 📚 보고서 구성에서 묶거나 나누기"];
     }
-    return [st.mode === "group" ? "동마다 결과표 + 시설물 현황을 모은 PDF" : st.mode === "split" ? "건물마다 전회차 보고서(또는 결과표 + 시설물 현황)" : "전회차 보고서(또는 결과표 + 시설물 현황)",
-      st.mode === "group" ? "결과표 개수만큼 동을 만들고 값은 AI가 읽습니다(다른 회사 보고서도 결과표 양식은 같음) — 법정 외"
-        : st.mode === "split" ? "파일마다 건물 하나 — 결과표·시설물 현황을 AI가 읽어 이름·규모를 채웁니다(법정 외)"
-          : "결과표·시설물 현황을 AI가 읽어 아래 시설물 칸을 채웁니다(법정 외) — 확인하고 [시설물 저장]"];
+    return ["전회차 보고서 또는 결과표 + 시설물 현황(동마다 모은 PDF도)",
+      "결과표 개수만큼 건물을 만들고 값은 AI가 읽습니다(다른 회사 보고서도 결과표 양식은 같음) — 법정 외. 등록 뒤 아래 📚 보고서 구성에서 묶기"];
   }
 
   function draw() {
-    const b = base();
     box.innerHTML = `
-      <div class="rg-q" role="radiogroup" aria-label="보고서"><span class="rg-l">보고서</span>
-        <label><input type="radio" name="rg-mode" value="one" /> 이 시설물 하나</label>
-        <label><input type="radio" name="rg-mode" value="split" /> 보고서 따로 <small>건물마다 ${esc(b)}-1·-2…</small></label>
-        <label><input type="radio" name="rg-mode" value="group" /> 동 묶음 <small>보고서 한 권(동마다 제N장)</small></label></div>
       <div class="rg-q" role="radiogroup" aria-label="자료"><span class="rg-l">자료</span>
         <label><input type="radio" name="rg-src" value="ledger" /> 시설물관리대장</label>
         <label><input type="radio" name="rg-src" value="sheet" /> 관리대장 없음 <small>자체점검·법정 외</small></label></div>
       <label class="sk-drop rg-drop"><input type="file" class="rg-file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" />
         <b>📄 <span class="rg-drop-t"></span></b><span class="sk-drop-msg rg-drop-s"></span></label>
-      <label class="rg-gname" hidden><span>묶음 이름 <em>표지·제출문</em></span><input class="rg-gname-in" value="${esc(fac.group ? fac.group.name : fac.name)}" /></label>
       <div class="lg-list rg-list" hidden></div>
       <div class="rg-msg mail-note"></div>
       <div class="rg-foot" hidden><button type="button" class="rg-clear secondary">목록 비우기</button><button type="button" class="rg-go">등록</button></div>`;
-    box.querySelector(`input[name="rg-mode"][value="${st.mode}"]`).checked = true;
     box.querySelector(`input[name="rg-src"][value="${st.src}"]`).checked = true;
-    box.querySelectorAll('input[name="rg-mode"]').forEach((r) => r.addEventListener("change", () => { st.mode = r.value; sync(); }));
     box.querySelectorAll('input[name="rg-src"]').forEach((r) => r.addEventListener("change", () => { st.src = r.value; sync(); }));
     const file = box.querySelector(".rg-file");
     file.addEventListener("change", () => { const fs = [...file.files]; file.value = ""; if (fs.length) take(fs); });
@@ -77,8 +65,7 @@
     const [t, s] = texts();
     box.querySelector(".rg-drop-t").textContent = t;
     box.querySelector(".rg-drop-s").textContent = s;
-    box.querySelector(".rg-file").multiple = st.mode !== "one";
-    box.querySelector(".rg-gname").hidden = !(st.mode === "group" && !grouped());
+    box.querySelector(".rg-file").multiple = true;
     drawRows();
   }
 
@@ -96,7 +83,7 @@
   function drawRows() {
     const list = box.querySelector(".rg-list");
     list.hidden = !st.rows.length;
-    box.querySelector(".rg-foot").hidden = !st.rows.length || st.mode === "one";
+    box.querySelector(".rg-foot").hidden = !st.rows.length;
     list.innerHTML = "";
     const first = !registered();
     const live = st.rows.filter((x) => !x.done && !known(x.fields));
@@ -123,7 +110,6 @@
   };
 
   async function take(fs) {
-    if (st.mode === "one") return takeOne(fs);
     say(`${fs.length}개 읽는 중… — ${st.src === "ledger" ? "한 장에 10~30초" : "결과표마다 AI가 읽느라 20~60초"}, 3개씩 같이`);
     const jobs = fs.map((f) => {
       const it = { file: f.name, name: "", status: "읽는 중…", reading: true, legal: st.src === "ledger", fields: {}, token: null, extra: null, done: false };
@@ -176,37 +162,8 @@
     };
     await Promise.all([worker(), worker(), worker()]);
     const n = st.rows.filter((x) => !x.done).length;
-    say(`${n}개 — 이름을 확인하고 [등록]을 누르세요. ${!registered() ? "첫 줄은 <b>이 시설물</b>(이름도 바뀜), 나머지는 " : ""}${st.mode === "group" ? "같은 보고서의 동(시설물편 제N장)" : `보고서 따로(${esc(base())}-1·-2…, 지금 계약이 같이 맡음)`}이 됩니다.`
+    say(`${n}개 — 이름을 확인하고 [등록]을 누르세요. ${!registered() ? "첫 줄은 <b>이 시설물</b>(이름도 바뀜), 나머지는 " : ""}새 건물(지금 계약이 같이 맡음)이 됩니다 — 등록 뒤 아래 📚 보고서 구성에서 한 권으로 묶거나 나누세요.`
       + (warns.length ? `<br>⚠ ${warns.map(esc).join("<br>⚠ ")}` : ""), warns.length ? "bad" : "");
-  }
-
-  async function takeOne(fs) { // 이 시설물 하나 — 읽어서 아래 시설물 칸에
-    if (fs.length > 1) { say("여러 장이면 위에서 [보고서 따로] 또는 [동 묶음]을 고르세요.", "bad"); return; }
-    const f = fs[0];
-    say(`${esc(f.name)} — 읽는 중…(10~60초)`);
-    try {
-      if (st.src === "ledger") {
-        const r = await read(f);
-        if ((r.items || []).length > 1) { // 종합 관리대장 — 건물이 여럿
-          say(`⚠ 이 관리대장에 건물이 ${r.items.length}개 들어 있습니다(${r.items.map((x) => esc((x.fields || {}).name || "?")).join(" · ")}). 위에서 [보고서 따로] 또는 [동 묶음]을 고르고 다시 올리세요.`, "bad");
-          return;
-        }
-        const fields = { ...(r.fields || {}), legal: true };
-        const extra = fields.ledger || null;
-        delete fields.ledger;
-        window.SitokFacilityPage.fill(fields, r.token, extra);
-        say(r.error ? esc(r.error) : `✓ ${esc(f.name)} — 아래 시설물 칸을 채웠습니다(이름 "${esc(fields.name || "")}"). 확인하고 [시설물 저장]을 누르세요.`, r.error ? "bad" : "ok");
-      } else {
-        const r = await read(f);
-        const x = (r.items || [])[0];
-        if (!x) { say(esc(r.error || "결과표를 찾지 못했습니다."), "bad"); return; }
-        window.SitokFacilityPage.fill(x.fields);
-        say(`✓ 결과표를 읽어 아래 시설물 칸을 채웠습니다(이름 "${esc(x.fields.name || "")}"${x.fields.legal ? "" : " · 법정 외"}).${(r.items || []).length > 1
-          ? ` ⚠ 결과표가 ${r.items.length}개 — 동이 여럿이면 [동 묶음]이나 [보고서 따로]를 고르세요.` : ""} 확인하고 [시설물 저장]을 누르세요.`, "ok");
-      }
-    } catch (err) {
-      say(esc(err.message), "bad");
-    }
   }
 
   async function go() { // [등록] — 줄마다 차례로(번호가 차례로 붙게), 실패한 줄은 남기고 다시 누르면 그 줄만
@@ -215,7 +172,7 @@
     if (!todo.length) { say(st.rows.some((x) => !x.done) ? "이름이 있는 줄이 없습니다 — 못 읽은 줄은 이름을 넣어 주세요." : "이미 다 등록했습니다.", "bad"); return; }
     st.busy = true;
     drawRows();
-    const gname = box.querySelector(".rg-gname-in").value.trim();
+    const gname = "";
     let first = !registered() && !st.rows.some((x) => x.done);
     const made = [];
     let bad = 0;
@@ -252,7 +209,7 @@
 
   window.addEventListener("sitok-facility-loaded", (e) => {
     fac = e.detail;
-    st.mode = units().length > 1 ? "split" : grouped() ? "group" : "one";
+    st.mode = "split";
     st.src = fac.legal === false ? "sheet" : "ledger";
     const panel = document.getElementById("sk-info-panel");
     if (panel && !registered()) panel.open = true; // 등록 전이면 펼쳐 둠

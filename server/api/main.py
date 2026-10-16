@@ -38,6 +38,7 @@ from server.api.routers import (
     sitok_defects,
     sitok_overview,
     sitok_groups,
+    sitok_compose,
     sitok_onboard,
     sitok_parts,
     sitok_drawings,
@@ -121,6 +122,7 @@ web_app.include_router(sitok_reports.router, prefix="/api")  # 시특법 보고�
 web_app.include_router(sitok_defects.router, prefix="/api")  # 시특법 현장 결함 조사
 web_app.include_router(sitok_overview.router, prefix="/api")  # 시특법 전경사진(10·11쪽)
 web_app.include_router(sitok_groups.router, prefix="/api")  # 시특법 동 묶음(한 계약 여러 동 — 2026-10-12)
+web_app.include_router(sitok_compose.router, prefix="/api")  # 시특법 보고서 구성(건물을 보고서 상자에 — 2026-10-16)
 web_app.include_router(sitok_status.router, prefix="/api")  # 시특법 제출 현황(상·하반기 — 2026-10-15)
 web_app.include_router(sitok_calendar.router, prefix="/api")  # 시특법 방문 달력(반기마다 점검 날 — 2026-10-15)
 web_app.include_router(sitok_onboard.router, prefix="/api")  # 시특법 새 점검 대상 한 번에 등록(2026-10-12)
