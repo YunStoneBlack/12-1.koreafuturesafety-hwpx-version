@@ -90,13 +90,13 @@
       `<option value="${c.id}"${c.id === r.contract_id ? " selected" : ""}>${c.facility ? `[${esc(c.facility)}] ` : ""}${esc(c.sector)} · ${esc(c.title || "계약")} (${esc(c.start_date)}~${esc(c.end_date)})</option>`).join("");
     const parts = r.participant_ids || [];
     $("rd-info").innerHTML = `<div class="sk-rep-grid">
-        <label>계약<select data-k="contract_id">${contractOpts}</select></label>
+        <label>계약<span class="sk-help"></span><select data-k="contract_id">${contractOpts}</select></label>
         <label>종류 <span class="sk-help">계약서 회차 줄에서 자동 — 틀리면 직접</span><select data-k="kind">${["정기", "정밀"].map((k) => `<option${k === kind ? " selected" : ""}>${k}</option>`).join("")}</select></label>
         <label>점검기간 시작 <span class="sk-help">민간 = 현장 간 날</span><input type="date" data-k="period_start" value="${esc(r.period_start)}" /></label>
         <label>점검기간 끝 <span class="sk-help">민간 = 보고서 낸 날</span><input type="date" data-k="period_end" value="${esc(r.period_end)}" /></label>
         <label>제출일 <span class="sk-help">표지·제출문 연월, 비우면 점검기간 끝</span><input type="date" data-k="report_date" value="${esc(r.report_date)}" /></label>
-        <label>책임기술자<select data-k="chief_id">${personOptions(r.chief_id)}</select></label>
-        <label>참여기술자<select data-k="p0">${personOptions(parts[0])}</select></label>
+        <label>책임기술자<span class="sk-help"></span><select data-k="chief_id">${personOptions(r.chief_id)}</select></label>
+        <label>참여기술자<span class="sk-help"></span><select data-k="p0">${personOptions(parts[0])}</select></label>
         ${g && !r.past && !dongs ? `<label>이 동 점검금액(천원) <span class="sk-help">같은 계약서를 여러 동이 같이 쓰면 꼭 — 비면 계약 금액</span>
           <input data-k="amount_k" inputmode="numeric" value="${esc(r.amount_k)}" placeholder="예: 550" /></label>` : ""}
       </div>
