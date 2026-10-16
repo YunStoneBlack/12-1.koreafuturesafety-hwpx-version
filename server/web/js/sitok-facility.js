@@ -1,5 +1,7 @@
 // 시특법 시설물 등록·고치기(sitok-facility.html, 2026-10-10 2단계). ?id= 없으면 새 등록 화면(sitok-new.html, 10/12 — 서류 한 번에)으로 감.
 // 10/14 형 피드백 ⑦ 3층 구조: 이 파일은 접힌 "시설물 정보·서류"(관리대장·건축물대장·도면·시설물 칸)와 "계약"(카드마다 쓰는 회차) 칸. 회차 목록은 js/sitok-reports.js.
+// 10/16 형 개편 2차: 동 타일(누르면 그 동, 보는 동을 다시 누르면 시설물 칸 팝업 — 🗑 이 동 삭제), [＋ 동 추가]·[🗑 휴지통](끌어다 놓기·누르면 보는 동),
+// 고른 동 서류·도면 칸, 관리대장 [다시 올리기](이 동 칸만 새 관리대장 값으로). 묶음의 동을 지우면 계약은 다음 동이 넘겨받음(server sitok._pass_contracts).
 // PDF 칸: 관리대장 → 시설물 칸(+ 보고서 틀 추정, 관리주체 대표자는 계약 칸에), 계약서 → 계약 칸(민간/관급 구분, 비어 있는 시설물 칸도 채움).
 // 민간/관급 기본값(인수인계 10/10): 민간 = 독자수행 100%·수의계약·건축. 관급 1년 계약이면 "상반기 완료일·하반기 시작일"을 직접 정함.
 // 서버 server/api/routers/sitok.py, PDF 읽기 server/sitok/reader.py.
@@ -109,17 +111,138 @@
     }
   }
 
-  function flash(msg) {
-    const el = document.getElementById("sk-saved");
-    el.textContent = msg;
-    setTimeout(() => { el.textContent = ""; }, 3000);
+  function flash(msg, bad) { // 팝업이 열려 있으면 팝업 아래, 아니면 화면 아래 잠깐(시설물 칸이 팝업으로 감, 10/16)
+    if (!document.getElementById("fi-modal").hidden) {
+      const el = document.getElementById("sk-saved");
+      el.textContent = msg;
+      el.classList.toggle("bad", !!bad);
+      setTimeout(() => { el.textContent = ""; el.classList.remove("bad"); }, bad ? 8000 : 3000);
+      return;
+    }
+    const t = document.createElement("div");
+    t.className = "fi-toast";
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+
+  // ---------- 시설물 칸 팝업·동 타일·삭제(10/16 형) ----------
+  const modal = document.getElementById("fi-modal");
+  const openModal = () => { modal.hidden = false; modal.querySelector("input")?.focus(); };
+  const closeModal = () => { modal.hidden = true; };
+  document.getElementById("fi-close").addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.hidden && !document.querySelector(".mail-overlay:not(#fi-modal)")) closeModal(); });
+  const group = () => (fac.group && fac.group.members.length > 1 ? fac.group : null);
+  const registered = () => !!(fac.has_ledger_pdf || fac.fms_no || fac.legal === false || group() || (fac.card_units || []).length > 1); // js/sitok-register.js와 같음
+  const label = (m) => { const g = group(); const i = g ? g.members.findIndex((x) => x.id === m.id) : -1; return `${i >= 0 ? `제${i + 1}장 ` : ""}${m.name}`; };
+
+  function drawTiles() {
+    const g = group();
+    const members = g ? g.members.map((m) => (m.id === fac.id ? { ...m, name: fac.name } : m)) : [{ id: fac.id, name: fac.name }];
+    const reg = registered();
+    const pick = document.getElementById("sk-dong-pick");
+    pick.innerHTML = members.map((m, i) => {
+      const on = m.id === fac.id;
+      const inner = `<small><span>${g ? `제${i + 1}장` : "건물"}${on ? '<i class="fi-on-t"> · 보는 중</i>' : ""}</span>${on ? '<em class="fi-edit">✎ 시설물 칸</em>' : ""}</small><b>${esc(m.name)}</b>`;
+      return on ? `<button type="button" class="fi-tile on" data-id="${m.id}" draggable="true" aria-current="page" title="시설물 칸 보기·고치기">${inner}</button>`
+        : `<a class="fi-tile" data-id="${m.id}" href="sitok-facility.html?id=${m.id}#info" title="${esc(m.name)}">${inner}</a>`;
+    }).join("") + (reg ? `<button type="button" class="fi-tile fi-add" id="fi-add">＋ 동 추가</button>
+      <div class="fi-tile fi-trash" id="fi-trash" role="button" tabindex="0" title="보는 동 지우기 — PC는 동을 끌어다 놓아도 됨"><b>🗑 휴지통</b><small>동을 끌어다 놓으면 삭제</small></div>` : "");
+    pick.querySelector(".fi-tile.on").addEventListener("click", openModal);
+    pick.querySelectorAll(".fi-tile[data-id]").forEach((t) => {
+      t.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", t.dataset.id); e.dataTransfer.effectAllowed = "move"; t.classList.add("drag"); });
+      t.addEventListener("dragend", () => t.classList.remove("drag"));
+    });
+    document.getElementById("fi-add")?.addEventListener("click", () => window.dispatchEvent(new Event("sitok-reg-open")));
+    const trash = document.getElementById("fi-trash");
+    if (trash) {
+      trash.addEventListener("dragover", (e) => { e.preventDefault(); trash.classList.add("over"); });
+      trash.addEventListener("dragleave", () => trash.classList.remove("over"));
+      trash.addEventListener("drop", (e) => { e.preventDefault(); trash.classList.remove("over"); const tid = Number(e.dataTransfer.getData("text/plain")); if (tid) removeDong(tid); });
+      trash.addEventListener("click", () => removeDong(fac.id));
+      trash.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); removeDong(fac.id); } });
+    }
+    document.getElementById("fi-dongs-t").textContent = g ? "동 고르기" : "건물";
+    document.getElementById("fi-dongs-s").textContent = g ? "동을 누르면 아래 서류·도면이 그 동 것으로 바뀌고, 보는 동을 한 번 더 누르면 시설물 칸" : "누르면 시설물 칸(이름·주소·관리주체 등)이 열립니다";
+    document.getElementById("fi-compose-link").hidden = !g;
+    document.getElementById("fi-cur").textContent = label({ id: fac.id, name: fac.name });
+    document.getElementById("fi-box-t").textContent = `📝 ${label({ id: fac.id, name: fac.name })} — 시설물 칸`;
+    document.getElementById("sk-del").textContent = g ? "🗑 이 동 삭제" : "🗑 시설물 삭제";
+  }
+
+  async function removeDong(tid) { // 휴지통·팝업 [🗑 이 동 삭제] — 묶음이면 계약은 다음 동이 넘겨받음(서버)
+    const g = group();
+    const members = g ? g.members : [{ id: fac.id, name: fac.name }];
+    const m = members.find((x) => x.id === tid) || { id: tid, name: fac.name };
+    const rest = members.filter((x) => x.id !== tid);
+    const name = tid === fac.id ? label({ id: fac.id, name: fac.name }) : label(m);
+    const text = g && rest.length
+      ? `${name} — 이 동의 회차·현장 조사·올린 PDF·만든 보고서가 지워지고 되돌릴 수 없습니다. ${members[0].id === tid ? `묶음 계약은 지우지 않고 다음 동(${rest[0].name})이 넘겨받습니다.` : `묶음 계약은 그대로입니다(제1장 ${members[0].name}).`}`
+      : `${name} — 계약·회차·결함·올린 PDF·만든 보고서, 서류 자동화의 이 카드 계약까지 지워지고 되돌릴 수 없습니다.`;
+    const pw = await askPassword(text, `🗑 ${name} 삭제`);
+    if (pw == null) return;
+    try {
+      await api(`/sitok/facilities/${tid}`, { method: "DELETE", body: JSON.stringify({ password: pw }) });
+      if (tid !== fac.id) { location.reload(); return; }
+      location.href = rest.length ? `sitok-facility.html?id=${rest[0].id}#info` : "sitok.html";
+    } catch (err) {
+      if (!modal.hidden) flash(err.message, true); else showError(errorEl, err);
+    }
+  }
+
+  function drawLedgerCard() { // 관리대장 카드 — [다시 올리기]: 동은 맞는데 파일을 잘못 올렸을 때 이 동 칸만 새 값으로(10/16 형 "잘못 올릴 수도 있잖아")
+    const card = document.getElementById("sk-ledger-card");
+    card.hidden = !registered() || fac.legal === false;
+    if (card.hidden) return;
+    card.className = `fi-card${fac.has_ledger_pdf ? " has" : ""}`;
+    card.innerHTML = `<div class="fi-card-h"><b>📄 시설물관리대장</b><label class="fi-btn-o">${fac.has_ledger_pdf ? "다시 올리기" : "＋ 올리기"}<input type="file" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label></div>
+      <span class="sk-help fi-led-msg">잘못 올렸으면 다시 올리기 — 이 동의 칸만 새 관리대장 값으로(회차·현장 조사는 그대로)</span>
+      ${fac.has_ledger_pdf ? `<span class="fi-st ok">✓ 올려 둠 · <a href="${BASE}/api/sitok/files/ledger/${fac.id}" target="_blank" rel="noopener">보기</a></span>` : '<span class="fi-st">아직 없음</span>'}`;
+    const inp = card.querySelector("input");
+    inp.addEventListener("change", () => { const f = inp.files[0]; inp.value = ""; if (f) reLedger(f, card); });
+    enableFileDrop(card, inp);
+  }
+
+  async function reLedger(file, card) {
+    const msg = card.querySelector(".fi-led-msg");
+    const norm = (v) => String(v || "").replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+    card.classList.add("busy");
+    msg.classList.remove("bad");
+    msg.textContent = `${file.name} 읽는 중…(10~30초)`;
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await apiUpload(`/sitok/docs/facilities/${id}/add/read`, fd);
+      const items = r.items || [r];
+      if (items.length > 1) throw new Error(`건물 ${items.length}개가 든 관리대장입니다 — 이 동 것 한 장만 올리세요(다른 동은 [＋ 동 추가])`);
+      const x = items[0];
+      if (x.error || !x.token) throw new Error(x.error || "관리대장을 읽지 못했습니다");
+      const fields = { ...(x.fields || {}) };
+      delete fields.ledger;
+      const other = (fac.card_fms || []).find((c) => c.id !== fac.id && norm(c.fms_no) && norm(c.fms_no) === norm(fields.fms_no));
+      if (other) throw new Error(`이미 있는 ${other.mgmt_no} ${other.name}의 관리대장입니다(시설물번호 ${fields.fms_no}) — 그 동에서 올리세요`);
+      const name = String(fields.name || fac.name).trim();
+      if (!confirm(`읽었습니다: ${name}${fields.fms_no ? `(${fields.fms_no})` : ""} — 이 동(${fac.name})의 칸을 새 관리대장 값으로 바꿀까요? 이름도 "${name}"(으)로 바뀝니다. 회차·현장 조사는 그대로입니다.`)) {
+        msg.textContent = "바꾸지 않았습니다.";
+        return;
+      }
+      const keep = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined && v !== null && v !== ""));
+      fac = await apiPatch(`/sitok/facilities/${id}?ledger_token=${encodeURIComponent(x.token)}`, { ...keep, name, legal: true });
+      draw();
+      flash("관리대장을 바꿨습니다 — 이 동 칸을 새 값으로 채웠습니다.");
+    } catch (err) {
+      msg.textContent = `바꾸지 못했습니다: ${err.message}`;
+      msg.classList.add("bad");
+    } finally {
+      card.classList.remove("busy");
+    }
   }
 
   // ---------- 그리기 ----------
   function draw() {
     const facBox = document.getElementById("sk-fac");
-    facBox.innerHTML = `<div class="field-grid">${FAC.map((f) => input("f", f)).join("")}</div>` +
-      (fac?.has_ledger_pdf ? `<p class="sk-file"><a href="${BASE}/api/sitok/files/ledger/${fac.id}" target="_blank" rel="noopener">올린 시설물관리대장 PDF 보기</a></p>` : "");
+    facBox.innerHTML = `<div class="field-grid">${FAC.map((f) => input("f", f)).join("")}</div>`; // 관리대장 보기·다시 올리기는 서류·도면의 관리대장 카드(10/16)
     if (fac) setValues(facBox, fac);
     facBox.querySelectorAll(".sk-filled").forEach((el) => el.classList.remove("sk-filled"));
     SitokFields.linkLegal(facBox);
@@ -128,14 +251,11 @@
     if (fac) {
       document.getElementById("sk-crumb").textContent = fac.name;
       document.title = `${fac.name} - 시특법`;
-      const g = fac.group && fac.group.members.length > 1 ? fac.group : null; // 묶음 — 시설물 정보·서류 안에서 동 고르기(민재형 10/15 "생성한 시설물 누르면 안에 업로드")
-      const pick = document.getElementById("sk-dong-pick");
-      pick.hidden = !g;
+      const g = group(); // 묶음 — 동 타일로 고르기(민재형 10/15 "생성한 시설물 누르면 안에 업로드", 10/16 타일·팝업)
+      drawTiles();
+      drawLedgerCard();
       if (g) {
         document.getElementById("sk-crumb").textContent = `${g.name} › ${fac.name}`;
-        pick.innerHTML = `<span class="sk-dong-pick-h">동을 고르면 그 동의 관리대장·건축물대장·도면·시설물 칸이 아래에 나옵니다</span>` + g.members.map((m, i) =>
-          m.id === fac.id ? `<span class="sk-dong-tab on" aria-current="page">제${i + 1}장 ${esc(m.name)}</span>`
-            : `<a class="sk-dong-tab" href="sitok-facility.html?id=${m.id}#info">제${i + 1}장 ${esc(m.name)}</a>`).join("");
         if (location.hash === "#info") { // 다른 동에서 넘어옴 — 서류 칸을 열어 둠
           const panel = document.getElementById("sk-info-panel");
           panel.open = true;
@@ -206,28 +326,21 @@
         location.href = `sitok-facility.html?id=${res.id}`;
       }
     } catch (err) {
-      showError(errorEl, err);
+      if (!modal.hidden) flash(err.message, true); else showError(errorEl, err);
     } finally {
       btn.disabled = false;
     }
   });
 
-  document.getElementById("sk-del").addEventListener("click", async () => {
-    const pw = await askPassword(`${fac.name} — 계약·회차·결함·올린 PDF·만든 보고서, 서류 자동화의 이 카드 계약까지 지워지고 되돌릴 수 없습니다.`);
-    if (pw == null) return;
-    try {
-      await api(`/sitok/facilities/${id}`, { method: "DELETE", body: JSON.stringify({ password: pw }) });
-      location.href = "sitok.html";
-    } catch (err) { showError(errorEl, err); }
-  });
+  document.getElementById("sk-del").addEventListener("click", () => removeDong(fac.id));
 
   // 삭제 비밀번호(현장 삭제와 같은 회사 공용 — 설정 탭)
-  function askPassword(message) {
+  function askPassword(message, title = "🗑 시설물 삭제") {
     return new Promise((resolve) => {
       const overlay = document.createElement("div");
       overlay.className = "mail-overlay";
       overlay.innerHTML = `<div class="mail-box" role="dialog" aria-modal="true">
-        <div class="mail-head"><b>🗑 시설물 삭제</b><span class="mail-sub">${esc(message)}</span></div>
+        <div class="mail-head"><b>${esc(title)}</b><span class="mail-sub">${esc(message)}</span></div>
         <input type="password" class="mail-input" placeholder="삭제 비밀번호" autocomplete="off" />
         <div class="mail-note">보고서 자동화 설정 탭에서 정한 삭제 비밀번호(현장 삭제와 같음)</div>
         <div class="mail-foot"><button type="button" class="sk-cancel">취소</button><button type="button" class="mail-primary sk-ok" style="background:var(--crit);border-color:var(--crit);">삭제</button></div></div>`;
@@ -267,19 +380,6 @@
     } catch (e) { msg.textContent = `올리지 못했습니다: ${e.message}`; msg.classList.add("bad"); } finally { regZone.classList.remove("busy"); }
   });
   enableFileDrop(regZone, regInput);
-
-  // 맨 위 "① 시설물 등록" 칸(js/sitok-register.js, 10/16) — 읽은 관리대장·결과표를 아래 시설물 칸에(저장은 [시설물 저장])
-  window.SitokFacilityPage = {
-    fill(fields, token, extra) {
-      if (token !== undefined) { ledgerToken = token || null; ledgerExtra = extra || null; }
-      ownerRep = fields.owner_rep || ownerRep;
-      const box = document.getElementById("sk-fac");
-      setValues(box, fields, false);
-      const legal = box.querySelector('[data-key="legal"]');
-      if (legal && fields.legal !== undefined) { legal.value = String(!!fields.legal); legal.dispatchEvent(new Event("change")); }
-      document.getElementById("sk-form").scrollIntoView({ block: "start", behavior: "smooth" });
-    },
-  };
 
   (async () => {
     try {

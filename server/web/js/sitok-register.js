@@ -4,7 +4,7 @@
 // 몇 권으로 낼지(묶음·따로)·계약 연결은 아래 📚 보고서 구성(js/sitok-compose.js)에서 — 새 건물은 처음엔 따로 보고서.
 // 관리대장이 없으면 결과표·시설물 현황(전회차 보고서 그대로, 또는 동마다 그 쪽만 모은 PDF)을 AI가 읽음 — 결과표 개수 = 동 수(양식은 회사가 달라도 같음).
 // 서버 /sitok/docs/facilities/{id}/add/read(관리대장)·add/read-sheets(결과표)·add(따로 — 지금 계약이 같이 맡음)·dong(묶음), 이 시설물은 PATCH /sitok/facilities/{id}.
-// "하나"는 읽은 값을 아래 시설물 칸에 채우고 [시설물 저장](js/sitok-facility.js SitokFacilityPage.fill).
+// 10/16 개편 2차: 등록 전이면 맨 위에 펼쳐 둠, 등록 뒤엔 숨겨 두고 동 타일의 [＋ 동 추가](js/sitok-facility.js → "sitok-reg-open")로만 엶.
 
 (function () {
   const id = Number(new URLSearchParams(location.search).get("id")) || null;
@@ -20,7 +20,7 @@
   const base = () => String(fac.mgmt_no || "").replace(/^((?:관급|민간)-\d+)-\d+$/, "$1");
   const grouped = () => !!(fac.group && fac.group.members.length > 1);
   const units = () => fac.card_units || [];
-  const registered = () => !!(fac.has_ledger_pdf || fac.fms_no || grouped() || units().length > 1);
+  const registered = () => !!(fac.has_ledger_pdf || fac.fms_no || fac.legal === false || grouped() || units().length > 1); // 법정 외(결과표로 등록)도 등록됨
   const clean = (fields) => Object.fromEntries(FAC_KEYS.filter((k) => fields[k] !== undefined && fields[k] !== null && fields[k] !== "").map((k) => [k, fields[k]]));
 
   function summary() { // 접힌 칸 머리 — 지금 등록 상태 한 줄
@@ -213,7 +213,18 @@
     st.src = fac.legal === false ? "sheet" : "ledger";
     const panel = document.getElementById("sk-info-panel");
     if (panel && !registered()) panel.open = true; // 등록 전이면 펼쳐 둠
+    const sec = document.getElementById("fi-reg");
+    sec.hidden = registered(); // 등록 뒤엔 [＋ 동 추가]로만
+    sec.classList.toggle("fi-boxed", registered());
+    document.getElementById("fi-reg-t").textContent = registered() ? "동 추가" : "시설물 등록 — 무엇으로 등록할까요?";
+    document.getElementById("fi-reg-x").hidden = !registered();
     summary();
     draw();
   });
+  window.addEventListener("sitok-reg-open", () => { // 동 타일 [＋ 동 추가]
+    const sec = document.getElementById("fi-reg");
+    sec.hidden = false;
+    sec.scrollIntoView({ block: "start", behavior: "smooth" });
+  });
+  document.getElementById("fi-reg-x")?.addEventListener("click", () => { document.getElementById("fi-reg").hidden = true; });
 })();

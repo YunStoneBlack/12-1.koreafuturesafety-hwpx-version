@@ -258,7 +258,7 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
     from server.api.routers.sitok_docs import _card_units
     us = _card_units(db, f)
     out["card_units"] = [{"id": u.id, "mgmt_no": u.mgmt_no, "name": u.name} for u in us] if len(us) > 1 else []  # 보고서 따로 시설물(N-1·N-2, 10/16 등록 칸)
-    out["card_fms"] = [{"fms_no": x.fms_no, "name": x.name, "mgmt_no": x.mgmt_no} for x in card_facilities(db, f) if x.fms_no]  # 등록 칸이 이미 있는 건물을 뺌(10/16)
+    out["card_fms"] = [{"id": x.id, "fms_no": x.fms_no, "name": x.name, "mgmt_no": x.mgmt_no} for x in card_facilities(db, f) if x.fms_no]  # 등록 칸이 이미 있는 건물을 뺌(10/16)
     out["renew"] = renew_info(db, f)  # 장기·지속 계약 끝나기 전 알림(10/13)
     if with_contracts:
         used: dict[int, list[str]] = {}  # 계약 → 쓰는 회차(10/14 계약 패널 "쓰는 회차: 2026 상·하")
@@ -598,12 +598,92 @@ def _check_delete_password(user: User, password: str) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "삭제 비밀번호가 맞지 않습니다.")
 
 
+def _heir(db: Session, f: SitokFacility) -> SitokFacility | None:
+    """묶음에서 이 동 다음 동(남는 동 중 맨 앞) — 지울 때 계약을 넘겨받음."""
+    if not f.group_id:
+        return None
+    return (db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id, SitokFacility.id != f.id)
+            .order_by(SitokFacility.group_order, SitokFacility.id).first())
+
+
+def _pass_contracts(db: Session, f: SitokFacility, heir: SitokFacility) -> None:
+    """묶음의 동을 지울 때 그 동 계약을 다음 동에 넘김(10/16 — 전엔 대표 동을 지우면 묶음 계약·서류 자동화 계약까지 지워짐).
+    다음 동이 같은 계약을 이미 가졌으면 이 동 몫만 지우고 그 계약을 쓰던 회차는 다음 동 계약으로. 서류 계약의 맡는 시설물도 이 동 → 다음 동."""
+    from core.models_web import SitokDocContract
+
+    def ids(d):
+        return [int(x) for x in (d.facility_ids or ([d.facility_id] if d.facility_id else []))]
+
+    docs = [d for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == f.company_id).all() if f.id in ids(d)]
+    for rc in db.query(SitokContract).filter(SitokContract.facility_id == f.id).all():
+        d = next((x for x in docs if str((x.report_contracts or {}).get(str(f.id))) == str(rc.id)), None)
+        keep = db.get(SitokContract, (d.report_contracts or {})[str(heir.id)]) if d is not None and (d.report_contracts or {}).get(str(heir.id)) else None
+        if keep is None:
+            keep = next((c for c in db.query(SitokContract).filter(SitokContract.facility_id == heir.id).all()
+                         if (c.title, c.start_date, c.end_date) == (rc.title, rc.start_date, rc.end_date)), None)
+        if keep is not None:  # 다음 동이 같은 계약을 이미 가짐 — 회차만 그쪽으로
+            db.query(SitokReport).filter(SitokReport.contract_id == rc.id).update({SitokReport.contract_id: keep.id})
+            db.delete(rc)
+            continue
+        if rc.contract_pdf and Path(rc.contract_pdf).exists():  # 계약서 PDF는 지울 동 폴더에 있음 — 다음 동 폴더로
+            dest = _facility_dir(heir) / Path(rc.contract_pdf).name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(rc.contract_pdf, dest)
+            rc.contract_pdf = str(dest)
+        rc.facility_id = heir.id
+        if d is not None:
+            d.report_contracts = {**{k: v for k, v in (d.report_contracts or {}).items() if str(k) != str(f.id)}, str(heir.id): rc.id}
+    for d in docs:
+        new = []
+        for x in ids(d):
+            y = heir.id if x == f.id else x
+            if y not in new:
+                new.append(y)
+        d.facility_ids = new
+        d.facility_id = heir.id if d.facility_id == f.id or d.facility_id not in new else d.facility_id
+        amounts = {str(k): v for k, v in (d.amounts or {}).items()}
+        if str(f.id) in amounts:
+            amounts.setdefault(str(heir.id), amounts.pop(str(f.id)))
+        d.amounts = amounts or None
+        d.report_contracts = {k: v for k, v in (d.report_contracts or {}).items() if str(k) != str(f.id)} or None
+    db.flush()
+
+
+def _regroup(db: Session, group_id: int | None) -> None:
+    """동을 지운 뒤 묶음 — 남은 동 순서를 0부터 다시, 하나만 남으면 묶음을 풂(그 동 혼자 보고서)."""
+    if not group_id:
+        return
+    from core.models_web import SitokGroup
+
+    rest = db.query(SitokFacility).filter(SitokFacility.group_id == group_id).order_by(SitokFacility.group_order, SitokFacility.id).all()
+    if len(rest) <= 1:
+        for x in rest:
+            x.group_id, x.group_order = None, 0
+        g = db.get(SitokGroup, group_id)
+        if g is not None:
+            db.delete(g)
+    else:
+        for k, x in enumerate(rest):
+            x.group_order = k
+    db.flush()
+
+
 def _delete_facility(db: Session, f: SitokFacility) -> None:
-    """계약·회차·올린 서류·만든 보고서 폴더까지 + 이 시설물 카드에 든 서류 자동화 계약(계약 폴더까지, 10/15 민재형 — 예전엔 연결만 끊겨 "카드 없음"으로 남았음)."""
+    """계약·회차·올린 서류·만든 보고서 폴더까지 + 이 시설물 카드에 든 서류 자동화 계약(계약 폴더까지, 10/15 민재형 — 예전엔 연결만 끊겨 "카드 없음"으로 남았음).
+    묶음의 동이면(10/16) 계약은 지우지 않고 다음 동에 넘김 — 잘못 등록한 동을 지워도 묶음 계약은 그대로."""
     from core.models_web import SitokDocContract
     from server.api.routers.sitok_docs import folder as doc_folder
 
     folder = _facility_dir(f)
+    group_id = f.group_id
+    heir = _heir(db, f)
+    if heir is not None:
+        _pass_contracts(db, f, heir)
+        db.delete(f)
+        db.flush()
+        _regroup(db, group_id)
+        shutil.rmtree(folder, ignore_errors=True)
+        return
     for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == f.company_id).all():
         ids = [int(x) for x in (d.facility_ids or ([d.facility_id] if d.facility_id else []))]
         if f.id not in ids:

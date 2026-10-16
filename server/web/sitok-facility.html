@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="css/sitok.css" />
 </head>
 <!-- 시특법 시설물 화면(2026-10-10 2단계, 10/14 형 피드백 ⑦ 3층 구조) — ?id= 없으면 새 등록(sitok-new.html).
-     위 = "① 시설물 등록·정보"(10/16 개편 — 등록 전이면 펼침: 보고서 하나·따로·동 묶음 × 관리대장/결과표, 건축물대장·도면·같이 점검하는 동·시설물 칸)
+     위 = "① 시설물 등록·정보"(10/16 개편 2차 — 등록·동 타일·고른 동 서류·도면, 시설물 칸은 팝업)
      / 점검 회차 목록(누르면 회차 화면 sitok-round.html) / 접힌 "계약"(회차별로 쌓임).
      칸 정의·저장은 js/sitok-facility.js, 회차 목록 js/sitok-reports.js, 도면 js/sitok-drawings.js, 서버 server/api/routers/sitok.py. -->
 <body data-report-tab="facilities" data-law="sitok" data-tabs-only>
@@ -23,27 +23,29 @@
 
 <details class="panel sk-fold" id="sk-info-panel">
   <summary class="panel-head"><h2>🏢 ① 시설물 등록·정보</h2><span class="panel-count" id="sk-info-count">보고서를 어떻게 내는지·관리대장(없으면 결과표)·건축물대장·도면·시설물 칸 — 모든 회차가 같이 씀</span><span class="sk-fold-arrow">▾</span></summary>
-  <div class="panel-body">
-    <div class="sk-dong-pick" id="sk-dong-pick" hidden></div>
-    <!-- 10/16 민재형 개편: 시설물(건물·동) 등록은 여기서만 — 보고서 하나·따로(N-1·N-2)·동 묶음 × 관리대장 / 관리대장 없음(결과표). js/sitok-register.js -->
-    <h3 class="sk-h3">시설물 등록</h3>
-    <div class="rg" id="sk-reg"></div>
-    <h3 class="sk-h3">건축물대장</h3>
-    <div class="sk-drops sk-drops-one" id="sk-pdfs">
-      <label class="sk-drop" id="sk-register"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
-        <b>📄 건축물대장 PDF</b><span class="sk-drop-msg" id="sk-register-msg">시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 읽습니다(층별 용도·면적·변동사항)</span></label>
-    </div>
-    <h3 class="sk-h3">도면</h3>
-    <div id="sk-dwg"></div>
-    <h3 class="sk-h3">시설물 칸</h3>
-    <form id="sk-form" autocomplete="off">
-      <div id="sk-fac"></div>
-      <div class="sk-actions">
-        <button type="button" class="danger" id="sk-del" hidden>시설물 삭제</button>
-        <span class="sk-saved" id="sk-saved"></span>
-        <button type="submit" id="sk-save">저장</button>
+  <!-- 10/16 형 개편 2차 — 위계: 고르기 = 버튼 모양(동 타일·자료), 넣기 = 점선 카드 + [＋ 올리기], 읽기 = 작은 회색 글.
+       동 타일(js/sitok-facility.js): 누르면 그 동, 보는 동을 다시 누르면 시설물 칸 팝업(🗑 이 동 삭제), [＋ 동 추가]·[🗑 휴지통](끌어다 놓기).
+       등록(js/sitok-register.js): 등록 전이면 맨 위에 펼침, 등록 뒤엔 [＋ 동 추가]로만 엶. -->
+  <div class="panel-body fi">
+    <section class="fi-sec fi-reg" id="fi-reg" hidden>
+      <div class="fi-h"><span class="fi-ic">📥</span><b id="fi-reg-t">시설물 등록 — 무엇으로 등록할까요?</b><span class="fi-sub">고르고 파일을 넣으면 줄마다 읽어 이름을 채웁니다</span>
+        <button type="button" class="link-btn fi-reg-x" id="fi-reg-x" hidden>접기</button></div>
+      <div class="rg" id="sk-reg"></div>
+    </section>
+    <section class="fi-sec fi-dongs">
+      <div class="fi-h"><span class="fi-ic">🏗</span><b id="fi-dongs-t">동 고르기</b><span class="fi-sub" id="fi-dongs-s"></span>
+        <a class="fi-act" id="fi-compose-link" href="#sk-compose-panel" hidden>묶음에서 빼기·옮기기 → 📚 보고서 구성</a></div>
+      <div class="fi-tiles" id="sk-dong-pick"></div>
+    </section>
+    <section class="fi-sec fi-sel">
+      <div class="fi-h"><span class="fi-ic">📁</span><b><span class="fi-cur" id="fi-cur"></span> 서류·도면</b><span class="fi-sub">한 번 올리면 다음 회차에도 그대로 씀 — 바뀌면 지우고 새로(이미 만든 보고서는 그대로)</span></div>
+      <div class="fi-files">
+        <div class="fi-card" id="sk-ledger-card" hidden></div>
+        <label class="sk-drop" id="sk-register"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
+          <b>📄 건축물대장 PDF</b><span class="sk-drop-msg" id="sk-register-msg">시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 읽습니다(층별 용도·면적·변동사항)</span></label>
+        <div id="sk-dwg"></div>
       </div>
-    </form>
+    </section>
   </div>
 </details>
 
@@ -68,6 +70,19 @@
   </div>
 </details>
 
+<!-- 시설물 칸 팝업(10/16 형 "밑으로 내려서 삭제 버튼을 찾는 게 부자연스러움") — 보는 동 타일을 누르면 열림 -->
+<div class="mail-overlay fi-modal" id="fi-modal" hidden><div class="mail-box fi-box" role="dialog" aria-modal="true" aria-labelledby="fi-box-t">
+  <div class="mail-head"><b id="fi-box-t">📝 시설물 칸</b><span class="mail-sub">표지·결과표·1.2 표에 들어가는 값 — 고치고 [시설물 저장]</span></div>
+  <form id="sk-form" autocomplete="off">
+    <div id="sk-fac"></div>
+    <div class="sk-actions">
+      <button type="button" class="danger" id="sk-del" hidden>🗑 이 동 삭제</button>
+      <span class="sk-saved" id="sk-saved"></span>
+      <button type="button" class="secondary fi-close" id="fi-close">닫기</button>
+      <button type="submit" id="sk-save">저장</button>
+    </div>
+  </form>
+</div></div>
   </main>
 </div>
 
