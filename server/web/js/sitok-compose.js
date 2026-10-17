@@ -23,6 +23,8 @@
     p = p.trim();
     return p.length >= 2 ? p : names[0] || "";
   };
+  const key = (list) => JSON.stringify(list.filter((b) => b.ids.length).map((b) => [b.ids, b.ids.length > 1 ? b.name || "" : "", b.contract_id ?? null]));
+  const changed = () => key(books) !== key(d.books); // 저장된 구성과 다를 때만 '바뀜'(10/17 — 같은 상자에 다시 넣거나 원래대로 되돌리면 바뀜 아님)
   const noOf = (k) => (books.filter((b) => b.ids.length).length > 1 ? `${d.card.no}-${books.filter((b, i) => b.ids.length && i <= k).length}` : d.card.no);
 
   async function load() {
@@ -68,23 +70,25 @@
   }
 
   function move(id, k) {
-    books.forEach((b) => { b.ids = b.ids.filter((x) => x !== id); });
-    books[k].ids.push(id);
     picked = null;
-    dirty = true;
+    if (!books[k].ids.includes(id)) { // 이미 그 상자에 있으면 고른 것만 풂
+      books.forEach((b) => { b.ids = b.ids.filter((x) => x !== id); });
+      books[k].ids.push(id);
+    }
+    dirty = changed();
     draw();
   }
 
   function wire() {
     box.querySelector(".cp-prev").addEventListener("click", () => shift(-1));
     box.querySelector(".cp-next").addEventListener("click", () => shift(1));
-    box.querySelector(".cp-one").addEventListener("click", () => { books = [{ ids: d.buildings.map((b) => b.id), name: books.find((b) => b.ids.length > 1)?.name || "", contract_id: books[0]?.contract_id ?? null }]; dirty = true; draw(); });
-    box.querySelector(".cp-each").addEventListener("click", () => { books = d.buildings.map((b) => ({ ids: [b.id], name: "", contract_id: (books.find((x) => x.ids.includes(b.id)) || {}).contract_id ?? null })); dirty = true; draw(); });
-    box.querySelector(".cp-sug")?.addEventListener("click", () => { books = d.suggest.map((b) => ({ ...b, ids: b.ids.slice() })); dirty = true; draw(); });
+    box.querySelector(".cp-one").addEventListener("click", () => { books = [{ ids: d.buildings.map((b) => b.id), name: books.find((b) => b.ids.length > 1)?.name || "", contract_id: books[0]?.contract_id ?? null }]; dirty = changed(); draw(); });
+    box.querySelector(".cp-each").addEventListener("click", () => { books = d.buildings.map((b) => ({ ids: [b.id], name: "", contract_id: (books.find((x) => x.ids.includes(b.id)) || {}).contract_id ?? null })); dirty = changed(); draw(); });
+    box.querySelector(".cp-sug")?.addEventListener("click", () => { books = d.suggest.map((b) => ({ ...b, ids: b.ids.slice() })); dirty = changed(); draw(); });
     box.querySelector(".cp-add").addEventListener("click", () => { books.push({ ids: [], name: "", contract_id: null }); draw(); });
     box.querySelectorAll(".cp-del").forEach((b) => b.addEventListener("click", () => { books.splice(Number(b.closest(".cp-book").dataset.k), 1); draw(); }));
-    box.querySelectorAll(".cp-name-in").forEach((i) => i.addEventListener("input", () => { books[Number(i.closest(".cp-book").dataset.k)].name = i.value; dirty = true; syncButtons(); }));
-    box.querySelectorAll(".cp-con-in").forEach((s) => s.addEventListener("change", () => { books[Number(s.closest(".cp-book").dataset.k)].contract_id = s.value ? Number(s.value) : null; dirty = true; syncButtons(); }));
+    box.querySelectorAll(".cp-name-in").forEach((i) => i.addEventListener("input", () => { books[Number(i.closest(".cp-book").dataset.k)].name = i.value; dirty = changed(); syncButtons(); }));
+    box.querySelectorAll(".cp-con-in").forEach((s) => s.addEventListener("change", () => { books[Number(s.closest(".cp-book").dataset.k)].contract_id = s.value ? Number(s.value) : null; dirty = changed(); syncButtons(); }));
     box.querySelectorAll(".cp-chip").forEach((c) => {
       c.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", c.dataset.id); e.dataTransfer.effectAllowed = "move"; c.classList.add("drag"); });
       c.addEventListener("dragend", () => c.classList.remove("drag"));
@@ -95,7 +99,7 @@
       bk.addEventListener("dragover", (e) => { e.preventDefault(); bk.classList.add("over"); });
       bk.addEventListener("dragleave", (e) => { if (!bk.contains(e.relatedTarget)) bk.classList.remove("over"); });
       bk.addEventListener("drop", (e) => { e.preventDefault(); bk.classList.remove("over"); const id = Number(e.dataTransfer.getData("text/plain")); if (id) move(id, k); });
-      bk.addEventListener("click", (e) => { if (picked && !e.target.closest("select, input, button")) move(picked, k); });
+      bk.addEventListener("click", (e) => { if (picked && !e.target.closest("select, input, button, a")) move(picked, k); }); // [회차 열기] 링크는 옮기기 아님(10/17)
     });
     box.querySelector(".cp-reset").addEventListener("click", () => { books = d.books.map((b) => ({ ...b, ids: b.ids.slice() })); dirty = false; picked = null; draw(); });
     box.querySelector(".cp-save").addEventListener("click", save);
@@ -139,4 +143,5 @@
   }
 
   load();
+  window.addEventListener("pageshow", (e) => { if (e.persisted) { picked = null; load(); } }); // 뒤로 가기로 돌아옴(bfcache) — 저장된 구성을 다시 읽음(10/17)
 })();
