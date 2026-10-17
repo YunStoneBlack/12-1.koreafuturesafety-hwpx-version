@@ -1,5 +1,6 @@
 // 시특법 시설물 화면 "📚 보고서 구성"(sitok-facility.html?id=, 2026-10-16 민재형) — 카드 안 건물을 보고서 상자에 넣어 보고서를 몇 권 낼지 정함.
 // 상자 하나에 건물 여럿 = 동 묶음(보고서 한 권, 동마다 제N장), 건물 하나 = 그 건물만. PC는 끌어다 놓기, 폰은 건물을 누른 뒤 상자를 누름.
+// 건물 더블클릭 = 그 건물 이 반기 회차(10/17 형) — 묶음이면 그 동만 보는 화면(sitok-round.html?report=&one=1).
 // 계약이 이 반기에 둘 이상일 때만 상자마다 계약을 고름(하나면 자동). 반기마다(◀ ▶) 계약 연결이 다를 수 있음 — 저장하면 지금 구조(묶음·번호)가 바뀜.
 // 서버 server/api/routers/sitok_compose.py. 저장 뒤 "sitok-group-changed" → 회차 칸(js/sitok-reports.js) 다시 읽음.
 
@@ -42,7 +43,7 @@
   function chip(id) {
     const b = bld(id);
     const r = b.round;
-    return `<span class="cp-chip${picked === id ? " on" : ""}" draggable="true" data-id="${id}" title="${esc(b.fms_no || "")}">${esc(b.name)}${r ? `<small>${esc(r.kind || "")}${r.data ? " · 조사 있음" : ""}</small>` : ""}</span>`;
+    return `<span class="cp-chip${picked === id ? " on" : ""}" draggable="true" data-id="${id}" title="${esc(b.fms_no ? `${b.fms_no} · ` : "")}더블클릭하면 이 건물 회차">${esc(b.name)}${r ? `<small>${esc(r.kind || "")}${r.data ? " · 조사 있음" : ""}</small>` : ""}</span>`;
   }
 
   function draw() {
@@ -54,7 +55,7 @@
         <span class="sk-help">건물 ${d.buildings.length}개 → 보고서 ${live}권 · ${d.contracts.length ? `이 반기 계약 ${d.contracts.length}건${multiCon ? " — 보고서마다 계약을 고르세요" : "(자동 연결)"}` : "이 반기 계약 없음"}</span></div>
       <div class="cp-tools"><button type="button" class="secondary btn-sm cp-one">전부 한 권</button><button type="button" class="secondary btn-sm cp-each">전부 따로</button>
         ${d.suggest ? '<button type="button" class="secondary btn-sm cp-sug" title="계약 건명·내역서에 나오는 건물 이름으로">🤖 계약대로 추천 배치</button>' : ""}
-        <span class="sk-help cp-tip">PC: 건물을 끌어다 상자에 놓기 · 폰: 건물을 누른 뒤 넣을 상자를 누르기</span></div>
+        <span class="sk-help cp-tip">PC: 건물을 끌어다 상자에 놓기 · 폰: 건물을 누른 뒤 넣을 상자를 누르기 · 건물 더블클릭 = 그 건물 회차</span></div>
       <div class="cp-books">${books.map((b, k) => `<div class="cp-book${b.ids.length ? "" : " empty"}" data-k="${k}">
           <div class="cp-head"><b>보고서 ${books.slice(0, k + 1).filter((x) => x.ids.length).length || "—"}</b>${b.ids.length ? `<span class="site-no">${esc(noOf(k))}</span>` : ""}
             ${b.ids.length && !dirty ? (bld(b.ids[0]).round ? `<a class="cp-open" href="sitok-round.html?report=${bld(b.ids[0]).round.id}">회차 열기 ›</a>` : '<span class="sk-help">이 반기 회차 없음</span>') : ""}
@@ -92,7 +93,12 @@
     box.querySelectorAll(".cp-chip").forEach((c) => {
       c.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", c.dataset.id); e.dataTransfer.effectAllowed = "move"; c.classList.add("drag"); });
       c.addEventListener("dragend", () => c.classList.remove("drag"));
-      c.addEventListener("click", (e) => { e.stopPropagation(); const id = Number(c.dataset.id); picked = picked === id ? null : id; draw(); });
+      c.addEventListener("click", (e) => { // 고르기는 색만 바꿈 — 다시 그리면 더블클릭이 사라진 칸에 감(10/17)
+        e.stopPropagation();
+        const id = Number(c.dataset.id);
+        picked = picked === id ? null : id;
+        box.querySelectorAll(".cp-chip").forEach((x) => x.classList.toggle("on", Number(x.dataset.id) === picked));
+      });
     });
     box.querySelectorAll(".cp-book").forEach((bk) => {
       const k = Number(bk.dataset.k);
@@ -107,6 +113,19 @@
   function syncButtons() {
     box.querySelector(".cp-save").disabled = !dirty;
     box.querySelector(".cp-reset").disabled = !dirty;
+  }
+
+  function openRound(id) { // 건물 더블클릭 → 그 건물 회차(묶음이면 그 동만 보는 화면)
+    const b = bld(id);
+    const msg = box.querySelector(".cp-msg");
+    if (!b || !b.round) {
+      msg.className = "cp-msg mail-note bad";
+      msg.textContent = `${b ? b.name : "이 건물"} — 이 반기 회차가 아직 없습니다(계약이 맡는 건물은 [저장]하면 회차가 생김)`;
+      return;
+    }
+    if (dirty && !confirm("저장하지 않은 구성이 있습니다 — 버리고 회차로 갈까요?")) return;
+    const saved = d.books.find((x) => x.ids.includes(id));
+    location.href = `sitok-round.html?report=${b.round.id}${saved && saved.ids.length > 1 ? "&one=1" : ""}`;
   }
 
   function shift(n) {
@@ -143,5 +162,9 @@
   }
 
   load();
+  box.addEventListener("dblclick", (e) => { // 한 번 누르면 다시 그려지므로(고르기) 상자 전체에서 받음
+    const c = e.target.closest(".cp-chip");
+    if (c) { e.preventDefault(); openRound(Number(c.dataset.id)); }
+  });
   window.addEventListener("pageshow", (e) => { if (e.persisted) { picked = null; load(); } }); // 뒤로 가기로 돌아옴(bfcache) — 저장된 구성을 다시 읽음(10/17)
 })();
