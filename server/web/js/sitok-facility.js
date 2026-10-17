@@ -15,11 +15,8 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   let opts = null;
   let fac = null; // 저장된 시설물(고치기 화면)
-  let ledgerToken = null;
-  let ledgerExtra = null;
   const conTokens = {}; // 계약 카드 키 → 올린 계약서 token
   const conRounds = {}; // 계약 카드 키 → 계약서에서 읽은 회차 줄 [{year, half, kind, amount}] — 회차 종류(정기/정밀) 자동(10/13)
-  let ownerRep = ""; // 관리대장에서 읽은 관리주체 대표자(민간 계약 대표자 칸이 비면 채움)
 
   // 칸 정의·그리기·읽기는 js/sitok-fields.js(새 등록 화면과 같이 씀, 10/12)
   const { FAC, CON } = SitokFields;
@@ -71,11 +68,11 @@
     return card;
   }
 
-  // ---------- PDF 읽기 ----------
+  // ---------- 계약서 PDF 읽기(계약 카드마다 — 관리대장은 ① 등록·관리대장 카드 [다시 올리기]) ----------
   async function readPdf(kind, file, card) {
     if (!file) return;
-    const zone = card ? card.querySelector(".sk-con-msg") : document.querySelector(`.sk-drop[data-kind="${kind}"] .sk-drop-msg`);
-    const target = card || document.querySelector(`.sk-drop[data-kind="${kind}"]`);
+    const zone = card.querySelector(".sk-con-msg");
+    const target = card;
     target.classList.add("busy");
     zone.textContent = `${file.name} — 읽는 중…(10~30초)`;
     try {
@@ -84,23 +81,11 @@
       fd.append("file", file);
       const r = await apiUpload("/sitok/read", fd);
       const f = r.fields || {};
-      if (kind === "ledger") {
-        ledgerToken = r.token;
-        ledgerExtra = f.ledger || null;
-        ownerRep = f.owner_rep || "";
-        setValues(document.getElementById("sk-fac"), f, false);
-        const first = document.querySelector("#sk-cons .sk-con");
-        if (first && ownerRep) setValues(first, { rep_name: ownerRep }, false); // 대표자는 글자 있는 관리대장이 스캔 계약서보다 정확
-      } else {
-        const box = card || document.querySelector("#sk-cons .sk-con");
-        conTokens[box.dataset.key] = r.token;
-        if (Array.isArray(f.rounds) && f.rounds.length) conRounds[box.dataset.key] = f.rounds;
-        const rep = f.sector === "민간" && ownerRep ? ownerRep : f.rep_name;
-        setValues(box, { ...f, rep_name: rep }, false);
-        box.querySelector('[data-key="sector"]').dispatchEvent(new Event("change"));
-        setValues(box, { joint_type: f.joint_type, bid_method: f.bid_method }, false);
-        if (!id) setValues(document.getElementById("sk-fac"), { owner_name: f.owner_name, address: f.address }, true); // 시설물 칸이 비었을 때만
-      }
+      conTokens[card.dataset.key] = r.token;
+      if (Array.isArray(f.rounds) && f.rounds.length) conRounds[card.dataset.key] = f.rounds;
+      setValues(card, f, false);
+      card.querySelector('[data-key="sector"]').dispatchEvent(new Event("change"));
+      setValues(card, { joint_type: f.joint_type, bid_method: f.bid_method }, false);
       zone.textContent = r.error ? r.error : `✓ ${file.name} — 읽어서 채웠습니다. 저장할 때 같이 보관됩니다.`;
       zone.classList.toggle("bad", !!r.error);
     } catch (err) {
@@ -311,20 +296,9 @@
     const btn = document.getElementById("sk-save");
     btn.disabled = true;
     try {
-      if (id) {
-        fac = await apiPatch(`/sitok/facilities/${id}${ledgerToken ? `?ledger_token=${ledgerToken}` : ""}`, facility);
-        ledgerToken = null;
-        flash("저장했습니다.");
-        draw();
-      } else {
-        const card = document.querySelector("#sk-cons .sk-con");
-        const contract = { ...values(card), contract_token: conTokens[card.dataset.key] || null, ...(conRounds[card.dataset.key] ? { rounds: conRounds[card.dataset.key] } : {}) };
-        const hasContract = contract.title || contract.start_date || contract.amount || contract.contract_token;
-        const res = await apiPost("/sitok/facilities", {
-          facility, contract: hasContract ? contract : null, ledger_token: ledgerToken, ledger_extra: ledgerExtra,
-        });
-        location.href = `sitok-facility.html?id=${res.id}`;
-      }
+      fac = await apiPatch(`/sitok/facilities/${id}`, facility); // 새 등록은 sitok-new.html(id 없으면 맨 위에서 그리로 감)
+      flash("저장했습니다.");
+      draw();
     } catch (err) {
       if (!modal.hidden) flash(err.message, true); else showError(errorEl, err);
     } finally {
@@ -354,12 +328,6 @@
     });
   }
 
-  // PDF 칸(맨 위) — 누르기·끌어다 놓기
-  document.querySelectorAll(".sk-drop[data-kind]").forEach((zone) => {
-    const inputEl = zone.querySelector("input");
-    inputEl.addEventListener("change", () => readPdf(zone.dataset.kind, inputEl.files[0], null));
-    enableFileDrop(zone, inputEl);
-  });
   // 건축물대장 PDF(10/14 — 전엔 회차 시설물 현황 창에서) → 시설물 폴더에 하나
   const regZone = document.getElementById("sk-register");
   const regInput = regZone.querySelector("input");
@@ -385,8 +353,6 @@
     try {
       opts = await api("/sitok/options");
       if (id) fac = await api(`/sitok/facilities/${id}`);
-      // 고치기 화면의 맨 위 PDF 칸은 관리대장만(계약서는 계약 카드마다)
-      document.querySelector('.sk-drop[data-kind="contract"]')?.remove(); // 고치기 화면엔 계약서 칸이 없음(계약 카드마다, 10/14)
       draw();
       window.dispatchEvent(new CustomEvent("sitok-facility-loaded", { detail: fac }));
     } catch (err) {

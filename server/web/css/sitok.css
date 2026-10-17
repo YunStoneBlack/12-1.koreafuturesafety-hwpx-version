@@ -34,7 +34,6 @@
 .sk-help { font-weight: 400; color: var(--faint); font-size: 11.5px; }
 .sk-f[hidden] { display: none; }
 .main .sk-filled { background: #FFF8DB; transition: background 1.5s; }
-.sk-file { margin: 12px 0 0; font-size: 13px; }
 .sk-con { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
 .sk-con:last-child { margin-bottom: 0; }
 .sk-con-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
@@ -384,8 +383,6 @@ details.sk-fold > summary.panel-head h2 { white-space: nowrap; }
 .sk-fold-arrow { color: var(--faint); font-size: 14px; transition: transform .15s; }
 details.sk-fold[open] > summary .sk-fold-arrow { transform: rotate(180deg); }
 details.sk-fold:not([open]) > summary.panel-head { border-bottom: 0; }
-.sk-h3 { margin: 18px 0 8px; font-size: 13.5px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.sk-h3:first-child { margin-top: 0; }
 .sk-drop.has { border-color: var(--green); background: var(--green-soft); }
 .sk-con-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .main .sk-con-top button { margin: 0; }
@@ -535,7 +532,6 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
 .rg-msg:empty { display: none; }
 .rg-msg.ok { color: var(--green); }
 .rg-msg.bad { color: var(--crit); }
-.sk-drops.sk-drops-one { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 760px) {
   .rg-q { gap: 6px 12px; }
   .main .rg-q label { white-space: normal; }

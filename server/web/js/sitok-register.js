@@ -15,7 +15,7 @@
   const FAC_KEYS = ["fms_no", "template", "kind", "use_type", "main_use", "address", "owner_name", "owner_type", "owner_phone", "completion_date", "structure",
     "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "land_area", "coverage_ratio", "floor_area_ratio"];
   let fac = null;
-  const st = { mode: "split", src: "ledger", rows: [], reading: 0, busy: false }; // 건물은 따로 등록하고 묶음은 보고서 구성에서
+  const st = { src: "ledger", rows: [], reading: 0, busy: false }; // 건물은 따로 등록하고 묶음은 📚 보고서 구성에서
 
   const base = () => String(fac.mgmt_no || "").replace(/^((?:관급|민간)-\d+)-\d+$/, "$1");
   const grouped = () => !!(fac.group && fac.group.members.length > 1);
@@ -91,7 +91,7 @@
       const row = document.createElement("div");
       const dup = !it.done && known(it.fields);
       row.className = `lg-row${it.done || dup ? " done" : ""}`;
-      const role = it.done ? "" : dup ? `이미 있음 — ${dup.mgmt_no} ${dup.name}` : first && it === live[0] && !st.rows.some((x) => x.done) ? "이 시설물" : st.mode === "group" ? "새 동" : "새 시설물";
+      const role = it.done ? "" : dup ? `이미 있음 — ${dup.mgmt_no} ${dup.name}` : first && it === live[0] && !st.rows.some((x) => x.done) ? "이 시설물" : "새 시설물";
       row.innerHTML = `<span class="lg-file" title="${esc(it.file)}">${esc(it.file)}</span>
         <input class="lg-name" value="${esc(it.name)}" placeholder="${it.reading ? "읽는 중…" : "이름"}" aria-label="이름"${it.done ? " disabled" : ""} />
         <span class="lg-st">${esc(it.status)}${!it.legal && !it.reading ? ' <span class="rg-tag">법정 외</span>' : ""}${role ? ` <span class="rg-role">${role}</span>` : ""}</span>
@@ -172,7 +172,6 @@
     if (!todo.length) { say(st.rows.some((x) => !x.done) ? "이름이 있는 줄이 없습니다 — 못 읽은 줄은 이름을 넣어 주세요." : "이미 다 등록했습니다.", "bad"); return; }
     st.busy = true;
     drawRows();
-    const gname = "";
     let first = !registered() && !st.rows.some((x) => x.done);
     const made = [];
     let bad = 0;
@@ -185,9 +184,6 @@
           fac = await apiPatch(`/sitok/facilities/${id}${it.token ? `?ledger_token=${encodeURIComponent(it.token)}` : ""}`, { ...clean(it.fields), name: body.name, legal: it.legal });
           made.push(`${fac.mgmt_no} ${fac.name}(이 시설물)`);
           first = false;
-        } else if (st.mode === "group") {
-          const out = await apiPost(`${D}/${id}/dong`, { ...body, group_name: gname || null });
-          made.push(`제${out.chapter}장 ${body.name}`);
         } else {
           const out = await apiPost(`${D}/${id}/add`, { ...body, join_active: true });
           made.push(`${out.mgmt_no} ${body.name}`);
@@ -209,7 +205,6 @@
 
   window.addEventListener("sitok-facility-loaded", (e) => {
     fac = e.detail;
-    st.mode = "split";
     st.src = fac.legal === false ? "sheet" : "ledger";
     const panel = document.getElementById("sk-info-panel");
     if (panel && !registered()) panel.open = true; // 등록 전이면 펼쳐 둠
