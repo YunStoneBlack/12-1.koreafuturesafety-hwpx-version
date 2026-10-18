@@ -43,3 +43,6 @@
 .sc-k { font-size: 11.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: #EEF4FF; color: #2563eb; }
 .sc-k.pre { background: #F3EFFF; color: #7c3aed; }
 .sc-ov-box { max-width: 460px; }
+
+/* 방문 달력 크게(10/18 민재형) — PC는 날짜 칸을 높게(폰은 그대로 62px), 넓이는 js/cal-wide.js */
+@media (min-width: 761px) { .fc .fc-daygrid-day-frame { min-height: 118px; } }

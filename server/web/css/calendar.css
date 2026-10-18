@@ -87,3 +87,6 @@
   .fc .fc-toolbar-title { font-size: 14px; }
 }
 .cal-item small:empty { display: none; }
+
+/* 방문 달력 크게(10/18 민재형) — PC는 날짜 칸을 높게(폰은 그대로 62px), 넓이는 js/cal-wide.js */
+@media (min-width: 761px) { .fc .fc-daygrid-day-frame { min-height: 118px; } }
