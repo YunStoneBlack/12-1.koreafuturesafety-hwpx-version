@@ -14,6 +14,7 @@ async function openSitokSurvey(reportId, title, onSaved) {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   let s;
   try { s = await api(`/sitok/reports/${reportId}/survey`); } catch (e) { box.innerHTML = `<div class="mail-msg bad">${esc(e.message)}</div>`; return; }
+  const oldRows = (rows) => (rows.length ? rows.map((r) => `<div>${r.map(esc).join(" · ")}</div>`).join("") : "지난 이력 없음");
   const repRow = (x) => `<div class="sv-rep"><input data-f="period" value="${esc(x.period || s.period)}" placeholder="보수기간" />
     <input data-f="kind" value="${esc(x.kind || "보수공사")}" placeholder="공사종류" /><input data-f="method" value="${esc(x.method)}" placeholder="보수방안(예: 옥상 방수공사)" />
     <input data-f="where" value="${esc(x.where)}" placeholder="위치" /><input data-f="note" value="${esc(x.note)}" placeholder="비고" />
@@ -30,11 +31,13 @@ async function openSitokSurvey(reportId, title, onSaved) {
   box.innerHTML = `<div class="mail-head"><b>📝 면담·변경사항 조사</b><span class="mail-sub">${esc(title)} — 보고서 1.2.7 보수·보강 이력, 1.2.8 변경사항 실태조사</span></div>
     <div class="ai-form">
       <h4>1.2.7 보수·보강 이력 <span class="sk-help">관리주체 면담 — 지난 회차 뒤에 한 보수만 더하면 됩니다(지난 이력은 그대로 남음)</span></h4>
-      <div class="sv-old">${s.repairs_old.length ? s.repairs_old.map((r) => `<div>${r.map(esc).join(" · ")}</div>`).join("") : "지난 이력 없음"}</div>
+      <div class="pv-box"></div>
+      <div class="sv-old">${oldRows(s.repairs_old)}</div>
       <div id="sv-reps">${s.repairs.map(repRow).join("")}</div>
       <button type="button" class="secondary btn-sm sv-add">+ 이번 보수 줄 더하기</button>
       <h4>1.2.8 변경사항 실태조사 <span class="sk-help">바뀐 것만 체크 — 나머지는 보고서에 "변경사항없음"</span></h4>
       ${chRows ? `<div class="sv-reg"><button type="button" class="secondary btn-sm sv-reg-ai">🤖 건축물대장으로 초안</button>
+        ${s.has_prior ? "" : '<button type="button" class="secondary btn-sm sv-prev-ai" hidden>🤖 전회차 보고서로 초안</button>'}
         <label class="secondary-link">${s.has_register ? "건축물대장 바꾸기" : "건축물대장 PDF 올리기"}<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" class="sv-reg-file" /></label>
         <span class="sv-reg-msg">${s.has_register ? "올려 둔 건축물대장(시설물 현황과 같은 파일)의 변동사항 — 준공 이후 전부" : "변동사항이 있는 \"을\" 쪽까지 든 PDF를 올리면 바로 초안을 만듭니다"}</span></div>
         <div class="sv-events" hidden></div>` : ""}
@@ -57,6 +60,51 @@ async function openSitokSurvey(reportId, title, onSaved) {
     tas.forEach((t) => t.addEventListener("input", () => grow(t)));
     if (row.classList.contains("on")) tas.forEach(grow);
   });
+  const applyChanges = (changes) => { // 1.2.8 초안 → 항목 체크·칸 채움(저장은 [저장]을 눌러야) — 건축물대장·전회차 보고서 같이 씀
+    let n = 0;
+    for (const [label, c] of Object.entries(changes || {})) {
+      const row = [...box.querySelectorAll(".sv-ch")].find((x) => x.dataset.label === label);
+      if (!row) continue;
+      row.classList.add("on");
+      row.querySelector("input[type=checkbox]").checked = true;
+      for (const f of ["before", "after", "where", "note"]) { const t = row.querySelector(`[data-f="${f}"]`); t.value = c[f] || ""; grow(t); }
+      n += 1;
+    }
+    return n;
+  };
+  // 전회차 보고서 PDF(10/18 민재형, js/sitok-prev.js) — 1.2.7 지난 이력·1.2.8 초안. 올렸는데 안 읽었으면 [🤖 지난 이력 읽기]
+  const oldBox = box.querySelector(".sv-old");
+  const prevAi = box.querySelector(".sv-prev-ai");
+  const prevState = (st) => {
+    if (!st || st.has_prior) return;
+    if (prevAi) prevAi.hidden = !st.has;
+    if (st.has && !st.read && !s.repairs_old.length) {
+      oldBox.innerHTML = '지난 이력 — 전회차 보고서 PDF를 아직 안 읽었습니다 <button type="button" class="secondary btn-sm sv-prev-read">🤖 지난 이력 읽기</button>';
+      oldBox.querySelector(".sv-prev-read").addEventListener("click", async (e) => {
+        e.currentTarget.disabled = true;
+        e.currentTarget.textContent = "🤖 읽는 중…(30초~1분 30초)";
+        try {
+          await apiPost(`/sitok/reports/${reportId}/prev-pdf/read`);
+          s = await api(`/sitok/reports/${reportId}/survey`);
+          oldBox.innerHTML = oldRows(s.repairs_old);
+          slot?.reload();
+        } catch (x) { oldBox.textContent = x.message; }
+      });
+    } else if (!st.has) oldBox.innerHTML = oldRows(s.repairs_old);
+  };
+  let slot = null;
+  sitokPrevSlot(box.querySelector(".pv-box"), reportId, prevState).then((x) => { slot = x; prevState(x?.state()); });
+  prevAi?.addEventListener("click", async () => {
+    prevAi.disabled = true;
+    regMsg.textContent = "🤖 전회차 보고서 1.2.8 표를 읽는 중…(처음이면 30초~1분 30초)";
+    try {
+      const r = await apiPost(`/sitok/reports/${reportId}/survey/changes/prev`);
+      const n = applyChanges(r.changes);
+      regMsg.textContent = n ? `전회차 보고서 변경사항 ${n}개 항목을 넣었습니다 — 이번에 바뀐 것만 고치고 [저장]` : "전회차 보고서에 변경사항이 없습니다(전부 \"변경사항없음\")";
+      slot?.reload();
+    } catch (x) { regMsg.textContent = x.message; }
+    prevAi.disabled = false;
+  });
   const regBtn = box.querySelector(".sv-reg-ai");
   const regFile = box.querySelector(".sv-reg-file");
   const regMsg = box.querySelector(".sv-reg-msg");
@@ -67,15 +115,7 @@ async function openSitokSurvey(reportId, title, onSaved) {
     regMsg.textContent = "🤖 건축물대장 변동사항을 읽는 중…(30초~1분 30초)";
     try {
       const r = await apiUpload(`/sitok/reports/${reportId}/survey/changes/ai`, fd);
-      let n = 0;
-      for (const [label, c] of Object.entries(r.changes)) {
-        const row = [...box.querySelectorAll(".sv-ch")].find((x) => x.dataset.label === label);
-        if (!row) continue;
-        row.classList.add("on");
-        row.querySelector("input[type=checkbox]").checked = true;
-        for (const f of ["before", "after", "where", "note"]) { const t = row.querySelector(`[data-f="${f}"]`); t.value = c[f] || ""; grow(t); }
-        n += 1;
-      }
+      const n = applyChanges(r.changes);
       const used = r.events.filter((e) => e.kind !== "기재");
       regMsg.textContent = `변동사항 ${r.events.length}줄 읽음 — ${used.length}줄을 ${n}개 항목에 넣었습니다(건물이 안 바뀐 기재 ${r.events.length - used.length}줄은 뺌). 확인하고 [저장]`
         + (r.missing.length ? ` · 틀에 칸이 없어 못 넣은 것: ${r.missing.join(", ")}` : "");

@@ -25,9 +25,10 @@ async function openSitokDetail(reportId, title, onSaved) {
     const useRow = (u) => `<div class="dt-use">${[0, 1, 2, 3].map((k) => `<input value="${esc(u[k])}" placeholder="${["층", "바닥면적(㎡)", "주용도", "비고"][k]}" />`).join("")}
       <button type="button" class="sv-x" title="이 줄 지우기">✕</button></div>`;
     box.innerHTML = `<div class="mail-head"><b>🏢 시설물 현황</b><span class="mail-sub">${esc(title)} — 보고서 1.1 건축물 현황표, 1.2.1~1.2.4</span></div>
-      <div class="dt-ai"><button type="button" class="secondary dt-fill">🤖 관리대장·건축물대장·도면으로 채우기</button>
+      <div class="dt-ai"><button type="button" class="secondary dt-fill">🤖 관리대장·건축물대장·도면·전회차 보고서로 채우기</button>
         <span class="sk-help">건축물대장 ${s.has_register ? "올려 둠 ✓" : "없음"} · 관리대장 ${s.has_ledger ? "올려 둠 ✓" : "없음"} — 대장·도면은 시설물 화면 "시설물 정보·서류"에서 올립니다</span>
         <span class="sk-help">${s.saved ? "저장한 값" : `지금 값 = 시설물 칸(관리대장·직접 입력)${s.has_prior ? " + 전회차 보고서 값" : ""}`}${!s.has_ledger && !s.has_register ? " — 관리대장·건축물대장이 없어 나머지 칸은 직접(없으면 \"-\")" : ""}</span></div>
+      <div class="pv-box"></div>
       ${s.ai ? '<div class="mail-msg ok">🤖 AI가 채웠습니다 — 확인하고 [저장]. 자료에 없는 칸은 "-"</div>' : ""}
       ${nDiff ? `<div class="mail-msg dt-diffs">⚠ 전회차 보고서와 다른 칸 ${nDiff}개 — 지금 값은 관리대장·건축물대장 쪽입니다. 전회차 값이 맞으면 그 칸의 [이걸로]</div>` : ""}
       <div class="ai-form">
@@ -44,6 +45,7 @@ async function openSitokDetail(reportId, title, onSaved) {
       </div>
       <div class="mail-msg dt-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="mail-cancel">닫기</button><button type="button" class="mail-primary dt-save">저장</button></div>`;
+    sitokPrevSlot(box.querySelector(".pv-box"), reportId); // 전회차 보고서 PDF(10/18 민재형, js/sitok-prev.js) — [🤖 채우기]가 같이 읽음
     const uses = box.querySelector("#dt-uses");
     const bindX = () => uses.querySelectorAll(".sv-x").forEach((b) => { b.onclick = () => b.closest(".dt-use").remove(); });
     bindX();
@@ -62,10 +64,10 @@ async function openSitokDetail(reportId, title, onSaved) {
     const msg = box.querySelector(".dt-msg");
     box.querySelector(".dt-fill").addEventListener("click", async (e) => {
       e.target.disabled = true;
-      e.target.textContent = "🤖 채우는 중…(20~60초)";
+      e.target.textContent = "🤖 채우는 중…(20~90초 — 전회차 보고서 PDF는 처음 한 번 더 읽음)";
       try {
-        draw(await apiUpload(`/sitok/reports/${reportId}/detail/ai`, new FormData())); // 건축물대장·도면은 시설물에 올려 둔 것(10/14)
-      } catch (err) { msg.hidden = false; msg.className = "mail-msg dt-msg bad"; msg.textContent = err.message; e.target.disabled = false; e.target.textContent = "🤖 관리대장·건축물대장·도면으로 채우기"; }
+        draw(await apiUpload(`/sitok/reports/${reportId}/detail/ai`, new FormData())); // 건축물대장·도면은 시설물에 올려 둔 것(10/14), 전회차 보고서 PDF는 이 회차(10/18)
+      } catch (err) { msg.hidden = false; msg.className = "mail-msg dt-msg bad"; msg.textContent = err.message; e.target.disabled = false; e.target.textContent = "🤖 관리대장·건축물대장·도면·전회차 보고서로 채우기"; }
     });
     const save = async () => { // [저장]·[✓ 작성 완료](먼저 저장) 같이 씀 — 성공하면 true
       const body = { fields: {}, checks: {}, uses: [], uses_total: box.querySelector(".dt-total").value.trim() };

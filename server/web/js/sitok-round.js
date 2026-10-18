@@ -64,7 +64,7 @@
     const dongs = !r.past && !one && (r.group_rounds || []).length > 1 ? r.group_rounds : null;
     $("rd-head").innerHTML = `<h1>${esc(dongs && g ? g.name : r.facility_name)} <span class="rd-round">${title()}</span><button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button></h1>
       <div class="rd-src">${r.past ? "이미 낸 보고서를 등록한 회차 — 다음 회차가 이 보고서의 데이터를 씁니다"
-        : r.has_source ? `전회차 보고서: ${esc(r.source_note)}` : "전회차 보고서 없음 — 처음 맡는 시설물(우리가 하던 시설물이면 아래 [지난 보고서 한글 올리기])"}
+        : r.has_source ? `전회차 보고서: ${esc(r.source_note)}` : "전회차 보고서 없음 — 처음 세팅하는 시설물(전회차가 있으면 🏢 시설물 현황·📝 면담 창에 전회차 보고서 PDF)"}
         ${r.period_start ? ` · 점검기간 ${ymdDot(r.period_start)} ~ ${ymdDot(r.period_end)}` : ""}</div>
       ${g && !r.past ? `<div class="sk-rep-group">📚 묶음 보고서 <b>${esc(g.name)}</b> — ${g.members.map((m, i) => `제${i + 1}장 ${esc(m.name)}`).join(" · ")}
         <span class="sk-help">점검기간·제출일·기술자는 묶인 동 회차도 같이 바뀝니다. 현장 조사·현황·AI 초안은 동마다.</span></div>` : ""}
@@ -100,8 +100,7 @@
       ${r.has_appendix ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/appendix?v=${v}">부록 한글</a>` : ""}
       ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" || locked ? " disabled" : ""}${locked ? ' title="칸을 다 완료하면 열립니다"' : ""}>${locked ? "🔒 " : ""}${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>
       ${locked ? `<div class="rd-lock-note">🔒 보고서를 만들려면 먼저 완료: ${(r.build_left || []).map((x) => `<div>${esc(x)}</div>`).join("")}</div>` : ""}
-      ${r.past ? "" : `<div class="rd-source"><label class="secondary-link" title="이력·시설물 현황·지난 평가 같은 데이터만 가져옵니다(보고서 틀은 회사 원본)">지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
-        <span class="sk-help rd-source-msg">직전 회차가 없거나 다른 회사가 만든 지난 보고서(.hwp·.hwpx)를 올리면 전회차 데이터로 씁니다.</span></div>`}`;
+`;
     // 회차 정보
     const conList = data.group && data.group_contracts ? data.group_contracts : contracts;
     const contractOpts = '<option value="">계약 고르기</option>' + conList.map((c) =>
@@ -153,21 +152,6 @@
     document.querySelector(".sk-rep-build")?.addEventListener("click", async () => {
       try { await apiPost(`/sitok/reports/${r.id}/build`); load(); } catch (e) { err(e); }
     });
-    const file = document.querySelector(".rd-source input[type=file]");
-    if (file) {
-      file.addEventListener("change", async () => {
-        if (!file.files[0]) return;
-        const msg = document.querySelector(".rd-source-msg");
-        msg.textContent = `${file.files[0].name} 올리는 중…(hwp는 한글로 바꾸느라 20~40초)`;
-        try {
-          const fd = new FormData();
-          fd.append("file", file.files[0]);
-          await apiUpload(`/sitok/reports/${r.id}/source`, fd);
-          load();
-        } catch (e) { err(e); load(); }
-      });
-      enableFileDrop(document.querySelector(".rd-source"), file);
-    }
   }
 
   function poll() {

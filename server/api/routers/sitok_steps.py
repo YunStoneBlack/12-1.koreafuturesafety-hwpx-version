@@ -25,7 +25,7 @@ from core.models_web import SitokDefect, SitokFacility, SitokReport, User
 from server.api.deps import get_current_user, get_db
 from server.api.routers.sitok_defects import floor_key
 from server.api.routers.sitok_parts import _out as parts_out
-from server.api.routers.sitok_reports import _book_lead, _detail_out, _register, _report_dir, _require
+from server.api.routers.sitok_reports import _book_lead, _detail_out, _prior, _register, _report_dir, _require
 from server.api.routers.sitok_status import _unit_reports, visits_after_mark
 from server.sitok import master, parts as P, precision as PR, report_build as rb, steps
 
@@ -166,6 +166,7 @@ def _survey(db: Session, r: SitokReport) -> _Miss:
     sv = r.survey or {}
     if "repairs" not in sv and "changes" not in sv:
         out.add("면담·변경사항 조사", "아직 저장하지 않았습니다")
+    _prev_miss(db, r, out, "전회차 보고서 PDF", "1.2.7 [🤖 지난 이력 읽기] 또는 1.2.8 [🤖 전회차 보고서로 초안]")
     reps = sv.get("repairs") or []
     if not reps:
         out.add("1.2.7 보수·보강 이력", "이번 회차 보수 줄이 없습니다 — 관리주체 면담에서 보수한 게 없으면 그대로")
@@ -185,6 +186,18 @@ def _survey(db: Session, r: SitokReport) -> _Miss:
     return out
 
 
+def _prev_miss(db: Session, r: SitokReport, out: _Miss, title: str, button: str) -> None:
+    """전회차 보고서 PDF(10/18) — 전회차 한글(직전 회차·예전에 올린 것)이 없는 회차만: 안 올렸거나 올렸는데 안 읽음."""
+    from server.api.routers.sitok_prev import prev_file
+
+    if _prior(r) is not None:
+        return
+    if not prev_file(db, r).exists():
+        out.add(title, "전회차 보고서 PDF가 없습니다 — 처음 점검이면 그대로, 전회차가 있으면(우리 회사·타사) 그 동 쪽 PDF를 올리세요")
+    elif not (r.survey or {}).get("prev"):
+        out.add(title, f"올린 전회차 보고서 PDF를 아직 안 읽었습니다 — {button}")
+
+
 def _same(a: str, b: str) -> bool:
     n = lambda s: re.sub(r"\.(?=\D|$)", "", re.sub(r"(\.\d*?)0+(?=\D|$)", r"\1", re.sub(r"[\s,㎡ㆍ·]", "", str(s or ""))))  # noqa: E731 — 창(sitok-detail.js same)과 같게
     return n(a) == n(b)
@@ -200,6 +213,7 @@ def _detail(db: Session, r: SitokReport) -> _Miss:
     f = db.get(SitokFacility, r.facility_id)
     if not d["saved"]:
         out.add("시설물 현황", "아직 저장하지 않았습니다 — 지금 칸은 관리대장·전회차 보고서 값")
+    _prev_miss(db, r, out, "첨부 — 전회차 보고서 PDF", "[🤖 채우기]")
     # 형 요청1 "구조일반사항·건축개요 첨부 없을 때 하이픈으로 가는 거 맞는지" — 어느 첨부가 없어서 어느 칸이 "-"인지
     dash = lambda words: [x["label"] for x in d["fields"] if (x["value"] or "-").strip() in ("", "-") and any(w in x["label"] for w in words)]  # noqa: E731
     if not D.items(f, "struct", _facility_dir(f)):

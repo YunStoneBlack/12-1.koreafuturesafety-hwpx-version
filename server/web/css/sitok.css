@@ -690,3 +690,13 @@ div.sf-miss-it { cursor: default; }
 .rd-btn.rd-lock .rd-sub { color: var(--warn, #b45309); }
 .rd-lock-note { margin-top: 8px; padding: 8px 12px; border-radius: 8px; background: #FFF8E6; border: 1px solid #F0D58C; font-size: 12.5px; color: var(--ink); line-height: 1.5; }
 .rd-lock-note div { color: var(--muted); }
+/* 전회차 보고서 PDF 칸(10/18 민재형, js/sitok-prev.js) — 시설물 현황·면담 창, 넣는 칸 = 점선 카드(① 시설물 등록과 같은 위계) */
+.pv-slot { border: 1.5px dashed var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
+.pv-slot.on { border-style: solid; border-color: #A9C9F0; background: #F5F9FF; }
+.pv-slot.pv-prior { border-style: solid; font-size: 12.5px; color: var(--muted); }
+.pv-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 13.5px; }
+.pv-row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 12.5px; }
+.pv-read { color: var(--muted); } .pv-read.ok { color: var(--green); }
+.pv-up { cursor: pointer; }
+.pv-msg.bad { color: var(--crit); }
+.mail-box .pv-box { margin: 2px 0 4px; }
