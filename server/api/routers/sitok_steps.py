@@ -159,7 +159,7 @@ def _survey(db: Session, r: SitokReport) -> _Miss:
     out = _Miss()
     sv = r.survey or {}
     if "repairs" not in sv and "changes" not in sv:
-        out.add("면담·변경사항", "아직 저장하지 않았습니다")
+        out.add("면담·변경사항 조사", "아직 저장하지 않았습니다")
     reps = sv.get("repairs") or []
     if not reps:
         out.add("1.2.7 보수·보강 이력", "이번 회차 보수 줄이 없습니다 — 관리주체 면담에서 보수한 게 없으면 그대로")

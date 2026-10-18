@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-STEPS = {"field": "현장 조사", "tests": "재료시험", "rating": "상태평가", "survey": "면담·변경사항", "detail": "시설물 현황", "ai": "AI 초안"}
+STEPS = {"field": "현장 조사", "tests": "재료시험", "rating": "상태평가", "survey": "면담·변경사항 조사", "detail": "시설물 현황", "ai": "AI 초안"}
 
 
 def get(r, step: str) -> dict | None:

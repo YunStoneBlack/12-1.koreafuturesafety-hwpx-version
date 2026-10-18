@@ -4,7 +4,7 @@
 // 화면(현장 조사·재료시험·상태평가) = 맨 아래 <div class="sf-done" data-step="…">(자동으로 그림), 창(면담·현황·AI 초안) = sitokStepFoot(창 아래 버튼).
 // 서버 server/api/routers/sitok_steps.py.
 
-const SITOK_STEP_NAME = { field: "현장 조사", tests: "재료시험", rating: "상태평가", survey: "면담·변경사항", detail: "시설물 현황", ai: "AI 초안" };
+const SITOK_STEP_NAME = { field: "현장 조사", tests: "재료시험", rating: "상태평가", survey: "면담·변경사항 조사", detail: "시설물 현황", ai: "AI 초안" };
 const SITOK_STEP_WORD = { field: "조사", tests: "조사", rating: "조사", survey: "조사", detail: "작성", ai: "작성" };
 const sitokStepEsc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const sitokStepDay = (s) => String(s || "").slice(5).replace("-", "/");
@@ -25,7 +25,7 @@ function sitokStepAsk(step, items) { // → true = 그래도 완료, false = 이
       <span class="mail-sub">해당이 없어서 비운 것인지, 아직 안 한 것인지 확인해 주세요.${jump ? " 항목을 누르면 그 자리로 갑니다." : ""}</span></div>
       <div class="sf-miss">${items.map((m) => `<${m.target ? "button type=\"button\"" : "div"} class="sf-miss-it" data-target="${sitokStepEsc(m.target)}"><b>${sitokStepEsc(m.title)}</b><span>${sitokStepEsc(m.text)}</span></${m.target ? "button" : "div"}>`).join("")}</div>
       <div class="mail-foot"><button type="button" class="mail-cancel">이어서 ${word === "조사" ? "점검" : "작성"}하기</button>
-        <button type="button" class="mail-primary sf-miss-ok">${step === "field" ? "현장점검 완료" : `${sitokStepEsc(SITOK_STEP_NAME[step])} ${word} 완료`}</button></div></div>`;
+        <button type="button" class="mail-primary sf-miss-ok">${step === "field" ? "현장점검 완료" : SITOK_STEP_NAME[step].endsWith("조사") ? `${sitokStepEsc(SITOK_STEP_NAME[step])} 완료` : `${sitokStepEsc(SITOK_STEP_NAME[step])} ${word} 완료`}</button></div></div>`;
     document.body.appendChild(ov);
     const done = (v) => { ov.remove(); resolve(v); };
     ov.querySelector(".mail-cancel").addEventListener("click", () => done(false));
@@ -105,7 +105,7 @@ async function sitokStepFoot(box, reportId, step, save, onChange) {
       try {
         if (save && !(await save())) { btn.disabled = false; return; } // 먼저 지금 칸을 저장
         const next = await sitokStepFinish(reportId, step);
-        if (next) { st = next; draw(); msg(`${SITOK_STEP_NAME[step]} ${word} 완료 — 회차 화면에 ✓`); onChange?.(); } else btn.disabled = false;
+        if (next) { st = next; draw(); msg(`${SITOK_STEP_NAME[step]}${SITOK_STEP_NAME[step].endsWith("조사") ? "" : ` ${word}`} 완료 — 회차 화면에 ✓`); onChange?.(); } else btn.disabled = false;
       } catch (x) { msg(x.message, true); btn.disabled = false; }
     });
     el.querySelector(".sf-step-undo")?.addEventListener("click", async () => {

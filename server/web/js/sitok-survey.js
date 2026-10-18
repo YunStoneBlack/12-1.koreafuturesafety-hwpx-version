@@ -27,7 +27,7 @@ async function openSitokSurvey(reportId, title, onSaved) {
     return `${head}<div class="sv-ch${c.after ? " on" : ""}" data-label="${esc(it.label)}"><label class="sv-chk"><input type="checkbox"${c.after ? " checked" : ""} /> ${esc(it.label)}</label>
       ${ta("before", c.before, "변경전")}${ta("after", c.after, "변경후")}${ta("where", c.where, "위치")}${ta("note", c.note, "비고")}</div>`;
   }).join("");
-  box.innerHTML = `<div class="mail-head"><b>📝 면담·변경사항</b><span class="mail-sub">${esc(title)} — 보고서 1.2.7 보수·보강 이력, 1.2.8 변경사항 실태조사</span></div>
+  box.innerHTML = `<div class="mail-head"><b>📝 면담·변경사항 조사</b><span class="mail-sub">${esc(title)} — 보고서 1.2.7 보수·보강 이력, 1.2.8 변경사항 실태조사</span></div>
     <div class="ai-form">
       <h4>1.2.7 보수·보강 이력 <span class="sk-help">관리주체 면담 — 지난 회차 뒤에 한 보수만 더하면 됩니다(지난 이력은 그대로 남음)</span></h4>
       <div class="sv-old">${s.repairs_old.length ? s.repairs_old.map((r) => `<div>${r.map(esc).join(" · ")}</div>`).join("") : "지난 이력 없음"}</div>
