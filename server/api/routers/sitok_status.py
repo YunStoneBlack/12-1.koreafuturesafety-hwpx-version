@@ -6,7 +6,7 @@
 
 - `GET /sitok/status/reports?year=&half=` — 줄 목록
 - `POST /sitok/status/reports/{report_id}/mark` {item: field|report|mail|fms|print|parcel, action: done|na|clear, date?} — 표시(na = FMS 해당없음만)
-  field = 현장점검일, report = 보고서를 그룹웨어 밖에서 작성 완료(10/16 민재형 — 그룹웨어 쓰기 전·토목 등 밖에서 쓴 보고서). 현장점검 = 현장 조사 [✓ 조사 완료]와 같은 기록(동마다 완료도 같이), 방문 달력 그 반기 칸을 채움(10/18 — 전엔 뺐음), 밖에서 완료 = 앞으로 잡힌 날을 뺌.
+  field = 현장점검일, report = 보고서를 그룹웨어 밖에서 작성 완료(10/16 민재형 — 그룹웨어 쓰기 전·토목 등 밖에서 쓴 보고서). 현장점검 = 현장 조사 [✓ 조사 완료](sitok_steps.py)와 같은 기록(동마다 완료도 같이), 방문 달력 그 반기 칸을 채움(10/18 — 전엔 뺐음), 밖에서 완료 = 앞으로 잡힌 날을 뺌.
 - `POST /sitok/status/facilities/{facility_id}/mark` {year, half, item, action, date?} — 회차가 아직 없는 줄(현장점검·밖에서 완료만) — 회차를 만들어 표시
 - `GET /sitok/status/docs?year=&half=` — 서류 자동화 제출 현황(관급 착수계·완수계, 민간 계약서, 계산서 발행일)
 - `POST /sitok/status/docs/{cid}/mark` {item: start|done|invoice, action: done|clear, date?, key?} — 직접 제출함·계산서 발행일
@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from core.models_web import SitokDocContract, SitokFacility, SitokGroup, SitokReport, User
 from server.api.deps import get_current_user, get_db
-from server.sitok import seasons
+from server.sitok import seasons, steps
 
 router = APIRouter(prefix="/sitok/status", tags=["sitok-status"])
 ITEMS = ("field", "report", "mail", "fms", "print", "parcel")
@@ -143,13 +143,8 @@ def mark(report_id: int, body: MarkIn, user: User = Depends(get_current_user), d
         else:
             sub[body.item] = value
         x.submit = sub
-        if body.item == "field":  # 현장 조사 화면 [✓ 조사 완료](sitok_field_done.py)와 같은 일 — 동마다 완료도 같이(10/18)
-            sv = dict(x.survey or {})
-            if value is None:
-                sv.pop("field_done", None)
-            else:
-                sv.setdefault("field_done", value)
-            x.survey = sv
+        if body.item == "field":  # 현장 조사 화면 [✓ 조사 완료](sitok_steps.py)와 같은 일 — 동마다 완료도 같이(10/18)
+            steps.put(x, "field", None if value is None else (steps.get(x, "field") or value))
     db.commit()
     if body.item in VISIT_ITEMS:
         visits_after_mark(db, user, reps, value is not None, body.item, day)

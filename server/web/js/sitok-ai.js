@@ -76,7 +76,7 @@ async function openSitokAi(reportId, title, onSaved) {
       try { const next = await apiPost(`/sitok/reports/${reportId}/ai/draft`); busy = false; drawPrecision(next); }
       catch (e) { busy = false; box.innerHTML = `${head}<div class="mail-msg bad">${esc(e.message)}</div><div class="mail-foot"><button type="button" class="mail-cancel">닫기</button></div>`; box.querySelector(".mail-cancel").addEventListener("click", close); }
     });
-    box.querySelector(".ai-save").addEventListener("click", async () => {
+    const savePre = async () => { // [저장]·[✓ 작성 완료](먼저 저장) — 성공하면 true
       const precision = {};
       box.querySelectorAll("[data-k]").forEach((el) => { precision[el.dataset.k] = el.value.trim(); });
       const msg = box.querySelector(".mail-msg");
@@ -84,8 +84,11 @@ async function openSitokAi(reportId, title, onSaved) {
         await api(`/sitok/reports/${reportId}/ai`, { method: "PUT", body: JSON.stringify({ precision }) });
         msg.hidden = false; msg.className = "mail-msg ok"; msg.textContent = "저장했습니다 — [본문 보고서 만들기]를 누르면 들어갑니다.";
         if (onSaved) onSaved();
-      } catch (e) { msg.hidden = false; msg.className = "mail-msg bad"; msg.textContent = e.message; }
-    });
+        return true;
+      } catch (e) { msg.hidden = false; msg.className = "mail-msg bad"; msg.textContent = e.message; return false; }
+    };
+    box.querySelector(".ai-save").addEventListener("click", savePre);
+    sitokStepFoot(box, reportId, "ai", savePre, onSaved); // [✓ 작성 완료](10/18 민재형)
   }
 
   function draw(ai) {
@@ -97,6 +100,8 @@ async function openSitokAi(reportId, title, onSaved) {
         <div class="mail-foot"><button type="button" class="mail-cancel">닫기</button><button type="button" class="mail-primary ai-make">AI 초안 만들기</button></div>`;
       box.querySelector(".mail-cancel").addEventListener("click", close);
       box.querySelector(".ai-make").addEventListener("click", makeDraft);
+      box.insertAdjacentHTML("beforeend", '<div class="mail-msg" hidden></div>');
+      sitokStepFoot(box, reportId, "ai", null, onSaved); // 초안 없이도 완료는 됨(미기재로 알려 줌)
       return;
     }
     const lines = (a) => esc((a || []).join("\n"));
@@ -182,7 +187,7 @@ async function openSitokAi(reportId, title, onSaved) {
         m.textContent = `AI ${(next.summary || {}).made_at || ""}`;
       } catch (err) { m.textContent = err.message; } finally { btn.disabled = false; }
     });
-    box.querySelector(".ai-save").addEventListener("click", async () => {
+    const save = async () => { // [저장]·[✓ 작성 완료](먼저 저장) — 성공하면 true
       const body = { sections: {} };
       box.querySelectorAll("[data-k]").forEach((el) => {
         const k = el.dataset.k;
@@ -209,8 +214,11 @@ async function openSitokAi(reportId, title, onSaved) {
         if (conc.join("\n") !== (sum.conclusion || []).join("\n")) await api(`/sitok/reports/${reportId}/ai/summary`, { method: "PUT", body: JSON.stringify({ conclusion: conc }) });
         msg.hidden = false; msg.className = "mail-msg ok"; msg.textContent = "저장했습니다 — [보고서 만들기]를 누르면 들어갑니다.";
         if (onSaved) onSaved();
-      } catch (e) { msg.hidden = false; msg.className = "mail-msg bad"; msg.textContent = e.message; }
-    });
+        return true;
+      } catch (e) { msg.hidden = false; msg.className = "mail-msg bad"; msg.textContent = e.message; return false; }
+    };
+    box.querySelector(".ai-save").addEventListener("click", save);
+    sitokStepFoot(box, reportId, "ai", save, onSaved); // [✓ 작성 완료](10/18 민재형)
   }
 
   try { draw(await api(`/sitok/reports/${reportId}/ai`)); } catch (e) { box.innerHTML = `${head}<div class="mail-msg bad">${esc(e.message)}</div>`; }

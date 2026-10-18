@@ -40,7 +40,7 @@ def _iso(d) -> str:
     return d.isoformat() if d else ""  # sitok._iso는 빈 날짜를 None으로 — 회차 화면은 "" (date 칸 value)
 from server.contract_docs import hwp_queue
 from server.sitok import civil, master, report_build as rb
-from server.sitok import seasons
+from server.sitok import seasons, steps
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
 
@@ -118,22 +118,21 @@ def _out(r: SitokReport) -> dict:
             # 이미 낸 보고서를 등록한 회차(만들기 없음) = 등록한 한글 "(낸 보고서).hwpx"(_register_one). 예전 조건 "만듦 + 전회차 없음"은 10/12 회사 원본으로
             # 바꾼 뒤 처음 맡는 시설물 첫 회차를 한 번 만들면 여기 걸려 현장 조사·면담 버튼이 사라졌음(동안교회 — 사용자 10/12)
             "past": r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"),
-            "has_ai": bool(r.ai), "base": bool((r.survey or {}).get("base")), "has_survey": bool((r.survey or {}).get("repairs") or (r.survey or {}).get("changes")),
-            "has_detail": bool((r.survey or {}).get("detail")), "amount_k": r.amount_k or "",
-            # 회차 목록 진행 표시(10/14 형 피드백 ⑦ — 3층 구조): 현장 조사 = [✓ 조사 완료]를 누름(10/18 — 전엔 결함 줄만 있어도 ✓), 재료시험 = 표본층 고름, 상태평가 = 저장한 입력
-            "has_field": bool((r.survey or {}).get("field_done")), "field": _field_progress(r),
-            "has_tests": bool(((r.tests or {}).get("sample") or {}).get("floors")), "has_rating": bool(r.rating)}
+            "base": bool((r.survey or {}).get("base")), "amount_k": r.amount_k or "",
+            # 회차 칸 진행 표시(10/14 형 피드백 ⑦ — 3층 구조): ✓ = 칸마다 [✓ 조사 완료]·[✓ 작성 완료]를 누름(10/18 민재형, sitok_steps.py —
+            # 전엔 결함 줄·저장한 값이 하나라도 있으면 ✓), steps = {칸: {at, by}}, field = 현장 조사 진행(결함 확인 수·전경 장수)
+            **{f"has_{k}": bool(steps.get(r, k)) for k in steps.STEPS}, "steps": (r.survey or {}).get("steps") or {}, "field": _field_progress(r)}
 
 
 def _field_progress(r: SitokReport) -> dict:
-    """현장 조사 진행(10/18 형) — 회차 화면 카드의 "결함 12/125 확인 · 전경 3장"과 완료 표시(survey.field_done {at, by}, sitok_field_done.py)."""
+    """현장 조사 진행(10/18 형) — 회차 화면 카드의 "결함 12/125 확인 · 전경 3장"과 완료 표시(survey.steps.field {at, by}, sitok_steps.py)."""
     from sqlalchemy.orm import object_session
 
     from core.models_web import SitokDefect
 
     db = object_session(r)
     checks = [c for (c,) in db.query(SitokDefect.check).filter(SitokDefect.report_id == r.id)] if db is not None else []
-    return {"done": (r.survey or {}).get("field_done"), "defects": len(checks), "checked": sum(1 for c in checks if c), "overview": len(r.overview or [])}
+    return {"done": steps.get(r, "field"), "defects": len(checks), "checked": sum(1 for c in checks if c), "overview": len(r.overview or [])}
 
 
 def _data_hwpx(x: SitokReport) -> str:

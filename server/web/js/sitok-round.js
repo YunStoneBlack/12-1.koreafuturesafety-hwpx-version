@@ -41,6 +41,12 @@
     return prog || "결함·전경사진·공중이용·기타시설" + (kind === "정밀" ? "·자료수집·하중" : "");
   }
 
+  // 칸 아래 글 — ✓는 그 칸의 [✓ 조사 완료]·[✓ 작성 완료]로만(10/18 민재형, js/sitok-steps.js), 완료면 날짜·이름
+  function doneSub(k, dflt) {
+    const s = (r.steps || {})[k];
+    return s ? `${ymdDot(s.at).slice(5)} ${esc(s.by)} 완료` : dflt;
+  }
+
   // 만들기 끝 안내 — 줄마다 하나(요약 / 끼운 자료 / ⚠ 알림마다, 사용자 10/15 "알림 1개당 줄바꿈"). 예전 안내(" · "로 이어 붙임)도 ⚠ 앞에서 나눔
   function doneText() {
     const lines = String(r.message || "").replace(/ · (?=⚠)/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
@@ -74,12 +80,12 @@
       // 현장 점검
       $("rd-field").innerHTML = r.past ? '<div class="empty-note">이미 낸 보고서를 등록한 회차라 현장 점검은 없습니다.</div>'
         : big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, fieldSub(kind))
-          + (kind === "정밀" ? big(`sitok-tests.html?report=${r.id}`, "📐", "재료시험", r.has_tests, "표본층·규격·강도·탄산화·기울기·부등침하")
-            + big(`sitok-rating.html?report=${r.id}`, "📊", "상태평가", r.has_rating, "부재 개수 → 상태평가 등급") : "")
-          + bigBtn("rd-survey", "📝", "면담·변경사항", r.has_survey, "1.2.7 보수 이력 · 1.2.8 변경사항");
+          + (kind === "정밀" ? big(`sitok-tests.html?report=${r.id}`, "📐", "재료시험", r.has_tests, doneSub("tests", "표본층·규격·강도·탄산화·기울기·부등침하"))
+            + big(`sitok-rating.html?report=${r.id}`, "📊", "상태평가", r.has_rating, doneSub("rating", "부재 개수 → 상태평가 등급")) : "")
+          + bigBtn("rd-survey", "📝", "면담·변경사항", r.has_survey, doneSub("survey", "1.2.7 보수 이력 · 1.2.8 변경사항"));
       // 보고서
-      $("rd-report").innerHTML = r.past ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, "1.1 현황표 · 1.2 구조·마감·용도")
-        + bigBtn("rd-ai", "🤖", "AI 초안", r.has_ai, kind === "정밀" ? "22항목 — 결함·시험·상태평가 글" : "결과표·외관조사 서술·종합결론·등급");
+      $("rd-report").innerHTML = r.past ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, doneSub("detail", "1.1 현황표 · 1.2 구조·마감·용도"))
+        + bigBtn("rd-ai", "🤖", "AI 초안", r.has_ai, doneSub("ai", kind === "정밀" ? "22항목 — 결함·시험·상태평가 글" : "결과표·외관조사 서술·종합결론·등급"));
     }
     const stateText = r.status === "running" ? `<span class="sk-rep-st run">⏳ ${esc(r.message)}</span>`
       : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`

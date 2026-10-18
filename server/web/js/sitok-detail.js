@@ -67,7 +67,7 @@ async function openSitokDetail(reportId, title, onSaved) {
         draw(await apiUpload(`/sitok/reports/${reportId}/detail/ai`, new FormData())); // 건축물대장·도면은 시설물에 올려 둔 것(10/14)
       } catch (err) { msg.hidden = false; msg.className = "mail-msg dt-msg bad"; msg.textContent = err.message; e.target.disabled = false; e.target.textContent = "🤖 관리대장·건축물대장·도면으로 채우기"; }
     });
-    box.querySelector(".dt-save").addEventListener("click", async () => {
+    const save = async () => { // [저장]·[✓ 작성 완료](먼저 저장) 같이 씀 — 성공하면 true
       const body = { fields: {}, checks: {}, uses: [], uses_total: box.querySelector(".dt-total").value.trim() };
       box.querySelectorAll("textarea[data-k]").forEach((t) => { body.fields[t.dataset.k] = t.value.trim(); });
       box.querySelectorAll(".dt-check").forEach((row) => {
@@ -79,8 +79,11 @@ async function openSitokDetail(reportId, title, onSaved) {
         await api(`/sitok/reports/${reportId}/detail`, { method: "PUT", body: JSON.stringify(body) });
         msg.hidden = false; msg.className = "mail-msg dt-msg ok"; msg.textContent = "저장했습니다 — [보고서 만들기]를 누르면 들어갑니다.";
         if (onSaved) onSaved();
-      } catch (err) { msg.hidden = false; msg.className = "mail-msg dt-msg bad"; msg.textContent = err.message; }
-    });
+        return true;
+      } catch (err) { msg.hidden = false; msg.className = "mail-msg dt-msg bad"; msg.textContent = err.message; return false; }
+    };
+    box.querySelector(".dt-save").addEventListener("click", save);
+    sitokStepFoot(box, reportId, "detail", save, onSaved); // [✓ 작성 완료](10/18 민재형, js/sitok-steps.js)
   }
 
   // 도면·건축물대장 올리기는 10/14부터 시설물 화면 "시설물 정보·서류"(js/sitok-drawings.js) — 여기선 [🤖 채우기]만

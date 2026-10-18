@@ -93,7 +93,7 @@ async function openSitokSurvey(reportId, title, onSaved) {
   });
   regFile?.addEventListener("change", () => { if (regFile.files[0]) { s.has_register = true; regDraft(regFile.files[0]); } });
   box.querySelector(".mail-cancel").addEventListener("click", close);
-  box.querySelector(".sv-save").addEventListener("click", async () => {
+  const save = async () => { // [저장]·[✓ 조사 완료](먼저 저장) 같이 씀 — 성공하면 true
     const get = (row, f) => row.querySelector(`[data-f="${f}"]`).value.trim();
     const body = {
       repairs: [...reps.querySelectorAll(".sv-rep")].map((row) => ({ period: get(row, "period"), kind: get(row, "kind"), method: get(row, "method"), where: get(row, "where"), note: get(row, "note") })),
@@ -107,6 +107,9 @@ async function openSitokSurvey(reportId, title, onSaved) {
       await api(`/sitok/reports/${reportId}/survey`, { method: "PUT", body: JSON.stringify(body) });
       msg.hidden = false; msg.className = "mail-msg ok"; msg.textContent = "저장했습니다 — [보고서 만들기]를 누르면 들어갑니다.";
       if (onSaved) onSaved();
-    } catch (e) { msg.hidden = false; msg.className = "mail-msg bad"; msg.textContent = e.message; }
-  });
+      return true;
+    } catch (e) { msg.hidden = false; msg.className = "mail-msg bad"; msg.textContent = e.message; return false; }
+  };
+  box.querySelector(".sv-save").addEventListener("click", save);
+  sitokStepFoot(box, reportId, "survey", save, onSaved); // [✓ 조사 완료](10/18 민재형, js/sitok-steps.js)
 }
