@@ -85,17 +85,21 @@
           + bigBtn("rd-survey", "📝", "면담·변경사항 조사", r.has_survey, doneSub("survey", "1.2.7 보수 이력 · 1.2.8 변경사항"));
       // 보고서
       $("rd-report").innerHTML = r.past ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, doneSub("detail", "1.1 현황표 · 1.2 구조·마감·용도"))
-        + bigBtn("rd-ai", "🤖", "AI 초안", r.has_ai, doneSub("ai", kind === "정밀" ? "22항목 — 결함·시험·상태평가 글" : "결과표·외관조사 서술·종합결론·등급"));
+        + ((r.ai_left || []).length // 10/18 형 요청1 — 앞 칸을 다 [완료]해야 AI 초안이 열림
+          ? `<div class="rd-btn rd-off rd-lock" title="앞 칸을 다 완료하면 열립니다"><span class="rd-ic">🤖</span><span class="rd-lb">AI 초안 🔒</span><span class="rd-sub">먼저 완료: ${r.ai_left.map(esc).join(" · ")}</span></div>`
+          : bigBtn("rd-ai", "🤖", "AI 초안", r.has_ai, doneSub("ai", kind === "정밀" ? "22항목 — 결함·시험·상태평가 글" : "결과표·외관조사 서술·종합결론·등급")));
     }
     const stateText = r.status === "running" ? `<span class="sk-rep-st run">⏳ ${esc(r.message)}</span>`
       : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`
         : r.status === "done" ? doneText() : '<span class="sk-rep-st">아직 안 만듦</span>';
     const v = encodeURIComponent(r.made_at || "");
+    const locked = !r.past && (r.build_left || []).length > 0; // 10/18 형 요청1 — AI 초안까지 칸을 다 완료해야 보고서 합본(묶음은 동마다)
     $("rd-build").innerHTML = `<div class="sk-rep-foot">${stateText}
       ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf?v=${v}" target="_blank" rel="noopener">${kind === "정밀" ? "합본 PDF" : "PDF 보기"}</a>` : ""}
       ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx?v=${v}">${kind === "정밀" ? "본문 한글" : "한글 받기"}</a>` : ""}
       ${r.has_appendix ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/appendix?v=${v}">부록 한글</a>` : ""}
-      ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>
+      ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" || locked ? " disabled" : ""}${locked ? ' title="칸을 다 완료하면 열립니다"' : ""}>${locked ? "🔒 " : ""}${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>
+      ${locked ? `<div class="rd-lock-note">🔒 보고서를 만들려면 먼저 완료: ${(r.build_left || []).map((x) => `<div>${esc(x)}</div>`).join("")}</div>` : ""}
       ${r.past ? "" : `<div class="rd-source"><label class="secondary-link" title="이력·시설물 현황·지난 평가 같은 데이터만 가져옵니다(보고서 틀은 회사 원본)">지난 보고서 한글 올리기<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
         <span class="sk-help rd-source-msg">직전 회차가 없거나 다른 회사가 만든 지난 보고서(.hwp·.hwpx)를 올리면 전회차 데이터로 씁니다.</span></div>`}`;
     // 회차 정보
@@ -204,7 +208,7 @@
       data = d;
       contracts = f.contracts || [];
       const fresh = d.reports.find((x) => x.id === rid); // 목록 쪽 _out(진행 표시)과 같음
-      if (fresh) r = { ...fresh, facility_id: r.facility_id, facility_name: r.facility_name, group_rounds: r.group_rounds };
+      if (fresh) r = { ...fresh, facility_id: r.facility_id, facility_name: r.facility_name, group_rounds: r.group_rounds, build_left: r.build_left };
       draw();
     } catch (e) { err(e); }
   }

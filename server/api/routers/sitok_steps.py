@@ -48,16 +48,22 @@ def _field(db: Session, r: SitokReport) -> _Miss:
     """현장 조사 — 결함 확인·이번 사진, 전경, 공중이용, 기타시설(정밀은 자료수집·내진·하중·조사 전경·등급까지)."""
     out = _Miss()
     add = lambda tab, text: out.add(TAB[tab], text, tab)  # noqa: E731
-    rows = db.query(SitokDefect.floor, SitokDefect.check, SitokDefect.photo).filter(SitokDefect.report_id == r.id).all()
+    rows = db.query(SitokDefect.floor, SitokDefect.check, SitokDefect.photo, SitokDefect.prev_photo).filter(SitokDefect.report_id == r.id).all()
+    by_floor = lambda c: " · ".join(f"{fl} {n}" for fl, n in sorted(c.items(), key=lambda x: floor_key(x[0])))  # noqa: E731
+    ok = lambda ph: bool(ph and Path(ph).exists())  # noqa: E731
     if not rows:
         add("defects", "결함이 하나도 없습니다 — 전회차 결함을 가져오지 않았거나 신규 결함을 넣지 않았습니다")
     else:
-        left = Counter(fl for fl, c, _ in rows if not c)
+        left = Counter(fl for fl, c, _, _ in rows if not c)
         if left:
-            add("defects", f"현장 확인 안 한 결함 {sum(left.values())}개 — " + " · ".join(f"{fl} {n}" for fl, n in sorted(left.items(), key=lambda x: floor_key(x[0]))))
-        nophoto = sum(1 for _, _, ph in rows if not (ph and Path(ph).exists()))
-        if nophoto:
-            add("defects", f"이번 사진이 없는 결함 {nophoto}개")
+            add("defects", f"현장 확인 안 한 결함 {sum(left.values())}개 — {by_floor(left)}")
+        # 형 요청1 "이전 회차가 있을 경우 금회차 사진이 안 찍힌 곳" — 전회차 사진이 있는데 이번 사진이 없는 결함을 층별로
+        noshot = Counter(fl for fl, _, ph, pph in rows if ok(pph) and not ok(ph))
+        if noshot:
+            add("defects", f"전회차 사진은 있는데 이번 사진을 안 찍은 결함 {sum(noshot.values())}개 — {by_floor(noshot)}")
+        other = sum(1 for _, _, ph, pph in rows if not ok(pph) and not ok(ph))
+        if other:
+            add("defects", f"이번 사진이 없는 결함(전회차 사진도 없음) {other}개")
     if not r.overview:
         add("overview", "전경사진 0장 — 안 찍으면 지난 회차 사진이 그대로 들어갑니다")
     po = parts_out(db, r)
@@ -186,10 +192,25 @@ def _same(a: str, b: str) -> bool:
 
 def _detail(db: Session, r: SitokReport) -> _Miss:
     """시설물 현황 — 저장 여부, 빈 칸("-"), 전회차 보고서와 다른 칸, 보관·관리 실태 안 고름, 용도현황."""
+    from server.api.routers.sitok import _facility_dir
+    from server.sitok import drawings as D
+
     out = _Miss()
     d = _detail_out(db, r)
+    f = db.get(SitokFacility, r.facility_id)
     if not d["saved"]:
         out.add("시설물 현황", "아직 저장하지 않았습니다 — 지금 칸은 관리대장·전회차 보고서 값")
+    # 형 요청1 "구조일반사항·건축개요 첨부 없을 때 하이픈으로 가는 거 맞는지" — 어느 첨부가 없어서 어느 칸이 "-"인지
+    dash = lambda words: [x["label"] for x in d["fields"] if (x["value"] or "-").strip() in ("", "-") and any(w in x["label"] for w in words)]  # noqa: E731
+    if not D.items(f, "struct", _facility_dir(f)):
+        hit = dash(("콘크리트", "철근", "철골", "기초", "지하깊이", "기둥", "지하수위", "슬래브", "방수"))
+        out.add("첨부 — 구조일반사항·건축개요 도면", "도면이 없습니다" + (f" — 도면에서 읽는 칸이 \"-\"로 나감: {_names(hit, 6)}" if hit else "")
+                + " (시설물 등록·정보에서 올림)")
+    if not d["has_register"]:
+        out.add("첨부 — 건축물대장 PDF", "건축물대장이 없습니다 — 층별 용도현황·면적과 1.2.8 변동사항을 못 읽음(시설물 등록·정보에서 올림)")
+    if not d["has_ledger"]:
+        hit = dash(("관리번호", "관리 책임자", "준공", "건축면적", "연면적", "층수", "주용도", "구조형식", "최고높이"))
+        out.add("첨부 — 시설물관리대장", "관리대장이 없습니다" + (f" — 관리대장에서 읽는 칸이 \"-\": {_names(hit, 6)}" if hit else ""))
     blank = [f["label"] for f in d["fields"] if (f["value"] or "-").strip() in ("", "-")]
     if blank:
         out.add("1.1 현황표", f"빈 칸(\"-\") {len(blank)}개 — {_names(blank)}")

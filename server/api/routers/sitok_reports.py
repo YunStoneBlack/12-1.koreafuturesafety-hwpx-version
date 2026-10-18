@@ -121,7 +121,8 @@ def _out(r: SitokReport) -> dict:
             "base": bool((r.survey or {}).get("base")), "amount_k": r.amount_k or "",
             # 회차 칸 진행 표시(10/14 형 피드백 ⑦ — 3층 구조): ✓ = 칸마다 [✓ 조사 완료]·[✓ 작성 완료]를 누름(10/18 민재형, sitok_steps.py —
             # 전엔 결함 줄·저장한 값이 하나라도 있으면 ✓), steps = {칸: {at, by}}, field = 현장 조사 진행(결함 확인 수·전경 장수)
-            **{f"has_{k}": bool(steps.get(r, k)) for k in steps.STEPS}, "steps": (r.survey or {}).get("steps") or {}, "field": _field_progress(r)}
+            **{f"has_{k}": bool(steps.get(r, k)) for k in steps.STEPS}, "steps": (r.survey or {}).get("steps") or {}, "field": _field_progress(r),
+            "ai_left": steps.left(r, "ai")}  # AI 초안 칸 잠금(10/18 형 요청1 — 앞 칸을 다 완료해야)
 
 
 def _field_progress(r: SitokReport) -> dict:
@@ -1208,6 +1209,9 @@ def start_build(report_id: int, user: User = Depends(get_current_user), db: Sess
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 원본 템플릿이 없습니다 — 시특법 설정에서 올리세요.")
     if not (r.period_start and r.period_end):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "점검기간(시작·끝)을 먼저 정하세요.")
+    left = _build_left(db, r)
+    if left:  # 10/18 형 요청1 — 칸을 다 [완료]해야 보고서 합본(제출 현황 "보고서 완료"가 진짜 끝난 것이 되게)
+        raise HTTPException(status.HTTP_409_CONFLICT, "보고서를 만들기 전에 먼저 완료할 칸: " + " / ".join(left))
     r.status, r.message = "running", "만드는 중…"
     db.commit()
     threading.Thread(target=_run_build, args=(r.id,), daemon=True).start()
@@ -1221,8 +1225,29 @@ def get_report(report_id: int, user: User = Depends(get_current_user), db: Sessi
     r = _require(db, user, report_id)
     mark_view(db, user.id, r.facility_id)  # 시설물 목록 "최근 열람순"(10/13) — 현장 조사·보고서 화면도
     f = db.get(SitokFacility, r.facility_id)
+    if f.group_id and r.status != "done":  # 아직 안 만든 회차만(이미 만든·낸 보고서 회차는 그대로)
+        _group_reports(db, r, user.display_name or "")  # 묶음 동 회차가 빠졌으면 만듦 — 동마다 칸을 완료해야 묶음 보고서가 열려서(10/18)
+        db.commit()
     return {**_out(r), "facility_id": f.id, "facility_name": f.name,  # 회차 화면(sitok-round.html, 10/14)이 경로 표시에 씀
-            "group_rounds": _group_rounds(db, f, r)}
+            "group_rounds": _group_rounds(db, f, r), "build_left": _build_left(db, r)}
+
+
+def _build_left(db: Session, r: SitokReport) -> list[str]:
+    """보고서 만들기 전에 아직 완료 안 된 칸(10/18 형 요청1) — 한 동이면 ["면담·변경사항 조사 · 시설물 현황"],
+    묶음이면 동마다 "제2장 교사동(서관) — …"(그 반기 회차가 없는 동도)."""
+    f = db.get(SitokFacility, r.facility_id)
+    if not f.group_id:
+        miss = steps.left(r, "build")
+        return [" · ".join(miss)] if miss else []
+    from server.api.routers.sitok_groups import members
+
+    out = []
+    for i, m in enumerate(members(db, f.group_id) or [f], 1):
+        x = r if m.id == f.id else db.query(SitokReport).filter(SitokReport.facility_id == m.id, SitokReport.year == r.year, SitokReport.half == r.half).first()
+        miss = steps.left(x, "build") if x is not None else ["이 반기 회차 없음"]
+        if miss:
+            out.append(f"제{i}장 {m.name} — {' · '.join(miss)}")
+    return out
 
 
 def _group_rounds(db: Session, f: SitokFacility, r: SitokReport) -> list[dict]:
@@ -1299,6 +1324,9 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
     from server.sitok import ai_draft
 
     r = _require(db, user, report_id)
+    miss = steps.left(r, "ai")
+    if miss:  # 10/18 형 요청1 — 앞 칸을 다 [완료]해야 AI 초안(화면 칸도 잠김)
+        raise HTTPException(status.HTTP_409_CONFLICT, f"AI 초안 전에 먼저 완료할 칸: {' · '.join(miss)}")
     if (r.kind or "정기") == "정밀":
         return _precision_ai_draft(db, r, user)
     f = db.get(SitokFacility, r.facility_id)
