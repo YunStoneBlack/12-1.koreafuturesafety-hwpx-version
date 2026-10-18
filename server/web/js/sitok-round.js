@@ -33,6 +33,14 @@
     return big(`sitok-round.html?report=${d.report_id}&one=1`, "🏢", `제${d.index}장 ${esc(d.name)}`, done, steps.map(([t, ok]) => `${t}${ok ? " ✓" : ""}`).join(" · "));
   }
 
+  // 현장 조사 칸 아래 글(10/18 형) — ✓는 현장 조사 화면 [✓ 조사 완료]로만, 그 전엔 "결함 12/125 확인 · 전경 3장"
+  function fieldSub(kind) {
+    const f = r.field || {};
+    const prog = f.defects || f.overview ? [f.defects ? `결함 ${f.checked}/${f.defects} 확인` : "", `전경 ${f.overview || 0}장`].filter(Boolean).join(" · ") : "";
+    if (f.done) return `${ymdDot(f.done.at).slice(5)} ${esc(f.done.by)} 조사 완료${prog ? ` · ${prog}` : ""}`;
+    return prog || "결함·전경사진·공중이용·기타시설" + (kind === "정밀" ? "·자료수집·하중" : "");
+  }
+
   // 만들기 끝 안내 — 줄마다 하나(요약 / 끼운 자료 / ⚠ 알림마다, 사용자 10/15 "알림 1개당 줄바꿈"). 예전 안내(" · "로 이어 붙임)도 ⚠ 앞에서 나눔
   function doneText() {
     const lines = String(r.message || "").replace(/ · (?=⚠)/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
@@ -65,7 +73,7 @@
       $("rd-report").hidden = false;
       // 현장 점검
       $("rd-field").innerHTML = r.past ? '<div class="empty-note">이미 낸 보고서를 등록한 회차라 현장 점검은 없습니다.</div>'
-        : big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, "결함·전경사진·공중이용·기타시설" + (kind === "정밀" ? "·자료수집·하중" : ""))
+        : big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, fieldSub(kind))
           + (kind === "정밀" ? big(`sitok-tests.html?report=${r.id}`, "📐", "재료시험", r.has_tests, "표본층·규격·강도·탄산화·기울기·부등침하")
             + big(`sitok-rating.html?report=${r.id}`, "📊", "상태평가", r.has_rating, "부재 개수 → 상태평가 등급") : "")
           + bigBtn("rd-survey", "📝", "면담·변경사항", r.has_survey, "1.2.7 보수 이력 · 1.2.8 변경사항");

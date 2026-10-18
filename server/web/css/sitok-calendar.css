@@ -1,13 +1,18 @@
 /* 시특법 방문 달력(2026-10-15) — 모양은 서류 착수·완수 일정(css/docs.css .dk-*)과 같고, 정기 파랑·정밀 보라 + 상태 */
-.fc .k-reg { background: #EEF4FF !important; border: 1px solid #2563eb !important; border-left-width: 4px !important; }
-.fc .k-pre { background: #F3EFFF !important; border: 1px solid #7c3aed !important; border-left-width: 4px !important; }
+/* 10/18 형 "산안법 달력처럼": 예정 = 빈 칸(흰 바탕 + 테두리) → 현장점검 완료 = 채운 칸 → 보고서 만듦 = 진하게. 지난 날인데 완료 안 됨 = 빨간 점선 */
+.fc .k-reg { background: #fff !important; border: 1.5px solid #2563eb !important; border-left-width: 4px !important; }
+.fc .k-pre { background: #fff !important; border: 1.5px solid #7c3aed !important; border-left-width: 4px !important; }
 .fc .k-reg .fc-event-main, .fc .k-pre .fc-event-main { color: var(--ink) !important; font-weight: 600; }
-.fc .s-done { opacity: .6; }
+.fc .k-reg.s-field { background: #D6E4FF !important; } .fc .k-pre.s-field { background: #E6DDFF !important; }
+.fc .k-reg.s-done { background: #2563eb !important; } .fc .k-pre.s-done { background: #7c3aed !important; }
+.fc .s-done .fc-event-main { color: #fff !important; }
 .fc .s-missed { border-style: dashed !important; border-color: var(--crit, #b42318) !important; }
-.dk-legend i.k-reg { background: #EEF4FF; border: 1px solid #2563eb; border-left-width: 4px; }
-.dk-legend i.k-pre { background: #F3EFFF; border: 1px solid #7c3aed; border-left-width: 4px; }
-.dk-legend i.s-done { background: #EEF4FF; border: 1px solid #2563eb; opacity: .6; }
-.dk-legend i.s-missed { background: #fff; border: 1px dashed var(--crit, #b42318); }
+.dk-legend i.k-reg { background: #fff; border: 1.5px solid #2563eb; border-left-width: 4px; }
+.dk-legend i.k-pre { background: #fff; border: 1.5px solid #7c3aed; border-left-width: 4px; }
+.dk-legend i.s-plan { background: #fff; border: 1.5px solid #2563eb; }
+.dk-legend i.s-field { background: #D6E4FF; border: 1.5px solid #2563eb; }
+.dk-legend i.s-done { background: #2563eb; border: 1.5px solid #2563eb; }
+.dk-legend i.s-missed { background: #fff; border: 1.5px dashed var(--crit, #b42318); }
 .sc-cap-note { color: var(--muted); }
 .sc-load { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--blue-soft); color: var(--blue); font-size: 11px; font-weight: 700; text-align: center; line-height: 18px; }
 .sc-load.over { background: var(--crit-soft, #fde8e8); color: var(--crit, #b42318); }
@@ -24,9 +29,10 @@
 .sc-add { display: flex; gap: 6px; align-items: center; margin-top: 10px; }
 .sc-add select { flex: 1; margin: 0; font-size: 13px; }
 .main .sc-add button { margin: 0; }
-.main button.dk-ev.k-reg { background: #EEF4FF; border-color: #2563eb; }
-.main button.dk-ev.k-pre { background: #F3EFFF; border-color: #7c3aed; }
-.main button.dk-ev.s-done { opacity: .65; }
+.main button.dk-ev.k-reg { background: #fff; border-color: #2563eb; }
+.main button.dk-ev.k-pre { background: #fff; border-color: #7c3aed; }
+.main button.dk-ev.k-reg.s-field { background: #D6E4FF; } .main button.dk-ev.k-pre.s-field { background: #E6DDFF; }
+.main button.dk-ev.k-reg.s-done { background: #2563eb; color: #fff; } .main button.dk-ev.k-pre.s-done { background: #7c3aed; color: #fff; }
 .main button.dk-ev.s-missed { border-style: dashed; border-color: var(--crit, #b42318); }
 .sc-fill-box { max-width: 640px; }
 .sc-fill-list { max-height: 55vh; overflow: auto; display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }

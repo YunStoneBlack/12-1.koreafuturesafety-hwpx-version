@@ -29,7 +29,7 @@
     }));
   }
 
-  const vTitle = (v) => `${v.pinned ? "📌" : ""}${v.state === "done" ? "✓ " : ""}${v.facility.mgmt_no} ${v.facility.name}`;
+  const vTitle = (v) => `${v.pinned ? "📌" : ""}${v.state === "done" || v.state === "field" ? "✓ " : ""}${v.facility.mgmt_no} ${v.facility.name}`;
   const vClass = (v) => [v.kind === "정밀" ? "k-pre" : "k-reg", `s-${v.state}`];
   function events() {
     return data.visits.map((v) => ({ id: String(v.id), title: vTitle(v), start: v.date, allDay: true, classNames: vClass(v),
@@ -116,7 +116,7 @@
   }
 
   // 그날 상세(PC 오른쪽) / 폰 작은 창 — 같은 카드
-  const STATE = { done: "✓ 그 반기 보고서 만듦", missed: "⚠ 지난 날 — 보고서 없음", planned: "예정" };
+  const STATE = { done: "✓ 그 반기 보고서 만듦", field: "✓ 현장점검 완료 — 보고서는 아직", missed: "⚠ 지난 날 — 현장점검 완료 안 됨", planned: "예정" }; // field = 현장 조사 [✓ 조사 완료]·제출 현황 [현장점검](10/18)
   function visitCard(v) {
     const f = v.facility;
     const link = v.report_id ? `sitok-round.html?report=${v.report_id}` : `sitok-facility.html?id=${f.id}`;
@@ -124,7 +124,7 @@
       <div class="dk-item-kind">${esc(v.kind)} · ${v.year} ${esc(v.half)}${v.pinned ? " · 📌 사람이 정함" : " · 자동"}</div>
       <b><span class="site-no">${esc(f.mgmt_no)}</span> <a href="${link}">${esc(f.name)}</a>${f.buildings > 1 ? ` <small>(${f.buildings}동)</small>` : ""}</b>
       <small>${esc([f.region, f.address].filter(Boolean).join(" · "))}</small>
-      <div class="dk-item-state${v.state === "done" ? " ok" : ""}">${STATE[v.state] || ""}</div>
+      <div class="dk-item-state${v.state === "done" || v.state === "field" ? " ok" : ""}">${STATE[v.state] || ""}</div>
       ${v.memo ? `<small>메모: ${esc(v.memo)}</small>` : ""}
       <div class="sc-links"></div>
       <div class="dk-item-act sc-act"><input type="date" class="sc-move" value="${v.date}" aria-label="다른 날로" /><button type="button" class="secondary sc-del">지우기</button></div>

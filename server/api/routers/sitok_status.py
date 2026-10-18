@@ -6,7 +6,7 @@
 
 - `GET /sitok/status/reports?year=&half=` — 줄 목록
 - `POST /sitok/status/reports/{report_id}/mark` {item: field|report|mail|fms|print|parcel, action: done|na|clear, date?} — 표시(na = FMS 해당없음만)
-  field = 현장점검일, report = 보고서를 그룹웨어 밖에서 작성 완료(10/16 민재형 — 그룹웨어 쓰기 전·토목 등 밖에서 쓴 보고서). 둘 중 하나가 있으면 방문 달력에서 그 반기를 뺌.
+  field = 현장점검일, report = 보고서를 그룹웨어 밖에서 작성 완료(10/16 민재형 — 그룹웨어 쓰기 전·토목 등 밖에서 쓴 보고서). 현장점검 = 현장 조사 [✓ 조사 완료]와 같은 기록(동마다 완료도 같이), 방문 달력 그 반기 칸을 채움(10/18 — 전엔 뺐음), 밖에서 완료 = 앞으로 잡힌 날을 뺌.
 - `POST /sitok/status/facilities/{facility_id}/mark` {year, half, item, action, date?} — 회차가 아직 없는 줄(현장점검·밖에서 완료만) — 회차를 만들어 표시
 - `GET /sitok/status/docs?year=&half=` — 서류 자동화 제출 현황(관급 착수계·완수계, 민간 계약서, 계산서 발행일)
 - `POST /sitok/status/docs/{cid}/mark` {item: start|done|invoice, action: done|clear, date?, key?} — 직접 제출함·계산서 발행일
@@ -26,7 +26,7 @@ from server.sitok import seasons
 
 router = APIRouter(prefix="/sitok/status", tags=["sitok-status"])
 ITEMS = ("field", "report", "mail", "fms", "print", "parcel")
-VISIT_ITEMS = ("field", "report")  # 표시하면 방문 달력에서 그 반기를 뺌(이미 다녀옴·밖에서 끝남)
+VISIT_ITEMS = ("field", "report")  # 표시하면 자동 일정을 안 잡음(이미 다녀옴·밖에서 끝남) — 달력 칸은 visits_after_mark
 HALVES = ("상반기", "하반기")
 
 
@@ -143,26 +143,58 @@ def mark(report_id: int, body: MarkIn, user: User = Depends(get_current_user), d
         else:
             sub[body.item] = value
         x.submit = sub
+        if body.item == "field":  # 현장 조사 화면 [✓ 조사 완료](sitok_field_done.py)와 같은 일 — 동마다 완료도 같이(10/18)
+            sv = dict(x.survey or {})
+            if value is None:
+                sv.pop("field_done", None)
+            else:
+                sv.setdefault("field_done", value)
+            x.survey = sv
     db.commit()
     if body.item in VISIT_ITEMS:
-        visits_after_mark(db, user, reps, value is not None)
+        visits_after_mark(db, user, reps, value is not None, body.item, day)
     return {"ok": True, "item": body.item, "value": value}
 
 
-def visits_after_mark(db: Session, user: User, reps: list[SitokReport], done: bool) -> None:
-    """현장점검·밖에서 완료를 표시하면 그 반기의 앞으로 잡힌 방문 일정을 지움(지난 날은 기록으로 둠), 둘 다 지우면 다시 자동으로 잡음."""
+def visits_after_mark(db: Session, user: User, reps: list[SitokReport], done: bool, item: str = "field", day: datetime.date | None = None) -> None:
+    """현장점검 표시 = 그 반기 방문 칸을 그날로 채움(visit_done — 10/18 형 "달력에서 빼면 이력 파악이 안 됨"),
+    밖에서 완료 표시 = 앞으로 잡힌 방문 일정을 지움(지난 날은 기록으로 둠), 둘 다 지우면 다시 자동으로 잡음."""
     from core.models_web import SitokVisit
 
     from server.sitok.visit_plan import fill_quietly
 
     ids = [x.facility_id for x in reps]
     r = reps[0]
-    if done:
+    if done and item == "field":
+        visit_done(db, user, reps, day or datetime.date.today())
+    elif done:
         db.query(SitokVisit).filter(SitokVisit.facility_id.in_(ids), SitokVisit.year == r.year, SitokVisit.half == r.half,
                                     SitokVisit.plan_date >= datetime.date.today()).delete(synchronize_session=False)
         db.commit()
     elif not any((x.submit or {}).get(k) for x in reps for k in VISIT_ITEMS):
         fill_quietly(db, user.company_id, user.display_name or "", ids)
+
+
+def visit_done(db: Session, user: User, reps: list[SitokReport], day: datetime.date) -> None:
+    """현장점검 완료 → 그 반기 방문 칸을 완료한 날에 둠(달력이 채운 칸으로 그림). 그날 칸이 있으면 그대로, 없으면 가장 가까운 날을 옮기고(📌),
+    일정이 아예 없었으면 그날 새로. 완료한 날 뒤에 남은 같은 반기 일정은 지움(이미 다녀옴)."""
+    from core.models_web import SitokVisit
+
+    ids = [x.facility_id for x in reps]
+    r = reps[0]
+    vs = db.query(SitokVisit).filter(SitokVisit.facility_id.in_(ids), SitokVisit.year == r.year, SitokVisit.half == r.half).all()
+    keep = next((v for v in vs if v.plan_date == day), None)
+    if keep is None and vs:
+        keep = min(vs, key=lambda v: (abs((v.plan_date - day).days), v.id))
+        keep.plan_date, keep.source = day, "manual"
+    if keep is None:
+        lead = db.query(SitokFacility).filter(SitokFacility.id.in_(ids)).order_by(SitokFacility.group_order, SitokFacility.id).first()
+        db.add(SitokVisit(company_id=user.company_id, facility_id=lead.id if lead else r.facility_id, year=r.year, half=r.half, kind=r.kind or "정기",
+                          plan_date=day, source="manual", created_by=user.display_name or ""))
+    for v in vs:
+        if v is not keep and v.plan_date > day:
+            db.delete(v)
+    db.commit()
 
 
 class FacMarkIn(MarkIn):

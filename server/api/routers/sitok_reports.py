@@ -120,19 +120,20 @@ def _out(r: SitokReport) -> dict:
             "past": r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"),
             "has_ai": bool(r.ai), "base": bool((r.survey or {}).get("base")), "has_survey": bool((r.survey or {}).get("repairs") or (r.survey or {}).get("changes")),
             "has_detail": bool((r.survey or {}).get("detail")), "amount_k": r.amount_k or "",
-            # 회차 목록 진행 표시(10/14 형 피드백 ⑦ — 3층 구조): 현장 조사 = 결함 줄이나 전경사진이 있음, 재료시험 = 표본층 고름, 상태평가 = 저장한 입력
-            "has_field": _has_field(r), "has_tests": bool(((r.tests or {}).get("sample") or {}).get("floors")), "has_rating": bool(r.rating)}
+            # 회차 목록 진행 표시(10/14 형 피드백 ⑦ — 3층 구조): 현장 조사 = [✓ 조사 완료]를 누름(10/18 — 전엔 결함 줄만 있어도 ✓), 재료시험 = 표본층 고름, 상태평가 = 저장한 입력
+            "has_field": bool((r.survey or {}).get("field_done")), "field": _field_progress(r),
+            "has_tests": bool(((r.tests or {}).get("sample") or {}).get("floors")), "has_rating": bool(r.rating)}
 
 
-def _has_field(r: SitokReport) -> bool:
+def _field_progress(r: SitokReport) -> dict:
+    """현장 조사 진행(10/18 형) — 회차 화면 카드의 "결함 12/125 확인 · 전경 3장"과 완료 표시(survey.field_done {at, by}, sitok_field_done.py)."""
     from sqlalchemy.orm import object_session
 
     from core.models_web import SitokDefect
 
     db = object_session(r)
-    if db is not None and db.query(SitokDefect.id).filter(SitokDefect.report_id == r.id).first() is not None:
-        return True
-    return bool(r.overview or (r.survey or {}).get("precision"))
+    checks = [c for (c,) in db.query(SitokDefect.check).filter(SitokDefect.report_id == r.id)] if db is not None else []
+    return {"done": (r.survey or {}).get("field_done"), "defects": len(checks), "checked": sum(1 for c in checks if c), "overview": len(r.overview or [])}
 
 
 def _data_hwpx(x: SitokReport) -> str:

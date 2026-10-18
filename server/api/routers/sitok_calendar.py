@@ -38,10 +38,14 @@ def _unit_out(u: V.Unit) -> dict:
 
 
 def _state(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> tuple[str, int | None]:
-    r = db.query(SitokReport).filter(SitokReport.facility_id.in_(u.ids), SitokReport.year == v.year, SitokReport.half == v.half).order_by(SitokReport.id).first()
-    if r is not None and r.status == "done":
-        return "done", r.id
-    return ("missed" if v.plan_date < today else "planned"), (r.id if r is not None else None)
+    """done = 보고서 만듦(밖에서 완료 포함, 진하게) · field = 현장점검 완료(채운 칸 — 10/18 형 "산안법 달력처럼") · missed = 지난 날 · planned = 빈 칸."""
+    reps = db.query(SitokReport).filter(SitokReport.facility_id.in_(u.ids), SitokReport.year == v.year, SitokReport.half == v.half).order_by(SitokReport.id).all()
+    rid = reps[0].id if reps else None
+    if any(x.status == "done" or (x.submit or {}).get("report") for x in reps):
+        return "done", rid
+    if any((x.submit or {}).get("field") for x in reps):
+        return "field", rid
+    return ("missed" if v.plan_date < today else "planned"), rid
 
 
 def _visit_out(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> dict:
