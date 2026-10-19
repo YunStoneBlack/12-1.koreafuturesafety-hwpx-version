@@ -143,14 +143,25 @@ def covered_ids(c: SitokDocContract) -> list[int]:
 
 
 def card_no(db: Session, c: SitokDocContract) -> str:
-    """서류 번호(10/15 민재형) — 계약이 시설물 하나만 맡으면 그 시설물 번호(관급-9-1 — 발주처가 나눈 계약),
-    여럿을 맡으면 카드 번호(관급-9 — 계약 하나에 보고서 9-1·9-2). 카드에 안 넣었으면 ""."""
-    from server.api.routers.sitok import base_no
+    """서류 번호 — 카드 번호(관급-9). 같은 카드에서 기간이 겹치는 계약이 여럿이면(발주처가 나눈 계약) 시작일 순으로 관급-9-1·9-2
+    (10/19 민재형 "시설물은 관급-9 하나, 계약은 별도 계약이니 9-1·9-2" — 전엔 시설물 번호에 뒷번호를 붙였음). 카드에 안 넣었으면 ""."""
+    from server.api.routers.sitok import base_no, card_facilities
 
     fs = [x for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x is not None]
     if not fs:
         return ""
-    return (fs[0].mgmt_no or "") if len(fs) == 1 else base_no(fs[0].mgmt_no)
+    base = base_no(fs[0].mgmt_no)
+    card = card_facilities(db, fs[0])
+    ids = {x.id for x in card}
+    span = lambda x: (x.start_date, x.end_date or (datetime.date.max if x.open_ended else x.start_date))  # noqa: E731 — 해지 시까지 계약은 끝없음
+    meets = lambda x: bool(x.start_date and c.start_date) and span(x)[0] <= span(c)[1] and span(c)[0] <= span(x)[1]  # noqa: E731
+    mates = [x for x in db.query(SitokDocContract).filter(SitokDocContract.company_id == c.company_id)
+             if (x.id == c.id or meets(x)) and set(covered_ids(x)) & ids]
+    if len(mates) < 2:
+        return base
+    book = {x.id: x.book_order or 0 for x in card}
+    mates.sort(key=lambda x: (x.start_date or datetime.date.min, min((book.get(i, 99) for i in covered_ids(x)), default=99), x.id))  # 시작일 → 보고서 상자 순서
+    return f"{base}-{[x.id for x in mates].index(c.id) + 1}"
 
 
 def summary(db: Session, c: SitokDocContract) -> dict:
@@ -297,7 +308,7 @@ def list_cards(user: User = Depends(get_current_user), db: Session = Depends(get
     """시설물 카드 — 시설물 하나(묶인 동은 대표 동 하나) + 계약은 /contracts의 facility(묶음 동 아무나)로 카드에 넣음(화면)."""
     from core.models_web import SitokView
 
-    from server.api.routers.sitok import NO_RE, base_no
+    from server.api.routers.sitok import base_no
 
     rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id).order_by(SitokFacility.group_order, SitokFacility.id).all()
     seen = {k: v.isoformat(timespec="seconds") for k, v in db.query(SitokView.facility_id, SitokView.viewed_at).filter(SitokView.user_id == user.id)}
@@ -320,7 +331,7 @@ def list_cards(user: User = Depends(get_current_user), db: Session = Depends(get
     for members, name in units:  # 같은 앞 번호(관급-6-1·6-2) = 카드 하나
         key = base_no(members[0].mgmt_no) or f"#{members[0].id}"
         cards.setdefault(key, []).append((members, name))
-    sub = lambda u: int((NO_RE.match(u[0][0].mgmt_no or "") or [None] * 4)[3] or 0)  # noqa: E731
+    sub = lambda u: (u[0][0].book_order or 0, u[0][0].id)  # noqa: E731 — 카드 안 보고서 순서(0054, 전엔 뒷번호 6-1·6-2)
     out = []
     for key, us in cards.items():
         us.sort(key=sub)
@@ -328,8 +339,11 @@ def list_cards(user: User = Depends(get_current_user), db: Session = Depends(get
         lead, lead_name = us[0][0][0], us[0][1]
         card = card_out(lead, allm, max((seen.get(m.id, "") for m in allm), default=""))
         card["mgmt_no"] = key if len(us) > 1 and not key.startswith("#") else lead.mgmt_no
-        card["units"] = [{"id": members[0].id, "mgmt_no": members[0].mgmt_no, "name": name, "members": [{"id": m.id, "name": m.name} for m in members]}
-                         for members, name in us]
+        from server.sitok.visit_plan import tell_apart  # 같은 이름 묶음이 여럿이면 건물 이름을 붙임(10/19 뒷번호 없앰)
+
+        names = tell_apart([(members[0], members, name) for members, name in us])
+        card["units"] = [{"id": members[0].id, "mgmt_no": members[0].mgmt_no, "name": nm, "members": [{"id": m.id, "name": m.name} for m in members]}
+                         for (members, _), nm in zip(us, names)]
         if len(us[0][0]) > 1:
             card["group_name"] = lead_name
         out.append(card)
@@ -419,7 +433,7 @@ def add_read_sheets(fid: int, file: UploadFile = File(...), user: User = Depends
 
 @router.post("/facilities/{fid}/add")
 def add_facility(fid: int, body: AddFacilityIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """[+ 시설물 추가 — 보고서 따로](10/15 밤 민재형): 같은 카드에 보고서가 따로 나오는 시설물 — 관급-6 → 6-1, 새 것 6-2(다음 6-3).
+    """[+ 시설물 추가 — 보고서 따로](10/15 밤 민재형): 같은 카드에 보고서가 따로 나오는 시설물 — 번호는 카드 번호 그대로(관급-6, 10/19), 보고서 순서(book_order)만 다음.
     동 추가(묶음 — 한 보고서)와 다름. 새 시설물은 카드의 주소·관리주체·구분·뱃지·계약 구분을 물려받음(관리대장을 올렸으면 그 칸·관리주체).
     contract_ids = 같은 계약(그 계약이 이 시설물도 맡음 — 보고서 쪽 계약·이번 반기 회차까지), 비면 계약 따로(나중에 올리는 계약이 맡음)."""
     from server.api.routers.sitok import NO_RE, base_no, card_facilities
@@ -433,15 +447,10 @@ def add_facility(fid: int, body: AddFacilityIn, user: User = Depends(get_current
     if not NO_RE.match(base or ""):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "이 카드는 번호(관급-6 같은)가 없어 시설물을 나눌 수 없습니다 — 먼저 번호를 넣으세요.")
     card = card_facilities(db, f)
-    subs = []
-    for x in card:
-        m = NO_RE.match(x.mgmt_no or "")
-        if m and m[3] is None:
-            x.mgmt_no = f"{base}-1"  # 첫 시설물 → 6-1(묶인 동 같이)
-            subs.append(1)
-        elif m:
-            subs.append(int(m[3]))
-    new = _child_facility(db, user, f, body, f"{base}-{max(subs, default=1) + 1}")
+    for x in card:  # 번호는 카드 번호 그대로(10/19 민재형), 보고서 순서만 — 지금 보고서가 하나뿐이면 그게 1
+        x.book_order = x.book_order or 1
+    new = _child_facility(db, user, f, body, base)
+    new.book_order = max((x.book_order for x in card), default=1) + 1
     ids_in_card = {x.id for x in card}
     joined = []
     want = list(body.contract_ids or [])
@@ -601,7 +610,7 @@ def set_number(fid: int, body: NumberIn, user: User = Depends(get_current_user),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
     if body.n < 1 or body.n > 99999:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "번호는 1 이상 숫자로 넣어 주세요.")
-    from server.api.routers.sitok import NO_RE, base_no, card_facilities
+    from server.api.routers.sitok import base_no, card_facilities
 
     no = f"{f.sector or '민간'}-{body.n}"
     card = card_facilities(db, f)
@@ -609,28 +618,21 @@ def set_number(fid: int, body: NumberIn, user: User = Depends(get_current_user),
     other = [x for x in db.query(SitokFacility).filter(SitokFacility.company_id == f.company_id) if x.id not in ids and base_no(x.mgmt_no) == no]
     if other and not body.merge:
         raise HTTPException(status.HTTP_409_CONFLICT, f"{no}은(는) {other[0].name}이(가) 쓰고 있습니다.")
-    if other:  # 합치기 — 그 카드가 번호 하나면 9 → 9-1, 이 카드 시설물은 9-2·9-3 …(묶인 동 같이, 원래 순서대로). 계약·보고서는 그대로 따라감
-        sub = lambda x: int((NO_RE.match(x.mgmt_no or "") or [None] * 4)[3] or 0)  # noqa: E731
-        subs = []
+    if other:  # 합치기 — 번호는 그 카드 번호 하나(10/19), 이 카드 보고서들은 그 카드 보고서 뒤 순서로(묶인 동 같이). 계약·보고서는 그대로 따라감
         for x in other:
-            if sub(x) == 0:
-                x.mgmt_no = f"{no}-1"
-                subs.append(1)
-            else:
-                subs.append(sub(x))
-        nxt = max(subs, default=1) + 1
-        renum = {}
-        for x in sorted(card, key=lambda x: (sub(x), x.group_order or 0, x.id)):
-            if x.mgmt_no not in renum:
-                renum[x.mgmt_no] = f"{no}-{nxt}"
+            x.book_order = x.book_order or 1
+        nxt = max(x.book_order for x in other) + 1
+        renum: dict = {}
+        for x in sorted(card, key=lambda x: (x.book_order or 0, x.group_order or 0, x.id)):
+            key = x.group_id or -x.id
+            if key not in renum:
+                renum[key] = nxt
                 nxt += 1
-        for x in card:
-            x.mgmt_no = renum[x.mgmt_no]
+            x.mgmt_no, x.book_order = no, renum[key]
         db.commit()
-        return {"ok": True, "mgmt_no": no, "merged": sorted(set(renum.values()))}
-    for x in card:  # 시설물 여럿 카드면 뒤 번호(-1·-2)는 그대로
-        m = NO_RE.match(x.mgmt_no or "")
-        x.mgmt_no = f"{no}-{int(m[3])}" if m and m[3] else no
+        return {"ok": True, "mgmt_no": no, "merged": len(renum)}
+    for x in card:
+        x.mgmt_no = no
     db.commit()
     return {"ok": True, "mgmt_no": no}
 
@@ -687,8 +689,8 @@ def drop_report_contracts(db: Session, c: SitokDocContract, keep: set[str] | Non
 
 
 def _card_units(db: Session, f: SitokFacility) -> list[SitokFacility]:
-    """카드의 시설물(보고서 하나씩 — 관급-9-1·9-2), 묶인 동은 대표 동 하나(목록·계약 체크칸과 같은 id)."""
-    from server.api.routers.sitok import NO_RE, card_facilities
+    """카드의 보고서(상자)마다 시설물 하나 — 묶인 동은 대표 동 하나(목록·계약 체크칸과 같은 id), 보고서 순서대로."""
+    from server.api.routers.sitok import card_facilities
 
     seen, out = set(), []
     for x in sorted(card_facilities(db, f), key=lambda x: (x.group_order or 0, x.id)):
@@ -697,7 +699,7 @@ def _card_units(db: Session, f: SitokFacility) -> list[SitokFacility]:
                 continue
             seen.add(x.group_id)
         out.append(x)
-    return sorted(out, key=lambda x: int((NO_RE.match(x.mgmt_no or "") or [None] * 4)[3] or 0))
+    return sorted(out, key=lambda x: (x.book_order or 0, x.id))  # 보고서 순서(0054)
 
 
 def _overlaps(a: SitokDocContract, b: SitokDocContract) -> bool:
@@ -946,7 +948,7 @@ def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
         n = why["client"].split("-", 1)[-1]
         msg += f" — 발주처가 같은 카드 {why['client']}가 있지만 건명이 달라 다른 시설물로 봤습니다. 같은 발주처가 나눈 계약(보고서만 따로)이면 번호표를 눌러 {n}(으)로 바꾸면 {why['client']} 카드에 들어갑니다"
     elif joined is not None and f is not None and len(_card_units(db, f)) > 1:
-        msg += f" — 이 계약의 시설물 {' · '.join(x.mgmt_no for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x)}"
+        msg += f" — 이 계약의 시설물 {' · '.join(x.name for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x)}"
         msg += (" ⚠ 건명·내역서로 맡는 건물을 못 정해 현장 전체로 넣었습니다 — 계약 정보에서 확인하세요" if c.cover == "check"
                 else "(다르면 계약 정보의 \"이 계약의 시설물\"에서 고르세요)")
     return summary(db, c) | {"auto_card": msg, "report_id": out.get("report_id")}
@@ -1039,7 +1041,7 @@ def add_estimate(cid: int, file: UploadFile = File(...), user: User = Depends(ge
         if redecide(db, c, force_names=True):
             db.flush()
             out = auto_card(db, user, c) if (c.report_contracts or c.report_contract_id) else None
-            note += " → 이 계약의 시설물 " + " · ".join(x.mgmt_no for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x)
+            note += " → 이 계약의 시설물 " + " · ".join(x.name for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x)
             if out is not None:
                 note += "(보고서 쪽 계약도 맞춤)"
     c.updated_at, c.updated_by = datetime.datetime.now(), user.display_name or ""

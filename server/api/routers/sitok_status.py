@@ -95,12 +95,15 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
     for f in facs:
         units.setdefault(("g", f.group_id) if f.group_id else ("f", f.id), []).append(f)
     rows = []
+    names = {}
+    for key, members in units.items():
+        g = db.get(SitokGroup, key[1]) if key[0] == "g" and len(members) > 1 else None
+        names[key] = (g.name if g else "") or members[0].name
+    from server.sitok.visit_plan import tell_apart  # 같은 현장에 이름이 같은 묶음이 여럿이면 건물 이름을 붙임(10/19 뒷번호 없앰)
+    names = dict(zip(names, tell_apart([(units[k][0], units[k], nm) for k, nm in names.items()])))
     for key, members in units.items():
         lead = members[0]
-        name = lead.name
-        if key[0] == "g" and len(members) > 1:
-            g = db.get(SitokGroup, key[1])
-            name = (g.name if g else "") or lead.name
+        name = names[key]
         doc = next((docs[m.id] for m in members if m.id in docs), None)
         for hh in sorted({h for m in members for h in reps_by.get(m.id, {})}, key=seasons.order) or [half]:  # 연 3회면 시기마다 한 줄
             mr = [reps_by[m.id][hh] for m in members if hh in reps_by.get(m.id, {})]

@@ -172,10 +172,16 @@
     if (!books || books.books.length < 2) return "";
     const here = books.books.findIndex((b) => b.ids.includes(r.facility_id));
     const nameOf = (id) => (books.buildings.find((x) => x.id === id) || {}).name || "";
+    const all = books.buildings.map((x) => x.name || "");
+    let pre = all[0] || "";
+    all.forEach((n) => { while (pre && !n.startsWith(pre)) pre = pre.slice(0, -1); });
+    const short = (id) => nameOf(id).slice(pre.length).trim() || nameOf(id);
+    const plain = (b) => (b.ids.length > 1 ? (b.name || nameOf(b.ids[0])) : nameOf(b.ids[0]));
     const tiles = books.books.map((b, k) => {
       const lead = books.buildings.find((x) => x.id === b.ids[0]) || {};
-      const name = esc(b.ids.length > 1 ? (b.name || nameOf(b.ids[0])) : nameOf(b.ids[0]));
-      const head = `보고서 ${k + 1} · ${esc(lead.mgmt_no || "")}${b.ids.length > 1 ? ` · ${b.ids.length}동` : ""}`;
+      const same = books.books.filter((x) => plain(x) === plain(b)).length > 1; // 묶음 이름이 같으면(번호 9-1·9-2로 가르던 것, 10/19) 건물 이름을 붙임
+      const name = esc(same && b.ids.length > 1 ? `${plain(b)} ${b.ids.map(short).join("·")}` : plain(b));
+      const head = `보고서 ${k + 1}${b.ids.length > 1 ? ` · ${b.ids.length}동` : ""}`; // 번호는 현장 번호 하나(10/19 뒷번호 없앰)
       const inner = (right) => `<small><span>${head}</span>${right}</small><b>${name}</b>`;
       if (k === here) return `<span class="fi-tile on" title="${name}">${inner('<em class="fi-edit">여기</em>')}</span>`;
       return lead.round ? `<a class="fi-tile" href="sitok-round.html?report=${lead.round.id}" title="${name}">${inner("")}</a>`

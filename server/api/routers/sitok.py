@@ -257,7 +257,7 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
     out["group"] = group_out(db, f)  # 한 보고서로 묶인 동(10/12)
     from server.api.routers.sitok_docs import _card_units
     us = _card_units(db, f)
-    out["card_units"] = [{"id": u.id, "mgmt_no": u.mgmt_no, "name": u.name} for u in us] if len(us) > 1 else []  # 보고서 따로 시설물(N-1·N-2, 10/16 등록 칸)
+    out["card_units"] = [{"id": u.id, "mgmt_no": u.mgmt_no, "name": u.name, "book": k} for k, u in enumerate(us, 1)] if len(us) > 1 else []  # 보고서 따로 시설물(보고서 1·2, 10/16 등록 칸)
     out["card_fms"] = [{"id": x.id, "fms_no": x.fms_no, "name": x.name, "mgmt_no": x.mgmt_no} for x in card_facilities(db, f) if x.fms_no]  # 등록 칸이 이미 있는 건물을 뺌(10/16)
     out["renew"] = renew_info(db, f)  # 장기·지속 계약 끝나기 전 알림(10/13)
     if with_contracts:
@@ -268,7 +268,7 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
     return out
 
 
-NO_RE = re.compile(r"^(관급|민간)-0*(\d+)(?:-0*(\d+))?$")  # "관급-6" / 시설물 여럿 카드 "관급-6-2"(10/15 밤)
+NO_RE = re.compile(r"^(관급|민간)-0*(\d+)(?:-0*(\d+))?$")  # "관급-6" — 뒤 "-2"는 예전 모양(10/15 밤 시설물 여럿 카드, 10/19부터 안 붙임 — 0054)
 
 
 def base_no(no: str | None) -> str:
@@ -331,9 +331,9 @@ def default_badges(f: SitokFacility, field: str | None = None) -> None:
 
 
 def check_number(db: Session, f: SitokFacility, no: str) -> None:
-    """번호가 다른 카드와 겹치면 409(묶인 동끼리는 같은 번호라 괜찮음)."""
+    """번호가 다른 카드와 겹치면 409 — 같은 카드 건물끼리는 같은 번호(묶인 동·보고서 따로, 10/19 뒷번호 없앰)라 괜찮음."""
     other = db.query(SitokFacility).filter(SitokFacility.company_id == f.company_id, SitokFacility.mgmt_no == no, SitokFacility.id != f.id).all()
-    other = [o for o in other if not (f.group_id and o.group_id == f.group_id)]
+    other = [o for o in other if not (f.group_id and o.group_id == f.group_id) and not (f.mgmt_no and base_no(o.mgmt_no) == base_no(f.mgmt_no))]
     if other:
         raise HTTPException(status.HTTP_409_CONFLICT, f"{no}은(는) {other[0].name}이(가) 쓰고 있습니다 — 다른 번호를 고르세요.")
 

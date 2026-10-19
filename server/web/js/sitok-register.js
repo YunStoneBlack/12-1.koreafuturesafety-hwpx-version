@@ -27,7 +27,7 @@
     const el = document.getElementById("sk-info-count");
     if (!el) return;
     const kind = fac.legal === false ? "관리대장 없음(법정 외)" : fac.has_ledger_pdf ? "관리대장 ✓" : fac.fms_no ? `FMS ${fac.fms_no}` : "";
-    el.textContent = units().length > 1 ? `보고서 따로 ${units().length}곳(${units().map((u) => u.mgmt_no).join(" · ")})${kind ? ` · ${kind}` : ""}`
+    el.textContent = units().length > 1 ? `보고서 따로 ${units().length}곳(${units().map((u) => u.name).join(" · ")})${kind ? ` · ${kind}` : ""}`
       : grouped() ? `동 묶음 ${fac.group.members.length}동 — 보고서 한 권(${fac.group.name})${kind ? ` · ${kind}` : ""}`
         : registered() ? `이 시설물 하나 · ${kind}` : "등록 전 — 보고서를 어떻게 내는지 고르고 관리대장(없으면 결과표)을 올리세요";
   }

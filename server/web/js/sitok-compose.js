@@ -26,7 +26,6 @@
   };
   const key = (list) => JSON.stringify(list.filter((b) => b.ids.length).map((b) => [b.ids, b.ids.length > 1 ? b.name || "" : "", b.contract_id ?? null]));
   const changed = () => key(books) !== key(d.books); // 저장된 구성과 다를 때만 '바뀜'(10/17 — 같은 상자에 다시 넣거나 원래대로 되돌리면 바뀜 아님)
-  const noOf = (k) => (books.filter((b) => b.ids.length).length > 1 ? `${d.card.no}-${books.filter((b, i) => b.ids.length && i <= k).length}` : d.card.no);
 
   async function load() {
     try {
@@ -57,13 +56,13 @@
         ${d.suggest ? '<button type="button" class="secondary btn-sm cp-sug" title="계약 건명·내역서에 나오는 건물 이름으로">🤖 계약대로 추천 배치</button>' : ""}
         <span class="sk-help cp-tip">PC: 건물을 끌어다 상자에 놓기 · 폰: 건물을 누른 뒤 넣을 상자를 누르기 · 건물 더블클릭 = 그 건물 회차</span></div>
       <div class="cp-books">${books.map((b, k) => `<div class="cp-book${b.ids.length ? "" : " empty"}" data-k="${k}">
-          <div class="cp-head"><b>보고서 ${books.slice(0, k + 1).filter((x) => x.ids.length).length || "—"}</b>${b.ids.length ? `<span class="site-no">${esc(noOf(k))}</span>` : ""}
+          <div class="cp-head"><b>보고서 ${books.slice(0, k + 1).filter((x) => x.ids.length).length || "—"}</b>
             ${b.ids.length && !dirty ? (bld(b.ids[0]).round ? `<a class="cp-open" href="sitok-round.html?report=${bld(b.ids[0]).round.id}">회차 열기 ›</a>` : '<span class="sk-help">이 반기 회차 없음</span>') : ""}
             ${b.ids.length > 1 ? `<span class="sk-help">동 묶음 ${b.ids.length}동</span>` : ""}
             ${b.ids.length ? "" : '<button type="button" class="link-btn cp-del">상자 빼기</button>'}</div>
           ${b.ids.length > 1 ? `<label class="cp-name"><span>묶음 이름 <em>표지·제출문</em></span><input class="cp-name-in" value="${esc(b.name)}" placeholder="비우면 ${esc(common(b.ids.map((i) => bld(i).name)))}" /></label>` : ""}
           ${multiCon && b.ids.length ? `<label class="cp-con"><span>연결 계약</span><select class="cp-con-in"><option value="">— 계약 없음 —</option>${d.contracts.map((c) =>
-            `<option value="${c.id}"${b.contract_id === c.id ? " selected" : ""}>${esc(c.title)}${c.period ? ` · ${esc(c.period)}` : ""}</option>`).join("")}</select></label>` : ""}
+            `<option value="${c.id}"${b.contract_id === c.id ? " selected" : ""}>${c.no ? `${esc(c.no)} · ` : ""}${esc(c.title)}${c.period ? ` · ${esc(c.period)}` : ""}</option>`).join("")}</select></label>` : ""}
           <div class="cp-drop">${b.ids.map(chip).join("") || '<span class="sk-help">비어 있음 — 건물을 끌어다 놓으세요</span>'}</div></div>`).join("")}
         <button type="button" class="cp-add">+ 보고서 추가</button></div>
       <div class="cp-foot"><span class="cp-msg mail-note"></span><button type="button" class="secondary cp-reset"${dirty ? "" : " disabled"}>되돌리기</button><button type="button" class="cp-save"${dirty ? "" : " disabled"}>저장</button></div>`;

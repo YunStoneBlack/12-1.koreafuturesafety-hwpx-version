@@ -482,6 +482,7 @@ class SitokFacility(Base):
     memo: Mapped[str] = mapped_column(Text, default="")
     group_id: Mapped[int | None] = mapped_column(ForeignKey("sitok_group.id", ondelete="SET NULL"), default=None, index=True)  # 한 보고서로 묶인 동(0035)
     group_order: Mapped[int] = mapped_column(Integer, default=0)  # 묶음 안 순서(시설물편 제N장) — 0이 대표
+    book_order: Mapped[int] = mapped_column(Integer, default=0)  # 0054 — 카드 안 보고서(보고서 구성 상자) 순서 1·2…, 상자 하나면 0(번호에 뒷번호 안 붙임, 10/19 민재형)
     legal: Mapped[bool] = mapped_column(Boolean, default=True)  # 법정(1·2·3종) 시설물 — False = 자체 점검(관리대장 없음, 결과표 종별 "해당없음", 0036)
     # 도면(0039) {attach: [{id, file(시설물 폴더 기준), name, at}] 1.2.9 뒤에 붙는 평·입·단면도, struct: [...] 구조일반사항·건축개요(시설물 현황 AI가 읽음)}
     drawings: Mapped[dict | None] = mapped_column(JSON, default=None)

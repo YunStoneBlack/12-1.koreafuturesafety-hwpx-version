@@ -137,6 +137,23 @@ def units(db: Session, company_id: int, with_ended: bool = False) -> list[Unit]:
             g = db.get(SitokGroup, lead.group_id)
             name = (g.name if g else "") or lead.name
         out.append(Unit(lead, members, name, region_of(lead.address)))
+    for u, nm in zip(out, tell_apart([(u.lead, u.members, u.name) for u in out])):
+        u.name = nm
+    return out
+
+
+def tell_apart(units: list[tuple[SitokFacility, list[SitokFacility], str]]) -> list[str]:
+    """[(대표 동, 동들, 이름)] → 보일 이름 — 같은 현장(번호)에 이름이 같은 보고서가 여럿이면(묶음 이름 = 건물 이름의 같은 앞부분 —
+    전엔 뒷번호 관급-9-1·9-2로 갈랐음, 10/19 뒷번호 없앰) 이름 뒤에 건물 이름(그 앞부분 뺀 것). 달력·제출 현황(sitok_status)."""
+    from collections import Counter
+
+    key = lambda lead, name: (lead.mgmt_no or f"#{lead.id}", name)  # noqa: E731
+    n = Counter(key(lead, name) for lead, _, name in units)
+    out = []
+    for lead, members, name in units:
+        if n[key(lead, name)] > 1 and len(members) > 1:
+            name = f"{name} " + "·".join((m.name[len(name):].strip() or m.name) if m.name.startswith(name) else m.name for m in members)
+        out.append(name)
     return out
 
 

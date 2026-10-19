@@ -3,7 +3,7 @@
 형 흐름: 현장 하나 = 카드 하나(계약이 몇 개든) → 건물을 몇 개든 등록 → [보고서 구성]에서 상자를 만들고 건물을 끌어다 넣음 →
 계약이 이 반기에 둘 이상일 때만 상자마다 연결할 계약을 고름(하나면 자동).
 - 상자 하나에 건물 여럿 = 동 묶음(SitokGroup — 보고서 한 권, 현장 조사·면담·현황은 동마다, 시설물편 제N장), 건물 하나 = 그 건물만.
-- 번호: 상자가 하나면 카드 번호(관급-6), 여럿이면 상자 순서대로 관급-6-1·6-2.
+- 번호: 건물은 모두 카드 번호(관급-6) — 뒷번호 없음(10/19 민재형), 상자 순서는 book_order(1·2…, 상자 하나면 0). 계약 번호 9-1·9-2는 서류 자동화(sitok_docs.card_no).
 - 저장하면 지금 구조(묶음·번호)를 바꿈 — 보고서 만들기·제출 현황·방문 달력·서류 카드가 그대로 따라감. 회차·현장 데이터는 건물마다라 상자를 옮겨도 안 사라짐.
 - 계약: 이 반기와 기간이 겹치는 서류 자동화 계약마다 맡는 상자(대표 동)를 다시 정하고(cover "" — 사람이 정함) 보고서 쪽 계약·이 반기 회차 계약 칸까지.
   다른 반기 계약은 안 건드림. 추천 배치 = 계약 건명·내역서에 나오는 건물 이름으로(관급-9 "본관, 교직원 식당" → 그 계약 상자).
@@ -35,15 +35,10 @@ def default_name(names: list[str]) -> str:
     return pre if len(pre) >= 2 else (names[0] if names else "")
 
 
-def _sub(no: str | None) -> int:
-    m = NO_RE.match(no or "")
-    return int(m[3]) if m and m[3] else 0
-
-
 def _books_now(db: Session, f: SitokFacility) -> list[list[SitokFacility]]:
     """지금 상자 — 보고서 하나 = 묶음(대표 동 + 동들) 또는 건물 하나, 번호 순서."""
     seen, out = set(), []
-    for x in sorted(card_facilities(db, f), key=lambda x: (_sub(x.mgmt_no), x.group_order or 0, x.id)):
+    for x in sorted(card_facilities(db, f), key=lambda x: (x.book_order or 0, x.group_order or 0, x.id)):
         if x.id in seen:
             continue
         ms = members(db, x.group_id) if x.group_id else [x]
@@ -71,11 +66,12 @@ def _contracts(db: Session, ids: set[int], year: int, half: str) -> list[SitokDo
             .order_by(SitokDocContract.start_date, SitokDocContract.id) if set(covered_ids(c)) & ids and _overlaps(c, year, half)]
 
 
-def _con_out(c: SitokDocContract) -> dict:
+def _con_out(db: Session, c: SitokDocContract) -> dict:
+    from server.api.routers.sitok_docs import card_no
     from server.sitok import civil
 
     period = f"{c.start_date:%Y.%m.%d}~{'해지 시까지' if c.open_ended else (f'{c.end_date:%Y.%m.%d}' if c.end_date else '')}" if c.start_date else ""
-    return {"id": c.id, "title": c.title or civil.default_title(c), "period": period, "amount": c.amount}
+    return {"id": c.id, "no": card_no(db, c), "title": c.title or civil.default_title(c), "period": period, "amount": c.amount}  # no = 계약 번호(관급-9-1, 10/19)
 
 
 @router.get("/facilities/{facility_id}/compose")
@@ -111,7 +107,7 @@ def get_compose(facility_id: int, year: int | None = None, half: str | None = No
                        "round": ({"id": reps[x.id].id, "kind": reps[x.id].kind, "data": bool(reps[x.id].survey or reps[x.id].ai)} if x.id in reps else None)}
                       for x in blds],
         "books": [{"ids": [x.id for x in b], "name": gname(b), "contract_id": con_of(b)} for b in books],
-        "contracts": [_con_out(c) for c in cons], "suggest": suggest,
+        "contracts": [_con_out(db, c) for c in cons], "suggest": suggest,
     }
 
 
@@ -151,7 +147,6 @@ def save_compose(facility_id: int, body: ComposeIn, user: User = Depends(get_cur
     leads = []
     for k, b in enumerate(books, 1):
         fs = [card[i] for i in b.ids]
-        no = base if len(books) == 1 else f"{base}-{k}"
         if len(fs) > 1:  # 동 묶음 — 첫 건물의 묶음을 그대로 쓰고(다른 상자가 안 썼으면), 없으면 새로
             gid = next((x.group_id for x in fs if x.group_id and x.group_id not in used_groups), None)
             g = db.get(SitokGroup, gid) if gid else None
@@ -166,7 +161,7 @@ def save_compose(facility_id: int, body: ComposeIn, user: User = Depends(get_cur
         else:
             fs[0].group_id, fs[0].group_order = None, 0
         for x in fs:
-            x.mgmt_no = no
+            x.mgmt_no, x.book_order = base, (k if len(books) > 1 else 0)
         leads.append(fs[0])
     for gid in old_groups - used_groups:  # 빈 묶음 지움
         g = db.get(SitokGroup, gid)
@@ -227,7 +222,7 @@ def save_compose(facility_id: int, body: ComposeIn, user: User = Depends(get_cur
                             kind=kind_known(db, rc, body.year, body.half) or "정기")
             if lead.group_id:
                 _group_reports(db, r, user.display_name or "")
-            notes.append(f"보고서 {k + 1}({lead.mgmt_no} {lead.name})에 {body.year}년 {body.half} 회차를 만들었습니다.")
+            notes.append(f"보고서 {k + 1}({lead.name})에 {body.year}년 {body.half} 회차를 만들었습니다.")
     db.commit()
     fill_quietly(db, user.company_id, user.display_name or "", list(card))
     out = get_compose(facility_id, body.year, body.half, user, db)

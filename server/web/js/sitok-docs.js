@@ -162,7 +162,7 @@
           <span class="sd-ftype">${esc(TYPE_SHORT[k.contract_type] || k.contract_type || "")}</span></div>
         <div class="sd-fsum">${cons.length ? `계약 ${cons.length}건 · ${esc(periodText(cons[cons.length - 1]) || cons[cons.length - 1].title || "")}` : "계약 없음"}<span class="sd-fchev" aria-hidden="true">▾</span></div>
         <div class="dc-meta sd-faddr">${esc([k.address, k.owner_name].filter(Boolean).join(" · "))}${multi ? ` · ${esc(k.members.map((m) => m.name).join(", "))}` : ""}</div>
-        ${many ? `<div class="sd-units">${us.map((u) => `<a class="sd-unit" href="sitok-facility.html?id=${u.id}" title="보고서 자동화 · 시설물 화면"><span class="site-no">${esc(u.mgmt_no)}</span>${esc(u.name)}${u.members.length > 1 ? ` <small>${u.members.length}동</small>` : ""}</a>`).join("")}</div>` : ""}</div>
+        ${many ? `<div class="sd-units">${us.map((u, i) => `<a class="sd-unit" href="sitok-facility.html?id=${u.id}" title="보고서 자동화 · 시설물 화면"><span class="site-no">보고서 ${i + 1}</span>${esc(u.name)}${u.members.length > 1 ? ` <small>${u.members.length}동</small>` : ""}</a>`).join("")}</div>` : ""}</div>
         <div class="sd-facts">
           <button type="button" class="secondary sd-fnew">${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}</button>
           <button type="button" class="secondary sd-fbadge" title="분야·관급 종류 뱃지 바꾸기">🏷 뱃지</button>
@@ -307,7 +307,7 @@
     const kc = inCard ? cardOf(c) : null;
     const dno = kc && unitsOf(kc).length > 1 && c.card_no ? `<span class="site-no sd-dno" title="서류 번호 — 계약이 시설물 여럿을 맡으면 카드 번호, 하나면 그 시설물 번호">서류 ${esc(c.card_no)}</span>` : ""; // 10/15 밤
     const chk = kc && unitsOf(kc).length > 1 && c.cover === "check" ? ' <span class="sd-cover-chk" title="건명·내역서로 맡는 건물을 못 정해 현장 전체(또는 남은 건물)로 넣었습니다 — [계약 정보]에서 확인">⚠ 맡는 건물 확인</span>' : "";
-    const tg = kc && unitsOf(kc).length > 1 && c.targets && c.targets.length ? `<div class="dc-meta sd-targets">시설물 ${c.targets.map((t) => `<span class="site-no">${esc(t.mgmt_no)}</span>${esc(t.name)}${c.amounts && c.amounts[t.id] ? ` ${won(c.amounts[t.id])}원` : ""}`).join(" · ")}${chk}</div>` : "";
+    const tg = kc && unitsOf(kc).length > 1 && c.targets && c.targets.length ? `<div class="dc-meta sd-targets">시설물 ${c.targets.map((t) => `${esc(t.name)}${c.amounts && c.amounts[t.id] ? ` ${won(c.amounts[t.id])}원` : ""}`).join(" · ")}${chk}</div>` : "";
     el.innerHTML = `
       <div class="dc-main">
         <div class="dc-title">${inCard ? `${dno}${year}${half}` : `<span class="sd-chip ${c.sector === "민간" ? "civil" : "gov"}">${c.sector}</span>${half}`}${esc(c.title || (c.sector === "민간" && c.auto_title) || "(계약건명 없음 — 계약 정보를 채우세요)")}</div>
@@ -564,7 +564,7 @@
           맞으면 <button type="button" class="sd-cover-ok">✓ 맞음</button>, 아니면 아래 체크를 고치세요(내역서를 올리면 이름으로 다시 정함).</div>` : "";
       return `<div class="mail-label">이 계약의 시설물 <span class="mail-note">— 보고서가 따로 나오는 시설물마다 보고서 쪽 계약이 생깁니다. 둘 이상이면 시설물별 금액(보고서 표지·FMS)</span></div>
         ${warn}<div class="sd-ufac">${us.map((u) => `<label class="uf-row"><input type="checkbox" class="uf-chk" value="${u.id}"${on.has(u.id) ? " checked" : ""} />
-            <span class="site-no">${esc(u.mgmt_no)}</span> ${esc(u.name)}
+            ${esc(u.name)}
             <span class="uf-amt-wrap">${on.has(u.id) && on.size > 1 ? `금 <input class="uf-amt sd-won" data-id="${u.id}" inputmode="numeric" value="${won((st.amounts || {})[u.id])}" placeholder="이 시설물 금액" /> 원` : ""}</span></label>`).join("")}
           ${on.size > 1 && total ? `<div class="mail-note${sum && sum !== total ? " uf-bad" : ""}">시설물별 금액 합 ${won(sum) || 0}원 / 계약금액 ${won(total)}원${sum && sum !== total ? " — 합이 계약금액과 다릅니다" : ""}</div>` : ""}</div>`;
     }
