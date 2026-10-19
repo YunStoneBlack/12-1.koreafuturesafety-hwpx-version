@@ -579,6 +579,13 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
         ex.priority = [("-", "-", "특이사항 없음", "-", "-", "-", "-")]
         ex.cost = ([("-", "-", "-", "-", "-", "-", "-")], 0)
         ex.notes.append("현장 조사 결함이 없어 요약표·우선순위·개략공사비가 \"특이사항 없음\"입니다")
+    from server.sitok import good as G  # 상태양호 사진·강재 해당없음·학교 내진보강(10/19 형 B3·B5)
+    g = G.norm(r.survey)
+    ex.rep_photos = G.add_to_rep(ex.rep_photos, r.survey, _report_dir(f, r))
+    if g["steel_na"] and ex.ai:
+        ex.ai = {**ex.ai, "sections": {**(ex.ai.get("sections") or {}), "steel": G.STEEL_NA_TEXT}}
+    if (f.template or "") == "3종학교":
+        ex.seismic, ex.seismic_base = g["seismic"], str(_report_dir(f, r))
     return ex
 
 
@@ -1411,11 +1418,15 @@ def ai_draft_new(report_id: int, body: DraftIn | None = None, user: User = Depen
                                  if ai_draft.category_of(d["part"], d["member"], d["dtype"]) in ("public", "other"))
                 judged = P.evaluate(user.company_id, facility, photos, mine)
             facts = P.facts(r.parts, judged)
+        from server.sitok import good as G
+        facts = "\n".join(x for x in (facts, G.facts(r.survey)) if x)  # 상태양호 사진·강재 해당없음(10/19)
         data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id,
                               eval_items=items, fac_items=fac_items,
                               combos=method_combos(db, r.id), price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)],
                               parts_facts=facts, template=f.template, target=target)
         data["parts"] = P.rows(r.parts, judged)
+        if G.norm(r.survey)["steel_na"]:
+            data["sections"]["steel"] = G.STEEL_NA_TEXT
         if target:
             data["requested_grade"] = target  # 점검자 요청 등급(창이 나온 등급과 견줘 보여 줌)
     except Exception as err:  # noqa: BLE001

@@ -30,7 +30,8 @@ from server.api.routers.sitok_status import _unit_reports, visits_after_mark
 from server.sitok import master, parts as P, precision as PR, report_build as rb, steps
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
-TAB = {"defects": "🔍 결함 조사", "overview": "🏢 전경사진", "public": "🚶 공중이용", "other": "🧱 기타시설", "docs": "📋 자료수집", "load": "⚖ 하중상태", "survey": "📷 조사 전경"}
+TAB = {"defects": "🔍 결함 조사", "overview": "🏢 전경사진", "good": "👍 상태양호", "seismic": "🏫 내진보강", "public": "🚶 공중이용", "other": "🧱 기타시설",
+       "docs": "📋 자료수집", "load": "⚖ 하중상태", "survey": "📷 조사 전경"}
 
 
 def _names(xs: list[str], n: int = 4) -> str:
@@ -66,6 +67,24 @@ def _field(db: Session, r: SitokReport) -> _Miss:
             add("defects", f"이번 사진이 없는 결함(전회차 사진도 없음) {other}개")
     if not r.overview:
         add("overview", "전경사진 0장 — 안 찍으면 지난 회차 사진이 그대로 들어갑니다")
+    from server.api.routers.sitok_good import _out as good_out  # 10/19 형 B3·B5
+    gd = good_out(db, r)
+    bare = [c for c in gd["cats"] if not c["defects"] and not c["photos"] and not (c["key"] == "steel" and gd["steel_na"])]
+    if bare:
+        add("good", f"결함도 상태양호 사진도 없는 항목 — {' · '.join(c['name'] for c in bare)}"
+            + (" (강재는 철근콘크리트 구조면 [해당없음])" if any(c["key"] == "steel" for c in bare) else ""))
+    steel = next(c for c in gd["cats"] if c["key"] == "steel")
+    if gd["steel_na"] and steel["defects"]:
+        add("good", f"강재구조를 [해당없음]으로 했는데 강재 결함이 {steel['defects']}개 있습니다 — 보고서 1.3 강재 글은 해당없음으로 나갑니다")
+    se = gd["seismic"]
+    if gd["school"] and not se["none"]:
+        n = sum(se["photos"])
+        if not n:
+            add("seismic", "내진보강시설 — [해당없음]도 사진도 없습니다")
+        elif n < 2:
+            add("seismic", f"내진보강 사진 {n}/2장")
+        if n and not se["rows"]:
+            add("seismic", "사진은 있는데 [🤖 점검표 쓰기]를 안 했습니다 — 부록 점검표가 \"-\"로 나갑니다")
     po = parts_out(db, r)
     pub = [p["name"] for p in po["public"] if not p["has"] and not p["none"]]
     if pub:

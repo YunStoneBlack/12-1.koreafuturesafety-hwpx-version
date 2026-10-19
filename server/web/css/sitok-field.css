@@ -185,3 +185,31 @@
   .main button.sf-tab { padding: 9px 8px; font-size: 13.5px; white-space: nowrap; }
 }
 
+
+/* [👍 상태양호]·[🏫 내진보강] 탭(10/19 형 B3·B5) — js/sitok-good.js */
+#gd-list .sf-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.main #gd-list .gd-na, .main .se-none { margin: 0 0 0 auto; padding: 6px 12px; font-size: 13px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 7px; }
+.main #gd-list .gd-na.on, .main .se-none.on { background: var(--paper); font-weight: 700; }
+.gd-na-card { max-width: 520px; }
+.gd-title { width: 100%; padding: 6px 8px; font-size: 13px; }
+.se-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.main .se-top .se-none { margin: 0; }
+.se-photos { grid-template-columns: repeat(2, minmax(0, 300px)); margin-bottom: 12px; }
+.se-ai { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.main .se-ai button { margin: 0; }
+.se-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.se-table th, .se-table td { border: 1px solid var(--line); padding: 6px 8px; vertical-align: middle; }
+.se-table th { background: var(--paper); font-weight: 700; white-space: nowrap; }
+.se-table td:first-child { width: 34%; line-height: 1.4; }
+.se-table td:nth-child(2) { width: 70px; }
+.se-table td input, .se-table td select { width: 100%; padding: 5px 7px; font-size: 13px; margin: 0; }
+.se-op { display: block; margin-top: 12px; font-weight: 700; font-size: 14px; }
+.se-op textarea { display: block; width: 100%; margin-top: 6px; font-weight: 400; }
+@media (max-width: 760px) {
+  .se-photos { grid-template-columns: 1fr; }
+  .se-table thead { display: none; }
+  .se-table tr { display: grid; grid-template-columns: 70px 1fr; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; padding: 6px; }
+  .se-table td { border: 0; padding: 3px; width: auto !important; }
+  .se-table td:first-child { grid-column: 1 / -1; font-weight: 700; }
+  .se-table td:nth-child(4) { grid-column: 1 / -1; }
+}

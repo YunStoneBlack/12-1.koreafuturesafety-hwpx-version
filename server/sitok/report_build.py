@@ -15,6 +15,7 @@ import copy
 import datetime
 import random
 import re
+import sys
 import threading
 import zipfile
 from dataclasses import dataclass, field
@@ -66,6 +67,8 @@ class Extras:
     template: str = "2종"  # 등급 표기(2종 낱말·3종 글자)
     rep_photos: dict = field(default_factory=dict)  # 1.3 대표사진 {항목 키: [(사진 경로, 설명)]} — 공중이용·기타는 아래 parts(현장 화면 탭)로
     has_drawings: bool = True  # 첨부 도면이 있는지(10/12) — 없으면 1.2.9 "-후면첨부-"를 "-"로(server/sitok/drawings.py)
+    seismic: dict | None = None  # 학교 부록 내진보강시설 육안 점검표(10/19 형 B5) — server/sitok/good.py norm()["seismic"]
+    seismic_base: str = ""  # 그 사진 폴더(회차 폴더)
     parts: dict | None = None  # 1.3 6)·7) 사진 표(10/12) {"public": [(항목 이름, 사진 | None)] × 4, "other": [(설명, 사진 | None)] × 4} — server/sitok/parts.py
     blank: str = ""  # 남는 사진 칸에 넣을 흰 그림
     survey: dict | None = None  # 면담·변경사항 {repairs, changes} — 1.2.7·1.2.8
@@ -2359,6 +2362,7 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                         changed += layout_fix.submit_dashes(root)
                         changed += layout_fix.toc_appendix(root)
                         changed += layout_fix.submit_date(root, new.report_month)
+                        changed += layout_fix.spine_name(root, new.name)  # 책등 괄호 안 = 시설물명(묶음은 merge가 "등 N개소")
                         for tbl in root.iter(f"{{{HP}}}tbl"):  # 정기 결과표 "점검 주요결과"가 길면 앞 쪽 몫 + (계속) 줄로(10/14)
                             c0 = _cells(tbl)
                             if {"용역명", "점검기간", "관리주체명"} <= {re.sub(r"\s", "", _cell_text(v)) for v in c0.values()}:
@@ -2382,6 +2386,9 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                         changed += _finish_repairs(root)
                         from server.sitok import layout_fix
                         changed += layout_fix.strip_na_titles(root)
+                        if extras.seismic is not None:  # 학교 내진보강 점검표(10/19 형 B5)
+                            from server.sitok import good as _good
+                            changed += _good.apply_seismic(root, extras.seismic, Path(extras.seismic_base), add_image, sys.modules[__name__])
                         changed += layout_fix.chapter_title_break(root)  # 장 표지 제목 둘째 줄 "양" 아래로(10/19 형)
                         changed += layout_fix.toc_list_left(root)  # 장 표지 소목차 한 줄로
                         changed += layout_fix.trim_blank_before_change_heads(root)  # 1.2.8 "3) …변경사항" 앞 빈 줄

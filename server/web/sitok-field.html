@@ -24,6 +24,8 @@
 <div class="sf-tabs" role="tablist">
   <button type="button" class="sf-tab on" data-tab="defects">🔍 결함 조사</button>
   <button type="button" class="sf-tab" data-tab="overview">🏢 전경사진 <span id="ov-count"></span></button>
+  <button type="button" class="sf-tab" data-tab="good">👍 상태양호 <span id="gd-count"></span></button>
+  <button type="button" class="sf-tab" data-tab="seismic" hidden>🏫 내진보강 <span id="se-count"></span></button>
   <button type="button" class="sf-tab" data-tab="public">🚶 공중이용 <span id="pt-pub-count"></span></button>
   <button type="button" class="sf-tab" data-tab="other">🧱 기타시설 <span id="pt-oth-count"></span></button>
   <button type="button" class="sf-tab sf-tab-pre" data-tab="docs" hidden>📋 자료수집 <span id="pr-docs-count"></span></button>
@@ -68,6 +70,20 @@
   </div>
   <div id="ov-list" class="ov-list"></div>
   <datalist id="ov-titles"></datalist>
+</div>
+
+<!-- 상태양호·내진보강(10/19 민재형 B3·B5) — js/sitok-good.js, 서버 server/api/routers/sitok_good.py -->
+<div id="sf-good" hidden>
+  <p class="page-sub pt-intro">보고서 1.3 대표사진 — 결함이 없거나 적은 항목은 상태가 양호한 모습을 찍어 두세요. 결함 사진 다음 빈 칸에 들어가고 [🤖 AI 초안]이 "양호"로 씁니다.
+    철근콘크리트 구조라 강재가 없으면 강재구조 [해당없음].</p>
+  <div class="mail-msg" id="gd-msg" hidden></div>
+  <div id="gd-list"></div>
+</div>
+<div id="sf-seismic" hidden>
+  <p class="page-sub pt-intro">학교 부록 "내진보강시설 육안 점검표" — 내진보강을 안 한 건물은 [해당없음], 했으면 보강 부위 사진 2장을 찍고 [🤖 점검표 쓰기].
+    사진은 점검표 종합의견 칸에 들어갑니다.</p>
+  <div class="mail-msg" id="se-msg" hidden></div>
+  <div id="se-box"></div>
 </div>
 
 <!-- 공중이용·기타시설(10/12 사용자) — js/sitok-parts.js, 서버 server/api/routers/sitok_parts.py -->
@@ -115,6 +131,7 @@
 <script src="shell.js"></script>
 <script src="js/sitok-field.js"></script>
 <script src="js/sitok-parts.js"></script>
+<script src="js/sitok-good.js"></script>
 <script src="js/sitok-overview.js"></script>
 <script src="js/sitok-precision.js"></script>
 <script src="js/sitok-steps.js"></script>
