@@ -51,6 +51,19 @@
   }));
   document.getElementById("ss-search").addEventListener("input", (e) => { view.q = e.target.value.trim().toLowerCase(); render(); });
 
+  // 번호순 ▼▲(10/19 민재형 — 시설물 목록과 같게: 관급 → 민간 차례는 그대로, 그 안의 번호만 방향, 이 기기에 기억)
+  const SORT_KEY = "kfsc-report:sitok-status-sort";
+  let numDesc = true;
+  try { numDesc = localStorage.getItem(SORT_KEY) !== "asc"; } catch { /* 기본 ▼ */ }
+  const numKey = (f) => { const m = String((f && f.mgmt_no) || "").match(/^(관급|민간)-0*(\d+)(?:-0*(\d+))?$/); return m ? [m[1] === "관급" ? 0 : 1, Number(m[2]), Number(m[3] || 0)] : [2, 0, 0]; };
+  const byNo = (a, b) => { const x = numKey(a), y = numKey(b); const d = numDesc ? -1 : 1; return x[0] - y[0] || d * (x[1] - y[1]) || d * (x[2] - y[2]); };
+  document.querySelectorAll(".ss-sort button").forEach((b) => b.addEventListener("click", () => {
+    numDesc = !numDesc;
+    try { localStorage.setItem(SORT_KEY, numDesc ? "desc" : "asc"); } catch { /* 지금은 바뀜 */ }
+    render();
+  }));
+  const drawSort = () => document.querySelectorAll(".ss-sort button").forEach((b) => { b.textContent = `번호순 ${numDesc ? "▼" : "▲"}`; });
+
   const baseRows = () => rows.filter((r) => (!view.sector || r.facility.sector === view.sector) && (!view.field || r.facility.badge_field === view.field) &&
     (!view.kind || r.facility.badge_kind === view.kind) && (!view.q || `${r.facility.mgmt_no} ${r.facility.name} ${r.facility.members.map((m) => m.name).join(" ")}`.toLowerCase().includes(view.q)));
 
@@ -75,7 +88,8 @@
       <span class="l">${label}</span><span class="n">${base.filter(ok).length}곳</span><span class="s">${sub}</span></button>`).join("");
     cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => { view.card = b.dataset.k; render(); }));
     const okCard = CARDS.find((c) => c[0] === view.card)[3];
-    const shown = base.filter(okCard).sort((a, b) => noKey(b.facility) - noKey(a.facility));
+    const shown = base.filter(okCard).sort((a, b) => byNo(a.facility, b.facility));
+    drawSort();
     document.getElementById("ss-title").textContent = `${cur.year}년 ${cur.half} 제출 현황${view.card ? ` — ${CARDS.find((c) => c[0] === view.card)[1]}` : ""}`;
     document.getElementById("ss-count").textContent = `${shown.length}곳`;
     const list = document.getElementById("ss-list");
@@ -84,7 +98,6 @@
     list.innerHTML = `<div class="ss-grid ss-head"><span>시설물</span><span>현장점검</span><span>보고서</span><span>발주처 이메일</span><span>FMS</span><span>합본 출력</span><span>택배</span></div>`;
     for (const r of shown) list.appendChild(rowEl(r));
   }
-  const noKey = (f) => { const m = String(f.mgmt_no || "").match(/^(관급|민간)-0*(\d+)(?:-0*(\d+))?$/); return m ? (m[1] === "관급" ? 2e8 : 1e8) + Number(m[2]) * 100 + Number(m[3] || 0) : 0; };
 
   const REP = { none: ["회차 없음", "todo"], writing: ["작성 중", "todo"], running: ["만드는 중", "pdf"], failed: ["만들기 실패", "bad"], done: ["완료", "ok"] };
   function markBadge(v) { return v ? (v.na ? '<span class="ss-b na">해당없음</span>' : `<span class="ss-b ok">✓ ${md(v.at)}</span>`) : '<span class="ss-b todo">안 함</span>'; }

@@ -15,7 +15,7 @@
 </head>
 <!-- 서류 자동화 · 시특법 — 계약 목록(2026-10-12, js/sitok-docs.js · API server/api/routers/sitok_docs.py). 산안법(docs.html)처럼 보고서 쪽과 따로, 현장(시설물) 연결.
      민간 = 우리가 계약서를 작성(회차 줄 · 정기/정밀 · 계약 해지 시까지), 관급 = 나라장터 계약서 → 착수계·완료계(2단계). 탭은 shell.js SITOK_DOCS_TABS. -->
-<body data-docs-tab="contracts" data-law="sitok">
+<body data-docs-tab="contracts" data-law="sitok" data-sticky-list>
 <div class="app">
   <aside class="sidebar" id="gw-sidebar"></aside>
   <main class="main">
@@ -95,5 +95,6 @@
 <script src="js/docs-common.js"></script>
 <script src="js/sitok-docs-gov.js"></script>
 <script src="js/sitok-docs.js"></script>
+<script src="js/sticky-head.js"></script>
 </body>
 </html>

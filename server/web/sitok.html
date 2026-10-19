@@ -12,7 +12,7 @@
 </head>
 <!-- 보고서 자동화 · 시특법(2026-10-10) — 시설물 정기안전점검. 그룹웨어 왼쪽 메뉴 [보고서 자동화] 아래 "시특법" 소메뉴가 여는 메인 = 시설물 목록.
      설계·결정은 바탕화면 "시특법 견본\인수인계.md". 서버 server/api/routers/sitok.py, 화면 js/sitok.js, 등록·고치기 sitok-facility.html. -->
-<body data-report-tab="facilities" data-law="sitok">
+<body data-report-tab="facilities" data-law="sitok" data-sticky-list>
 <div class="app">
   <aside class="sidebar" id="gw-sidebar"></aside>
   <main class="main">
@@ -45,5 +45,6 @@
 <script src="app.js"></script>
 <script src="shell.js"></script>
 <script src="js/sitok.js"></script>
+<script src="js/sticky-head.js"></script>
 </body>
 </html>

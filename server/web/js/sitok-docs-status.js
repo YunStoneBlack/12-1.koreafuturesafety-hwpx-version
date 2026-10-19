@@ -47,6 +47,19 @@
   }));
   document.getElementById("ds-search").addEventListener("input", (e) => { view.q = e.target.value.trim().toLowerCase(); render(); });
 
+  // 번호순 ▼▲(10/19 민재형 — 시설물 목록과 같게: 관급 → 민간 차례는 그대로, 그 안의 번호만 방향, 이 기기에 기억)
+  const SORT_KEY = "kfsc-report:sitok-docs-status-sort";
+  let numDesc = true;
+  try { numDesc = localStorage.getItem(SORT_KEY) !== "asc"; } catch { /* 기본 ▼ */ }
+  const numKey = (f) => { const m = String((f && f.mgmt_no) || "").match(/^(관급|민간)-0*(\d+)(?:-0*(\d+))?$/); return m ? [m[1] === "관급" ? 0 : 1, Number(m[2]), Number(m[3] || 0)] : [2, 0, 0]; };
+  const byNo = (a, b) => { const x = numKey(a), y = numKey(b); const d = numDesc ? -1 : 1; return x[0] - y[0] || d * (x[1] - y[1]) || d * (x[2] - y[2]); };
+  document.querySelectorAll(".ss-sort button").forEach((b) => b.addEventListener("click", () => {
+    numDesc = !numDesc;
+    try { localStorage.setItem(SORT_KEY, numDesc ? "desc" : "asc"); } catch { /* 지금은 바뀜 */ }
+    render();
+  }));
+  const drawSort = () => document.querySelectorAll(".ss-sort button").forEach((b) => { b.textContent = `번호순 ${numDesc ? "▼" : "▲"}`; });
+
   const fac = (r) => r.facility || { badge_field: "", badge_kind: "" };
   const base = () => rows.filter((r) => (!view.sector || r.contract.sector === view.sector) && (!view.field || fac(r).badge_field === view.field) &&
     (!view.kind || fac(r).badge_kind === view.kind) &&
@@ -71,7 +84,8 @@
       <span class="l">${label}</span><span class="n">${list0.filter(ok).length}건</span><span class="s">${sub}</span></button>`).join("");
     cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => { view.card = b.dataset.k; render(); }));
     const ok = CARDS.find((c) => c[0] === view.card)[3];
-    const shown = list0.filter(ok);
+    const shown = list0.filter(ok).sort((a, b) => byNo(a.facility, b.facility));
+    drawSort();
     document.getElementById("ds-title").textContent = `${cur.year}년 ${cur.half} 서류 제출 현황${view.card ? ` — ${CARDS.find((c) => c[0] === view.card)[1]}` : ""}`;
     document.getElementById("ds-count").textContent = `${shown.length}건`;
     const list = document.getElementById("ds-list");

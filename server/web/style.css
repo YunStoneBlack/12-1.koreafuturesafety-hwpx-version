@@ -581,3 +581,15 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .slot-btn-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .main .slot-btn-row button { margin-top: 4px; }
 .main .photo-slot .slot-controls .slot-btn-row button { align-self: auto; }
+
+/* 목록 화면 위쪽 붙어 있기(10/19 민재형 — js/sticky-head.js): 제목·탭·반기·검색·분야·숫자 카드를 한 칸으로, PC만.
+   목록 머리줄(data-sticky-list 화면)은 그 아래 — 목록 칸이 overflow: hidden이면 안 붙어서 clip(둥근 모서리는 그대로). 폰은 묶음 없음(탭 줄만 붙던 그대로). */
+.sticky-head { display: contents; }
+@media (min-width: 761px) {
+  .sticky-head { display: block; position: sticky; top: 0; z-index: 8; margin: -30px -40px 16px; padding: 30px 40px 4px;
+    background: var(--paper); box-shadow: 0 6px 12px -10px rgba(27, 30, 46, .25); }
+  .sticky-head > .report-tabs, .sticky-head > .sc-cards { position: static; }
+  .sticky-head > .sc-cards { margin: 0 0 12px; padding: 0; background: none; backdrop-filter: none; }
+  .sticky-list { overflow: clip; }
+  .sticky-list > .panel-head { position: sticky; top: var(--sticky-h, 0px); z-index: 6; background: var(--surface); }
+}
