@@ -822,6 +822,10 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
             pushed += pagecheck.squeeze_overflow(hwpx, pdf)
         except Exception:  # noqa: BLE001
             traceback.print_exc()
+        try:  # 제목+표가 통째로 다음 쪽 → 조금 모자라면 줄여 앞 쪽에, 많으면 나뉘게(10/19 형 "현장마다 표 길이가 달라도 자연스럽게")
+            pushed += pagecheck.pull_tables(hwpx, pdf)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
     if pushed:
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
 
@@ -1120,9 +1124,9 @@ def _add_summary(db: Session, pairs: list, title: str, hwpx: Path, pdf: Path, wa
         S.build(s, tpl, out)
         spdf = out.with_suffix(".pdf")
         spdf.write_bytes(hwp_queue.convert_via_worker(out.read_bytes(), ".hwpx", wait=PDF_WAIT))
-        try:  # 결언이 한두 줄 다음 쪽으로 넘치면 줄 간격을 줄여 한 번 더(10/19 형)
+        try:  # 결언이 한두 줄 다음 쪽으로 넘치면 줄 간격을 줄여, 3.4 표(동 수만큼 김)가 통째로 넘어가면 줄이거나 나눠 한 번 더(10/19 형)
             from server.sitok import pagecheck
-            if pagecheck.squeeze_overflow(out, spdf, sections_from=0):
+            if pagecheck.squeeze_overflow(out, spdf, sections_from=0) + pagecheck.pull_tables(out, spdf, sections_from=0):
                 spdf.write_bytes(hwp_queue.convert_via_worker(out.read_bytes(), ".hwpx", wait=PDF_WAIT))
         except Exception:  # noqa: BLE001 — 못 고치면 그대로
             traceback.print_exc()

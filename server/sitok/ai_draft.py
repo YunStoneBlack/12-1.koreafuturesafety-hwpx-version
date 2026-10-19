@@ -140,6 +140,7 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 - 원인은 결함마다 적힌 원인·근거(사진에서 본 것)를 살려 구체적으로 — "건조수축균열·노후화" 같은 한 낱말로 뭉뚱그리지 말 것.
 - 구조체라도 미장균열·마감균열·조적균열은 마감층 결함이라 구조 결함이 아님(집계의 "상태평가 대상"에서 빠짐) — 구조안전성 판단·등급·18항목의 구조부재 항목은
   상태평가 대상 결함으로, 마감층 결함은 18항목의 마감재·칸막이벽 항목에서.
+- {leak_rule} — 마감재 누수흔적·배관 누수를 "구조체 누수"로 쓰지 말 것.
 - 문장은 보고서 문어체("~조사되었다", "~권고한다"), 항목마다 2~4문장. 매번 같은 틀이 되지 않게 시설물·층·부재를 구체적으로.
 - 공중이 이용하는 부위·기타시설 현장 사진 판단이 있으면 sections.public·sections.other·결과표 public은 그 판단(항목·상태)을 근거로 구체적으로
   (해당없음 항목은 "해당없음", 사진이 없는 항목은 언급하지 말 것). 결함 집계의 공중이용·기타 결함도 함께.
@@ -227,7 +228,7 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
         rule += (f"\n- 점검자 등급 재산정 요청: 이번 등급은 {label}(으)로 정했다. grade는 \"{label if two else target}\"로 하고, 등급 근거·결과표·종합결론"
                  + ("·18항목 평가(평가 점수 합이 이 등급이 나오게)" if eval_items else "") + "를 모두 이 등급에 맞게. 결함 사실·숫자는 바꾸지 말고 판단·표현만.")
     prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), parts=parts_facts, old=old_text[:6000] or "(없음)", items_spec=spec,
-                           grade_rule=rule, grade_pick="양호|보통|미흡|불량 중 하나" if two else "A~E 중 하나")
+                           grade_rule=rule, leak_rule=manual3.LEAK_RULE, grade_pick="양호|보통|미흡|불량 중 하나" if two else "A~E 중 하나")
     from server.sitok import vision
 
     text = vision.ask(company_id, [], prompt, max_tokens=32000)  # 3종 18항목·1.4·보수공법까지 쓰면 답이 김

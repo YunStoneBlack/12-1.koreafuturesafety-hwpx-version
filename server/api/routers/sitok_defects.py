@@ -743,6 +743,8 @@ ANALYZE = """시설물 정기안전점검 현장에서 점검자가 찍은 결�
   마감균열 = 도장·타일·석고보드 등 마감재 균열. 조적균열 = 벽돌·블록·줄눈이 갈라진 것. 수직·수평·경사 같은 방향은 결함유형에 쓰지 말 것.
 - 박리 = 표면이 얇게 벗겨짐, 박락 = 콘크리트 조각이 떨어져 나감, 층분리 = 표층이 들떠 분리(아직 안 떨어짐), 재료분리 = 곰보·골재 노출,
   이격 = 서로 다른 부재·재료 사이가 벌어짐(기둥-조적벽, 창호 주변), 누수·백태 = 물 흐른 자국·얼룩·백화, 높이부족 = 난간·파라펫 높이 기준 미달.
+- 누수·백태의 구분·부재: {leak_rule} — 구조체 콘크리트면에서 직접 새는 것만 구조체(슬라브·내력벽 등),
+  천장재·도배·도장 등 마감재의 누수흔적이나 배관·설비 누수·결로 얼룩은 부재 마감재·비구조체(note에 배관 누수 등 추정 원인).
 {cause_rule}
 폭은 사진만으로는 어림이므로 보이는 굵기로 가장 가까운 구간을 고르세요(머리카락 굵기 ≈ 0.1, 연필 선 ≈ 0.3, 뚜렷이 벌어짐 ≥ 0.5)."""
 
@@ -752,7 +754,9 @@ JSON 객체 하나로만 답하세요(설명 없이): {{"grew": 이번이 전회
 
 
 def _analyze_prompt(where: str, allowed: dict) -> str:
-    return ANALYZE.format(where=where, members=", ".join(allowed["member"]), types=", ".join(allowed["dtype"]), cause_rule=CAUSE_RULE)
+    from server.sitok.manual3 import LEAK_RULE
+
+    return ANALYZE.format(where=where, members=", ".join(allowed["member"]), types=", ".join(allowed["dtype"]), cause_rule=CAUSE_RULE, leak_rule=LEAK_RULE)
 
 
 def _text(v) -> str:

@@ -242,6 +242,13 @@ def _conclusion(root, paras: list[str]) -> None:
         sub.insert(at + k, q)
 
 
+def _trim_tail(root) -> None:
+    """결언 상자 뒤 맨 끝 빈 문단(원본 2개)을 뺌 — 결언이 쪽 끝까지 차면 빈 문단만 다음 쪽으로 넘어가 빈 쪽이 생김(10/19 양주덕산초)."""
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    while len(tops) > 1 and not _text(tops[-1]).strip() and not any(True for _ in tops[-1].iter(f"{{{HP}}}tbl", f"{{{HP}}}pic", f"{{{HP}}}secPr", f"{{{HP}}}ctrl")):
+        root.remove(tops.pop())
+
+
 def build(s: Summary, template: Path, out: Path) -> None:
     """요약문 한글(out) — template(정기안전점검_요약문_원본.hwpx)을 s 값으로."""
     with zipfile.ZipFile(template) as z:
@@ -278,6 +285,7 @@ def build(s: Summary, template: Path, out: Path) -> None:
         if p is not None:
             rb._set_para(p, f"      - {', '.join(names) if names else '해당없음'}")
     _conclusion(root, s.conclusion)
+    _trim_tail(root)
     data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(".part")

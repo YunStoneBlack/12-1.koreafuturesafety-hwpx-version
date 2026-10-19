@@ -63,7 +63,10 @@ def _body(pg) -> tuple[list[tuple[float, float, str]], float, float, list]:
 
 
 def _divider(lines) -> bool:
-    """간지(장·편·부록 표지) — 짧은 줄 몇 개뿐, 또는 "제 N 장" + 소목차(1.1 …) 줄들."""
+    """간지(장·편·부록 표지) — 짧은 줄 몇 개뿐, 또는 "제 N 장" + 소목차(1.1 …) 줄들.
+    "~다."로 끝나는 줄이 있으면 간지가 아님 — 앞 쪽 글상자에서 넘친 문장 한 줄(10/19 요약문 결언 "의 사용성에는 문제가 없을 것으로 판단된다.")."""
+    if any(t.rstrip().endswith("다.") for _, _, t in lines):
+        return False
     if len(lines) <= 6 and all(len(t) <= 30 for _, _, t in lines):
         return True
     toc = sum(1 for _, _, t in lines if re.match(r"^\d+\.\d+\s", t) and len(t) <= 30)
@@ -409,6 +412,7 @@ def _squeeze_table(tbl, need: int, keep, rb) -> int:
     spare = {r: max(0, h - est.get(r, 0) - 200) for r, h in cur.items()}
     total = sum(spare.values())
     done = 0
+    box = int(tbl.get("rowCnt") or 1) == 1  # 칸 하나짜리 상자(요약문 결언) — 칸 높이만 줄이면 글이 그대로 밀어내고, 줄 간격만 줄이면 칸 높이가 남아 빈 쪽(10/19) → 둘 다
     if total > 0:
         k = min(1.0, need / total)
         for r, s in spare.items():
@@ -416,7 +420,7 @@ def _squeeze_table(tbl, need: int, keep, rb) -> int:
             if cut > 0:
                 _set_row_height(tbl, r, cur[r] - cut)
                 done += cut
-    if done < need and keep is not None:  # 글이 꽉 찬 표(1.3 분석표) — 줄 간격 한 단계
+    if (done < need or box) and keep is not None:  # 글이 꽉 찬 표(1.3 분석표)·상자 — 줄 간격 한 단계
         hh = "{http://www.hancom.co.kr/hwpml/2011/head}"
 
         def tight(pp):
@@ -426,7 +430,26 @@ def _squeeze_table(tbl, need: int, keep, rb) -> int:
 
         for p in tbl.iter(f"{{{rb.HP}}}p"):
             p.set("paraPrIDRef", keep.clone(p.get("paraPrIDRef"), "tight85", tight))
-        done = need
+        # 줄 높이가 정해져 있고 글이 그 안에 든 표(사전검토 3.1)는 줄 간격만으론 안 작아짐 — 줄 높이도 남은 만큼(줄마다 15%까지) 비율대로,
+        # 글이 더 필요하면 한글이 다시 늘림(칸 높이는 최소값)
+        left = need - done
+        rows = {r: h for r, h in cur.items() if h > 0}
+        whole = sum(rows.values())
+        if left > 0 and whole and not box:
+            for r, h in rows.items():
+                cut = int(min(h * 0.15, left * h / whole))
+                if cut > 0:
+                    _set_row_height(tbl, r, h - cut)
+        done = max(done, need)
+    if done:  # 합친 칸(여러 줄) 높이 = 그 줄들 높이 합 — 줄만 줄이고 합친 칸이 옛 높이로 남으면 표가 다시 커짐
+        heights = {}
+        for (r, _), tc in rb._cells(tbl).items():
+            if rb._span(tc, "rowSpan") == 1:
+                heights[r] = max(heights.get(r, 0), int(tc.find(f"{{{rb.HP}}}cellSz").get("height") or 0))
+        for (r, _), tc in rb._cells(tbl).items():
+            span = rb._span(tc, "rowSpan")
+            if span > 1 and all(rr in heights for rr in range(r, r + span)):
+                tc.find(f"{{{rb.HP}}}cellSz").set("height", str(sum(heights[rr] for rr in range(r, r + span))))
     return done
 
 
@@ -445,35 +468,151 @@ def squeeze_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]
     keep = rb._KeepHeads(data["Contents/header.xml"]) if "Contents/header.xml" in data else None
     roots = {n: etree.fromstring(data[n]) for n in sections[sections_from:]}
     done = []
-    for _, first, h, nth in found:
-        key = _key(first)
-        target = None
+    flat = lambda s: re.sub(r"\s", "", s or "")  # noqa: E731
+
+    def find(hit, nth: int):
+        """넘친 줄이 든 표 — hit(글) = 이 문단·칸 글에 넘친 줄이 있는지, nth = PDF에서 몇 번째로 나온 것인지."""
         seen = 0
-        for n, root in roots.items():
+        for root in roots.values():
             tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
             for i, p in enumerate(tops):
                 tbls = [t for t in p.iter(f"{{{rb.HP}}}tbl")]
-                if key not in _key(rb._top_text(p)) and not any(key in _key(rb._cell_text(c)) for t in tbls for c in rb._cells(t).values()):
+                if not hit(rb._top_text(p)) and not any(hit(rb._cell_text(c)) for t in tbls for c in rb._cells(t).values()):
                     continue
                 if seen < nth:  # 같은 표가 동마다 되풀이 — PDF에서 몇 번째로 나온 것인지로 짝(1.4 결과표 3개)
                     seen += 1
                     continue
                 big = next((t for t in tbls if (int(t.get("rowCnt") or 1) > 1 or len(list(t.iter(f"{{{rb.HP}}}p"))) >= 5)  # 여러 줄 표, 또는 문단 많은 상자(요약문 결언)
-                            and any(key in _key(rb._cell_text(c)) for c in rb._cells(t).values())), None)
+                            and any(hit(rb._cell_text(c)) for c in rb._cells(t).values())), None)
                 if big is None:  # 짧은 글·상자 — 바로 앞(3문단 안) 큰 표
                     for q in reversed(tops[max(0, i - 3):i]):
                         big = next((t for t in q.iter(f"{{{rb.HP}}}tbl") if int(t.get("rowCnt") or 1) > 1), None)
                         if big is not None:
                             break
-                target = big
-                break
-            if target is not None:
-                break
+                return big
+        return None
+
+    for _, first, h, nth in found:
+        # 넘친 줄 전체가 든 문단·칸(문단 중간에서 넘쳐도 — 10/19 요약문 결언 "의 사용성에는 …"), 못 찾으면 예전처럼 앞 12글자로 시작하는 칸
+        # (PDF는 표 한 줄의 여러 칸 글을 한 줄로 합치기도 함)
+        line = flat(first)
+        once = len(line) >= 8 and sum(flat("".join(t.text or "" for t in p.iter(rb.T))).count(line)
+                                          for root in roots.values() for p in root if p.tag == f"{{{rb.HP}}}p") == 1  # 표 안 글까지
+        target = find(lambda t: line in flat(t), 0) if once else None
+        if target is None:
+            target = find(lambda t: _key(first) in _key(t), nth)
         if target is None:
             continue
         need = int(h * 100 * 1.2) + 800
         if _squeeze_table(target, need, keep, rb):
             done.append(f"'{first[:14]}…' 넘침 → 앞 표 {need} 줄임")
+    if not done:
+        return []
+    for n, root in roots.items():
+        data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    if keep is not None:
+        data["Contents/header.xml"] = keep.header()
+    _rewrite(hwpx, infos, data)
+    return done
+
+
+def _body_end(hwpx: Path) -> float | None:
+    """본문 영역 아래 끝(pt, PDF 좌표) — 첫 구역 쪽 설정(쪽 높이 − 아래 여백 − 꼬리말 여백). 꼬리말 로고 줄보다 위."""
+    try:
+        with zipfile.ZipFile(hwpx) as z:
+            s = z.read(sorted(n for n in z.namelist() if re.fullmatch(r"Contents/section\d+\.xml", n))[0]).decode("utf-8")
+        pp = re.search(r"<hp:pagePr[^>]*>[\s\S]*?</hp:pagePr>", s)[0]
+        h = int(re.search(r'\sheight="(\d+)"', pp)[1])
+        mg = dict(re.findall(r'(\w+)="(\d+)"', re.search(r"<hp:margin [^>]*/>", pp)[0]))
+        return (h - int(mg["bottom"]) - int(mg["footer"])) / 100
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
+def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: float = 0.15) -> list[str]:
+    """제목 + 글자처럼 취급한 표가 통째로 다음 쪽으로 넘어가 앞 쪽 아래가 크게(25% 넘게) 빈 곳(10/19 형 "표가 못생기게 통째로 넘어갔어 자연스럽게",
+    "현장마다 표 길이가 다를 건데 여러 상황에서 자연스럽게" — 부록 사전검토 3.1 표, 과업명이 두 줄이 되며 한 줄이 모자람):
+    - 조금(squeeze_max, 15%까지) 모자라면 그 표를 모자란 만큼 줄여(줄 여유 → 줄 간격 한 단계) 앞 쪽에 통째로,
+    - 더 모자라면 표를 쪽에서 나뉘게(rb._splittable — 제목 바로 아래에서 시작해 다음 쪽으로 이어지고 머리 줄은 되풀이).
+    원본이 일부러 새 쪽에서 시작한 곳·간지는 뺌. 고친 곳 설명(비면 안 바꿈 — 부르는 쪽이 PDF를 한 번 더)."""
+    import pymupdf
+
+    from server.sitok import report_build as rb
+
+    starts = designed_starts(hwpx)
+    body_end = _body_end(hwpx)
+    with pymupdf.open(pdf) as doc:
+        pages = [_body(pg) for pg in doc]
+        draws = [sorted((d["rect"] for d in pg.get_drawings() if TOP < d["rect"].y0 < pages[i][2] - 2 and d["rect"].height < pg.rect.height * 0.9),
+                        key=lambda r: r.y0) for i, pg in enumerate(doc)]
+    found = []  # (제목 글, 모자란 pt, 표 높이 pt, 그 제목이 PDF에서 몇 번째로 나온 것인지 0부터)
+    for i in range(len(pages) - 1):
+        lines, bottom, foot, _ = pages[i]
+        nxt = pages[i + 1][0]
+        if not lines or not nxt or _divider(lines) or _divider(nxt):
+            continue
+        head = nxt[0]
+        if not HEAD.match(head[2]) or _key(head[2]) in starts:
+            continue
+        rects = [r for r in draws[i + 1] if r.y0 >= head[1] - 1]
+        if not rects or rects[0].y0 > head[1] + 60:  # 제목 바로 아래가 표가 아님
+            continue
+        table_bottom = rects[0].y1
+        for r in rects:  # 이어진 선들 = 그 표
+            if r.y0 > table_bottom + 3:
+                break
+            table_bottom = max(table_bottom, r.y1)
+        # 제목 위 문단 간격 — 앞 쪽에서 제목 줄(1. 2. 3.1 …) 앞 빈 간격 중 큰 것(이 문서 모양), 없으면 30pt
+        gaps = [y0 - lines[j - 1][1] for j, (y0, _, t) in enumerate(lines) if j and HEAD.match(t)]
+        need = table_bottom - head[0] + max(gaps + [24.0]) + 6  # + 여유
+        room = (body_end or foot - 20) - bottom
+        if room < (foot - TOP) * 0.25:  # 앞 쪽이 별로 안 비었으면 그대로
+            continue
+        k = sum(1 for j in range(i + 1) if any(_key(head[2]) == _key(t) for _, _, t in pages[j][0]))
+        found.append((head[2], need - room, need, k))
+    if not found:
+        return []
+    with zipfile.ZipFile(hwpx) as z:
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+        sections = rb._sections(z)
+    keep = rb._KeepHeads(data["Contents/header.xml"]) if "Contents/header.xml" in data else None
+    roots = {n: etree.fromstring(data[n]) for n in sections[sections_from:]}
+    done = []
+    for head, short, need, nth in found:
+        seen = 0
+        target = None
+        for root in roots.values():
+            tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
+            for i, p in enumerate(tops):
+                if _key(rb._top_text(p)) != _key(head):
+                    continue
+                if seen < nth:
+                    seen += 1
+                    continue
+                for q in tops[i + 1:i + 3]:  # 제목 바로 뒤 문단의 글자처럼 취급 표
+                    tbl = next(q.iter(f"{{{rb.HP}}}tbl"), None)
+                    pos = tbl.find(f"{{{rb.HP}}}pos") if tbl is not None else None
+                    if pos is not None and pos.get("treatAsChar") == "1":
+                        target = tbl
+                        break
+                break
+            if target is not None:
+                break
+        if target is None:
+            continue
+        if short <= need * squeeze_max:
+            cut = int(max(short, 0.0) * 100 * 1.2) + 800
+            if _squeeze_table(target, cut, keep, rb):
+                done.append(f"'{head[:14]}…' 표가 통째로 넘어감 → {cut} 줄여 앞 쪽에")
+        else:
+            cells = rb._cells(target)
+            head_rows = max([rb._span(tc, "rowSpan") for (r, _), tc in cells.items() if r == 0] or [1])  # 2단 머리(구분·…·실시범위/정기·정밀)면 2
+            rb._splittable(target, head_rows)
+            om = target.find(f"{{{rb.HP}}}outMargin")
+            if om is not None and int(om.get("bottom") or 0) < 1000:  # 자리 차지 표는 문단 줄 간격이 없어 뒤 제목이 표에 붙음 — 아래 여백
+                om.set("bottom", "1000")
+            done.append(f"'{head[:14]}…' 표가 통째로 넘어감 → 제목 아래에서 시작해 다음 쪽으로 나뉘게")
     if not done:
         return []
     for n, root in roots.items():
