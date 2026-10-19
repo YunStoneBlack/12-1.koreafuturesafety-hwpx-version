@@ -598,4 +598,7 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 @media (min-width: 901px) {
   body[data-law="sitok"] main.main, body[data-docs-tab="performance"] main.main { max-width: 1720px; }
   body[data-law="sitok"] .dk-wrap { margin-right: 0; } /* 달력 그날 상세를 본문 바깥에 붙이던 것(1180px 전제, docs.css) — 본문이 넓어 안에 나란히 */
+  /* 산안법 방문 달력도 시특법과 같게(10/19 민재형 "가로·세로 늘렸던 거 산안법에도") — 달력이 넓어지면 FullCalendar가 높이도 비율로 늘림 */
+  body[data-report-tab="calendar"] main.main { max-width: 1720px; }
+  body[data-report-tab="calendar"] .cal-wrap { margin-right: 0; }
 }
