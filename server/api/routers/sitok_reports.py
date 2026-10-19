@@ -453,6 +453,12 @@ def _prior(r: SitokReport) -> Path | None:
     return Path(r.source_hwpx) if r.source_hwpx and Path(r.source_hwpx).exists() else None
 
 
+def service_title(name: str, r: SitokReport) -> str:
+    """용역명 = 표지 문구(10/19 민재형 "용역명도 표지문구랑 동일하게") — "○○에 대한 2026년 하반기 정기안전점검 보고서",
+    ○○ = 시설물명(FMS) 또는 묶음·분권은 "1장 시설물명 등 N개소"(merge.cover_name)."""
+    return f"{name}에 대한 {r.year}년 {r.half} {r.kind or '정기'}안전점검 보고서"
+
+
 def _new_values(db: Session, r: SitokReport, old: rb.Values, prior: rb.Values | None) -> tuple[rb.Values, list[str]]:
     """이 회차의 새 값 + 경고(빈 칸·수료증 유효기간). old = 회사 원본(광숭초) 값 — 바뀌어야 할 것. 값은 시설물(관리대장)·계약 → 없으면 전회차 보고서."""
     f = db.get(SitokFacility, r.facility_id)
@@ -461,14 +467,7 @@ def _new_values(db: Session, r: SitokReport, old: rb.Values, prior: rb.Values | 
     p = prior or rb.Values()
     new = rb.Values(**{k: getattr(old, k) for k in vars(old)})
     new.name, new.year, new.half = f.name or p.name or "-", r.year, r.half
-    if p.title:  # 용역명은 전회차 보고서 모양(발주처마다 다름) — 연도·반기·이름만 이번으로
-        t = p.title
-        for o, n in ((p.name, new.name), (f"{p.year}년도", f"{r.year}년도"), (f"{p.year}년", f"{r.year}년"), (p.half, r.half)):
-            if o:
-                t = t.replace(o, n)
-        new.title = t
-    else:
-        new.title = f"{r.year}년도 {r.half} {r.kind or '정기'}점검[{new.name}]"
+    new.title = service_title(new.name, r)  # 용역명 = 표지 문구(10/19 민재형 — 전엔 전회차 용역명 모양에 연도·반기·이름만 바꿈)
     new.owner = f.owner_name or p.owner or "-"
     new.address = f.address or p.address or "-"
     new.completion = f.completion_date or p.completion
@@ -872,7 +871,7 @@ def _run_precision_group_build(db: Session, r: SitokReport) -> None:
     동마다 부록 한글·PDF(관리대장·사진첩·측정데이터·탄산화 사진현황·결과자료·계약서 끼움)를 만든 뒤 간지 구간마다 이어 붙여(merge_appendix_pdfs) 합본 PDF."""
     from core.models_web import SitokGroup
     from server.sitok import drawings as D
-    from server.sitok import precision_build, precision_merge
+    from server.sitok import merge, precision_build, precision_merge
 
     pairs: list = []
     try:
@@ -898,7 +897,7 @@ def _run_precision_group_build(db: Session, r: SitokReport) -> None:
         lead, lead_r = pairs[0]
         g = db.get(SitokGroup, lead.group_id)
         gname = (g.name if g else "") or lead.name
-        gtitle = parts[0]["title"].replace(lead.name, gname) if lead.name in parts[0]["title"] else parts[0]["title"]
+        gtitle = service_title(merge.cover_name(parts, gname), r)  # 묶음 용역명 = 표지 문구(10/19 형)
         folder = _report_dir(lead, lead_r)
         base = f"{r.year}년 {r.half} 정밀안전점검 보고서_{gname}"
         hwpx = folder / f"{base}(본문).hwpx"
@@ -1162,7 +1161,7 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         lead, lead_r = pairs[0]
         g = db.get(SitokGroup, lead.group_id)
         gname = (g.name if g else "") or lead.name
-        gtitle = parts[0]["title"].replace(lead.name, gname) if lead.name in parts[0]["title"] else parts[0]["title"]
+        gtitle = service_title(merge.cover_name(parts, gname), r)  # 묶음 용역명 = 표지 문구(10/19 형)
         folder = _report_dir(lead, lead_r)
         base = f"{r.year}년 {r.half} {r.kind or '정기'}안전점검 보고서_{gname}"
         hwpx = folder / f"{base}.hwpx"
