@@ -255,6 +255,11 @@ def merge_body(parts: list[dict], dest: Path, group_name: str, group_title: str)
         if lead_name and lead_name != group_name:
             for p in tops[:blocks["overview"][0]]:
                 M._sub_pieces(p, re.escape(lead_name), group_name)
+        for p in tops[:blocks["overview"][0]]:  # 표지 "○○에 대한" = "1장 시설물명 등 N개소에 대한"(10/19 형, 정기 묶음 merge.cover_name과 같게)
+            m = re.fullmatch(r"\s*(.+?)에\s*대한\s*", rb._top_text(p))
+            if m:
+                rb._set_para(p, f"{M.cover_name(parts, group_name)}에 대한")
+                break
         # --- 둘째 구역: 시설물편 동마다
         body = roots[1]
         btops = M._tops(body)

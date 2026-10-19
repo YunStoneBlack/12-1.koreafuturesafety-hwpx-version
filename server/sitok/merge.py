@@ -247,6 +247,11 @@ def _divider_table(root, names: list[str]) -> None:
             return
 
 
+def cover_name(parts: list[dict], group_name: str) -> str:
+    """표지 "○○에 대한"의 ○○ — 묶음이면 "1장 시설물명 등 N개소"(10/19 민재형, 보고서 분권도 동 개수 기준으로 같게), 한 동이면 그 이름."""
+    return f"{parts[0]['name']} 등 {len(parts)}개소" if len(parts) > 1 else (parts[0]["name"] if parts else group_name)
+
+
 def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> list[str]:
     """parts = [{hwpx, name, title, row: [구분, 건물명, 준공연도, 층수, 연면적, 구조], area: float}] 동 순서(첫 동 = 대표). 안내를 돌려줌."""
     notes: list[str] = []
@@ -289,11 +294,11 @@ def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> l
                 _sub_pieces(p, r"^(\s*)1\.(?=\d)", rf"\g<1>{k}.", first_only=True)
                 last.addnext(p)
                 last = p
-        # 표지 "○○에 대한"·책등 이름 → 묶음 이름
+        # 표지 "○○에 대한" = "1장 시설물명 등 N개소에 대한"(10/19 형 — 1개 동은 시설물명(FMS) 그대로), 책등 이름 → 묶음 이름
         for p in _tops(front):
             m = re.fullmatch(r"\s*(.+?)에\s*대한\s*", rb._top_text(p))
             if m:
-                rb._set_para(p, f"{group_name}에 대한")
+                rb._set_para(p, f"{cover_name(parts, group_name)}에 대한")
                 break
         for tbl in front.iter(f"{{{HP}}}tbl"):
             if "︻" in "".join(rb._cell_text(c) for c in rb._cells(tbl).values()):
