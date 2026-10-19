@@ -18,6 +18,7 @@ from pathlib import Path
 from lxml import etree
 
 from server.sitok import report_build as rb
+from server.sitok.borders import Borders
 
 HP = rb.HP
 T = rb.T
@@ -171,7 +172,9 @@ def _result_rows(tbl, buildings: list) -> None:
     head_h = int(cells[(0, 0)].find(f"{{{HP}}}cellSz").get("height"))
     width = int(first[4].find(f"{{{HP}}}cellSz").get("width")) - 400
     per = max(1, width // rb.CHAR_W)
-    for tr in tbl.findall(f"{{{HP}}}tr")[1:]:
+    trs = tbl.findall(f"{{{HP}}}tr")
+    end_bf = {int(tc.find(f"{{{HP}}}cellAddr").get("colAddr")): tc.get("borderFillIDRef") for tc in trs[-1].findall(f"{{{HP}}}tc")}  # 원본 끝줄 선(밑줄)
+    for tr in trs[1:]:
         tbl.remove(tr)
     r, total = 1, head_h
     for i, b in enumerate(buildings, 1):
@@ -195,6 +198,28 @@ def _result_rows(tbl, buildings: list) -> None:
             cz.set("endRowAddr", str(r - 1))
     tbl.set("rowCnt", str(r))
     tbl.find(f"{{{HP}}}sz").set("height", str(total))
+    _result_borders(tbl, end_bf)
+
+
+def _result_borders(tbl, end_bf: dict) -> None:
+    """3.4 표 선(10/19 형 "표 내부 줄 두껍게 되어있는 거 한 줄로, 맨 밑 칸 줄 왜 날라갔는지") — 건물 줄을 첫 데이터 줄 모양(위 = 머리줄 밑 이중선)으로
+    복사해 동 사이마다 굵은 선 → 첫 줄 말고는 위 선을 가는 선으로, 원본 끝줄을 지워 밑줄이 없던 것 → 맨 아래에 닿는 칸은 원본 끝줄의 아래 선."""
+    b = getattr(rb._TL, "borders", None)
+    if b is None:
+        return
+    last = int(tbl.get("rowCnt")) - 1
+    for tc in tbl.iter(f"{{{HP}}}tc"):
+        a, sp = tc.find(f"{{{HP}}}cellAddr"), tc.find(f"{{{HP}}}cellSpan")
+        r, c, rs = int(a.get("rowAddr")), int(a.get("colAddr")), int(sp.get("rowSpan"))
+        bid = tc.get("borderFillIDRef")
+        if r > 1:
+            bid = b.thin(bid, top=True, bottom=False)
+        if r + rs - 1 == last and end_bf.get(c, end_bf.get(min(end_bf, key=lambda k: abs(k - c)) if end_bf else None)):
+            bid = b.side_from(bid, "bottom", end_bf.get(c) or end_bf[min(end_bf, key=lambda k: abs(k - c))])
+        elif r + rs - 1 < last:
+            bid = b.thin(bid, top=False, bottom=True)
+        if bid:
+            tc.set("borderFillIDRef", bid)
 
 
 def _conclusion(root, paras: list[str]) -> None:
@@ -243,8 +268,11 @@ def build(s: Summary, template: Path, out: Path) -> None:
     if t33 is not None:
         _simple_rows(t33, [[i, b.name, b.grade or "-", b.methods or "-", b.prio or "-"] for i, b in enumerate(s.buildings, 1)])
     t34 = _table(root, "번호", "시설물명", "전차등급", "점검결과")
+    hname = next((i.filename for i, _ in items if i.filename == "Contents/header.xml"), None)
+    bd = Borders(next(d for i, d in items if i.filename == hname).decode("utf-8")) if hname else None
     if t34 is not None:
-        _result_rows(t34, s.buildings)
+        with rb.using_borders(bd):
+            _result_rows(t34, s.buildings)
     for key, names in (("∙정밀안전점검대상", s.precise), ("∙정밀안전진단대상", s.diag)):
         p = _after(paras, lambda t, key=key: t.startswith(key))
         if p is not None:
@@ -255,7 +283,11 @@ def build(s: Summary, template: Path, out: Path) -> None:
     tmp = out.with_suffix(".part")
     with zipfile.ZipFile(tmp, "w") as zo:
         for info, d in items:
-            zo.writestr(info, data if info.filename == name else d)
+            if info.filename == name:
+                d = data
+            elif info.filename == hname and bd is not None:  # 3.4 표 선 모양 더한 것(10/19)
+                d = bd.result(d.decode("utf-8")).encode("utf-8")
+            zo.writestr(info, d)
     tmp.replace(out)
 
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 
 _BF = re.compile(r'<hh:borderFill id="(\d+)"[\s\S]*?</hh:borderFill>')
+_CP = re.compile(r'<hh:charPr id="(\d+)"[\s\S]*?</hh:charPr>')
 _SIDE = re.compile(r'<hh:(left|right|top|bottom)Border type="(\w+)" width="([\d.]+) mm"')
 
 
@@ -67,8 +68,53 @@ class Borders:
                 new = re.sub(rf'<hh:{side}Border type="\w+" width="[\d.]+ mm"', f'<hh:{side}Border type="SOLID" width="{w:g} mm"', new, count=1)
         return bid if new == d else self.adopt(new)
 
+    def side_from(self, bid: str | None, side: str, src: str | None) -> str | None:
+        """bid 모양의 side(top·bottom·left·right) 선을 src 모양의 그 선으로 바꾼 모양 번호(10/19 요약문 3.4 표 밑줄 — 원래 끝줄 선)."""
+        d, s_ = self.by_id.get(str(bid)), self.by_id.get(str(src))
+        if d is None or s_ is None:
+            return bid
+        m = re.search(rf"<hh:{side}Border [^>]*/>", s_)
+        if not m:
+            return bid
+        new = re.sub(rf"<hh:{side}Border [^>]*/>", m[0], d, count=1)
+        return bid if new == d else self.adopt(new)
+
+    def char_size(self, cid: str | None) -> int | None:
+        """글자 모양 cid의 크기(1/100pt)."""
+        self.char_height(None, 0)  # 목록 준비
+        m = re.search(r'\sheight="(\d+)"', self._chars.get(str(cid), ""))
+        return int(m[1]) if m else None
+
+    def char_height(self, cid: str | None, height: int) -> str | None:
+        """글자 모양 cid를 크기만 height(1/100pt)로 바꾼 모양의 번호 — 같은 정의가 있으면 그 번호, 없으면 새로(10/19 긴 제목 한 줄로 — layout_fix)."""
+        if not hasattr(self, "_chars"):
+            self._chars = {m[1]: re.sub(r'^<hh:charPr id="\d+"', "<hh:charPr", m.group(0)) for m in _CP.finditer(self.xml)}
+            self._char_by_def = {}
+            for i, d in self._chars.items():
+                self._char_by_def.setdefault(d, i)
+            self._cnext = max([int(i) for i in self._chars] or [0]) + 1
+            self.chars_added: list[str] = []
+        d = self._chars.get(str(cid)) if cid is not None else None
+        if d is None:
+            return cid
+        new = re.sub(r'(<hh:charPr[^>]*?\sheight=")\d+(")', rf"\g<1>{int(height)}\g<2>", d, count=1)
+        if new == d:
+            return cid
+        if new in self._char_by_def:
+            return self._char_by_def[new]
+        nid = str(self._cnext)
+        self._cnext += 1
+        self._chars[nid] = new
+        self._char_by_def[new] = nid
+        self.chars_added.append(new.replace("<hh:charPr", f'<hh:charPr id="{nid}"', 1))
+        return nid
+
     def result(self, xml: str) -> str:
         """header.xml(다른 고침이 들어간 것도 됨)에 더한 모양을 붙임."""
+        chars = getattr(self, "chars_added", [])
+        if chars:
+            xml = xml.replace("</hh:charProperties>", "".join(chars) + "</hh:charProperties>", 1)
+            xml = re.sub(r'(<hh:charProperties itemCnt=")(\d+)(")', lambda m: f"{m[1]}{int(m[2]) + len(chars)}{m[3]}", xml, count=1)
         if not self.added:
             return xml
         xml = xml.replace("</hh:borderFills>", "".join(self.added) + "</hh:borderFills>", 1)

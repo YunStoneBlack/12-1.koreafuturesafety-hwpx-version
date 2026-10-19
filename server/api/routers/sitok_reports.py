@@ -1048,6 +1048,8 @@ def _summary_input(db: Session, pairs: list, title: str, warn: list) -> "object"
                 prev = ai_draft.grade_label(pg, m.template) if pg else "-"
             except Exception:  # noqa: BLE001
                 prev = "-"
+        elif _prev_grade(x):  # 전회차 한글이 없으면 전회차 보고서 PDF에서 읽은 등급(10/19 — 요약문 3.4 전차등급이 "-"이던 것)
+            prev = ai_draft.grade_label(_prev_grade(x), m.template)
         floors = " / ".join(s for s in (f"B{m.floors_below}F" if m.floors_below else "", f"{m.floors_above}F" if m.floors_above else "") if s)
         blds.append(S.Building(name=m.name, year=f"{m.completion_date.year}년" if m.completion_date else "-", floors=floors or "-",
                                area=f"{m.total_area:,.2f}㎡" if m.total_area else "-", structure=m.structure or "-", prev=prev,
@@ -1688,7 +1690,13 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
         y, h = _year_half(rp.get("period"))
         history.append({"kind": "정기안전점검", "period": rp.get("period") or "-", "org": rp.get("org") or "-", "grade": rp.get("grade") or "-",
                         "title": f"【 {y}년 {h} 정기안전점검 실시결과 】" if y else "【 전회차 정기안전점검 실시결과 】", "lines": rp.get("findings") or ["-"]})
-        history += (pp.get("history") or [])[:1]
+        start = rb._d(rp.get("period") or "")
+        older = [dict(h) for h in pp.get("history") or [] if rb._d(h.get("period") or "") and rb._d(h["period"]) != start]
+        older.sort(key=lambda h: rb._d(h["period"]), reverse=True)  # 표가 오래된 순인 보고서도 있어(덕산초 2026 상반기) 날짜로 — 전전회차 = 가장 최근(10/19 형)
+        for h in older[:1]:
+            t = (h.get("title") or "").strip().strip("【】 ")
+            h["title"] = f"【 {t} 】" if t and t != "-" else h.get("title") or "-"
+        history += older[:1]
         repairs = pp.get("repairs") or []
     result = {"시설물구분": f.kind or "건축물", "종류": f.use_type or f.main_use or "-",
               "종별": f"{(f.template or '2')[:1]}종" if f.legal else "해당없음"}  # 법정 외(자체 점검) = 해당없음(사용자 10/12)

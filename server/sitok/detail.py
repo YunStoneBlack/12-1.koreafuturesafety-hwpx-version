@@ -214,6 +214,11 @@ def _set_rows(t, rows: list[list[str]]) -> None:
             cz.set("endRowAddr", str(n - 1))
 
 
+def _bare(x) -> str:
+    """앞 글머리 점·공백 뗀 값."""
+    return str(x or "").strip().lstrip("ㆍ·•∙・").strip()
+
+
 def apply(root, detail: dict) -> int:
     """회차 detail을 틀 표·체크 줄에 — 이름이 같은 칸만(없는 이름은 그대로)."""
     hy, gu, yo = _tables(root)
@@ -225,8 +230,8 @@ def apply(root, detail: dict) -> int:
             if v is None:
                 continue
             lines = [x for x in str(v).split("\n")] or [""]
-            if pre:
-                lines = [f"ㆍ{x.strip()}" if x.strip() and x.strip() != "-" else (x.strip() or "-") for x in lines]
+            if pre:  # 값 앞에 이미 점(·ㆍ)이 있으면 떼고 하나만(10/19 형 "점이 두 개 생김" — 전회차 보고서 PDF에서 읽은 값)
+                lines = [f"ㆍ{_bare(x)}" if _bare(x) and _bare(x) != "-" else (_bare(x) or "-") for x in lines]
             if len(cells) == 1:
                 rb._set_lines(cells[0], lines)
             else:  # 세로로 합친 이름(방수공법) — 칸마다 한 줄, 줄이 모자라면 "-"(10/12 빈칸 안 남게)
@@ -243,7 +248,7 @@ def apply(root, detail: dict) -> int:
             n += 1
         v = fields.get("내진/확인결과")
         if v is not None:
-            rb._set_lines(se[1], [f"ㆍ{v}" if v and v != "-" else "-"])
+            rb._set_lines(se[1], [f"ㆍ{_bare(v)}" if _bare(v) and _bare(v) != "-" else "-"])
             n += 1
     paras = _check_paras(root)
     for p, k in zip(paras, _check_keys(paras)):

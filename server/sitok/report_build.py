@@ -2169,6 +2169,22 @@ class _KeepHeads:
             self.next += 1
         return self.made[pid]
 
+    def clone(self, pid: str, tag: str, change) -> str:
+        """문단 모양 pid를 복사해 change(복사본)로 고친 새 모양 번호 — 같은 (pid, tag)는 한 번만(10/19 layout_fix: 내어 쓰기 없애기·줄 간격 줄이기)."""
+        key = f"{pid}|{tag}"
+        if key not in self.made:
+            src = self.by_id.get(pid)
+            if src is None or self.props is None:
+                return pid
+            cp = copy.deepcopy(src)
+            cp.set("id", str(self.next))
+            change(cp)
+            self.props.append(cp)
+            self.by_id[str(self.next)] = cp
+            self.made[key] = str(self.next)
+            self.next += 1
+        return self.made[key]
+
     def apply(self, root) -> int:
         if self.props is None:
             return 0
@@ -2339,9 +2355,14 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     if is_front and new.persons:
                         changed += engineer_list(root, new.persons)  # 참여기술자 명단도 이번 회차 사람으로(10/14)
                     if is_front:
+                        from server.sitok import layout_fix  # 모양 손질(10/19 형 요구사항 문서)
+                        changed += layout_fix.submit_dashes(root)
+                        changed += layout_fix.toc_appendix(root)
+                        changed += layout_fix.submit_date(root, new.report_month)
                         for tbl in root.iter(f"{{{HP}}}tbl"):  # 정기 결과표 "점검 주요결과"가 길면 앞 쪽 몫 + (계속) 줄로(10/14)
                             c0 = _cells(tbl)
                             if {"용역명", "점검기간", "관리주체명"} <= {re.sub(r"\s", "", _cell_text(v)) for v in c0.values()}:
+                                changed += layout_fix.result_rows(tbl)  # 좁은 줄 늘리기 — 나누기 어림 전에
                                 if split_findings_row(root, tbl, REGULAR_RESULT_FIT):
                                     changed += 1
                                 break
@@ -2359,6 +2380,16 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                         if extras.parts is not None:
                             changed += _parts_tables(root, extras.parts, add_image)
                         changed += _finish_repairs(root)
+                        from server.sitok import layout_fix
+                        changed += layout_fix.strip_na_titles(root)
+                        changed += layout_fix.chapter_title_break(root)  # 장 표지 제목 둘째 줄 "양" 아래로(10/19 형)
+                        changed += layout_fix.toc_list_left(root)  # 장 표지 소목차 한 줄로
+                        changed += layout_fix.trim_blank_before_change_heads(root)  # 1.2.8 "3) …변경사항" 앞 빈 줄
+                        if keep is not None:
+                            changed += layout_fix.grade_para_indent(root, keep)  # 1.8 "본 시설물은…" 내어 쓰기 없앰
+                        changed += layout_fix.appendix_dates(root, new.period_start)  # 부록 표지 날짜 = 점검 시작 연월
+                        changed += layout_fix.task_title(root, new.title)  # 과업지시서 표지 = 용역명 앞부분
+                        changed += layout_fix.seismic_gap(root)  # 내진 점검표 기관명·건물명 사이
                         changed += _let_split(root, heights)  # 줄이 느는 표·한 쪽을 넘게 커진 표는 쪽에서 나눔(10/12)
                         if not extras.has_drawings:  # 1.2.9 관련 설계도면 — 붙일 도면이 없으면 "후면첨부"라고 남지 않게
                             for q in root.iter(f"{{{HP}}}p"):

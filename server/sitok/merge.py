@@ -244,6 +244,9 @@ def _divider_table(root, names: list[str]) -> None:
                 if (i, 0) in c and (i, 1) in c:
                     rb._set_lines(c[(i, 0)], [f"제{i + 1}장"])
                     rb._set_lines(c[(i, 1)], [name])
+            from server.sitok import layout_fix
+
+            layout_fix.divider_top(tbl)  # "제N장"을 이름 첫 줄에(10/19 형)
             return
 
 
@@ -267,8 +270,11 @@ def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> l
         tops = _tops(front)
         anchors = {kind: tops[e - 1] for kind, (s, e) in blocks.items()}
         titles = {kind: tops[s] for kind, (s, e) in blocks.items()}
+        from server.sitok import layout_fix
+
         for kind in ("result", "summary", "overview"):
             _prefix_title(titles[kind], kind, 1, parts[0]["name"])
+        layout_fix.fit_title(titles["overview"], bins.borders)  # 긴 위치도 제목 한 줄로(10/19 형)
         for k, (part, oroots) in enumerate(zip(parts[1:], others), 2):
             otops = _tops(oroots[0])
             ob = _front_blocks(oroots[0])
@@ -279,6 +285,8 @@ def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> l
                 for q in copies:
                     _renew_ids(q)
                     bins.take(q, zs[k - 1], k)
+                if kind == "overview":
+                    layout_fix.fit_title(copies[0], bins.borders)
                 last = anchors[kind]
                 for q in copies:
                     last.addnext(q)
@@ -322,9 +330,13 @@ def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> l
                 _renew_ids(q)
                 bins.take(q, zs[k - 1], k)
                 app.addprevious(q)
+        # --- 부록 대상 시설물 표에 둘째 동부터 줄(10/19 형)
+        with rb.using_borders(bins.borders):
+            layout_fix.target_rows(roots[2:], [o[2:] for o in others])
         # --- 용역명 → 묶음 용역명(결과표 칸 말고)
         for root in roots:
             _replace_titles(root, [p["title"] for p in parts], group_title)
+            layout_fix.task_title(root, group_title)  # 과업지시서 표지 첫 줄도 묶음 문구로
             for el in list(root.iter(f"{{{HP}}}linesegarray")):
                 el.getparent().remove(el)
         # --- 쓰기
