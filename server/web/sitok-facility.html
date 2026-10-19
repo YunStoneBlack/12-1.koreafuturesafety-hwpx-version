@@ -50,16 +50,17 @@
 </details>
 
 
-<!-- 10/16 민재형: 건물을 보고서 상자에 끌어다 넣어 몇 권 낼지(같은 상자 = 동 묶음), 계약이 여럿이면 상자마다 계약 — js/sitok-compose.js -->
-<section class="panel" id="sk-compose-panel" hidden>
-  <div class="panel-head"><h2>📚 보고서 구성</h2><span class="panel-count">건물을 보고서 상자에 넣어 몇 권 낼지 정합니다 — 같은 상자 = 동 묶음(보고서 한 권), 언제든 바꿀 수 있음</span></div>
+<!-- 10/16 민재형: 건물을 보고서 상자에 끌어다 넣어 몇 권 낼지(같은 상자 = 동 묶음), 계약이 여럿이면 상자마다 계약 — js/sitok-compose.js.
+     보고서 구성·점검 회차는 처음엔 접힘(10/19 형 "너무 길게 다 펼쳐져 있어서 어지러움") -->
+<details class="panel sk-fold" id="sk-compose-panel" hidden>
+  <summary class="panel-head"><h2>📚 보고서 구성</h2><span class="panel-count">건물을 보고서 상자에 넣어 몇 권 낼지 정합니다 — 같은 상자 = 동 묶음(보고서 한 권), 언제든 바꿀 수 있음</span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body" id="sk-compose"></div>
-</section>
+</details>
 
-<section class="panel" id="sk-rep-panel" hidden>
-  <div class="panel-head"><h2>점검 회차</h2><span class="panel-count">회차를 누르면 현장 조사·재료시험·보고서 만들기 화면으로 갑니다</span></div>
+<details class="panel sk-fold" id="sk-rep-panel" hidden>
+  <summary class="panel-head"><h2>점검 회차</h2><span class="panel-count">회차를 누르면 현장 조사·재료시험·보고서 만들기 화면으로 갑니다</span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body" id="sk-reps"></div>
-</section>
+</details>
 
 <details class="panel sk-fold" id="sk-con-panel">
   <summary class="panel-head"><h2>📑 계약</h2><span class="panel-count" id="sk-con-count">회차별로 쌓입니다 — 최근 계약이 위</span><span class="sk-fold-arrow">▾</span></summary>

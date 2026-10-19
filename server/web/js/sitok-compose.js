@@ -7,6 +7,7 @@
 (function () {
   const fid = Number(new URLSearchParams(location.search).get("id")) || null;
   const panel = document.getElementById("sk-compose-panel");
+  document.getElementById("fi-compose-link")?.addEventListener("click", () => { panel.open = true; }); // 접힌 칸(10/19)이면 펼쳐서 감
   const box = document.getElementById("sk-compose");
   if (!fid || !panel || !box) return;
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
