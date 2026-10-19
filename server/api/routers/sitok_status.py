@@ -118,6 +118,25 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
 
     signed = [set(covered_ids(c)) for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id)
               if (c.contract_pdf or c.made_at) and (_overlaps(c, year, half) or (not c.rounds and no_start(c)))]  # 이 반기 계약 중 계약서가 있는 것(민간 만듦·날인본, 관급 나라장터 계약서) — 계약 칸(10/19 형)
+    h_end = half_range(year, half)[1]
+    first_start: dict = {}  # 묶음 단위 → 첫 계약 시작(그 전 반기엔 "미계약" 줄을 안 만듦 — 아직 거래 전)
+    con_start: dict = {}
+
+    def began(c):  # 시작일 없는 계약(관급 일부·민간-15)은 끝나는 날이 든 반기 첫날
+        if c.start_date is not None or c.end_date is None:
+            return c.start_date
+        return half_range(c.end_date.year, "상반기" if c.end_date.month <= 6 else "하반기")[0]
+
+    for c in db.query(SitokContract).filter(SitokContract.company_id == user.company_id):
+        if (d := began(c)) is not None:
+            con_start[c.facility_id] = min(con_start.get(c.facility_id, d), d)
+    for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id):
+        if (d := began(c)) is not None:
+            for fid in covered_ids(c):
+                con_start[fid] = min(con_start.get(fid, d), d)
+    for key, members in units.items():
+        starts = [con_start[m.id] for m in members if m.id in con_start]
+        first_start[key] = min(starts) if starts else None
     rows = []
     names = {}
     for key, members in units.items():
@@ -132,7 +151,10 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
         for hh in sorted({h for m in members for h in reps_by.get(m.id, {})}, key=seasons.order) or [half]:  # 연 3회면 시기마다 한 줄
             mr = [reps_by[m.id][hh] for m in members if hh in reps_by.get(m.id, {})]
             r = mr[0] if mr else None
-            if r is None and (lead.contract_type == "종료" or contract_for(db, lead, year, half) is None):
+            # 이 반기 회차가 없으면: 종료는 빼고, 1회성·입찰은 이 반기 계약이 있을 때만, 장기·지속은 계약이 없어도 줄로(계약 칸 "미계약" —
+            # 10/19 형 "시설물 목록 95개소인데 제출 현황 91개소" → 하반기 계약을 아직 안 받은 장기 4곳이 빠졌던 것)
+            if r is None and (lead.contract_type == "종료" or (contract_for(db, lead, year, half) is None
+                                                             and (lead.contract_type != "장기" or first_start.get(key) is None or first_start[key] > h_end))):
                 continue  # 이 반기 계약도 회차도 없음
             sub = (r.submit or {}) if r is not None else {}
             states = [report_state(x) for x in mr] or [report_state(None)]
