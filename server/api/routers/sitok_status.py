@@ -146,8 +146,15 @@ def mark(report_id: int, body: MarkIn, user: User = Depends(get_current_user), d
         day = datetime.date.fromisoformat(body.date) if body.date else datetime.date.today()
     except ValueError as err:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "날짜가 맞지 않습니다.") from err
-    value = None if body.action == "clear" else {"na": True, "by": user.display_name or ""} if body.action == "na" else {"at": day.isoformat(), "by": user.display_name or ""}
     reps = _unit_reports(db, r)
+    if body.item == "field" and body.action == "done" and day > datetime.date.today():  # 앞날 = 예정(10/19 민재형 "날짜가 미래면 당연히 안함, 지난 거 넣은 건 완료")
+        for x in reps:
+            x.submit = {k: v for k, v in (x.submit or {}).items() if k != "field"}
+            steps.put(x, "field", None)
+        db.commit()
+        schedule_visit(db, user, [x.facility_id for x in reps], r.year, r.half, r.kind or "정기", day)
+        return {"ok": True, "item": body.item, "value": None, "planned": day.isoformat()}
+    value = None if body.action == "clear" else {"na": True, "by": user.display_name or ""} if body.action == "na" else {"at": day.isoformat(), "by": user.display_name or ""}
     for x in reps:
         sub = dict(x.submit or {})
         if value is None:
@@ -180,6 +187,27 @@ def visits_after_mark(db: Session, user: User, reps: list[SitokReport], done: bo
         db.commit()
     elif not any((x.submit or {}).get(k) for x in reps for k in VISIT_ITEMS):
         fill_quietly(db, user.company_id, user.display_name or "", ids)
+
+
+def schedule_visit(db: Session, user: User, ids: list[int], year: int, half: str, kind: str, day: datetime.date) -> None:
+    """현장점검일을 앞날로 넣음 = 예정 — 그 반기 방문 일정을 그날로(그날이 든 일정이 있으면 그대로, 없으면 가장 가까운 일정을 기간째 옮김 📌,
+    아예 없으면 그날 새로). 완료 표시는 안 함(10/19 민재형)."""
+    from core.models_web import SitokVisit
+
+    from server.sitok.visit_plan import visit_span
+
+    vs = db.query(SitokVisit).filter(SitokVisit.facility_id.in_(ids), SitokVisit.year == year, SitokVisit.half == half).all()
+    if any(visit_span(v)[0] <= day <= visit_span(v)[1] for v in vs):
+        return
+    if vs:
+        v = min(vs, key=lambda v: (abs((v.plan_date - day).days), v.id))
+        a, b = visit_span(v)
+        v.plan_date, v.plan_end, v.source = day, (day + (b - a)) if b > a else None, "manual"
+    else:
+        lead = db.query(SitokFacility).filter(SitokFacility.id.in_(ids)).order_by(SitokFacility.group_order, SitokFacility.id).first()
+        db.add(SitokVisit(company_id=user.company_id, facility_id=lead.id if lead else ids[0], year=year, half=half, kind=kind,
+                          plan_date=day, source="manual", created_by=user.display_name or ""))
+    db.commit()
 
 
 def visit_done(db: Session, user: User, reps: list[SitokReport], day: datetime.date) -> None:
@@ -227,6 +255,17 @@ def mark_facility(facility_id: int, body: FacMarkIn, user: User = Depends(get_cu
     if body.half not in seasons.ALL:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "반기가 맞지 않습니다.")
     r = db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == body.year, SitokReport.half == body.half).first()
+    try:
+        day = datetime.date.fromisoformat(body.date) if body.date else None
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "날짜가 맞지 않습니다.") from err
+    if r is None and body.item == "field" and body.action == "done" and day and day > datetime.date.today():  # 앞날 = 예정 — 회차는 안 만들고 일정만
+        from server.api.routers.sitok_groups import members
+
+        ids = [m.id for m in (members(db, f.group_id) if f.group_id else [f])]
+        c = contract_for(db, f, body.year, seasons.bucket(body.half))
+        schedule_visit(db, user, ids, body.year, body.half, kind_known(db, c, body.year, body.half) or (kind_of_title(c.title) if c is not None else "정기"), day)
+        return {"ok": True, "item": body.item, "value": None, "planned": day.isoformat()}
     if r is None:
         c = contract_for(db, f, body.year, seasons.bucket(body.half))
         chief, parts = _default_people(db, user.company_id)
