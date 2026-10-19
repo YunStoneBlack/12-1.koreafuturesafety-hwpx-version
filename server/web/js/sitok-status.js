@@ -161,8 +161,8 @@
       <div class="mail-head"><b>${ITEM[item]}</b><span class="mail-sub">${esc(r.facility.mgmt_no)} ${esc(r.facility.name)}${r.season ? ` · ${esc(r.season)}` : ""}${r.kind ? ` · ${esc(r.kind)}` : ""}</span></div>
       ${item === "fms" && r.fms.auto ? `<div class="mail-note">FMS 자동 제출 기록: ${r.fms.auto === "done" ? "실적보고까지 끝" : "계약 등록까지"} ${esc(r.fms.auto_at)}</div>` : ""}
       ${item === "mail" && r.email ? `<div class="mail-note">계약 담당 이메일: <a href="mailto:${esc(r.email)}">${esc(r.email)}</a></div>` : ""}
-      ${item === "report" ? `<div class="mail-note">그룹웨어 쓰기 전에 냈거나 밖에서(토목 등) 쓴 보고서면 표시하세요 — 보고서 칸이 완료가 되고 방문 달력에서 빠집니다. <a href="${roundHref}">${r.report_id ? "회차 화면 열기 ›" : "시설물 화면 열기 ›"}</a></div>` : ""}
-      ${item === "field" ? '<div class="mail-note">오늘·지난 날짜 = 다녀옴(완료), 오늘 이후 날짜 = 예정(방문 달력 일정을 그날로, 완료 표시는 안 함).</div>' : ""}
+      ${item === "report" ? `<div class="mail-note">그룹웨어 쓰기 전에 냈거나 밖에서(토목 등) 쓴 보고서면 표시하세요 — 보고서 칸이 완료가 되고 방문 달력 칸은 그대로 남아 진하게 채워집니다. <a href="${roundHref}">${r.report_id ? "회차 화면 열기 ›" : "시설물 화면 열기 ›"}</a></div>` : ""}
+      ${item === "field" ? '<div class="mail-note">오늘·지난 날짜 = 다녀옴(완료 — 방문 달력 칸이 색으로 채워짐), 오늘 이후 날짜 = 예정(방문 달력 일정을 그날로). 달력에서 빠지지 않습니다.</div>' : ""}
       <div class="mail-note">${mk ? (mk.na ? `지금: 해당없음 (${esc(mk.by || "")})` : `지금: ✓ ${esc(mk.at)}${mk.by ? ` (${esc(mk.by)})` : ""}`) : "지금: 표시 없음"}</div>
       <label class="cd-field"><span>${item === "field" ? "현장점검일" : "날짜"}</span><input type="date" class="ss-date" value="${mk && mk.at ? mk.at : iso(today)}" /></label>
       ${r.facility.members.length > 1 ? `<div class="mail-note">묶인 동(${esc(r.facility.members.map((m) => m.name).join(", "))})도 같이 표시됩니다.</div>` : ""}

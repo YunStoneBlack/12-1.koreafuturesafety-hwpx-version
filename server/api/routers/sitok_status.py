@@ -172,21 +172,14 @@ def mark(report_id: int, body: MarkIn, user: User = Depends(get_current_user), d
 
 def visits_after_mark(db: Session, user: User, reps: list[SitokReport], done: bool, item: str = "field", day: datetime.date | None = None) -> None:
     """현장점검 표시 = 그 반기 방문 칸을 그날로 채움(visit_done — 10/18 형 "달력에서 빼면 이력 파악이 안 됨"),
-    밖에서 완료 표시 = 앞으로 잡힌 방문 일정을 지움(지난 날은 기록으로 둠), 둘 다 지우면 다시 자동으로 잡음."""
-    from core.models_web import SitokVisit
-
+    밖에서 완료 표시 = 방문 일정은 그대로(달력이 진하게 채움 — 10/19 형 "방문 달력에 모두 그대로 남아 있게, 완료된 건 색 채우기"),
+    둘 다 지우면 다시 자동으로 잡음."""
     from server.sitok.visit_plan import fill_quietly
 
-    ids = [x.facility_id for x in reps]
-    r = reps[0]
     if done and item == "field":
         visit_done(db, user, reps, day or datetime.date.today())
-    elif done:
-        db.query(SitokVisit).filter(SitokVisit.facility_id.in_(ids), SitokVisit.year == r.year, SitokVisit.half == r.half,
-                                    SitokVisit.plan_date >= datetime.date.today()).delete(synchronize_session=False)
-        db.commit()
-    elif not any((x.submit or {}).get(k) for x in reps for k in VISIT_ITEMS):
-        fill_quietly(db, user.company_id, user.display_name or "", ids)
+    elif not done and not any((x.submit or {}).get(k) for x in reps for k in VISIT_ITEMS):  # 밖에서 완료는 일정을 안 건드림(10/19 형)
+        fill_quietly(db, user.company_id, user.display_name or "", [x.facility_id for x in reps])
 
 
 def schedule_visit(db: Session, user: User, ids: list[int], year: int, half: str, kind: str, day: datetime.date) -> None:
@@ -212,7 +205,7 @@ def schedule_visit(db: Session, user: User, ids: list[int], year: int, half: str
 
 def visit_done(db: Session, user: User, reps: list[SitokReport], day: datetime.date) -> None:
     """현장점검 완료 → 그 반기 방문 칸을 완료한 날에 둠(달력이 채운 칸으로 그림). 그날 칸이 있으면 그대로, 없으면 가장 가까운 날을 옮기고(📌),
-    일정이 아예 없었으면 그날 새로. 완료한 날 뒤에 남은 같은 반기 일정은 지움(이미 다녀옴)."""
+    일정이 아예 없었으면 그날 새로. 다른 일정은 지우지 않음(10/19 형 "방문 달력에 모두 그대로 남아 있게")."""
     from core.models_web import SitokVisit
 
     ids = [x.facility_id for x in reps]
@@ -228,9 +221,6 @@ def visit_done(db: Session, user: User, reps: list[SitokReport], day: datetime.d
         lead = db.query(SitokFacility).filter(SitokFacility.id.in_(ids)).order_by(SitokFacility.group_order, SitokFacility.id).first()
         db.add(SitokVisit(company_id=user.company_id, facility_id=lead.id if lead else r.facility_id, year=r.year, half=r.half, kind=r.kind or "정기",
                           plan_date=day, source="manual", created_by=user.display_name or ""))
-    for v in vs:
-        if v is not keep and v.plan_date > day:
-            db.delete(v)
     db.commit()
 
 
