@@ -621,3 +621,106 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
         data["Contents/header.xml"] = keep.header()
     _rewrite(hwpx, infos, data)
     return done
+
+
+def _label(pg, foot: float) -> int | None:
+    """쪽 아래 꼬리말의 쪽 번호(숫자만인 줄) — 장 표지·앞부분처럼 번호를 안 찍은 쪽은 None."""
+    for b in pg.get_text("dict")["blocks"]:
+        for ln in b.get("lines", []):
+            t = "".join(s["text"] for s in ln["spans"]).strip()
+            if ln["bbox"][1] >= foot - 2 and t.isdigit():
+                return int(t)
+    return None
+
+
+def _toc_norm(s: str) -> str:
+    return re.sub(r"[\s.·ㆍ]", "", s or "")
+
+
+def _unfield(num, rb) -> bool:
+    """목차 숫자를 감싼 상호참조 칸(fieldBegin·fieldEnd)을 풀어 그냥 글자로 — 한글이 PDF로 바꿀 때 책갈피 쪽으로 다시 계산해 넣은 숫자를 덮어씀
+    (묶음 2·3장 줄은 1장 책갈피를 가리켜 늘 1장 쪽). 푼 게 있으면 True."""
+    run = num.getparent()
+    kids = list(run)
+    i = kids.index(num)
+    begin = next((c for c in reversed(kids[:i]) if c.tag == f"{{{rb.HP}}}ctrl" and c.find(f"{{{rb.HP}}}fieldBegin") is not None), None)
+    if begin is None:
+        return False
+    fid = begin.find(f"{{{rb.HP}}}fieldBegin").get("id")
+    end = next((c for c in kids[i + 1:] if c.tag == f"{{{rb.HP}}}ctrl" and (e := c.find(f"{{{rb.HP}}}fieldEnd")) is not None and e.get("beginIDRef") == fid), None)
+    run.remove(begin)
+    if end is not None:
+        run.remove(end)
+    return True
+
+
+def fill_toc(hwpx: Path, pdf: Path) -> list[str]:
+    """목차 쪽 번호를 실제 쪽으로(10/19 형 "페이지수나 이런 건 다 자동으로 바뀌는 건지" — 목차 숫자는 회사 원본 글자·책갈피 참조 그대로라 묶음 2·3장이
+    1장 쪽(35)으로, 표가 길어지면 뒤 절도 어긋났음): 목차 줄(제목 ·····(탭) 숫자) 차례대로 PDF에서 그 제목이 처음 나오는 쪽(목차 다음부터, 앞 줄 쪽 이후)의
+    꼬리말 번호(번호 없는 장 표지는 다음 쪽 번호 − 1)를 숫자 칸에. 제목: "제 N장 …"은 그 쪽에 "제N장"과 나머지 이름이 다 있으면, 절("1.3 …")은 간지가 아닌 쪽에서
+    그 줄로 시작하면. 못 찾은 줄은 그대로. 찾은 줄은 상호참조를 풀고 글자로(_unfield — 한글이 다시 계산해 덮어써서).
+    다 만든 PDF로 — 바꾼 게 있으면 부르는 쪽이 PDF를 한 번 더(목차 숫자만 바뀌어 쪽이 밀리지 않음)."""
+    import pymupdf
+
+    from server.sitok import report_build as rb
+
+    with zipfile.ZipFile(hwpx) as z:
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+        sections = rb._sections(z)
+    roots = {n: etree.fromstring(data[n]) for n in sections}
+    entries = []  # (제목, 숫자 글자 칸)
+    for n in sections:
+        for p in roots[n].iter(f"{{{rb.HP}}}p"):
+            tab = next((t for t in p.iter(f"{{{rb.HP}}}tab") if t.get("leader") not in (None, "0", "NONE")), None)
+            if tab is None or next(p.iterancestors(f"{{{rb.HP}}}tbl"), None) is not None:
+                continue
+            ts = list(p.iter(rb.T))
+            num = next((t for t in reversed(ts) if rb._full(t).strip().isdigit()), None)
+            if num is None:
+                continue
+            title = "".join(rb._full(t) for t in ts if t is not num).strip()
+            if title:
+                entries.append((title, num))
+    if not entries:
+        return []
+    with pymupdf.open(pdf) as doc:
+        bodies = [_body(pg) for pg in doc]
+        labels = [_label(pg, bodies[i][2]) for i, pg in enumerate(doc)]
+    for i in range(len(labels) - 2, -1, -1):  # 번호 없는 쪽 = 다음 쪽 − 1(장 표지)
+        if labels[i] is None and labels[i + 1] is not None and labels[i + 1] > 1:
+            labels[i] = labels[i + 1] - 1
+    leader = re.compile(r"[·.]{5,}\s*\d+\s*$")
+    tocs = [i for i, (lines, _, _, _) in enumerate(bodies) if sum(1 for _, _, t in lines if leader.search(t)) >= 3]
+    if not tocs:
+        return []
+    at = tocs[-1] + 1
+    done, missed = 0, []
+    for title, num in entries:
+        key = _toc_norm(title)
+        m = re.match(r"제\s*(\d+)\s*장\.?\s*(.*)$", title.strip())
+        hit = None
+        for i in range(at, len(bodies)):
+            lines = bodies[i][0]
+            if m:
+                text = _toc_norm(" ".join(t for _, _, t in lines))
+                if f"제{m[1]}장" in text and _toc_norm(m[2]) in text and len(set(re.findall(r"제(\d+)장", text))) == 1:  # 장 목록만 있는 편 간지("제1장 …제2장 …")는 뺌
+                    hit = i
+                    break
+            elif not _divider(lines) and any(_toc_norm(t).startswith(key) or (len(_toc_norm(t)) >= 6 and key.startswith(_toc_norm(t))) for _, _, t in lines):
+                hit = i
+                break
+        if hit is None or labels[hit] is None:
+            missed.append(title[:16])
+            continue
+        at = hit
+        unfielded = _unfield(num, rb)
+        if unfielded or rb._full(num).strip() != str(labels[hit]):
+            rb._clear(num, str(labels[hit]))
+            done += 1
+    if not done:
+        return []
+    for n, root in roots.items():
+        data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    _rewrite(hwpx, infos, data)
+    return [f"목차 쪽 번호 {done}곳 고침" + (f"(못 찾은 줄 {len(missed)}: {', '.join(missed[:3])})" if missed else "")]

@@ -828,6 +828,11 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
             traceback.print_exc()
     if pushed:
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+    try:  # 목차 쪽 번호 = 다 고친 PDF의 실제 쪽(10/19 형 — 원본 숫자·책갈피 그대로라 묶음 2·3장이 1장 쪽으로 나왔음), 바뀌면 한 번 더
+        if pagecheck.fill_toc(hwpx, pdf):
+            pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+    except Exception:  # noqa: BLE001 — 못 하면 그대로
+        traceback.print_exc()
 
 
 def _convert_appendix(appx: Path, apdf: Path) -> None:
