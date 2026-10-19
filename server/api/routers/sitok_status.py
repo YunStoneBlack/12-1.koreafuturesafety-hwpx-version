@@ -91,6 +91,13 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
     docs = {}
     for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id, SitokDocContract.facility_id.isnot(None)).order_by(SitokDocContract.id):
         docs[d.facility_id] = d
+    from core.models_web import SitokVisit
+    from server.sitok.visit_plan import visit_span
+
+    visits: dict = {}  # (시설물, 시기) → 방문 달력 일정(시작, 끝) — 현장점검 칸에 날짜(10/19 민재형 "현장점검 날짜 표기")
+    for v in db.query(SitokVisit).filter(SitokVisit.company_id == user.company_id, SitokVisit.year == year,
+                                         SitokVisit.half.in_(seasons.in_bucket(half))).order_by(SitokVisit.plan_date, SitokVisit.id):
+        visits.setdefault((v.facility_id, v.half), visit_span(v))
     units: dict = {}
     for f in facs:
         units.setdefault(("g", f.group_id) if f.group_id else ("f", f.id), []).append(f)
@@ -113,11 +120,13 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
             sub = (r.submit or {}) if r is not None else {}
             states = [report_state(x) for x in mr] or [report_state(None)]
             rep = next((s for s in states if s["state"] != "done"), states[0])  # 묶음은 한 동이라도 안 끝나면 안 끝남
+            vis = next((visits[(m.id, hh)] for m in members if (m.id, hh) in visits), None)  # 이 시기 방문 일정(대표 동에 잡힘)
             rows.append({
                 "facility": {"id": lead.id, "mgmt_no": lead.mgmt_no, "name": name, "sector": lead.sector or "민간", "badge_field": lead.badge_field or "",
                              "badge_kind": lead.badge_kind or "", "contract_type": lead.contract_type, "members": [{"id": m.id, "name": m.name} for m in members]},
                 "report_id": r.id if r is not None else None, "report_ids": [x.id for x in mr], "kind": r.kind if r is not None else "",
                 "season": hh if seasons.is_season(hh) else "",
+                "visit": {"start": vis[0].isoformat(), "end": vis[1].isoformat()} if vis else None,
                 "report": rep, "field": sub.get("field"), "mail": sub.get("mail"), "fms": fms_state(r), "print": sub.get("print"), "parcel": sub.get("parcel"),
                 "email": (doc.site_email or doc.client_email) if doc is not None else "",
             })

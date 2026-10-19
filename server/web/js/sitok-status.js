@@ -112,7 +112,7 @@
       <div class="ss-fac"><span class="site-no">${esc(f.mgmt_no)}</span><span class="sk-sector ${f.sector === "관급" ? "gov" : "pri"}">${esc(f.sector)}</span>
         <a href="sitok-facility.html?id=${f.id}"><b>${esc(f.name)}</b></a>${f.members.length > 1 ? `<span class="sk-dong-n">${f.members.length}동</span>` : ""}
         ${r.season ? `<span class="ss-kind ss-season" title="연 3회 — 이 반기 칸 안의 시기">${esc(r.season)}</span>` : ""}${r.kind ? `<span class="ss-kind">${esc(r.kind)}</span>` : ""}${f.badge_field ? `<span class="sk-badge b-field">${esc(f.badge_field)}</span>` : ""}${f.badge_kind ? `<span class="sk-badge b-kind">${esc(f.badge_kind)}</span>` : ""}</div>
-      <div class="ss-c" data-label="현장점검"><button type="button" class="ss-cell" data-item="field">${markBadge(r.field)}</button></div>
+      <div class="ss-c ss-field" data-label="현장점검">${fieldCell(r)}</div>
       <div class="ss-c" data-label="보고서">${r.report.state === "done" && !r.report.outside ? `<a class="ss-b ${rt}" href="${roundHref}">${rl}${r.report.at ? ` ${esc(r.report.at)}` : ""}</a>`
         : `<button type="button" class="ss-cell" data-item="report"><span class="ss-b ${rt}">${r.report.outside ? "완료(밖에서)" : rl}${r.report.at ? ` ${esc(r.report.at)}` : ""}</span></button>`}</div>
       <div class="ss-c" data-label="발주처 이메일"><button type="button" class="ss-cell" data-item="mail">${markBadge(r.mail)}</button></div>
@@ -120,7 +120,31 @@
       <div class="ss-c" data-label="합본 출력"><button type="button" class="ss-cell" data-item="print">${markBadge(r.print)}</button></div>
       <div class="ss-c" data-label="택배"><button type="button" class="ss-cell" data-item="parcel">${markBadge(r.parcel)}</button></div>`;
     el.querySelectorAll(".ss-cell").forEach((b) => b.addEventListener("click", () => openMark(r, b.dataset.item)));
+    el.querySelectorAll(".ss-t").forEach((b) => b.addEventListener("click", () => fieldToggle(r, b.dataset.act)));
     return el;
+  }
+
+  // 현장점검 칸(10/19 민재형 "현장점검 날짜 표기하고 안함·완료 버튼") — 날짜(완료한 날 또는 방문 달력 일정) + [안 함 | 완료], 날짜를 누르면 다른 날로 표시하는 창
+  function fieldCell(r) {
+    const done = !!(r.field && r.field.at);
+    const v = r.visit;
+    const when = done ? `<span class="ss-b ok">✓ ${md(r.field.at)}</span>`
+      : v ? `<span class="ss-date-t">${md(v.start)}${v.end !== v.start ? `~${md(v.end)}` : ""} 예정</span>` : '<span class="ss-date-t none">일정 없음</span>';
+    return `<button type="button" class="ss-cell" data-item="field" title="다른 날로 표시하려면 누르세요">${when}</button>
+      <span class="ss-tog" role="group" aria-label="현장점검"><button type="button" class="ss-t${done ? "" : " on"}" data-act="clear">안 함</button><button type="button" class="ss-t${done ? " on" : ""}" data-act="done">완료</button></span>`;
+  }
+  const isoToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  async function postMark(r, item, action, date) {
+    if (r.report_id) return apiPost(`/sitok/status/reports/${r.report_id}/mark`, { item, action, date });
+    return apiPost(`/sitok/status/facilities/${r.facility.id}/mark`, { item, action, date, year: cur.year, half: r.season || cur.half });
+  }
+  async function fieldToggle(r, act) {
+    const done = !!(r.field && r.field.at);
+    if ((act === "done") === done) return; // 이미 그 상태
+    if (act === "clear" && !confirm(`${r.facility.mgmt_no} ${r.facility.name} 현장점검 완료(${md(r.field.at)}) 표시를 지울까요?`)) return;
+    const today = isoToday();
+    const date = act === "done" ? (r.visit && r.visit.end <= today ? r.visit.end : today) : null; // 잡힌 날이 지났으면 그날, 아니면 오늘
+    try { await postMark(r, "field", act, date); load(); } catch (err) { alert(err.message); }
   }
 
   // 칸 표시 창 — 날짜(기본 오늘) [표시] / [지우기] / FMS [해당없음]
@@ -152,8 +176,7 @@
     const send = async (action) => {
       try {
         const date = overlay.querySelector(".ss-date").value || null;
-        if (r.report_id) await apiPost(`/sitok/status/reports/${r.report_id}/mark`, { item, action, date });
-        else await apiPost(`/sitok/status/facilities/${r.facility.id}/mark`, { item, action, date, year: cur.year, half: r.season || cur.half });
+        await postMark(r, item, action, date);
         close();
         load();
       } catch (err) {

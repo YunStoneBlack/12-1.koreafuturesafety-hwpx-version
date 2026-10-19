@@ -7,7 +7,7 @@
 .ss-cards { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .main button.st-card.warn .n { color: var(--warn, #b45309); }
 .ds-cards { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.ss-grid { display: grid; grid-template-columns: minmax(260px, 2.4fr) minmax(84px, .4fr) minmax(100px, .4fr) minmax(84px, .4fr) minmax(100px, .4fr) minmax(84px, .4fr) minmax(84px, .4fr); /* 10/16 맨 앞 현장점검 칸, 보고서 칸은 "완료(밖에서) 10/02"가 들어가게 */ /* 상태 칸 40%, 시설물 칸 넓게(10/16) — FMS는 "✓ 실적 10/15"가 들어가게 100px 이상 */ align-items: center; gap: 8px; padding: 10px 16px; }
+.ss-grid { display: grid; grid-template-columns: minmax(260px, 2.4fr) minmax(124px, .5fr) minmax(100px, .4fr) minmax(84px, .4fr) minmax(100px, .4fr) minmax(84px, .4fr) minmax(84px, .4fr); /* 10/16 맨 앞 현장점검 칸, 보고서 칸은 "완료(밖에서) 10/02"가 들어가게 */ /* 상태 칸 40%, 시설물 칸 넓게(10/16) — FMS는 "✓ 실적 10/15"가 들어가게 100px 이상 */ align-items: center; gap: 8px; padding: 10px 16px; }
 .ss-grid.ss-docs { grid-template-columns: minmax(260px, 2.4fr) minmax(124px, .5fr) minmax(124px, .5fr) minmax(100px, .5fr); } /* 서류 현황 상태 칸 50%(10/16) — "✓ 만듦·제출 10/15"가 들어가게 */
 .ss-head > span { text-align: center; } /* 머리글 가운데(10/16, 보고서·서류 현황 — 시설물·계약 머리글도, 칸 안은 그대로) */
 .ss-head { font-size: 12.5px; color: var(--muted, #6b7280); border-bottom: 1px solid var(--line, #e2e5ea); padding-top: 8px; padding-bottom: 8px; }
@@ -44,3 +44,14 @@
 
 /* 연 3회 시기(해빙기·우기·동절기, 10/16) */
 .ss-kind.ss-season { background: #e0f2fe; color: #0369a1; }
+
+/* 현장점검 칸 — 날짜 + [안 함 | 완료](10/19 민재형) */
+.ss-field { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ss-date-t { font-size: 12.5px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.ss-date-t.none { color: var(--faint); font-weight: 400; }
+.ss-tog { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.main .ss-tog .ss-t { margin: 0; padding: 2px 9px; font-size: 12px; font-weight: 600; border: 0; border-radius: 0; background: var(--surface); color: var(--muted); }
+.main .ss-tog .ss-t + .ss-t { border-left: 1px solid var(--line); }
+.main .ss-tog .ss-t.on[data-act="clear"] { background: #fff4e5; color: #b45309; }
+.main .ss-tog .ss-t.on[data-act="done"] { background: #e7f6ec; color: #1e7a3c; }
+@media (max-width: 900px) { .ss-field { align-items: flex-start; } }
