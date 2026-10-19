@@ -55,3 +55,26 @@
 .main .ss-tog .ss-t.on[data-act="clear"] { background: #fff4e5; color: #b45309; }
 .main .ss-tog .ss-t.on[data-act="done"] { background: #e7f6ec; color: #1e7a3c; }
 @media (max-width: 900px) { .ss-field { align-items: flex-start; } }
+
+/* 표 머리 엑셀식 필터(10/19 민재형) — js/sitok-status.js openFilter */
+.main button.ss-hf { margin: 0; padding: 2px 6px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.main button.ss-hf:hover { background: var(--paper); color: var(--ink); }
+.main button.ss-hf i { font-style: normal; font-size: 10px; color: var(--faint); }
+.main button.ss-hf.on { background: var(--blue-soft, #e8f0fe); color: var(--blue, #2563eb); font-weight: 700; }
+.main button.ss-hf.on i { color: var(--blue, #2563eb); }
+.ss-fpop { position: absolute; z-index: 40; min-width: 170px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(27, 30, 46, .16); font-size: 13px; }
+.ss-fgrp { display: flex; flex-direction: column; gap: 4px; }
+.ss-fgrp + .ss-fgrp { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.ss-fgrp b { font-size: 12px; color: var(--muted); }
+.ss-fgrp label { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.ss-fgrp label input { margin: 0; width: auto; }
+.ss-fgrp label span { margin-left: auto; color: var(--faint); font-size: 12px; }
+.ss-fpop-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); text-align: right; }
+.ss-fpop-foot button, .main .ss-fall { margin: 0; padding: 3px 9px; font-size: 12px; background: var(--surface); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.ss-fbar { display: none; }
+@media (max-width: 900px) {
+  .ss-fbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .main .ss-fbar button.ss-hf { padding: 4px 10px; font-size: 12.5px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
+  .main .ss-fbar button.ss-hf.on { border-color: var(--blue, #2563eb); background: var(--blue-soft, #e8f0fe); color: var(--blue, #2563eb); }
+}

@@ -64,6 +64,49 @@
   }));
   const drawSort = () => document.querySelectorAll(".ss-sort button").forEach((b) => { b.textContent = `번호순 ${numDesc ? "▼" : "▲"}`; });
 
+  // 표 머리 엑셀식 필터(10/19 민재형 — 시설물 정기/정밀·건축/토목, 보고서 작성 중/완료, 현장점검·이메일·FMS·출력·택배 안 함/완료).
+  // colf[열쇠] = 고른 값들(Set) — 없으면 전부. 열 머리를 누르면 체크 목록, 다른 열 필터·숫자 카드·검색과 함께 걸림. PC만(폰은 표 머리가 없음).
+  const isDone = (x) => !!(x && (x.at || x.na));
+  const two = (fn) => [["안 함", (r) => !fn(r)], ["완료", fn]];
+  const FILTERS = {
+    kind: { label: "종류", opts: [["정기", (r) => r.kind === "정기"], ["정밀", (r) => r.kind === "정밀"], ["회차 없음", (r) => !r.kind]] },
+    bfield: { label: "분야", opts: ["건축", "토목", "건축·토목"].map((v) => [v, (r) => r.facility.badge_field === v]) },
+    field: { label: "현장점검", opts: two((r) => isDone(r.field)) },
+    report: { label: "보고서", opts: [["작성 중", (r) => r.report.state !== "done"], ["완료", (r) => r.report.state === "done"]] },
+    mail: { label: "발주처 이메일", opts: two((r) => isDone(r.mail)) },
+    fms: { label: "FMS", opts: two((r) => r.fms.auto === "done" || isDone(r.fms.mark)) },
+    print: { label: "합본 출력", opts: two((r) => isDone(r.print)) },
+    parcel: { label: "택배", opts: two((r) => isDone(r.parcel)) },
+  };
+  const HEADS = [["시설물", ["kind", "bfield"]], ["현장점검", ["field"]], ["보고서", ["report"]], ["발주처 이메일", ["mail"]], ["FMS", ["fms"]], ["합본 출력", ["print"]], ["택배", ["parcel"]]];
+  const colf = {};
+  const passes = (r, key) => !colf[key] || FILTERS[key].opts.some(([n, fn]) => colf[key].has(n) && fn(r));
+  const colOk = (r, except = "") => Object.keys(FILTERS).every((k) => k === except || passes(r, k));
+  function openFilter(btn, keys, pool) {
+    document.querySelector(".ss-fpop")?.remove();
+    const pop = document.createElement("div");
+    pop.className = "ss-fpop";
+    pop.innerHTML = keys.map((k) => `<div class="ss-fgrp">${keys.length > 1 ? `<b>${FILTERS[k].label}</b>` : ""}${FILTERS[k].opts.map(([n, fn]) => {
+      const cnt = pool.filter((r) => colOk(r, k) && fn(r)).length;
+      return `<label><input type="checkbox" data-k="${k}" value="${esc(n)}"${!colf[k] || colf[k].has(n) ? " checked" : ""} /> ${esc(n)} <span>${cnt}</span></label>`;
+    }).join("")}</div>`).join("") + '<div class="ss-fpop-foot"><button type="button" class="ss-fclear">이 칸 필터 풀기</button></div>';
+    document.body.appendChild(pop);
+    const box = btn.getBoundingClientRect();
+    pop.style.top = `${box.bottom + window.scrollY + 4}px`;
+    pop.style.left = `${Math.min(box.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 8)}px`;
+    pop.querySelectorAll("input").forEach((inp) => inp.addEventListener("change", () => {
+      const k = inp.dataset.k;
+      const set = colf[k] || new Set(FILTERS[k].opts.map(([n]) => n));
+      if (inp.checked) set.add(inp.value); else set.delete(inp.value);
+      colf[k] = set.size === FILTERS[k].opts.length ? undefined : set;
+      render();
+    }));
+    pop.querySelector(".ss-fclear").addEventListener("click", () => { keys.forEach((k) => { colf[k] = undefined; }); pop.remove(); render(); });
+    setTimeout(() => document.addEventListener("mousedown", function off(e) {
+      if (!pop.contains(e.target) && !e.target.closest(".ss-hf")) { pop.remove(); document.removeEventListener("mousedown", off); }
+    }), 0);
+  }
+
   const baseRows = () => rows.filter((r) => (!view.sector || r.facility.sector === view.sector) && (!view.field || r.facility.badge_field === view.field) &&
     (!view.kind || r.facility.badge_kind === view.kind) && (!view.q || `${r.facility.mgmt_no} ${r.facility.name} ${r.facility.members.map((m) => m.name).join(" ")}`.toLowerCase().includes(view.q)));
 
@@ -88,14 +131,20 @@
       <span class="l">${label}</span><span class="n">${base.filter(ok).length}곳</span><span class="s">${sub}</span></button>`).join("");
     cardsEl.querySelectorAll(".st-card").forEach((b) => b.addEventListener("click", () => { view.card = b.dataset.k; render(); }));
     const okCard = CARDS.find((c) => c[0] === view.card)[3];
-    const shown = base.filter(okCard).sort((a, b) => byNo(a.facility, b.facility));
+    const pool = base.filter(okCard);
+    const shown = pool.filter((r) => colOk(r)).sort((a, b) => byNo(a.facility, b.facility));
     drawSort();
     document.getElementById("ss-title").textContent = `${cur.year}년 ${cur.half} 제출 현황${view.card ? ` — ${CARDS.find((c) => c[0] === view.card)[1]}` : ""}`;
-    document.getElementById("ss-count").textContent = `${shown.length}곳`;
     const list = document.getElementById("ss-list");
     if (!rows.length) { list.innerHTML = '<div class="empty-note">이 반기에 회차·계약이 있는 시설물이 없습니다.</div>'; return; }
-    if (!shown.length) { list.innerHTML = '<div class="empty-note">맞는 시설물이 없습니다.</div>'; return; }
-    list.innerHTML = `<div class="ss-grid ss-head"><span>시설물</span><span>현장점검</span><span>보고서</span><span>발주처 이메일</span><span>FMS</span><span>합본 출력</span><span>택배</span></div>`;
+    const anyF = Object.values(colf).some(Boolean);
+    document.getElementById("ss-count").innerHTML = `${shown.length}곳${anyF ? ' <button type="button" class="ss-fall">✕ 필터 풀기</button>' : ""}`;
+    document.querySelector(".ss-fall")?.addEventListener("click", () => { Object.keys(colf).forEach((k) => { colf[k] = undefined; }); render(); });
+    const hf = ([label, keys]) => `<button type="button" class="ss-hf${keys.some((k) => colf[k]) ? " on" : ""}" data-keys="${keys.join(",")}" title="누르면 거르기">${label} <i>▾</i></button>`;
+    list.innerHTML = `<div class="ss-fbar">${HEADS.map(hf).join("")}</div>` // 폰 — 표 머리가 없어 위에 필터 버튼 줄(10/19)
+      + `<div class="ss-grid ss-head">${HEADS.map((h) => `<span>${hf(h)}</span>`).join("")}</div>`;
+    list.querySelectorAll(".ss-hf").forEach((b) => b.addEventListener("click", () => openFilter(b, b.dataset.keys.split(","), pool)));
+    if (!shown.length) { list.insertAdjacentHTML("beforeend", '<div class="empty-note">맞는 시설물이 없습니다.</div>'); return; }
     for (const r of shown) list.appendChild(rowEl(r));
   }
 
