@@ -79,7 +79,7 @@ def _unit_reports(db: Session, r: SitokReport) -> list[SitokReport]:
 
 @router.get("/reports")
 def list_rows(year: int | None = None, half: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    from server.api.routers.sitok import contract_for
+    from server.api.routers.sitok import contract_for, covers
 
     y0, h0 = current_half()
     year, half = year or y0, half if half in HALVES else h0
@@ -104,8 +104,20 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
     from server.api.routers.sitok_compose import _overlaps
     from server.api.routers.sitok_docs import covered_ids
 
+    from server.api.routers.sitok import half_range
+
+    h_start = half_range(year, half)[0]
+
+    def no_start(c, halves: str = "") -> bool:
+        """시작일이 빈 계약(관급-24 "2026년 … 연간", 끝 12/31) — 끝나는 해가 이 해이고 끝이 이 반기 시작 이후면 덮는 것으로(반기 지정 계약은 그 반기만)."""
+        if c.start_date is not None or c.end_date is None:
+            return False
+        if halves in ("상반기", "하반기") and halves != seasons.bucket(half):
+            return False
+        return c.end_date.year == year and c.end_date >= h_start
+
     signed = [set(covered_ids(c)) for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id)
-              if (c.contract_pdf or c.made_at) and _overlaps(c, year, half)]  # 이 반기 계약 중 계약서가 있는 것(민간 만듦·날인본, 관급 나라장터 계약서) — 계약 칸(10/19 형)
+              if (c.contract_pdf or c.made_at) and (_overlaps(c, year, half) or (not c.rounds and no_start(c)))]  # 이 반기 계약 중 계약서가 있는 것(민간 만듦·날인본, 관급 나라장터 계약서) — 계약 칸(10/19 형)
     rows = []
     names = {}
     for key, members in units.items():
@@ -128,7 +140,8 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
             vis = next((visits[(m.id, hh)] for m in members if (m.id, hh) in visits), None)  # 이 시기 방문 일정(대표 동에 잡힘)
             ids = {m.id for m in members}
             rc = db.get(SitokContract, r.contract_id) if r is not None and r.contract_id else None
-            has_con = any(ids & c for c in signed) or bool(rc and rc.contract_pdf)  # 계약서 있으면 완료, 없으면 미계약
+            # 계약서 있으면 완료, 없으면 미계약 — 이 반기를 맡는 계약만(10/19 형 "해당 반기에 계약서 없으면 미계약": 상반기에 끝난 계약이 하반기 회차에 붙어 있던 것)
+            has_con = any(ids & c for c in signed) or bool(rc and rc.contract_pdf and (covers(rc, year, half) or no_start(rc, rc.halves)))
             rows.append({
                 "facility": {"id": lead.id, "mgmt_no": lead.mgmt_no, "name": name, "sector": lead.sector or "민간", "badge_field": lead.badge_field or "",
                              "badge_kind": lead.badge_kind or "", "contract_type": lead.contract_type, "members": [{"id": m.id, "name": m.name} for m in members]},
