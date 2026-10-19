@@ -81,12 +81,29 @@ class Borders:
 
     def char_size(self, cid: str | None) -> int | None:
         """글자 모양 cid의 크기(1/100pt)."""
-        self.char_height(None, 0)  # 목록 준비
+        self._char_variant(None, None)  # 목록 준비
         m = re.search(r'\sheight="(\d+)"', self._chars.get(str(cid), ""))
         return int(m[1]) if m else None
 
     def char_height(self, cid: str | None, height: int) -> str | None:
         """글자 모양 cid를 크기만 height(1/100pt)로 바꾼 모양의 번호 — 같은 정의가 있으면 그 번호, 없으면 새로(10/19 긴 제목 한 줄로 — layout_fix)."""
+        return self._char_variant(cid, lambda d: re.sub(r'(<hh:charPr[^>]*?\sheight=")\d+(")', rf"\g<1>{int(height)}\g<2>", d, count=1))
+
+    def char_spacing(self, cid: str | None, spacing: int) -> str | None:
+        """글자 모양 cid를 자간만 spacing(%, 모든 언어)으로 바꾼 모양의 번호(10/19 형 머리말 한 줄 — layout_fix.header_one_line)."""
+        return self._char_variant(cid, lambda d: re.sub(r"<hh:spacing [^>]*/>", lambda m: re.sub(r'="-?\d+"', f'="{int(spacing)}"', m[0]), d, count=1))
+
+    def char_info(self, cid: str | None) -> dict | None:
+        """글자 모양 cid의 {height, ratio, spacing, font}(한글 기준, font = 한글 글꼴 번호) — 글 폭 어림용."""
+        self._char_variant(None, None)  # 목록 준비
+        d = self._chars.get(str(cid))
+        if d is None:
+            return None
+        get = lambda tag, dflt: int((re.search(rf'<hh:{tag} hangul="(-?\d+)"', d) or [0, dflt])[1])  # noqa: E731
+        return {"height": int(re.search(r'\sheight="(\d+)"', d)[1]), "ratio": get("ratio", 100), "spacing": get("spacing", 0), "font": get("fontRef", 0)}
+
+    def _char_variant(self, cid: str | None, change) -> str | None:
+        """cid 정의를 change로 바꾼 모양의 번호 — 같은 정의가 있으면 그 번호, 없으면 새로(파일 쓸 때 result가 붙임)."""
         if not hasattr(self, "_chars"):
             self._chars = {m[1]: re.sub(r'^<hh:charPr id="\d+"', "<hh:charPr", m.group(0)) for m in _CP.finditer(self.xml)}
             self._char_by_def = {}
@@ -97,7 +114,7 @@ class Borders:
         d = self._chars.get(str(cid)) if cid is not None else None
         if d is None:
             return cid
-        new = re.sub(r'(<hh:charPr[^>]*?\sheight=")\d+(")', rf"\g<1>{int(height)}\g<2>", d, count=1)
+        new = change(d)
         if new == d:
             return cid
         if new in self._char_by_def:

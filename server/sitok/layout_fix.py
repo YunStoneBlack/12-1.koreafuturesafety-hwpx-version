@@ -6,6 +6,7 @@
 - strip_na_titles: 1.3 "4)강재구조 노후상태 조사결과(해당없음)" — 원본 틀 제목에 박힌 "(해당없음)" 떼기
 - fit_title: 묶음 "3.○○의 위치도 및 전경사진"이 길어 두 줄이면 제목만 한 쪽에 남고 지도·사진이 다음 쪽 → 그 제목만 글자를 줄여 한 줄로(merge)
 - toc_appendix: 목차 "▣ 부록" 줄 — 원본 틀이 "과업지시서·2. 외관망도·3. 기타…"인데 실제 부록 간지는 "시설물관리대장 사본·외관조사 사진첩·기타…"
+- header_one_line: 머리말 용역명이 두 줄 → 오른쪽 장 이름 칸을 좁혀 늘리기 → 자간 → 머리말 글자 1pt(다 만든 파일에 한 번, sitok_reports._convert_pushing)
 """
 from __future__ import annotations
 
@@ -439,3 +440,130 @@ def split_cover_pdf(pdf, title: str):
         doc.save(tmp, garbage=3, deflate=True)
     tmp.replace(pdf)
     return dest
+
+
+HEADER_PAD = 300  # 머리말 칸 안 글 폭 어림 여유(HWPUNIT)
+HEADER_SPACING_MIN = -10  # 자간은 원래보다 10%까지 줄임
+HEADER_SIZE_STEP = 100  # 글자 크기 한 칸 = 1pt
+_FONT_FILES = {"굴림": ("gulim.ttc", 0), "굴림체": ("gulim.ttc", 1), "돋움": ("gulim.ttc", 2), "돋움체": ("gulim.ttc", 3),
+               "바탕": ("batang.ttc", 0), "바탕체": ("batang.ttc", 1), "맑은 고딕": ("malgun.ttf", 0)}
+_fonts: dict = {}
+
+
+def _font(face: str):
+    """글꼴 이름 → PIL 글꼴(1000px = 1em), 없으면 None(글자 수 어림)."""
+    if face not in _fonts:
+        _fonts[face] = None
+        f = _FONT_FILES.get(face)
+        if f:
+            try:
+                from PIL import ImageFont
+                _fonts[face] = ImageFont.truetype(f"C:/Windows/Fonts/{f[0]}", 1000, index=f[1])
+            except OSError:
+                pass
+    return _fonts[face]
+
+
+def _runs_width(tc, borders, faces: dict, size_step: int = 0, spacing: int | None = None) -> int:
+    """칸 글(한 줄로 쓸 때) 폭 HWPUNIT — 글자 크기를 size_step만큼, 자간을 spacing(%)으로 바꾼다면."""
+    w = 0.0
+    for run in tc.iter(f"{{{HP}}}run"):
+        text = "".join(t.text or "" for t in run.iter(rb.T))
+        info = borders.char_info(run.get("charPrIDRef")) if text else None
+        if not info:
+            continue
+        size = info["height"] - size_step
+        f = _font(faces.get(info["font"], ""))
+        adv = sum(f.getlength(ch) for ch in text) / 1000 * size if f is not None else _em(text) * size
+        w += adv * info["ratio"] / 100 + len(text) * size * (info["spacing"] if spacing is None else spacing) / 100
+    return int(w)
+
+
+def header_one_line(hwpx) -> int:
+    """머리말 표(왼쪽 용역명 | 오른쪽 "Ⅰ. 공통편 제 1장. 서론")에서 용역명이 두 줄로 접히면(10/19 형 "머릿말을 땡겨서 한줄로 하기,
+    그래도 넘으면 자간줄이기, 그래도 넘으면 머릿말 전체 페이지 글자크기 한칸 줄이기"):
+    ① 오른쪽 칸을 그 글 폭만큼으로 좁혀 왼쪽 칸을 늘림 → ② 그래도 넘으면 용역명 자간을 1%씩(-10%까지) → ③ 그래도 넘으면 머리말 글자 전부 1pt 작게(+ 자간).
+    ②·③은 모든 쪽 머리말에 같게(가장 긴 장 이름 기준). 다 만든 한글 파일(합본 포함)을 PDF로 바꾸기 전에 한 번(sitok_reports._convert_pushing)."""
+    import zipfile
+    from pathlib import Path
+
+    from lxml import etree
+
+    from server.sitok.borders import Borders
+
+    hwpx = Path(hwpx)
+    with zipfile.ZipFile(hwpx) as z:
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+    hx = data.get("Contents/header.xml", b"").decode("utf-8")
+    if not hx:
+        return 0
+    bd = Borders(hx)
+    faces = {}
+    m = re.search(r'<hh:fontface lang="HANGUL"[\s\S]*?</hh:fontface>', hx)
+    for fid, face in re.findall(r'<hh:font id="(\d+)" face="([^"]+)"', m[0] if m else ""):
+        faces[int(fid)] = face
+    roots = {n: etree.fromstring(data[n]) for n in sorted(data) if re.fullmatch(r"Contents/section\d+\.xml", n)}
+    items = []  # (표, 왼쪽 칸, 오른쪽 칸)
+    for root in roots.values():
+        for h in root.iter(f"{{{HP}}}header"):
+            tbl = next((t for t in h.iter(f"{{{HP}}}tbl") if t.get("rowCnt") == "1" and t.get("colCnt") == "2"), None)
+            cells = rb._cells(tbl) if tbl is not None else {}
+            a, b = cells.get((0, 0)), cells.get((0, 1))
+            if a is not None and b is not None and rb._cell_text(a).strip() and rb._cell_text(b).strip():
+                items.append((tbl, a, b))
+    if not items:
+        return 0
+    def width(tc) -> int:
+        return int(tc.find(f"{{{HP}}}cellSz").get("width"))
+
+    def margin(tc) -> int:
+        mg = tc.find(f"{{{HP}}}cellMargin")
+        return int(mg.get("left", 510)) + int(mg.get("right", 510)) if mg is not None else 1020
+
+    if all(_runs_width(a, bd, faces) + HEADER_PAD <= width(a) - margin(a) for _, a, _ in items):
+        return 0  # 다 한 줄
+
+    def plan(step: int, spacing: int | None):
+        """모든 머리말이 한 줄이면 [(왼쪽 칸 폭, 오른쪽 칸 폭)], 아니면 None."""
+        out = []
+        for _, a, b in items:
+            total = width(a) + width(b)
+            right = min(width(b), _runs_width(b, bd, faces, step) + margin(b) + HEADER_PAD)
+            if _runs_width(a, bd, faces, step, spacing) + HEADER_PAD > total - right - margin(a):
+                return None
+            out.append((total - right, right))
+        return out
+
+    base = min((bd.char_info(r.get("charPrIDRef")) or {}).get("spacing", 0) for _, a, _ in items for r in a.iter(f"{{{HP}}}run"))
+    tries = [(0, None)] + [(0, base - k) for k in range(1, -HEADER_SPACING_MIN + 1)] + [(HEADER_SIZE_STEP, None)] + \
+        [(HEADER_SIZE_STEP, base - k) for k in range(1, -HEADER_SPACING_MIN + 1)]
+    step, spacing, sizes = HEADER_SIZE_STEP, base + HEADER_SPACING_MIN, None
+    for s_, sp in tries:
+        sizes = plan(s_, sp)
+        if sizes:
+            step, spacing = s_, sp
+            break
+    if sizes is None:  # 끝까지 줄여도 넘침 — 가장 줄인 모양으로(두 줄일 수 있음), 칸은 오른쪽 글 폭만큼
+        sizes = [(width(a) + width(b) - min(width(b), _runs_width(b, bd, faces, step) + margin(b) + HEADER_PAD),
+                  min(width(b), _runs_width(b, bd, faces, step) + margin(b) + HEADER_PAD)) for _, a, b in items]
+    for (tbl, a, b), (wa, wb) in zip(items, sizes):
+        a.find(f"{{{HP}}}cellSz").set("width", str(wa))
+        b.find(f"{{{HP}}}cellSz").set("width", str(wb))
+        for tc in (a, b) if step else (a,):
+            for run in tc.iter(f"{{{HP}}}run"):
+                cid = run.get("charPrIDRef")
+                if step:
+                    cid = bd.char_height(cid, (bd.char_size(cid) or 1000) - step)
+                if spacing is not None and tc is a:
+                    cid = bd.char_spacing(cid, spacing)
+                run.set("charPrIDRef", cid)
+        for el in list(tbl.iter(f"{{{HP}}}linesegarray")):
+            el.getparent().remove(el)
+    data["Contents/header.xml"] = bd.result(hx).encode("utf-8")
+    for n, root in roots.items():
+        data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    from server.sitok.pagecheck import _rewrite
+
+    _rewrite(hwpx, infos, data)
+    return len(items)

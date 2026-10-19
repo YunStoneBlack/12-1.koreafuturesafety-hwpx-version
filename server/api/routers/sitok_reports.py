@@ -795,8 +795,12 @@ def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: 
 def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
     """본문 한글 → PDF(정기·정밀 공용, 사용자 10/14 "정기도 같이"). 쪽 검사에서 "제목 'X'만 쪽 끝에 있음"이 나오면 그 제목 문단을 새 쪽에서 시작하게 고치고(pagecheck.push_headings) PDF를 한 번 더
     — 형 10/14 "2~3줄 애매하게 넘어가면 줄간격 늘려서 아예 넘겨버려"(결과표 '다.'부터는 precision_build._split_result_table)."""
-    from server.sitok import pagecheck
+    from server.sitok import layout_fix, pagecheck
 
+    try:  # 머리말 용역명 한 줄로 — 칸 늘리기 → 자간 → 글자 1pt(10/19 형), 합본 용역명이 정해진 뒤라 여기서
+        layout_fix.header_one_line(hwpx)
+    except Exception:  # noqa: BLE001 — 못 하면 그대로
+        traceback.print_exc()
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
     keep: set = set()  # 빈 자리 메우기가 일부러 넘긴 캡션·제목(다음 회에 다시 당기지 않게)
     for _ in range(2 if precision else 0):  # 정밀: 빈 쪽·쪽 아래 빈 자리에 다음 쪽 내용(사진 표는 줄여서)을 당김(형 10/15 "빈 공간에 표를 끼워 넣어 한 쪽에 쏙") — 고친 뒤 새로 생긴 것도 한 번 더
