@@ -7,7 +7,7 @@
 .ss-cards { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .main button.st-card.warn .n { color: var(--warn, #b45309); }
 .ds-cards { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.ss-grid { display: grid; grid-template-columns: minmax(260px, 2.4fr) minmax(124px, .5fr) minmax(100px, .4fr) minmax(84px, .4fr) minmax(100px, .4fr) minmax(84px, .4fr) minmax(84px, .4fr); /* 10/16 맨 앞 현장점검 칸, 보고서 칸은 "완료(밖에서) 10/02"가 들어가게 */ /* 상태 칸 40%, 시설물 칸 넓게(10/16) — FMS는 "✓ 실적 10/15"가 들어가게 100px 이상 */ align-items: center; gap: 8px; padding: 10px 16px; }
+.ss-grid { display: grid; grid-template-columns: minmax(260px, 2.4fr) minmax(72px, .35fr) minmax(124px, .5fr) minmax(100px, .4fr) minmax(84px, .4fr) minmax(100px, .4fr) minmax(84px, .4fr) minmax(84px, .4fr); /* 10/16 맨 앞 현장점검 칸, 보고서 칸은 "완료(밖에서) 10/02"가 들어가게 */ /* 상태 칸 40%, 시설물 칸 넓게(10/16) — FMS는 "✓ 실적 10/15"가 들어가게 100px 이상 */ align-items: center; gap: 8px; padding: 10px 16px; }
 .ss-grid.ss-docs { grid-template-columns: minmax(260px, 2.4fr) minmax(124px, .5fr) minmax(124px, .5fr) minmax(100px, .5fr); } /* 서류 현황 상태 칸 50%(10/16) — "✓ 만듦·제출 10/15"가 들어가게 */
 .ss-head > span { text-align: center; } /* 머리글 가운데(10/16, 보고서·서류 현황 — 시설물·계약 머리글도, 칸 안은 그대로) */
 .ss-head { font-size: 12.5px; color: var(--muted, #6b7280); border-bottom: 1px solid var(--line, #e2e5ea); padding-top: 8px; padding-bottom: 8px; }
@@ -77,4 +77,10 @@
   .ss-fbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
   .main .ss-fbar button.ss-hf { padding: 4px 10px; font-size: 12.5px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
   .main .ss-fbar button.ss-hf.on { border-color: var(--blue, #2563eb); background: var(--blue-soft, #e8f0fe); color: var(--blue, #2563eb); }
+}
+
+/* 보고서 제출 현황은 열이 많아(계약 칸 더함, 10/19 형 "간격이 모자라면 전체 크기를 늘려 — PC에서 오른쪽에 빈 공간 많던데") 본문 폭 제한(1180px)을 넓힘 — PC만 */
+@media (min-width: 901px) {
+  body[data-report-tab="status"][data-law="sitok"] main.main { max-width: 1720px; }
+  body[data-report-tab="status"][data-law="sitok"] .ss-head .ss-hf { white-space: nowrap; }
 }

@@ -71,6 +71,7 @@
   const FILTERS = {
     kind: { label: "종류", opts: [["정기", (r) => r.kind === "정기"], ["정밀", (r) => r.kind === "정밀"], ["회차 없음", (r) => !r.kind]] },
     bfield: { label: "분야", opts: ["건축", "토목", "건축·토목"].map((v) => [v, (r) => r.facility.badge_field === v]) },
+    contract: { label: "계약", opts: [["완료", (r) => !!r.contract], ["미계약", (r) => !r.contract]] }, // 계약서 있으면 완료(10/19 형)
     field: { label: "현장점검", opts: two((r) => isDone(r.field)) },
     report: { label: "보고서", opts: [["작성 중", (r) => r.report.state !== "done"], ["완료", (r) => r.report.state === "done"]] },
     mail: { label: "발주처 이메일", opts: two((r) => isDone(r.mail)) },
@@ -78,7 +79,7 @@
     print: { label: "합본 출력", opts: two((r) => isDone(r.print)) },
     parcel: { label: "택배", opts: two((r) => isDone(r.parcel)) },
   };
-  const HEADS = [["시설물", ["kind", "bfield"]], ["현장점검", ["field"]], ["보고서", ["report"]], ["발주처 이메일", ["mail"]], ["FMS", ["fms"]], ["합본 출력", ["print"]], ["택배", ["parcel"]]];
+  const HEADS = [["시설물", ["kind", "bfield"]], ["계약", ["contract"]], ["현장점검", ["field"]], ["보고서", ["report"]], ["발주처 이메일", ["mail"]], ["FMS", ["fms"]], ["합본 출력", ["print"]], ["택배", ["parcel"]]];
   const colf = {};
   const passes = (r, key) => !colf[key] || FILTERS[key].opts.some(([n, fn]) => colf[key].has(n) && fn(r));
   const colOk = (r, except = "") => Object.keys(FILTERS).every((k) => k === except || passes(r, k));
@@ -161,6 +162,7 @@
       <div class="ss-fac"><span class="site-no">${esc(f.mgmt_no)}</span><span class="sk-sector ${f.sector === "관급" ? "gov" : "pri"}">${esc(f.sector)}</span>
         <a href="sitok-facility.html?id=${f.id}"><b>${esc(f.name)}</b></a>${f.members.length > 1 ? `<span class="sk-dong-n">${f.members.length}동</span>` : ""}
         ${r.season ? `<span class="ss-kind ss-season" title="연 3회 — 이 반기 칸 안의 시기">${esc(r.season)}</span>` : ""}${r.kind ? `<span class="ss-kind">${esc(r.kind)}</span>` : ""}${f.badge_field ? `<span class="sk-badge b-field">${esc(f.badge_field)}</span>` : ""}${f.badge_kind ? `<span class="sk-badge b-kind">${esc(f.badge_kind)}</span>` : ""}</div>
+      <div class="ss-c" data-label="계약">${r.contract ? '<span class="ss-b ok">완료</span>' : '<span class="ss-b todo" title="이 반기를 맡는 계약의 계약서(민간 작성·날인본, 관급 나라장터 계약서)가 없습니다 — 서류 자동화에서">미계약</span>'}</div>
       <div class="ss-c ss-field" data-label="현장점검">${fieldCell(r)}</div>
       <div class="ss-c" data-label="보고서">${r.report.state === "done" && !r.report.outside ? `<a class="ss-b ${rt}" href="${roundHref}">${rl}${r.report.at ? ` ${esc(r.report.at)}` : ""}</a>`
         : `<button type="button" class="ss-cell" data-item="report"><span class="ss-b ${rt}">${r.report.outside ? "완료(밖에서)" : rl}${r.report.at ? ` ${esc(r.report.at)}` : ""}</span></button>`}</div>

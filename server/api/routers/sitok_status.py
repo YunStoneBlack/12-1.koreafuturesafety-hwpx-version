@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.models_web import SitokDocContract, SitokFacility, SitokGroup, SitokReport, User
+from core.models_web import SitokContract, SitokDocContract, SitokFacility, SitokGroup, SitokReport, User
 from server.api.deps import get_current_user, get_db
 from server.sitok import seasons, steps
 
@@ -101,6 +101,11 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
     units: dict = {}
     for f in facs:
         units.setdefault(("g", f.group_id) if f.group_id else ("f", f.id), []).append(f)
+    from server.api.routers.sitok_compose import _overlaps
+    from server.api.routers.sitok_docs import covered_ids
+
+    signed = [set(covered_ids(c)) for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id)
+              if (c.contract_pdf or c.made_at) and _overlaps(c, year, half)]  # 이 반기 계약 중 계약서가 있는 것(민간 만듦·날인본, 관급 나라장터 계약서) — 계약 칸(10/19 형)
     rows = []
     names = {}
     for key, members in units.items():
@@ -121,12 +126,16 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
             states = [report_state(x) for x in mr] or [report_state(None)]
             rep = next((s for s in states if s["state"] != "done"), states[0])  # 묶음은 한 동이라도 안 끝나면 안 끝남
             vis = next((visits[(m.id, hh)] for m in members if (m.id, hh) in visits), None)  # 이 시기 방문 일정(대표 동에 잡힘)
+            ids = {m.id for m in members}
+            rc = db.get(SitokContract, r.contract_id) if r is not None and r.contract_id else None
+            has_con = any(ids & c for c in signed) or bool(rc and rc.contract_pdf)  # 계약서 있으면 완료, 없으면 미계약
             rows.append({
                 "facility": {"id": lead.id, "mgmt_no": lead.mgmt_no, "name": name, "sector": lead.sector or "민간", "badge_field": lead.badge_field or "",
                              "badge_kind": lead.badge_kind or "", "contract_type": lead.contract_type, "members": [{"id": m.id, "name": m.name} for m in members]},
                 "report_id": r.id if r is not None else None, "report_ids": [x.id for x in mr], "kind": r.kind if r is not None else "",
                 "season": hh if seasons.is_season(hh) else "",
                 "visit": {"start": vis[0].isoformat(), "end": vis[1].isoformat()} if vis else None,
+                "contract": has_con,
                 "report": rep, "field": sub.get("field"), "mail": sub.get("mail"), "fms": fms_state(r), "print": sub.get("print"), "parcel": sub.get("parcel"),
                 "email": (doc.site_email or doc.client_email) if doc is not None else "",
             })
