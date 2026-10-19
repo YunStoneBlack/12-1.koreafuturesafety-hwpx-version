@@ -2,11 +2,11 @@
 
 산안법은 15일마다 보고서가 나가 달마다 봤지만 시특법은 상·하반기로 봄. 한 줄 = 그 반기 시설물 카드 하나(묶인 동은 한 줄),
 칸 = 보고서(만듦) · 발주처 이메일 제출 · FMS 처리(자동 제출 기록 sitok_report.fms 또는 직접 처리함 · 해당없음) · 보고서 합본 출력 · 보고서 택배.
-그 반기를 덮는 계약이 있는데 회차를 아직 안 만든 시설물도 "회차 없음"으로 보여 줌. 표시는 sitok_report.submit(0048) — 묶인 동은 같이.
+그 반기를 덮는 계약이 있는데 회차를 아직 안 만든 시설물도 "회차 없음"으로, 장기·지속은 계약이 없어도 줄로(계약 칸 "미계약", 10/19) 보여 줌. 표시는 sitok_report.submit(0048) — 묶인 동은 같이.
 
 - `GET /sitok/status/reports?year=&half=` — 줄 목록
 - `POST /sitok/status/reports/{report_id}/mark` {item: field|report|mail|fms|print|parcel, action: done|na|clear, date?} — 표시(na = FMS 해당없음만)
-  field = 현장점검일, report = 보고서를 그룹웨어 밖에서 작성 완료(10/16 민재형 — 그룹웨어 쓰기 전·토목 등 밖에서 쓴 보고서). 현장점검 = 현장 조사 [✓ 조사 완료](sitok_steps.py)와 같은 기록(동마다 완료도 같이), 방문 달력 그 반기 칸을 채움(10/18 — 전엔 뺐음), 밖에서 완료 = 앞으로 잡힌 날을 뺌.
+  field = 현장점검일, report = 보고서를 그룹웨어 밖에서 작성 완료(10/16 민재형 — 그룹웨어 쓰기 전·토목 등 밖에서 쓴 보고서). 현장점검 = 현장 조사 [✓ 조사 완료](sitok_steps.py)와 같은 기록(동마다 완료도 같이), 방문 달력 그 반기 칸을 채움(10/18 — 전엔 뺐음), 앞날 = 예정(일정을 그날로, 10/19), 밖에서 완료 = 일정 그대로(10/19 — 달력이 색으로).
 - `POST /sitok/status/facilities/{facility_id}/mark` {year, half, item, action, date?} — 회차가 아직 없는 줄(현장점검·밖에서 완료만) — 회차를 만들어 표시
 - `GET /sitok/status/docs?year=&half=` — 서류 자동화 제출 현황(관급 착수계·완수계, 민간 계약서, 계산서 발행일)
 - `POST /sitok/status/docs/{cid}/mark` {item: start|done|invoice, action: done|clear, date?, key?} — 직접 제출함·계산서 발행일
@@ -20,9 +20,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.models_web import SitokContract, SitokDocContract, SitokFacility, SitokGroup, SitokReport, User
+from core.models_web import SitokContract, SitokDocContract, SitokFacility, SitokGroup, SitokReport, SitokVisit, User
 from server.api.deps import get_current_user, get_db
 from server.sitok import seasons, steps
+from server.sitok.visit_plan import fill_quietly, tell_apart, visit_span
 
 router = APIRouter(prefix="/sitok/status", tags=["sitok-status"])
 ITEMS = ("field", "report", "mail", "fms", "print", "parcel")
@@ -62,6 +63,54 @@ def fms_state(r: SitokReport | None) -> dict:
             "done": auto == "done" or bool(mark)}
 
 
+def _day(text: str | None, default: datetime.date | None) -> datetime.date | None:
+    """표시 창 날짜("2026-10-19") — 비면 default, 틀리면 400."""
+    try:
+        return datetime.date.fromisoformat(text) if text else default
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "날짜가 맞지 않습니다.") from err
+
+
+def _no_start(c, year: int, half: str, halves: str = "") -> bool:
+    """시작일이 빈 계약(관급-24 "2026년 … 연간", 끝 12/31) — 끝나는 해가 이 해이고 끝이 이 반기 시작 이후면 덮는 것으로(반기 지정 계약은 그 반기만)."""
+    from server.api.routers.sitok import half_range
+
+    if c.start_date is not None or c.end_date is None:
+        return False
+    if halves in HALVES and halves != seasons.bucket(half):
+        return False
+    return c.end_date.year == year and c.end_date >= half_range(year, half)[0]
+
+
+def _began(c) -> datetime.date | None:
+    """계약 시작 — 시작일 없는 계약(관급 일부·민간-15)은 끝나는 날이 든 반기 첫날."""
+    from server.api.routers.sitok import half_range
+
+    if c.start_date is not None or c.end_date is None:
+        return c.start_date
+    return half_range(*current_half(c.end_date))[0]
+
+
+def _contracts(db: Session, company_id: int, year: int, half: str, units: dict) -> tuple[list[set], dict]:
+    """계약 칸 재료(10/19 형) — (이 반기 계약 중 계약서가 있는 것(민간 만듦·날인본, 관급 나라장터 계약서)이 맡는 건물 묶음들,
+    묶음 단위 → 첫 계약 시작(그 전 반기엔 "미계약" 줄을 안 만듦 — 아직 거래 전))."""
+    from server.api.routers.sitok_compose import _overlaps
+    from server.api.routers.sitok_docs import covered_ids
+
+    docs = db.query(SitokDocContract).filter(SitokDocContract.company_id == company_id).all()
+    signed = [set(covered_ids(c)) for c in docs
+              if (c.contract_pdf or c.made_at) and (_overlaps(c, year, half) or (not c.rounds and _no_start(c, year, half)))]
+    began: dict = {}  # 시설물 → 첫 계약 시작
+    for c in db.query(SitokContract).filter(SitokContract.company_id == company_id):
+        if (d := _began(c)) is not None:
+            began[c.facility_id] = min(began.get(c.facility_id, d), d)
+    for c in docs:
+        if (d := _began(c)) is not None:
+            for fid in covered_ids(c):
+                began[fid] = min(began.get(fid, d), d)
+    return signed, {key: min((began[m.id] for m in members if m.id in began), default=None) for key, members in units.items()}
+
+
 class MarkIn(BaseModel):
     item: str
     action: str = "done"  # done | na(FMS 해당없음) | clear
@@ -79,7 +128,7 @@ def _unit_reports(db: Session, r: SitokReport) -> list[SitokReport]:
 
 @router.get("/reports")
 def list_rows(year: int | None = None, half: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    from server.api.routers.sitok import contract_for, covers
+    from server.api.routers.sitok import contract_for, covers, half_range
 
     y0, h0 = current_half()
     year, half = year or y0, half if half in HALVES else h0
@@ -91,9 +140,6 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
     docs = {}
     for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id, SitokDocContract.facility_id.isnot(None)).order_by(SitokDocContract.id):
         docs[d.facility_id] = d
-    from core.models_web import SitokVisit
-    from server.sitok.visit_plan import visit_span
-
     visits: dict = {}  # (시설물, 시기) → 방문 달력 일정(시작, 끝) — 현장점검 칸에 날짜(10/19 민재형 "현장점검 날짜 표기")
     for v in db.query(SitokVisit).filter(SitokVisit.company_id == user.company_id, SitokVisit.year == year,
                                          SitokVisit.half.in_(seasons.in_bucket(half))).order_by(SitokVisit.plan_date, SitokVisit.id):
@@ -101,48 +147,14 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
     units: dict = {}
     for f in facs:
         units.setdefault(("g", f.group_id) if f.group_id else ("f", f.id), []).append(f)
-    from server.api.routers.sitok_compose import _overlaps
-    from server.api.routers.sitok_docs import covered_ids
-
-    from server.api.routers.sitok import half_range
-
-    h_start = half_range(year, half)[0]
-
-    def no_start(c, halves: str = "") -> bool:
-        """시작일이 빈 계약(관급-24 "2026년 … 연간", 끝 12/31) — 끝나는 해가 이 해이고 끝이 이 반기 시작 이후면 덮는 것으로(반기 지정 계약은 그 반기만)."""
-        if c.start_date is not None or c.end_date is None:
-            return False
-        if halves in ("상반기", "하반기") and halves != seasons.bucket(half):
-            return False
-        return c.end_date.year == year and c.end_date >= h_start
-
-    signed = [set(covered_ids(c)) for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id)
-              if (c.contract_pdf or c.made_at) and (_overlaps(c, year, half) or (not c.rounds and no_start(c)))]  # 이 반기 계약 중 계약서가 있는 것(민간 만듦·날인본, 관급 나라장터 계약서) — 계약 칸(10/19 형)
+    signed, first_start = _contracts(db, user.company_id, year, half, units)
     h_end = half_range(year, half)[1]
-    first_start: dict = {}  # 묶음 단위 → 첫 계약 시작(그 전 반기엔 "미계약" 줄을 안 만듦 — 아직 거래 전)
-    con_start: dict = {}
-
-    def began(c):  # 시작일 없는 계약(관급 일부·민간-15)은 끝나는 날이 든 반기 첫날
-        if c.start_date is not None or c.end_date is None:
-            return c.start_date
-        return half_range(c.end_date.year, "상반기" if c.end_date.month <= 6 else "하반기")[0]
-
-    for c in db.query(SitokContract).filter(SitokContract.company_id == user.company_id):
-        if (d := began(c)) is not None:
-            con_start[c.facility_id] = min(con_start.get(c.facility_id, d), d)
-    for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id):
-        if (d := began(c)) is not None:
-            for fid in covered_ids(c):
-                con_start[fid] = min(con_start.get(fid, d), d)
-    for key, members in units.items():
-        starts = [con_start[m.id] for m in members if m.id in con_start]
-        first_start[key] = min(starts) if starts else None
     rows = []
     names = {}
     for key, members in units.items():
         g = db.get(SitokGroup, key[1]) if key[0] == "g" and len(members) > 1 else None
         names[key] = (g.name if g else "") or members[0].name
-    from server.sitok.visit_plan import tell_apart  # 같은 현장에 이름이 같은 묶음이 여럿이면 건물 이름을 붙임(10/19 뒷번호 없앰)
+    # 같은 현장에 이름이 같은 묶음이 여럿이면 건물 이름을 붙임(10/19 뒷번호 없앰)
     names = dict(zip(names, tell_apart([(units[k][0], units[k], nm) for k, nm in names.items()])))
     for key, members in units.items():
         lead = members[0]
@@ -163,7 +175,7 @@ def list_rows(year: int | None = None, half: str | None = None, user: User = Dep
             ids = {m.id for m in members}
             rc = db.get(SitokContract, r.contract_id) if r is not None and r.contract_id else None
             # 계약서 있으면 완료, 없으면 미계약 — 이 반기를 맡는 계약만(10/19 형 "해당 반기에 계약서 없으면 미계약": 상반기에 끝난 계약이 하반기 회차에 붙어 있던 것)
-            has_con = any(ids & c for c in signed) or bool(rc and rc.contract_pdf and (covers(rc, year, half) or no_start(rc, rc.halves)))
+            has_con = any(ids & c for c in signed) or bool(rc and rc.contract_pdf and (covers(rc, year, half) or _no_start(rc, year, half, rc.halves)))
             rows.append({
                 "facility": {"id": lead.id, "mgmt_no": lead.mgmt_no, "name": name, "sector": lead.sector or "민간", "badge_field": lead.badge_field or "",
                              "badge_kind": lead.badge_kind or "", "contract_type": lead.contract_type, "members": [{"id": m.id, "name": m.name} for m in members]},
@@ -186,10 +198,7 @@ def mark(report_id: int, body: MarkIn, user: User = Depends(get_current_user), d
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "표시할 칸이 아닙니다.")
     if body.action not in ("done", "na", "clear") or (body.action == "na" and body.item != "fms"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "해당없음은 FMS 칸만 됩니다.")
-    try:
-        day = datetime.date.fromisoformat(body.date) if body.date else datetime.date.today()
-    except ValueError as err:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "날짜가 맞지 않습니다.") from err
+    day = _day(body.date, datetime.date.today())
     reps = _unit_reports(db, r)
     if body.item == "field" and body.action == "done" and day > datetime.date.today():  # 앞날 = 예정(10/19 민재형 "날짜가 미래면 당연히 안함, 지난 거 넣은 건 완료")
         for x in reps:
@@ -218,28 +227,22 @@ def visits_after_mark(db: Session, user: User, reps: list[SitokReport], done: bo
     """현장점검 표시 = 그 반기 방문 칸을 그날로 채움(visit_done — 10/18 형 "달력에서 빼면 이력 파악이 안 됨"),
     밖에서 완료 표시 = 방문 일정은 그대로(달력이 진하게 채움 — 10/19 형 "방문 달력에 모두 그대로 남아 있게, 완료된 건 색 채우기"),
     둘 다 지우면 다시 자동으로 잡음."""
-    from server.sitok.visit_plan import fill_quietly
-
     if done and item == "field":
         visit_done(db, user, reps, day or datetime.date.today())
     elif not done and not any((x.submit or {}).get(k) for x in reps for k in VISIT_ITEMS):  # 밖에서 완료는 일정을 안 건드림(10/19 형)
         fill_quietly(db, user.company_id, user.display_name or "", [x.facility_id for x in reps])
 
 
-def schedule_visit(db: Session, user: User, ids: list[int], year: int, half: str, kind: str, day: datetime.date) -> None:
-    """현장점검일을 앞날로 넣음 = 예정 — 그 반기 방문 일정을 그날로(그날이 든 일정이 있으면 그대로, 없으면 가장 가까운 일정을 기간째 옮김 📌,
-    아예 없으면 그날 새로). 완료 표시는 안 함(10/19 민재형)."""
-    from core.models_web import SitokVisit
-
-    from server.sitok.visit_plan import visit_span
-
+def _place_visit(db: Session, user: User, ids: list[int], year: int, half: str, kind: str, day: datetime.date, keep_length: bool) -> None:
+    """그 반기 방문 일정을 day에 둠 — 그날이 든 일정(여러 날 일정이면 그 범위 안)은 그대로, 없으면 가장 가까운 일정을 옮기고(📌 manual,
+    keep_length면 기간째, 아니면 하루로), 아예 없으면 그날 새로(대표 동). 다른 일정은 지우지 않음(10/19 형 "방문 달력에 모두 그대로 남아 있게")."""
     vs = db.query(SitokVisit).filter(SitokVisit.facility_id.in_(ids), SitokVisit.year == year, SitokVisit.half == half).all()
     if any(visit_span(v)[0] <= day <= visit_span(v)[1] for v in vs):
         return
     if vs:
         v = min(vs, key=lambda v: (abs((v.plan_date - day).days), v.id))
         a, b = visit_span(v)
-        v.plan_date, v.plan_end, v.source = day, (day + (b - a)) if b > a else None, "manual"
+        v.plan_date, v.plan_end, v.source = day, (day + (b - a)) if keep_length and b > a else None, "manual"
     else:
         lead = db.query(SitokFacility).filter(SitokFacility.id.in_(ids)).order_by(SitokFacility.group_order, SitokFacility.id).first()
         db.add(SitokVisit(company_id=user.company_id, facility_id=lead.id if lead else ids[0], year=year, half=half, kind=kind,
@@ -247,25 +250,15 @@ def schedule_visit(db: Session, user: User, ids: list[int], year: int, half: str
     db.commit()
 
 
+def schedule_visit(db: Session, user: User, ids: list[int], year: int, half: str, kind: str, day: datetime.date) -> None:
+    """현장점검일을 앞날로 넣음 = 예정 — 그 반기 방문 일정을 그날로(기간째 옮김). 완료 표시는 안 함(10/19 민재형)."""
+    _place_visit(db, user, ids, year, half, kind, day, keep_length=True)
+
+
 def visit_done(db: Session, user: User, reps: list[SitokReport], day: datetime.date) -> None:
-    """현장점검 완료 → 그 반기 방문 칸을 완료한 날에 둠(달력이 채운 칸으로 그림). 그날 칸이 있으면 그대로, 없으면 가장 가까운 날을 옮기고(📌),
-    일정이 아예 없었으면 그날 새로. 다른 일정은 지우지 않음(10/19 형 "방문 달력에 모두 그대로 남아 있게")."""
-    from core.models_web import SitokVisit
-
-    ids = [x.facility_id for x in reps]
+    """현장점검 완료 → 그 반기 방문 칸을 완료한 날에 둠(달력이 채운 칸으로 그림, 옮기면 하루 일정)."""
     r = reps[0]
-    vs = db.query(SitokVisit).filter(SitokVisit.facility_id.in_(ids), SitokVisit.year == r.year, SitokVisit.half == r.half).all()
-    from server.sitok.visit_plan import visit_span
-
-    keep = next((v for v in vs if visit_span(v)[0] <= day <= visit_span(v)[1]), None)  # 그날이 든 일정(여러 날 일정이면 그 범위 안, 10/19)은 그대로
-    if keep is None and vs:
-        keep = min(vs, key=lambda v: (abs((v.plan_date - day).days), v.id))
-        keep.plan_date, keep.plan_end, keep.source = day, None, "manual"
-    if keep is None:
-        lead = db.query(SitokFacility).filter(SitokFacility.id.in_(ids)).order_by(SitokFacility.group_order, SitokFacility.id).first()
-        db.add(SitokVisit(company_id=user.company_id, facility_id=lead.id if lead else r.facility_id, year=r.year, half=r.half, kind=r.kind or "정기",
-                          plan_date=day, source="manual", created_by=user.display_name or ""))
-    db.commit()
+    _place_visit(db, user, [x.facility_id for x in reps], r.year, r.half, r.kind or "정기", day, keep_length=False)
 
 
 class FacMarkIn(MarkIn):
@@ -289,10 +282,7 @@ def mark_facility(facility_id: int, body: FacMarkIn, user: User = Depends(get_cu
     if body.half not in seasons.ALL:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "반기가 맞지 않습니다.")
     r = db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == body.year, SitokReport.half == body.half).first()
-    try:
-        day = datetime.date.fromisoformat(body.date) if body.date else None
-    except ValueError as err:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "날짜가 맞지 않습니다.") from err
+    day = _day(body.date, None)
     if r is None and body.item == "field" and body.action == "done" and day and day > datetime.date.today():  # 앞날 = 예정 — 회차는 안 만들고 일정만
         from server.api.routers.sitok_groups import members
 
@@ -383,10 +373,7 @@ def doc_mark(cid: int, body: DocMarkIn, user: User = Depends(get_current_user), 
         raise HTTPException(status.HTTP_404_NOT_FOUND, "계약을 찾을 수 없습니다.")
     if body.item not in ("start", "done", "invoice") or body.action not in ("done", "clear"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "표시할 칸이 아닙니다.")
-    try:
-        day = datetime.date.fromisoformat(body.date) if body.date else datetime.date.today()
-    except ValueError as err:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "날짜가 맞지 않습니다.") from err
+    day = _day(body.date, datetime.date.today())
     mk = dict(c.marks or {})
     if body.item == "invoice":
         key = body.key or ("all" if c.sector == "관급" else "")

@@ -34,10 +34,6 @@ def _text(p) -> str:
     return rb._top_text(p).strip()
 
 
-def _cells_text(p) -> str:
-    return " ".join(rb._cell_text(c) for t in M._tables(p) for c in rb._cells(t).values()).replace(" ", "")
-
-
 def front_blocks(root) -> dict[str, tuple[int, int]]:
     """첫 구역의 동별 묶음 {"overview"|"result"|"summary"|"toc": (시작, 끝)} — 끝은 빼고."""
     tops = M._tops(root)
