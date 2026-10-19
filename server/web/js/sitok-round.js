@@ -160,7 +160,7 @@
     timer = setInterval(async () => {
       try {
         const x = await api(`/sitok/reports/${rid}`);
-        if (x.status !== "running") { clearInterval(timer); timer = null; load(); }
+        if (x.status !== "running") { clearInterval(timer); timer = null; load(); window.dispatchEvent(new Event("sitok-report-built")); } // 분권 칸(js/sitok-split.js)도 다시
         else { const st = document.querySelector(".sk-rep-st"); if (st) st.textContent = `⏳ ${x.message}`; }
       } catch (_) { /* 다음에 다시 */ }
     }, 3000);

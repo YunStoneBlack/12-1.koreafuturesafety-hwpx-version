@@ -703,3 +703,27 @@ div.sf-miss-it { cursor: default; }
 /* AI 초안 등급 재산정 요청(10/19 형) */
 .ai-regrade { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 2px 0 6px; }
 .main .ai-regrade button, .ai-regrade button { margin: 0; }
+
+/* 📚 분권 — 성과품 추가(10/19 민재형, 시안 그대로) — js/sitok-split.js */
+.bk-intro { margin: 0 0 12px; }
+.bk-quick { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.main .bk-quick button { margin: 0; padding: 6px 12px; font-size: 13px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 7px; }
+.bk-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.bk-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.bk-name { flex: 1; min-width: 180px; font-weight: 700; font-size: 14px; }
+.bk-seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+.main .bk-seg button { margin: 0; padding: 6px 12px; font-size: 13px; font-weight: 400; border: 0; border-left: 1px solid var(--line); border-radius: 0; background: var(--surface); color: var(--ink); }
+.main .bk-seg button:first-child { border-left: 0; }
+.main .bk-seg button.on { background: var(--blue); color: #fff; font-weight: 700; }
+.main .bk-seg button.off.on { background: var(--paper); color: var(--muted); }
+.bk-books { display: flex; flex-direction: column; gap: 8px; }
+.bk-book { padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.bk-book b { font-size: 14px; }
+.bk-cover { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.bk-files { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+.main .bk-files .secondary-link { margin: 0; padding: 6px 12px; font-size: 13px; }
+.bk-st { font-size: 12.5px; color: var(--muted); }
+.bk-st.ok { color: var(--green); font-weight: 700; }
+.bk-st.bad { color: var(--crit); font-weight: 700; }
+.bk-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.main .bk-foot button { margin: 0 0 0 auto; }

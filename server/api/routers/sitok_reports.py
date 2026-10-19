@@ -1070,8 +1070,9 @@ def _make_summary_conclusion(db: Session, r: SitokReport, company_id: int, by: s
     return paras
 
 
-def _summary_input(db: Session, pairs: list, title: str, warn: list) -> "object":
-    """요약문 값 — 동마다 관리대장 칸(현황)·AI 초안(등급·점검 주요결과)·보수물량 표(적용공법·우선순위)·전회차 등급, 결언은 대표 동 ai.summary(없으면 기본 문장)."""
+def _summary_input(db: Session, pairs: list, title: str, warn: list, book: bool = False) -> "object":
+    """요약문 값 — 동마다 관리대장 칸(현황)·AI 초안(등급·점검 주요결과)·보수물량 표(적용공법·우선순위)·전회차 등급, 결언은 대표 동 ai.summary(없으면 기본 문장).
+    book = 분권(10/19 형 — 묶음 결언 AI는 다른 동 얘기도 있어 기본 문장, AI 다시 안 부름)."""
     from server.api.routers.sitok_defects import method_map, priority_rows
     from server.sitok import ai_draft
     from server.sitok import summary_doc as S
@@ -1108,14 +1109,14 @@ def _summary_input(db: Session, pairs: list, title: str, warn: list) -> "object"
     period = (f"{lead.period_start:%Y년 %m월 %d일} ∼ {lead.period_end:%Y년 %m월 %d일}" if lead.period_start and lead.period_end else "")
     s = S.Summary(title=title, period=period, year=lead.year, half=seasons.bucket(lead.half), kind="정기", cls=cls, label=label,
                   category=lead_f.kind or "건축물", buildings=blds, diag=[b.name for b in blds if b.grade in bad])
-    con = ((lead.ai or {}).get("summary") or {}).get("conclusion") or []
-    if not con:
+    con = [] if book else ((lead.ai or {}).get("summary") or {}).get("conclusion") or []
+    if not con and not book:
         warn.append("요약문 결언은 기본 문장입니다 — AI 초안 화면 [요약문 결언 AI로 쓰기]")
     s.conclusion = con or S.fallback_conclusion(s)
     return s
 
 
-def _add_summary(db: Session, pairs: list, title: str, hwpx: Path, pdf: Path, warn: list) -> int:
+def _add_summary(db: Session, pairs: list, title: str, hwpx: Path, pdf: Path, warn: list, book: bool = False) -> int:
     """정기 요약문 한글·PDF를 만들어 보고서 PDF 목차 앞에(목차 "▣ 요약문" 줄은 PDF 전에 add_toc_line) → 끼운 쪽 수. 못 하면 경고만."""
     from server.sitok import summary_doc as S
 
@@ -1124,7 +1125,7 @@ def _add_summary(db: Session, pairs: list, title: str, hwpx: Path, pdf: Path, wa
         warn.append("요약문 원본(정기안전점검_요약문_원본.hwpx)이 없어 요약문을 빼고 만들었습니다")
         return 0
     try:
-        s = _summary_input(db, pairs, title, warn)
+        s = _summary_input(db, pairs, title, warn, book)
         out = hwpx.with_name(hwpx.stem + "_요약문.hwpx")
         S.build(s, tpl, out)
         spdf = out.with_suffix(".pdf")

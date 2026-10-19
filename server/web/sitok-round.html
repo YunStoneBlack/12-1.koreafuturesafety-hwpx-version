@@ -24,23 +24,35 @@
 
 <div class="rd-head" id="rd-head"></div>
 
-<section class="panel">
-  <div class="panel-head"><h2>📱 현장 점검</h2><span class="panel-count">현장에서 순서대로 — 끝난 것은 ✓</span></div>
+<!-- 칸은 처음엔 접힘(10/19 형 "펼치기 적용") -->
+<details class="panel sk-fold" id="rd-field-panel">
+  <summary class="panel-head"><h2>📱 현장 점검</h2><span class="panel-count">현장에서 순서대로 — 끝난 것은 ✓</span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body"><div class="rd-btns" id="rd-field"></div></div>
-</section>
+</details>
 
-<section class="panel">
-  <div class="panel-head"><h2>📄 보고서</h2><span class="panel-count">회사 원본 템플릿에 이번 값과 전회차 데이터를 넣어 한글·PDF를 만듭니다</span></div>
+<details class="panel sk-fold" id="rd-report-panel">
+  <summary class="panel-head"><h2>📄 보고서</h2><span class="panel-count">회사 원본 템플릿에 이번 값과 전회차 데이터를 넣어 한글·PDF를 만듭니다</span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body">
     <div class="rd-btns" id="rd-report"></div>
     <div class="rd-build" id="rd-build"></div>
   </div>
-</section>
+</details>
 
-<section class="panel" id="rd-fms-panel">
-  <div class="panel-head"><h2>📤 FMS 제출</h2><span class="panel-count">시설물통합정보관리시스템 — 계약 등록 → 승인 → 실적보고·e-보고서 → 승인</span></div>
+<!-- 📚 분권 — 성과품 추가(10/19 민재형) — 묶음(2동 이상)·정기만 보임, js/sitok-split.js, 서버 server/api/routers/sitok_split.py -->
+<details class="panel sk-fold" id="bk-panel" hidden>
+  <summary class="panel-head"><h2>📚 분권 — 성과품 추가</h2><span class="panel-count">묶음 보고서와 같은 내용으로 일부 동만 따로 묶은 책 · 제출 현황·FMS 없음, 디지털 파일·제본용만</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body">
+    <p class="page-sub bk-intro">동마다 몇 권째에 넣을지 고르세요. 같은 권 = 한 책(표지·용역명은 동 개수 규칙 그대로), "안 함" = 분권에 안 넣음.
+      현장 조사·AI 초안은 다시 안 함 — 묶음 보고서를 만들 때 만든 동별 한글로 다시 묶습니다.</p>
+    <div class="mail-msg" id="bk-msg" hidden></div>
+    <div id="bk-box"></div>
+  </div>
+</details>
+
+<details class="panel sk-fold" id="rd-fms-panel">
+  <summary class="panel-head"><h2>📤 FMS 제출</h2><span class="panel-count">시설물통합정보관리시스템 — 계약 등록 → 승인 → 실적보고·e-보고서 → 승인</span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body" id="rd-fms"><div class="mail-wait">불러오는 중…</div></div>
-</section>
+</details>
 
 <details class="panel sk-fold" id="rd-info-panel">
   <summary class="panel-head"><h2>⚙ 회차 정보</h2><span class="panel-count">계약·종류·점검기간·제출일·기술자 — 보통 자동으로 채워짐</span><span class="sk-fold-arrow">▾</span></summary>
@@ -55,6 +67,7 @@
 <script src="mail.js"></script>
 <script src="js/sitok-steps.js"></script>
 <script src="js/sitok-prev.js"></script>
+<script src="js/sitok-split.js"></script>
 <script src="js/sitok-ai.js"></script>
 <script src="js/sitok-survey.js"></script>
 <script src="js/sitok-detail.js"></script>

@@ -38,6 +38,7 @@ from server.api.routers import (
     sitok_defects,
     sitok_steps,
     sitok_good,
+    sitok_split,
     sitok_prev,
     sitok_overview,
     sitok_groups,
@@ -126,6 +127,7 @@ web_app.include_router(sitok_defects.router, prefix="/api")  # 시특법 현장 
 web_app.include_router(sitok_prev.router, prefix="/api")  # 시특법 전회차 보고서 PDF(시설물 현황·면담 창, 2026-10-18)
 web_app.include_router(sitok_steps.router, prefix="/api")  # 시특법 회차 칸 [✓ 조사 완료]·[✓ 작성 완료](미기재 항목 경고, 2026-10-18)
 web_app.include_router(sitok_good.router, prefix="/api")  # 시특법 현장 조사 [👍 상태양호]·[🏫 내진보강] 탭(민재형 B3·B5, 2026-10-19)
+web_app.include_router(sitok_split.router, prefix="/api")  # 시특법 분권 — 묶음과 같은 내용으로 일부 동만 따로 묶은 책(성과품만, 민재형 2026-10-19)
 web_app.include_router(sitok_overview.router, prefix="/api")  # 시특법 전경사진(10·11쪽)
 web_app.include_router(sitok_groups.router, prefix="/api")  # 시특법 동 묶음(한 계약 여러 동 — 2026-10-12)
 web_app.include_router(sitok_compose.router, prefix="/api")  # 시특법 보고서 구성(건물을 보고서 상자에 — 2026-10-16)
