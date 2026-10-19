@@ -593,3 +593,9 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
   .sticky-list { overflow: clip; }
   .sticky-list > .panel-head { position: sticky; top: var(--sticky-h, 0px); z-index: 6; background: var(--surface); }
 }
+
+/* 시특법 화면(보고서·서류 자동화)과 실적은 PC에서 본문 폭 제한을 1180 → 1720px(10/19 민재형 "PC에서 오른쪽에 빈 공간 많던데 — 다른 것도 넓혀") */
+@media (min-width: 901px) {
+  body[data-law="sitok"] main.main, body[data-docs-tab="performance"] main.main { max-width: 1720px; }
+  body[data-law="sitok"] .dk-wrap { margin-right: 0; } /* 달력 그날 상세를 본문 바깥에 붙이던 것(1180px 전제, docs.css) — 본문이 넓어 안에 나란히 */
+}
