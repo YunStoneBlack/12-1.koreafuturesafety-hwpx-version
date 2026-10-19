@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 
-from server.sitok import kinds
+from server.sitok import kinds, manual3
 
 
 CATEGORIES = [  # (키, 1.3 제목에 들어 있는 낱말, 이름)
@@ -138,7 +138,8 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 - 진행된 결함(진행)·새로 찾은 결함(신규)·보수 완료가 있으면 그 사실을 반영(전회차 대비 변화).
 - 균열폭 0.3mm 미만은 표면처리, 0.3mm 이상은 주입 보수가 일반적. 면적 결함(누수·박리 등)은 마감재 재시공·단면복구 등.
 - 원인은 결함마다 적힌 원인·근거(사진에서 본 것)를 살려 구체적으로 — "건조수축균열·노후화" 같은 한 낱말로 뭉뚱그리지 말 것.
-- 구조체라도 미장균열·마감균열·조적균열은 마감층 결함이라 구조 결함이 아님(집계의 "상태평가 대상"에서 빠짐) — 구조안전성 판단·등급·18항목은 상태평가 대상 결함으로.
+- 구조체라도 미장균열·마감균열·조적균열은 마감층 결함이라 구조 결함이 아님(집계의 "상태평가 대상"에서 빠짐) — 구조안전성 판단·등급·18항목의 구조부재 항목은
+  상태평가 대상 결함으로, 마감층 결함은 18항목의 마감재·칸막이벽 항목에서.
 - 문장은 보고서 문어체("~조사되었다", "~권고한다"), 항목마다 2~4문장. 매번 같은 틀이 되지 않게 시설물·층·부재를 구체적으로.
 - 공중이 이용하는 부위·기타시설 현장 사진 판단이 있으면 sections.public·sections.other·결과표 public은 그 판단(항목·상태)을 근거로 구체적으로
   (해당없음 항목은 "해당없음", 사진이 없는 항목은 언급하지 말 것). 결함 집계의 공중이용·기타 결함도 함께.
@@ -160,8 +161,8 @@ ITEMS_SPEC = """,
  "eval_opinion": "안전등급 평가 종합의견 한두 문장"
 
 3종은 안전등급을 아래 18항목 평가 점수로 프로그램이 계산합니다(우수10·양호8·보통5·미흡2·불량0, 주요60·일반20·부대20, 9·7·5·3점 이상 A~D) — "grade"도 그 계산과 맞게.
+18항목 평가는 반드시 제3종시설물 정기안전점검 매뉴얼(2026) 평가방법대로 — 아래 원칙과 항목마다 적힌 a~e 기준으로.
 
-[3종 안전등급 평가 항목 — 영역, 지난 평가] 결함이 있는 항목은 그 정도에 맞게(구조체 균열 경미 → 보통, 결함 없음 → 양호), 그 시설에 없는 부위는 해당없음:
 {items}"""
 
 
@@ -205,7 +206,7 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
         lines.append(f"- {n}({k}): 결함 {s['count']}건(상태평가 대상 구조 결함 {s['rated']}건), 층 {', '.join(s['floors']) or '-'}, 종류 {types}, "
                      f"최대 폭 {s['max_width'] if s['max_width'] is not None else '-'}, "
                      f"물량 합 {s['qty']}, 진행 {s['grew']} · 신규 {s['new']} · 보수 완료 {s['repaired']}\n  예: " + " / ".join(s["items"][:6]))
-    spec = ITEMS_SPEC.format(items="\n".join(f"{it['no']}. [{it['group']}] {it['name']} (지난 {it['rating'] or '-'})" for it in eval_items)) if eval_items else ""
+    spec = ITEMS_SPEC.format(items=manual3.criteria(eval_items)) if eval_items else ""  # 18항목 = 매뉴얼 4.6 a~e 기준(10/19)
     if fac_items:
         spec += FACILITY_SPEC.format(n=len(fac_items), items="\n".join(f"{it['no']}. {it['name']} (지난 {'있다' if it['has'] else '없다'})" for it in fac_items))
     if eval_items or fac_items:
