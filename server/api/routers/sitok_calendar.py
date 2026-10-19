@@ -1,8 +1,9 @@
 """보고서 자동화 · 시특법 — 방문 달력(2026-10-15 민재형 문서번호 일치화 문서 "보고서 달력관리"). 계산은 server/sitok/visit_plan.py.
 
 - `GET /sitok/calendar?start=&end=` — 그 사이 점검 날(시설물 카드·반기·종류·지역·상태) + 날마다 건물 수 + 일정 없는 반기 수
-- `POST /sitok/calendar/visits` {facility_id, plan_date, kind?} — 사람이 날 넣기(📌, 같은 반기에 더 넣기도)
-- `PATCH /sitok/calendar/visits/{id}` {plan_date?, memo?} — 날 바꾸기(끌어 옮기기 → 📌)
+- `POST /sitok/calendar/visits` {facility_id, plan_date, plan_end?, kind?} — 사람이 날 넣기(📌, 같은 반기에 더 넣기도)
+- `PATCH /sitok/calendar/visits/{id}` {plan_date?, plan_end?, memo?} — 날 바꾸기(끌어 옮기기 → 📌). 시작만 바꾸면 기간 그대로 옮김.
+  일정은 범위(시작~끝, 10/19 민재형 "일정을 범위 설정 가능하도록, 디폴트 10.30~10.30") — 끝이 비면 하루, 하루 건물 수는 날마다 나눠 셈(visit_plan.day_share).
 - `DELETE /sitok/calendar/visits/{id}`
 - `GET /sitok/calendar/missing` — 일정 없는 반기 목록(계약기간 안인데 날이 없음)
 - `POST /sitok/calendar/fill` {dry_run, facility_ids?} — 자동으로 잡기(미리보기 → 잡기). 이미 있는 날은 안 건드림.
@@ -13,6 +14,7 @@ import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.models_web import SitokFacility, SitokReport, SitokVisit, User
@@ -45,12 +47,12 @@ def _state(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> tuple
         return "done", rid
     if any((x.submit or {}).get("field") for x in reps):
         return "field", rid
-    return ("missed" if v.plan_date < today else "planned"), rid
+    return ("missed" if V.visit_span(v)[1] < today else "planned"), rid
 
 
 def _visit_out(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> dict:
     st, rid = _state(db, v, u, today)
-    return {"id": v.id, "date": v.plan_date.isoformat(), "year": v.year, "half": v.half, "kind": v.kind, "pinned": v.source == "manual",
+    return {"id": v.id, "date": v.plan_date.isoformat(), "end": V.visit_span(v)[1].isoformat(), "year": v.year, "half": v.half, "kind": v.kind, "pinned": v.source == "manual",
             "memo": v.memo, "state": st, "report_id": rid, "facility": _unit_out(u)}
 
 
@@ -60,11 +62,14 @@ def calendar(start: datetime.date, end: datetime.date, user: User = Depends(get_
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "한 번에 70일까지 봅니다.")
     today = datetime.date.today()
     um = _unit_map(db, user.company_id)
-    rows = db.query(SitokVisit).filter(SitokVisit.company_id == user.company_id, SitokVisit.plan_date >= start, SitokVisit.plan_date < end).order_by(SitokVisit.plan_date, SitokVisit.id).all()
+    rows = db.query(SitokVisit).filter(SitokVisit.company_id == user.company_id, SitokVisit.plan_date < end,
+                                       func.coalesce(SitokVisit.plan_end, SitokVisit.plan_date) >= start).order_by(SitokVisit.plan_date, SitokVisit.id).all()
     visits = [_visit_out(db, v, um[v.facility_id], today) for v in rows if v.facility_id in um]
     load: dict[str, int] = {}
-    for x in visits:
-        load[x["date"]] = load.get(x["date"], 0) + x["facility"]["buildings"]
+    for v in rows:
+        if v.facility_id in um:
+            for d, n in V.day_share(v, um[v.facility_id].buildings):  # 여러 날 일정은 날마다 나눠(10/19)
+                load[d.isoformat()] = load.get(d.isoformat(), 0) + n
     miss = V.missing(db, user.company_id, today)
     return {"visits": visits, "day_load": load, "day_cap": V.DAY_CAP, "missing": len(miss), "missing_units": len({n.unit.lead.id for n in miss}),
             "facilities": [_unit_out(u) for u in {id(u): u for u in um.values()}.values()]}
@@ -73,6 +78,7 @@ def calendar(start: datetime.date, end: datetime.date, user: User = Depends(get_
 class VisitIn(BaseModel):
     facility_id: int
     plan_date: datetime.date
+    plan_end: datetime.date | None = None
     kind: str | None = None
     memo: str | None = None
 
@@ -91,7 +97,7 @@ def add_visit(body: VisitIn, user: User = Depends(get_current_user), db: Session
         old = db.query(SitokVisit).filter(SitokVisit.facility_id.in_(u.ids if u else [f.id]), SitokVisit.year == y, SitokVisit.half == h).first()
         kind = need.kind if need else old.kind if old else "정기"
     v = SitokVisit(company_id=user.company_id, facility_id=(u.lead.id if u else f.id), year=y, half=h, kind=kind, plan_date=body.plan_date,
-                   source="manual", memo=(body.memo or "").strip(), created_by=user.display_name or "")
+                   plan_end=_end(body.plan_date, body.plan_end), source="manual", memo=(body.memo or "").strip(), created_by=user.display_name or "")
     db.add(v)
     db.commit()
     return _visit_out(db, v, u or V.Unit(f, [f], f.name, V.region_of(f.address)), datetime.date.today())
@@ -99,8 +105,18 @@ def add_visit(body: VisitIn, user: User = Depends(get_current_user), db: Session
 
 class VisitPatch(BaseModel):
     plan_date: datetime.date | None = None
+    plan_end: datetime.date | None = None
     memo: str | None = None
     kind: str | None = None
+
+
+def _end(start: datetime.date, end: datetime.date | None) -> datetime.date | None:
+    """끝 날 — 비거나 시작과 같으면 None(하루), 시작보다 앞이면 400."""
+    if end is None or end == start:
+        return None
+    if end < start:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "끝 날이 시작 날보다 앞입니다.")
+    return end
 
 
 def _require(db: Session, user: User, vid: int) -> SitokVisit:
@@ -113,10 +129,16 @@ def _require(db: Session, user: User, vid: int) -> SitokVisit:
 @router.patch("/visits/{vid}")
 def patch_visit(vid: int, body: VisitPatch, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     v = _require(db, user, vid)
+    start, end = V.visit_span(v)
     if body.plan_date is not None and body.plan_date != v.plan_date:
+        if body.plan_end is None and v.plan_end:  # 시작만 옮기면 기간 그대로(끌어 옮기기)
+            v.plan_end = body.plan_date + (end - start)
         v.plan_date = body.plan_date
         v.year, v.half = V.slot_of(db, _unit_map(db, user.company_id).get(v.facility_id), body.plan_date)  # 다른 반기(연 3회면 시기)로 옮기면 그 점검이 됨
         v.source = "manual"  # 사람이 옮긴 날 = 📌(자동 배치가 안 건드림)
+    if body.plan_end is not None:
+        v.plan_end = _end(v.plan_date, body.plan_end)
+        v.source = "manual"
     if body.memo is not None:
         v.memo = body.memo.strip()
     if body.kind in ("정기", "정밀"):

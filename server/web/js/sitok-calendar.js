@@ -11,6 +11,9 @@
   const isPhone = () => matchMedia("(max-width: 760px)").matches;
   const pad = (n) => String(n).padStart(2, "0");
   const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const addDay = (s, n) => { const d = new Date(`${s}T00:00:00`); d.setDate(d.getDate() + n); return ymd(d); };
+  const endOf = (v) => v.end || v.date; // 일정 범위(10/19 민재형 "일정을 범위 설정 가능하도록") — 끝이 없으면 하루
+  const covers = (v, d) => v.date <= d && d <= endOf(v);
   let data = { visits: [], day_load: {}, day_cap: 4, facilities: [], missing: 0 };
   let selected = ymd(new Date());
   const holidays = {};
@@ -32,8 +35,8 @@
   const vTitle = (v) => `${v.pinned ? "📌" : ""}${v.state === "done" || v.state === "field" ? "✓ " : ""}${v.facility.mgmt_no} ${v.facility.name}`;
   const vClass = (v) => [v.kind === "정밀" ? "k-pre" : "k-reg", `s-${v.state}`];
   function events() {
-    return data.visits.map((v) => ({ id: String(v.id), title: vTitle(v), start: v.date, allDay: true, classNames: vClass(v),
-      startEditable: !isPhone(), extendedProps: { v } }));
+    return data.visits.map((v) => ({ id: String(v.id), title: vTitle(v), start: v.date, end: addDay(endOf(v), 1), allDay: true, classNames: vClass(v),
+      startEditable: !isPhone(), durationEditable: !isPhone(), extendedProps: { v } })); // PC는 막대 끝을 끌어 범위를 늘리고 줄임
   }
   const loadOf = (date) => data.day_load[date] || 0;
 
@@ -127,7 +130,8 @@
       <div class="dk-item-state${v.state === "done" || v.state === "field" ? " ok" : ""}">${STATE[v.state] || ""}</div>
       ${v.memo ? `<small>메모: ${esc(v.memo)}</small>` : ""}
       <div class="sc-links"></div>
-      <div class="dk-item-act sc-act"><input type="date" class="sc-move" value="${v.date}" aria-label="다른 날로" /><button type="button" class="secondary sc-del">지우기</button></div>
+      <div class="dk-item-act sc-act"><span class="sc-range"><input type="date" class="sc-move" value="${v.date}" aria-label="시작 날" /><span class="sc-tilde">~</span>
+        <input type="date" class="sc-end" value="${endOf(v)}" min="${v.date}" aria-label="끝 날" /></span><button type="button" class="secondary sc-del">지우기</button></div>
     </div>`;
   }
   function wireCards(root) {
@@ -136,6 +140,7 @@
       const links = siteLinkButtons(v.facility.phone, v.facility.address);
       if (links) card.querySelector(".sc-links").appendChild(links);
       card.querySelector(".sc-move").addEventListener("change", (e) => { if (e.target.value) moveVisit(v, e.target.value); });
+      card.querySelector(".sc-end").addEventListener("change", (e) => { if (e.target.value) setEnd(v, e.target.value); });
       card.querySelector(".sc-del").addEventListener("click", async () => {
         if (!confirm(`${v.facility.mgmt_no} ${v.facility.name} ${v.date} 일정을 지울까요?${v.pinned ? "" : "\n(자동으로 잡은 날 — 지우면 다음 [자동으로 잡기] 때 다시 잡힐 수 있어요)"}`)) return;
         try { await api(`/sitok/calendar/visits/${v.id}`, { method: "DELETE" }); document.querySelector(".mail-overlay.sc-ov")?.remove(); reload(); } catch (err) { showError(errorEl, err); }
@@ -146,7 +151,7 @@
     const body = document.getElementById("sc-day-body");
     const dt = new Date(`${selected}T00:00:00`);
     const h = holidays[selected];
-    const items = data.visits.filter((v) => v.date === selected);
+    const items = data.visits.filter((v) => covers(v, selected));
     const n = loadOf(selected);
     body.innerHTML = `<h3 class="dk-day-title${h || dt.getDay() === 0 ? " red" : ""}">${dt.getMonth() + 1}월 ${dt.getDate()}일 (${WEEK[dt.getDay()]})${h ? ` · ${esc(h.name)}` : ""}
         ${n ? `<span class="sc-load${n > data.day_cap ? " over" : ""}">${n}</span>` : ""}</h3>
@@ -176,7 +181,7 @@
     const list = document.getElementById("sc-list");
     const from = ymd(view.currentStart), to = ymd(view.currentEnd);
     const byDay = {};
-    for (const v of data.visits) if (v.date >= from && v.date < to) (byDay[v.date] ||= []).push(v);
+    for (const v of data.visits) for (let d = v.date; d <= endOf(v); d = addDay(d, 1)) if (d >= from && d < to) (byDay[d] ||= []).push(v); // 여러 날 일정은 날마다
     const days = Object.keys(byDay).sort();
     list.innerHTML = days.length ? days.map((d) => {
       const dt = new Date(`${d}T00:00:00`);
@@ -200,6 +205,19 @@
       await api(`/sitok/calendar/visits/${v.id}`, { method: "PATCH", body: JSON.stringify({ plan_date: date }) });
       document.querySelector(".mail-overlay.sc-ov")?.remove();
       selected = date;
+      reload();
+    } catch (err) {
+      if (revert) revert();
+      showError(errorEl, err);
+    }
+  }
+
+  async function setEnd(v, end, revert) { // 끝 날(범위) — 시작과 같으면 하루
+    if (end === endOf(v)) return;
+    if (end < v.date) { alert("끝 날이 시작 날보다 앞입니다."); if (revert) revert(); else renderDay(); return; }
+    try {
+      await api(`/sitok/calendar/visits/${v.id}`, { method: "PATCH", body: JSON.stringify({ plan_end: end }) });
+      document.querySelector(".mail-overlay.sc-ov")?.remove();
       reload();
     } catch (err) {
       if (revert) revert();
@@ -240,6 +258,7 @@
     dateClick: (info) => selectDay(info.dateStr),
     eventClick: (info) => { if (isPhone()) openVisit(info.event.extendedProps.v); else selectDay(ymd(info.event.start)); },
     eventDrop: (info) => moveVisit(info.event.extendedProps.v, ymd(info.event.start), info.revert),
+    eventResize: (info) => setEnd(info.event.extendedProps.v, addDay(ymd(info.event.end), -1), info.revert), // 막대 끝 끌기 = 끝 날
   });
   cal.render();
 })();

@@ -181,10 +181,12 @@ def visit_done(db: Session, user: User, reps: list[SitokReport], day: datetime.d
     ids = [x.facility_id for x in reps]
     r = reps[0]
     vs = db.query(SitokVisit).filter(SitokVisit.facility_id.in_(ids), SitokVisit.year == r.year, SitokVisit.half == r.half).all()
-    keep = next((v for v in vs if v.plan_date == day), None)
+    from server.sitok.visit_plan import visit_span
+
+    keep = next((v for v in vs if visit_span(v)[0] <= day <= visit_span(v)[1]), None)  # 그날이 든 일정(여러 날 일정이면 그 범위 안, 10/19)은 그대로
     if keep is None and vs:
         keep = min(vs, key=lambda v: (abs((v.plan_date - day).days), v.id))
-        keep.plan_date, keep.source = day, "manual"
+        keep.plan_date, keep.plan_end, keep.source = day, None, "manual"
     if keep is None:
         lead = db.query(SitokFacility).filter(SitokFacility.id.in_(ids)).order_by(SitokFacility.group_order, SitokFacility.id).first()
         db.add(SitokVisit(company_id=user.company_id, facility_id=lead.id if lead else r.facility_id, year=r.year, half=r.half, kind=r.kind or "정기",

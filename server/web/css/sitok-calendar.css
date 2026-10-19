@@ -26,6 +26,10 @@
 .sc-links .site-links { margin-top: 4px; }
 .sc-act { gap: 6px; align-items: center; }
 .sc-act input[type="date"] { margin: 0; padding: 5px 8px; font-size: 12.5px; width: auto; }
+.sc-act { flex-wrap: wrap; justify-content: flex-end; }
+.sc-range { display: flex; align-items: center; gap: 4px; flex: 1 1 100%; min-width: 0; } /* 일정 범위 시작 ~ 끝(10/19) 한 줄, 지우기는 아래 오른쪽 */
+.sc-act .sc-range input[type="date"] { flex: 1 1 0; width: 0; min-width: 0; padding: 5px 6px; }
+.sc-tilde { color: var(--muted); font-size: 13px; }
 .sc-add { display: flex; gap: 6px; align-items: center; margin-top: 10px; }
 .sc-add select { flex: 1; margin: 0; font-size: 13px; }
 .main .sc-add button { margin: 0; }

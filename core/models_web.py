@@ -518,6 +518,7 @@ class SitokVisit(Base):
     half: Mapped[str] = mapped_column(Text)  # 상반기 / 하반기
     kind: Mapped[str] = mapped_column(Text, default="정기")  # 정기 / 정밀
     plan_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    plan_end: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)  # 0055 — 끝 날(여러 날 점검, 10/19 민재형), 비면 plan_date 하루
     source: Mapped[str] = mapped_column(Text, default="auto")  # auto / manual(📌)
     memo: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(Text, default="")

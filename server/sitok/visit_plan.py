@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass, field
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.models_web import SitokContract, SitokDocContract, SitokFacility, SitokGroup, SitokReport, SitokVisit
@@ -256,6 +257,18 @@ class DayLoad:
     regions: set = field(default_factory=set)
 
 
+def visit_span(v: SitokVisit) -> tuple[datetime.date, datetime.date]:
+    """방문 일정 (시작, 끝) — 끝 날이 없거나 앞이면 하루(0055, 10/19 민재형 "일정을 범위로")."""
+    return v.plan_date, max(v.plan_end or v.plan_date, v.plan_date)
+
+
+def day_share(v: SitokVisit, buildings: int) -> list[tuple[datetime.date, int]]:
+    """여러 날 일정의 날마다 건물 수 — 건물을 날 수로 나눠 올림(13개소 3일 → 날마다 5), 하루면 그대로."""
+    a, b = visit_span(v)
+    n = (b - a).days + 1
+    return [(a + datetime.timedelta(days=i), -(-buildings // n)) for i in range(n)]
+
+
 def plan(db: Session, company_id: int, needs: list[Need], today: datetime.date | None = None) -> list[dict]:
     """needs에 날짜를 고름 → [{need, date, note}]. 이미 잡힌 날(오늘 이후)의 지역·건물 수를 보고 같은 시·군 날에 붙이거나, 빈 날을 반기 안에 고르게."""
     today = today or datetime.date.today()
@@ -266,13 +279,15 @@ def plan(db: Session, company_id: int, needs: list[Need], today: datetime.date |
         for m in u.members:
             fac_unit[m.id] = u
     load: dict[datetime.date, DayLoad] = {}
-    for v in db.query(SitokVisit).filter(SitokVisit.company_id == company_id, SitokVisit.plan_date > today):
+    for v in db.query(SitokVisit).filter(SitokVisit.company_id == company_id, func.coalesce(SitokVisit.plan_end, SitokVisit.plan_date) > today):
         u = fac_unit.get(v.facility_id)
         if u is None:
             continue
-        dl = load.setdefault(v.plan_date, DayLoad())
-        dl.buildings += u.buildings
-        dl.regions.add(u.region_key)
+        for d, n in day_share(v, u.buildings):  # 여러 날 일정은 건물을 날마다 나눠 셈(10/19)
+            if d > today:
+                dl = load.setdefault(d, DayLoad())
+                dl.buildings += n
+                dl.regions.add(u.region_key)
     lo = min(n.start for n in needs)
     hi = max(n.end for n in needs)
     blocked = blocked_days(lo, hi, korean_holidays(range(lo.year, hi.year + 1)))
