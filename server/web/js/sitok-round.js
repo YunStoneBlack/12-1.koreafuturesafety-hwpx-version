@@ -96,6 +96,7 @@
     const locked = !r.past && (r.build_left || []).length > 0; // 10/18 형 요청1 — AI 초안까지 칸을 다 완료해야 보고서 합본(묶음은 동마다)
     $("rd-build").innerHTML = `<div class="sk-rep-foot">${stateText}
       ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf?v=${v}" target="_blank" rel="noopener">${kind === "정밀" ? "합본 PDF" : "PDF 보기"}</a>` : ""}
+      ${r.has_cover ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/cover_pdf?v=${v}" target="_blank" rel="noopener" title="표지 + 책등 — 제본소에 따로 보내는 파일(합본에는 책등 없음)">표지(제본용) PDF</a>` : ""}
       ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx?v=${v}">${kind === "정밀" ? "본문 한글" : "한글 받기"}</a>` : ""}
       ${r.has_appendix ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/appendix?v=${v}">부록 한글</a>` : ""}
       ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" || locked ? " disabled" : ""}${locked ? ' title="칸을 다 완료하면 열립니다"' : ""}>${locked ? "🔒 " : ""}${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>

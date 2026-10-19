@@ -371,3 +371,114 @@ def split_result_tables(hwpx: Path, pdf: Path) -> list[str]:
     if done:
         _rewrite(hwpx, infos, data)
     return done
+
+
+def orphans(pdf: Path, hwpx: Path) -> list[tuple[int, str, float, int]]:
+    """앞 쪽이 꽉 찼는데 몇 줄만 넘어온 쪽 [(쪽 0부터, 넘친 마지막 줄 글, 넘친 높이 pt, 그 글이 PDF에서 몇 번째로 나온 것인지 0부터)].
+    넘친 높이는 글자 줄만으로(꼬리말 띠·쪽 테두리 선은 빼고), 표 머리줄이 되풀이돼도 되게 줄 수는 14줄까지."""
+    import pymupdf
+
+    starts = designed_starts(hwpx)
+    with pymupdf.open(pdf) as doc:
+        pages = [_body(pg) for pg in doc]
+    out = []
+    for i, (lines, _, foot, _) in enumerate(pages):
+        span = foot - TOP
+        if i == 0 or not lines or _divider(lines) or _key(lines[0][2]) in starts or len(lines) > 14:
+            continue
+        text_bottom = max(y1 for _, y1, _ in lines)
+        if text_bottom >= TOP + span * 0.25:
+            continue
+        prev_lines, prev_bottom, prev_foot, _ = pages[i - 1]
+        if prev_lines and prev_bottom > TOP + (prev_foot - TOP) * 0.8 and not _divider(prev_lines):
+            last = max(lines, key=lambda x: (x[0], len(x[2])))[2]
+            k = sum(1 for j in range(i) if any(_key(last) == _key(t) for _, _, t in pages[j][0]))
+            out.append((i, last, text_bottom - TOP, k))
+    return out
+
+
+def _squeeze_table(tbl, need: int, keep, rb) -> int:
+    """표 tbl을 need(HWPUNIT)만큼 낮춤 — ① 줄마다 글 어림보다 큰 여유 높이를 비율대로, ② 모자라면 표 안 문단 줄 간격을 한 단계(×0.85). 줄인 양."""
+    from server.sitok.precision_build import _set_row_height
+
+    cur = {}
+    for (r, _), tc in rb._cells(tbl).items():
+        if rb._span(tc, "rowSpan") == 1:
+            cur[r] = max(cur.get(r, 0), int(tc.find(f"{{{rb.HP}}}cellSz").get("height") or 0))
+    est = rb._table_row_heights(tbl, text_only=True)
+    spare = {r: max(0, h - est.get(r, 0) - 200) for r, h in cur.items()}
+    total = sum(spare.values())
+    done = 0
+    if total > 0:
+        k = min(1.0, need / total)
+        for r, s in spare.items():
+            cut = int(s * k)
+            if cut > 0:
+                _set_row_height(tbl, r, cur[r] - cut)
+                done += cut
+    if done < need and keep is not None:  # 글이 꽉 찬 표(1.3 분석표) — 줄 간격 한 단계
+        hh = "{http://www.hancom.co.kr/hwpml/2011/head}"
+
+        def tight(pp):
+            for ls in pp.iter(f"{hh}lineSpacing"):
+                if ls.get("type") == "PERCENT":
+                    ls.set("value", str(max(100, int(int(ls.get("value") or 160) * 0.85))))
+
+        for p in tbl.iter(f"{{{rb.HP}}}p"):
+            p.set("paraPrIDRef", keep.clone(p.get("paraPrIDRef"), "tight85", tight))
+        done = need
+    return done
+
+
+def squeeze_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
+    """몇 줄만 넘어간 쪽(형 10/19 "결언·1.3 분석표·1.4 결과표가 한두 줄 넘어감 — 고쳐도 매번 생길 수 있으니 방식으로") — 넘친 덩어리를 찾아 그만큼 줄임:
+    넘친 첫 줄이 여러 줄 표 안이면 그 표, 짧은 글·상자(1줄 표)면 바로 앞 큰 표. 고친 곳 설명(비면 안 바꿈 — 부르는 쪽이 PDF를 한 번 더)."""
+    from server.sitok import report_build as rb
+
+    found = orphans(pdf, hwpx)
+    if not found:
+        return []
+    with zipfile.ZipFile(hwpx) as z:
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+        sections = rb._sections(z)
+    keep = rb._KeepHeads(data["Contents/header.xml"]) if "Contents/header.xml" in data else None
+    roots = {n: etree.fromstring(data[n]) for n in sections[sections_from:]}
+    done = []
+    for _, first, h, nth in found:
+        key = _key(first)
+        target = None
+        seen = 0
+        for n, root in roots.items():
+            tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
+            for i, p in enumerate(tops):
+                tbls = [t for t in p.iter(f"{{{rb.HP}}}tbl")]
+                if key not in _key(rb._top_text(p)) and not any(key in _key(rb._cell_text(c)) for t in tbls for c in rb._cells(t).values()):
+                    continue
+                if seen < nth:  # 같은 표가 동마다 되풀이 — PDF에서 몇 번째로 나온 것인지로 짝(1.4 결과표 3개)
+                    seen += 1
+                    continue
+                big = next((t for t in tbls if (int(t.get("rowCnt") or 1) > 1 or len(list(t.iter(f"{{{rb.HP}}}p"))) >= 5)  # 여러 줄 표, 또는 문단 많은 상자(요약문 결언)
+                            and any(key in _key(rb._cell_text(c)) for c in rb._cells(t).values())), None)
+                if big is None:  # 짧은 글·상자 — 바로 앞(3문단 안) 큰 표
+                    for q in reversed(tops[max(0, i - 3):i]):
+                        big = next((t for t in q.iter(f"{{{rb.HP}}}tbl") if int(t.get("rowCnt") or 1) > 1), None)
+                        if big is not None:
+                            break
+                target = big
+                break
+            if target is not None:
+                break
+        if target is None:
+            continue
+        need = int(h * 100 * 1.2) + 800
+        if _squeeze_table(target, need, keep, rb):
+            done.append(f"'{first[:14]}…' 넘침 → 앞 표 {need} 줄임")
+    if not done:
+        return []
+    for n, root in roots.items():
+        data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    if keep is not None:
+        data["Contents/header.xml"] = keep.header()
+    _rewrite(hwpx, infos, data)
+    return done

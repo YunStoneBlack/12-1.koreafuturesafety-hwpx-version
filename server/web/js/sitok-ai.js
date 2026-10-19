@@ -38,11 +38,11 @@ async function openSitokAi(reportId, title, onSaved) {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   const head = `<div class="mail-head"><b>🤖 AI 초안</b><span class="mail-sub">${esc(title)} — AI가 쓴 글을 고쳐 저장하면 보고서를 만들 때 들어갑니다</span></div>`;
 
-  async function makeDraft() {
+  async function makeDraft(body) {
     busy = true;
-    box.innerHTML = `${head}<div class="mail-wait">현장 조사 결함으로 초안을 쓰는 중…(30~90초)</div>`;
+    box.innerHTML = `${head}<div class="mail-wait">${body && body.grade ? "요청한 등급에 맞게 다시 쓰는 중…(30~90초)" : "현장 조사 결함으로 초안을 쓰는 중…(30~90초)"}</div>`;
     try {
-      const ai = await apiPost(`/sitok/reports/${reportId}/ai/draft`);
+      const ai = await apiPost(`/sitok/reports/${reportId}/ai/draft`, body);
       busy = false;
       draw(ai);
     } catch (e) {
@@ -124,6 +124,10 @@ async function openSitokAi(reportId, title, onSaved) {
         ${(f.items || []).length ? `<div class="ai-grade3">안전등급 <b class="ai-calc"></b> <span class="sk-help">3종 — 아래 18항목 평가로 자동 계산(평가를 바꾸면 바로 바뀜)</span></div>`
           : `<label>${two ? "점검결과 등급 <small>(2종 — 양호·보통·미흡·불량)</small>" : "안전등급"} <span class="sk-help">AI 추천 ${esc(GR[two && d.grade === "A" ? "B" : d.grade] || "-")} — ${esc(d.grade_reason || "")}</span>
           <select data-k="grade"><option value="">바꾸지 않음(지난 보고서 그대로)</option>${Object.entries(GR).map(([k, v]) => `<option value="${k}"${curGrade === k ? " selected" : ""}>${v}</option>`).join("")}</select></label>`}
+        <div class="ai-regrade"><span class="sk-help">등급이 맞지 않다고 보면 — AI가 그 등급에 맞게 등급 근거·결과표·종합결론${(f.items || []).length ? "·18항목 평가" : ""}를 다시 씁니다</span>
+          <button type="button" class="secondary btn-sm ai-regrade-btn" data-g="up">▲ 한 단계 올려 다시 쓰기</button>
+          <button type="button" class="secondary btn-sm ai-regrade-btn" data-g="down">▼ 한 단계 내려 다시 쓰기</button>
+          ${d.requested_grade ? `<span class="sk-help">요청 ${esc(GR[d.requested_grade] || d.requested_grade)} → 나온 등급 ${esc(GR[curGrade] || curGrade || "-")}</span>` : ""}</div>
         <h4>1.3 외관조사 실시결과(항목별 서술 — 결과의 분석 표에도 같은 글)</h4>
         ${SITOK_AI_SECTIONS.map(([k, label]) => `<label>${label} <span class="sk-help">결함 ${st[k]?.count ?? 0}건${st[k]?.grew ? ` · 진행 ${st[k].grew}` : ""}${st[k]?.new ? ` · 신규 ${st[k].new}` : ""}${st[k]?.repaired ? ` · 보수 ${st[k].repaired}` : ""}</span>
           <textarea data-k="sections.${k}" rows="3">${esc((f.sections || {})[k])}</textarea></label>`).join("")}
@@ -177,6 +181,11 @@ async function openSitokAi(reportId, title, onSaved) {
     calc();
     box.querySelector(".mail-cancel").addEventListener("click", close);
     box.querySelector(".ai-redo").addEventListener("click", () => { if (confirm("AI가 처음부터 다시 씁니다. 고친 글은 사라집니다. 할까요?")) makeDraft(); });
+    box.querySelectorAll(".ai-regrade-btn").forEach((b) => b.addEventListener("click", () => { // 등급 재산정 요청(10/19 형 "한 단계 상향·하향 요청")
+      const up = b.dataset.g === "up";
+      if (!confirm(`등급을 한 단계 ${up ? "올려(좋게)" : "내려(낮게)"} AI가 등급 근거·결과표·종합결론${(f.items || []).length ? "·18항목 평가" : ""}를 다시 씁니다(30~90초, AI 1~2번). 고친 글은 사라집니다. 할까요?`)) return;
+      makeDraft({ grade: up ? "up" : "down" });
+    }));
     box.querySelector(".ai-sum-redo").addEventListener("click", async (e) => { // 요약문 결언 — 동마다 확정 AI 초안 결론을 묶어(10/16)
       const btn = e.currentTarget, m = box.querySelector(".ai-sum-msg");
       btn.disabled = true;

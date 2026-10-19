@@ -115,6 +115,7 @@ def _out(r: SitokReport) -> dict:
             "status": r.status, "message": r.message, "made_at": r.made_at.strftime("%Y-%m-%d %H:%M") if r.made_at else "",
             "has_pdf": bool(r.out_pdf and Path(r.out_pdf).exists()), "has_hwpx": bool(r.out_hwpx and Path(r.out_hwpx).exists()),
             "has_appendix": bool((r.survey or {}).get("appendix_hwpx") and Path((r.survey or {}).get("appendix_hwpx", "")).exists()),  # 정밀 부록 한글(10/13)
+            "has_cover": bool((r.survey or {}).get("cover_pdf") and Path((r.survey or {}).get("cover_pdf", "")).exists()),  # 표지 + 책등(제본용, 10/19)
             # 이미 낸 보고서를 등록한 회차(만들기 없음) = 등록한 한글 "(낸 보고서).hwpx"(_register_one). 예전 조건 "만듦 + 전회차 없음"은 10/12 회사 원본으로
             # 바꾼 뒤 처음 맡는 시설물 첫 회차를 한 번 만들면 여기 걸려 현장 조사·면담 버튼이 사라졌음(동안교회 — 사용자 10/12)
             "past": r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"),
@@ -805,6 +806,11 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
     except Exception:  # noqa: BLE001 — 검사가 안 되면 그대로
         traceback.print_exc()
         pushed = []
+    if not precision:
+        try:  # 몇 줄만 넘어간 쪽 → 넘친 표를 그만큼 줄임(10/19 형 "고쳐도 매번 생길 수 있으니 방식으로")
+            pushed += pagecheck.squeeze_overflow(hwpx, pdf)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
     if pushed:
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
 
@@ -977,12 +983,31 @@ def _run_build(report_id: int) -> None:
             from server.api.routers.sitok_defects import missing_photo_note
             if missing_photo_note(db, r.id):  # 이번 회차 사진 없는 결함 — 사진첩 칸은 비움(사용자 10/14)
                 warn.append(missing_photo_note(db, r.id))
+            if _split_cover(pdf, new.title, [r]):  # 표지 + 책등은 제본용 따로(10/19 형)
+                merged.append("표지·책등은 따로(제본용)")
             r.out_pdf, r.status, r.made_at = str(pdf), "done", datetime.datetime.now()
             pages = pymupdf.open(pdf).page_count
             r.message = _done_msg(f"{pages}쪽, {changed}곳 바꿈", "합본", {f.name: merged}, warn)
         except Exception as err:  # noqa: BLE001 — 이유를 남김
             _fail([r], err)
         db.commit()
+
+
+def _split_cover(pdf: Path, title: str, reps: list[SitokReport]) -> Path | None:
+    """합본에서 책등 쪽을 떼어 "표지 + 책등" PDF(제본소에 따로 — 10/19 형) → 회차 survey.cover_pdf, 회차 화면 [표지(제본용) PDF]."""
+    from server.sitok import layout_fix
+
+    try:
+        dest = layout_fix.split_cover_pdf(pdf, title)
+    except Exception:  # noqa: BLE001 — 못 떼면 합본 그대로
+        traceback.print_exc()
+        return None
+    for x in reps:
+        sv = {k: v for k, v in (x.survey or {}).items() if k != "cover_pdf"}
+        if dest:
+            sv["cover_pdf"] = str(dest)
+        x.survey = sv
+    return dest
 
 
 # ---------- 정기 요약문(10/16 민재형 견본 — 안산대 2026 상반기, server/sitok/summary_doc.py) ----------
@@ -1084,6 +1109,12 @@ def _add_summary(db: Session, pairs: list, title: str, hwpx: Path, pdf: Path, wa
         S.build(s, tpl, out)
         spdf = out.with_suffix(".pdf")
         spdf.write_bytes(hwp_queue.convert_via_worker(out.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        try:  # 결언이 한두 줄 다음 쪽으로 넘치면 줄 간격을 줄여 한 번 더(10/19 형)
+            from server.sitok import pagecheck
+            if pagecheck.squeeze_overflow(out, spdf, sections_from=0):
+                spdf.write_bytes(hwp_queue.convert_via_worker(out.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        except Exception:  # noqa: BLE001 — 못 고치면 그대로
+            traceback.print_exc()
         n = S.insert_before_toc(pdf, spdf)
         if not n:
             warn.append("요약문: 보고서에서 목차 쪽을 못 찾아 끼우지 못했습니다(요약문 한글은 따로 있음)")
@@ -1188,6 +1219,9 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
             merged.append("외관조사 사진첩")
         from server.api.routers.sitok_defects import missing_photo_note
         warn += [f"{m.name}: {missing_photo_note(db, y.id)}" for m, y in pairs if missing_photo_note(db, y.id)]
+        cover = _split_cover(pdf, gtitle, [y for _, y in pairs])  # 표지 + 책등은 제본용 따로(10/19 형)
+        if cover:
+            merged.append("표지·책등은 따로(제본용)")
         pages = pymupdf.open(pdf).page_count
         msg = _done_msg(f"{len(pairs)}동 묶음 {pages}쪽, {total}곳 바꿈", "합본", {"": merged}, warn)
         now = datetime.datetime.now()
@@ -1272,7 +1306,8 @@ def report_file(report_id: int, kind: str, user: User = Depends(get_current_user
     r = _require(db, user, report_id)
     sv = r.survey or {}
     path = (r.out_pdf if kind == "pdf" else r.out_hwpx if kind == "hwpx" else sv.get("appendix_hwpx", "") if kind == "appendix"
-            else sv.get("appendix_pdf", "") if kind == "appendix_pdf" else sv.get("body_pdf", "") if kind == "body_pdf" else "")
+            else sv.get("appendix_pdf", "") if kind == "appendix_pdf" else sv.get("body_pdf", "") if kind == "body_pdf"
+            else sv.get("cover_pdf", "") if kind == "cover_pdf" else "")  # cover_pdf = 표지 + 책등(제본용, 10/19)
     kind = "pdf" if kind.endswith("pdf") else kind
     if not path or not Path(path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
@@ -1318,13 +1353,29 @@ def _precision_ai_draft(db: Session, r: SitokReport, user: User) -> dict:
     return _precision_ai_out(db, r)
 
 
+class DraftIn(BaseModel):
+    grade: str | None = None  # "up" 한 단계 올려(좋게) · "down" 한 단계 내려 — 등급 재산정 요청(10/19 형)
+
+
 @router.post("/reports/{report_id}/ai/draft")
-def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """AI 초안 새로 — 결과는 draft에, 점검자가 고치기 전 final도 같은 값으로(화면에서 고쳐 저장하면 final만 바뀜)."""
+def ai_draft_new(report_id: int, body: DraftIn | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """AI 초안 새로 — 결과는 draft에, 점검자가 고치기 전 final도 같은 값으로(화면에서 고쳐 저장하면 final만 바뀜).
+    body.grade = up/down이면 지금 등급에서 한 단계 올리거나 내린 등급으로 다시 씀(정기만, 10/19 형)."""
     from core.models_web import SitokDefect
     from server.sitok import ai_draft
 
     r = _require(db, user, report_id)
+    target = ""
+    if body is not None and body.grade in ("up", "down"):
+        fin0 = (r.ai or {}).get("final") or {}
+        cur = rb._letter(str(fin0.get("grade") or ""))
+        order = "BCDE" if ai_draft.is_type2(db.get(SitokFacility, r.facility_id).template) and not fin0.get("items") else "ABCDE"
+        if cur not in order:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "지금 등급이 없습니다 — 먼저 AI 초안을 만드세요.")
+        i = order.index(cur) + (-1 if body.grade == "up" else 1)
+        if not 0 <= i < len(order):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"이미 {'가장 좋은' if body.grade == 'up' else '가장 낮은'} 등급입니다.")
+        target = order[i]
     miss = steps.left(r, "ai")
     if miss:  # 10/18 형 요청1 — 앞 칸을 다 [완료]해야 AI 초안(화면 칸도 잠김)
         raise HTTPException(status.HTTP_409_CONFLICT, f"AI 초안 전에 먼저 완료할 칸: {' · '.join(miss)}")
@@ -1363,8 +1414,10 @@ def ai_draft_new(report_id: int, user: User = Depends(get_current_user), db: Ses
         data = ai_draft.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, old, user.company_id,
                               eval_items=items, fac_items=fac_items,
                               combos=method_combos(db, r.id), price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)],
-                              parts_facts=facts, template=f.template)
+                              parts_facts=facts, template=f.template, target=target)
         data["parts"] = P.rows(r.parts, judged)
+        if target:
+            data["requested_grade"] = target  # 점검자 요청 등급(창이 나온 등급과 견줘 보여 줌)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
     data["made_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")

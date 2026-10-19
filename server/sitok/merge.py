@@ -308,9 +308,7 @@ def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> l
             if m:
                 rb._set_para(p, f"{cover_name(parts, group_name)}에 대한")
                 break
-        for tbl in front.iter(f"{{{HP}}}tbl"):
-            if "︻" in "".join(rb._cell_text(c) for c in rb._cells(tbl).values()):
-                _sub_pieces(tbl, re.escape(parts[0]["name"]), group_name)
+        layout_fix.spine_name(front, cover_name(parts, group_name), bins.borders)  # 책등 괄호 안 = 표지와 같은 "1장 시설물명 등 N개소"(10/19 형)
         # --- 공통편
         with rb.using_borders(bins.borders):  # 동 수만큼 줄 복사 — 맞닿는 선 얇게(10/15)
             _general_table(roots[1], [p["row"] for p in parts], f"{sum(p.get('area') or 0 for p in parts):,.2f}㎡")

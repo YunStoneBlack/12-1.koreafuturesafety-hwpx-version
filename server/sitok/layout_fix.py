@@ -374,3 +374,68 @@ def target_rows(lead_roots: list, other_roots: list[list]) -> int:
                     rb._set_lines(lc[(new, c)], text.split("\n") or ["-"])
             n += 1
     return n
+
+
+def spine_name(root, name: str, borders=None) -> int:
+    """책등 표(폭 9mm, 세로로 한 글자씩) 괄호 ︻ ︼ 안 → name 한 문단(원본 "광숭초등학교 / 광숭초등학교" 두 줄 — 10/19 형 "네모칸도 똑같이 이름 바꾸고").
+    묶음은 "1장 시설물명 등 N개소"(merge.cover_name)."""
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        if tbl.get("colCnt") != "1" or "︻" not in "".join(rb._cell_text(c) for c in rb._cells(tbl).values()):
+            continue
+        tc = rb._cells(tbl).get((0, 0))
+        if tc is None:
+            return 0
+        ps = [p for p in tc.iter(f"{{{HP}}}p") if next(p.iterancestors(f"{{{HP}}}tc"), None) is tc]
+        texts = [_own_text(p).strip() for p in ps]
+        if "︻" not in texts or "︼" not in texts:
+            return 0
+        a, b = texts.index("︻"), texts.index("︼")
+        inner = ps[a + 1:b]
+        if not inner:
+            return 0
+        lines = lambda xs: sum(max(1, len(re.sub(r"\s", "", t))) for t in xs)  # noqa: E731 — 폭 9mm라 한 줄에 한 글자
+        before = lines(texts)
+        rb._set_para(inner[0], name, in_table=True)
+        for p in inner[1:]:
+            p.getparent().remove(p)
+        ps = [p for p in tc.iter(f"{{{HP}}}p") if next(p.iterancestors(f"{{{HP}}}tc"), None) is tc]
+        over = lines([_own_text(p).strip() for p in ps]) - before
+        for p in [q for q in ps if not _own_text(q).strip()]:  # 길어진 만큼 빈 줄부터 뺌(10/19 — 맨 아래 "㈜한국미래안전"이 쪽 밖으로)
+            if over <= 0:
+                break
+            p.getparent().remove(p)
+            over -= 1
+        borders = borders if borders is not None else getattr(rb._TL, "borders", None)
+        if over > 0 and borders is not None:  # 그래도 길면 이름 글자만 작게
+            n = max(1, len(re.sub(r"\s", "", name)))
+            for run in inner[0].findall(f"{{{HP}}}run"):
+                size = borders.char_size(run.get("charPrIDRef"))
+                if size:
+                    run.set("charPrIDRef", borders.char_height(run.get("charPrIDRef"), int(size * (n - over) / n) // 50 * 50))
+        return 1
+    return 0
+
+
+def split_cover_pdf(pdf, title: str):
+    """합본에서 책등 쪽(︻ 괄호가 있는 앞쪽)을 떼어 "표지 + 책등" PDF로(10/19 형 "제본집에 표지 파일만 따로 보내게, 합본에서는 빼고, 표지까지 합본해서").
+    파일 이름 "○○에 대한 2026년 하반기 정기안전점검 표지.pdf". 책등 쪽이 없으면 None."""
+    from pathlib import Path
+
+    import pymupdf
+
+    pdf = Path(pdf)
+    with pymupdf.open(pdf) as doc:
+        spine = next((i for i in range(1, min(4, len(doc))) if "︻" in doc[i].get_text()), None)
+        if spine is None:
+            return None
+        name = re.sub(r'[\/:*?"<>|]', "_", re.sub(r"\s*보고서\s*$", "", title or "보고서").strip() + " 표지.pdf")
+        dest = pdf.parent / name
+        with pymupdf.open() as out:
+            out.insert_pdf(doc, from_page=0, to_page=0)
+            out.insert_pdf(doc, from_page=spine, to_page=spine)
+            out.save(dest, garbage=3, deflate=True)
+        doc.delete_page(spine)
+        tmp = pdf.with_suffix(".nospine.pdf")
+        doc.save(tmp, garbage=3, deflate=True)
+    tmp.replace(pdf)
+    return dest

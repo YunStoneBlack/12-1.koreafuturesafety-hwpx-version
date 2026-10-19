@@ -194,7 +194,9 @@ GRADE_RULE2 = ("- 점검결과 등급(제2종시설물)은 양호·보통·미�
 
 
 def draft(facility: str, period: str, defects: list, old_text: str, company_id: int, eval_items: list | None = None,
-          fac_items: list | None = None, combos: list | None = None, price_list: list | None = None, parts_facts: str = "", template: str = "3종일반") -> dict:
+          fac_items: list | None = None, combos: list | None = None, price_list: list | None = None, parts_facts: str = "", template: str = "3종일반",
+          target: str = "") -> dict:
+    """target = 점검자가 정한 등급 글자(A~E) — 등급 재산정 요청(10/19 형 "AI 등급이 맞지 않다고 판단되면 한 단계 상향·하향 요청")."""
     st = stats(defects)
     lines = []
     for k, _, n in CATEGORIES:
@@ -218,8 +220,13 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
                                                      f"{c['qty']}{c['unit']} | {c['max_width'] if c['max_width'] is not None else '-'} | {', '.join(c['causes']) or '-'} | "
                                                      f"{c['default']}" for i, c in enumerate(combos, 1)))
     two = is_type2(template) and not eval_items
+    rule = GRADE_RULE2 if two else GRADE_RULE3
+    if target:  # 등급 재산정 요청(10/19 형)
+        label = grade_label(target, template)
+        rule += (f"\n- 점검자 등급 재산정 요청: 이번 등급은 {label}(으)로 정했다. grade는 \"{label if two else target}\"로 하고, 등급 근거·결과표·종합결론"
+                 + ("·18항목 평가(평가 점수 합이 이 등급이 나오게)" if eval_items else "") + "를 모두 이 등급에 맞게. 결함 사실·숫자는 바꾸지 말고 판단·표현만.")
     prompt = PROMPT.format(facility=facility, period=period, stats="\n".join(lines), parts=parts_facts, old=old_text[:6000] or "(없음)", items_spec=spec,
-                           grade_rule=GRADE_RULE2 if two else GRADE_RULE3, grade_pick="양호|보통|미흡|불량 중 하나" if two else "A~E 중 하나")
+                           grade_rule=rule, grade_pick="양호|보통|미흡|불량 중 하나" if two else "A~E 중 하나")
     from server.sitok import vision
 
     text = vision.ask(company_id, [], prompt, max_tokens=32000)  # 3종 18항목·1.4·보수공법까지 쓰면 답이 김

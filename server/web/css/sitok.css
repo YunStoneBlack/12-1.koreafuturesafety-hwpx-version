@@ -700,3 +700,6 @@ div.sf-miss-it { cursor: default; }
 .pv-up { cursor: pointer; }
 .pv-msg.bad { color: var(--crit); }
 .mail-box .pv-box { margin: 2px 0 4px; }
+/* AI 초안 등급 재산정 요청(10/19 형) */
+.ai-regrade { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 2px 0 6px; }
+.main .ai-regrade button, .ai-regrade button { margin: 0; }
