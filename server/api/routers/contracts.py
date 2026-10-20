@@ -2,6 +2,7 @@
 
 - `GET /contracts` — 계약 목록(관리번호·단계·제출·착수일·완수일·연결 현장), `GET /contracts/next-management-no` — 관리번호 자동생성 — 서류 자동화 계약 목록·제출 현황·일정 달력이 같이 씀
 - `POST /contracts` (빈 계약) / `POST /contracts/from-pdf` (용역계약서 PDF로 새 계약 — 글자 규칙, 못 읽은 칸은 Claude API)
+- `POST /contracts/new-card` — [+ 새 계약](10/20 형): 용역계약서(선택) + 현장별 K2B 기술지도계약서 n개 → 계약 카드 + 현장 카드(n곳이면 26-69-1…) 함께
 - `GET|PUT|DELETE /contracts/{id}` — 창에 필요한 것 전부 / 계약 값 저장 / 지우기(파일까지, 삭제 비밀번호)
 - `POST /contracts/{id}/pdf` — 계약서 PDF 다시 올리기(읽은 칸만 덮어씀)
 - `POST /contracts/{id}/link {site_id, on}` — 현장 연결·해제(계약 하나에 현장 여럿, 현장 하나는 계약 하나 — contract_site 0057, 같은 번호는 자동)
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import Literal
 
 import openpyxl
-from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -108,15 +109,8 @@ def _made(db: Session, row: ServiceContract) -> dict:
 
 
 def next_management_no(db: Session, company_id: int, year: int | None = None) -> str:
-    """계약 관리번호 자동생성 — "{연도}-{7자리 일련번호}", 이 회사 계약 중 그 연도의 가장 큰 번호 + 1.
-    현장 관리번호(sites.next_management_no)와 같은 모양이지만 계약끼리 따로 센다(사용자 10/6 가안)."""
-    prefix = f"{year or datetime.date.today().year}-"
-    max_seq = 0
-    for (no,) in db.query(ServiceContract.management_no).filter(ServiceContract.company_id == company_id):
-        suffix = (no or "")[len(prefix):] if (no or "").startswith(prefix) else ""
-        if suffix.isdigit():
-            max_seq = max(max_seq, int(suffix))
-    return f"{prefix}{max_seq + 1:07d}"
+    """계약 관리번호 자동생성 — "YY-N"(10/20 형 "마지막 번호 다음 번호" — 계약·현장 통틀어, 26-68 → 26-69). 전엔 "2026-0000001"(10/6 가안)."""
+    return contract_sites.next_no(db, company_id, year)
 
 
 def contract_label(row: ServiceContract) -> str:
@@ -262,6 +256,103 @@ def create_from_pdf(file: UploadFile = File(...), user: User = Depends(get_curre
     if same is not None:
         out["duplicate_of"] = {"id": same.id, "title": same.title}
     return out
+
+
+def _read_guide(data: bytes, company_id: int) -> dict:
+    """K2B 기술지도계약서 PDF → 현장 칸(현장 등록 [AI로 자동 채우기]와 같은 core.contract_analyzer — 20초쯤)."""
+    from core.contract_analyzer import extract_site_info
+
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "guide.pdf"
+        src.write_bytes(data)
+        return extract_site_info(src, company_id=company_id)
+
+
+def _site_fields(found: dict, name: str, management_no: str) -> dict:
+    """읽은 값 → Site 칸(날짜·숫자는 모양이 맞을 때만)."""
+    from server.schemas.site import SiteIn
+
+    out = {}
+    for k in SiteIn.model_fields:
+        v = found.get(k)
+        if v in (None, ""):
+            continue
+        if k in ("period_start", "period_end"):
+            try:
+                v = datetime.date.fromisoformat(str(v)[:10])
+            except ValueError:
+                continue
+        elif k in ("amount", "total_guidance_count", "assigned_staff_id"):
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                continue
+        out[k] = v
+    out["name"] = (out.get("name") or name).strip() or name
+    out["management_no"] = management_no
+    return out
+
+
+@router.post("/new-card")
+def create_card(guides: list[UploadFile] = File(...), service: UploadFile | None = File(None), management_no: str = Form(""),
+                user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[+ 새 계약](10/20 형 "새 계약은 카드를 만드는 데 쓴다 — 첨부 = 용역계약서 + 기술지도계약서, 용역계약서를 안 쓰면 기술지도계약서만"):
+    계약 카드 + 현장 카드를 함께. 관리번호 = 마지막 번호 다음(계약·현장 통틀어, 26-69), 현장이 여럿이면 26-69-1·26-69-2…(현장 목록에서 한 카드).
+    기술지도계약서는 현장 등록과 같은 AI 읽기(하나에 20초쯤 — 6개씩 같이, 그룹웨어 통로 180초 안). 하나라도 못 읽으면 아무것도 안 만듦.
+    용역계약서가 없으면 계약 이름 = 첫 현장 이름(외 N곳). 착수계 창은 안 엶 — 카드의 [📑 착수계]로."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from server.api.site_status import NEW_SITE
+
+    gdata = [(g.filename or f"기술지도계약서{k}.pdf", g.file.read()) for k, g in enumerate(guides, 1)]
+    if not gdata:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "기술지도계약서 PDF를 하나 이상 올리세요.")
+    bad = [n for n, d in gdata if not d.startswith(b"%PDF")]
+    if bad:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"PDF가 아닌 파일: {', '.join(bad)}")
+    sdata = service.file.read() if service is not None else b""
+    if sdata and not sdata.startswith(b"%PDF"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "용역계약서는 PDF로 올리세요.")
+    if not config.has_api_key(user.company_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Claude API 키가 없어 기술지도계약서를 읽을 수 없습니다 — 설정에서 먼저 넣으세요.")
+    no = short_mgmt((management_no or "").strip()) or contract_sites.next_no(db, user.company_id)
+    taken = [r for r in db.query(ServiceContract).filter(ServiceContract.company_id == user.company_id) if short_mgmt(r.management_no) == no] + \
+        [s for s in db.query(Site).filter(Site.company_id == user.company_id) if contract_sites.number_match(no, s.management_no)]
+    if taken:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"관리번호 {no}가 이미 있습니다 — 다른 번호를 쓰거나 비워 두세요(자동 = {contract_sites.next_no(db, user.company_id)}).")
+
+    def read(item):
+        try:
+            return _read_guide(item[1], user.company_id), ""
+        except Exception as err:  # noqa: BLE001 — 어느 파일이 왜 안 됐는지 화면에
+            return None, str(err).splitlines()[0][:160] if str(err) else type(err).__name__
+
+    with ThreadPoolExecutor(min(6, len(gdata))) as ex:
+        results = list(ex.map(read, gdata))
+    failed = [f"{n}({e})" for (n, _), (found, e) in zip(gdata, results) if found is None]
+    if failed:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "기술지도계약서를 읽지 못했습니다: " + " / ".join(failed) + " — 아무것도 만들지 않았습니다.")
+    row = _new(db, user)
+    row.management_no = no
+    info = _read_pdf(db, user, row, sdata) if sdata else {}
+    many = len(gdata) > 1
+    if not sdata:  # 용역계약서 없이(민간 등) — 계약 이름만 현장에서
+        first = (results[0][0] or {}).get("name") or Path(gdata[0][0]).stem
+        row.title = f"{first} 외 {len(gdata) - 1}곳" if many else first
+    db.flush()
+    made = []
+    for k, ((fname, data), (found, _)) in enumerate(zip(gdata, results), 1):
+        mno = f"{no}-{k}" if many else no
+        site = Site(company_id=user.company_id, status=NEW_SITE, **_site_fields(found, Path(fname).stem, mno))
+        db.add(site)
+        db.flush()
+        contract_sites.link(db, row, site)
+        dest = files.out_path(row, f"기술지도계약서_{mno}.pdf")  # 계약 폴더에 원본(계약변경 때 비교)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        made.append({"id": site.id, "label": site_label(site)})
+    db.commit()
+    return state(db, user, row) | info | {"created_sites": made}
 
 
 def state(db: Session, user: User, row: ServiceContract) -> dict:

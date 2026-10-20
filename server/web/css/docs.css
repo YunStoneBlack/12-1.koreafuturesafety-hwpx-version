@@ -119,3 +119,7 @@
 }
 .dc-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .dc-contact .site-links { margin: 0; }
+/* [+ 새 계약] 창 — 계약 카드 + 현장 카드(10/20 형) */
+.dc-newcard .nc-slot { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+.dc-newcard .cd-file { display: flex; align-items: center; gap: 8px; }
+.dc-newcard .cd-file > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
