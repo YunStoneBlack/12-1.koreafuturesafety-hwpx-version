@@ -55,11 +55,14 @@ BUILD_WORDS = ("건축물", "건물", "교사동", "체육관", "강당", "교�
 CIVIL_WORDS = ("교량", "터널", "옹벽", "사면", "절토", "도로", "하천", "제방", "배수", "수문", "육교", "지하차도", "상수도", "하수도", "댐", "항만", "방조제",
                "저수지", "수리시설", "토목")
 FAC_FIELDS = ("fms_no", "name", "template", "kind", "use_type", "main_use", "address", "owner_name", "owner_type", "owner_phone",
+              "class_no", "safety_grade", "last_precision", "last_diagnosis",  # 도래주기(0056, 10/20 — server/sitok/cycle.py)
               "completion_date", "structure", "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "memo", "legal",
               "mgmt_no", "contact_name", "contact_phone", "contract_type", "sector", "badge_field", "badge_kind")
 CON_FIELDS = ("sector", "title", "contract_no", "contract_date", "start_date", "end_date", "halves", "first_half_end", "second_half_start",
               "amount", "rep_name", "joint_type", "joint_pct", "bid_method", "field")
-DATES = {"completion_date", "contract_date", "start_date", "end_date", "first_half_end", "second_half_start"}
+DATES = {"completion_date", "contract_date", "start_date", "end_date", "first_half_end", "second_half_start", "last_precision", "last_diagnosis"}
+CLASS_NOS = ("", "1종", "2종", "3종")  # 종별(도래주기) — ""는 보고서 틀로(3종 틀이면 3종, 아니면 2종)
+SAFETY_GRADES = ("", "A", "B", "C", "D", "E")  # ""는 최근 보고서 결과표
 
 
 class FacilityIn(BaseModel):
@@ -73,6 +76,10 @@ class FacilityIn(BaseModel):
     owner_name: str | None = None
     owner_type: str | None = None
     owner_phone: str | None = None
+    class_no: str | None = None  # 종별 1종·2종·3종(0056 도래주기) — "" = 보고서 틀로
+    safety_grade: str | None = None  # 안전등급 A~E — "" = 최근 보고서 결과표
+    last_precision: datetime.date | None = None  # 전회차 정밀안전점검 완료일(우리 회차·전회차 보고서 이력이 없을 때)
+    last_diagnosis: datetime.date | None = None  # 전회차 정밀안전진단 완료일(1종)
     completion_date: datetime.date | None = None
     structure: str | None = None
     floors_above: int | None = None
@@ -185,6 +192,12 @@ def _apply_facility(row: SitokFacility, body: FacilityIn) -> None:
     _check("분야", data.get("badge_field"), BADGE_FIELDS)
     if data.get("badge_kind"):
         _check("관급 종류", data.get("badge_kind"), BADGE_KINDS)
+    _check("종별", data.get("class_no"), CLASS_NOS)
+    _check("안전등급", data.get("safety_grade"), SAFETY_GRADES)
+    if data.get("last_precision"):  # 날짜를 넣으면 "아직 안 함(최초)"은 풂(계약 창 도래주기 칸과 같게)
+        row.precision_first = False
+    if data.get("last_diagnosis"):
+        row.diagnosis_first = False
     bases = {k: data.pop(k) for k in LEDGER_KEYS if k in data}
     if bases:
         row.ledger = {**(row.ledger or {}), **bases}
@@ -227,7 +240,8 @@ def kind_known(db: Session, c: SitokContract | None, year: int, half: str) -> st
         t = (c.title or "").replace(" ", "")
         has_pre, has_reg = "정밀" in t, "정기" in t
         k = "정밀" if has_pre and not has_reg else "정기" if has_reg and not has_pre else None
-    return k
+    # 정밀안전진단 회차(10/20 계약서에 넣음) — 보고서 자동화엔 진단 틀이 없어 정밀(안전점검) 틀로 회차를 만듦(진단 보고서는 회사 양식으로 따로)
+    return "정밀" if k == "진단" else k
 
 
 def kind_for(db: Session, c: SitokContract | None, year: int, half: str) -> str:
@@ -451,7 +465,7 @@ def guess_template(grade: str, use_type: str, main_use: str) -> str:
 def options(user: User = Depends(get_current_user)):
     """화면 고르기 칸의 선택지(제출 사이트와 같은 이름)."""
     return {"templates": TEMPLATES, "sectors": SECTORS, "halves": HALVES, "joint_types": JOINT_TYPES, "bid_methods": BID_METHODS, "fields": FIELDS,
-            "contract_types": CONTRACT_TYPES, "badge_fields": BADGE_FIELDS, "badge_kinds": BADGE_KINDS}
+            "contract_types": CONTRACT_TYPES, "badge_fields": BADGE_FIELDS, "badge_kinds": BADGE_KINDS, "class_nos": CLASS_NOS, "safety_grades": SAFETY_GRADES}
 
 
 @router.get("/next-mgmt-no")

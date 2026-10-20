@@ -22,6 +22,15 @@
   const esc = mailEsc;
   const HALF_OPTS = ["상반기", "하반기", "해빙기", "우기", "동절기"]; // 연 3회(D·E등급) = 해빙기·우기·동절기(10/16)
   const NEXT_HALF = { 상반기: ["하반기", 0], 하반기: ["상반기", 1], 해빙기: ["우기", 0], 우기: ["동절기", 0], 동절기: ["해빙기", 1] }; // [다음 시기, 해 더하기]
+  // 회차 종류 — 정밀 = 정밀안전점검, 진단 = 정밀안전진단(1종, 10/20 민재형 — 도래주기는 아래 📅 칸·server/sitok/cycle.py)
+  const KIND_OPTS = ["정기", "정밀", "진단"];
+  const KIND_WORD = { 정기: "정기안전점검", 정밀: "정밀안전점검", 진단: "정밀안전진단" };
+  const HALF_END_OF_YEAR = new Set(["하반기", "동절기"]);
+  const halfStart = (y, h) => `${y}-${HALF_END_OF_YEAR.has(h) ? "07-01" : "01-01"}`;
+  const halfEnd = (y, h) => `${y}-${HALF_END_OF_YEAR.has(h) ? "12-31" : "06-30"}`;
+  // 카드의 가장 최근 계약(마지막 회차가 가장 늦은 것) — [+ 계약서]가 내용을 가져옴(10/20 민재형)
+  const lastRoundKey = (c) => Math.max(0, ...(c.rounds || []).map((r) => (r.year || 0) * 10 + HALF_OPTS.indexOf(r.half)));
+  const latestCon = (list) => list.slice().sort((a, b) => lastRoundKey(b) - lastRoundKey(a) || (b.end_date || "").localeCompare(a.end_date || "") || b.id - a.id)[0] || null;
   const won = (n) => (n || n === 0) && n !== "" ? Number(n).toLocaleString("ko-KR") : "";
   const num = (v) => { const d = String(v ?? "").replace(/[^\d]/g, ""); return d ? Number(d) : null; };
   const fileUrl = (c, name) => `${BASE}/api${P}/contracts/${c.id}/file/${encodeURIComponent(name)}?v=${encodeURIComponent(c.made_at || c.updated || "")}`;
@@ -171,7 +180,7 @@
       <div class="sd-fbody">${cons.length ? "" : `<div class="mail-note sd-fempty">아직 계약이 없습니다 — [${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}]로 넣으세요.</div>`}</div>`;
     const body = el.querySelector(".sd-fbody");
     for (const c of cons) body.appendChild(row(c, true));
-    el.querySelector(".sd-fnew").addEventListener("click", () => openContract(null, k.sector, { card: k }));
+    el.querySelector(".sd-fnew").addEventListener("click", () => openContract(null, k.sector, { card: k, prev: k.sector === "민간" ? latestCon(cons) : null }));
     el.querySelector(".sd-fbadge").addEventListener("click", () => editBadges(k));
     const noBtn = el.querySelector(".sd-no");
     if (noBtn) noBtn.addEventListener("click", () => editNumber(k));
@@ -421,6 +430,7 @@
       st.client = st.client || k.owner_name || "";
       if (unitsOf(k).length > 1) st.facility_ids = unitsOf(k).map((u) => u.id); // 시설물 여럿 카드 — 기본 전부(계약 창에서 줄임)
     }
+    if (!id && intro && intro.prev && st.sector === "민간") prefill(intro.prev); // 기존 계약 내용 + 다음 반기 회차(10/20 민재형)
     if (st.facility_ids && st.facility_ids.length) st.facility_ids = st.facility_ids.slice();
     st.amounts = { ...(st.amounts || {}) };
     if (!id && !st.rounds.length && st.sector === "민간") { // 새 민간 계약: 올해·지금 반기·정기 한 줄(관급은 회차 줄 없음 — 반기는 용역 기간으로, 10/15)
@@ -525,10 +535,140 @@
         <label class="drop-box drop-sm sd-up-box"><b>📎 ${label}</b><input type="file" data-up="${kind}" accept=".pdf,.hwp,.hwpx,.jpg,.jpeg,.png,application/pdf,image/*" hidden data-kr-file="skip" /></label>
         <span class="mail-note">${st.files && st.files[file] ? `<a href="${fileUrl(st, file)}" target="_blank" rel="noopener">✓ 올림 · 보기</a>` : hint}</span></div>`;
 
+    // 기존 계약 가져오기(10/20 민재형 "+계약서 누르고 시작할 때 기존 계약 내용, 26년 하반기까지면 2027년 상반기로") —
+    // 관리주체·대표자·사업자·주소·시설물·위치·제원·보증·지체상금·담당자·맡는 건물·동별 금액, 회차 = 마지막 회차 다음부터(그해 마지막 반기면 다음 해 같은 반기들).
+    // 계약일·계약건명·문서번호·파일은 새로(건명은 비우면 자동). 종류는 정기로 두고 📅 도래주기가 고름.
+    function prefill(p) {
+      const KEYS = ["client", "client_rep", "client_biz_no", "client_address", "facility_name", "location", "spec", "guarantee", "delay_rate",
+        "client_manager", "client_phone", "client_email", "site_manager", "site_phone", "site_email"];
+      for (const k of KEYS) if (p[k]) st[k] = p[k];
+      if ((p.facility_ids || []).length) st.facility_ids = p.facility_ids.slice();
+      if (p.amounts) st.amounts = { ...p.amounts };
+      if ((p.buildings || []).length >= 2) st.bldgs = p.buildings.slice();
+      const prev = (p.rounds || []).filter((r) => r.year);
+      if (!p.open_ended && prev.length) {
+        const last = prev[prev.length - 1];
+        // 금액은 종류별 — 새 회차는 정기로 시작하니 같은 반기의 가장 최근 정기 금액(앞 계약 그 반기가 정밀이었으면 정밀 금액을 안 가져옴),
+        // 도래주기가 정밀·진단으로 바꾸면 그 종류의 가장 최근 금액(applyCycle). 동별 금액(parts)은 그대로 복사.
+        const recent = prev.slice().reverse();
+        st.kind_amount = {};
+        for (const r of recent) if (!r.parts && r.amount && !(r.kind in st.kind_amount)) st.kind_amount[r.kind] = r.amount;
+        const amountFor = (r) => (r.parts ? r.amount
+          : (recent.find((x) => x.kind === "정기" && x.half === r.half && !x.parts) || recent.find((x) => x.kind === "정기" && !x.parts) || r).amount);
+        const copy = (r, year, half) => ({ year, half, kind: "정기", amount: amountFor(r), ...(r.parts ? { parts: r.parts.map((x) => ({ ...x })) } : {}) });
+        st.rounds = HALF_END_OF_YEAR.has(last.half)
+          ? prev.filter((r) => r.year === last.year).map((r) => copy(r, last.year + 1, r.half))
+          : [copy(last, last.year + NEXT_HALF[last.half][1], NEXT_HALF[last.half][0])];
+        const a = st.rounds[0], b = st.rounds[st.rounds.length - 1];
+        st.start_date = st.start_date || halfStart(a.year, a.half);
+        st.end_date = st.end_date || halfEnd(b.year, b.half);
+      } else if (p.open_ended) {
+        st.open_ended = true;
+        st.unit = p.unit ? { ...p.unit } : st.unit;
+      }
+      st.prefill_note = `기존 계약 "${p.title || p.auto_title || ""}"에서 가져왔습니다${prev.length && !p.open_ended ? ` — 회차는 ${st.rounds.map((r) => `${r.year} ${r.half}`).join("·")}` : ""}. 계약일·건명은 새로 넣으세요.`;
+    }
+
+    // ---------- 📅 도래주기(10/20 민재형, 시행령 별표 3) — 회차 줄마다 실시할 점검. 서버 /sitok/docs/cycle(server/sitok/cycle.py) ----------
+    // 전회차 기록(우리 정밀 회차·전회차 보고서 이력·넣어 둔 날짜)이 없으면: 3종 안 물음, 2종 전회차 정밀안전점검, 1종 + 정밀안전진단 — 넣은 값은 시설물에 저장.
+    // 새 계약은 회차 줄 종류를 자동으로 맞춤(사람이 바꾼 줄은 그대로), 이미 있는 계약은 [회차 줄에 반영]으로.
+    let cyc = null, cycKey = "";
+    const manualKind = new Set(); // 사람이 종류를 바꾼 회차 "2027-하반기"
+    const cycIds = () => (st.facility_ids && st.facility_ids.length ? st.facility_ids : st.facility ? [st.facility.id] : []);
+    const cycHalves = () => st.rounds.filter((r) => r.year).map((r) => `${r.year}-${r.half}`);
+    async function loadCycle(force) {
+      const el = box.querySelector(".sd-cycle");
+      if (!el) return;
+      const ids = cycIds(), hs = cycHalves();
+      if (!ids.length) { el.innerHTML = '<div class="mail-note">시설물 카드를 고르면 도래주기(정밀안전점검·정밀안전진단 시기)를 계산합니다.</div>'; return; }
+      const key = `${ids.join(",")}|${hs.join(",")}`;
+      if (force || key !== cycKey || !cyc) {
+        try { cyc = await api(`${P}/cycle?ids=${ids.join(",")}&halves=${encodeURIComponent(hs.join(","))}`); cycKey = key; }
+        catch (err) { el.innerHTML = `<div class="mail-msg bad">${esc(err.message)}</div>`; return; }
+      }
+      if (!box.contains(el)) return; // 그새 다시 그림
+      if (!st.id && !cyc.rows.some((r) => r.needs.length) && applyCycle(false)) { draw(); return; } // 새 계약 — 종류 자동(전회차를 다 알 때만, 다시 그린 뒤 같은 key라 다시 안 부름)
+      drawCycle(el);
+    }
+    function applyCycle(all) { // 회차 줄 종류를 도래주기대로 — all = 사람이 바꾼 줄까지([회차 줄에 반영])
+      let changed = false;
+      for (const r of st.rounds) {
+        const k = `${r.year}-${r.half}`, sug = cyc && cyc.rounds[k];
+        if (!sug || (!all && manualKind.has(k)) || r.kind === sug.kind) continue;
+        r.kind = sug.kind;
+        if (!r.parts && st.kind_amount && st.kind_amount[sug.kind]) r.amount = st.kind_amount[sug.kind]; // 가져온 계약의 그 종류 금액
+        changed = true;
+      }
+      if (all) manualKind.clear();
+      return changed;
+    }
+    function drawCycle(el) {
+      const rows = cyc.rows;
+      const mark = (s) => (s ? `<small class="cy-src">${esc(s)}</small>` : "");
+      // 전회차 시기가 빠진 건물이 있으면 제안은 정기로만 나오니 [회차 줄에 반영]을 숨김(사람이 넣은 정밀 회차를 정기로 덮지 않게)
+      const known = !rows.some((r) => r.needs.length);
+      const diff = known && st.rounds.some((r) => { const g = cyc.rounds[`${r.year}-${r.half}`]; return g && g.kind !== r.kind; });
+      const opt = (list, v, auto) => list.map((x) => `<option value="${x}"${x === v ? " selected" : ""}>${x || auto}</option>`).join("");
+      const row = (r) => {
+        const cls = r.class_no ? `${r.class_no}종` : "법정 외";
+        const asks = r.needs.length ? ` cy-need` : "";
+        const dates = r.class_no === 1 || r.class_no === 2 ? `
+            <label class="cy-in">전회차 정밀안전점검 <input type="month" class="cy-lp" value="${esc(r.last_precision)}"${r.precision_first ? " disabled" : ""} />
+              <span class="cy-first"><input type="checkbox" class="cy-lp-first"${r.precision_first ? " checked" : ""} /> 아직 안 함</span>${mark(r.last_precision ? r.lp_src : "")}</label>
+            ${r.class_no === 1 ? `<label class="cy-in">전회차 정밀안전진단 <input type="month" class="cy-ld" value="${esc(r.last_diagnosis)}"${r.diagnosis_first ? " disabled" : ""} />
+              <span class="cy-first"><input type="checkbox" class="cy-ld-first"${r.diagnosis_first ? " checked" : ""} /> 아직 안 함</span>${mark(r.last_diagnosis ? r.ld_src : "")}</label>` : ""}
+            ${r.needs.includes("completion") ? `<label class="cy-in">준공일 <input type="date" class="cy-comp" value="${esc(r.completion)}" /></label>` : ""}` : "";
+        return `<div class="cy-row${asks}" data-id="${r.id}">
+          <div class="cy-head"><b>${esc(r.name)}</b><span class="cy-tag">${cls} · ${r.field === "건축" ? "건축물" : `토목(${esc(r.kind || "건축물 외")})`}</span>
+            <select class="cy-class" aria-label="종별" title="도래주기 — 1종 정기~정밀안전진단, 2종 ~정밀안전점검, 3종 정기만">${opt(["", "1종", "2종", "3종"], r.class_src === "입력" ? `${r.class_no}종` : "", `자동(${cls})`)}</select>
+            <select class="cy-grade" aria-label="안전등급" title="주기가 등급마다 다름 — 자동 = ${esc(r.grade_src)}">${opt(["", "A", "B", "C", "D", "E"], r.grade_src === "입력" ? r.grade : "", `자동(${r.grade})`)}</select>${mark(r.grade_src !== "입력" ? `등급 ${r.grade_src}` : "")}</div>
+          ${dates}
+          <div class="cy-next">${r.needs.length ? '<b class="cy-ask">⚠ 전회차 시기를 넣어 주세요(처음이면 "아직 안 함")</b> · ' : ""}${esc(r.next)}${r.warn.map((w) => ` · <span class="cy-warn">⚠ ${esc(w)}</span>`).join("")}</div>
+        </div>`;
+      };
+      const many = rows.filter((r) => r.class_no === 1 || r.class_no === 2).length >= 2;
+      el.innerHTML = `<div class="cy-rows">${rows.map(row).join("")}</div>
+        ${many ? `<div class="cy-all">모든 건물 같게: <select class="cy-all-grade"><option value="">등급</option>${["A", "B", "C", "D", "E"].map((g) => `<option>${g}</option>`).join("")}</select>
+          전회차 정밀안전점검 <input type="month" class="cy-all-lp" /> <button type="button" class="cy-all-go">적용</button></div>` : ""}
+        <div class="cy-foot"><span class="mail-note">${cycHalves().map((k) => { const g = cyc.rounds[k]; return g ? `${k.replace("-", " ")} ${KIND_WORD[g.kind]}` : ""; }).filter(Boolean).join(" · ")}</span>
+          ${diff ? '<button type="button" class="cy-apply">회차 줄에 반영</button>' : ""}</div>`;
+      const put = async (fid, body) => {
+        try { await apiPost(`${P}/cycle/facility/${fid}`, body); await loadCycle(true); } catch (err) { msg(esc(err.message), "bad"); }
+      };
+      el.querySelectorAll(".cy-row").forEach((rw) => {
+        const fid = Number(rw.dataset.id);
+        rw.querySelector(".cy-class").addEventListener("change", (e) => put(fid, { class_no: e.target.value }));
+        rw.querySelector(".cy-grade").addEventListener("change", (e) => put(fid, { safety_grade: e.target.value }));
+        rw.querySelector(".cy-lp")?.addEventListener("change", (e) => put(fid, { last_precision: e.target.value }));
+        rw.querySelector(".cy-ld")?.addEventListener("change", (e) => put(fid, { last_diagnosis: e.target.value }));
+        rw.querySelector(".cy-lp-first")?.addEventListener("change", (e) => put(fid, { precision_first: e.target.checked }));
+        rw.querySelector(".cy-ld-first")?.addEventListener("change", (e) => put(fid, { diagnosis_first: e.target.checked }));
+        rw.querySelector(".cy-comp")?.addEventListener("change", (e) => put(fid, { completion_date: e.target.value || null }));
+      });
+      el.querySelector(".cy-all-go")?.addEventListener("click", async () => {
+        const g = el.querySelector(".cy-all-grade").value, lp = el.querySelector(".cy-all-lp").value;
+        if (!g && !lp) return;
+        const body = { ...(g ? { safety_grade: g } : {}), ...(lp ? { last_precision: lp } : {}) };
+        try {
+          for (const r of rows.filter((x) => x.class_no === 1 || x.class_no === 2)) await apiPost(`${P}/cycle/facility/${r.id}`, body);
+          await loadCycle(true);
+        } catch (err) { msg(esc(err.message), "bad"); }
+      });
+      el.querySelector(".cy-apply")?.addEventListener("click", () => { sync(); applyCycle(true); draw(); });
+      // 회차 줄 옆에 이유(전회차 시기) — "목록에 띄우기"(10/20 민재형)
+      box.querySelectorAll(".sd-round").forEach((rw) => {
+        const r = st.rounds[Number(rw.dataset.i)];
+        const g = r && cyc.rounds[`${r.year}-${r.half}`];
+        rw.querySelector(".r-why")?.remove();
+        if (!g || (g.kind === "정기" && !g.why.length)) return;
+        rw.insertAdjacentHTML("beforeend", `<span class="r-why${g.kind !== r.kind ? " off" : ""}" title="${esc(g.why.join("\n"))}">${g.kind !== r.kind ? `도래주기: ${KIND_WORD[g.kind]} — ` : "📅 "}${esc(g.why[0] || "")}${g.why.length > 1 ? ` 외 ${g.why.length - 1}` : ""}</span>`);
+      });
+    }
+
     function roundsBlock() {
       if (st.open_ended) {
         const u = st.unit || { kind: "정기", amount: null };
-        return `<div class="sd-unit">매 반기 <select class="sd-unit-kind">${["정기", "정밀"].map((k) => `<option${u.kind === k ? " selected" : ""}>${k}</option>`).join("")}</select>
+        return `<div class="sd-unit">매 반기 <select class="sd-unit-kind">${KIND_OPTS.map((k) => `<option${u.kind === k ? " selected" : ""}>${k}</option>`).join("")}</select>
           금 <input class="sd-unit-amt sd-won" inputmode="numeric" value="${won(u.amount)}" placeholder="550,000" /> 원 <span class="mail-note">(VAT포함 · 총합은 안 씀)</span></div>`;
       }
       const multi = st.bldgs.length >= 2;
@@ -536,7 +676,7 @@
       const rows = st.rounds.map((r, i) => `<div class="sd-round${multi ? " multi" : ""}" data-i="${i}">
           <input class="r-year" inputmode="numeric" value="${r.year || ""}" aria-label="연도" /><span>년</span>
           <select class="r-half" aria-label="반기·시기" title="연 3회(D·E등급)면 해빙기·우기·동절기">${HALF_OPTS.map((h) => `<option${r.half === h ? " selected" : ""}>${h}</option>`).join("")}</select>
-          <select class="r-kind" aria-label="점검 종류">${["정기", "정밀"].map((k) => `<option${r.kind === k ? " selected" : ""}>${k}</option>`).join("")}</select>
+          <select class="r-kind" aria-label="점검 종류" title="정밀 = 정밀안전점검 · 진단 = 정밀안전진단">${KIND_OPTS.map((k) => `<option${r.kind === k ? " selected" : ""}>${k}</option>`).join("")}</select>
           ${multi ? `<span class="r-parts">${st.bldgs.map((b, j) => `<label class="r-part-l"><small>${esc(b || `${j + 1}동`)}</small><input class="r-part sd-won" data-b="${j}" inputmode="numeric" value="${won(partOf(r, j))}" placeholder="금액" aria-label="${esc(b)} 금액" /></label>`).join("")}
               <span class="r-sum">= ${won(r.amount) || 0}원</span></span>`
             : `<span class="r-amt-wrap">금 <input class="r-amt sd-won" inputmode="numeric" value="${won(r.amount)}" placeholder="금액" aria-label="금액" /> 원</span>`}
@@ -605,7 +745,9 @@
         </div>
         ${civil ? `<div class="mail-label${filled.includes("rounds") || filled.includes("unit") ? " sd-ai" : ""}">계약 회차 · 금액 <span class="mail-note">— 반기마다 한 줄(VAT포함). 계약서 "계약금액"에 회차마다 한 줄 + 총 합</span></div>
           <label class="sd-open"><input type="checkbox" class="sd-open-chk"${st.open_ended ? " checked" : ""} /> 끝 없는 계약 — 계약기간 "~ 계약 해지 시까지", 금액은 매 반기 단가만</label>
-          ${roundsBlock()}` : ""}
+          ${roundsBlock()}
+          ${st.open_ended ? "" : `<div class="mail-label">📅 도래주기 — 실시할 점검 <span class="mail-note">시행령 별표 3 · 1종 정기~정밀안전진단, 2종 ~정밀안전점검, 3종 정기만 · 건축물·토목 주기 다름</span></div>
+          <div class="sd-cycle"><div class="mail-note">계산하는 중…</div></div>`}` : ""}
         <div class="mail-label">계약</div>
         <div class="cd-grid">
           ${civil ? "" : `${field("contract_no", "계약번호")}<label class="cd-field"><span>계약금액(원)</span><input class="sd-amount sd-won" inputmode="numeric" value="${won(st.amount)}" /></label>`}
@@ -639,6 +781,8 @@
         </div>`;
       wire();
       if (clean) snapshot = JSON.stringify(body());
+      if (st.prefill_note) msg(esc(st.prefill_note), "ok"); // 저장하면 st가 서버 응답으로 바뀌어 사라짐 — 그 전엔 다시 그려도 남김
+      if (civil && !st.open_ended) loadCycle(false);
     }
 
     function wire() {
@@ -705,6 +849,11 @@
         msg(`${out.length}회차를 넣었습니다 — 정밀 회차와 금액을 확인하세요.`, "ok");
       });
       box.querySelectorAll(".r-del").forEach((b) => b.addEventListener("click", () => { sync(); st.rounds.splice(Number(b.closest(".sd-round").dataset.i), 1); draw(); }));
+      box.querySelectorAll(".sd-round .r-kind").forEach((i) => i.addEventListener("change", () => { // 사람이 고른 종류 — 도래주기 자동이 안 바꿈
+        const r = st.rounds[Number(i.closest(".sd-round").dataset.i)];
+        if (r) manualKind.add(`${r.year}-${r.half}`);
+      }));
+      box.querySelectorAll(".sd-round .r-year, .sd-round .r-half").forEach((i) => i.addEventListener("change", () => { sync(); loadCycle(false); }));
       box.querySelectorAll(".sd-round input, .sd-round select").forEach((i) => i.addEventListener("change", () => {
         sync();
         const total = st.rounds.reduce((s, r) => s + (r.amount || 0), 0);

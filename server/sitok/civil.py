@@ -22,7 +22,7 @@ from server.sitok import seasons
 
 HP, T = rb.HP, rb.T
 TEMPLATE_NAME = "시특법_민간계약서_양식.hwpx"
-KINDS = ("정기", "정밀")
+KINDS = ("정기", "정밀", "진단")  # 진단 = 정밀안전진단(1종, 10/20 민재형 — 도래주기 server/sitok/cycle.py)
 HALVES = seasons.ALL  # 상반기·하반기 + 연 3회 해빙기·우기·동절기(10/16)
 TOKENS = ("문서번호", "종류", "시설물명", "관리주체", "대표자", "계약건명", "계약금액", "계약보증액", "지체상금율", "계약기간", "위치", "제원", "계약일", "목적")
 
@@ -37,6 +37,14 @@ PURPOSE = {  # 제1조(목적) — 견본 두 개에서(서로 뒤바뀌어 있�
                  "정밀안전점검(준공후 매3년마다 1회 이상 면밀한 육안검사와 측정기구)을 통하여 시설물의 물리적·기능적 결함과 시설물에 내재되어 있는 위험요인을 "
                  "조사하여 재해를 예방하고 시설물의 효용을 증진시켜 공공의 안전을 확보하는데 그 목적이 있다.",
 }
+
+
+# 정밀안전진단(1종) — 시설물안전법 제12조·시행령 제10조, 정의는 법 제2조 "정밀안전진단"(10/20 민재형 "정밀안전진단도 나누고")
+DIAG_PURPOSE = ("본 과업은 「시설물의 안전 및 유지관리에 관한 특별법」 제12조 및 동법 시행령 제10조 규정에 따른 정밀안전진단으로써 시설물의 물리적·기능적 결함을 "
+                "발견하고 그에 대한 신속하고 적절한 조치를 하기 위하여 구조적 안전성과 결함의 원인 등을 조사·측정·평가하여 보수·보강 등의 방법을 제시함으로써 "
+                "재해를 예방하고 시설물의 효용을 증진시켜 공공의 안전을 확보하는데 그 목적이 있다.")
+DIAG_ALSO = ("아울러 「시설물의 안전 및 유지관리에 관한 특별법」 제12조 및 동법 시행령 제10조 규정에 따른 정밀안전진단을 통하여 시설물의 구조적 안전성과 "
+             "결함의 원인 등을 조사·측정·평가하고 보수·보강 등의 방법을 제시한다.")
 
 
 def template_path() -> Path:
@@ -126,17 +134,18 @@ def kind_for(rounds: list | None, unit: dict | None, open_ended: bool, year: int
 
 
 def kinds_of(rounds: list | None, unit: dict | None, open_ended: bool) -> str:
-    """"정기" | "정밀" | "정기·정밀"."""
+    """회차 줄에 든 종류를 정기·정밀·진단 차례로 "·"로 — "정기" | "정밀" | "정기·정밀" | "진단" | "정기·진단" | "정밀·진단" | "정기·정밀·진단"(없으면 정기)."""
     got = {r.get("kind") for r in (rounds or []) if r.get("kind") in KINDS}
     if open_ended and unit and unit.get("kind") in KINDS:
         got.add(unit["kind"])
-    if got == {"정밀"}:
-        return "정밀"
-    return "정기·정밀" if got == {"정기", "정밀"} else "정기"
+    return "·".join(k for k in KINDS if k in got) or "정기"
 
 
 def kind_word(k: str) -> str:
-    return f"{k}안전점검"
+    """"정기안전점검" · "정기·정밀안전점검" · "정밀안전진단" · "정기안전점검·정밀안전진단" · "정기·정밀안전점검·정밀안전진단"."""
+    pts = [x for x in k.split("·") if x and x != "진단"]
+    head = f"{'·'.join(pts)}안전점검" if pts else ""
+    return "·".join(x for x in (head, "정밀안전진단" if "진단" in k.split("·") else "") if x)
 
 
 def total(rounds: list | None) -> int:
@@ -198,7 +207,10 @@ def period_text(start: datetime.date | None, end: datetime.date | None, open_end
 
 def purpose(k: str, rounds: list | None) -> str:
     """제1조(목적) — 회차 줄이 연 3회(해빙기·우기·동절기, D·E등급 — 10/16)면 "년2회 상반기와 하반기"를 "년3회 해빙기·우기·동절기"로."""
-    text = PURPOSE[k]
+    pts = "·".join(x for x in k.split("·") if x != "진단")
+    text = PURPOSE.get(pts, "") if pts else ""
+    if "진단" in k.split("·"):  # 정밀안전진단 — 혼자면 진단 목적, 섞이면 점검 목적 뒤에 "아울러 …"(10/20)
+        text = f"{text} {DIAG_ALSO}" if text else DIAG_PURPOSE
     if any(seasons.is_season((r or {}).get("half")) for r in rounds or []):
         text = text.replace("년2회 상반기와 하반기", "년3회 해빙기·우기·동절기")
     return text

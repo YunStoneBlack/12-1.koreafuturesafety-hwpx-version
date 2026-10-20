@@ -205,3 +205,26 @@
 .sd-cover-warn { margin: 0 0 6px; padding: 8px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--ink); font-size: 12.5px; line-height: 1.6; }
 .main .sd-cover-warn .sd-cover-ok, .sd-cover-warn .sd-cover-ok { margin: 0 2px; padding: 2px 10px; border: 1px solid var(--warn); border-radius: 6px; background: var(--surface);
   color: var(--warn); font-size: 12px; font-weight: 700; cursor: pointer; }
+
+/* 📅 도래주기(10/20 민재형 — 시행령 별표 3): 건물마다 종별·등급·전회차 정밀점검/진단, 회차 줄 옆 이유 */
+.sd-cycle { display: flex; flex-direction: column; gap: 8px; }
+.cy-rows { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow: auto; }
+.cy-row { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 12.5px; }
+.cy-row.cy-need { border-color: #F1D6A8; background: var(--warn-soft); }
+.cy-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.cy-head b { font-size: 13px; }
+.cy-tag { color: var(--muted); }
+.cd-box.sd-box .cy-row select, .cd-box.sd-box .cy-all select { width: auto; padding: 3px 6px; font-size: 12.5px; }
+.cd-box.sd-box .cy-row input[type="month"], .cd-box.sd-box .cy-row input[type="date"], .cd-box.sd-box .cy-all input[type="month"] { width: auto; padding: 3px 6px; font-size: 12.5px; }
+.cy-in { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 12.5px; font-weight: 500; }
+.cy-first { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); }
+.cy-first input { width: auto; margin: 0; }
+.cy-src { color: var(--faint); }
+.cy-next { color: var(--muted); }
+.cy-ask, .cy-warn { color: var(--warn); }
+.cy-all { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; }
+.cd-box button.cy-all-go, .cd-box button.cy-apply { margin: 0; padding: 4px 12px; border: 1px solid var(--blue); border-radius: 8px; background: var(--blue-soft);
+  color: var(--blue); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.cy-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.r-why { flex-basis: 100%; font-size: 12px; color: var(--blue); }
+.r-why.off { color: var(--warn); }

@@ -484,6 +484,14 @@ class SitokFacility(Base):
     group_order: Mapped[int] = mapped_column(Integer, default=0)  # 묶음 안 순서(시설물편 제N장) — 0이 대표
     book_order: Mapped[int] = mapped_column(Integer, default=0)  # 0054 — 카드 안 보고서(보고서 구성 상자) 순서 1·2…, 상자 하나면 0(번호에 뒷번호 안 붙임, 10/19 민재형)
     legal: Mapped[bool] = mapped_column(Boolean, default=True)  # 법정(1·2·3종) 시설물 — False = 자체 점검(관리대장 없음, 결과표 종별 "해당없음", 0036)
+    # 도래주기(0056, 10/20 민재형 — 시행령 별표 3): 종별 "1종"/"2종"/"3종"(비면 보고서 틀로 — 3종 틀이면 3종, 아니면 2종), 안전등급 A~E(비면 최근 보고서 결과표),
+    # 전회차 정밀안전점검·정밀안전진단 완료일(우리 정밀 회차 기록이 없을 때 사람이 넣음 — 계약 창), *_first = 아직 한 적 없음(준공일로 최초 시기). 계산 server/sitok/cycle.py
+    class_no: Mapped[str] = mapped_column(Text, default="")
+    safety_grade: Mapped[str] = mapped_column(Text, default="")
+    last_precision: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    last_diagnosis: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    precision_first: Mapped[bool] = mapped_column(Boolean, default=False)
+    diagnosis_first: Mapped[bool] = mapped_column(Boolean, default=False)
     # 도면(0039) {attach: [{id, file(시설물 폴더 기준), name, at}] 1.2.9 뒤에 붙는 평·입·단면도, struct: [...] 구조일반사항·건축개요(시설물 현황 AI가 읽음)}
     drawings: Mapped[dict | None] = mapped_column(JSON, default=None)
     # 시설물 목록(0042, 사용자·민재형 10/13 — 산안법 현장 목록과 같게): 번호표 "26-4"(새 등록 때 자동, 묶인 동은 같은 번호), 담당자(관리소장 등) 📞,

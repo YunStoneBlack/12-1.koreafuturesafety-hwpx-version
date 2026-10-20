@@ -11,11 +11,15 @@ const SitokFields = (() => {
     ["fms_no", "시설물번호(FMS)", "text", "예: AR2004-0004955"],
     ["template", "보고서 틀", "template", "2종 / 3종 일반(+안전등급 평가) / 3종 학교(+치장벽돌·내진보강 점검)"],
     ["legal", "법정 시설물", "legal", "1·2·3종이 아닌 자체 점검이면 '법정 외' — 결과표 종별 해당없음"],
+    ["class_no", "종별", "class_nos", "도래주기 — 1종 정기~정밀안전진단, 2종 ~정밀안전점검, 3종 정기만(비우면 보고서 틀로)"],
+    ["safety_grade", "안전등급", "safety_grades", "도래주기 계산 — 비우면 최근 보고서 결과표"],
     ["kind", "시설물 구분", "text", "결과표 — 보통 건축물"], ["use_type", "종류", "text", "결과표 — 종교시설·교육연구시설 등"],
     ["main_use", "주용도(관리대장)", "text", ""], ["address", "시설물 위치", "text", ""],
     ["owner_name", "관리주체명", "text", ""], ["owner_type", "관리주체구분", "text", "민간·공공"], ["owner_phone", "관리주체 전화", "text", ""],
     ["contact_name", "담당자(관리소장 등)", "text", "기록용"], ["contact_phone", "담당자 전화", "text", "기록용 — 📞 전화는 서류 자동화 계약 정보 현장 담당(없으면 관리주체 전화)"],
     ["completion_date", "준공일", "date", ""], ["structure", "구조형식", "text", "예: 철근콘크리트구조"],
+    ["last_precision", "전회차 정밀안전점검 완료일", "date", "우리 정밀 회차·전회차 보고서 이력이 없을 때 — 계약 창 📅 도래주기에서도"],
+    ["last_diagnosis", "전회차 정밀안전진단 완료일", "date", "1종"],
     ["floors_above", "지상 층수", "int", ""], ["floors_below", "지하 층수", "int", ""], ["floors_roof", "옥탑 층수", "int", ""],
     ["max_height", "최고높이(m)", "num", ""], ["total_area", "연면적(㎡)", "num", ""], ["building_area", "건축면적(㎡)", "num", ""],
     ["land_area", "대지면적(㎡)", "num", "상태평가 결과(SafetyMan 건물개요) — 건축물대장"], ["coverage_ratio", "건폐율(%)", "num", ""], ["floor_area_ratio", "용적율(%)", "num", ""],
@@ -33,6 +37,7 @@ const SitokFields = (() => {
     ["bid_method", "입찰방식", "bid_methods", ""], ["field", "수행분야", "fields", ""],
   ];
   const TEMPLATE_LABEL = { "2종": "2종", "3종일반": "3종 일반", "3종학교": "3종 학교" };
+  const BLANK_LABEL = { class_nos: "자동(보고서 틀 — 3종 틀이면 3종)", safety_grades: "자동(최근 보고서 결과표)" }; // 도래주기 칸(10/20)
   const LEGAL = [["true", "법정 시설물(1·2·3종)"], ["false", "법정 외 — 자체 점검"]];
 
   function input(opts, prefix, [key, label, type, help]) {
@@ -42,7 +47,7 @@ const SitokFields = (() => {
       field = `<select id="${idAttr}" data-key="${key}" data-type="legal">${LEGAL.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select>`;
     } else if (type === "template" || type === "sector" || type === "halves" || type.endsWith("s")) {
       const list = { template: opts.templates, sector: opts.sectors, halves: opts.halves, badge_kinds: ["", ...(opts.badge_kinds || [])] }[type] || opts[type] || [];
-      field = `<select id="${idAttr}" data-key="${key}">${list.map((v) => `<option value="${esc(v)}">${esc(TEMPLATE_LABEL[v] || v)}</option>`).join("")}</select>`;
+      field = `<select id="${idAttr}" data-key="${key}">${list.map((v) => `<option value="${esc(v)}">${esc(v === "" && BLANK_LABEL[type] ? BLANK_LABEL[type] : TEMPLATE_LABEL[v] || v)}</option>`).join("")}</select>`;
     } else {
       const t = type === "date" ? "date" : type === "int" || type === "num" ? "number" : "text";
       field = `<input id="${idAttr}" data-key="${key}" data-type="${type}" type="${t}"${type === "num" ? ' step="any"' : ""} />`;
