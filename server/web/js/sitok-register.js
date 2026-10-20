@@ -1,9 +1,9 @@
 // 보고서 자동화 시설물 화면 맨 위 "① 시설물 등록"(sitok-facility.html?id=, 2026-10-16 민재형 개편) — 시설물(건물·동) 관리는 여기서만.
 // 건물 등록만(10/16 민재형 "몇 개든 등록시키고 → 보고서 구성") — 자료 [시설물관리대장 | 관리대장 없음 — 자체점검·법정 외]를 고르고 파일을 올리면
 // 줄마다 읽어(3개씩 같이) 이름을 채우고 [등록]으로 건물을 만듦. 등록 전 시설물이면 첫 줄이 이 시설물(이름도 관리대장·결과표 시설물명으로).
-// 몇 권으로 낼지(묶음·따로)·계약 연결은 아래 📚 보고서 구성(js/sitok-compose.js)에서 — 새 건물은 처음엔 따로 보고서.
+// 새 건물은 처음엔 모두 보고서 한 권(동 묶음 — 10/20 민재형 "디폴트는 1개 보고서 묶음, 나눌 건 보고서 추가로") — 나누기·계약 연결은 아래 📚 보고서 구성(js/sitok-compose.js).
 // 관리대장이 없으면 결과표·시설물 현황(전회차 보고서 그대로, 또는 동마다 그 쪽만 모은 PDF)을 AI가 읽음 — 결과표 개수 = 동 수(양식은 회사가 달라도 같음).
-// 서버 /sitok/docs/facilities/{id}/add/read(관리대장)·add/read-sheets(결과표)·add(따로 — 지금 계약이 같이 맡음)·dong(묶음), 이 시설물은 PATCH /sitok/facilities/{id}.
+// 서버 /sitok/docs/facilities/{id}/add/read(관리대장)·add/read-sheets(결과표)·dong(묶음 — 보는 건물이 든 보고서에 동으로), 이 시설물은 PATCH /sitok/facilities/{id}.
 // 10/16 개편 2차: 등록 전이면 맨 위에 펼쳐 둠, 등록 뒤엔 숨겨 두고 동 타일의 [＋ 동 추가](js/sitok-facility.js → "sitok-reg-open")로만 엶.
 
 (function () {
@@ -15,7 +15,7 @@
   const FAC_KEYS = ["fms_no", "template", "kind", "use_type", "main_use", "address", "owner_name", "owner_type", "owner_phone", "completion_date", "structure",
     "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "land_area", "coverage_ratio", "floor_area_ratio"];
   let fac = null;
-  const st = { src: "ledger", rows: [], reading: 0, busy: false }; // 건물은 따로 등록하고 묶음은 📚 보고서 구성에서
+  const st = { src: "ledger", rows: [], reading: 0, busy: false }; // 건물은 한 보고서(묶음)로 등록하고 나누기는 📚 보고서 구성에서
 
   const base = () => String(fac.mgmt_no || "").replace(/^((?:관급|민간)-\d+)-\d+$/, "$1");
   const grouped = () => !!(fac.group && fac.group.members.length > 1);
@@ -162,7 +162,7 @@
     };
     await Promise.all([worker(), worker(), worker()]);
     const n = st.rows.filter((x) => !x.done).length;
-    say(`${n}개 — 이름을 확인하고 [등록]을 누르세요. ${!registered() ? "첫 줄은 <b>이 시설물</b>(이름도 바뀜), 나머지는 " : ""}새 건물(지금 계약이 같이 맡음)이 됩니다 — 등록 뒤 아래 📚 보고서 구성에서 한 권으로 묶거나 나누세요.`
+    say(`${n}개 — 이름을 확인하고 [등록]을 누르세요. ${!registered() ? "첫 줄은 <b>이 시설물</b>(이름도 바뀜), 나머지는 " : ""}같은 보고서(한 권)의 동이 됩니다 — 보고서를 나누려면 등록 뒤 아래 📚 보고서 구성에서 [+ 보고서 추가].`
       + (warns.length ? `<br>⚠ ${warns.map(esc).join("<br>⚠ ")}` : ""), warns.length ? "bad" : "");
   }
 
@@ -173,6 +173,7 @@
     st.busy = true;
     drawRows();
     let first = !registered() && !st.rows.some((x) => x.done);
+    const groupName = first ? fac.name : ""; // 처음 묶을 때 묶음 이름 = 등록 전 카드 이름(첫 줄이 이 시설물 이름을 바꾸기 전)
     const made = [];
     let bad = 0;
     for (const [n, it] of todo.entries()) {
@@ -185,7 +186,7 @@
           made.push(`${fac.mgmt_no} ${fac.name}(이 시설물)`);
           first = false;
         } else {
-          const out = await apiPost(`${D}/${id}/add`, { ...body, join_active: true });
+          const out = await apiPost(`${D}/${id}/dong`, { ...body, group_name: groupName || null }); // 보는 건물이 든 보고서에 동으로(10/20 — 전엔 따로 /add)
           made.push(`${out.mgmt_no} ${body.name}`);
         }
         it.done = true;

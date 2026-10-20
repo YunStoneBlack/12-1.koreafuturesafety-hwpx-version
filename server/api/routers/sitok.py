@@ -258,7 +258,10 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
     from server.api.routers.sitok_docs import _card_units
     us = _card_units(db, f)
     out["card_units"] = [{"id": u.id, "mgmt_no": u.mgmt_no, "name": u.name, "book": k} for k, u in enumerate(us, 1)] if len(us) > 1 else []  # 보고서 따로 시설물(보고서 1·2, 10/16 등록 칸)
-    out["card_fms"] = [{"id": x.id, "fms_no": x.fms_no, "name": x.name, "mgmt_no": x.mgmt_no} for x in card_facilities(db, f) if x.fms_no]  # 등록 칸이 이미 있는 건물을 뺌(10/16)
+    card = card_facilities(db, f)
+    out["card_fms"] = [{"id": x.id, "fms_no": x.fms_no, "name": x.name, "mgmt_no": x.mgmt_no} for x in card if x.fms_no]  # 등록 칸이 이미 있는 건물을 뺌(10/16)
+    # ① 건물 타일 — 카드의 모든 건물(묶음·따로 섞여도, 보고서 순서 → 묶음 안 순서, 10/20 민재형 "시설물명만 나열, 누르면 시설물 정보")
+    out["card_all"] = [{"id": x.id, "name": x.name} for x in sorted(card, key=lambda x: (x.book_order or 0, x.group_order or 0, x.id))]
     out["renew"] = renew_info(db, f)  # 장기·지속 계약 끝나기 전 알림(10/13)
     if with_contracts:
         used: dict[int, list[str]] = {}  # 계약 → 쓰는 회차(10/14 계약 패널 "쓰는 회차: 2026 상·하")

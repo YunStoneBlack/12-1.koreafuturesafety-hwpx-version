@@ -119,22 +119,21 @@
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.hidden && !document.querySelector(".mail-overlay:not(#fi-modal)")) closeModal(); });
   const group = () => (fac.group && fac.group.members.length > 1 ? fac.group : null);
-  // 같은 카드의 "보고서 따로" 시설물(묶음 아님 — 옹벽 17개 따로 등록 등, 10/20 민재형 "하나만 생김") — 서버 card_units(보고서 순서)
-  const cardUnits = () => (!group() && (fac.card_units || []).length > 1 ? fac.card_units.map((u) => (u.id === fac.id ? { ...u, name: fac.name } : u)) : null);
+  // ① 건물 타일 = 카드의 모든 건물 이름(묶음·따로 섞여도 — 보고서를 몇 권으로 나눌지는 📚 보고서 구성, 10/20 민재형) — 서버 card_all
+  const allTiles = () => ((fac.card_all || []).length > 1 ? fac.card_all.map((u) => (u.id === fac.id ? { ...u, name: fac.name } : u)) : [{ id: fac.id, name: fac.name }]);
   const registered = () => !!(fac.has_ledger_pdf || fac.fms_no || fac.legal === false || group() || (fac.card_units || []).length > 1); // js/sitok-register.js와 같음
-  const label = (m) => { const g = group(); const i = g ? g.members.findIndex((x) => x.id === m.id) : -1; return `${i >= 0 ? `제${i + 1}장 ` : ""}${m.name}`; };
+  const label = (m) => m.name; // 이름만(10/20 — 제N장은 보고서 구성에서)
 
   function drawTiles() {
     const g = group();
-    const cu = cardUnits();
-    const members = g ? g.members.map((m) => (m.id === fac.id ? { ...m, name: fac.name } : m)) : cu || [{ id: fac.id, name: fac.name }];
+    const members = allTiles();
     const reg = registered();
     const pick = document.getElementById("sk-dong-pick");
-    pick.innerHTML = members.map((m, i) => {
+    pick.innerHTML = members.map((m) => {
       const on = m.id === fac.id;
-      const inner = `<small><span>${g ? `제${i + 1}장` : cu ? `보고서 ${i + 1}` : "건물"}${on ? '<i class="fi-on-t"> · 보는 중</i>' : ""}</span>${on ? '<em class="fi-edit">✎ 시설물 칸</em>' : ""}</small><b>${esc(m.name)}</b>`;
-      return on ? `<button type="button" class="fi-tile on" data-id="${m.id}" draggable="true" aria-current="page" title="시설물 칸 보기·고치기">${inner}</button>`
-        : `<a class="fi-tile" data-id="${m.id}" href="sitok-facility.html?id=${m.id}#info" title="${esc(m.name)}">${inner}</a>`;
+      const inner = `<small><span>${on ? '<i class="fi-on-t">보는 중</i>' : ""}</span><em class="fi-edit">✎ 정보</em></small><b>${esc(m.name)}</b>`;
+      return on ? `<button type="button" class="fi-tile on" data-id="${m.id}" draggable="true" aria-current="page" title="${esc(m.name)} — 시설물 정보 보기·고치기">${inner}</button>`
+        : `<a class="fi-tile" data-id="${m.id}" href="sitok-facility.html?id=${m.id}#pop" title="${esc(m.name)} — 시설물 정보(그 건물 화면으로)">${inner}</a>`;
     }).join("") + (reg ? `<button type="button" class="fi-tile fi-add" id="fi-add">＋ 동 추가</button>
       <div class="fi-tile fi-trash" id="fi-trash" role="button" tabindex="0" title="보는 동 지우기 — PC는 동을 끌어다 놓아도 됨"><b>🗑 휴지통</b><small>동을 끌어다 놓으면 삭제</small></div>` : "");
     pick.querySelector(".fi-tile.on").addEventListener("click", openModal);
@@ -151,10 +150,10 @@
       trash.addEventListener("click", () => removeDong(fac.id));
       trash.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); removeDong(fac.id); } });
     }
-    document.getElementById("fi-dongs-t").textContent = g ? "동 고르기" : cu ? `건물 ${cu.length}곳` : "건물";
-    document.getElementById("fi-dongs-s").textContent = g ? "동을 누르면 아래 서류·도면이 그 동 것으로 바뀌고, 보는 동을 한 번 더 누르면 시설물 칸"
-      : cu ? "보고서를 따로 내는 건물 — 누르면 그 건물 화면, 보는 건물을 한 번 더 누르면 시설물 칸" : "누르면 시설물 칸(이름·주소·관리주체 등)이 열립니다";
-    document.getElementById("fi-compose-link").hidden = !g;
+    document.getElementById("fi-dongs-t").textContent = members.length > 1 ? `건물 ${members.length}곳` : "건물";
+    document.getElementById("fi-dongs-s").textContent = members.length > 1 ? "이름을 누르면 그 건물 시설물 정보(이름·주소·관리주체 등) — 아래 서류·도면도 그 건물 것으로, 보고서 권수는 📚 보고서 구성"
+      : "누르면 시설물 정보(이름·주소·관리주체 등)가 열립니다";
+    document.getElementById("fi-compose-link").hidden = members.length < 2;
     document.getElementById("fi-cur").textContent = label({ id: fac.id, name: fac.name });
     document.getElementById("fi-box-t").textContent = `📝 ${label({ id: fac.id, name: fac.name })} — 시설물 칸`;
     document.getElementById("sk-del").textContent = g ? "🗑 이 동 삭제" : "🗑 시설물 삭제";
@@ -162,14 +161,15 @@
 
   async function removeDong(tid) { // 휴지통·팝업 [🗑 이 동 삭제] — 묶음이면 계약은 다음 동이 넘겨받음(서버)
     const g = group();
-    const cu = cardUnits();
-    const members = g ? g.members : cu || [{ id: fac.id, name: fac.name }];
-    const m = members.find((x) => x.id === tid) || { id: tid, name: fac.name };
-    const rest = members.filter((x) => x.id !== tid);
-    const name = tid === fac.id ? label({ id: fac.id, name: fac.name }) : label(m);
-    const text = g && rest.length
-      ? `${name} — 이 동의 회차·현장 조사·올린 PDF·만든 보고서가 지워지고 되돌릴 수 없습니다. ${members[0].id === tid ? `묶음 계약은 지우지 않고 다음 동(${rest[0].name})이 넘겨받습니다.` : `묶음 계약은 그대로입니다(제1장 ${members[0].name}).`}`
-      : cu && rest.length
+    const all = allTiles();
+    const m = all.find((x) => x.id === tid) || { id: tid, name: fac.name };
+    const rest = all.filter((x) => x.id !== tid);
+    const name = tid === fac.id ? fac.name : m.name;
+    const gm = g && g.members.some((x) => x.id === tid) ? g.members : null; // 지울 건물이 보는 건물의 묶음 안이면 묶음 계약 넘김(서버 _pass_contracts)
+    const gRest = gm ? gm.filter((x) => x.id !== tid) : [];
+    const text = gm && gRest.length
+      ? `${name} — 이 동의 회차·현장 조사·올린 PDF·만든 보고서가 지워지고 되돌릴 수 없습니다. ${gm[0].id === tid ? `묶음 계약은 지우지 않고 다음 동(${gRest[0].name})이 넘겨받습니다.` : `묶음 계약은 그대로입니다(대표 동 ${gm[0].name}).`}`
+      : rest.length
         ? `${name} — 이 건물의 회차·현장 조사·올린 PDF·만든 보고서가 지워지고 되돌릴 수 없습니다. 같은 계약에 든 다른 건물(${rest.length}곳)과 계약은 그대로입니다(이 건물만 계약에서 빠짐).`
         : `${name} — 계약·회차·결함·올린 PDF·만든 보고서, 서류 자동화의 이 카드 계약까지 지워지고 되돌릴 수 없습니다.`;
     const pw = await askPassword(text, `🗑 ${name} 삭제`);
@@ -177,7 +177,7 @@
     try {
       await api(`/sitok/facilities/${tid}`, { method: "DELETE", body: JSON.stringify({ password: pw }) });
       if (tid !== fac.id) { location.reload(); return; }
-      location.href = rest.length ? `sitok-facility.html?id=${rest[0].id}#info` : "sitok.html";
+      location.href = rest.length ? `sitok-facility.html?id=${(gRest[0] || rest[0]).id}#info` : "sitok.html";
     } catch (err) {
       if (!modal.hidden) flash(err.message, true); else showError(errorEl, err);
     }
@@ -246,13 +246,12 @@
       const g = group(); // 묶음 — 동 타일로 고르기(민재형 10/15 "생성한 시설물 누르면 안에 업로드", 10/16 타일·팝업)
       drawTiles();
       drawLedgerCard();
-      if (g) {
-        document.getElementById("sk-crumb").textContent = `${g.name} › ${fac.name}`;
-        if (location.hash === "#info") { // 다른 동에서 넘어옴 — 서류 칸을 열어 둠
-          const panel = document.getElementById("sk-info-panel");
-          panel.open = true;
-          setTimeout(() => panel.scrollIntoView({ block: "start" }), 50);
-        }
+      if (g) document.getElementById("sk-crumb").textContent = `${g.name} › ${fac.name}`;
+      if (location.hash === "#info" || location.hash === "#pop") { // 다른 건물 타일에서 넘어옴 — ① 칸을 열어 두고, #pop이면 시설물 정보 팝업까지(10/20)
+        const panel = document.getElementById("sk-info-panel");
+        panel.open = true;
+        setTimeout(() => panel.scrollIntoView({ block: "start" }), 50);
+        if (location.hash === "#pop") { history.replaceState(null, "", location.pathname + location.search + "#info"); openModal(); }
       }
       (fac.contracts || []).forEach((c) => cons.appendChild(conCard(c)));
       const lead = g && g.members[0].id !== fac.id ? g.members[0] : null; // 묶음의 다른 동 — 계약서는 보통 대표 동에(한 계약에 여러 동, 10/15)
