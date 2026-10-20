@@ -391,12 +391,13 @@ def add_read(fid: int, file: UploadFile = File(...), user: User = Depends(get_cu
         fields["template"] = guess_template(fields.get("grade", ""), fields.get("use_type", ""), fields.get("main_use", ""))
         return {"token": t, "fields": fields, "error": ""}
 
-    parts = reader.split_ledgers(path)  # 종합 관리대장(여러 건물을 한 PDF로, 10/16 양주덕산초) — 건물마다 따로 읽음(3개씩 같이)
+    parts = reader.split_ledgers(path)  # 종합 관리대장(여러 건물을 한 PDF로, 10/16 양주덕산초) — 건물마다 따로 읽음(6개씩 같이 —
+    # 10/20 옹벽 12개 묶음: 3개씩이면 4번 기다려 그룹웨어 통로 응답 한도 180초에 걸릴 수 있음)
     if len(parts) == 1:
         return one(path)
     from concurrent.futures import ThreadPoolExecutor
 
-    with ThreadPoolExecutor(3) as ex:
+    with ThreadPoolExecutor(min(6, len(parts))) as ex:
         items = list(ex.map(one, parts))
     path.unlink(missing_ok=True)
     return {**items[0], "items": items}

@@ -262,8 +262,27 @@ def read_sheets(pdf: Path, company_id: int) -> tuple[list[dict], int]:
     return out, sheets
 
 
+COVER_SIM = 0.8  # 표지 모양 닮음 기준 — 포천 용정산단 옹벽 12개 묶음(10/20): 표지 0.95~1.00, 다른 쪽 0.19 이하
+
+
+def _page_print(page, w: int = 200, h: int = 140) -> list[float]:
+    """쪽 모양 — 작게 그린 회색 그림(잉크 = 큰 값)을 평균 빼고 길이 1로. 글자가 선으로 그려져 글자를 못 읽는 쪽도 모양은 같음."""
+    import pymupdf
+
+    r = page.rect
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(w / r.width, h / r.height), colorspace=pymupdf.csGRAY, alpha=False)
+    s, st = pix.samples, pix.stride
+    v = [255 - s[y * st + x] if y < pix.height and x < pix.width else 0 for y in range(h) for x in range(w)]
+    m = sum(v) / len(v)
+    v = [a - m for a in v]
+    n = sum(a * a for a in v) ** 0.5 or 1.0
+    return [a / n for a in v]
+
+
 def ledger_starts(pdf: Path) -> list[int]:
-    """관리대장 PDF에서 건물마다 시작 쪽(0부터) — FMS 출력물은 건물마다 "시설물번호 … 내용 1. 기본현황 2. 상세제원" 표지로 시작(10/16 양주덕산초 "종합" 관리대장)."""
+    """관리대장 PDF에서 건물마다 시작 쪽(0부터) — FMS 출력물은 건물마다 "시설물번호 … 내용 1. 기본현황 2. 상세제원" 표지로 시작(10/16 양주덕산초 "종합" 관리대장).
+    글자로 찾고, 표지와 모양이 같은 쪽도 더함(10/20 민재형 — 글꼴이 선으로 바뀐 인쇄본 PDF는 글자가 없어 12개 중 2개만 잡혔음).
+    모양 기준 표지 = 글자로 찾은 첫 표지, 없으면 첫 쪽(묶음 관리대장은 표지로 시작)."""
     import pymupdf
 
     starts = []
@@ -272,11 +291,19 @@ def ledger_starts(pdf: Path) -> list[int]:
             t = "".join(page.get_text().split())[:400]
             if t.startswith("시설물번호") and "1.기본현황" in t:
                 starts.append(i)
+        if doc.page_count < 2:
+            return starts
+        prints = [_page_print(page) for page in doc]
+        ref = prints[starts[0] if starts else 0]
+        looks = {i for i, p in enumerate(prints) if sum(a * b for a, b in zip(ref, p)) >= COVER_SIM}
+        if starts or len(looks) >= 2:  # 글자 표지가 없고 모양 표지도 하나뿐이면 묶음이 아님
+            starts = sorted(set(starts) | looks)
     return starts
 
 
 def split_ledgers(pdf: Path) -> list[Path]:
-    """여러 건물 관리대장을 한 PDF로 모은 것("시설물관리대장종합.pdf") → 건물마다 PDF(같은 폴더 이름_1·_2…). 하나뿐이거나 글자가 없는 스캔이면 [pdf]."""
+    """여러 건물 관리대장을 한 PDF로 모은 것("시설물관리대장종합.pdf") → 건물마다 PDF(같은 폴더 이름_1·_2…). 하나뿐이면 [pdf].
+    첫 표지 앞 쪽이 있으면 첫 건물에 붙임(버리지 않음)."""
     import pymupdf
 
     starts = ledger_starts(pdf)
@@ -284,7 +311,7 @@ def split_ledgers(pdf: Path) -> list[Path]:
         return [pdf]
     out = []
     with pymupdf.open(pdf) as doc:
-        bounds = starts + [doc.page_count]
+        bounds = [0] + starts[1:] + [doc.page_count]
         for k in range(len(starts)):
             sub = pymupdf.open()
             sub.insert_pdf(doc, from_page=bounds[k], to_page=bounds[k + 1] - 1)
