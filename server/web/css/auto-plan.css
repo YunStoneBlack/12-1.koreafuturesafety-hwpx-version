@@ -34,8 +34,12 @@
 }
 .ap-notice button.ap-notice-head:hover { filter: brightness(0.98); }
 .ap-notice-head span { color: var(--ink); font-size: 12.5px; flex: 1; min-width: 0; }
-.ap-notice-head i { font-style: normal; transition: transform .15s; }
-.ap-notice.open .ap-notice-head i { transform: rotate(180deg); }
+/* 펼치기 단추(10/20 사용자 "크기가 너무 작아" — 예전 ▾ 글자) — 둥근 바탕 꺾쇠, 펼치면 뒤집힘 */
+.ap-notice-head i.ap-chev { flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin-left: auto; border-radius: 999px;
+  background: rgba(184, 114, 15, .14); color: var(--warn); transition: transform .15s, background .15s; }
+.ap-notice-head i.ap-chev svg { width: 20px; height: 20px; }
+.ap-notice button.ap-notice-head:hover i.ap-chev { background: rgba(184, 114, 15, .24); }
+.ap-notice.open .ap-notice-head i.ap-chev { transform: rotate(180deg); }
 .ap-notice-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-top: 1px solid var(--line); font-size: 13px; }
 .ap-notice-row > div { flex: 1; min-width: 0; }
 .ap-notice-row a { color: var(--ink); font-weight: 600; }

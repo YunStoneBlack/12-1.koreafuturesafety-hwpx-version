@@ -204,7 +204,7 @@ async function renderShortNotice(container, onChanged) {
   const wrap = document.createElement("div");
   wrap.className = "ap-notice ap-short";
   wrap.innerHTML = `<div class="ap-notice-headrow"><button type="button" class="ap-notice-head"><b>⚠ 예정이 모자란 현장 ${list.length}곳 (${total}회)</b>
-      <span>남은 지도 횟수보다 앞으로의 방문 예정이 적습니다 — 눌러서 현장별로 보기</span><i>▾</i></button>
+      <span>남은 지도 횟수보다 앞으로의 방문 예정이 적습니다 — 눌러서 현장별로 보기</span><i class="ap-chev" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M5 7.5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></i></button>
       <button type="button" class="secondary ap-fill-all">모두 채워 넣기</button></div><div class="ap-notice-list" hidden></div>`;
   const listEl = wrap.querySelector(".ap-notice-list");
   const done = () => { renderShortNotice(container, onChanged); if (onChanged) onChanged(); };
@@ -314,7 +314,7 @@ async function renderUnplannedNotice(container, onChanged) {
   const wrap = document.createElement("div");
   wrap.className = "ap-notice";
   wrap.innerHTML = `<button type="button" class="ap-notice-head"><b>📅 일정 없는 현장 ${list.length}곳</b>
-      <span>앞으로 갈 방문 예정이 하나도 없습니다 — 눌러서 자동 배치</span><i>▾</i></button><div class="ap-notice-list" hidden></div>`;
+      <span>앞으로 갈 방문 예정이 하나도 없습니다 — 눌러서 자동 배치</span><i class="ap-chev" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M5 7.5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></i></button><div class="ap-notice-list" hidden></div>`;
   const listEl = wrap.querySelector(".ap-notice-list");
   for (const s of list) {
     const row = document.createElement("div");
