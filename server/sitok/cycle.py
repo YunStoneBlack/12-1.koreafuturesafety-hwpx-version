@@ -147,7 +147,7 @@ def plan(info: Info, halves: list[tuple[int, str]]) -> dict:
         a, b = half_bounds(y, h)
         late = lambda d: f" — 기한 {ym(d)} 지남" if d < a else ""  # noqa: E731
         if due_d is not None and due_d <= b and (d_start is None or d_start <= b):
-            rows[(y, h)] = {"kind": "진단", "why": d_note + late(due_d)}
+            rows[(y, h)] = {"kind": "진단", "why": d_note + late(due_d), "due": due_d.isoformat()}
             done = min(max(due_d, a), b)  # 같은 반기에 기한이 온 정밀점검은 진단이 대신 — 점검 주기도 진단 완료부터(비고 8 단서)
             due_d, d_start = add_years(done, dy), None
             due_p = add_years(done, py)
@@ -158,7 +158,7 @@ def plan(info: Info, halves: list[tuple[int, str]]) -> dict:
             if one and due_d is not None and 0 <= (due_d - due_p).days <= 184:
                 rows[(y, h)] = {"kind": "정기", "why": f"정밀점검 기한 {ym(due_p)} — 정밀안전진단({ym(due_d)}) 완료 6개월 전 이내라 생략 가능(비고 10)"}
                 continue
-            rows[(y, h)] = {"kind": "정밀", "why": p_note + late(due_p)}
+            rows[(y, h)] = {"kind": "정밀", "why": p_note + late(due_p), "due": due_p.isoformat()}
             done = min(max(due_p, a), b)
             due_p = add_years(done, py)
             p_note = f"앞 회차 정밀안전점검 {ym(done)} · {g}등급 {info.field} {py}년 → {ym(due_p)}"
@@ -199,7 +199,7 @@ def _period_end(text: str | None) -> datetime.date | None:
         return None
 
 
-def gather(db, f, planned: list[tuple[datetime.date, str, str]] | None = None) -> Info:
+def gather(db, f, planned: list[tuple[datetime.date, str, str]] | None = None, skip: int | None = None) -> Info:
     """시설물(건물) 하나 → Info. 우리 회차·전회차 보고서 이력·시설물 칸(사람이 넣은 값)·planned(이미 계약된 정밀·진단 회차 [(그 반기 끝, 정밀|진단, 글)])를 합침."""
     from core.models_web import SitokReport
 
@@ -237,7 +237,7 @@ def gather(db, f, planned: list[tuple[datetime.date, str, str]] | None = None) -
         cands_d.append((f.last_diagnosis, "입력"))
     today = datetime.date.today()
     for r in reps:
-        made = r.status == "done" or (isinstance(r.submit, dict) and r.submit.get("report"))
+        made = r.id != skip and (r.status == "done" or (isinstance(r.submit, dict) and r.submit.get("report")))  # skip = 지금 정하는 회차(점검기간 기본값) — 이력은 그대로 씀
         if r.kind in ("정밀", "진단") and made:
             d = r.period_end or r.report_date or (r.made_at.date() if r.made_at else None) or half_bounds(r.year, r.half)[1]
             if d <= today:

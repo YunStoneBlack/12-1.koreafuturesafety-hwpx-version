@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.db import SessionLocal
-from core.models_web import SitokContract, SitokEquipment, SitokFacility, SitokReport, SubmitDoc, TechPerson, User
+from core.models_web import SitokContract, SitokEquipment, SitokFacility, SitokReport, SitokVisit, SubmitDoc, TechPerson, User
 from core.stored_path import to_full
 from server.api.deps import get_current_user, get_db
 from server.api.routers.contract_library import doc_status
@@ -39,6 +39,7 @@ from server.api.routers.sitok import _contract_out, _facility_dir, _require_faci
 def _iso(d) -> str:
     return d.isoformat() if d else ""  # sitok._iso는 빈 날짜를 None으로 — 회차 화면은 "" (date 칸 value)
 from server.contract_docs import hwp_queue
+from server.sitok import cycle
 from server.sitok.cycle import class_label
 from server.sitok import civil, master, report_build as rb
 from server.sitok import prev_pdf, seasons, steps
@@ -1254,6 +1255,84 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
     db.commit()
 
 
+def _field_day(db: Session, r: SitokReport) -> datetime.date | None:
+    """현장 간 날 — 방문 달력 그 반기 일정(여러 날이면 끝 날) > 현장 조사 [✓ 조사 완료] 날."""
+    h = seasons.bucket(r.half)
+    vs = [v for v in db.query(SitokVisit).filter(SitokVisit.facility_id == r.facility_id, SitokVisit.year == r.year) if seasons.bucket(v.half) == h]
+    if vs:
+        return max(v.plan_end or v.plan_date for v in vs)
+    at = (steps.get(r, "field") or {}).get("at")
+    try:
+        return datetime.date.fromisoformat(str(at)[:10]) if at else None
+    except ValueError:
+        return None
+
+
+def _precision_due(db: Session, f: SitokFacility, year: int, half: str, skip: int | None = None) -> datetime.date | None:
+    """정밀 도래일 — 사용승인일(준공일)의 그해 같은 날이 그 반기 안이면 그날(10/20 형 "6/30·12/30이 아니라 사용승인일로부터 4년째 되는 날부터 반복"),
+    아니면 도래주기 계산(cycle.plan)의 기한(지났으면 반기 끝)."""
+    a, b = cycle.half_bounds(year, half)
+    c = f.completion_date
+    if c:
+        try:
+            ann = c.replace(year=year)
+        except ValueError:  # 2/29
+            ann = datetime.date(year, 2, 28)
+        if a <= ann <= b:
+            return ann
+    due = (cycle.plan(cycle.gather(db, f, skip=skip), [(year, half)])["rounds"].get((year, half)) or {}).get("due")  # 지금 회차는 빼고
+    if not due:
+        return None
+    d = datetime.date.fromisoformat(due)
+    return d if a <= d <= b else b
+
+
+def period_default(db: Session, r: SitokReport) -> tuple[datetime.date | None, datetime.date | None, str]:
+    """점검기간 기본값(10/20 형) → (시작, 끝, 규칙 글) — 못 정하면 (None, None, 이유). 계약 구분(없으면 시설물 카드) 민간/관급:
+    정기 — 민간 = 현장 간 날 −30일 ~ 현장 간 날, 관급 = 착수일 ~ 완수일(1년 계약 = 상반기 착수일 ~ 6/30 · 하반기 7/1 ~ 완수일).
+    정밀 — 민간 = 반기 시작 ~ 정밀 도래일, 관급 = 착수일 ~ 완수일(1년 계약은 비워 둠 — 직접)."""
+    f = db.get(SitokFacility, r.facility_id)
+    c = db.get(SitokContract, r.contract_id) if r.contract_id else None
+    sector = (c.sector if c else f.sector) or "민간"
+    precise = (r.kind or "정기") == "정밀"
+    h = seasons.bucket(r.half)
+    if sector == "관급":
+        if not (c and c.start_date and c.end_date):
+            return None, None, "관급 — 계약 착수일·완수일이 없어 못 정함(계약을 고르거나 직접 넣으세요)"
+        if not (c.start_date <= datetime.date(r.year, 6, 30) and c.end_date >= datetime.date(r.year, 7, 1)):  # 반기 하나 계약
+            return c.start_date, c.end_date, "관급 = 착수일 ~ 완수일"
+        if precise:
+            return None, None, "관급 1년 계약 정밀 — 직접 넣으세요"
+        if h == "상반기":
+            return c.start_date, c.first_half_end or datetime.date(r.year, 6, 30), "관급 1년 계약 상반기 = 착수일 ~ 6/30"
+        return c.second_half_start or datetime.date(r.year, 7, 1), c.end_date, "관급 1년 계약 하반기 = 7/1 ~ 완수일"
+    if precise:
+        due = _precision_due(db, f, r.year, h, r.id)
+        if due is None:
+            return None, None, "민간 정밀 — 도래일을 몰라(준공일·전회차 정밀점검 시기) 직접 넣으세요"
+        return cycle.half_bounds(r.year, h)[0], due, "민간 정밀 = 반기 시작 ~ 정밀 도래일"
+    day = _field_day(db, r)
+    if day is None:
+        return None, None, "민간 정기 — 현장 간 날(방문 달력·현장 조사 완료)이 아직 없음"
+    return day - datetime.timedelta(days=30), day, "민간 정기 = 현장 간 날 −30일 ~ 현장 간 날"
+
+
+def _fill_period(db: Session, r: SitokReport) -> str:
+    """빈 점검기간을 기본값으로(묶음이면 빈 동도 같이) — 못 채우면 이유 글, 채웠거나 이미 있으면 ""."""
+    if r.period_start and r.period_end:
+        return ""
+    s, e, why = period_default(db, r)
+    if not (s and e):
+        return why
+    r.period_start, r.period_end = r.period_start or s, r.period_end or e
+    if db.get(SitokFacility, r.facility_id).group_id:
+        for _, x in _group_reports(db, r):
+            if not (x.period_start and x.period_end):
+                x.period_start, x.period_end = r.period_start, r.period_end
+    db.commit()
+    return ""
+
+
 @router.post("/reports/{report_id}/build")
 def start_build(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
@@ -1264,8 +1343,9 @@ def start_build(report_id: int, user: User = Depends(get_current_user), db: Sess
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전점검 본문 원본이 없습니다 — 시특법 설정에서 올리세요.")
     elif not master.master_path().exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 원본 템플릿이 없습니다 — 시특법 설정에서 올리세요.")
-    if not (r.period_start and r.period_end):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "점검기간(시작·끝)을 먼저 정하세요 — 회차 화면 맨 아래 ⚙ 회차 정보에서.")
+    why = _fill_period(db, r)  # 비었으면 기본값으로(10/20 형 규칙)
+    if why:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"점검기간(시작·끝)을 먼저 정하세요 — 회차 화면 맨 아래 ⚙ 회차 정보에서. ({why})")
     left = _build_left(db, r)
     if left:  # 10/18 형 요청1 — 칸을 다 [완료]해야 보고서 합본(제출 현황 "보고서 완료"가 진짜 끝난 것이 되게)
         raise HTTPException(status.HTTP_409_CONFLICT, "보고서를 만들기 전에 먼저 완료할 칸: " + " / ".join(left))
@@ -1285,8 +1365,12 @@ def get_report(report_id: int, user: User = Depends(get_current_user), db: Sessi
     if f.group_id and r.status != "done":  # 아직 안 만든 회차만(이미 만든·낸 보고서 회차는 그대로)
         _group_reports(db, r, user.display_name or "")  # 묶음 동 회차가 빠졌으면 만듦 — 동마다 칸을 완료해야 묶음 보고서가 열려서(10/18)
         db.commit()
+    auto = None
+    if not (r.period_start and r.period_end) and r.status != "done":  # 비어 있으면 만들 때 넣을 기본값(10/20)
+        s, e, why = period_default(db, r)
+        auto = {"start": _iso(s), "end": _iso(e), "rule": why}
     return {**_out(r), "facility_id": f.id, "facility_name": f.name,  # 회차 화면(sitok-round.html, 10/14)이 경로 표시에 씀
-            "group_rounds": _group_rounds(db, f, r), "build_left": _build_left(db, r)}
+            "group_rounds": _group_rounds(db, f, r), "build_left": _build_left(db, r), "auto_period": auto}
 
 
 def _build_left(db: Session, r: SitokReport) -> list[str]:

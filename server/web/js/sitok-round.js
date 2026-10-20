@@ -101,9 +101,12 @@
       ${r.has_appendix ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/appendix?v=${v}">부록 한글</a>` : ""}
       ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" || locked ? " disabled" : ""}${locked ? ' title="칸을 다 완료하면 열립니다"' : ""}>${locked ? "🔒 " : ""}${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>
       ${locked ? `<div class="rd-lock-note">🔒 보고서를 만들려면 먼저 완료: ${(r.build_left || []).map((x) => `<div>${esc(x)}</div>`).join("")}</div>` : ""}
-      ${!r.past && !(r.period_start && r.period_end) ? `<div class="rd-lock-note rd-period-note">📅 점검기간이 비어 있습니다 — 보고서를 만들려면 넣어야 합니다
-        <button type="button" class="secondary btn-sm rd-go-period">점검기간 넣기</button>
-        <div>민간 = 현장 간 날 ~ 보고서 낸 날 · 관급 = 착수일 ~ 완수일(1년 계약은 반기마다) — 아래 ⚙ 회차 정보 칸</div></div>` : ""}
+      ${!r.past && !(r.period_start && r.period_end) ? (autoOk()
+        ? `<div class="rd-lock-note rd-period-note ok">📅 점검기간 — 만들 때 자동으로 <b>${ymdDot(r.auto_period.start)} ~ ${ymdDot(r.auto_period.end)}</b>
+            <button type="button" class="secondary btn-sm rd-go-period">바꾸기</button><div>${esc(r.auto_period.rule)}</div></div>`
+        : `<div class="rd-lock-note rd-period-note">📅 점검기간이 비어 있습니다 — 보고서를 만들려면 넣어야 합니다
+            <button type="button" class="secondary btn-sm rd-go-period">점검기간 넣기</button>
+            <div>${esc((r.auto_period || {}).rule || "")} — 아래 ⚙ 회차 정보 칸</div></div>`) : ""}
 `;
     // 회차 정보
     const conList = data.group && data.group_contracts ? data.group_contracts : contracts;
@@ -113,8 +116,8 @@
     $("rd-info").innerHTML = `<div class="sk-rep-grid">
         <label>계약<span class="sk-help"></span><select data-k="contract_id">${contractOpts}</select></label>
         <label>종류 <span class="sk-help">계약서 회차 줄에서 자동 — 틀리면 직접</span><select data-k="kind">${["정기", "정밀"].map((k) => `<option${k === kind ? " selected" : ""}>${k}</option>`).join("")}</select></label>
-        <label>점검기간 시작 <span class="sk-help">민간 = 현장 간 날</span><input type="date" data-k="period_start" value="${esc(r.period_start)}" /></label>
-        <label>점검기간 끝 <span class="sk-help">민간 = 보고서 낸 날</span><input type="date" data-k="period_end" value="${esc(r.period_end)}" /></label>
+        <label>점검기간 시작 <span class="sk-help">${autoOk() ? `비우면 ${ymdDot(r.auto_period.start)}(자동)` : "비우면 만들 때 자동(규칙대로)"}</span><input type="date" data-k="period_start" value="${esc(r.period_start)}" /></label>
+        <label>점검기간 끝 <span class="sk-help">${autoOk() ? `비우면 ${ymdDot(r.auto_period.end)}(자동)` : "민간 정기 = 현장 간 날"}</span><input type="date" data-k="period_end" value="${esc(r.period_end)}" /></label>
         <label>제출일 <span class="sk-help">표지·제출문 연월, 비우면 점검기간 끝</span><input type="date" data-k="report_date" value="${esc(r.report_date)}" /></label>
         <label>책임기술자<span class="sk-help"></span><select data-k="chief_id">${personOptions(r.chief_id)}</select></label>
         <label>참여기술자<span class="sk-help"></span><select data-k="p0">${personOptions(parts[0])}</select></label>
@@ -155,9 +158,13 @@
     opener(".rd-survey", openSitokSurvey);
     document.querySelector(".rd-go-period")?.addEventListener("click", goPeriod);
     document.querySelector(".sk-rep-build")?.addEventListener("click", async () => {
-      if (!(r.period_start && r.period_end)) { goPeriod(); return; } // 10/20 형 "점검기간을 정하라는데 어디서 적는지 모름" — 그 칸으로
+      if (!(r.period_start && r.period_end) && !autoOk()) { goPeriod(); return; } // 10/20 형 "점검기간을 정하라는데 어디서 적는지 모름" — 자동도 못 하면 그 칸으로
       try { await apiPost(`/sitok/reports/${r.id}/build`); load(); } catch (e) { err(e); }
     });
+  }
+
+  function autoOk() { // 비어 있는 점검기간을 만들 때 자동으로 넣을 수 있음(GET /sitok/reports/{id} auto_period — 10/20 형 규칙)
+    return !!(r.auto_period && r.auto_period.start && r.auto_period.end);
   }
 
   function goPeriod() { // 접힌 ⚙ 회차 정보를 펼쳐 빈 점검기간 칸에 표시·커서
@@ -212,7 +219,7 @@
       data = d;
       contracts = f.contracts || [];
       const fresh = d.reports.find((x) => x.id === rid); // 목록 쪽 _out(진행 표시)과 같음
-      if (fresh) r = { ...fresh, facility_id: r.facility_id, facility_name: r.facility_name, group_rounds: r.group_rounds, build_left: r.build_left };
+      if (fresh) r = { ...fresh, facility_id: r.facility_id, facility_name: r.facility_name, group_rounds: r.group_rounds, build_left: r.build_left, auto_period: r.auto_period };
       draw();
     } catch (e) { err(e); }
   }
