@@ -306,45 +306,43 @@ function groupRow(g) {
 }
 
 function siteRow(site) {
-  {
-    const row = document.createElement("a");
-    row.className = "row site-row";
-    row.href = `site.html?id=${site.id}`;
-    const progress = site.last_visit_no
-      ? `${site.last_visit_no}${site.total_guidance_count ? ` / ${site.total_guidance_count}` : ""}회차`
-      : "보고서 없음";
-    row.innerHTML = `
-      <span class="title"><span class="site-name"></span><span class="site-sub"></span></span>
-      <span class="site-metas">
-        <span class="meta" data-k="staff"></span>
-        <span class="meta" data-k="progress"></span>
-        <span class="meta" data-k="date"></span>
-      </span>`;
-    // 사용자 입력 값은 textContent로(따옴표·꺾쇠가 들어간 현장명도 안전하게)
-    // 번호는 이름 앞 번호표로 따로(10/8 사용자 — 목차처럼), 이름은 "26-12)_" 없이
-    const no = shortMgmt(site.management_no);
-    const nameEl = row.querySelector(".site-name");
-    nameEl.textContent = site.name || "";
-    if (no) {
-      const badge = document.createElement("span");
-      badge.className = "site-no";
-      badge.textContent = no;
-      nameEl.prepend(badge);
-    }
-    row.querySelector(".site-sub").textContent = [site.address, site.hq_company].filter(Boolean).join(" · ");
-    const pace = sitePaceBox(site.pace); // 진행 막대(공기 경과 vs 지도 수행 — 데스크톱 현장 카드와 같음)
-    if (pace) row.querySelector(".title").appendChild(pace);
-    const links = siteLinkButtons(site.manager_phone, site.map_address); // [📞 전화] [📍 지도]
-    if (links) row.querySelector(".title").appendChild(links);
-    // 진행 요약(report_count 등)은 API 서버를 재시작해야 내려온다 — 없으면 "보고서 없음"처럼 틀리게 보이지 않게 비워 둔다
-    const hasSummary = site.report_count !== undefined;
-    row.querySelector('[data-k="staff"]').textContent = !hasSummary ? "" : site.staff_name ? `담당 ${site.staff_name}` : "담당 미지정";
-    row.querySelector('[data-k="progress"]').textContent = hasSummary ? progress : "";
-    row.querySelector('[data-k="date"]').textContent = site.last_guidance_date ? `최근 지도 ${shortDate(site.last_guidance_date)}` : "";
-    // 공사 상태 4칸(app.js) — 진행중만 출장 배치. 바꾸면 일정 없는 현장 띠·상태 카드 숫자·(거르는 중이면) 목록도 새로
-    row.appendChild(siteStatusSwitch(site, () => { refreshNotice(); renderSites(); }));
-    return row;
+  const row = document.createElement("a");
+  row.className = "row site-row";
+  row.href = `site.html?id=${site.id}`;
+  const progress = site.last_visit_no
+    ? `${site.last_visit_no}${site.total_guidance_count ? ` / ${site.total_guidance_count}` : ""}회차`
+    : "보고서 없음";
+  row.innerHTML = `
+    <span class="title"><span class="site-name"></span><span class="site-sub"></span></span>
+    <span class="site-metas">
+      <span class="meta" data-k="staff"></span>
+      <span class="meta" data-k="progress"></span>
+      <span class="meta" data-k="date"></span>
+    </span>`;
+  // 사용자 입력 값은 textContent로(따옴표·꺾쇠가 들어간 현장명도 안전하게)
+  // 번호는 이름 앞 번호표로 따로(10/8 사용자 — 목차처럼), 이름은 "26-12)_" 없이
+  const no = shortMgmt(site.management_no);
+  const nameEl = row.querySelector(".site-name");
+  nameEl.textContent = site.name || "";
+  if (no) {
+    const badge = document.createElement("span");
+    badge.className = "site-no";
+    badge.textContent = no;
+    nameEl.prepend(badge);
   }
+  row.querySelector(".site-sub").textContent = [site.address, site.hq_company].filter(Boolean).join(" · ");
+  const pace = sitePaceBox(site.pace); // 진행 막대(공기 경과 vs 지도 수행 — 데스크톱 현장 카드와 같음)
+  if (pace) row.querySelector(".title").appendChild(pace);
+  const links = siteLinkButtons(site.manager_phone, site.map_address); // [📞 전화] [📍 지도]
+  if (links) row.querySelector(".title").appendChild(links);
+  // 진행 요약(report_count 등)은 API 서버를 재시작해야 내려온다 — 없으면 "보고서 없음"처럼 틀리게 보이지 않게 비워 둔다
+  const hasSummary = site.report_count !== undefined;
+  row.querySelector('[data-k="staff"]').textContent = !hasSummary ? "" : site.staff_name ? `담당 ${site.staff_name}` : "담당 미지정";
+  row.querySelector('[data-k="progress"]').textContent = hasSummary ? progress : "";
+  row.querySelector('[data-k="date"]').textContent = site.last_guidance_date ? `최근 지도 ${shortDate(site.last_guidance_date)}` : "";
+  // 공사 상태 4칸(app.js) — 진행중만 출장 배치. 바꾸면 일정 없는 현장 띠·상태 카드 숫자·(거르는 중이면) 목록도 새로
+  row.appendChild(siteStatusSwitch(site, () => { refreshNotice(); renderSites(); }));
+  return row;
 }
 
 async function loadSites() {
