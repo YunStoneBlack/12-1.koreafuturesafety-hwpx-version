@@ -122,10 +122,9 @@
   // ① 건물 타일 = 카드의 모든 건물 이름(묶음·따로 섞여도 — 보고서를 몇 권으로 나눌지는 📚 보고서 구성, 10/20 민재형) — 서버 card_all
   const allTiles = () => ((fac.card_all || []).length > 1 ? fac.card_all.map((u) => (u.id === fac.id ? { ...u, name: fac.name } : u)) : [{ id: fac.id, name: fac.name }]);
   const registered = () => !!(fac.has_ledger_pdf || fac.fms_no || fac.legal === false || group() || (fac.card_units || []).length > 1); // js/sitok-register.js와 같음
-  const label = (m) => m.name; // 이름만(10/20 — 제N장은 보고서 구성에서)
 
   function drawTiles() {
-    const g = group();
+    const g = group(); // 맨 아래 [🗑 이 동 삭제] 글자
     const members = allTiles();
     const reg = registered();
     const pick = document.getElementById("sk-dong-pick");
@@ -154,8 +153,8 @@
     document.getElementById("fi-dongs-s").textContent = members.length > 1 ? "이름을 누르면 그 건물 시설물 정보(이름·주소·관리주체 등) — 아래 서류·도면도 그 건물 것으로, 보고서 권수는 📚 보고서 구성"
       : "누르면 시설물 정보(이름·주소·관리주체 등)가 열립니다";
     document.getElementById("fi-compose-link").hidden = members.length < 2;
-    document.getElementById("fi-cur").textContent = label({ id: fac.id, name: fac.name });
-    document.getElementById("fi-box-t").textContent = `📝 ${label({ id: fac.id, name: fac.name })} — 시설물 칸`;
+    document.getElementById("fi-cur").textContent = fac.name; // 이름만(10/20 — 제N장은 보고서 구성에서)
+    document.getElementById("fi-box-t").textContent = `📝 ${fac.name} — 시설물 칸`;
     document.getElementById("sk-del").textContent = g ? "🗑 이 동 삭제" : "🗑 시설물 삭제";
   }
 

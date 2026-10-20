@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from core.models_web import SitokDocContract, SitokFacility, SitokReport, SitokVisit, User
 from server.api.deps import get_current_user, get_db
+from server.api.routers.sitok_docs import contract_index, site_contract, site_phone
 from server.sitok import visit_plan as V
 
 router = APIRouter(prefix="/sitok/calendar", tags=["sitok-calendar"])
@@ -52,24 +53,6 @@ def _state(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> tuple
     return ("missed" if V.visit_span(v)[1] < today else "planned"), rid
 
 
-def _cons(db: Session, company_id: int) -> list:
-    from server.api.routers.sitok_docs import contract_index
-
-    return contract_index(db, company_id)
-
-
-def site_contract(cons: list, u: V.Unit, year: int, half: str) -> SitokDocContract | None:
-    from server.api.routers.sitok_docs import site_contract as pick
-
-    return pick(cons, set(u.ids), year, half)
-
-
-def _phone(cons: list, u: V.Unit, year: int, half: str) -> str:
-    from server.api.routers.sitok_docs import site_phone
-
-    return site_phone(cons, set(u.ids), u.lead.owner_phone, year, half)
-
-
 def _site_out(c: SitokDocContract | None) -> dict | None:
     if c is None:
         return None
@@ -78,10 +61,10 @@ def _site_out(c: SitokDocContract | None) -> dict | None:
 
 def _visit_out(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date, cons: list | None = None) -> dict:
     st, rid = _state(db, v, u, today)
-    cons = cons if cons is not None else _cons(db, v.company_id)
+    cons = cons if cons is not None else contract_index(db, v.company_id)
     return {"id": v.id, "date": v.plan_date.isoformat(), "end": V.visit_span(v)[1].isoformat(), "year": v.year, "half": v.half, "kind": v.kind, "pinned": v.source == "manual",
-            "memo": v.memo, "state": st, "report_id": rid, "facility": _unit_out(u), "site": _site_out(site_contract(cons, u, v.year, v.half)),
-            "phone": _phone(cons, u, v.year, v.half)}  # 현장 담당, 비면 관리주체 전화(10/20)
+            "memo": v.memo, "state": st, "report_id": rid, "facility": _unit_out(u), "site": _site_out(site_contract(cons, set(u.ids), v.year, v.half)),
+            "phone": site_phone(cons, set(u.ids), u.lead.owner_phone, v.year, v.half)}  # 현장 담당, 비면 관리주체 전화(10/20)
 
 
 @router.get("")
@@ -92,7 +75,7 @@ def calendar(start: datetime.date, end: datetime.date, user: User = Depends(get_
     um = _unit_map(db, user.company_id)
     rows = db.query(SitokVisit).filter(SitokVisit.company_id == user.company_id, SitokVisit.plan_date < end,
                                        func.coalesce(SitokVisit.plan_end, SitokVisit.plan_date) >= start).order_by(SitokVisit.plan_date, SitokVisit.id).all()
-    cons = _cons(db, user.company_id)
+    cons = contract_index(db, user.company_id)
     visits = [_visit_out(db, v, um[v.facility_id], today, cons) for v in rows if v.facility_id in um]
     load: dict[str, int] = {}
     for v in rows:
@@ -190,7 +173,7 @@ def site_contact(vid: int, body: SiteContactIn, user: User = Depends(get_current
     um = _unit_map(db, user.company_id)
     f = db.get(SitokFacility, v.facility_id)
     u = um.get(v.facility_id) or V.Unit(f, [f], f.name, V.region_of(f.address))
-    c = site_contract(_cons(db, user.company_id), u, v.year, v.half)
+    c = site_contract(contract_index(db, user.company_id), set(u.ids), v.year, v.half)
     if c is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "이 시설물의 계약이 서류 자동화에 없습니다 — 계약을 먼저 넣으면 현장 담당 연락처를 등록할 수 있습니다.")
     c.site_phone = body.phone.strip()
