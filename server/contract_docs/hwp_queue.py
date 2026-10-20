@@ -60,6 +60,54 @@ def process_pending() -> bool:
     return False
 
 
+QUIT_TIMEOUT = 20  # 한글 닫기(quit)가 이보다 오래 걸리면 그때 띄운 Hwp.exe를 강제 종료(10/20 — 닫히다 멈춘 한글이 변환 줄 전체를 막음)
+RUN_TIMEOUT = 240  # 열기·저장까지 이보다 오래 걸리면 강제 종료(옹벽 현장조사 부분 — PDF는 다 써 놓고 save_as가 안 돌아옴, 10/20)
+
+
+def _kill_hwp_since(t0: float) -> int:
+    """t0 뒤에 뜬 Hwp.exe 죽이기(다른 스레드에서 — COM 호출 아님). 죽인 수."""
+    n = 0
+    try:
+        import psutil
+
+        for p in psutil.process_iter(["name", "create_time"]):
+            try:
+                if (p.info["name"] or "").lower() == "hwp.exe" and (p.info["create_time"] or 0) >= t0 - 5:
+                    p.kill()
+                    n += 1
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+    return n
+
+
+class _Guard:
+    """변환 한 번의 감시 — 단계(열기·저장 / 닫기)마다 시간이 넘으면 그 한글을 죽여 멈춤을 푼다(죽으면 COM 호출이 오류로 돌아옴)."""
+
+    def __init__(self, t0: float):
+        import threading
+
+        self.t0 = t0
+        self.deadline = t0 + RUN_TIMEOUT
+        self.done = threading.Event()
+        self.killed = False
+        self.th = threading.Thread(target=self._watch, daemon=True)
+        self.th.start()
+
+    def _watch(self) -> None:
+        while not self.done.wait(1):
+            if time.time() >= self.deadline:
+                self.killed = bool(_kill_hwp_since(self.t0)) or self.killed
+                self.deadline = time.time() + 30  # 혹시 남으면 30초마다 다시
+
+    def phase(self, seconds: int) -> None:
+        self.deadline = time.time() + seconds
+
+    def stop(self) -> None:
+        self.done.set()
+
+
 def _to_pdf(src: Path, dest: Path, fmt: str = "PDF") -> None:
     from desktop.workers.ai_worker import with_com
     from core.hwp_cleanup import ensure_hwp_security_module_registered
@@ -68,25 +116,37 @@ def _to_pdf(src: Path, dest: Path, fmt: str = "PDF") -> None:
         from pyhwpx import Hwp
 
         ensure_hwp_security_module_registered()
-        hwp = Hwp(visible=False, register_module=True)
+        t0 = time.time()
+        guard = _Guard(t0)
+        work = dest.parent / "_work"
+        work.mkdir(exist_ok=True)
+        tmp = work / (dest.stem + (".pdf" if fmt == "PDF" else ".hwpx"))
+        tmp.unlink(missing_ok=True)
+        err: Exception | None = None
+        hwp = None
         try:
+            hwp = Hwp(visible=False, register_module=True)
             hwp.hwp.SetMessageBoxMode(0x2FFFF1)  # 확인 창 자동 통과(안 보이는 창이라 응답 못 함)
             if not hwp.open(str(src)):
                 raise RuntimeError("한글에서 파일을 열지 못했습니다.")
             # 임시 파일은 대기열 밖(_work)에 — 대기열 안에 .hwpx로 두면 다음 일감으로 다시 집힘(10/10)
-            work = dest.parent / "_work"
-            work.mkdir(exist_ok=True)
-            tmp = work / (dest.stem + (".pdf" if fmt == "PDF" else ".hwpx"))
-            tmp.unlink(missing_ok=True)
             if not hwp.save_as(str(tmp), format=fmt):
                 raise RuntimeError(f"{fmt}로 저장하지 못했습니다.")
+        except Exception as e:  # noqa: BLE001 — 결과 파일이 있으면(저장은 됐는데 호출만 안 돌아옴) 성공으로
+            err = e
         finally:
-            try:
-                hwp.quit()
-            except Exception:  # noqa: BLE001
-                pass
-            del hwp
-            gc.collect()
+            guard.phase(QUIT_TIMEOUT)
+            if hwp is not None:
+                try:
+                    hwp.quit()
+                except Exception:  # noqa: BLE001 — 강제 종료됐으면 RPC 오류
+                    pass
+                del hwp
+                gc.collect()
+            guard.stop()
+        time.sleep(0.5)
+        if not (tmp.exists() and tmp.stat().st_size > 0):
+            raise err or RuntimeError("결과 파일이 없습니다.")
         # 한글을 닫은 뒤에 옮김 — hwpx로 "다른 이름 저장"하면 한글이 그 파일을 열어 둔 채라 닫기 전엔 못 옮김(10/10)
         for _ in range(20):
             try:

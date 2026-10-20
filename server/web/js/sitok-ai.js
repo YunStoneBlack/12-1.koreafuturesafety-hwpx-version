@@ -112,6 +112,9 @@ async function openSitokAi(reportId, title, onSaved) {
     const priceNames = new Set((ai.prices || []).map((p) => p.replace(/\s/g, "")));
     const known = (m) => priceNames.has(String(m || "").replace(/\s/g, ""));
     const st = d.stats || {};
+    const SECS = ai.sections_list || SITOK_AI_SECTIONS; // 옹벽은 서버가 준 1.4 절 목록(10/20)
+    const wall = !!ai.wall;
+    const con = wall && f.conclusion && !Array.isArray(f.conclusion) ? f.conclusion : null;
     box.innerHTML = `${head}
       <div class="ai-meta">초안 ${esc(d.made_at || "")}${f.edited_at ? ` · ${esc(f.edited_by)} 고침 ${esc(f.edited_at)}` : ""}</div>
       <div class="ai-form">
@@ -128,9 +131,15 @@ async function openSitokAi(reportId, title, onSaved) {
           <button type="button" class="secondary btn-sm ai-regrade-btn" data-g="up">▲ 한 단계 올려 다시 쓰기</button>
           <button type="button" class="secondary btn-sm ai-regrade-btn" data-g="down">▼ 한 단계 내려 다시 쓰기</button>
           ${d.requested_grade ? `<span class="sk-help">요청 ${esc(GR[d.requested_grade] || d.requested_grade)} → 나온 등급 ${esc(GR[curGrade] || curGrade || "-")}</span>` : ""}</div>
-        <h4>1.3 외관조사 실시결과(항목별 서술 — 결과의 분석 표에도 같은 글)</h4>
-        ${SITOK_AI_SECTIONS.map(([k, label]) => `<label>${label} <span class="sk-help">결함 ${st[k]?.count ?? 0}건${st[k]?.grew ? ` · 진행 ${st[k].grew}` : ""}${st[k]?.new ? ` · 신규 ${st[k].new}` : ""}${st[k]?.repaired ? ` · 보수 ${st[k].repaired}` : ""}</span>
+        <h4>${wall ? "1.4 현장조사 결과(절마다 서술)" : "1.3 외관조사 실시결과(항목별 서술 — 결과의 분석 표에도 같은 글)"}</h4>
+        ${SECS.map(([k, label]) => `<label>${label} ${wall ? "" : `<span class="sk-help">결함 ${st[k]?.count ?? 0}건${st[k]?.grew ? ` · 진행 ${st[k].grew}` : ""}${st[k]?.new ? ` · 신규 ${st[k].new}` : ""}${st[k]?.repaired ? ` · 보수 ${st[k].repaired}` : ""}</span>`}
           <textarea data-k="sections.${k}" rows="3">${esc((f.sections || {})[k])}</textarea></label>`).join("")}
+        ${wall ? `<h4>1.4.5 정기점검 실시결과 요약표 <span class="sk-help">부위마다 전회·금회·조치(줄마다 ⦁)</span></h4>
+          <div class="ai-wsum">${(f.summary_rows || []).map((row, i) => `<div class="ai-wsum-row"><b>${esc(row.name)}</b>
+            <textarea data-k="summary_rows.${i}.prev" rows="2" placeholder="전회 결과">${esc(row.prev)}</textarea>
+            <textarea data-k="summary_rows.${i}.now" rows="2" placeholder="금회 결과">${esc(row.now)}</textarea>
+            <textarea data-k="summary_rows.${i}.action" rows="2" placeholder="조치필요사항">${esc(row.action)}</textarea></div>`).join("")}</div>
+          <label>요약표 종합의견<textarea data-k="summary_opinion" rows="2">${esc(f.summary_opinion)}</textarea></label>` : ""}
         ${(f.parts || []).length ? `<h4>공중이용·기타시설 사진 판단 <span class="sk-help">현장 화면 탭 사진을 AI가 조사항목·상태평가기준(a~e)으로 본 것 — 위 6)·7) 글과 결과표 칸이 이걸로 쓰였음(글은 위에서 고치세요)</span></h4>
           <div class="ai-fac">${f.parts.map((it, i) => `<div class="ai-fac-row ai-part" data-i="${i}"><span class="ai-name"><small>${it.group === "public" ? "공중이용" : "기타시설"}</small>${esc(it.name)}</span>
             <select class="ai-pgrade">${["", "a", "b", "c", "d", "e", "해당없음"].map((g) => `<option value="${g}"${it.grade === g ? " selected" : ""}>${g || "-"}</option>`).join("")}</select>
@@ -153,7 +162,10 @@ async function openSitokAi(reportId, title, onSaved) {
             <input class="ai-method" list="ai-prices" value="${esc(m.method)}" /><input class="ai-lump" inputmode="numeric" value="${m.lump ? Number(m.lump).toLocaleString() : ""}" placeholder="1식 금액(단가표에 없을 때)" /></div>`).join("")}</div>
           <datalist id="ai-prices">${(ai.prices || []).map((p) => `<option value="${esc(p)}">`).join("")}</datalist>` : ""}
         <h4>종합결론</h4>
-        <label>종합결론 글머리 <span class="sk-help">한 줄에 하나</span><textarea data-k="conclusion" data-lines rows="7">${lines(f.conclusion)}</textarea></label>
+        ${con ? `<label>외관조사결과 <span class="sk-help">한 줄에 하나</span><textarea data-k="conclusion.survey" data-lines rows="3">${lines(con.survey)}</textarea></label>
+          <label>보수필요사항 <span class="sk-help">한 줄에 하나</span><textarea data-k="conclusion.repair" data-lines rows="3">${lines(con.repair)}</textarea></label>
+          <label>긴급점검 및 정밀안전진단 필요여부<input data-k="conclusion.urgent" value="${esc(con.urgent)}" /></label>`
+          : `<label>종합결론 글머리 <span class="sk-help">한 줄에 하나</span><textarea data-k="conclusion" data-lines rows="7">${lines(f.conclusion)}</textarea></label>`}
         <h4>요약문 결언 <span class="sk-help">보고서 앞 요약문 3.6 — ${ai.book > 1 ? `묶음 동 ${ai.book}개` : "이 시설물"}의 종합결론을 묶어 AI가 씀(동마다 AI 초안이 다 있으면 자동), 비우면 기본 문장</span></h4>
         <label>결언 본문 <span class="sk-help">한 줄에 문단 하나</span><textarea class="ai-sum" rows="6">${lines(sum.conclusion)}</textarea></label>
         <div class="ai-sum-acts"><button type="button" class="secondary btn-sm ai-sum-redo">🤖 요약문 결언 AI로 쓰기</button>
@@ -198,10 +210,21 @@ async function openSitokAi(reportId, title, onSaved) {
     });
     const save = async () => { // [저장]·[✓ 작성 완료](먼저 저장) — 성공하면 true
       const body = { sections: {} };
+      if (wall) body.summary_rows = (f.summary_rows || []).map((row) => ({ ...row }));
+      const put = (obj, path, v) => { // "summary_rows.0.prev"처럼 점으로 깊이 들어가 넣음(옹벽, 10/20)
+        const keys = path.split(".");
+        let cur = obj;
+        keys.slice(0, -1).forEach((key, i) => {
+          const next = keys[i + 1];
+          if (cur[key] == null || typeof cur[key] !== "object") cur[key] = /^\d+$/.test(next) ? [] : {};
+          cur = cur[key];
+        });
+        cur[keys[keys.length - 1]] = v;
+      };
       box.querySelectorAll("[data-k]").forEach((el) => {
         const k = el.dataset.k;
         const v = el.hasAttribute("data-lines") ? el.value.split("\n").map((x) => x.trim()).filter(Boolean) : el.value.trim();
-        if (k.startsWith("sections.")) body.sections[k.slice(9)] = v; else body[k] = v;
+        put(body, k, v);
       });
       if (items.length) { calc(); body.items = items; }
       if ((f.methods || []).length) {

@@ -732,3 +732,10 @@ div.sf-miss-it { cursor: default; }
 .bk-st.bad { color: var(--crit); font-weight: 700; }
 .bk-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 .main .bk-foot button { margin: 0 0 0 auto; }
+/* 옹벽 AI 초안 — 실시결과 요약표(10/20) */
+.ai-wsum { display: grid; gap: 6px; margin-bottom: 8px; }
+.ai-wsum-row { display: grid; grid-template-columns: 90px repeat(3, minmax(0, 1fr)); gap: 6px; align-items: start; }
+.ai-wsum-row b { font-size: 13px; padding-top: 6px; }
+.ai-wsum-row textarea { font-size: 12.5px; }
+@media (max-width: 720px) { .ai-wsum-row { grid-template-columns: 1fr; } }
+

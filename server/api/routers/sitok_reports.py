@@ -980,6 +980,9 @@ def _run_build(report_id: int) -> None:
         f = db.get(SitokFacility, r.facility_id)
         if (r.kind or "정기") == "정밀":
             return _run_precision_group_build(db, r) if f.group_id else _run_precision_build(db, r)
+        from server.sitok import kinds as _kinds
+        if _kinds.is_wall(f) and (r.kind or "정기") == "정기":
+            return _run_wall_build(db, r, f)  # 옹벽 정기(10/20 3단계 — 부분 파일 채워 PDF 합침, 묶음은 아직 한 곳씩)
         if f.group_id:
             return _run_group_build(db, r)
         try:
@@ -1013,6 +1016,27 @@ def _run_build(report_id: int) -> None:
         except Exception as err:  # noqa: BLE001 — 이유를 남김
             _fail([r], err)
         db.commit()
+
+
+def _run_wall_build(db: Session, r: SitokReport, f: SitokFacility) -> None:
+    """옹벽 한 곳 정기 보고서(server/sitok/wall_build) — 부분 파일(표지·요약문·서두·목차·개요·현장조사·시설물편·종합결론·부록)을 채워 PDF로 바꿔 합침."""
+    from server.sitok import wall_build
+
+    try:
+        folder = _report_dir(f, r)
+
+        def say(msg: str) -> None:
+            r.message = f"옹벽 보고서 — {msg}"
+            db.commit()
+
+        pdf, warn, changed = wall_build.build(db, r, f, folder, say)
+        r.out_hwpx = str(folder / "부분")  # 부분 hwpx 폴더(한글 파일 하나가 아님)
+        r.out_pdf, r.status, r.made_at = str(pdf), "done", datetime.datetime.now()
+        pages = pymupdf.open(pdf).page_count
+        r.message = _done_msg(f"{pages}쪽, 부분 {changed}개", "합본", {f.name: []}, warn)
+    except Exception as err:  # noqa: BLE001
+        _fail([r], err)
+    db.commit()
 
 
 def _split_cover(pdf: Path, title: str, reps: list[SitokReport]) -> Path | None:
@@ -1425,9 +1449,14 @@ def report_file(report_id: int, kind: str, user: User = Depends(get_current_user
 def _ai_out(db: Session, r: SitokReport) -> dict:
     """AI 초안 + 단가표 공법 이름(창에서 보수공법 고르기용)."""
     from server.api.routers.sitok_settings import prices
+    from server.sitok import kinds as _kinds
+    from server.sitok import wall_ai
+
     f = db.get(SitokFacility, r.facility_id)
     lead = _book_lead(db, r)
+    wall = bool(f) and _kinds.is_wall(f)
     return {**(r.ai or {}), "prices": [p.method for p in prices(db, r.company_id)], "template": f.template if f else "",
+            "wall": wall, "sections_list": wall_ai.section_list() if wall else None,
             "summary": ((lead.ai or {}).get("summary") if lead is not None else None) or {}, "book": len(_group_reports(db, r)) if f and f.group_id else 1}
 
 
@@ -1463,6 +1492,42 @@ class DraftIn(BaseModel):
     grade: str | None = None  # "up" 한 단계 올려(좋게) · "down" 한 단계 내려 — 등급 재산정 요청(10/19 형)
 
 
+def _wall_ai_draft(db: Session, r: SitokReport, f: SitokFacility, rows: list, user: User, target: str) -> dict:
+    """옹벽 AI 초안(server/sitok/wall_ai) — 결함이 없어도 됨(양호 보고서). 전회차 사진 설명·상태양호·공중이용 사실을 같이 줌."""
+    from server.sitok import good as G
+    from server.sitok import parts as P
+    from server.sitok import wall_ai
+
+    defects = [{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause", "cause_note")}
+               for d in rows]
+    prev = [f"{d.floor} — {(d.prev or {}).get('설명') or ''}".strip(" —") for d in rows if d.prev and (d.prev or {}).get("설명")]
+    spec = (f.ledger or {}).get("wall") or {}
+    facility = f"{f.name} — 옹벽 {f.class_no or spec.get('class_no') or 2}종 · {spec.get('form') or f.structure or ''} · 연장 {spec.get('length') or '-'}m · 높이 {spec.get('height') or '-'}m · 준공 {_iso(f.completion_date)}"
+    facts = G.facts(r.survey, "wall")
+    try:
+        pub = [name for k, name in P.PUBLIC if (P.norm(r.parts)["public"].get(k) or {}).get("file")]
+        none = [name for k, name in P.PUBLIC if (P.norm(r.parts)["public"].get(k) or {}).get("none")]
+        if pub or none:
+            facts += f"\n[공중이 이용하는 부위 사진] 찍은 항목: {', '.join(pub) or '없음'} / 해당없음: {', '.join(none) or '없음'}"
+    except Exception:  # noqa: BLE001
+        pass
+    target_word = wall_ai.word(target) if target else ""
+    prev_grade = wall_ai.word(f.safety_grade or "")
+    try:
+        data = wall_ai.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, prev, facts, user.company_id,
+                             target_word, prev_grade)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
+    if target_word:
+        data["requested_grade"] = wall_ai.letter(target_word)
+    data["made_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    final = dict(data)
+    keep = {k: v for k, v in (r.ai or {}).items() if k == "summary"}
+    r.ai = {"draft": data, "final": final, **keep}
+    db.commit()
+    return _ai_out(db, r)
+
+
 @router.post("/reports/{report_id}/ai/draft")
 def ai_draft_new(report_id: int, body: DraftIn | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """AI 초안 새로 — 결과는 draft에, 점검자가 고치기 전 final도 같은 값으로(화면에서 고쳐 저장하면 final만 바뀜).
@@ -1489,6 +1554,9 @@ def ai_draft_new(report_id: int, body: DraftIn | None = None, user: User = Depen
         return _precision_ai_draft(db, r, user)
     f = db.get(SitokFacility, r.facility_id)
     rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id).all()
+    from server.sitok import kinds as _kinds
+    if _kinds.is_wall(f):
+        return _wall_ai_draft(db, r, f, rows, user, target)
     if not rows:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "현장 조사 결함이 없습니다 — [📱 현장 조사]에서 결함을 먼저 가져오거나 입력하세요.")
     defects = [{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause",
@@ -1591,8 +1659,14 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
         r.ai = {**(r.ai or {}), "final": final}
         db.commit()
         return _precision_ai_out(db, r)
-    final = {k: body.get(k) for k in ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason",
-                                      "items", "eval_opinion", "facility", "methods", "parts")}
+    keys = ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason", "items", "eval_opinion", "facility", "methods", "parts")
+    from server.sitok import kinds as _kinds
+    wall = _kinds.is_wall(db.get(SitokFacility, r.facility_id))
+    if wall:  # 옹벽(10/20): 실시결과 요약표 줄·종합의견도, 종합결론은 {survey, repair, urgent}
+        keys += ("summary_rows", "summary_opinion")
+    final = {k: body.get(k) for k in keys}
+    if wall:
+        final["wall"] = True
     if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선)
         final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
     from server.sitok import ai_draft as _AD
