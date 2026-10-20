@@ -50,3 +50,22 @@
 
 /* 방문 달력 크게(10/18 민재형) — PC는 날짜 칸을 높게(폰은 그대로 62px), 넓이는 js/cal-wide.js */
 @media (min-width: 761px) { .fc .fc-daygrid-day-frame { min-height: 118px; } }
+
+/* 현장 담당 연락처(10/20 민재형 — 서류 자동화 계약 정보 현장 담당과 같은 칸): 없으면 [📞 현장 담당 등록], 있으면 전화 옆 [✏] */
+.site-links button.site-link.sc-reg { color: var(--blue); border: 1px dashed #9cc1f0; background: var(--blue-soft, #EAF2FD); }
+.site-links button.site-link.sc-edit { color: var(--muted); border: 1px solid var(--line); background: var(--surface); padding: 4px 9px; }
+.sc-no-con { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; border: 1px dashed var(--line); color: var(--faint, #9498AE); font-size: 12.5px; }
+.sc-contact { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper, #F4F6FB); }
+.sc-contact .sc-c-head { grid-column: 1 / -1; font-size: 12.5px; font-weight: 600; }
+.sc-contact .sc-c-head small { color: var(--muted); font-weight: 400; }
+.sc-contact input { min-width: 0; padding: 6px 8px; font-size: 13px; }
+.sc-contact .sc-c-act { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 6px; }
+.main .sc-contact .sc-c-act button { margin: 0; }
+@media (max-width: 760px) { .sc-contact { grid-template-columns: 1fr; } .sc-contact input { font-size: 16px; } }
+/* 폰 작은 창(.sc-ov — 본문 .main 밖이라 site-info.css 단추 모양이 안 닿음)에도 같은 둥근 단추 */
+.sc-ov .site-links button.site-link { margin: 0; display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; border-radius: 999px;
+  font-size: 13.5px; font-weight: 600; line-height: 1.4; max-width: 100%; }
+.sc-ov .site-links button.site-link.tel { color: #1f7a44; border: 1px solid #bfe3cc; background: #eef9f2; }
+.sc-ov .site-links button.site-link.map { color: #0a6b3d; border: 1px solid #c9e7d6; background: #f3fbf6; }
+.sc-ov .site-links button.site-link.copy { color: var(--muted); border: 1px solid var(--line); background: var(--surface); }
+.sc-ov .sc-contact .sc-c-act button { margin: 0; }

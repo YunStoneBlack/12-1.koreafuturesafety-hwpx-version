@@ -5,6 +5,8 @@
 - `PATCH /sitok/calendar/visits/{id}` {plan_date?, plan_end?, memo?} — 날 바꾸기(끌어 옮기기 → 📌). 시작만 바꾸면 기간 그대로 옮김.
   일정은 범위(시작~끝, 10/19 민재형 "일정을 범위 설정 가능하도록, 디폴트 10.30~10.30") — 끝이 비면 하루, 하루 건물 수는 날마다 나눠 셈(visit_plan.day_share).
 - `DELETE /sitok/calendar/visits/{id}`
+- `PATCH /sitok/calendar/visits/{id}/site-contact` {manager?, phone} — 카드의 현장 담당 연락처 = 서류 자동화 계약 정보 "현장 담당"을 바로 고침
+  (10/20 민재형 "달력 전화번호는 현장 담당 번호로, 없으면 등록 버튼, 달력에서 고치면 계약 정보도 같이" — 시설물 칸 관리주체·담당자 전화는 안 씀)
 - `GET /sitok/calendar/missing` — 일정 없는 반기 목록(계약기간 안인데 날이 없음)
 - `POST /sitok/calendar/fill` {dry_run, facility_ids?} — 자동으로 잡기(미리보기 → 잡기). 이미 있는 날은 안 건드림.
 """
@@ -17,7 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from core.models_web import SitokFacility, SitokReport, SitokVisit, User
+from core.models_web import SitokDocContract, SitokFacility, SitokReport, SitokVisit, User
 from server.api.deps import get_current_user, get_db
 from server.sitok import visit_plan as V
 
@@ -36,7 +38,7 @@ def _unit_out(u: V.Unit) -> dict:
     f = u.lead
     return {"id": f.id, "mgmt_no": f.mgmt_no, "name": u.name, "sector": f.sector or "민간", "badge_field": f.badge_field or "",
             "badge_kind": f.badge_kind or "", "region": u.region, "address": f.address, "buildings": u.buildings,
-            "phone": f.contact_phone or f.owner_phone, "contract_type": f.contract_type, "members": [{"id": m.id, "name": m.name} for m in u.members]}
+            "contract_type": f.contract_type, "members": [{"id": m.id, "name": m.name} for m in u.members]}
 
 
 def _state(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> tuple[str, int | None]:
@@ -50,10 +52,36 @@ def _state(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> tuple
     return ("missed" if V.visit_span(v)[1] < today else "planned"), rid
 
 
-def _visit_out(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> dict:
+def _cons(db: Session, company_id: int) -> list[tuple[SitokDocContract, set[int]]]:
+    """회사의 서류 계약과 맡는 시설물 — 달력 한 번 그릴 때 한 번만 읽음."""
+    from server.api.routers.sitok_docs import covered_ids
+
+    return [(c, set(covered_ids(c))) for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == company_id)
+            .order_by(SitokDocContract.start_date, SitokDocContract.id)]
+
+
+def site_contract(cons: list, u: V.Unit, year: int, half: str) -> SitokDocContract | None:
+    """일정의 현장 담당을 둘 계약 — 그 반기를 맡는 계약(여럿이면 시작일 순 첫 계약), 없으면(다음 계약 전 장기) 이 시설물의 가장 최근 계약."""
+    from server.api.routers.sitok_compose import _overlaps
+
+    mine = [c for c, ids in cons if ids & set(u.ids)]
+    now = [c for c in mine if _overlaps(c, year, half)]
+    if now:
+        return now[0]
+    return max(mine, key=lambda c: (c.start_date or c.end_date or datetime.date.min, c.id), default=None)
+
+
+def _site_out(c: SitokDocContract | None) -> dict | None:
+    if c is None:
+        return None
+    return {"cid": c.id, "manager": c.site_manager or "", "phone": c.site_phone or "", "title": c.title or ""}
+
+
+def _visit_out(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date, cons: list | None = None) -> dict:
     st, rid = _state(db, v, u, today)
+    cons = cons if cons is not None else _cons(db, v.company_id)
     return {"id": v.id, "date": v.plan_date.isoformat(), "end": V.visit_span(v)[1].isoformat(), "year": v.year, "half": v.half, "kind": v.kind, "pinned": v.source == "manual",
-            "memo": v.memo, "state": st, "report_id": rid, "facility": _unit_out(u)}
+            "memo": v.memo, "state": st, "report_id": rid, "facility": _unit_out(u), "site": _site_out(site_contract(cons, u, v.year, v.half))}
 
 
 @router.get("")
@@ -64,7 +92,8 @@ def calendar(start: datetime.date, end: datetime.date, user: User = Depends(get_
     um = _unit_map(db, user.company_id)
     rows = db.query(SitokVisit).filter(SitokVisit.company_id == user.company_id, SitokVisit.plan_date < end,
                                        func.coalesce(SitokVisit.plan_end, SitokVisit.plan_date) >= start).order_by(SitokVisit.plan_date, SitokVisit.id).all()
-    visits = [_visit_out(db, v, um[v.facility_id], today) for v in rows if v.facility_id in um]
+    cons = _cons(db, user.company_id)
+    visits = [_visit_out(db, v, um[v.facility_id], today, cons) for v in rows if v.facility_id in um]
     load: dict[str, int] = {}
     for v in rows:
         if v.facility_id in um:
@@ -146,6 +175,30 @@ def patch_visit(vid: int, body: VisitPatch, user: User = Depends(get_current_use
     db.commit()
     um = _unit_map(db, user.company_id)
     return _visit_out(db, v, um[v.facility_id], datetime.date.today())
+
+
+class SiteContactIn(BaseModel):
+    phone: str
+    manager: str | None = None
+
+
+@router.patch("/visits/{vid}/site-contact")
+def site_contact(vid: int, body: SiteContactIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """카드의 현장 담당 연락처 → 서류 자동화 계약 정보 "현장 담당"(SitokDocContract.site_manager·site_phone)을 바로 고침(10/20 민재형).
+    계약 저장(put_contract)의 카드 정리 같은 일은 안 함 — 이 두 칸만."""
+    v = _require(db, user, vid)
+    um = _unit_map(db, user.company_id)
+    f = db.get(SitokFacility, v.facility_id)
+    u = um.get(v.facility_id) or V.Unit(f, [f], f.name, V.region_of(f.address))
+    c = site_contract(_cons(db, user.company_id), u, v.year, v.half)
+    if c is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "이 시설물의 계약이 서류 자동화에 없습니다 — 계약을 먼저 넣으면 현장 담당 연락처를 등록할 수 있습니다.")
+    c.site_phone = body.phone.strip()
+    if body.manager is not None:
+        c.site_manager = body.manager.strip()
+    c.updated_at, c.updated_by = datetime.datetime.now(), user.display_name or ""
+    db.commit()
+    return _site_out(c)
 
 
 @router.delete("/visits/{vid}")

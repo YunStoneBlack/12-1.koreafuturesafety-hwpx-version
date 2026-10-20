@@ -129,7 +129,7 @@
       <small>${esc([f.region, f.address].filter(Boolean).join(" · "))}</small>
       <div class="dk-item-state${v.state === "done" || v.state === "field" ? " ok" : ""}">${STATE[v.state] || ""}</div>
       ${v.memo ? `<small>메모: ${esc(v.memo)}</small>` : ""}
-      <div class="sc-links"></div>
+      <div class="sc-links"></div><div class="sc-contact" hidden></div>
       <div class="dk-item-act sc-act"><span class="sc-range"><input type="date" class="sc-move" value="${v.date}" aria-label="시작 날" /><span class="sc-tilde">~</span>
         <input type="date" class="sc-end" value="${endOf(v)}" min="${v.date}" aria-label="끝 날" /></span><button type="button" class="secondary sc-del">지우기</button></div>
     </div>`;
@@ -137,8 +137,7 @@
   function wireCards(root) {
     root.querySelectorAll(".sc-item").forEach((card) => {
       const v = data.visits.find((x) => String(x.id) === card.dataset.id);
-      const links = siteLinkButtons(v.facility.phone, v.facility.address);
-      if (links) card.querySelector(".sc-links").appendChild(links);
+      wireContact(card, v);
       card.querySelector(".sc-move").addEventListener("change", (e) => { if (e.target.value) moveVisit(v, e.target.value); });
       card.querySelector(".sc-end").addEventListener("change", (e) => { if (e.target.value) setEnd(v, e.target.value); });
       card.querySelector(".sc-del").addEventListener("click", async () => {
@@ -147,6 +146,45 @@
       });
     });
   }
+  // 전화 = 서류 자동화 계약 정보의 "현장 담당" 연락처(10/20 민재형 — 시설물 칸 관리주체·담당자 전화는 안 씀).
+  // 없으면 [📞 현장 담당 등록], 있으면 옆 [✏] — 여기서 고치면 계약 정보 현장 담당도 같이 바뀜(PATCH …/site-contact).
+  function wireContact(card, v) {
+    const s = v.site;
+    const box = card.querySelector(".sc-links");
+    const links = siteLinkButtons(s && s.phone, v.facility.address) || Object.assign(document.createElement("div"), { className: "site-links" });
+    box.appendChild(links);
+    if (!s) {
+      links.insertAdjacentHTML("afterbegin", '<span class="sc-no-con" title="서류 자동화에 이 시설물 계약이 없어 현장 담당 연락처를 둘 곳이 없습니다">📞 계약 없음</span>');
+      return;
+    }
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = s.phone ? "site-link sc-edit" : "site-link sc-reg";
+    btn.title = "현장 담당 연락처 — 서류 자동화 계약 정보의 현장 담당과 같은 칸";
+    btn.innerHTML = s.phone ? '<span class="sl-ico">✏️</span>' : '<span class="sl-ico">📞</span><span>현장 담당 등록</span>';
+    const tel = links.querySelector(".site-link.tel");
+    if (tel) tel.after(btn); else links.prepend(btn);
+    if (s.manager && tel) tel.title = `현장 담당 ${s.manager}에게 전화(PC에선 번호 복사)`;
+    const form = card.querySelector(".sc-contact");
+    btn.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      form.hidden = !form.hidden;
+      if (form.hidden) return;
+      form.innerHTML = `<div class="sc-c-head">현장 담당 <small>— 서류 자동화 계약 정보와 같은 칸</small></div>
+        <input type="text" class="sc-c-name" placeholder="이름(관리소장 등)" value="${esc(s.manager)}" />
+        <input type="tel" class="sc-c-phone" placeholder="연락처 010-0000-0000" value="${esc(s.phone)}" />
+        <div class="sc-c-act"><button type="button" class="secondary sc-c-cancel">취소</button><button type="button" class="btn-sm sc-c-save">저장</button></div>`;
+      form.querySelector(".sc-c-phone").focus();
+      form.querySelector(".sc-c-cancel").addEventListener("click", () => { form.hidden = true; });
+      form.querySelector(".sc-c-save").addEventListener("click", async () => {
+        const phone = form.querySelector(".sc-c-phone").value.trim();
+        const manager = form.querySelector(".sc-c-name").value.trim();
+        try { await apiPatch(`/sitok/calendar/visits/${v.id}/site-contact`, { phone, manager }); document.querySelector(".mail-overlay.sc-ov")?.remove(); reload(); }
+        catch (err) { alert(err.message); }
+      });
+    });
+  }
+
   function renderDay() {
     const body = document.getElementById("sc-day-body");
     const dt = new Date(`${selected}T00:00:00`);
