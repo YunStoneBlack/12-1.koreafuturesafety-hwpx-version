@@ -1318,7 +1318,7 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
 
 def _new_facility_from(db: Session, user: User, c: SitokDocContract) -> SitokFacility:
     """서류 자동화 계약 → 시설물 카드: 올린 관리대장(AI로 다시 읽어 칸 전부)이 있으면 그것, 없으면 계약 칸의 시설물명·위치·관리주체만. 번호표·계약 구분은 새 등록과 같음."""
-    from server.api.routers.sitok import FacilityIn, _apply_facility, _facility_dir, default_badges, default_type, next_mgmt_no
+    from server.api.routers.sitok import FacilityIn, _apply_facility, _facility_dir, default_badges, default_type, guess_template, next_mgmt_no
     from server.sitok import reader
 
     ledger = folder(c) / "시설물관리대장.pdf"
@@ -1331,8 +1331,8 @@ def _new_facility_from(db: Session, user: User, c: SitokDocContract) -> SitokFac
             d.pop("owner_rep", None)
             grade = d.pop("grade", "")
             fields.update({k: v for k, v in d.items() if v not in (None, "") and k in FacilityIn.model_fields})
-            if grade and "template" in FacilityIn.model_fields and not fields.get("template"):
-                fields["template"] = "3종일반" if grade == "3" else "2종"
+            if grade and "template" in FacilityIn.model_fields and not fields.get("template"):  # 다른 등록과 같은 규칙(10/20 — 3종 학교 → 3종학교)
+                fields["template"] = guess_template(grade, d.get("use_type") or "", d.get("main_use") or "")
         except Exception:  # noqa: BLE001 — 못 읽으면 계약 칸 값으로
             pass
     if not fields["name"]:
