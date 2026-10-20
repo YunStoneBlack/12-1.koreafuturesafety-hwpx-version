@@ -75,6 +75,14 @@
     return `<div class="dc-meta dc-contact" data-who="${who}">${label} <b>${mailEsc(name || "-")}</b>${mail ? ` · <a href="mailto:${mailEsc(mail)}">${mailEsc(mail)}</a>` : ""}</div>`;
   }
 
+  // 현장 — 계약 하나에 현장 여럿(10/20 형, 같은 번호는 자동 연결): 하나면 이름, 여럿이면 "현장 N곳 ▾"로 펼침
+  function siteLine(c) {
+    const ss = c.sites || [];
+    if (!ss.length) return '<span class="dc-nosite">현장 연결 안 됨</span>';
+    if (ss.length === 1) return `현장 <a href="site.html?id=${ss[0].id}">${mailEsc(ss[0].label)}</a>`;
+    return `<details class="dc-sites"><summary>현장 ${ss.length}곳</summary>${ss.map((s) => `<a href="site.html?id=${s.id}">${mailEsc(s.label)}</a>`).join("")}</details>`;
+  }
+
   function row(c) {
     const el = document.createElement("div");
     el.className = "row dc-row";
@@ -88,8 +96,8 @@
         <div class="dc-title">${c.short_no ? `<span class="site-no">${mailEsc(c.short_no)}</span>` : ""}${mailEsc(c.title || "(용역명 없음 — 계약 정보를 채우세요)")}</div>
         <div class="dc-meta">${mailEsc(meta)}</div>
         ${contactLine(c, "client", "계약 담당")}${contactLine(c, "biz", "사업 담당")}
-        <div class="dc-site">${c.site_id ? `현장 <a href="site.html?id=${c.site_id}">${mailEsc(c.site_label)}</a>` : '<span class="dc-nosite">현장 연결 안 됨</span>'}
-          <button type="button" class="dc-link">${c.site_id ? "바꾸기" : "🔗 현장 연결"}</button></div>
+        <div class="dc-site">${siteLine(c)}
+          <button type="button" class="dc-link">${(c.sites || []).length ? "바꾸기·더하기" : "🔗 현장 연결"}</button></div>
       </div>
       <div class="dc-docs">${docs}</div>
       <div class="dc-actions">

@@ -4,7 +4,7 @@
 - `POST /contracts` (빈 계약) / `POST /contracts/from-pdf` (용역계약서 PDF로 새 계약 — 글자 규칙, 못 읽은 칸은 Claude API)
 - `GET|PUT|DELETE /contracts/{id}` — 창에 필요한 것 전부 / 계약 값 저장 / 지우기(파일까지, 삭제 비밀번호)
 - `POST /contracts/{id}/pdf` — 계약서 PDF 다시 올리기(읽은 칸만 덮어씀)
-- `POST /contracts/{id}/link {site_id|null}` — 현장 연결·해제(현장 하나에 계약 하나)
+- `POST /contracts/{id}/link {site_id, on}` — 현장 연결·해제(계약 하나에 현장 여럿, 현장 하나는 계약 하나 — contract_site 0057, 같은 번호는 자동)
 - `POST /contracts/{id}/docs/{start|done}` — 엑셀 + 합본 PDF(LibreOffice + 붙임 파일), `GET …/docs/{kind}.{xlsx|pdf}` — 받기
   완수계는 붙임에 완수내역서가 있을 때만 "검사 및 납품조서"(한글 양식, inspection.py)도 — 표 값은 완수내역서에서 읽어 계약에 둠,
   `GET …/docs/done.hwpx` — 한글 받기
@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from core import config
 from core.models_db import Site
 from core.models_web import ContractSubmit, ServiceContract, TechPerson, User
-from server.api import mailer, repo
+from server.api import contract_sites, mailer, repo
 from server.api.deps import get_current_user, get_db
 from server.api.security import verify_password
 from server.api.routers.contract_library import company_docs, doc_status, person_docs, persons
@@ -127,16 +127,18 @@ def contract_label(row: ServiceContract) -> str:
 
 
 def summary(db: Session, row: ServiceContract) -> dict:
-    """목록 한 줄(계약 목록·제출 현황·일정 달력)."""
+    """목록 한 줄(계약 목록·제출 현황·일정 달력). 현장은 여럿일 수 있음(sites) — site_id·site_label은 첫 현장(예전 화면 호환)."""
     made = _made(db, row)
-    site = db.get(Site, row.site_id) if row.site_id else None
+    sites = contract_sites.sites_of(db, row.id) if row.id else []
     dates = contract_status.plan_dates(row)
     return {
         "id": row.id, "title": row.title, "management_no": row.management_no or "", "label": contract_label(row),
         "short_no": short_mgmt(row.management_no), "invoice_date": _iso(row.invoice_date),
         **{k: getattr(row, k) or "" for k in CONTACT_FIELDS}, "client": row.client, "contract_no": row.contract_no, "amount": row.amount,
         "contract_date": _iso(row.contract_date), "start_date": _iso(row.start_date), "end_date": _iso(row.end_date),
-        "site_id": row.site_id, "site_label": site_label(site) if site else "",
+        "site_id": sites[0].id if sites else None,
+        "site_label": (site_label(sites[0]) + (f" 외 {len(sites) - 1}곳" if len(sites) > 1 else "")) if sites else "",
+        "sites": [{"id": s.id, "label": site_label(s)} for s in sites], "changes": len(row.changes or []),
         "stage": contract_status.stage(made["start"]["submitted"], made["done"]["submitted"]),
         "made": made, "dates": {k: _iso(v) for k, v in dates.items()},
         "created_at": row.created_at.strftime("%Y-%m-%d") if row.created_at else "",
@@ -153,6 +155,7 @@ def get_next_management_no(user: User = Depends(get_current_user), db: Session =
 def list_contracts(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     from core.models_web import ContractView
 
+    contract_sites.auto_link(db, user.company_id)  # 같은 관리번호 현장과 자동으로(10/20 형)
     rows = db.query(ServiceContract).filter(ServiceContract.company_id == user.company_id).order_by(ServiceContract.id.desc()).all()
     seen = {k: v.isoformat(timespec="seconds") for k, v in db.query(ContractView.contract_id, ContractView.viewed_at).filter(ContractView.user_id == user.id)}
     return {"contracts": [summary(db, r) | {"viewed_at": seen.get(r.id, "")} for r in rows], "stages": contract_status.STAGES}
@@ -389,21 +392,28 @@ def upload_contract_pdf(contract_id: int, file: UploadFile = File(...), user: Us
 
 
 class LinkIn(BaseModel):
-    site_id: int | None = None
+    site_id: int | None = None  # 비우면 이 계약의 현장 연결 모두 끊기
+    on: bool = True  # False = 이 현장만 끊기
 
 
 @router.post("/{contract_id}/link")
 def link_site(contract_id: int, body: LinkIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """현장 연결(현장 하나에 계약 하나 — 그 현장에 다른 계약이 있으면 막음)·해제(site_id 비움)."""
+    """현장 연결(계약 하나에 현장 여럿 — 그 현장에 다른 계약이 있으면 막음)·해제(on=False 그 현장, site_id 비움 = 전부)."""
     row = _require(db, user, contract_id)
-    if body.site_id is not None:
+    if body.site_id is None:
+        for s in contract_sites.sites_of(db, row.id):
+            contract_sites.unlink(db, s.id)
+    else:
         site = repo.get_site(db, user.company_id, body.site_id)
         if site is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
-        other = db.query(ServiceContract).filter(ServiceContract.site_id == site.id, ServiceContract.id != row.id).first()
-        if other is not None:
-            raise HTTPException(status.HTTP_409_CONFLICT, f"이 현장에는 이미 다른 용역 계약이 연결돼 있습니다: {other.title or other.contract_no}")
-    row.site_id = body.site_id
+        if body.on:
+            other = contract_sites.contract_of(db, site.id)
+            if other is not None and other.id != row.id:
+                raise HTTPException(status.HTTP_409_CONFLICT, f"이 현장에는 이미 다른 용역 계약이 연결돼 있습니다: {other.title or other.contract_no}")
+            contract_sites.link(db, row, site)
+        else:
+            contract_sites.unlink(db, site.id)
     row.updated_at = datetime.datetime.now()
     db.commit()
     return state(db, user, row)
@@ -411,12 +421,14 @@ def link_site(contract_id: int, body: LinkIn, user: User = Depends(get_current_u
 
 @router.get("/{contract_id}/site-candidates")
 def site_candidates(contract_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """연결할 현장 고르기 — 아직 계약이 없는 현장, 용역명과 비슷한 순."""
+    """연결할 현장 고르기 — 다른 계약에 안 이어진 현장(이 계약에 이어진 것은 linked), 용역명과 비슷한 순."""
     row = _require(db, user, contract_id)
-    taken = {sid for (sid,) in db.query(ServiceContract.site_id).filter(ServiceContract.site_id.isnot(None), ServiceContract.id != row.id)}
-    sites = [s for s in db.query(Site).filter(Site.company_id == user.company_id).all() if s.id not in taken]
+    sites = db.query(Site).filter(Site.company_id == user.company_id).all()
+    cmap = contract_sites.contract_map(db, [s.id for s in sites])
+    sites = [s for s in sites if s.id not in cmap or cmap[s.id].id == row.id]
     scored = sorted(((contract_status.similarity(row.title, s.name), s) for s in sites), key=lambda x: (-x[0], -x[1].id))
-    return [{"id": s.id, "label": site_label(s), "address": s.address or "", "score": round(score, 2)} for score, s in scored]
+    return [{"id": s.id, "label": site_label(s), "address": s.address or "", "score": round(score, 2), "linked": s.id in cmap}
+            for score, s in scored]
 
 
 class MakeIn(BaseModel):
@@ -615,10 +627,10 @@ def site_contract(site_id: int, user: User = Depends(get_current_user), db: Sess
     site = repo.get_site(db, user.company_id, site_id)
     if site is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
-    row = db.query(ServiceContract).filter(ServiceContract.site_id == site.id).first()
+    row = contract_sites.contract_of(db, site.id)
     if row is not None:
         return {"contract_id": row.id, "title": row.title, "candidates": []}
-    free = db.query(ServiceContract).filter(ServiceContract.company_id == user.company_id, ServiceContract.site_id.is_(None)).all()
+    free = db.query(ServiceContract).filter(ServiceContract.company_id == user.company_id).all()  # 계약 하나에 현장 여럿이라 모든 계약(10/20)
     scored = sorted(((contract_status.similarity(r.title, site.name), r) for r in free), key=lambda x: (-x[0], -x[1].id))
     return {"contract_id": None, "title": "",
             "candidates": [summary(db, r) | {"score": round(score, 2)} for score, r in scored]}

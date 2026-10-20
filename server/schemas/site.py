@@ -51,3 +51,8 @@ class SiteListItem(SiteOut):
     viewed_at: datetime.datetime | None = None  # 로그인한 사람이 이 현장을 마지막으로 연 때(최근 열람순, 10/8)
     # [📍 지도] 버튼이 여는 주소(지도 방문 주소, 없으면 현장 주소 — server/api/routers/site_contacts.py)
     map_address: str = ""
+    # 연결된 용역 계약(10/20 형 — 계약 하나에 현장 여럿이면 현장 목록에서 한 카드로 묶음, server/api/contract_sites.py)
+    contract_id: int | None = None
+    contract_no: str = ""
+    contract_title: str = ""
+    contract_sites: int = 0

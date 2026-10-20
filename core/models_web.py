@@ -366,6 +366,18 @@ class ServiceContract(Base):
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     updated_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)
+    changes: Mapped[list | None] = mapped_column(JSON, default=None)  # 계약변경 기록(0057, 공기연장 등) [{no, at, by, before, after, files}]
+
+
+class ContractSite(Base):
+    """웹판 전용 — 용역 계약 ↔ 현장(0057, 10/20 형 "계약 하나에 현장 여럿 — 시특법처럼"). 현장 하나는 계약 하나(site_id가 키).
+    같은 관리번호(계약 26-3 ↔ 현장 26-3·26-3-1…)는 자동으로 이음 — server/api/contract_sites.py. service_contract.site_id는 예전 칸(안 씀)."""
+
+    __tablename__ = "contract_site"
+
+    site_id: Mapped[int] = mapped_column(ForeignKey("site.id", ondelete="CASCADE"), primary_key=True)
+    contract_id: Mapped[int] = mapped_column(ForeignKey("service_contract.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)
 
 
 class TechPerson(Base):

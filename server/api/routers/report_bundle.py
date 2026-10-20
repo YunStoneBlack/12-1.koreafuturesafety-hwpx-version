@@ -27,7 +27,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from core.models_db import Site
-from core.models_web import ServiceContract, User
+from core.models_web import User
+from server.api import contract_sites
+from server.api.site_label import short_mgmt
 from server.api import repo, storage
 from server.api.deps import get_current_user, get_db
 from server.api.routers.reports import pdf_outdated_map
@@ -156,11 +158,12 @@ def make_bundle(site_id: int, user: User = Depends(get_current_user), db: Sessio
     out.close()
     tmp.replace(dest)
 
-    contract = db.query(ServiceContract).filter(ServiceContract.site_id == site.id).first()
-    if contract is not None:  # 연결된 계약의 완수계 붙임 "기술지도보고서" 칸에 자동으로
+    contract = contract_sites.contract_of(db, site.id)
+    if contract is not None:  # 연결된 계약의 완수계 붙임 "기술지도보고서" 칸에 자동으로 — 현장이 여럿이면 현장마다 한 파일(10/20)
         slot = attachments.slot_dir(files.contract_dir(contract), "done", "report")
         slot.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(dest, slot / AUTO_NAME)
+        many = len(contract_sites.sites_of(db, contract.id)) > 1
+        shutil.copyfile(dest, slot / (AUTO_NAME.replace("(자동)", f"(자동)_{short_mgmt(site.management_no) or site.id}") if many else AUTO_NAME))
     rows = pl["rows"]
     return _info(db, site) | {
         "plan": pl, "count": len(parts), "raw_mb": round(raw / 1e6, 1),

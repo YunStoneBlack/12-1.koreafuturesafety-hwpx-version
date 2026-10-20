@@ -568,7 +568,8 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   }
 }
 
-// ---------- 현장 연결 창 — 용역 계약 → 현장(아직 계약이 없는 현장, 용역명과 비슷한 순). 현장 하나에 계약 하나 ----------
+// ---------- 현장 연결 창 — 용역 계약 → 현장(다른 계약에 안 이어진 현장, 용역명과 비슷한 순). 계약 하나에 현장 여럿(10/20 형) ----------
+// 누르면 잇기·끊기(창은 그대로 — 여러 곳을 고름), 같은 관리번호(26-3 ↔ 26-3·26-3-1…)는 목록을 열 때 저절로 이어짐.
 async function openLinkSite(contractId, onDone) {
   const overlay = document.createElement("div");
   overlay.className = "mail-overlay";
@@ -576,44 +577,51 @@ async function openLinkSite(contractId, onDone) {
   overlay.innerHTML = '<div class="mail-box cd-pick" role="dialog" aria-modal="true"><div class="mail-wait">불러오는 중…</div></div>';
   document.body.appendChild(overlay);
   const box = overlay.querySelector(".mail-box");
-  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey, true); };
+  let changed = false;
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey, true); if (changed && onDone) onDone(); };
   const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
   document.addEventListener("keydown", onKey, true);
   overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
   let list = [];
   let cur = null;
+  const fetchAll = async () => { [list, cur] = await Promise.all([api(`/contracts/${contractId}/site-candidates`), api(`/contracts/${contractId}`)]); };
   try {
-    [list, cur] = await Promise.all([api(`/contracts/${contractId}/site-candidates`), api(`/contracts/${contractId}`)]);
+    await fetchAll();
   } catch (err) {
     box.innerHTML = `<div class="mail-msg bad">${mailEsc(err.message)}</div>`;
     return;
   }
-  box.innerHTML = `<div class="mail-head"><b>🔗 현장 연결</b><span class="mail-sub">${mailEsc(cur.title || "용역 계약")}</span></div>
+  box.innerHTML = `<div class="mail-head"><b>🔗 현장 연결</b><span class="mail-sub">${mailEsc(cur.title || "용역 계약")} — 누르면 잇기·끊기(여러 곳 가능)</span></div>
     <input type="search" class="mail-input cd-pick-q" placeholder="현장명·주소로 찾기" autocomplete="off" />
     <div class="cd-pick-list"></div>
-    <div class="mail-foot">${cur.site_id ? '<button type="button" class="cd-unlink">연결 끊기</button>' : ""}<button type="button" class="cd-pick-close">닫기</button></div>`;
+    <div class="mail-foot"><button type="button" class="cd-unlink" hidden>연결 모두 끊기</button><button type="button" class="cd-pick-close">닫기</button></div>`;
   const listEl = box.querySelector(".cd-pick-list");
-  const draw = (q) => {
+  const qEl = box.querySelector(".cd-pick-q");
+  const draw = () => {
+    const q = qEl.value;
     const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const shown = list.filter((s) => words.every((w) => `${s.label} ${s.address}`.toLowerCase().includes(w))).slice(0, 40);
-    listEl.innerHTML = shown.length ? shown.map((s) => `<button type="button" class="cd-pick-item${s.id === cur.site_id ? " on" : ""}" data-id="${s.id}">
-        <b>${mailEsc(s.label)}</b>${!q && s.score >= 0.5 ? '<span class="cd-pick-tag">이름 비슷함</span>' : ""}<span class="mail-note">${mailEsc(s.address)}</span></button>`).join("")
+    const shown = list.filter((s) => words.every((w) => `${s.label} ${s.address}`.toLowerCase().includes(w)))
+      .sort((a, b) => (b.linked - a.linked)).slice(0, 60);
+    listEl.innerHTML = shown.length ? shown.map((s) => `<button type="button" class="cd-pick-item${s.linked ? " on" : ""}" data-id="${s.id}" data-on="${s.linked ? 1 : 0}">
+        <b>${s.linked ? "✓ " : ""}${mailEsc(s.label)}</b>${!q && !s.linked && s.score >= 0.5 ? '<span class="cd-pick-tag">이름 비슷함</span>' : ""}<span class="mail-note">${mailEsc(s.address)}</span></button>`).join("")
       : '<div class="mail-note">맞는 현장이 없습니다 — 현장을 먼저 등록하세요(이미 다른 계약이 연결된 현장은 안 보임).</div>';
-    listEl.querySelectorAll(".cd-pick-item").forEach((b) => b.addEventListener("click", () => link(Number(b.dataset.id))));
+    listEl.querySelectorAll(".cd-pick-item").forEach((b) => b.addEventListener("click", () => link(Number(b.dataset.id), b.dataset.on !== "1")));
+    box.querySelector(".cd-unlink").hidden = !list.some((s) => s.linked);
   };
-  const link = async (siteId) => {
+  const link = async (siteId, on) => {
     try {
-      await apiPost(`/contracts/${contractId}/link`, { site_id: siteId });
-      close();
-      if (onDone) onDone();
+      await apiPost(`/contracts/${contractId}/link`, { site_id: siteId, on });
+      changed = true;
+      await fetchAll();
+      draw();
     } catch (err) {
       listEl.insertAdjacentHTML("afterbegin", `<div class="mail-msg bad">${mailEsc(err.message)}</div>`);
     }
   };
-  box.querySelector(".cd-pick-q").addEventListener("input", (e) => draw(e.target.value));
+  qEl.addEventListener("input", draw);
   box.querySelector(".cd-pick-close").addEventListener("click", close);
-  box.querySelector(".cd-unlink")?.addEventListener("click", () => { if (confirm("현장 연결을 끊을까요? (서류는 그대로)")) link(null); });
-  draw("");
+  box.querySelector(".cd-unlink").addEventListener("click", () => { if (confirm("이 계약의 현장 연결을 모두 끊을까요? (서류는 그대로)")) link(null, false); });
+  draw();
 }
 
 // ---------- 현장 화면 [📑 착수계]·[📑 완수계] — 연결된 계약을 열고, 없으면 연결할 계약을 고른다(계약은 서류 자동화에서 먼저 만듦) ----------

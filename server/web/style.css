@@ -200,7 +200,7 @@ label + .field-grid { margin-top: 4px; }
 .main .panel-head button { margin-top: 0; }
 .panel-count { font-size: 12.5px; color: var(--faint); }
 /* 현장 목록 번호표(10/8 — 이름 앞 "26-65)_" 대신) + 정렬 버튼 */
-.site-row .site-no { display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 6px; background: var(--blue-soft); color: var(--blue);
+.site-row .site-no, .site-group-head .site-no { display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 6px; background: var(--blue-soft); color: var(--blue);
   font-size: 12px; font-weight: 700; vertical-align: 2px; font-variant-numeric: tabular-nums; }
 .site-list-head { gap: 12px; }
 .site-list-head h2 { margin-right: auto; }
@@ -606,3 +606,19 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
   body[data-report-tab="calendar"] main.main { max-width: 1720px; }
   body[data-report-tab="calendar"] .cal-wrap { margin-right: 0; }
 }
+/* 현장 목록 — 계약 하나에 현장 여럿이면 한 카드(10/20 형, dashboard.html groupRow) */
+.site-group { border-bottom: 1px solid var(--line); }
+.main .site-group-head { display: flex; align-items: center; gap: 12px; width: 100%; margin: 0; padding: 14px 18px; border: none; border-radius: 0;
+  background: transparent; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+.main .site-group-head:hover { background: var(--paper); }
+.site-group-head .title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.site-group-head .site-name { font-weight: 700; }
+.site-group-head .site-sub { color: var(--muted); font-size: 12.5px; }
+.sg-meta { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.sg-chev { width: 26px; height: 26px; border-radius: 50%; background: var(--blue-soft); flex: none; position: relative; }
+.sg-chev::after { content: ""; position: absolute; left: 50%; top: 45%; width: 7px; height: 7px; border-right: 2px solid var(--blue); border-bottom: 2px solid var(--blue);
+  transform: translate(-50%, -50%) rotate(45deg); transition: transform .15s; }
+.site-group.open .sg-chev::after { transform: translate(-50%, -30%) rotate(225deg); }
+.site-group-body { border-left: 3px solid var(--blue-soft); margin-left: 18px; }
+.site-group-body .site-row:last-child { border-bottom: none; }
+@media (max-width: 720px) { .sg-meta { display: none; } .site-group-body { margin-left: 8px; } }

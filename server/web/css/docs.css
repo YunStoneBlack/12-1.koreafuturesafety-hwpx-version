@@ -11,6 +11,9 @@
 .dc-title { font-weight: 700; font-size: 14.5px; color: var(--ink); }
 .dc-meta { font-size: 12.5px; color: var(--muted); word-break: break-all; }
 .dc-site { font-size: 12.5px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dc-sites { display: inline-block; vertical-align: top; } /* 계약 하나에 현장 여럿(10/20) */
+.dc-sites summary { cursor: pointer; color: var(--blue); font-weight: 600; }
+.dc-sites a { display: block; margin: 2px 0 0 14px; }
 .dc-nosite { color: var(--warn); font-weight: 600; }
 .main button.dc-link { margin: 0; padding: 2px 9px; font-size: 12px; font-weight: 600; background: var(--surface); color: var(--blue); border: 1px solid var(--line); border-radius: 6px; }
 .dc-docs { display: flex; flex-direction: column; gap: 4px; }

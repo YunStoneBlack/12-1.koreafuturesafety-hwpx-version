@@ -232,7 +232,6 @@ function renderSites() {
   const shown = allSites.filter((s) => (!statusFilter || s.status === statusFilter) &&
     (!q || [s.name, s.address, s.hq_company, s.staff_name, s.manager_name, s.management_no, shortMgmt(s.management_no)]
       .some((v) => (v || "").replace(/\s+/g, "").toLowerCase().includes(q))));
-  sortSites(shown);
   document.getElementById("site-count").textContent = q || statusFilter ? `${shown.length} / ${allSites.length}건` : `${allSites.length}건`;
   if (!allSites.length) {
     listEl.innerHTML = '<div class="empty-note">아직 등록된 현장이 없습니다. 위의 "+ 새 현장 등록"을 눌러 추가하세요.</div>';
@@ -243,7 +242,71 @@ function renderSites() {
     return;
   }
   listEl.innerHTML = "";
-  for (const site of shown) {
+  for (const e of entries(shown)) listEl.appendChild(e.group ? groupRow(e) : siteRow(e.site));
+}
+
+// 계약 하나에 현장 여럿(10/20 형 — 한 용역계약서에 현장별 기술지도계약서 n개)이면 한 카드로 묶음: 계약 번호·용역명, 누르면 그 현장들이 펼쳐짐(이 기기에 기억)
+const OPEN_KEY = "kfsc-report:site-groups-open";
+let openGroups = new Set();
+try { openGroups = new Set(JSON.parse(localStorage.getItem(OPEN_KEY) || "[]")); } catch { /* 기억 못 하면 접힘 */ }
+function entries(shown) {
+  const groups = new Map(), out = [];
+  for (const s of shown) {
+    if (s.contract_id && s.contract_sites > 1) {
+      if (!groups.has(s.contract_id)) {
+        const g = { group: true, id: s.contract_id, management_no: s.contract_no, name: s.contract_title, total: s.contract_sites, sites: [], viewed_at: "" };
+        groups.set(s.contract_id, g);
+        out.push(g);
+      }
+      const g = groups.get(s.contract_id);
+      g.sites.push(s);
+      if ((s.viewed_at || "") > g.viewed_at) g.viewed_at = s.viewed_at;
+    } else {
+      out.push({ group: false, site: s, management_no: s.management_no, viewed_at: s.viewed_at, id: s.id });
+    }
+  }
+  const tail = (s) => { const m = shortMgmt(s.management_no).match(/-(\d+)-(\d+)$/); return m ? Number(m[2]) : 0; }; // 26-3-1, 26-3-2 … 순
+  for (const g of groups.values()) g.sites.sort((a, b) => tail(a) - tail(b) || a.id - b.id);
+  return sortSites(out);
+}
+
+function groupRow(g) {
+  const box = document.createElement("div");
+  box.className = "site-group";
+  const open = openGroups.has(g.id) || !!document.getElementById("site-search").value.trim();
+  box.classList.toggle("open", open);
+  const going = g.sites.filter((s) => s.status === "진행중").length;
+  const short = g.sites.filter((s) => s.pace && s.pace.status === "shortage").length;
+  box.innerHTML = `<button type="button" class="site-group-head" aria-expanded="${open}">
+      <span class="title"><span class="site-name"></span><span class="site-sub"></span></span>
+      <span class="sg-meta"></span><span class="sg-chev" aria-hidden="true"></span></button>
+    <div class="site-group-body"></div>`;
+  const nameEl = box.querySelector(".site-name");
+  nameEl.textContent = g.name || "(용역명 없음)";
+  const no = shortMgmt(g.management_no);
+  if (no) {
+    const badge = document.createElement("span");
+    badge.className = "site-no";
+    badge.textContent = no;
+    nameEl.prepend(badge);
+  }
+  box.querySelector(".site-sub").textContent = `현장 ${g.total}곳${g.sites.length < g.total ? ` 중 ${g.sites.length}곳 보임` : ""} — 한 용역 계약`;
+  box.querySelector(".sg-meta").textContent = [going ? `진행중 ${going}` : "", short ? `지도 부족 ${short}` : ""].filter(Boolean).join(" · ");
+  const body = box.querySelector(".site-group-body");
+  const fill = () => { body.innerHTML = ""; for (const s of g.sites) body.appendChild(siteRow(s)); };
+  if (open) fill();
+  box.querySelector(".site-group-head").addEventListener("click", () => {
+    const now = !box.classList.contains("open");
+    box.classList.toggle("open", now);
+    box.querySelector(".site-group-head").setAttribute("aria-expanded", now);
+    if (now) { openGroups.add(g.id); fill(); } else { openGroups.delete(g.id); body.innerHTML = ""; }
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify([...openGroups])); } catch { /* 지금만 */ }
+  });
+  return box;
+}
+
+function siteRow(site) {
+  {
     const row = document.createElement("a");
     row.className = "row site-row";
     row.href = `site.html?id=${site.id}`;
@@ -280,7 +343,7 @@ function renderSites() {
     row.querySelector('[data-k="date"]').textContent = site.last_guidance_date ? `최근 지도 ${shortDate(site.last_guidance_date)}` : "";
     // 공사 상태 4칸(app.js) — 진행중만 출장 배치. 바꾸면 일정 없는 현장 띠·상태 카드 숫자·(거르는 중이면) 목록도 새로
     row.appendChild(siteStatusSwitch(site, () => { refreshNotice(); renderSites(); }));
-    listEl.appendChild(row);
+    return row;
   }
 }
 
