@@ -100,6 +100,7 @@ def _out(d: SitokDefect) -> dict:
     return {"id": d.id, **{k: getattr(d, k) for k in FIELDS}, "seq": d.seq, "qty": d.qty, "mark": d.mark, "check": d.check,
             "prev": d.prev or None, "has_photo": bool(d.photo and Path(d.photo).exists()),
             "has_prev_photo": bool(d.prev_photo and Path(d.prev_photo).exists()), "starred": d.starred,
+            "prev_v": int(Path(d.prev_photo).stat().st_mtime) if d.prev_photo and Path(d.prev_photo).exists() else 0,  # 사진 주소 ?v= — 파일이 바뀌면 새로 받게(10/20 사진 바로잡기)
             "checked_by": d.checked_by, "ts": int(d.checked_at.timestamp()) if d.checked_at else 0}
 
 
