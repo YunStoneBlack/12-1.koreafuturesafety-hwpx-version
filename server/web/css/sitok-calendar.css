@@ -62,10 +62,3 @@
 .sc-contact .sc-c-act { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 6px; }
 .main .sc-contact .sc-c-act button { margin: 0; }
 @media (max-width: 760px) { .sc-contact { grid-template-columns: 1fr; } .sc-contact input { font-size: 16px; } }
-/* 폰 작은 창(.sc-ov — 본문 .main 밖이라 site-info.css 단추 모양이 안 닿음)에도 같은 둥근 단추 */
-.sc-ov .site-links button.site-link { margin: 0; display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; border-radius: 999px;
-  font-size: 13.5px; font-weight: 600; line-height: 1.4; max-width: 100%; }
-.sc-ov .site-links button.site-link.tel { color: #1f7a44; border: 1px solid #bfe3cc; background: #eef9f2; }
-.sc-ov .site-links button.site-link.map { color: #0a6b3d; border: 1px solid #c9e7d6; background: #f3fbf6; }
-.sc-ov .site-links button.site-link.copy { color: var(--muted); border: 1px solid var(--line); background: var(--surface); }
-.sc-ov .sc-contact .sc-c-act button { margin: 0; }

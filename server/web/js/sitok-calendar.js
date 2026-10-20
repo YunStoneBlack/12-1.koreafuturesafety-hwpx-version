@@ -210,7 +210,8 @@
     const overlay = document.createElement("div");
     overlay.className = "mail-overlay sc-ov";
     overlay.innerHTML = `<div class="mail-box sc-ov-box" role="dialog" aria-modal="true">${visitCard(v)}<div class="mail-foot"><button type="button" class="o-close">닫기</button></div></div>`;
-    document.body.appendChild(overlay);
+    // 본문 안에 붙임 — 입력칸·단추·전화/지도 단추가 PC 그날 칸과 같은 그룹웨어 스타일(.main …)을 받게(10/20 사용자 "투박해" — body에 붙여 기본 모양이었음)
+    (document.querySelector("main.main") || document.body).appendChild(overlay);
     overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) overlay.remove(); });
     overlay.querySelector(".o-close").addEventListener("click", () => overlay.remove());
     wireCards(overlay);
