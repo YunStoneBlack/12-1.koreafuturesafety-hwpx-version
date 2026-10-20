@@ -41,7 +41,9 @@ def _out(db: Session, r: SitokReport) -> dict:
                     "hint": crit.split(" / ")[0]})
     other = [{"key": k, "name": name, "slots": [bool((base / x).exists()) for x in p["other"][k]] + [False] * (P.OTHER_SLOTS - len(p["other"][k]))}
              for k, name in P.OTHER]
-    return {"public": pub, "other": other}
+    from server.sitok import kinds
+
+    return {"public": pub, "other": other, "wall": kinds.is_wall(db.get(SitokFacility, r.facility_id))}  # 옹벽은 기타시설 탭 숨김(10/20)
 
 
 def _path(db: Session, r: SitokReport, group: str, key: str, slot: int) -> Path | None:

@@ -104,18 +104,18 @@ RECHECK = """시설물 정기안전점검 결함 사진 분류입니다. 첫째 
 이번 사진이 위 고친 사진들과 같은 경우(같은 부위·같은 모양의 결함)면 점검자가 고친 값으로, 다른 경우면 처음 판단 그대로 답하세요.
 - member는 반드시 이 목록 중 하나 그대로: {members}
 - dtype은 반드시 이 목록 중 하나 그대로: {types}
-JSON 객체 하나로만 답하세요(설명 없이): {{"part": "구조체" 또는 "비구조체", "member": "부재", "dtype": "결함유형", "same_case": 고친 사진들과 같은 경우면 true, "why": "판단 근거 한 줄"}}"""
+JSON 객체 하나로만 답하세요(설명 없이): {{"part": {parts}, "member": "부재", "dtype": "결함유형", "same_case": 고친 사진들과 같은 경우면 true, "why": "판단 근거 한 줄"}}"""
 
 
-def recheck(company_id: int, jpg: bytes, first: dict, rows: list[SitokCorrection], allowed: dict) -> dict:
-    """회사 교정 기록 사진들과 비교해 다시 판단 → {part, member, dtype, same_case, why}."""
+def recheck(company_id: int, jpg: bytes, first: dict, rows: list[SitokCorrection], allowed: dict, parts=("구조체", "비구조체")) -> dict:
+    """회사 교정 기록 사진들과 비교해 다시 판단 → {part, member, dtype, same_case, why}. parts = 구분 값들(옹벽은 주요·일반·부대시설, 10/20)."""
     from server.sitok import vision
 
     imgs = [jpg] + [Path(c.thumb).read_bytes() for c in rows]
     guess = f"{first['part']} · {first['member'] or '-'} · {first['dtype']}"
     ex = "\n".join(f"- {i}번째 사진: 점검자가 \"{c.part} · {c.member or '-'} · {c.dtype}\"로 고침" for i, c in enumerate(rows, 2))
     return vision.ask_json(company_id, imgs, RECHECK.format(guess=guess, examples=ex, members=", ".join(allowed["member"]),
-                                                             types=", ".join(allowed["dtype"])))
+                                                             types=", ".join(allowed["dtype"]), parts=" 또는 ".join(f'"{p}"' for p in parts)))
 
 
 def groups(db: Session, company_id: int) -> list[dict]:

@@ -21,8 +21,8 @@
     box.innerHTML = data.photos.map((p, i) => `<div class="ov-card${p.ai ? " ai" : ""}" data-id="${p.id}">
       <div class="ov-no">${i + 1}${i === 0 ? " · 10쪽에도" : ""}<span>전경 ${Math.floor(i / 6) + 1}번째 쪽</span></div>
       <img src="${BASE}/api${url}/${p.id}/photo?t=${ts}" alt="" loading="lazy" />
-      <div class="ov-title"><input list="ov-titles" value="${esc(p.title)}" placeholder="제목(예: 옥상 전경사진) — 🎤 음성 가능" />
-        <label class="ov-plate" title="실명판을 찍으면 AI가 실 이름을 읽어 제목으로">🏷<input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label></div>
+      <div class="ov-title"><input list="ov-titles" value="${esc(p.title)}" placeholder="제목(예: ${data.wall ? "시점측 전경" : "옥상 전경사진"}) — 🎤 음성 가능" />
+        <label class="ov-plate" title="실명판을 찍으면 AI가 실 이름을 읽어 제목으로"${data.wall ? " hidden" : ""}>🏷<input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label></div>
       ${p.ai ? '<div class="ov-ai">🤖 AI 추천 제목 — 맞으면 그대로, 아니면 고치세요</div>' : ""}
       <div class="ov-acts"><button type="button" data-m="-1"${i ? "" : " disabled"}>◀ 앞으로</button><button type="button" data-m="1"${i < data.photos.length - 1 ? "" : " disabled"}>뒤로 ▶</button>
         <button type="button" class="ov-del">지우기</button></div></div>`).join("");

@@ -138,6 +138,10 @@
   }
 
   function draw() {
+    if (data.fam === "wall") { // 옹벽(10/20): 1.4 현장조사 결과 절마다 사진 표
+      const intro = document.querySelector("#sf-good .pt-intro");
+      if (intro) intro.textContent = "보고서 1.4 현장조사 결과(지반 및 기초부 / 옹벽 전면부 / 기타) 사진 표 — 결함이 없거나 적은 절은 상태가 양호한 모습을 찍어 두세요. 결함 사진 다음 빈 칸에 들어가고 [🤖 AI 초안]이 \"양호\"로 씁니다.";
+    }
     drawGood();
     const tab = document.querySelector('.sf-tab[data-tab="seismic"]');
     tab.hidden = !data.school;

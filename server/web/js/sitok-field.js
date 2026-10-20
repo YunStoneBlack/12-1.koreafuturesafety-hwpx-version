@@ -3,6 +3,7 @@
 // 서버 server/api/routers/sitok_defects.py.
 // 10/12: 부재·결함유형은 고정 목록에서만 고름(회사 목록 + 이 보고서에만 추가한 것) — 없으면 "➕ 새로 추가…" → 이 보고서에만 / 회사 전체 목록에.
 // 원인은 목록 없이 AI가 사진마다 구체적으로 + 근거 한 줄(cause_note).
+// 10/20 옹벽: 서버가 fam="wall"·unit_label="부위"·parts=[주요·일반·부대시설]·floors=부위 목록·unit_part(부위 → 구분 기본값)를 줌 — 층 글자·구분 칸은 그것으로.
 
 (function () {
   const rid = Number(new URLSearchParams(location.search).get("report")) || null;
@@ -10,7 +11,11 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const err = (e) => showError(errorEl, e);
   const KIND_LABEL = { member: "부재", dtype: "결함유형" };
-  const AREA_RE = /누수|백태|박리|박락|층분리|재료분리|철근|부식|파손/;
+  const AREA_RE = /누수|백태|박리|박락|층분리|재료분리|철근|부식|파손|유출|식생|퇴적|배부름|세굴|마감불량|철망/; // 뒤 7개 = 옹벽(폭·길이 m) — 서버 AREA_WORDS와 같이
+  const unit = () => (data && data.unit_label) || "층"; // 건축물 "층" / 옹벽 "부위"
+  const parts = () => (data && data.parts) || ["구조체", "비구조체"];
+  const partOptions = (v) => parts().map((p) => `<option${p === v ? " selected" : ""}>${esc(p)}</option>`).join("");
+  const partValue = (v) => (parts().includes(v) ? v : parts()[parts().length - 1]);
   const DEPTH_RE = /박리|박락|층분리/; // 깊이(mm) 칸 — 정밀 상태평가 기준(박리 0.5/1.0/2.5, 박락·층분리 15/20/25mm, 10/13)
   let data = null;
   let started = false; // [전회차 없이 시작]을 누름(신축·전회차 자료 없음)
@@ -87,14 +92,13 @@
     ov.className = "mail-overlay";
     ov.innerHTML = `<div class="mail-box sf-new" role="dialog" aria-modal="true"><div class="mail-head"><b>${esc(d.floor)} ${d.seq}번 고치기</b>
       <span class="mail-sub">구분·부재·결함유형 — 목록에 없으면 "➕ 새로 추가…"</span></div>
-      <div class="sf-two"><label>구분<select class="e-part"><option>비구조체</option><option>구조체</option></select></label>
+      <div class="sf-two"><label>구분<select class="e-part">${partOptions(partValue(d.part))}</select></label>
         <label>부재<select class="e-member"></select></label></div>
       <label>결함유형<select class="e-dtype"></select></label>
       <div class="mail-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="mail-cancel">취소</button><button type="button" class="mail-primary e-ok">저장</button></div></div>`;
     document.body.appendChild(ov);
     const q = (s) => ov.querySelector(s);
-    q(".e-part").value = d.part === "구조체" ? "구조체" : "비구조체";
     setPick(q(".e-member"), "member", d.member);
     setPick(q(".e-dtype"), "dtype", d.dtype);
     bindPicker(q(".e-member"), "member", (m) => { if (partOf(m)) q(".e-part").value = partOf(m); });
@@ -111,7 +115,9 @@
     });
   }
 
-  const floorKey = (f) => { // 옥상 → 지상 위층부터 → 지하(서버 floor_key와 같은 순서)
+  const floorKey = (f) => { // 옥상 → 지상 위층부터 → 지하(서버 floor_key와 같은 순서), 옹벽 부위는 서버 목록 순
+    const i = (data.floors || []).indexOf(f);
+    if (data.fam === "wall" && i >= 0) return [-1, i];
     const n = Number((String(f).match(/\d+/) || [0])[0]);
     if (/옥상|옥탑/.test(f)) return [0, -n];
     if (/지하/.test(f)) return [2, n];
@@ -135,7 +141,7 @@
 
   function drawSummary() {
     const s = data.summary;
-    const off = data.defects.filter((d) => outOfList("member", d.member) || outOfList("dtype", d.dtype) || !["구조체", "비구조체"].includes(d.part)).length;
+    const off = data.defects.filter((d) => outOfList("member", d.member) || outOfList("dtype", d.dtype) || !parts().includes(d.part)).length;
     document.getElementById("sf-sum").innerHTML = `<b>${esc(data.report.facility)} · ${data.report.year}년 ${esc(data.report.half)}</b>
       <span>확인 ${s.total - s.unchecked} / ${s.total}</span>
       <span class="ok">그대로 ${s.same}</span><span class="grew">진행 ${s.grew}</span><span class="rep">보수 ${s.repaired}</span><span class="new">신규 ${s.new}</span>
@@ -216,7 +222,7 @@
       <span class="mail-sub">AI가 고른 목록 이름입니다. 맞는지 보고 고친 뒤 [바꾸기] — 현장에서 사진을 보며 카드 ✏️로 하나씩 다시 고칠 수 있습니다.</span></div>
       <div class="sf-remap-list">${r.combos.map((c, i) => `<div class="sf-remap-row" data-i="${i}">
         <div class="sf-remap-from">${esc(c.part || "-")} · ${esc(c.member || "-")} · <b>${esc(c.dtype || "-")}</b> <small>${c.count}건</small></div>
-        <div class="sf-remap-to"><span>→</span><select class="m-part"><option>구조체</option><option>비구조체</option></select>
+        <div class="sf-remap-to"><span>→</span><select class="m-part">${partOptions("")}</select>
           <select class="m-member"></select><select class="m-dtype"></select></div></div>`).join("")}</div>
       <div class="mail-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="mail-cancel">취소</button><button type="button" class="mail-primary m-ok">바꾸기</button></div></div>`;
@@ -371,7 +377,7 @@
     const box = document.getElementById("sf-list");
     box.innerHTML = "";
     const rows = data.defects.filter((d) => d.floor === floor);
-    if (!rows.length) box.innerHTML = `<div class="sf-none">${esc(floor || "이 층")}에는 아직 결함이 없습니다 — 아래 [+ 신규 결함]에서 사진을 찍으면 AI가 채웁니다.</div>`;
+    if (!rows.length) box.innerHTML = `<div class="sf-none">${esc(floor || `이 ${unit()}`)}에는 아직 결함이 없습니다 — 아래 [+ 신규 결함]에서 사진을 찍으면 AI가 채웁니다.</div>`;
     rows.forEach((d) => box.appendChild(card(d)));
   }
 
@@ -384,8 +390,8 @@
       <label class="sf-newshot"><input type="file" accept="image/*" capture="environment" class="n-photo" hidden data-kr-file="1" />
         <span class="n-preview">📷 사진 찍기</span></label>
       <div class="n-ai" hidden></div>
-      <label>층<input list="sf-fl" class="n-floor" value="${esc(floor)}" /></label><datalist id="sf-fl">${floorsList.map((f) => `<option value="${esc(f)}">`).join("")}</datalist>
-      <div class="sf-two"><label>구분<select class="n-part"><option>비구조체</option><option>구조체</option></select></label>
+      <label>${esc(unit())}<input list="sf-fl" class="n-floor" value="${esc(floor)}" /></label><datalist id="sf-fl">${floorsList.map((f) => `<option value="${esc(f)}">`).join("")}</datalist>
+      <div class="sf-two"><label>구분<select class="n-part">${partOptions(partValue((data.unit_part || {})[floor] || ""))}</select></label>
         <label>부재<select class="n-member"></select></label></div>
       <label>결함유형<select class="n-dtype"></select></label>
       <div class="n-suggest" hidden></div>
@@ -404,6 +410,10 @@
     setPick(q(".n-dtype"), "dtype", "");
     bindPicker(q(".n-member"), "member", (m) => { if (partOf(m)) q(".n-part").value = partOf(m); });
     bindPicker(q(".n-dtype"), "dtype");
+    q(".n-floor").addEventListener("change", () => { // 옹벽: 부위를 바꾸면 구분 기본값(전면부·기초 = 주요시설 …)
+      const p = (data.unit_part || {})[q(".n-floor").value.trim()];
+      if (p) q(".n-part").value = p;
+    });
     const depthBox = () => { q(".n-depth-box").hidden = !DEPTH_RE.test(q(".n-dtype").value || ""); }; // 박리·박락·층분리만 깊이 칸
     q(".n-dtype").addEventListener("change", depthBox);
     const suggest = (a) => { // 목록에 맞는 게 없을 때 AI 제안 → [이 보고서에만] [회사 목록에] 또는 목록에서 고르기
@@ -474,7 +484,7 @@
         depth: q(".n-depth").value.trim() };
       body.cause_note = ai && ai.cause_note && body.cause === ai.cause ? ai.cause_note : ""; // 원인을 고쳤으면 AI 근거는 안 맞음
       body.ai_guess = ai && ai.guess ? ai.guess : null; // AI 첫 분류 — 다르게 넣으면 회사 교정 기록(다음 사진 분석에 씀, 10/12)
-      if (!body.floor || !body.dtype) { alert("층과 결함유형을 골라 주세요."); return; }
+      if (!body.floor || !body.dtype) { alert(`${unit()}과(와) 결함유형을 골라 주세요.`); return; }
       q(".n-ok").disabled = true;
       try {
         const d = await apiPost(`/sitok/reports/${rid}/defects`, body);

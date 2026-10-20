@@ -257,6 +257,8 @@
 /* 결함 목록(부재·결함유형, 2026-10-12) */
 .ss-voc { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line); font-size: 13px; }
 .ss-voc:first-child { border-top: 0; }
+.ss-voc-fam { display: flex; gap: 10px; align-items: baseline; padding: 14px 0 4px; font-size: 14px; }
+.ss-voc-fam + .ss-voc { border-top: 0; }
 .ss-voc > b { padding-top: 6px; }
 .ss-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .ss-chip { display: inline-flex; align-items: center; gap: 2px; padding: 4px 4px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 13px; }

@@ -22,6 +22,8 @@
     <label class="ov-shot secondary pt-shot">🖼 고르기<input type="file" accept="image/*" hidden data-kr-file="1" /></label>`;
 
   function draw() {
+    const oth = document.querySelector('.sf-tab[data-tab="other"]'); // 옹벽은 기타시설(마감재·부착물) 없음(10/20) — 공중이용(펜스·점검로)만
+    if (oth) oth.hidden = !!data.wall;
     const done = data.public.filter((p) => p.has || p.none).length;
     document.getElementById("pt-pub-count").textContent = `(${done}/${data.public.length})`;
     const n = data.other.reduce((a, o) => a + o.slots.filter(Boolean).length, 0);

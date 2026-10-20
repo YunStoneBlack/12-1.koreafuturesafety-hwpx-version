@@ -11,7 +11,13 @@ from __future__ import annotations
 from pathlib import Path
 
 CATS = [("crack", "콘크리트 구조체 균열"), ("leak", "누수 및 백화"), ("spall", "박리·박락 및 철근노출"), ("steel", "강재구조"), ("nonstruct", "비구조체")]
+# 옹벽(10/20) — 보고서 1.4 현장조사 결과 3절(지반 및 기초부 / 옹벽 전면부 / 기타)마다 사진 표 2×2 → 결함 사진이 모자란 칸에 상태양호 사진
+WALL_CATS = [("found", "지반 및 기초부"), ("front", "옹벽 전면부"), ("etc", "기타(배수시설·사면·점검로)")]
 PER = 4  # 항목마다 상태양호 사진(1.3 대표사진 칸 4개)
+
+
+def cats_for(fam: str = "") -> list:
+    return WALL_CATS if fam == "wall" else CATS
 STEEL_NA_TEXT = "해당 시설물은 철근콘크리트 구조로 강재에 대한 조사는 해당사항이 없다."
 SEISMIC_ITEMS = ["내진보강 부위 및 시설의 해체 또는 손상 여부", "내진보강을 위해 증설, 신설된 부재의 상태",
                  "기존 골조와 내진보강을 위해 증설된 부분의 결합부위의 이격 또는 균열", "철골 가새와 철근콘크리트의 접합부위의 이격 또는 균열 여부",
@@ -19,10 +25,10 @@ SEISMIC_ITEMS = ["내진보강 부위 및 시설의 해체 또는 손상 여부"
 DIR_GOOD, DIR_SEISMIC = "상태양호", "내진보강"
 
 
-def norm(sv: dict | None) -> dict:
+def norm(sv: dict | None, fam: str = "") -> dict:
     sv = sv or {}
     good = {k: [{"file": str(x.get("file") or ""), "title": str(x.get("title") or "").strip()} for x in (sv.get("good") or {}).get(k) or [] if isinstance(x, dict) and x.get("file")][:PER]
-            for k, _ in CATS}
+            for k, _ in cats_for(fam)}
     se = sv.get("seismic") or {}
     rows = [{"mark": r.get("mark") if r.get("mark") in ("○", "×") else "", "text": str(r.get("text") or "").strip(), "action": str(r.get("action") or "").strip()}
             for r in (se.get("rows") or []) if isinstance(r, dict)][:len(SEISMIC_ITEMS)]
@@ -31,11 +37,11 @@ def norm(sv: dict | None) -> dict:
                         "rows": rows, "opinion": str(se.get("opinion") or "").strip(), "at": str(se.get("at") or "")}}
 
 
-def add_to_rep(rep: dict, sv: dict | None, base: Path) -> dict:
+def add_to_rep(rep: dict, sv: dict | None, base: Path, fam: str = "") -> dict:
     """1.3 대표사진 {항목: [(사진, 설명)]}에 상태양호 사진을 뒤에 더함(결함 사진이 모자란 칸만 채워짐 — 칸 수는 표가 정함), 강재 해당없음이면 강재 사진 비움."""
-    g = norm(sv)
+    g = norm(sv, fam)
     out = {k: list(v) for k, v in (rep or {}).items()}
-    for k, name in CATS:
+    for k, name in cats_for(fam):
         if k == "steel" and g["steel_na"]:
             out["steel"] = []
             continue
@@ -46,11 +52,11 @@ def add_to_rep(rep: dict, sv: dict | None, base: Path) -> dict:
     return out
 
 
-def facts(sv: dict | None) -> str:
+def facts(sv: dict | None, fam: str = "") -> str:
     """AI 초안에 넘길 사실 — 상태양호 사진이 있는 항목·강재 해당없음."""
-    g = norm(sv)
+    g = norm(sv, fam)
     lines = []
-    have = [name for k, name in CATS if g["good"][k] and not (k == "steel" and g["steel_na"])]
+    have = [name for k, name in cats_for(fam) if g["good"][k] and not (k == "steel" and g["steel_na"])]
     if have:
         lines.append("[상태양호 사진] 현장에서 상태가 양호함을 찍어 둔 항목: " + ", ".join(have) + " — 그 항목에 결함이 없거나 적으면 \"전반적으로 양호한 상태\"로 쓸 것")
     if g["steel_na"]:

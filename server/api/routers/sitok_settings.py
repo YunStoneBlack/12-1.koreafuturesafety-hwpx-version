@@ -85,46 +85,53 @@ def _price_out(p: SitokUnitPrice) -> dict:
     return {"id": p.id, "method": p.method, "unit": p.unit, "price": p.price, "source": p.source, "note": p.note}
 
 
-def vocab_rows(db: Session, company_id: int, report_id: int | None = None) -> list[SitokVocab]:
-    """결함 부재·결함유형 목록 — 회사 것(처음이면 기본값 채움) + report_id가 있으면 그 회차에만 추가한 것(뒤에)."""
-    q = db.query(SitokVocab).filter(SitokVocab.company_id == company_id, SitokVocab.report_id.is_(None))
+def vocab_rows(db: Session, company_id: int, report_id: int | None = None, fam: str = "") -> list[SitokVocab]:
+    """결함 부재·결함유형 목록 — 회사 것(처음이면 기본값 채움) + report_id가 있으면 그 회차에만 추가한 것(뒤에).
+    fam = 목록 묶음(kinds.FAMILIES — "" 건축물, "wall" 옹벽: SitokVocab.kind가 wall_member·wall_dtype, 10/20). 줄마다 base_kind = 앞말 뗀 member/dtype."""
+    defaults = kinds.FAMILIES[fam]
+    want = {kinds.vocab_kind(fam, k): k for k in defaults}
+    q = db.query(SitokVocab).filter(SitokVocab.company_id == company_id, SitokVocab.report_id.is_(None), SitokVocab.kind.in_(list(want)))
     rows = q.all()
     have = {r.kind for r in rows}
-    if have != set(kinds.DEFAULTS):  # 처음(또는 한 종류를 다 지운 뒤) — 기본값
-        for kind, names in kinds.DEFAULTS.items():
-            if kind not in have:
-                db.add_all(SitokVocab(company_id=company_id, kind=kind, name=n, sort=i) for i, n in enumerate(names, 1))
+    if have != set(want):  # 처음(또는 한 종류를 다 지운 뒤) — 기본값
+        for vk, kind in want.items():
+            if vk not in have:
+                db.add_all(SitokVocab(company_id=company_id, kind=vk, name=n, sort=i) for i, n in enumerate(defaults[kind], 1))
         db.commit()
         rows = q.all()
     rows.sort(key=lambda r: (r.sort, r.id))
     if report_id:
-        rows += sorted(db.query(SitokVocab).filter(SitokVocab.company_id == company_id, SitokVocab.report_id == report_id).all(), key=lambda r: (r.sort, r.id))
+        rows += sorted(db.query(SitokVocab).filter(SitokVocab.company_id == company_id, SitokVocab.report_id == report_id, SitokVocab.kind.in_(list(want))).all(),
+                       key=lambda r: (r.sort, r.id))
+    for r in rows:  # 화면·검사는 member/dtype 이름으로(저장 칸 kind는 그대로)
+        r.base_kind = want[r.kind]
     return rows
 
 
 def vocab_out(rows: list[SitokVocab]) -> dict:
-    return {kind: [{"id": r.id, "name": r.name, "scope": "report" if r.report_id else "company"} for r in rows if r.kind == kind] for kind in kinds.DEFAULTS}
+    return {kind: [{"id": r.id, "name": r.name, "scope": "report" if r.report_id else "company"} for r in rows if r.base_kind == kind] for kind in kinds.DEFAULTS}
 
 
-def vocab_names(db: Session, company_id: int, report_id: int | None = None) -> dict[str, list[str]]:
-    rows = vocab_rows(db, company_id, report_id)
-    return {kind: [r.name for r in rows if r.kind == kind] for kind in kinds.DEFAULTS}
+def vocab_names(db: Session, company_id: int, report_id: int | None = None, fam: str = "") -> dict[str, list[str]]:
+    rows = vocab_rows(db, company_id, report_id, fam)
+    return {kind: [r.name for r in rows if r.base_kind == kind] for kind in kinds.DEFAULTS}
 
 
-def add_vocab(db: Session, company_id: int, kind: str, name: str, report_id: int | None = None) -> None:
+def add_vocab(db: Session, company_id: int, kind: str, name: str, report_id: int | None = None, fam: str = "") -> None:
     """목록에 하나 더(이미 있으면 그대로). 회사 목록에 넣으면 그 회차에만 넣었던 같은 이름은 지움."""
     name = " ".join((name or "").split())
     if kind not in kinds.DEFAULTS or not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "추가할 이름을 넣어 주세요.")
     if len(name) > 20:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "이름은 20자 안으로 — 표 칸이 좁습니다.")
-    rows = [r for r in vocab_rows(db, company_id, report_id) if r.kind == kind]
+    vk = kinds.vocab_kind(fam, kind)
+    rows = [r for r in vocab_rows(db, company_id, report_id, fam) if r.base_kind == kind]
     if any(r.name == name and (r.report_id is None or report_id) for r in rows):
         return
     if report_id is None:
-        db.query(SitokVocab).filter(SitokVocab.company_id == company_id, SitokVocab.kind == kind, SitokVocab.name == name,
+        db.query(SitokVocab).filter(SitokVocab.company_id == company_id, SitokVocab.kind == vk, SitokVocab.name == name,
                                     SitokVocab.report_id.isnot(None)).delete(synchronize_session=False)
-    db.add(SitokVocab(company_id=company_id, report_id=report_id, kind=kind, name=name, sort=max((r.sort for r in rows), default=0) + 1))
+    db.add(SitokVocab(company_id=company_id, report_id=report_id, kind=vk, name=name, sort=max((r.sort for r in rows), default=0) + 1))
     db.commit()
 
 
@@ -137,6 +144,7 @@ def get_settings(user: User = Depends(get_current_user), db: Session = Depends(g
         "equipment": [_equip_out(e) for e in equipment(db, user.company_id)],
         "prices": [_price_out(p) for p in prices(db, user.company_id)],
         "vocab": vocab_out(vocab_rows(db, user.company_id)),
+        "vocab_wall": vocab_out(vocab_rows(db, user.company_id, fam="wall")),  # 옹벽 목록(10/20)
         "master": master.info_all(),
     }
 
@@ -192,12 +200,20 @@ def upload_master(file: UploadFile = File(...), kind: str = Form("정기"), user
 class VocabIn(BaseModel):
     kind: str
     name: str
+    fam: str = ""  # "" 건축물 / "wall" 옹벽 목록
+
+
+def _fam(fam: str) -> str:
+    if fam not in kinds.FAMILIES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "목록 묶음이 맞지 않습니다.")
+    return fam
 
 
 @router.post("/vocab")
 def post_vocab(body: VocabIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    add_vocab(db, user.company_id, body.kind, body.name)
-    return vocab_out(vocab_rows(db, user.company_id))
+    fam = _fam(body.fam)
+    add_vocab(db, user.company_id, body.kind, body.name, fam=fam)
+    return vocab_out(vocab_rows(db, user.company_id, fam=fam))
 
 
 @router.delete("/vocab/{vocab_id}")
@@ -206,11 +222,12 @@ def delete_vocab(vocab_id: int, user: User = Depends(get_current_user), db: Sess
     v = db.get(SitokVocab, vocab_id)
     if v is None or v.company_id != user.company_id or v.report_id is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "목록 항목을 찾을 수 없습니다.")
-    if sum(1 for r in vocab_rows(db, user.company_id) if r.kind == v.kind) <= 1:
+    fam = "wall" if v.kind.startswith("wall_") else ""
+    if sum(1 for r in vocab_rows(db, user.company_id, fam=fam) if r.kind == v.kind) <= 1:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "마지막 하나는 지울 수 없습니다.")
     db.delete(v)
     db.commit()
-    return vocab_out(vocab_rows(db, user.company_id))
+    return vocab_out(vocab_rows(db, user.company_id, fam=fam))
 
 
 # ---------- 사진 분류 교정 기록(10/12 — server/sitok/learn.py) ----------

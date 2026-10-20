@@ -73,8 +73,8 @@ def _field(db: Session, r: SitokReport) -> _Miss:
     if bare:
         add("good", f"결함도 상태양호 사진도 없는 항목 — {' · '.join(c['name'] for c in bare)}"
             + (" (강재는 철근콘크리트 구조면 [해당없음])" if any(c["key"] == "steel" for c in bare) else ""))
-    steel = next(c for c in gd["cats"] if c["key"] == "steel")
-    if gd["steel_na"] and steel["defects"]:
+    steel = next((c for c in gd["cats"] if c["key"] == "steel"), None)
+    if steel and gd["steel_na"] and steel["defects"]:
         add("good", f"강재구조를 [해당없음]으로 했는데 강재 결함이 {steel['defects']}개 있습니다 — 보고서 1.3 강재 글은 해당없음으로 나갑니다")
     se = gd["seismic"]
     if gd["school"] and not se["none"]:
@@ -89,7 +89,7 @@ def _field(db: Session, r: SitokReport) -> _Miss:
     pub = [p["name"] for p in po["public"] if not p["has"] and not p["none"]]
     if pub:
         add("public", f"사진도 [해당없음]도 아닌 항목 — {' · '.join(pub)}")
-    if any(not all(o["slots"]) for o in po["other"]):
+    if gd.get("fam") != "wall" and any(not all(o["slots"]) for o in po["other"]):  # 옹벽은 기타시설(마감재·부착물) 탭 없음(10/20)
         add("other", " · ".join(f"{o['name']} {sum(o['slots'])}/{len(o['slots'])}장" for o in po["other"]) + " — 빈 칸은 보고서에 \"-\"")
     if (r.kind or "정기") == "정밀":
         p = PR.norm((r.survey or {}).get("precision"))
