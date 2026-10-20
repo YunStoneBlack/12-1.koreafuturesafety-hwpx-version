@@ -68,7 +68,7 @@ async function openAutoPlan(target, titleText, onDone) {
   const subCount = pv.plans.filter((p) => p.need_sub).length;
   const trips = [...byDay.values()].filter((ps) => !ps[0].need_sub).length;
   const summary = pv.plans.length
-    ? `<b>${pv.plans.length}회</b>를 ${multiSite ? `출장 <b>${trips}번</b>으로 ` : ""}넣습니다 — 마지막 지도는 준공 ${pv.finish_before_days}일 전까지.` +
+    ? `<b>${pv.plans.length}회</b>를 ${multiSite ? `출장 <b>${trips}번</b>으로 ` : ""}넣습니다 — 마지막 지도는 계약 끝 ${pv.finish_before_days}일 전까지.` +
       (subCount ? `<div class="ap-subsum">⚠ 그중 <b>${subCount}건</b>은 거리가 멀어 담당 요원이 갈 날이 없어 <b>대타 필요</b>로 넣습니다 — 넣은 뒤 달력에서 [📅 일정 변경] → [대신 갈 요원]으로 정해 주세요.</div>` : "")
     : "넣을 일정이 없습니다(남은 회차가 없거나 공사 기간·총 횟수 정보가 없음).";
   const replaceNote = pv.replace_count

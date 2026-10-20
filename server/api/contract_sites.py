@@ -3,8 +3,9 @@
 - 계약 하나에 현장 여럿(시특법처럼 — 한 용역계약서에 현장별 K2B 기술지도계약서 n개), 현장 하나는 계약 하나.
 - 같은 관리번호끼리 자동 연결: 계약 "26-3" ↔ 현장 "26-3"(현장 하나)·"26-3-1"·"26-3-2"…(여럿). [🔗 현장 연결]은 번호가 다를 때만.
 - 새 번호 = 계약·현장 통틀어 그해 "YY-N"의 가장 큰 N + 1(지금 26-68 → 26-69). 현장이 여럿이면 "26-69-1"·"26-69-2"….
-- 공기 경과(현장 목록·현장 화면·방문 달력 진행 막대)는 연결된 계약의 용역 기간(착수일~완수일, 나라장터·국방조달 용역계약서)이 있으면 그것,
-  없으면 현장 공사기간(기술지도계약서).
+- 우리 계약기간(공기 경과 진행 막대·지도 출장 자동 배치·놓친 회차 다시 잡기·일정 없는 현장) = 현장 기술지도 계약기간(K2B 기술지도계약서 아래쪽
+  "계약기간", site_contact 0058) → 연결된 계약의 용역 기간(착수일~완수일, 나라장터·국방조달 용역계약서) → 현장 공사기간(10/20 형·사용자, `our_periods`).
+  공사기간은 보고서 표1에만.
 """
 from __future__ import annotations
 
@@ -109,8 +110,42 @@ def next_no(db: Session, company_id: int, year: int | None = None) -> str:
     return f"{yy}-{top + 1}"
 
 
-def pace_period(contract: ServiceContract | None, site: Site) -> tuple[datetime.date | None, datetime.date | None]:
-    """공기 경과 기간 — 계약 용역 기간(착수일·완수일 둘 다 있을 때), 아니면 현장 공사기간(10/20 형)."""
-    if contract is not None and contract.start_date and contract.end_date:
-        return contract.start_date, contract.end_date
-    return site.period_start, site.period_end
+PERIOD_SOURCE = {"guide": "기술지도계약서", "contract": "용역 계약", "work": "공사기간"}
+
+
+def our_periods(db: Session, sites: list[Site]) -> dict[int, tuple[datetime.date | None, datetime.date | None, str]]:
+    """우리 계약기간 {현장 id: (시작, 끝, 출처)} — 공기 경과·자동 배치·놓친 회차·일정 없는 현장이 같이 쓴다(10/20 사용자 "자동 배치도 우리 계약기간으로").
+    현장 기술지도 계약기간(site_contact, K2B 기술지도계약서 아래쪽 "계약기간") → 연결된 용역 계약 착수~완수 → 공사기간 — 시작·끝 둘 다 있는 첫 것.
+    출처 = PERIOD_SOURCE 키(guide·contract·work)."""
+    from core.models_web import SiteContact
+
+    ids = [s.id for s in sites]
+    guide = {sid: (a, b) for sid, a, b in db.query(SiteContact.site_id, SiteContact.contract_start, SiteContact.contract_end)
+             .filter(SiteContact.site_id.in_(ids))} if ids else {}
+    cmap = contract_map(db, ids)
+    out = {}
+    for s in sites:
+        c = cmap.get(s.id)
+        for (a, b), src in ((guide.get(s.id, (None, None)), "guide"), ((c.start_date, c.end_date) if c else (None, None), "contract")):
+            if a and b:
+                out[s.id] = (a, b, src)
+                break
+        else:
+            out[s.id] = (s.period_start, s.period_end, "work")
+    return out
+
+
+def our_period(db: Session, site: Site) -> tuple[datetime.date | None, datetime.date | None, str]:
+    return our_periods(db, [site])[site.id]
+
+
+def site_contact_row(db: Session, site_id: int):
+    """현장 site_contact 줄(없으면 만듦 — server/api/routers/site_contacts.update_contacts와 같은 기본값)."""
+    from core.models_web import SiteContact
+
+    row = db.get(SiteContact, site_id)
+    if row is None:
+        row = SiteContact(site_id=site_id, owner_name="", owner_email="", supervisor_name="", supervisor_email="", retired_emails="",
+                          visit_address="", first_visit_no=1)
+        db.add(row)
+    return row

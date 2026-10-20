@@ -42,6 +42,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
     map_addr = map_addresses(db, sites)
     done = done_counts(db, ids)  # 다녀온 횟수(첫 지도 회차 반영) — 진행 막대
     viewed = site_views.viewed_map(db, user.id)  # 최근 열람순(로그인한 사람 기준, 10/8)
+    periods = contract_sites.our_periods(db, sites)  # 공기 경과 = 우리 계약기간(10/20)
     out = []
     for site in sites:
         count, last_no, last_date = stats.get(site.id, (0, None, None))
@@ -52,7 +53,7 @@ def list_sites(user: User = Depends(get_current_user), db: Session = Depends(get
         item.staff_name = staff_names.get(site.assigned_staff_id, "")
         item.map_address = map_addr[site.id]
         c = cmap.get(site.id)
-        item.pace = pace_dict(site, done.get(site.id), period=contract_sites.pace_period(c, site))
+        item.pace = pace_dict(site, done.get(site.id), period=periods[site.id])
         item.viewed_at = viewed.get(site.id)
         if c is not None:
             item.contract_id, item.contract_no, item.contract_title = c.id, short_mgmt(c.management_no), c.title or ""
@@ -110,7 +111,7 @@ def get_site(site_id: int, user: User = Depends(get_current_user), db: Session =
     if site is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "현장을 찾을 수 없습니다.")
     out = SiteOut.model_validate(site)
-    out.pace = pace_dict(site, done_counts(db, [site.id]).get(site.id), period=contract_sites.pace_period(contract_sites.contract_of(db, site.id), site))
+    out.pace = pace_dict(site, done_counts(db, [site.id]).get(site.id), period=contract_sites.our_period(db, site))
     site_views.mark(db, user.id, site.id)  # 현장 목록 "최근 열람순"
     return out
 

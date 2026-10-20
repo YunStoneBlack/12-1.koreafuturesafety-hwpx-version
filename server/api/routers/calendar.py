@@ -115,7 +115,7 @@ def calendar(
             total[p["date"]].add(p["site_id"])
 
     last_nos = done_counts(db, list(sites))  # 다녀온 횟수(첫 지도 회차 반영)
-    cmap = contract_sites.contract_map(db, list(sites))  # 공기 경과 = 연결된 용역 계약 기간(10/20 형)
+    periods = contract_sites.our_periods(db, list(sites.values()))  # 공기 경과 = 우리 계약기간(10/20)
     map_addr = map_addresses(db, sites)
     return {
         "today": today.isoformat(),
@@ -125,7 +125,7 @@ def calendar(
             s.id: {"phone": (s.manager_phone or "").strip(), "map_address": map_addr[s.id],
                    # 시·군("포천시" → "포천") — 그날 요원 상자 머리줄 "📍포천·연천"(폰은 주소가 안 보여 어디 가는지 모름, 2026-10-02 사용자)
                    "region": short_region(map_addr[s.id]),
-                   "pace": pace_dict(s, last_nos.get(s.id), period=contract_sites.pace_period(cmap.get(s.id), s))}
+                   "pace": pace_dict(s, last_nos.get(s.id), period=periods[s.id])}
             for s in sites.values()
         },
         "report_limit": MAX_SITES_PER_STAFF_PER_DAY,  # 보고서 담당 한 사람 하루

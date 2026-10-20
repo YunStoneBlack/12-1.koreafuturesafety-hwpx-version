@@ -134,7 +134,7 @@ def summary(db: Session, row: ServiceContract) -> dict:
         "contract_date": _iso(row.contract_date), "start_date": _iso(row.start_date), "end_date": _iso(row.end_date),
         "site_id": sites[0].id if sites else None,
         "site_label": (site_label(sites[0]) + (f" 외 {len(sites) - 1}곳" if len(sites) > 1 else "")) if sites else "",
-        "sites": [{"id": s.id, "label": site_label(s)} for s in sites], "changes": len(row.changes or []),
+        "sites": [{"id": s.id, "label": site_label(s)} for s in sites], "changes": last_change_no(row),
         "stage": contract_status.stage(made["start"]["submitted"], made["done"]["submitted"]),
         "made": made, "dates": {k: _iso(v) for k, v in dates.items()},
         "created_at": row.created_at.strftime("%Y-%m-%d") if row.created_at else "",
@@ -300,6 +300,17 @@ def _site_fields(found: dict, name: str, management_no: str) -> dict:
     return out
 
 
+def _guide_period(found: dict) -> dict:
+    """읽은 기술지도계약서 → 기술지도 계약기간 {contract_start, contract_end}(날짜 모양일 때만 — site_contact, 우리 계약기간 첫 기준)."""
+    out = {}
+    for k in ("contract_start", "contract_end"):
+        try:
+            out[k] = datetime.date.fromisoformat(str(found.get(k) or "")[:10])
+        except ValueError:
+            pass
+    return out
+
+
 @router.post("/new-card")
 def create_card(guides: list[UploadFile] = File(...), service: UploadFile | None = File(None), management_no: str = Form(""),
                 user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -343,9 +354,12 @@ def create_card(guides: list[UploadFile] = File(...), service: UploadFile | None
     row.management_no = no
     info = _read_pdf(db, user, row, sdata) if sdata else {}
     many = len(gdata) > 1
-    if not sdata:  # 용역계약서 없이(민간 등) — 계약 이름만 현장에서
+    periods = [_guide_period(found) for found, _ in results]
+    if not sdata:  # 용역계약서 없이(민간 등) — 계약 이름은 현장에서, 착수·완수는 기술지도계약서 계약기간(여럿이면 가장 이른 시작~가장 늦은 끝, 10/20 사용자)
         first = (results[0][0] or {}).get("name") or Path(gdata[0][0]).stem
         row.title = f"{first} 외 {len(gdata) - 1}곳" if many else first
+        starts, ends = [g["contract_start"] for g in periods if "contract_start" in g], [g["contract_end"] for g in periods if "contract_end" in g]
+        row.start_date, row.end_date = (min(starts) if starts else None), (max(ends) if ends else None)
     db.flush()
     made = []
     for k, ((fname, data), (found, _)) in enumerate(zip(gdata, results), 1):
@@ -354,6 +368,9 @@ def create_card(guides: list[UploadFile] = File(...), service: UploadFile | None
         db.add(site)
         db.flush()
         contract_sites.link(db, row, site)
+        if periods[k - 1]:  # 기술지도 계약기간(우리 계약기간 — 자동 배치·공기 경과)
+            sc = contract_sites.site_contact_row(db, site.id)
+            sc.contract_start, sc.contract_end = periods[k - 1].get("contract_start"), periods[k - 1].get("contract_end")
         dest = files.out_path(row, f"기술지도계약서_{mno}.pdf")  # 계약 폴더에 원본(계약변경 때 비교)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
@@ -364,19 +381,40 @@ def create_card(guides: list[UploadFile] = File(...), service: UploadFile | None
 
 # ---------- [+ 계약변경](10/20 형 — 공기연장 등으로 용역기간이 바뀜: 서류 카드에서 바꾸면 현장 카드도, 변경 용역계약서·기술지도계약서 첨부) ----------
 CHANGE_CONTRACT = ("contract_date", "start_date", "end_date", "amount")
-CHANGE_SITE = ("period_start", "period_end", "amount", "total_guidance_count")
+CHANGE_SITE = ("contract_start", "contract_end", "period_start", "period_end", "amount", "total_guidance_count")
+SITE_CONTACT_KEYS = ("contract_start", "contract_end")  # 기술지도 계약기간 — site_contact(0058), 나머지는 Site 칸
 CHANGE_LABEL = {"contract_date": "계약일", "start_date": "착수일", "end_date": "완수일", "amount": "계약금액",
+                "contract_start": "계약 시작", "contract_end": "계약 종료",
                 "period_start": "공사 시작", "period_end": "공사 종료", "total_guidance_count": "지도 총 횟수"}
+
+
+def _site_val(db: Session, s: Site, k: str):
+    if k in SITE_CONTACT_KEYS:
+        from core.models_web import SiteContact
+
+        sc = db.get(SiteContact, s.id)
+        return getattr(sc, k) if sc else None
+    return getattr(s, k)
+
+
+def _set_site_val(db: Session, s: Site, k: str, v) -> None:
+    setattr(contract_sites.site_contact_row(db, s.id) if k in SITE_CONTACT_KEYS else s, k, v)
 
 
 def _val(v):
     return _iso(v) if isinstance(v, datetime.date) else v
 
 
+def last_change_no(row: ServiceContract) -> int:
+    """마지막 계약변경 차수(0 = 없음). 기록 수가 아니라 차수 — 착수계에 넣었던 변경 계약서를 옮긴 기록은 나라장터 계약번호 끝(-03 = 3차)부터라
+    앞 차수가 비어 있을 수 있음(10/20)."""
+    return max((int(c.get("no") or 0) for c in row.changes or []), default=0)
+
+
 def _change_view(db: Session, row: ServiceContract) -> dict:
     sites = contract_sites.sites_of(db, row.id)
-    return {"next_no": len(row.changes or []) + 1, "contract": {k: _val(getattr(row, k)) for k in CHANGE_CONTRACT},
-            "sites": [{"id": s.id, "label": site_label(s), **{k: _val(getattr(s, k)) for k in CHANGE_SITE}} for s in sites],
+    return {"next_no": last_change_no(row) + 1, "contract": {k: _val(getattr(row, k)) for k in CHANGE_CONTRACT},
+            "sites": [{"id": s.id, "label": site_label(s), **{k: _val(_site_val(db, s, k)) for k in CHANGE_SITE}} for s in sites],
             "history": row.changes or [], "labels": CHANGE_LABEL}
 
 
@@ -402,7 +440,7 @@ def read_change(contract_id: int, kind: Literal["service", "guide"], file: Uploa
         found = _read_guide(data, user.company_id)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"기술지도계약서를 읽지 못했습니다: {str(err).splitlines()[0][:160]}") from err
-    fields = _site_fields(found, "", "")
+    fields = _site_fields(found, "", "") | _guide_period(found)
     return {"values": {k: _val(fields[k]) for k in CHANGE_SITE if k in fields}}
 
 
@@ -424,7 +462,8 @@ def _parse_change(v, key: str):
 def save_change(contract_id: int, data: str = Form(...), service: UploadFile | None = File(None), guides: list[UploadFile] | None = File(None),
                 guide_ids: str = Form(""), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """[변경 저장] — data = {reason, contract: {칸: 값}, sites: {현장 id: {칸: 값}}}(창에 보인 값 전부), service = 용역계약서(변경), guides + guide_ids =
-    현장별 기술지도계약서(변경). 바뀐 칸만 계약·현장에 넣고 차수 기록(전·후 값, 첨부 파일). 공기 경과·자동 배치는 바뀐 기간으로(contract_sites.pace_period)."""
+    현장별 기술지도계약서(변경). 바뀐 칸만 계약·현장에 넣고 차수 기록(전·후 값, 첨부 파일). 공기 경과·자동 배치는 바뀐 우리 계약기간으로
+    (contract_sites.our_periods — 현장 계약 시작·종료 → 용역 착수·완수 → 공사기간)."""
     import json
 
     row = _require(db, user, contract_id)
@@ -446,17 +485,17 @@ def save_change(contract_id: int, data: str = Form(...), service: UploadFile | N
             continue
         for k, v in (vals or {}).items():
             if k in CHANGE_SITE:
-                new = _parse_change(v, k)
-                if new != getattr(s, k):
-                    before["sites"].setdefault(str(s.id), {})[k] = _val(getattr(s, k))
+                new, old = _parse_change(v, k), _site_val(db, s, k)
+                if new != old:
+                    before["sites"].setdefault(str(s.id), {})[k] = _val(old)
                     after["sites"].setdefault(str(s.id), {})[k] = _val(new)
-                    setattr(s, k, new)
+                    _set_site_val(db, s, k, new)
     ids = [int(x) for x in guide_ids.split(",") if x.strip().isdigit()]
     uploads = [("service", service)] if service is not None else []
     uploads += [(f"guide:{sid}", g) for sid, g in zip(ids, guides or [])]
     if not (after["contract"] or after["sites"] or uploads):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "바뀐 칸도 첨부한 변경 계약서도 없습니다.")
-    no = len(row.changes or []) + 1
+    no = last_change_no(row) + 1
     folder = files.contract_dir(row) / "계약변경" / f"{no}차"
     saved = []
     for key, f in uploads:

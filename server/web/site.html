@@ -128,6 +128,14 @@ function renderSiteSummary(site) {
     div.children[0].textContent = label;
     div.children[1].textContent = value == null || value === "" ? "-" : value;
     box.appendChild(div);
+    if (key === "period_end" && currentPace && currentPace.period_src !== "공사기간") { // 우리 계약기간(자동 배치·공기 경과 기준, 10/20)
+      const c = document.createElement("div");
+      c.style.marginBottom = "8px";
+      c.innerHTML = `<div class="slot-label">계약기간 <span style="font-weight:400; color:var(--muted);"></span></div><div style="font-weight:500;"></div>`;
+      c.querySelector("span").textContent = `(${currentPace.period_src} — 자동 배치·공기 경과 기준)`;
+      c.children[1].textContent = `${currentPace.period_start || "-"} ~ ${currentPace.period_end || "-"}`;
+      box.appendChild(c);
+    }
   }
   for (const [role, label] of [["owner", "발주처"], ["supervisor", "감리단"]]) {
     const text = [currentContacts[`${role}_name`], currentContacts[`${role}_email`]].filter(Boolean).join(" · ");
@@ -160,6 +168,17 @@ async function openSiteEdit() {
       f.querySelector("input").value = currentContacts.first_visit_no || 1;
       box.appendChild(f);
       if (amountDiv) box.appendChild(amountDiv);
+      continue;
+    }
+    if (key === "period_end") { // 공사기간 다음에 기술지도 계약기간(10/20 사용자 — 우리 계약기간: 자동 배치·공기 경과, 비우면 용역 계약 → 공사기간)
+      box.appendChild(div);
+      for (const [k, lab] of [["contract_start", "계약기간 시작일"], ["contract_end", "계약기간 종료일"]]) {
+        const g = document.createElement("div");
+        g.innerHTML = `<label for="sf-c-${k}">${lab} <span style="font-weight:400; color:var(--muted);">(기술지도계약서 — 비우면 용역 계약 기간)</span></label>
+          <input id="sf-c-${k}" type="date" />`;
+        g.querySelector("input").value = currentContacts[k] || "";
+        box.appendChild(g);
+      }
       continue;
     }
     if (key === "address") { // 주소 바로 밑에 지도 방문 주소(보고서엔 안 나감, 비우면 현장 주소)
@@ -242,6 +261,8 @@ document.getElementById("site-edit-form").addEventListener("submit", async (e) =
     const contactBody = Object.fromEntries([...CONTACT_FIELDS.map(([key]) => key), "visit_address"]
       .map((key) => [key, document.getElementById(`sf-c-${key}`).value.trim()]));
     contactBody.first_visit_no = Number(document.getElementById("sf-c-first_visit_no").value) || 1; // 첫 지도 회차(웹판 전용 — PDF 영향 없음)
+    for (const k of ["contract_start", "contract_end"]) contactBody[k] = document.getElementById(`sf-c-${k}`).value || null; // 기술지도 계약기간(비우면 null)
+    const periodChanged = ["contract_start", "contract_end"].some((k) => (contactBody[k] || "") !== (currentContacts[k] || ""));
     currentContacts = await apiPatch(`/sites/${siteId}/contacts`, contactBody); // 메일 주소가 틀리면 여기서 400 — 현장 정보보다 먼저 확인
     // 현장 정보는 실제로 바뀐 게 있을 때만 저장 — 저장하면 표지가 바뀐 것으로 보고 이 현장 PDF가 전부 "수정 전 버전"이 되므로
     // (발주처·감리단만 고쳤을 때 PDF를 다시 만들 필요 없게, 2026-09-30)
@@ -252,6 +273,8 @@ document.getElementById("site-edit-form").addEventListener("submit", async (e) =
       await apiPatch(`/sites/${siteId}`, body);
       currentSite = await api(`/sites/${siteId}`); // 진행 막대(공기·총 횟수가 바뀌었을 수 있음)까지 새로
       if (staffChanged) handoverMsg = await handoverPlans(body.assigned_staff_id);
+    } else if (periodChanged) {
+      currentSite = await api(`/sites/${siteId}`); // 계약기간만 바뀜 — 진행 막대(공기 경과)를 새로
     }
     applySite(currentSite);
     if (handoverMsg) document.querySelector(".site-plan-msg").innerHTML = handoverMsg;

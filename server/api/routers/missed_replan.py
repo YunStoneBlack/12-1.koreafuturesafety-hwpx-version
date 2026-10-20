@@ -7,11 +7,11 @@
      (민재형: "지난 일정을 지워도 잔여횟수가 다 달력에 있나?" → 아님, 10/10 실데이터 6곳 모두 모자람)
 2) "⚠ 예정이 모자란 현장 N곳" 안내 + [채워 넣기](민재형: 자동 배치가 일정 짜다 애매하면 횟수를 다 안 채워 넣는 듯 — 맞음, 규칙에 막히면
    넣을 수 있는 만큼만 넣고 넣은 뒤엔 다시 알려 주는 곳이 없었음).
-   - `GET  /calendar/short` — 진행 중·준공 전 현장 중 남은 횟수 > 오늘 이후 예정 수인 곳.
+   - `GET  /calendar/short` — 진행 중·계약 끝 전 현장 중 남은 횟수 > 오늘 이후 예정 수인 곳.
    - `POST /calendar/short/fill` — body `site_ids`(없으면 전부)·`dry_run`. 모자란 횟수만큼 새 자동 예정을 더한다(기존 예정은 그대로).
      날짜는 그 현장 다른 방문과 간격이 고르게(남은 기간 ÷ 남은 횟수만큼은 떨어지게) → 그 안에선 같은 지역 출장에 붙이기 → 이른 날.
 
-공통 날짜 규칙(DayPicker): 내일 ~ 마감(준공 − 자동 배치 "준공 며칠 전" 설정, 준공일 없으면 석 달), 주말·공휴일·징검다리 빼기, 그 현장이 이미 잡힌 날 빼기,
+공통 날짜 규칙(DayPicker): 내일 ~ 마감(우리 계약기간 끝 − 자동 배치 "계약 끝 며칠 전" 설정, 끝 날짜 없으면 석 달 — 10/20 전엔 준공일), 주말·공휴일·징검다리 빼기, 그 현장이 이미 잡힌 날 빼기,
 회사 하루 한도(report_staff.day_cap), 그 요원이 원래 안 나가는 날이면 하루 출장 인원(설정, 기본 2명)을 넘지 않게, 같은 지역 출장 궁합은
 [일정 변경](server/api/routers/plan_change.py)과 같은 함수. 현장 자동 배치를 다시 돌리지 않는 이유: 그새 바뀐 규칙(하루 출장 인원 등) 때문에
 기존 예정이 오히려 줄어든다(10/10 확인 — 19건 → 6건).
@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from core import config
 from core.models_db import Report, Site, Staff
 from core.models_web import User, VisitPlan
+from server.api import contract_sites
 from server.api.deps import get_current_user, get_db
 from server.api.report_staff import assign_new_plans, day_cap, has_room, paper_load, preferred_map
 from server.api.routers.plan_change import _compat, _day_sites, _together
@@ -40,7 +41,7 @@ from server.api.visit_scheduler import blocked_days, korean_holidays
 router = APIRouter(prefix="/calendar", tags=["plan-fix"])
 DAY = datetime.timedelta(days=1)
 JOIN_WINDOW_DAYS = 21  # 지난 일정은 내일부터 이 안의 같은 지역 출장에 붙인다(plan_change.SUGGEST_WINDOW_DAYS와 같은 폭)
-FALLBACK_DAYS = 90  # 준공일이 없는 현장은 내일부터 석 달 안에서
+FALLBACK_DAYS = 90  # 계약기간 끝이 없는 현장은 내일부터 석 달 안에서
 
 
 class DayPicker:
@@ -85,8 +86,10 @@ class DayPicker:
             self.travelers[day].add(staff_id)
 
 
-def _limit(site: Site | None, today: datetime.date, finish: int) -> datetime.date:
-    return site.period_end - datetime.timedelta(days=finish) if site and site.period_end else today + datetime.timedelta(days=FALLBACK_DAYS)
+def _limits(db: Session, sites: list[Site], today: datetime.date, finish: int) -> dict[int, datetime.date]:
+    """현장 → 마감 = 우리 계약기간 끝 − 설정 일수(10/20 — contract_sites.our_periods), 끝이 없으면 석 달 뒤."""
+    ends = {sid: end for sid, (_, end, _) in contract_sites.our_periods(db, sites).items()}
+    return {s.id: ends[s.id] - datetime.timedelta(days=finish) if ends[s.id] else today + datetime.timedelta(days=FALLBACK_DAYS) for s in sites}
 
 
 def _needs(db: Session, sites: list[Site], today: datetime.date) -> dict[int, tuple[int, int]]:
@@ -100,7 +103,7 @@ def _needs(db: Session, sites: list[Site], today: datetime.date) -> dict[int, tu
 
 
 def _short_label(why_limit: datetime.date, finish: int) -> str:
-    return f"마감({why_limit.month}/{why_limit.day}, 준공 {finish}일 전)까지 넣을 날이 부족합니다"
+    return f"마감({why_limit.month}/{why_limit.day}, 계약 끝 {finish}일 전)까지 넣을 날이 부족합니다"
 
 
 # ---------- 1) 지난 일정 재배치 ----------
@@ -134,7 +137,7 @@ def _compute_missed(db: Session, company_id: int, today: datetime.date):
     sites = {s.id: s for s in db.query(Site).filter(Site.company_id == company_id)}
     targets = [sites[sid] for sid in sorted({p.site_id for p in missed}) if sid in sites]
     finish = config.get_plan_finish_before_days(company_id)
-    limits = {s.id: _limit(s, today, finish) for s in targets}
+    limits = _limits(db, targets, today, finish)
     picker = DayPicker(db, company_id, today, sites, max(limits.values(), default=today))
     need_left = {sid: (rem - up if is_active(sites[sid]) else 0) for sid, (rem, up) in _needs(db, targets, today).items()}
     first = preferred_map(db, targets)
@@ -199,9 +202,10 @@ def replan(body: ReplanIn, user: User = Depends(get_current_user), db: Session =
 # ---------- 2) 예정이 모자란 현장 ----------
 
 def _short_sites(db: Session, company_id: int, today: datetime.date):
-    """[(현장, 남은 횟수, 예정 수)] — 진행 중·준공 전·총 횟수 있음."""
-    sites = [s for s in db.query(Site).filter(Site.company_id == company_id)
-             if is_active(s) and s.total_guidance_count and s.period_end and s.period_end > today]
+    """[(현장, 남은 횟수, 예정 수)] — 진행 중·우리 계약기간 끝 전·총 횟수 있음."""
+    sites = [s for s in db.query(Site).filter(Site.company_id == company_id) if is_active(s) and s.total_guidance_count]
+    periods = contract_sites.our_periods(db, sites)
+    sites = [s for s in sites if periods[s.id][1] and periods[s.id][1] > today]
     needs = _needs(db, sites, today)
     return [(s, rem, up) for s in sites for rem, up in [needs[s.id]] if rem > up]
 
@@ -237,7 +241,7 @@ def fill(body: FillIn, user: User = Depends(get_current_user), db: Session = Dep
         return {"ok": True, "dry_run": body.dry_run, "added": 0, "stuck": 0, "items": []}
     all_sites = {s.id: s for s in db.query(Site).filter(Site.company_id == cid)}
     finish = config.get_plan_finish_before_days(cid)
-    limits = {s.id: _limit(s, today, finish) for s, _, _ in short}
+    limits = _limits(db, [s for s, _, _ in short], today, finish)
     picker = DayPicker(db, cid, today, all_sites, max(limits.values()))
     first = preferred_map(db, [s for s, _, _ in short])
     items = []  # {site, staff_id, date|None, with, reason}

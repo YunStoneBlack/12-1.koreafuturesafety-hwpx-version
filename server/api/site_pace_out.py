@@ -19,10 +19,13 @@ _DAYS_PER_MONTH = 30.4375  # core/site_pace.py와 같은 값
 
 def pace_dict(site, last_visit_no: int | None, today: datetime.date | None = None, period: tuple | None = None) -> dict:
     """데스크톱과 같은 계산 + 화면용 "경과 개월/전체 공사 개월"(예: 6/15개월 경과 — 2026-09-30 사용자 요청).
-    period = (시작, 끝) — 연결된 용역 계약의 기간(10/20 형, server/api/contract_sites.pace_period), 비면 현장 공사기간."""
+    period = (시작, 끝, 출처) — 우리 계약기간(10/20, server/api/contract_sites.our_periods), 비면 현장 공사기간. 화면용으로 기간·출처 글자도 넣는다."""
+    from server.api.contract_sites import PERIOD_SOURCE
+
     today = today or datetime.date.today()
-    start, end = period or (site.period_start, site.period_end)
+    start, end, src = period or (site.period_start, site.period_end, "work")
     out = asdict(compute_site_pace(start, end, site.total_guidance_count, last_visit_no or 0, today))
+    out |= {"period_start": start.isoformat() if start else None, "period_end": end.isoformat() if end else None, "period_src": PERIOD_SOURCE[src]}
     out["elapsed_months"] = out["total_months"] = None
     if start and end and end > start:
         total = max(round((end - start).days / _DAYS_PER_MONTH), 1)

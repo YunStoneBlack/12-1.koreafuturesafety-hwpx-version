@@ -4,6 +4,8 @@
 - `GET /sites/{id}/contacts`, `PATCH /sites/{id}/contacts {manager_name?, manager_email?, owner_name?, owner_email?, ...}`
 - 메일 칸은 쉼표로 여러 개(현장책임자는 한 개). 저장할 때 ", "로 정리한다.
 - 지도 방문 주소(visit_address): [📍 지도] 버튼용, 비어 있으면 현장 주소(`map_address`). 보고서엔 안 나가 PDF 영향 없음.
+- 기술지도 계약기간(contract_start·contract_end, 0058 — 10/20 사용자): K2B 기술지도계약서 아래쪽 "계약기간". 우리 계약기간(자동 배치·공기 경과)의
+  첫 기준(server/api/contract_sites.our_periods), 비우면 용역 계약 착수~완수 → 공사기간. 보고서엔 안 나감(표1은 공사기간).
 - 현장책임자 이름·메일은 보고서 표지에 들어가므로 바뀌면 그 현장 보고서를 "수정됨"으로 기록한다(PATCH /sites/{id}와 같은 규칙 —
   PDF를 다시 만들어야 보낼 수 있다). 발주처·감리단은 표지에 없어서 PDF에 영향 없음 — 이 주소(/contacts)는 edit_tracking이 자동으로
   잡지 않으므로(현장 수정 규칙은 `/api/sites/{id}`로 끝나는 주소만) 현장책임자일 때만 여기서 직접 기록한다.
@@ -11,6 +13,8 @@
 """
 
 from __future__ import annotations
+
+import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -33,6 +37,8 @@ class ContactsIn(BaseModel):
     supervisor_email: str | None = None
     visit_address: str | None = None
     first_visit_no: int | None = None  # 첫 지도 회차(이 시스템 전에 다녀온 회차가 있으면 그다음, 기본 1)
+    contract_start: datetime.date | None = None  # 기술지도 계약기간(null = 비움)
+    contract_end: datetime.date | None = None
 
 
 def split_emails(value: str) -> list[str]:
@@ -65,6 +71,8 @@ def contacts_of(db: Session, site) -> dict:
         "supervisor_email": row.supervisor_email if row else "",
         "visit_address": row.visit_address if row else "",
         "first_visit_no": (row.first_visit_no if row else 1) or 1,
+        "contract_start": row.contract_start.isoformat() if row and row.contract_start else "",
+        "contract_end": row.contract_end.isoformat() if row and row.contract_end else "",
         "map_address": map_address(site, row),
     }
 
@@ -137,6 +145,11 @@ def update_contacts(site_id: int, body: ContactsIn, user: User = Depends(get_cur
         if n < 1 or (site.total_guidance_count and n > site.total_guidance_count):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"첫 지도 회차는 1~{site.total_guidance_count or '총 횟수'} 사이로 적으세요.")
         row.first_visit_no = n
+    for k in ("contract_start", "contract_end"):
+        if k in fields:
+            setattr(row, k, fields[k])
+    if row.contract_start and row.contract_end and row.contract_end < row.contract_start:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "기술지도 계약기간 종료일이 시작일보다 빠릅니다.")
     db.flush()
     after = contacts_of(db, site)
     now_all = {a.lower() for _, k in ROLE_EMAIL_KEYS for a in split_emails(after[k])}

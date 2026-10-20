@@ -5,7 +5,7 @@
 - `POST /calendar/auto-plan/apply` — 같은 계산을 다시 해서 저장: 대상 현장의 "자동(auto)이면서 내일 이후" 예정을 지우고 새로 넣는다
   (보고서 담당자도 규칙대로 — report_staff.assign_new_plans).
   사람이 넣거나 옮긴 예정(manual, 📌)은 안 건드리고 기준점으로 쓴다. 현장 하나만 할 땐 다른 현장 예정은 그대로(새 현장을 기존 일정에 끼워 넣기).
-- `GET /calendar/unplanned` — "📅 일정 없는 현장"(진행 중·남은 회차 있음·공사 기간 안 끝남인데 내일 이후 예정이 하나도 없음) — 현장 목록·달력 위 안내.
+- `GET /calendar/unplanned` — "📅 일정 없는 현장"(진행 중·남은 회차 있음·우리 계약기간 안 끝남인데 내일 이후 예정이 하나도 없음) — 현장 목록·달력 위 안내.
 - `GET/POST /settings/auto-plan` — 마감(준공 며칠 전까지 마칠지, 기본 14일) + 도로 거리 기준(같은 시·군 30km·한 사람 하루 현장끼리 70km,
   server/api/geocode.py) + 하루 출장 인원(회사 전체, 기본 2명 — 비상 인력, 2026-10-02).
 """
@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from core import config
 from core.models_db import Report, Site, Staff
 from core.models_web import User, VisitPlan
+from server.api import contract_sites
 from server.api.deps import get_current_user, get_db, is_groupware_admin
 from server.api.geocode import RoadDistance, map_addresses, site_coords
 from server.api.report_staff import assign_new_plans, day_cap, preferred_map, staff_order, travelers
@@ -108,8 +109,9 @@ def _compute(db: Session, company_id: int, body: AutoPlanIn, today: datetime.dat
         if p.site_id in target_ids:
             fixed[p.site_id].append(p.plan_date)
     first = preferred_map(db, targets)  # 1순위(직전 회차 보고서 담당 → 현장 담당) — 빈 날 새 지역을 맡을 사람·묶음 출장자 고르기
+    periods = contract_sites.our_periods(db, targets)  # 우리 계약기간 안에 다 마치게(10/20 사용자 — 전엔 공사기간)
     ins = [SiteIn(
-        id=s.id, name=s.name, staff_id=first.get(s.id), region=region[s.id], period_start=s.period_start, period_end=s.period_end,
+        id=s.id, name=s.name, staff_id=first.get(s.id), region=region[s.id], period_start=periods[s.id][0], period_end=periods[s.id][1],
         total=s.total_guidance_count, performed=done[s.id], last_date=last_dates.get(s.id), fixed=fixed[s.id],
     ) for s in targets]
     finish = config.get_plan_finish_before_days(company_id)
@@ -179,8 +181,9 @@ def apply(body: AutoPlanIn, request: Request = None, user: User = Depends(get_cu
 @router.get("/calendar/unplanned")
 def unplanned(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     today = datetime.date.today()
-    sites = [s for s in db.query(Site).filter(Site.company_id == user.company_id) if _active(s)
-             and s.total_guidance_count and s.period_end and s.period_end > today]
+    sites = [s for s in db.query(Site).filter(Site.company_id == user.company_id) if _active(s) and s.total_guidance_count]
+    periods = contract_sites.our_periods(db, sites)  # 우리 계약기간이 안 끝난 현장만(10/20)
+    sites = [s for s in sites if periods[s.id][1] and periods[s.id][1] > today]
     if not sites:
         return []
     ids = [s.id for s in sites]

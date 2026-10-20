@@ -292,6 +292,10 @@ class SiteContact(Base):
     # 첫 지도 회차(2026-10-01, alembic 0013) — 이 시스템 전에 다녀온 회차가 있으면(30회 중 1~7회) 8. 보고서가 없을 때 "다녀온 횟수" = 이 값 - 1,
     # 첫 보고서 회차 = 이 값(server/api/site_pace_out.done_counts, repo.create_report). 보고서가 생기면 최근 보고서 회차가 우선(둘 중 큰 것).
     first_visit_no: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # 기술지도 계약기간(2026-10-20 사용자, alembic 0058) — K2B 기술지도계약서 아래쪽 "계약기간"(공사기간과 다름). 우리 계약기간 = 이 칸 →
+    # 연결된 용역 계약 착수~완수 → 공사기간(server/api/contract_sites.our_periods — 자동 배치·공기 경과). 보고서엔 안 나감(표1은 공사기간)
+    contract_start: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    contract_end: Mapped[datetime.date | None] = mapped_column(Date, default=None)
 
 
 class SiteGeo(Base):

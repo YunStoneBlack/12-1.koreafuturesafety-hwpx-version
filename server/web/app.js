@@ -330,6 +330,7 @@ function sitePaceBox(pace) {
     const months = pace.elapsed_months == null ? (pace.elapsed_text || "")
       : `${pace.elapsed_months}/${pace.total_months}개월 경과`;
     timeRow.querySelector(".pace-note").textContent = months ? ` (${months})` : "";
+    if (pace.period_start) timeRow.title = `${pace.period_src} ${pace.period_start} ~ ${pace.period_end}`; // 공기 경과 = 우리 계약기간(10/20)
   }
   const fill = countRow.querySelector(".pace-fill");
   fill.style.width = `${pct(pace.count_ratio)}%`;

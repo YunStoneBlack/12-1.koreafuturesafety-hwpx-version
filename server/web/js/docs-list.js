@@ -102,7 +102,7 @@
       </div>
       <div class="dc-docs">${docs}${c.changes ? `<span class="dc-doc dc-chg"><b>계약변경</b> ${c.changes}차</span>` : ""}</div>
       <div class="dc-actions">
-        <button type="button" class="secondary dc-change" title="공기연장 등 — 용역기간·금액과 현장 공사기간을 같이 바꾸고 변경 계약서를 붙임">+ 계약변경</button>
+        <button type="button" class="secondary dc-change" title="공기연장 등 — 용역기간·금액과 현장 계약기간·공사기간을 같이 바꾸고 변경 계약서를 붙임">+ 계약변경</button>
         <button type="button" class="secondary dc-start">📑 착수계</button>
         <button type="button" class="secondary dc-done">📑 완수계</button>
         <button type="button" class="secondary dc-del" title="계약 지우기">삭제</button>
@@ -142,7 +142,8 @@
   document.getElementById("dc-new-btn").addEventListener("click", () => openNewCard([]));
 
   // ---------- [+ 계약변경] 창(10/20 형 — 공기연장 등): 변경 용역계약서·기술지도계약서를 붙이면 읽어서 칸을 채움(저장 전 고칠 수 있음),
-  // [변경 저장] = 계약 칸 + 현장 칸(공사기간·금액·지도 횟수)을 같이 바꾸고 차수 기록(바뀐 칸 전·후, 첨부). 공기 경과는 바뀐 용역 기간으로.
+  // [변경 저장] = 계약 칸 + 현장 칸(계약기간·공사기간·금액·지도 횟수)을 같이 바꾸고 차수 기록(바뀐 칸 전·후, 첨부).
+  // 공기 경과·자동 배치는 바뀐 우리 계약기간으로(현장 계약 시작·종료 → 용역 착수·완수 → 공사기간, 10/20).
   async function openChange(c) {
     let v;
     try { v = await api(`/contracts/${c.id}/change`); } catch (err) { showError(errorEl, err); return; }
@@ -173,15 +174,28 @@
       <div class="mail-label">용역계약서(변경) <span class="mail-note">— 붙이면 읽어서 아래 칸을 채움</span></div>
       <div class="cg-file" data-kind="service"><label class="cd-add">PDF 붙이기<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label><span class="cg-fname"></span></div>
       <div class="cd-grid cg-grid">${["start_date", "end_date", "amount", "contract_date"].map((k) => input("contract", k, v.contract[k])).join("")}</div>
-      ${v.sites.map((s) => `<div class="mail-label">현장 ${mailEsc(s.label)} <span class="mail-note">— 기술지도계약서(변경)를 붙이면 읽어서 채움(AI 20초쯤)</span></div>
+      ${v.sites.map((s) => `<div class="mail-label">현장 ${mailEsc(s.label)} <span class="mail-note">— 기술지도계약서(변경)를 붙이면 읽어서 채움(AI 20초쯤) · 계약 시작·종료가 비면 용역 기간</span></div>
         <div class="cg-file" data-kind="guide" data-site="${s.id}"><label class="cd-add">PDF 붙이기<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label><span class="cg-fname"></span></div>
-        <div class="cd-grid cg-grid">${["period_start", "period_end", "amount", "total_guidance_count"].map((k) => input(`site:${s.id}`, k, s[k])).join("")}</div>`).join("")
+        <div class="cd-grid cg-grid">${["contract_start", "contract_end", "period_start", "period_end", "amount", "total_guidance_count"].map((k) => input(`site:${s.id}`, k, s[k])).join("")}</div>`).join("")
         || '<div class="mail-note">연결된 현장이 없습니다 — 계약 칸만 바뀝니다.</div>'}
       <div class="mail-msg cg-msg" hidden></div>
       <div class="mail-foot cd-foot"><button type="button" class="cg-close">닫기</button><button type="button" class="mail-primary cg-save">📝 변경 저장</button></div>`;
     const msg = box.querySelector(".cg-msg");
     const say = (t, tone) => { msg.hidden = !t; msg.className = `mail-msg cg-msg ${tone || ""}`; msg.innerHTML = t; };
     box.querySelector(".cg-close").addEventListener("click", close);
+    // 용역 착수·완수를 바꾸면 같은 날짜였던 현장 계약 시작·종료도 따라감(현장 계약기간이 우리 계약기간 첫 기준 — 안 따라가면 자동 배치가 옛 기간으로).
+    // 현장 칸이 비어 있으면 그대로(비면 용역 기간을 씀)
+    const FOLLOW = { start_date: "contract_start", end_date: "contract_end" };
+    box.querySelectorAll('input[data-scope="contract"]').forEach((t) => {
+      if (!FOLLOW[t.dataset.k]) return;
+      let prev = t.value;
+      t.addEventListener("change", () => {
+        box.querySelectorAll(`input[data-scope^="site:"][data-k="${FOLLOW[t.dataset.k]}"]`).forEach((s) => {
+          if (s.value && s.value === prev && s.value !== t.value) { s.value = t.value; s.classList.add("sk-filled"); }
+        });
+        prev = t.value;
+      });
+    });
     box.querySelectorAll(".cg-file").forEach((el) => {
       const inp = el.querySelector("input[type=file]");
       enableFileDrop(el, inp);
@@ -200,7 +214,7 @@
           let n = 0;
           for (const [k, x] of Object.entries(r.values || {})) {
             const t = box.querySelector(`input[data-scope="${scope}"][data-k="${k}"]`);
-            if (t && x != null && String(t.value) !== String(x)) { t.value = x; t.classList.add("sk-filled"); n += 1; }
+            if (t && x != null && String(t.value) !== String(x)) { t.value = x; t.classList.add("sk-filled"); t.dispatchEvent(new Event("change")); n += 1; }
           }
           el.querySelector(".cg-fname").innerHTML = fileLine(f) + ` <span class="mail-note">${n ? `${n}칸 바뀜 — 확인하세요` : "바뀐 칸 없음(직접 고치세요)"}</span>`;
         } catch (err) {

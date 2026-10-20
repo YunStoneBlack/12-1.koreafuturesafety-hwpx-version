@@ -2,7 +2,8 @@
 
 규칙
 - 남은 회차 = 총 횟수 − 최근 보고서 회차(진행 막대와 같은 기준) − 이미 잡힌 "사람이 정한"(고정) 앞으로의 예정 수.
-- 기준일(오늘, 공사 시작 전이면 시작일, 최근 지도일이 더 늦으면 그날)부터 마감(준공일 − 설정 일수, 기본 14일)까지 고르게 나눈다
+- 기간 = 우리 계약기간(10/20 사용자 — 기술지도 계약기간 → 용역 착수~완수 → 공사기간, server/api/contract_sites.our_periods).
+  기준일(오늘, 계약 시작 전이면 시작일, 최근 지도일이 더 늦으면 그날)부터 마감(계약 끝 − 설정 일수, 기본 14일)까지 고르게 나눈다
   (첫 지도는 기준일 + 한 간격 — "등록 후 한 간격 안"). 고정 예정이 있으면 그 날짜에 가장 가까운 자리를 고정 예정이 차지한다.
 - 가는 날에서 빼는 날: 주말, 공휴일, 공휴일과 주말(또는 공휴일) 사이에 낀 평일(목 공휴 → 금, 화 공휴 → 월), 평일 공휴일이 3일 이상인 주는 월~금 전부.
 - **같이 가기 좋은 현장**은 날짜를 모은다(요원과 상관없이 — 2026-10-02) — 각 회차는 목표일 ± 간격의 1/3 안에서 움직일 수 있고,
@@ -17,7 +18,7 @@
 - 한 사람의 그날 현장은 **서로 70km(설정) 안끼리만**(속초·김포를 한날로 잡던 것 — 2026-10-01 실데이터 미리보기에서 발견).
 - **하루 출장 인원 = 회사 전체 2명(설정)**(2026-10-02 사용자: 비상 인력을 남김) — 그날 이미 그만큼 나가면 새 사람을 안 내보내고, 그 사람들에게
   붙일 수 없으면 다른 날로.
-- 목표 범위에 자리가 없으면 마감(없으면 준공일 전날)까지 가장 가까운 가능한 날로, 그래도 없으면 "넣을 날 부족"으로 남긴다
+- 목표 범위에 자리가 없으면 마감(없으면 계약 끝 전날)까지 가장 가까운 가능한 날로, 그래도 없으면 "넣을 날 부족"으로 남긴다
   (막지 않고 안내만 — 사용자: 횟수를 다 못 채워도 큰일은 아님). 예전 "⚠ 대타 필요"(담당 없이 넣기)는 출장자를 고를 수 있게 되며 안 생긴다.
 """
 
@@ -88,7 +89,7 @@ class SiteIn:
     name: str
     staff_id: int | None
     region: str
-    period_start: datetime.date | None
+    period_start: datetime.date | None  # 우리 계약기간(auto_plan이 contract_sites.our_periods로 채움 — 이름은 예전 그대로)
     period_end: datetime.date | None
     total: int | None
     performed: int  # 최근 보고서 회차
@@ -175,7 +176,7 @@ def plan_sites(
     """
     ends = [s.period_end for s in sites if s.period_end]
     if not ends:
-        return [], [SiteResult(s.id, 0, 0, "공사 기간이 없어 배치하지 않았습니다") for s in sites]
+        return [], [SiteResult(s.id, 0, 0, "계약기간이 없어 배치하지 않았습니다") for s in sites]
     horizon = max(ends)
     hol = holidays_ if holidays_ is not None else korean_holidays(range(today.year, horizon.year + 1))
     blocked = blocked_days(today, horizon, hol)
@@ -233,7 +234,7 @@ def plan_sites(
     results: dict[int, SiteResult] = {}
     for s in sites:
         if not s.total or not s.period_end:
-            results[s.id] = SiteResult(s.id, 0, 0, "총 횟수나 공사 기간이 없어 배치하지 않았습니다")
+            results[s.id] = SiteResult(s.id, 0, 0, "총 횟수나 계약기간이 없어 배치하지 않았습니다")
             continue
         fixed = sorted(d for d in s.fixed if d > today)
         need = s.total - s.performed - len(fixed)
@@ -241,11 +242,11 @@ def plan_sites(
             results[s.id] = SiteResult(s.id, 0, 0)
             continue
         if s.period_end <= today:
-            results[s.id] = SiteResult(s.id, need, 0, "공사 기간이 끝나 배치하지 않았습니다")
+            results[s.id] = SiteResult(s.id, need, 0, "계약기간이 끝나 배치하지 않았습니다")
             continue
         base = max(today, s.period_start or today, s.last_date or today)
         end = s.period_end - datetime.timedelta(days=finish_before_days)
-        if end <= base:  # 마감이 이미 지났으면 준공일 전날까지
+        if end <= base:  # 마감이 이미 지났으면 계약 끝 전날까지
             end = max(s.period_end - DAY, base + DAY)
         all_targets = _targets(base, end, need + len(fixed))
         for f in fixed:  # 고정 예정이 가장 가까운 자리를 차지

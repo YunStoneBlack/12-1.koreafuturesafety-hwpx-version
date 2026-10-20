@@ -66,8 +66,16 @@ SITE_EXTRACTION_PROMPT = """당신은 건설재해예방 기술지도 계약서�
   "license_no": "시공사 건설면허번호",
   "hq_phone": "시공사 연락처",
   "hq_address": "시공사 주소",
-  "total_guidance_count": "기술지도 총 횟수 (숫자만)"
+  "total_guidance_count": "기술지도 총 횟수 (숫자만)",
+  "contract_start": "기술지도 계약기간 시작일 (YYYY-MM-DD) — 아래쪽 '계약기간 ○년 ○월 ○일부터 ○년 ○월 ○일까지'의 앞 날짜(공사기간과 다름)",
+  "contract_end": "기술지도 계약기간 종료일 (YYYY-MM-DD) — 같은 '계약기간'의 뒤 날짜"
 }"""
+
+# 기술지도 계약기간(2026-10-20 사용자 "기술지도계약서에도 공사기간 말고 우리 계약기간이 명시되어 있어 — 그걸 따르면 됨") — Site 칸이 아니라
+# 웹판 site_contact.contract_start·contract_end(우리 계약기간 = 자동 배치·공기 경과, server/api/contract_sites.our_periods). 데스크톱은 안 씀.
+GUIDE_PERIOD_KEYS = ("contract_start", "contract_end")
+_GUIDE_PERIOD = re.compile(r"계\s*약\s*기\s*간\s*(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*부\s*터\s*"
+                           r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*까\s*지")
 
 
 def _encode_pdf(file_path: str | Path) -> str:
@@ -139,6 +147,23 @@ def _normalize_int(value) -> int | None:
     return int(digits) if digits else None
 
 
+def guide_contract_period(file_path: str | Path) -> tuple[str, str]:
+    """K2B 기술지도계약서 아래쪽 "계약기간 2026년 06월15일부터 2027년 02월28일 까지" → ("2026-06-15", "2027-02-28") — 글자 PDF에서만
+    (K2B 출력본은 글자가 있음 — AI보다 정확). 못 찾으면 ("", "")."""
+    try:
+        import pymupdf
+
+        with pymupdf.open(str(file_path)) as doc:
+            text = "".join(page.get_text() for page in doc)
+    except Exception:  # noqa: BLE001 — 그림 PDF·깨진 파일이면 AI 값으로
+        return "", ""
+    m = _GUIDE_PERIOD.search(text)
+    if not m:
+        return "", ""
+    y1, m1, d1, y2, m2, d2 = (int(x) for x in m.groups())
+    return f"{y1:04d}-{m1:02d}-{d1:02d}", f"{y2:04d}-{m2:02d}-{d2:02d}"
+
+
 def extract_site_info(file_path: str | Path, model: str | None = None, company_id: int | None = None) -> dict:
     """계약서 PDF에서 '신규현장추가' 폼 필드를 추출해 dict로 반환한다.
 
@@ -155,4 +180,8 @@ def extract_site_info(file_path: str | Path, model: str | None = None, company_i
     result = {key: (data.get(key) or "") for key in SITE_FIELD_KEYS}
     result["amount"] = _normalize_int(data.get("amount"))
     result["total_guidance_count"] = _normalize_int(data.get("total_guidance_count"))
+    start, end = guide_contract_period(file_path)  # 계약기간은 글자가 있으면 글자 값(AI는 공사기간과 헷갈릴 수 있음)
+    for key, found in zip(GUIDE_PERIOD_KEYS, (start, end)):
+        value = found or str(data.get(key) or "")
+        result[key] = value if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) else ""
     return result
