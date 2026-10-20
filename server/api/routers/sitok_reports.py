@@ -1265,7 +1265,7 @@ def start_build(report_id: int, user: User = Depends(get_current_user), db: Sess
     elif not master.master_path().exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 원본 템플릿이 없습니다 — 시특법 설정에서 올리세요.")
     if not (r.period_start and r.period_end):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "점검기간(시작·끝)을 먼저 정하세요.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "점검기간(시작·끝)을 먼저 정하세요 — 회차 화면 맨 아래 ⚙ 회차 정보에서.")
     left = _build_left(db, r)
     if left:  # 10/18 형 요청1 — 칸을 다 [완료]해야 보고서 합본(제출 현황 "보고서 완료"가 진짜 끝난 것이 되게)
         raise HTTPException(status.HTTP_409_CONFLICT, "보고서를 만들기 전에 먼저 완료할 칸: " + " / ".join(left))

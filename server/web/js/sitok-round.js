@@ -101,6 +101,9 @@
       ${r.has_appendix ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/appendix?v=${v}">부록 한글</a>` : ""}
       ${r.past ? "" : `<button type="button" class="sk-rep-build"${r.status === "running" || locked ? " disabled" : ""}${locked ? ' title="칸을 다 완료하면 열립니다"' : ""}>${locked ? "🔒 " : ""}${r.has_pdf ? "다시 만들기" : g ? `묶음 보고서 만들기(${g.members.length}동)` : "보고서 만들기"}</button>`}</div>
       ${locked ? `<div class="rd-lock-note">🔒 보고서를 만들려면 먼저 완료: ${(r.build_left || []).map((x) => `<div>${esc(x)}</div>`).join("")}</div>` : ""}
+      ${!r.past && !(r.period_start && r.period_end) ? `<div class="rd-lock-note rd-period-note">📅 점검기간이 비어 있습니다 — 보고서를 만들려면 넣어야 합니다
+        <button type="button" class="secondary btn-sm rd-go-period">점검기간 넣기</button>
+        <div>민간 = 현장 간 날 ~ 보고서 낸 날 · 관급 = 착수일 ~ 완수일(1년 계약은 반기마다) — 아래 ⚙ 회차 정보 칸</div></div>` : ""}
 `;
     // 회차 정보
     const conList = data.group && data.group_contracts ? data.group_contracts : contracts;
@@ -150,9 +153,19 @@
     opener(".rd-ai", openSitokAi);
     opener(".rd-detail", openSitokDetail);
     opener(".rd-survey", openSitokSurvey);
+    document.querySelector(".rd-go-period")?.addEventListener("click", goPeriod);
     document.querySelector(".sk-rep-build")?.addEventListener("click", async () => {
+      if (!(r.period_start && r.period_end)) { goPeriod(); return; } // 10/20 형 "점검기간을 정하라는데 어디서 적는지 모름" — 그 칸으로
       try { await apiPost(`/sitok/reports/${r.id}/build`); load(); } catch (e) { err(e); }
     });
+  }
+
+  function goPeriod() { // 접힌 ⚙ 회차 정보를 펼쳐 빈 점검기간 칸에 표시·커서
+    $("rd-info-panel").open = true;
+    const inps = [...$("rd-info").querySelectorAll('[data-k="period_start"], [data-k="period_end"]')];
+    inps.forEach((x) => x.classList.toggle("rd-need", !x.value));
+    inps[0].scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => (inps.find((x) => !x.value) || inps[0]).focus({ preventScroll: true }), 450);
   }
 
   function poll() {
