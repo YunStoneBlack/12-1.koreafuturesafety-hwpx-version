@@ -19,6 +19,7 @@ from pathlib import Path
 
 from lxml import etree
 
+from server.sitok.cycle import class_label
 from server.sitok import condition, master, precision_text, report_build as rb, tests as TESTS
 from server.sitok.borders import Borders
 
@@ -705,7 +706,7 @@ def _fill_status_tables(root, D: Data) -> int:
     age = TESTS.age_years(f.completion_date, D.new.period_start)
     values = {
         "시설물명": f.name, "시설물번호": f.fms_no or "-", "시설물위치": f.address or "-", "준공일자": f"{f.completion_date.year}년 {f.completion_date.month:02d}월 {f.completion_date.day:02d}일" if f.completion_date else "-",
-        "용도": f.use_type or f.main_use or "-", "시설물규모": D.new.scale, "구조형식": f.structure or "-", "종별": f"{(f.template or '2종')[:2]}시설물",
+        "용도": f.use_type or f.main_use or "-", "시설물규모": D.new.scale, "구조형식": f.structure or "-", "종별": f"{class_label(f)}시설물",
         "전차안전등급": (WORD.get(prev, prev) if prev else "-"), "점검결과안전등급": f"{t['grade_letter']}등급" if t.get("grade_letter") else "-",
         "건축연면적": f"{f.total_area:,.2f}㎡" if f.total_area else "-", "건축면적": f"{f.building_area:,.2f}㎡" if f.building_area else "-",
         "층수": f"지하{f.floors_below or 0}층/지상{f.floors_above or 0}층", "최고높이": f"{f.max_height:g}m" if f.max_height else "-", "주용도": f.main_use or f.use_type or "-",
@@ -742,7 +743,7 @@ def _fill_status_tables(root, D: Data) -> int:
 
 def general_row(f, no: str = "") -> list[str]:
     """대상시설물 현황 표 한 줄 — [no.] 종별·시설명·위치·연면적·층수(지상/지하)·구조·준공년도."""
-    vals = [(f.template or "2종")[:2], f.name or "-", f.address or "-", f"{f.total_area:,.2f}" if f.total_area else "-",
+    vals = [class_label(f), f.name or "-", f.address or "-", f"{f.total_area:,.2f}" if f.total_area else "-",
             f"지상{f.floors_above or 0}층/지하{f.floors_below or 0}층", f.structure or "-", f"{f.completion_date.year}년" if f.completion_date else "-"]
     return ([no] if no else []) + vals
 
@@ -1975,7 +1976,7 @@ def _data_for(db, r, new: rb.Values, f, ex) -> Data:
         vals = [rb._cell_text(cells[k]).strip() for k in sorted(k for k in cells if k[0] == 1)]
         floors = f"지상{f.floors_above or 0}층/지하{f.floors_below or 0}층"
         want = {"연면적(㎡)": f"{f.total_area:,.2f}" if f.total_area else "-", "층수(지상/지하)": floors, "구조": f.structure or "-",
-                "준공년도": f"{f.completion_date.year}년" if f.completion_date else "-", "종별": (f.template or "2종")[:2]}
+                "준공년도": f"{f.completion_date.year}년" if f.completion_date else "-", "종별": class_label(f)}
         for h, v in zip(heads, vals):
             if h in want and v and want[h] != v and len(v) >= 2:
                 rep[v] = want[h]

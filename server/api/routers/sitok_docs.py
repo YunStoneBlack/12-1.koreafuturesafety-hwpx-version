@@ -398,7 +398,7 @@ class AddFacilityIn(BaseModel):
 @router.post("/facilities/{fid}/add/read")
 def add_read(fid: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """[+ 시설물 추가] 창의 시설물관리대장(PDF·한글·사진, 10/15 민재형 "관리대장은 추가해서") — 읽은 칸을 돌려주고 파일은 임시(추가할 때 새 시설물 폴더로)."""
-    from server.api.routers.sitok import UPLOAD_DIR, _clean_uploads, _iso, guess_template
+    from server.api.routers.sitok import UPLOAD_DIR, _clean_uploads, _iso, guess_template, ledger_class
     from server.sitok import reader
 
     f = db.get(SitokFacility, fid)
@@ -422,6 +422,7 @@ def add_read(fid: int, file: UploadFile = File(...), user: User = Depends(get_cu
             return {"token": t, "fields": {}, "error": f"자동으로 읽지 못했습니다 — 직접 입력해 주세요. ({str(err).splitlines()[0][:160] if str(err) else type(err).__name__})"}
         fields = {k: _iso(v) for k, v in parsed.items()}
         fields["template"] = guess_template(fields.get("grade", ""), fields.get("use_type", ""), fields.get("main_use", ""))
+        fields["class_no"] = ledger_class(fields.get("grade", ""))
         return {"token": t, "fields": fields, "error": ""}
 
     parts = reader.split_ledgers(path)  # 종합 관리대장(여러 건물을 한 PDF로, 10/16 양주덕산초) — 건물마다 따로 읽음(6개씩 같이 —
@@ -440,7 +441,7 @@ def add_read(fid: int, file: UploadFile = File(...), user: User = Depends(get_cu
 def add_read_sheets(fid: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """관리대장이 없는 자체점검(10/16 민재형 — 안산대·연성대): 전회차 보고서나 동마다 결과표 + 시설물 현황을 모은 PDF → 건물(동)마다 시설물 칸.
     결과표 양식은 회사가 달라도 같음. found = 글자로 센 결과표 개수(AI가 읽은 건물 수와 다르면 화면에서 알림). FMS 시설물번호가 없으면 법정 외."""
-    from server.api.routers.sitok import _iso, guess_template
+    from server.api.routers.sitok import _iso, guess_template, ledger_class
     from server.sitok import reader
 
     f = db.get(SitokFacility, fid)
@@ -459,6 +460,8 @@ def add_read_sheets(fid: int, file: UploadFile = File(...), user: User = Depends
         fields = {k: _iso(v) for k, v in it.items() if v not in (None, "")}
         fields["template"] = guess_template(fields.get("grade", ""), fields.get("use_type", ""), fields.get("main_use", ""))
         fields["legal"] = bool(fields.get("fms_no"))
+        if fields["legal"]:
+            fields["class_no"] = ledger_class(fields.get("grade", ""))
         if not fields["legal"] and fields["template"] == "3종학교":  # 법정 외는 2종·3종 일반 틀만(시설물 칸과 같은 규칙)
             fields["template"] = "3종일반"
         out.append({"fields": fields})
@@ -1318,7 +1321,7 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
 
 def _new_facility_from(db: Session, user: User, c: SitokDocContract) -> SitokFacility:
     """서류 자동화 계약 → 시설물 카드: 올린 관리대장(AI로 다시 읽어 칸 전부)이 있으면 그것, 없으면 계약 칸의 시설물명·위치·관리주체만. 번호표·계약 구분은 새 등록과 같음."""
-    from server.api.routers.sitok import FacilityIn, _apply_facility, _facility_dir, default_badges, default_type, guess_template, next_mgmt_no
+    from server.api.routers.sitok import FacilityIn, _apply_facility, _facility_dir, default_badges, default_type, guess_template, ledger_class, next_mgmt_no
     from server.sitok import reader
 
     ledger = folder(c) / "시설물관리대장.pdf"
@@ -1333,6 +1336,8 @@ def _new_facility_from(db: Session, user: User, c: SitokDocContract) -> SitokFac
             fields.update({k: v for k, v in d.items() if v not in (None, "") and k in FacilityIn.model_fields})
             if grade and "template" in FacilityIn.model_fields and not fields.get("template"):  # 다른 등록과 같은 규칙(10/20 — 3종 학교 → 3종학교)
                 fields["template"] = guess_template(grade, d.get("use_type") or "", d.get("main_use") or "")
+            if ledger_class(grade) and "class_no" in FacilityIn.model_fields:
+                fields["class_no"] = ledger_class(grade)
         except Exception:  # noqa: BLE001 — 못 읽으면 계약 칸 값으로
             pass
     if not fields["name"]:

@@ -56,6 +56,11 @@ def class_of(text: str | None, template: str | None, legal: bool | None) -> int 
     return 3 if (template or "").startswith("3종") else 2
 
 
+def class_label(f) -> str:
+    """보고서에 적는 종별 "1종"/"2종"/"3종" — 1종도 틀은 2종이라 틀 이름 대신(10/20 형 "1종은 2종과 양식만 같음"). 법정 외도 틀대로(결과표는 따로 "해당없음")."""
+    return f"{class_of(f.class_no, f.template, True)}종"
+
+
 def field_of(kind: str | None) -> str:
     """시설물 구분 → 건축/토목(건축물 외) — 정밀안전점검 주기가 다름(10/20 민재형)."""
     return "건축" if (kind or "건축물").startswith("건축") else "토목"

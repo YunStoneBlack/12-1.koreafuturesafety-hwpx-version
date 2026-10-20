@@ -59,6 +59,7 @@
       const r = await upload("/sitok/read", file, { kind: "ledger" });
       el.dataset.ledger = r.token;
       el._extra = (r.fields || {}).ledger || null;
+      el._class = (r.fields || {}).class_no || ""; // 관리대장 종별(1종 알아보기 — 칸은 안 보임, 10/20)
       ownerRep = ownerRep || (r.fields || {}).owner_rep || "";
       setValues(el, { ...r.fields, legal: true }, false);
       syncLegal();
@@ -144,6 +145,7 @@
     const buildings = bs.map((b) => {
       const f = values(b);
       Object.keys(f).forEach((k) => { if (!SHOW.includes(k)) delete f[k]; });
+      if (b._class) f.class_no = b._class;
       return { facility: f, ledger_token: b.dataset.ledger || null, ledger_extra: b._extra || null, register_token: b.dataset.register || null };
     });
     const missing = buildings.findIndex((b) => !b.facility.name);

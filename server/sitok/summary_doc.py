@@ -25,6 +25,12 @@ T = rb.T
 SAMPLE_TITLE = "2026년 상반기 안산대학교 정기안전점검 용역"
 GRADES3 = ["A", "B", "C", "D", "E"]
 GRADES2 = ["양호", "보통", "미흡", "불량"]  # 2종 — A~E와 별개(우수 없음)
+KINDS = ("1종", "2종", "3종", "미지정")  # 3.2 등급 현황 줄 순서(형 10/20 표)
+KIND_LINES = {"1종": ["1종"], "2종": ["2종"], "3종": ["3종"], "미지정": ["미지정", "시설물"]}
+TO5 = {"양호": "B", "보통": "C", "미흡": "D", "불량": "E"}  # 1·2종 등급 → A등급(우수)~E등급(불량) 칸(종별이 섞인 표 머리)
+WORD5 = dict(zip(GRADES3, ("우수", "양호", "보통", "미흡", "불량")))
+BAD = ("D", "E", "미흡", "불량")  # 정밀안전진단 대상 — 동마다 그 동 등급 체계로(3종·미지정 D·E, 1·2종 미흡·불량)
+NAME_STEP = 1132  # 3.2 이름 칸 한 줄 늘 때 높이(견본 두 줄 3872 − 한 줄 2740)
 TOC_AFTER = "▣ 시설물의 위치도 및 전경사진"
 
 
@@ -37,6 +43,7 @@ class Building:
     structure: str = "-"
     prev: str = "-"
     grade: str = "-"  # 3종 A~E · 2종 양호·보통·미흡·불량
+    cls: str = ""  # 1종/2종/3종/미지정(3.2 표 줄 — 비면 Summary.cls·label)
     findings: list = field(default_factory=list)
     methods: str = "주의관찰"
     prio: str = "4순위"
@@ -49,8 +56,8 @@ class Summary:
     year: int
     half: str
     kind: str = "정기"
-    cls: str = "3종"  # 3종 / 2종(등급 칸)
-    label: str = "제3종시설물"  # 제3종시설물·제2종시설물·미지정시설물(법정 외)
+    cls: str = "3종"  # 3종 / 2종 — 동마다 종별(Building.cls)이 없을 때만
+    label: str = "제3종시설물"  # 제3종시설물·제2종시설물·미지정시설물(법정 외) — 〃
     category: str = "건축물"
     buildings: list = field(default_factory=list)
     conclusion: list = field(default_factory=list)
@@ -84,73 +91,104 @@ def _after(paras: list, pred) -> object | None:
     return None
 
 
+def _cls(s: Summary, b: Building) -> str:
+    return b.cls or ("미지정" if s.label == "미지정시설물" else s.cls)
+
+
+def _cell(tmpl, r: int, c: int, lines: list[str], span: int, height: int, width: int | None = None, colspan: int | None = None):
+    tc = rb._make_cell(tmpl, r, lines, span, height)
+    tc.find(f"{{{HP}}}cellAddr").set("colAddr", str(c))
+    if colspan is not None:
+        tc.find(f"{{{HP}}}cellSpan").set("colSpan", str(colspan))
+    if width is not None:
+        tc.find(f"{{{HP}}}cellSz").set("width", str(width))
+    return tc
+
+
 def _grade_table(tbl, s: Summary) -> None:
-    """3.2 등급 현황 — 2종이면 칸·줄을 하나씩 빼서 양호·보통·미흡·불량 4칸(형 10/16 "2종은 A~B가 없어 — 별개"), 개수·등급별 건물 이름."""
-    labels = GRADES2 if s.cls == "2종" else GRADES3
-    if s.cls == "2종":
-        _drop_last_grade(tbl)
+    """3.2 등급 현황(10/20 형 표 — 1종·2종·3종·미지정 중 이 보고서에 있는 것만): 위 = 종별마다 한 줄(대상 수·등급별 수), 아래 = 1·2종(양호~불량)·
+    3종(A~E)·미지정(A~E) 칸 중 있는 것(등급별 건물 이름). 등급 머리 — 1·2종만이면 양호·보통·미흡·불량 4칸(형 10/16 "2종은 A~B가 없어 — 별개"),
+    3종·미지정만이면 A~E등급, 섞이면 A등급(우수)~E등급(불량)(1·2종 양호는 B 칸…). 견본 표(머리 2줄 + 종별 1줄 + 등급 5줄)를 본떠 줄을 다시 만듦."""
+    kinds = [k for k in KINDS if any(_cls(s, b) == k for b in s.buildings)] or [_cls(s, Building(name=""))]
+    only12 = all(k in ("1종", "2종") for k in kinds)
+    mixed = not only12 and any(k in ("1종", "2종") for k in kinds)
+    cols = GRADES2 if only12 else GRADES3
+    head = [[g] for g in GRADES2] if only12 else [[f"{g}등급", f"({WORD5[g]})"] if mixed else [f"{g}등급"] for g in GRADES3]
+    col_of = (lambda b: b.grade) if only12 else (lambda b: TO5.get(b.grade, b.grade))  # noqa: E731
     cells = rb._cells(tbl)
-    rb._set_cell(cells[(1, 2)], f"{s.year}년 {s.half} {s.kind}안전점검")
-    for i, g in enumerate(labels):
-        rb._set_cell(cells[(1, 3 + i)], f"{g}등급" if s.cls != "2종" else g)
-    rb._set_cell(cells[(2, 0)], s.category)
-    rb._set_cell(cells[(2, 1)], s.label)
-    rb._set_cell(cells[(2, 2)], str(len(s.buildings)))
-    for i, g in enumerate(labels):
-        n = sum(1 for b in s.buildings if b.grade == g)
-        rb._set_cell(cells[(2, 3 + i)], str(n) if n else "-")
-    note = next((cells[k] for k in cells if k[0] == 2 and k[1] == 3 + len(labels)), None)
-    if note is not None:
-        rb._set_cell(note, "-")
-    if (3, 0) in cells:
-        rb._set_cell(cells[(3, 0)], s.label)
-    para = lambda tc: next(tc.iter(f"{{{HP}}}p")).get("paraPrIDRef")  # noqa: E731
-    rows = [3 + i for i in range(len(labels)) if (3 + i, 2) in cells]
-    left = para(cells[(3, 2)]) if rows else None  # 견본: 이름 있는 줄은 왼쪽, "-" 줄은 가운데 — 줄마다 섞이지 않게 값에 따라
-    center = para(cells[(rows[-1], 2)]) if rows else None
-    for i, g in enumerate(labels):
-        r = 3 + i
-        if (r, 1) in cells:
-            rb._set_cell(cells[(r, 1)], f"{g}등급" if s.cls != "2종" else g)
-            names = [b.name for b in s.buildings if b.grade == g]
-            rb._set_cell(cells[(r, 2)], ", ".join(names) if names else "-")
-            for q in cells[(r, 2)].iter(f"{{{HP}}}p"):
-                q.set("paraPrIDRef", left if names else center)
-
-
-def _drop_last_grade(tbl) -> None:
-    """등급 칸 5개(A~E) → 4개: 마지막 등급 칸(열 7)을 빼고 너비를 앞 칸들에 나눠 줌, 비고 열 번호 당김, 마지막 등급 줄(E) 빼고 위 칸 세로 합침 줄여 줌."""
+    T = {k: copy.deepcopy(v) for k, v in cells.items()}
     trs = tbl.findall(f"{{{HP}}}tr")
-    for tr in trs:
-        for tc in list(tr.findall(f"{{{HP}}}tc")):
-            a, sp, sz = tc.find(f"{{{HP}}}cellAddr"), tc.find(f"{{{HP}}}cellSpan"), tc.find(f"{{{HP}}}cellSz")
-            c, cs = int(a.get("colAddr")), int(sp.get("colSpan"))
-            if c == 7 and cs == 1:  # E 칸 — 앞 4칸에 너비를 나눔
-                w = int(sz.get("width"))
-                same = [x for x in tr.findall(f"{{{HP}}}tc") if 3 <= int(x.find(f"{{{HP}}}cellAddr").get("colAddr")) <= 6]
-                for k, x in enumerate(same):
-                    xs = x.find(f"{{{HP}}}cellSz")
-                    xs.set("width", str(int(xs.get("width")) + w // 4 + (w % 4 if k == len(same) - 1 else 0)))
-                tr.remove(tc)
-            elif c <= 7 < c + cs:  # 걸친 칸(등급 현황 머리·이름 칸) — 한 칸 줄임(너비는 그대로)
-                sp.set("colSpan", str(cs - 1))
-            elif c > 7:
-                a.set("colAddr", str(c - 1))
-    last = trs[-1]
-    h = int(last.findall(f"{{{HP}}}tc")[0].find(f"{{{HP}}}cellSz").get("height"))
-    tbl.remove(last)
-    for tc in tbl.iter(f"{{{HP}}}tc"):
-        a, sp, sz = tc.find(f"{{{HP}}}cellAddr"), tc.find(f"{{{HP}}}cellSpan"), tc.find(f"{{{HP}}}cellSz")
-        r, rs = int(a.get("rowAddr")), int(sp.get("rowSpan"))
-        if r + rs - 1 >= len(trs) - 1 and rs > 1:
-            sp.set("rowSpan", str(rs - 1))
-            sz.set("height", str(int(sz.get("height")) - h))
-    tbl.set("rowCnt", str(len(trs) - 1))
-    tbl.set("colCnt", str(int(tbl.get("colCnt")) - 1))
+    last = len(trs) - 1
+    hgt = lambda k: int(T[k].find(f"{{{HP}}}cellSz").get("height"))  # noqa: E731
+    wid = lambda k: int(T[k].find(f"{{{HP}}}cellSz").get("width"))  # noqa: E731
+    ng = len(cols)
+    gw = sum(wid((1, c)) for c in range(3, 8))
+    widths = [gw // ng] * ng
+    widths[-1] += gw - sum(widths)
+    note_c = 3 + ng
+    # 머리 두 줄 — 등급 현황 칸 수·비고 열, 등급 이름
+    for tc in trs[0].findall(f"{{{HP}}}tc"):
+        a, sp = tc.find(f"{{{HP}}}cellAddr"), tc.find(f"{{{HP}}}cellSpan")
+        if a.get("colAddr") == "3":
+            sp.set("colSpan", str(ng))
+        elif a.get("colAddr") == "8":
+            a.set("colAddr", str(note_c))
+    rb._set_cell(cells[(1, 2)], f"{s.year}년 {s.half} {s.kind}안전점검")
+    for tc in [x for x in trs[1].findall(f"{{{HP}}}tc") if int(x.find(f"{{{HP}}}cellAddr").get("colAddr")) >= 3]:
+        trs[1].remove(tc)
+    for j, lines in enumerate(head):
+        trs[1].append(_cell(T[(1, 3)], 1, 3 + j, lines, 1, hgt((1, 3)), width=widths[j]))
+    for tr in trs[2:]:
+        tbl.remove(tr)
+    # 위 — 종별마다 한 줄
+    r, h_top, total = 2, hgt((2, 1)), hgt((0, 0))
+    for i, k in enumerate(kinds):
+        bs = [b for b in s.buildings if _cls(s, b) == k]
+        tr = etree.SubElement(tbl, f"{{{HP}}}tr")
+        if i == 0:
+            tr.append(_cell(T[(2, 0)], r, 0, [s.category], len(kinds), h_top * len(kinds)))
+        tr.append(_cell(T[(2, 1)], r, 1, KIND_LINES[k], 1, h_top))
+        tr.append(_cell(T[(2, 2)], r, 2, [str(len(bs))], 1, h_top))
+        for j, g in enumerate(cols):
+            n = sum(1 for b in bs if col_of(b) == g)
+            tr.append(_cell(T[(2, 3)], r, 3 + j, [str(n) if n else "-"], 1, h_top, width=widths[j]))
+        tr.append(_cell(T[(2, 8)], r, note_c, ["-"], 1, h_top))
+        r += 1
+    total += h_top * len(kinds)
+    # 아래 — 1·2종 / 3종 / 미지정 칸 중 있는 것(등급별 건물 이름)
+    k12 = [k for k in kinds if k in ("1종", "2종")]
+    blocks = ([(k12, k12, GRADES2, lambda b: b.grade, lambda g: g)] if k12 else []) + [
+        ([k], KIND_LINES[k], GRADES3, lambda b: TO5.get(b.grade, b.grade), lambda g: f"{g}등급") for k in ("3종", "미지정") if k in kinds]
+    para = lambda tc: next(tc.iter(f"{{{HP}}}p")).get("paraPrIDRef")  # noqa: E731
+    left, center = para(T[(3, 2)]), para(T[(last, 2)])  # 견본: 이름 있는 줄은 왼쪽, "-" 줄은 가운데
+    per = max(1, (wid((3, 2)) - 400) // rb.CHAR_W)
+    h_one = hgt((last, 2))
+    for bi, (ks, label, rows, key, word) in enumerate(blocks):
+        end_block = bi == len(blocks) - 1
+        bs = [b for b in s.buildings if _cls(s, b) in ks]
+        names = {g: ", ".join(b.name for b in bs if key(b) == g) for g in rows}
+        hs = [h_one + NAME_STEP * (max(1, -(-len(names[g]) // per)) - 1) for g in rows]
+        for j, g in enumerate(rows):
+            end = end_block and j == len(rows) - 1  # 맨 아래 줄 — 굵은 밑줄(견본 끝줄 칸)
+            tr = etree.SubElement(tbl, f"{{{HP}}}tr")
+            if j == 0:
+                c0 = _cell(T[(3, 0)], r, 0, label, len(rows), sum(hs))
+                if not end_block:  # 견본 왼쪽 칸은 맨 아래까지 닿아 밑줄이 굵음 — 위 칸들은 위 종별 칸 선(왼쪽만 굵음)
+                    c0.set("borderFillIDRef", T[(2, 0)].get("borderFillIDRef"))
+                tr.append(c0)
+            tr.append(_cell(T[(last, 1)] if end else T[(3, 1)], r, 1, [word(g)], 1, hs[j]))
+            nm = _cell(T[(last, 2)] if end else T[(3, 2)], r, 2, [names[g] or "-"], 1, hs[j], colspan=ng + 2)
+            for q in nm.iter(f"{{{HP}}}p"):
+                q.set("paraPrIDRef", left if names[g] else center)
+            tr.append(nm)
+            r += 1
+        total += sum(hs)
+    tbl.set("rowCnt", str(r))
+    tbl.set("colCnt", str(4 + ng))
     for cz in tbl.iter(f"{{{HP}}}cellzone"):
-        cz.set("endRowAddr", str(min(int(cz.get("endRowAddr", "0")), len(trs) - 2)))
-        cz.set("endColAddr", str(min(int(cz.get("endColAddr", "0")), int(tbl.get("colCnt")) - 1)))
-    tbl.find(f"{{{HP}}}sz").set("height", str(int(tbl.find(f"{{{HP}}}sz").get("height")) - h))
+        cz.set("endRowAddr", str(min(int(cz.get("endRowAddr", "0")), r - 1)))
+        cz.set("endColAddr", str(min(int(cz.get("endColAddr", "0")), 3 + ng)))
+    tbl.find(f"{{{HP}}}sz").set("height", str(total))
 
 
 def _simple_rows(tbl, rows: list) -> None:
@@ -349,19 +387,20 @@ def insert_before_toc(pdf: Path, summary_pdf: Path) -> int:
 
 
 def fallback_conclusion(s: Summary) -> list[str]:
-    """결언 기본 문장(AI 결언이 없을 때 — 견본 문장 모양): 전체 개수·등급별 건물 이름."""
+    """결언 기본 문장(AI 결언이 없을 때 — 견본 문장 모양): 전체 개수·등급별 건물 이름. 종별이 섞이면 동마다 그 등급 말(B등급 / 양호), 좋은 순은 A·B(양호)·C(보통)…"""
     n = len(s.buildings)
-    order = GRADES2 if s.cls == "2종" else GRADES3
-    word = (lambda g: f"{g}") if s.cls == "2종" else (lambda g: f"{g}등급")
+    order = sorted(GRADES3 + GRADES2, key=lambda g: (GRADES3.index(TO5.get(g, g)), g in GRADES2))
+    word = lambda g: g if g in GRADES2 else f"{g}등급"  # noqa: E731
+    ro = lambda w: w + ("로" if (ord(w[-1]) - 0xAC00) % 28 in (0, 8) else "으로")  # 양호로·보통으로·B등급으로  # noqa: E731
     by = {g: [b.name for b in s.buildings if b.grade == g] for g in order}
     got = [g for g in order if by[g]]
     out = [f"금번 {s.year}년 {s.half} 시설물 {s.kind}안전점검 점검결과, {'전체 ' + str(n) + '개 시설물' if n > 1 else '대상 시설물'}에 발생된 손상들은 건조수축, "
            "온도변화에 따른 수축⋅팽창 등에 의해 발생된 것으로 구조안전성에는 문제가 없는 것으로 판단된다. 다만 추후 내구성 확보를 위하여 보수하는 것이 바람직할 것으로 판단된다."]
     if len(got) > 1:
         worst, best = got[-1], got[0]
-        out.append(f"금번 점검 시설물 중 {word(worst)}으로 평가된 {', '.join(by[worst])}은(는) 관리주체가 유지관리계획에 따라 보수를 실시하고, 그 이외 "
-                   f"{word(best)}으로 평가된 시설물({', '.join(by[best])})에 대해서는 보고서에 제시된 공법을 토대로 유지계획 수립 후 유지관리를 시행하는 것이 바람직할 것으로 판단된다.")
+        out.append(f"금번 점검 시설물 중 {ro(word(worst))} 평가된 {', '.join(by[worst])}은(는) 관리주체가 유지관리계획에 따라 보수를 실시하고, 그 이외 "
+                   f"{ro(word(best))} 평가된 시설물({', '.join(by[best])})에 대해서는 보고서에 제시된 공법을 토대로 유지계획 수립 후 유지관리를 시행하는 것이 바람직할 것으로 판단된다.")
     elif got:
-        out.append(f"금번 점검 결과 {'시설물 모두 ' if n > 1 else '본 시설물은 '}{word(got[0])}으로 평가되었으며, 보고서에 제시된 공법을 토대로 유지계획 수립 후 유지관리를 시행하는 것이 바람직할 것으로 판단된다.")
+        out.append(f"금번 점검 결과 {'시설물 모두 ' if n > 1 else '본 시설물은 '}{ro(word(got[0]))} 평가되었으며, 보고서에 제시된 공법을 토대로 유지계획 수립 후 유지관리를 시행하는 것이 바람직할 것으로 판단된다.")
     out.append("이 외의 시설물에 대해서는 주기적인 점검을 통한 관찰로 유지관리를 실시한다면, 시설물의 사용성에는 문제가 없을 것으로 판단된다.")
     return out

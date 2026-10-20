@@ -452,6 +452,11 @@ def _require_contract(db: Session, user: User, contract_id: int) -> SitokContrac
     return c
 
 
+def ledger_class(grade: str) -> str:
+    """관리대장 종별 숫자 → 시설물 종별 칸 "1종"/"2종"/"3종"(10/20 — 1종도 틀은 2종이라 보고서 종별 글자·도래주기는 이 칸으로)."""
+    return f"{grade}종" if grade in ("1", "2", "3") else ""
+
+
 def guess_template(grade: str, use_type: str, main_use: str) -> str:
     """관리대장 종별·용도로 보고서 틀 추정 — 3종이면서 학교(교육연구시설)면 3종학교(치장벽돌 점검·내진보강 점검표 추가)."""
     if grade != "3":
@@ -511,6 +516,7 @@ def read_pdf(kind: str = Form(...), file: UploadFile = File(...), user: User = D
     fields = {k: _iso(v) for k, v in parsed.items()}
     if kind == "ledger":
         fields["template"] = guess_template(fields.get("grade", ""), fields.get("use_type", ""), fields.get("main_use", ""))
+        fields["class_no"] = ledger_class(fields.get("grade", ""))
     return {"token": token, "fields": fields, "error": ""}
 
 

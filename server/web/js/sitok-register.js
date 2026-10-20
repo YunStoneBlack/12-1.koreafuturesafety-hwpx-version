@@ -12,7 +12,7 @@
   if (!id || !box) return;
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const D = "/sitok/docs/facilities";
-  const FAC_KEYS = ["fms_no", "template", "kind", "use_type", "main_use", "address", "owner_name", "owner_type", "owner_phone", "completion_date", "structure",
+  const FAC_KEYS = ["fms_no", "template", "class_no", "kind", "use_type", "main_use", "address", "owner_name", "owner_type", "owner_phone", "completion_date", "structure",
     "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "land_area", "coverage_ratio", "floor_area_ratio"];
   let fac = null;
   const st = { src: "ledger", rows: [], reading: 0, busy: false }; // 건물은 한 보고서(묶음)로 등록하고 나누기는 📚 보고서 구성에서

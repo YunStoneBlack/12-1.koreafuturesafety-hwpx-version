@@ -39,6 +39,7 @@ from server.api.routers.sitok import _contract_out, _facility_dir, _require_faci
 def _iso(d) -> str:
     return d.isoformat() if d else ""  # sitok._iso는 빈 날짜를 None으로 — 회차 화면은 "" (date 칸 value)
 from server.contract_docs import hwp_queue
+from server.sitok.cycle import class_label
 from server.sitok import civil, master, report_build as rb
 from server.sitok import prev_pdf, seasons, steps
 
@@ -1097,7 +1098,8 @@ def _summary_input(db: Session, pairs: list, title: str, warn: list, book: bool 
         elif _prev_grade(x):  # 전회차 한글이 없으면 전회차 보고서 PDF에서 읽은 등급(10/19 — 요약문 3.4 전차등급이 "-"이던 것)
             prev = ai_draft.grade_label(_prev_grade(x), m.template)
         floors = " / ".join(s for s in (f"B{m.floors_below}F" if m.floors_below else "", f"{m.floors_above}F" if m.floors_above else "") if s)
-        blds.append(S.Building(name=m.name, year=f"{m.completion_date.year}년" if m.completion_date else "-", floors=floors or "-",
+        blds.append(S.Building(name=m.name, cls="미지정" if m.legal is False else class_label(m),
+                               year=f"{m.completion_date.year}년" if m.completion_date else "-", floors=floors or "-",
                                area=f"{m.total_area:,.2f}㎡" if m.total_area else "-", structure=m.structure or "-", prev=prev,
                                grade=ai_draft.grade_label(g, m.template) if g else "-", findings=fin.get("findings") or [],
                                methods=", ".join(methods), prio=f"{nums[0]}순위" if nums[0] == nums[-1] else f"{nums[0]}~{nums[-1]}순위"))
@@ -1105,10 +1107,9 @@ def _summary_input(db: Session, pairs: list, title: str, warn: list, book: bool 
             warn.append(f"요약문: {m.name} AI 초안이 없어 등급·점검결과가 비었습니다")
     cls = "2종" if ai_draft.is_type2(tpl) else "3종"
     label = "미지정시설물" if lead_f.legal is False else ("제2종시설물" if cls == "2종" else "제3종시설물")
-    bad = ("미흡", "불량") if cls == "2종" else ("D", "E")
     period = (f"{lead.period_start:%Y년 %m월 %d일} ∼ {lead.period_end:%Y년 %m월 %d일}" if lead.period_start and lead.period_end else "")
     s = S.Summary(title=title, period=period, year=lead.year, half=seasons.bucket(lead.half), kind="정기", cls=cls, label=label,
-                  category=lead_f.kind or "건축물", buildings=blds, diag=[b.name for b in blds if b.grade in bad])
+                  category=lead_f.kind or "건축물", buildings=blds, diag=[b.name for b in blds if b.grade in S.BAD])  # 동마다 그 동 등급 체계(10/20)
     con = [] if book else ((lead.ai or {}).get("summary") or {}).get("conclusion") or []
     if not con and not book:
         warn.append("요약문 결언은 기본 문장입니다 — AI 초안 화면 [요약문 결언 AI로 쓰기]")
@@ -1777,13 +1778,13 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
         history += older[:1]
         repairs = pp.get("repairs") or []
     result = {"시설물구분": f.kind or "건축물", "종류": f.use_type or f.main_use or "-",
-              "종별": f"{(f.template or '2')[:1]}종" if f.legal else "해당없음"}  # 법정 외(자체 점검) = 해당없음(사용자 10/12)
+              "종별": class_label(f) if f.legal else "해당없음"}  # 법정 외(자체 점검) = 해당없음(사용자 10/12), 1종은 시설물 종별 칸(10/20)
     if c is not None:
         result.update({"공동수급": f"{c.joint_type} {c.joint_pct}%".strip(), "계약방법": c.bid_method})
     ex.base = {"map": str(mp) if mp else "", "cover": ov[0][0] if ov else "", "has_overview": bool(ov), "name": f.name,
                "short": f.name.split()[-1] if " " in f.name else f.name, "year": f"{f.completion_date.year}년" if f.completion_date else "-",
                "floors": floors or "-", "area": f"{f.total_area:,.2f}㎡" if f.total_area else "-", "structure": f.structure or "-",
-               "grade": (f.template or "2")[:1], "use": f.use_type or f.main_use or "시설물",
+               "grade": class_label(f)[:1], "use": f.use_type or f.main_use or "시설물",
                "history": history, "repairs": repairs, "result": result, "school": f.template == "3종학교", "legal": f.legal,
                "target": {"owner": f.owner_name or (pv.owner if pv else "") or "-", "name": f.name, "use": f.use_type or f.main_use or "-",
                           "year": str(f.completion_date.year) if f.completion_date else "-", "area": f"{f.total_area:,.2f}" if f.total_area else "-",
