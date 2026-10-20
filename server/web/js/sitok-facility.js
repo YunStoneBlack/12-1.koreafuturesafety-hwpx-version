@@ -119,17 +119,20 @@
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.hidden && !document.querySelector(".mail-overlay:not(#fi-modal)")) closeModal(); });
   const group = () => (fac.group && fac.group.members.length > 1 ? fac.group : null);
+  // 같은 카드의 "보고서 따로" 시설물(묶음 아님 — 옹벽 17개 따로 등록 등, 10/20 민재형 "하나만 생김") — 서버 card_units(보고서 순서)
+  const cardUnits = () => (!group() && (fac.card_units || []).length > 1 ? fac.card_units.map((u) => (u.id === fac.id ? { ...u, name: fac.name } : u)) : null);
   const registered = () => !!(fac.has_ledger_pdf || fac.fms_no || fac.legal === false || group() || (fac.card_units || []).length > 1); // js/sitok-register.js와 같음
   const label = (m) => { const g = group(); const i = g ? g.members.findIndex((x) => x.id === m.id) : -1; return `${i >= 0 ? `제${i + 1}장 ` : ""}${m.name}`; };
 
   function drawTiles() {
     const g = group();
-    const members = g ? g.members.map((m) => (m.id === fac.id ? { ...m, name: fac.name } : m)) : [{ id: fac.id, name: fac.name }];
+    const cu = cardUnits();
+    const members = g ? g.members.map((m) => (m.id === fac.id ? { ...m, name: fac.name } : m)) : cu || [{ id: fac.id, name: fac.name }];
     const reg = registered();
     const pick = document.getElementById("sk-dong-pick");
     pick.innerHTML = members.map((m, i) => {
       const on = m.id === fac.id;
-      const inner = `<small><span>${g ? `제${i + 1}장` : "건물"}${on ? '<i class="fi-on-t"> · 보는 중</i>' : ""}</span>${on ? '<em class="fi-edit">✎ 시설물 칸</em>' : ""}</small><b>${esc(m.name)}</b>`;
+      const inner = `<small><span>${g ? `제${i + 1}장` : cu ? `보고서 ${i + 1}` : "건물"}${on ? '<i class="fi-on-t"> · 보는 중</i>' : ""}</span>${on ? '<em class="fi-edit">✎ 시설물 칸</em>' : ""}</small><b>${esc(m.name)}</b>`;
       return on ? `<button type="button" class="fi-tile on" data-id="${m.id}" draggable="true" aria-current="page" title="시설물 칸 보기·고치기">${inner}</button>`
         : `<a class="fi-tile" data-id="${m.id}" href="sitok-facility.html?id=${m.id}#info" title="${esc(m.name)}">${inner}</a>`;
     }).join("") + (reg ? `<button type="button" class="fi-tile fi-add" id="fi-add">＋ 동 추가</button>
@@ -148,8 +151,9 @@
       trash.addEventListener("click", () => removeDong(fac.id));
       trash.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); removeDong(fac.id); } });
     }
-    document.getElementById("fi-dongs-t").textContent = g ? "동 고르기" : "건물";
-    document.getElementById("fi-dongs-s").textContent = g ? "동을 누르면 아래 서류·도면이 그 동 것으로 바뀌고, 보는 동을 한 번 더 누르면 시설물 칸" : "누르면 시설물 칸(이름·주소·관리주체 등)이 열립니다";
+    document.getElementById("fi-dongs-t").textContent = g ? "동 고르기" : cu ? `건물 ${cu.length}곳` : "건물";
+    document.getElementById("fi-dongs-s").textContent = g ? "동을 누르면 아래 서류·도면이 그 동 것으로 바뀌고, 보는 동을 한 번 더 누르면 시설물 칸"
+      : cu ? "보고서를 따로 내는 건물 — 누르면 그 건물 화면, 보는 건물을 한 번 더 누르면 시설물 칸" : "누르면 시설물 칸(이름·주소·관리주체 등)이 열립니다";
     document.getElementById("fi-compose-link").hidden = !g;
     document.getElementById("fi-cur").textContent = label({ id: fac.id, name: fac.name });
     document.getElementById("fi-box-t").textContent = `📝 ${label({ id: fac.id, name: fac.name })} — 시설물 칸`;
@@ -158,13 +162,16 @@
 
   async function removeDong(tid) { // 휴지통·팝업 [🗑 이 동 삭제] — 묶음이면 계약은 다음 동이 넘겨받음(서버)
     const g = group();
-    const members = g ? g.members : [{ id: fac.id, name: fac.name }];
+    const cu = cardUnits();
+    const members = g ? g.members : cu || [{ id: fac.id, name: fac.name }];
     const m = members.find((x) => x.id === tid) || { id: tid, name: fac.name };
     const rest = members.filter((x) => x.id !== tid);
     const name = tid === fac.id ? label({ id: fac.id, name: fac.name }) : label(m);
     const text = g && rest.length
       ? `${name} — 이 동의 회차·현장 조사·올린 PDF·만든 보고서가 지워지고 되돌릴 수 없습니다. ${members[0].id === tid ? `묶음 계약은 지우지 않고 다음 동(${rest[0].name})이 넘겨받습니다.` : `묶음 계약은 그대로입니다(제1장 ${members[0].name}).`}`
-      : `${name} — 계약·회차·결함·올린 PDF·만든 보고서, 서류 자동화의 이 카드 계약까지 지워지고 되돌릴 수 없습니다.`;
+      : cu && rest.length
+        ? `${name} — 이 건물의 회차·현장 조사·올린 PDF·만든 보고서가 지워지고 되돌릴 수 없습니다. 같은 계약에 든 다른 건물(${rest.length}곳)과 계약은 그대로입니다(이 건물만 계약에서 빠짐).`
+        : `${name} — 계약·회차·결함·올린 PDF·만든 보고서, 서류 자동화의 이 카드 계약까지 지워지고 되돌릴 수 없습니다.`;
     const pw = await askPassword(text, `🗑 ${name} 삭제`);
     if (pw == null) return;
     try {
