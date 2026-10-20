@@ -16,8 +16,7 @@ const REPORT_TABS = [
   ["status", "제출 현황", "status.html"],
   ["calendar", "방문 달력", "calendar.html"],
   ["staff", "담당요원", "staff.html"],
-  ["settings", "설정", "settings.html"],
-];
+];  // 설정(settings.html — 산안법·시특법 같이)은 탭이 아니라 왼쪽 메뉴 "보고서 자동화" 바로 아래(10/20 사용자)
 // 서류 자동화(2026-10-06) — 그룹웨어 왼쪽 메뉴 "서류 자동화"(보고서 자동화 아래)가 여는 화면들. <body data-docs-tab="contracts|status|calendar">.
 // 같은 보고서 앱 안의 페이지라 로그인·DB를 같이 쓰고, 사이드바는 같은 그룹웨어 조각에서 "서류 자동화" 줄을 켜 준다(isDocsPage).
 const DOCS_TABS = [
@@ -30,7 +29,7 @@ const isDocsPage = () => !!document.body.dataset.docsTab;
 // 산안법 / 시특법(2026-10-10) — 그룹웨어 왼쪽 메뉴 [보고서 자동화]·[서류 자동화] 아래 소메뉴. <body data-law="sitok">이면 시특법 화면(없으면 산안법).
 // 시특법은 아직 메인 하나씩(설계: 바탕화면 "시특법 견본\인수인계.md") — 단계마다 탭을 늘린다.
 const pageLaw = () => (document.body.dataset.law === "sitok" ? "sitok" : "sanan");
-const SITOK_TABS = [["facilities", "시설물 목록", "sitok.html"], ["status", "제출 현황", "sitok-status.html"], ["calendar", "방문 달력", "sitok-calendar.html"], ["settings", "설정", "sitok-settings.html"]];  // 제출 현황 = 상·하반기(10/15)
+const SITOK_TABS = [["facilities", "시설물 목록", "sitok.html"], ["status", "제출 현황", "sitok-status.html"], ["calendar", "방문 달력", "sitok-calendar.html"]];  // 제출 현황 = 상·하반기(10/15), 설정은 왼쪽 메뉴(10/20)
 const SITOK_DOCS_TABS = [["contracts", "계약 목록", "sitok-docs.html"], ["status", "제출 현황", "sitok-docs-status.html"], ["calendar", "착수·완수 일정", "sitok-docs-calendar.html"], ["performance", "실적", "docs-performance.html"]];  // 일정 = 관급만(10/12), 실적은 산안법과 같은 화면(10/14)
 const LAW_LABEL = { sanan: "산안법", sitok: "시특법" };
 const SIDEBAR_CACHE_KEY = "kfsc-report:gw-sidebar";
@@ -43,8 +42,11 @@ function renderReportHeader() {
   const tabsOnly = document.body.dataset.tabsOnly !== undefined;
   const head = document.createElement("div");
   head.className = "report-head";
-  if (docs && active === "settings") { // 서류 자동화 설정(10/20 형 — 산안법·시특법 공통): 법 표시·탭 없이
-    head.innerHTML = '<h1>서류 자동화<span class="law-badge common">설정</span></h1><p class="page-sub">산안법·시특법 서류에 같이 쓰는 회사 설정입니다.</p>';
+  if (active === "settings") { // 서류·보고서 자동화 설정(10/20 — 산안법·시특법 공통, 왼쪽 메뉴에서): 법 표시·탭 없이
+    head.classList.add("no-tabs");
+    head.innerHTML = docs
+      ? '<h1>서류 자동화<span class="law-badge common">설정</span></h1><p class="page-sub">산안법·시특법 서류에 같이 쓰는 회사 설정입니다.</p>'
+      : '<h1>보고서 자동화<span class="law-badge common">설정</span></h1><p class="page-sub">회사 전체에 적용되는 보고서 설정입니다 — 위는 공통, 아래는 산안법·시특법을 골라서.</p>';
     main.prepend(head);
     document.documentElement.style.setProperty("--tabs-h", "0px");
     return;
@@ -102,25 +104,31 @@ function writeSidebarCache(html) {
 
 // 지금 화면에 맞는 메뉴 줄 켜기 — 그룹웨어 조각은 늘 "보고서 자동화"를 켜서 주므로 서류 화면이면 "서류 자동화"로 바꾸고,
 // 그 아래 소메뉴(산안법/시특법) 중 이 화면 쪽을 켠다. 예전 조각(data-menu 없음)이면 주소로 찾는다.
-// 서류 자동화 아래 "실적"(10/15 민재형 "서류 자동화 밑에 실적 탭")·"설정"(10/20 형 — 산안법·시특법 공통) — 그룹웨어 조각에 아직 그 줄이 없으면
-// 여기서 더한다(그룹웨어 appshell.html에도 같은 줄을 넣어 두었고, 그쪽이 배포되면 이미 있으니 안 더함).
-function addDocsItems(aside) {
-  const docs = aside.querySelector('.nav-item[data-menu="docs"]');
-  const subs = docs ? docs.nextElementSibling : null;
-  if (!subs || !subs.classList.contains("nav-sub")) return;
-  for (const [law, href, label] of [["perf", "docs-performance.html", "실적"], ["set", "docs-settings.html", "설정"]]) {
-    if (subs.querySelector(`.nav-subitem[data-law="${law}"]`)) continue;
-    const a = document.createElement("a");
-    a.className = "nav-subitem";
-    a.dataset.law = law;
-    a.href = href;
-    a.textContent = label;
-    subs.appendChild(a);
+// 서류 자동화 아래 "실적"(10/15 민재형 "서류 자동화 밑에 실적 탭")·"설정"(10/20 형), 보고서 자동화 아래 "설정"(10/20 사용자) — 산안법·시특법 공통.
+// 그룹웨어 조각에 아직 그 줄이 없으면 여기서 더한다(그룹웨어 appshell.html에도 같은 줄을 넣어 두었고, 그쪽이 배포되면 이미 있으니 안 더함).
+const MENU_EXTRA = {
+  report: [["set", "settings.html", "설정"]],
+  docs: [["perf", "docs-performance.html", "실적"], ["set", "docs-settings.html", "설정"]],
+};
+function addMenuItems(aside) {
+  for (const [menu, items] of Object.entries(MENU_EXTRA)) {
+    const item = aside.querySelector(`.nav-item[data-menu="${menu}"]`);
+    const subs = item ? item.nextElementSibling : null;
+    if (!subs || !subs.classList.contains("nav-sub")) continue;
+    for (const [law, href, label] of items) {
+      if (subs.querySelector(`.nav-subitem[data-law="${law}"]`)) continue;
+      const a = document.createElement("a");
+      a.className = "nav-subitem";
+      a.dataset.law = law;
+      a.href = href;
+      a.textContent = label;
+      subs.appendChild(a);
+    }
   }
 }
 
 function markSidebar(aside) {
-  addDocsItems(aside);
+  addMenuItems(aside);
   const want = isDocsPage() ? "docs" : "report";
   const parent = aside.querySelector(`.nav-item[data-menu="${want}"]`)
     || aside.querySelector(want === "docs" ? '.nav-item[href$="docs.html"]' : '.nav-item[href$="/report/"]');
@@ -129,7 +137,8 @@ function markSidebar(aside) {
   parent.classList.add("active");
   const subs = parent.nextElementSibling;
   if (subs && subs.classList.contains("nav-sub")) {
-    const law = { performance: "perf", settings: "set" }[document.body.dataset.docsTab] || pageLaw();  // 실적·설정 화면이면 그 줄
+    const tab = document.body.dataset.docsTab || document.body.dataset.reportTab;
+    const law = { performance: "perf", settings: "set" }[tab] || pageLaw();  // 실적·설정 화면이면 그 줄
     subs.querySelector(`.nav-subitem[data-law="${law}"]`)?.classList.add("active");
   }
 }

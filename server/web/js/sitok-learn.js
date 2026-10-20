@@ -1,4 +1,4 @@
-// 시특법 설정 탭 "사진 분류 교정 기록"(sitok-settings.html, 2026-10-12 사용자) — (AI 추천 → 점검자 값) 묶음별 사진, ✕로 지우기.
+// 시특법 설정 "사진 분류 교정 기록"(settings.html [시특법] 쪽, 2026-10-12 사용자) — (AI 추천 → 점검자 값) 묶음별 사진, ✕로 지우기.
 // 서버 server/api/routers/sitok_settings.py /corrections, 쌓기·쓰기 server/sitok/learn.py.
 
 (function () {

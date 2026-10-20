@@ -50,7 +50,7 @@ async function openSitokGov(contractId, kind, onDone) {
       <div class="cd-people">${st.persons.map((p) => `<label class="cd-person${p.id === st.agent_id ? " is-agent" : ""}" data-id="${p.id}">
         <input type="checkbox" value="${p.id}"${st.participant_ids.includes(p.id) && p.id !== st.agent_id ? " checked" : ""}${p.id === st.agent_id ? " disabled" : ""} />
         <span><b>${esc(p.name)}</b><span class="mail-note">${personNote(p)}</span></span></label>`).join("")}</div>
-      <div class="mail-note">자격증·경력증명서 = <a href="docs-settings.html#contract-library">서류 자동화 설정</a>, 정밀안전진단 교육 수료증·서명·도장 = <a href="sitok-settings.html">시특법 설정</a></div>`;
+      <div class="mail-note">자격증·경력증명서 = <a href="docs-settings.html#contract-library">서류 자동화 설정</a>, 정밀안전진단 교육 수료증·서명·도장 = <a href="settings.html?law=sitok">보고서 자동화 설정(시특법)</a></div>`;
   }
 
   function attachBlock() {

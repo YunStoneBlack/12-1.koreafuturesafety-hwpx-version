@@ -455,7 +455,7 @@ document.getElementById("site-delete-pw").addEventListener("keydown", (e) => {
 // 삭제 비밀번호를 아직 안 정했으면 미리 안내(설정 탭으로 가는 링크)
 api("/settings/delete-password").then((st) => {
   if (st.is_set) return;
-  document.getElementById("del-pw-hint").innerHTML = '삭제 비밀번호가 아직 없습니다 — <a href="settings.html">설정 탭</a>에서 먼저 정하세요.';
+  document.getElementById("del-pw-hint").innerHTML = '삭제 비밀번호가 아직 없습니다 — <a href="settings.html">보고서 자동화 설정</a>에서 먼저 정하세요.';
 }).catch(() => {});
 
 // ---------- 보고서 합본(10/8) ----------

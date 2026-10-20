@@ -1,4 +1,4 @@
-// 시특법 설정(sitok-settings.html, 2026-10-10 3단계) — 회사 서류(등록증)·기술자 시특법 칸과 서류(수료증·책임기술자 자격)·사용 장비.
+// 시특법 설정(2026-10-10 3단계 — 10/20부터 보고서 자동화 설정 settings.html의 [시특법] 쪽) — 회사 서류(등록증)·기술자 시특법 칸과 서류(수료증·책임기술자 자격)·사용 장비.
 // 서버 server/api/routers/sitok_settings.py. 서류 유효기간 고치기는 서류 자동화와 같은 PATCH /contract-docs/docs/{id}.
 
 (function () {
