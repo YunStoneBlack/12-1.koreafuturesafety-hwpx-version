@@ -1504,9 +1504,11 @@ def _wall_ai_draft(db: Session, r: SitokReport, f: SitokFacility, rows: list, us
     spec = (f.ledger or {}).get("wall") or {}
     facility = f"{f.name} — 옹벽 {f.class_no or spec.get('class_no') or 2}종 · {spec.get('form') or f.structure or ''} · 연장 {spec.get('length') or '-'}m · 높이 {spec.get('height') or '-'}m · 준공 {_iso(f.completion_date)}"
     facts = G.facts(r.survey, "wall")
+    pub = []
     try:
-        pub = [name for k, name in P.PUBLIC if (P.norm(r.parts)["public"].get(k) or {}).get("file")]
-        none = [name for k, name in P.PUBLIC if (P.norm(r.parts)["public"].get(k) or {}).get("none")]
+        pp = P.norm(r.parts)["public"]
+        pub = [name for k, name in P.PUBLIC if (pp.get(k) or {}).get("file") or (pp.get(k) or {}).get("prev")]
+        none = [name for k, name in P.PUBLIC if (pp.get(k) or {}).get("none")]
         if pub or none:
             facts += f"\n[공중이 이용하는 부위 사진] 찍은 항목: {', '.join(pub) or '없음'} / 해당없음: {', '.join(none) or '없음'}"
     except Exception:  # noqa: BLE001
@@ -1515,7 +1517,7 @@ def _wall_ai_draft(db: Session, r: SitokReport, f: SitokFacility, rows: list, us
     prev_grade = wall_ai.word(f.safety_grade or "")
     try:
         data = wall_ai.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, prev, facts, user.company_id,
-                             target_word, prev_grade)
+                             target_word, prev_grade, ", ".join(pub))
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
     if target_word:

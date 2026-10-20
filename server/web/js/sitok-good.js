@@ -39,13 +39,20 @@
         ${c.key === "steel" ? `<button type="button" class="gd-na${na ? " on" : ""}">${na ? "해당없음 풀기" : "해당없음"}</button>` : ""}</h3>`;
       if (na) return `<div class="pt-group" data-key="${c.key}">${head}<div class="pt-card none gd-na-card"><div class="pt-name">해당없음<span>철근콘크리트 구조</span></div>
         <div class="pt-hint">보고서 1.3 강재구조 글: "${esc(data.steel_text)}" · 사진 칸 "해당없음"</div></div></div>`;
-      const cards = c.photos.map((p) => `<div class="pt-card" data-idx="${p.idx}">
+      const nowP = c.photos.filter((p) => !p.prev), prevP = c.photos.filter((p) => p.prev);
+      const cards = nowP.map((p) => `<div class="pt-card" data-idx="${p.idx}">
         <img src="${BASE}/api${url}/good/photo?key=${c.key}&idx=${p.idx}&t=${ts}" alt="" loading="lazy" />
         <input class="gd-title" value="${esc(p.title)}" placeholder="사진 설명(보고서 사진 아래 글)" />
         <div class="pt-acts"><button type="button" class="pt-del">지우기</button></div></div>`).join("");
-      const add = c.photos.length < data.per ? `<div class="pt-card gd-add"><div class="pt-name">사진 ${c.photos.length + 1}<span>${data.per}장까지</span></div>
+      const add = nowP.length < data.per ? `<div class="pt-card gd-add"><div class="pt-name">사진 ${nowP.length + 1}<span>${data.per}장까지</span></div>
         <div class="pt-blank">결함 사진 다음 빈 칸에 들어갑니다</div><div class="pt-acts">${shot("찍기")}</div></div>` : "";
-      return `<div class="pt-group" data-key="${c.key}">${head}<div class="pt-grid">${cards}${add}</div></div>`;
+      // 전회차(가져온 것, 10/21 민재형) — 같은 자리를 이번에 찍으면 같은 제목으로 이번 사진에 들어감
+      const prev = prevP.length ? `<div class="gd-prev"><div class="sk-help">전회차 상태양호 사진 ${prevP.length}장 — 이번 사진이 없으면 보고서에 이 사진이 들어갑니다</div>
+        <div class="pt-grid">${prevP.map((p) => `<div class="pt-card gd-prev-card" data-idx="${p.idx}" data-title="${esc(p.title)}">
+          <img src="${BASE}/api${url}/good/photo?key=${c.key}&idx=${p.idx}&t=${ts}" alt="" loading="lazy" />
+          <div class="pt-name">${esc(p.title)}<span>전회차</span></div>
+          <div class="pt-acts">${nowP.length < data.per ? shot("이번 찍기") : ""}<button type="button" class="pt-del">지우기</button></div></div>`).join("")}</div></div>` : "";
+      return `<div class="pt-group" data-key="${c.key}">${head}<div class="pt-grid">${cards}${add}</div>${prev}</div>`;
     }).join("");
     $("gd-list").querySelectorAll(".pt-group").forEach((g) => {
       const key = g.dataset.key;
@@ -54,14 +61,17 @@
         if (!data.steel_na && c.photos.length && !confirm("강재를 해당없음으로 하면 찍은 강재 사진은 보고서에 안 들어갑니다. 할까요?")) return;
         try { data = await apiPost(`${url}/good/steel`, { na: !data.steel_na }); draw(); } catch (e) { say("gd-msg", e.message); }
       });
-      const add = g.querySelector(".gd-add");
-      if (add) onFile(add, async (file) => {
+      const sendNew = (el, title) => async (file) => {
         say("gd-msg", "올리는 중…", true);
         const fd = new FormData();
         fd.append("key", key);
         fd.append("file", file);
-        try { data = await apiUpload(`${url}/good/photo`, fd); ts = Date.now(); say("gd-msg", ""); draw(); } catch (e) { say("gd-msg", e.message); add.classList.remove("busy"); }
-      });
+        if (title) fd.append("title", title);
+        try { data = await apiUpload(`${url}/good/photo`, fd); ts = Date.now(); say("gd-msg", ""); draw(); } catch (e) { say("gd-msg", e.message); el.classList.remove("busy"); }
+      };
+      const add = g.querySelector(".gd-add");
+      if (add) onFile(add, sendNew(add, ""));
+      g.querySelectorAll(".gd-prev-card").forEach((el) => onFile(el, sendNew(el, el.dataset.title)));
       g.querySelectorAll(".pt-card[data-idx]").forEach((el) => {
         const idx = Number(el.dataset.idx);
         el.querySelector(".gd-title").addEventListener("change", async (e) => {

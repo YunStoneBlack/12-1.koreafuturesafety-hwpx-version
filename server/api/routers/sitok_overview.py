@@ -79,8 +79,27 @@ def _out(db: Session, r: SitokReport) -> dict:
     titles += [t for t in _titles_from_hwpx(r.source_hwpx) if t not in titles]
     if wall:
         titles += [t for t in WALL_TITLES if t not in titles]
-    return {"photos": [{"id": p["id"], "title": p.get("title") or "", "ai": bool(p.get("ai"))} for p in (r.overview or [])],
+    base = _dir(db, r)
+    return {"photos": [{"id": p["id"], "title": p.get("title") or "", "ai": bool(p.get("ai")), "has_now": bool(p.get("file") and (base / p["file"]).exists()),
+                        "has_prev": bool(p.get("prev_file") and (base / p["prev_file"]).exists())} for p in (r.overview or [])],
             "titles": titles, "wall": wall}
+
+
+@router.post("/reports/{report_id}/overview/{pid}/photo")
+def add_now_photo(report_id: int, pid: str, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """전회차 사진(가져온 것) 칸에 이번 사진 찍기(옹벽 10/21 민재형 요청1) — 같은 줄의 file을 채움(prev_file은 둠)."""
+    r = _require(db, user, report_id)
+    rows = [dict(p) for p in (r.overview or [])]
+    i = next((k for k, p in enumerate(rows) if p["id"] == pid), None)
+    if i is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
+    if rows[i].get("file"):
+        (_dir(db, r) / rows[i]["file"]).unlink(missing_ok=True)
+    files.save_jpeg(file.file.read(), file.filename or "", _dir(db, r) / DIR / f"{pid}_now.jpg")
+    rows[i]["file"] = f"{DIR}/{pid}_now.jpg"
+    r.overview = rows
+    db.commit()
+    return _out(db, r)
 
 
 @router.get("/reports/{report_id}/overview")
@@ -121,21 +140,29 @@ def patch_photo(report_id: int, pid: str, body: PhotoIn, user: User = Depends(ge
 
 
 @router.delete("/reports/{report_id}/overview/{pid}")
-def delete_photo(report_id: int, pid: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_photo(report_id: int, pid: str, which: str = "", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """줄 지우기. which=now면 전회차 사진이 있는 줄에서 이번 사진만 지움(옹벽)."""
     r = _require(db, user, report_id)
-    for p in r.overview or []:
+    rows = [dict(p) for p in (r.overview or [])]
+    for p in rows:
         if p["id"] == pid:
-            (_dir(db, r) / p["file"]).unlink(missing_ok=True)
-    r.overview = [p for p in (r.overview or []) if p["id"] != pid]
+            if p.get("file"):
+                (_dir(db, r) / p["file"]).unlink(missing_ok=True)
+            if which == "now" and p.get("prev_file"):
+                p["file"] = ""
+            elif p.get("prev_file"):
+                (_dir(db, r) / p["prev_file"]).unlink(missing_ok=True)
+    r.overview = [p for p in rows if p["id"] != pid or (which == "now" and p.get("prev_file"))]
     db.commit()
     return _out(db, r)
 
 
 @router.get("/reports/{report_id}/overview/{pid}/photo")
-def photo(report_id: int, pid: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def photo(report_id: int, pid: str, which: str = "now", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
     p = next((x for x in r.overview or [] if x["id"] == pid), None)
-    path = _dir(db, r) / p["file"] if p else None
+    f = (p.get("prev_file") if which == "prev" else p.get("file")) if p else None
+    path = _dir(db, r) / f if f else None
     if path is None or not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
     return FileResponse(path, media_type="image/jpeg")

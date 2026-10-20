@@ -33,6 +33,8 @@ from server.api.routers.sitok_settings import vocab_names
 from server.contract_docs import hwp_queue
 from server.sitok import good as G
 from server.sitok import kinds, wall_album
+from server.sitok import parts as P
+from server.api.routers.sitok_parts import DIR as PARTS_DIR
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
 DIR = "전회차_가져오기"
@@ -134,7 +136,7 @@ def _out(db: Session, r: SitokReport) -> dict:
     allowed = vocab_names(db, r.company_id, r.id, "wall")
     return {**s, "units": list(kinds.WALL_PARTS), "parts": list(kinds.WALL_SECTIONS), "members": allowed["member"], "types": allowed["dtype"],
             "unit_part": kinds.WALL_PART_OF_UNIT, "part_of": kinds.part_map("wall"), "good_keys": {u: wall_category(u) for u in kinds.WALL_PARTS},
-            "good_names": dict(G.WALL_CATS)}
+            "good_names": dict(G.WALL_CATS), "public_items": list(P.PUBLIC)}
 
 
 @router.get("/reports/{report_id}/defects/import/wall")
@@ -188,8 +190,9 @@ def confirm(report_id: int, body: ConfirmIn, user: User = Depends(get_current_us
     photo_dir = _photo_dir(db, r)
     photo_dir.mkdir(parents=True, exist_ok=True)
     g = G.norm(r.survey, "wall")
+    pp = P.norm(r.parts)
     seq: dict[str, int] = {}
-    n_def = n_good = n_skip = 0
+    n_def = n_good = n_skip = n_pub = 0
     for row in body.rows:
         try:
             base = s["rows"][int(row.get("i", -1))]
@@ -202,16 +205,25 @@ def confirm(report_id: int, body: ConfirmIn, user: User = Depends(get_current_us
             continue
         if unit not in kinds.WALL_PARTS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"부위가 맞지 않습니다: {base['caption']}")
+        if use == "public":  # 공중이용 탭 전회차 칸(추락방지시설 등 — 민재형 10/21)
+            pk = row.get("public") if row.get("public") in dict(P.PUBLIC) else (base.get("public") or "fall")
+            rel = f"{PARTS_DIR}/public_{pk}_prev_{uuid.uuid4().hex[:8]}.jpg"
+            dest = _report_dir(f, r) / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src / base["file"], dest)
+            pp["public"][pk] = {**(pp["public"].get(pk) or {}), "prev": rel}
+            n_pub += 1
+            continue
         if use == "good":
             key = wall_category(unit)
-            if len(g["good"][key]) >= G.PER:
+            if sum(1 for x in g["good"][key] if x.get("prev")) >= G.PER:
                 n_skip += 1
                 continue
             rel = f"{G.DIR_GOOD}/{key}_{uuid.uuid4().hex[:8]}.jpg"
             dest = _report_dir(f, r) / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src / base["file"], dest)
-            g["good"][key].append({"file": rel, "title": base["caption"]})
+            g["good"][key].append({"file": rel, "title": base["caption"], "prev": True})  # 전회차 — 이번 사진은 탭에서 찍음(민재형 10/21)
             n_good += 1
             continue
         part, member, dtype, width = (str(row.get(k) if row.get(k) is not None else base.get(k) or "").strip() for k in ("part", "member", "dtype", "width"))
@@ -238,17 +250,19 @@ def confirm(report_id: int, body: ConfirmIn, user: User = Depends(get_current_us
             if not (src / o["file"]).exists():
                 continue
             pid = uuid.uuid4().hex[:10]
-            shutil.copy2(src / o["file"], ov_dir / f"{pid}.jpg")
-            rows.append({"id": pid, "file": f"{OV_DIR}/{pid}.jpg", "title": o["caption"], "ai": False})
+            shutil.copy2(src / o["file"], ov_dir / f"{pid}_prev.jpg")
+            rows.append({"id": pid, "file": "", "prev_file": f"{OV_DIR}/{pid}_prev.jpg", "title": o["caption"], "ai": False})  # 전회차 칸 — 이번은 탭에서 찍음
             n_ov += 1
         r.overview = rows
     sv = {**(r.survey or {}), "good": g["good"], "steel_na": g["steel_na"], "seismic": g["seismic"]}
     sv.pop("wall_import", None)
     r.survey = sv
+    if n_pub:
+        r.parts = pp
     IMPORTS.pop(r.id, None)
     db.commit()
     shutil.rmtree(src, ignore_errors=True)
-    return {**list_defects(report_id, user, db), "imported": {"defects": n_def, "good": n_good, "skipped": n_skip, "overview": n_ov}}
+    return {**list_defects(report_id, user, db), "imported": {"defects": n_def, "good": n_good, "public": n_pub, "skipped": n_skip, "overview": n_ov}}
 
 
 @router.delete("/reports/{report_id}/defects/import/wall")

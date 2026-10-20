@@ -9,7 +9,7 @@ from server.sitok import kinds
 
 SECTIONS = [("found", "1.4.1 지반 및 기초부"), ("front", "1.4.2 옹벽 전면부"), ("etc", "1.4.3 기타(주변영향인자·점검로·배수시설)"), ("public", "1.4.4 공중이 이용하는 부위")]
 SUMMARY_ROWS = ["전면부", "상부", "기초/지반", "배수시설", "공중이 이용하는시설"]
-UNIT_TO_ROW = {"전면부": "전면부", "상부": "상부", "지반 및 기초부": "기초/지반", "배수시설": "배수시설", "공중이용시설": "공중이 이용하는시설", "기타": "배수시설"}
+UNIT_TO_ROW = {"전면부": "전면부", "상부": "상부", "지반 및 기초부": "기초/지반", "배수시설": "배수시설", "기타": "배수시설"}
 UNIT_TO_SECTION = {"지반 및 기초부": "found", "전면부": "front", "공중이용시설": "public"}
 GRADES2 = ("양호", "보통", "미흡", "불량")
 
@@ -85,8 +85,8 @@ def _norm(raw: dict, defects: list) -> dict:
     return out
 
 
-def fallback(defects: list, prev_grade: str = "") -> dict:
-    """AI 없이 — 결함 목록으로 만든 고정 틀(점검자가 고침)."""
+def fallback(defects: list, prev_grade: str = "", public: str = "") -> dict:
+    """AI 없이 — 결함 목록으로 만든 고정 틀(점검자가 고침). public = 공중이용 탭 사진 항목 이름들(쉼표) — 없으면 양호."""
     by_unit: dict[str, list] = {}
     for d in defects:
         if d.get("check") == "repaired" or kinds.is_record(d.get("dtype") or ""):
@@ -98,7 +98,7 @@ def fallback(defects: list, prev_grade: str = "") -> dict:
     front = names("전면부")
     top = names("상부")
     drain = names("배수시설") or names("기타")
-    pub = names("공중이용시설")
+    pub_txt = f"{public} 상태양호" if public else "해당 시설 양호"
     findings = [f"⦁기초부 : {base + ' 발생' if base else '침하, 활동, 세굴 등이 발생하지 않은 양호한 상태임'}",
                 f"⦁상  부 : {top or '상태양호'}",
                 f"⦁전면부 : {front + ' 등이 국부적으로 발생하였으나, 전도, 경사, 배부름이 없는 양호한 상태임' if front and not sev else (front + ' 발생 — 진행성 확인 필요' if front else '상태양호')}",
@@ -111,15 +111,15 @@ def fallback(defects: list, prev_grade: str = "") -> dict:
             {"name": "상부", "prev": "⦁-", "now": rowtxt("상부"), "action": "⦁잡목식생 제거" if top else "⦁주의관찰"},
             {"name": "기초/지반", "prev": "⦁-", "now": rowtxt("지반 및 기초부"), "action": "⦁주의관찰"},
             {"name": "배수시설", "prev": "⦁-", "now": _bul(drain or "상태양호"), "action": "⦁배수로 정비" if "퇴적" in drain else "⦁주의관찰"},
-            {"name": "공중이 이용하는시설", "prev": "⦁-", "now": _bul(pub or "상태양호"), "action": "⦁주의관찰"}]
+            {"name": "공중이 이용하는시설", "prev": "⦁-", "now": _bul(pub_txt), "action": "⦁주의관찰"}]
     grade = prev_grade if prev_grade in GRADES2 else ("보통" if sev else "양호")
-    return {"critical": "⦁없음", "public": "⦁" + (pub + " 발생" if pub else "전반적으로 양호한 상태"), "findings": findings, "repairs": repairs,
+    return {"critical": "⦁없음", "public": "⦁" + (f"{public} 전반적으로 양호한 상태" if public else "전반적으로 양호한 상태"), "findings": findings, "repairs": repairs,
             "next_focus": "균열 및 이격부 추가 손상 발생 여부 점검",
             "sections": {"found": f"지반 및 기초부 조사결과, {base + '이(가) 조사되었으나 ' if base else ''}침하·활동·세굴 등 구조적 이상은 없는 양호한 상태로 조사되었다.",
                          "front": f"옹벽 전면부 외관조사 결과 {front + ' 등이 국부적으로 조사되었으며, ' if front else '특이 손상은 조사되지 않았으며, '}"
                                   "전도·경사·배부름 등 구조적인 변형은 없는 것으로 조사되었다. 손상의 진행 여부를 지속적으로 관찰하고 추후 일괄보수를 실시하는 것이 바람직할 것으로 판단된다.",
                          "etc": f"주변영향인자(배수시설 및 사면상태 등) 조사결과 {drain + ' 등이 조사되었으며, ' if drain else '특이사항은 없었으며, '}사면·안전펜스 등은 양호한 상태로 조사되었다.",
-                         "public": f"공중이 이용하는 부위(추락방지시설·점검로 등) 조사결과 {pub + ' 등이 조사되었다.' if pub else '전반적으로 양호한 상태로 유지되고 있다.'}"},
+                         "public": f"공중이 이용하는 부위({public or '추락방지시설·점검로 등'}) 조사결과 전반적으로 양호한 상태로 유지되고 있다."},
             "summary_rows": rows, "summary_opinion": "⦁점검결과 " + (", ".join(x for x in (front, top, drain) if x) or "특이 손상 없이") + " 조사되었으며, 손상의 진행성은 없는 것으로 조사되었다.",
             "conclusion": {"survey": ["⦁점검결과 " + (", ".join(x for x in (front, top, base, drain) if x) + " 등의 손상이 조사되었으며, 손상의 진행성은 없는 것으로 조사되었다." if any((front, top, base, drain)) else "특이 손상은 조사되지 않았다.")],
                            "repair": repairs if repairs != ["⦁주의관찰"] else ["⦁손상이 경미하므로 주의관찰"],
@@ -127,7 +127,8 @@ def fallback(defects: list, prev_grade: str = "") -> dict:
             "grade": grade, "grade_reason": "중대한 결함 없이 국부적인 손상만 조사됨" if not sev else "진행성 결함이 있어 지속 관찰 필요"}
 
 
-def draft(facility: str, period: str, defects: list, prev_captions: list[str], facts: str, company_id: int, target_grade: str = "", prev_grade: str = "") -> dict:
+def draft(facility: str, period: str, defects: list, prev_captions: list[str], facts: str, company_id: int, target_grade: str = "", prev_grade: str = "",
+          public: str = "") -> dict:
     from server.sitok import vision
 
     rule = f"\n- 점검자가 요청한 등급: {target_grade} — 그 등급에 맞는 근거·문장으로." if target_grade else ""
@@ -137,7 +138,7 @@ def draft(facility: str, period: str, defects: list, prev_captions: list[str], f
         raw = vision.ask_json(company_id, [], prompt, max_tokens=6000)
     except Exception:  # noqa: BLE001
         raw = None
-    out = _norm(raw, defects) if raw else fallback(defects, prev_grade)
+    out = _norm(raw, defects) if raw else fallback(defects, prev_grade, public)
     out["wall"] = True
     out["ai_ok"] = bool(raw)
     return out

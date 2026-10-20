@@ -38,6 +38,7 @@ def _out(db: Session, r: SitokReport) -> dict:
         it = p["public"].get(k) or {}
         crit, grades = P.PUBLIC_CRITERIA[k]
         pub.append({"key": k, "name": name, "has": bool(it.get("file") and (base / it["file"]).exists()), "none": bool(it.get("none")),
+                    "has_prev": bool(it.get("prev") and (base / it["prev"]).exists()),  # 옹벽 전회차 가져오기 사진(10/21)
                     "hint": crit.split(" / ")[0]})
     other = [{"key": k, "name": name, "slots": [bool((base / x).exists()) for x in p["other"][k]] + [False] * (P.OTHER_SLOTS - len(p["other"][k]))}
              for k, name in P.OTHER]
@@ -46,10 +47,10 @@ def _out(db: Session, r: SitokReport) -> dict:
     return {"public": pub, "other": other, "wall": kinds.is_wall(db.get(SitokFacility, r.facility_id))}  # 옹벽은 기타시설 탭 숨김(10/20)
 
 
-def _path(db: Session, r: SitokReport, group: str, key: str, slot: int) -> Path | None:
+def _path(db: Session, r: SitokReport, group: str, key: str, slot: int, which: str = "now") -> Path | None:
     p = P.norm(r.parts)
     if group == "public":
-        f = (p["public"].get(key) or {}).get("file")
+        f = (p["public"].get(key) or {}).get("prev" if which == "prev" else "file")
     else:
         lst = p["other"].get(key) or []
         f = lst[slot] if 0 <= slot < len(lst) else None
@@ -76,7 +77,7 @@ def add_photo(report_id: int, group: str = Form(...), key: str = Form(...), slot
     files.save_jpeg(file.file.read(), file.filename or "", base_dir(db, r) / name)
     old = _path(db, r, group, key, slot)
     if group == "public":
-        p["public"][key] = {"file": name}
+        p["public"][key] = {k2: v for k2, v in (p["public"].get(key) or {}).items() if k2 == "prev"} | {"file": name}  # 전회차 사진은 둠
     else:
         lst = p["other"][key]
         if 0 <= slot < len(lst):
@@ -98,7 +99,10 @@ def delete_photo(report_id: int, group: str, key: str, slot: int = 0, user: User
     p = P.norm(r.parts)
     old = _path(db, r, group, key, slot)
     if group == "public":
+        prev = (p["public"].get(key) or {}).get("prev")
         p["public"].pop(key, None)
+        if prev:
+            p["public"][key] = {"prev": prev}
     elif 0 <= slot < len(p["other"][key]):
         p["other"][key].pop(slot)
     if old is not None:
@@ -119,21 +123,24 @@ def set_none(report_id: int, body: NoneIn, user: User = Depends(get_current_user
     r = _require(db, user, report_id)
     p = P.norm(r.parts)
     old = _path(db, r, "public", body.key, 0)
+    prev = (p["public"].get(body.key) or {}).get("prev")
     if body.none:
-        p["public"][body.key] = {"none": True}
+        p["public"][body.key] = {"none": True} | ({"prev": prev} if prev else {})
         if old is not None:
             old.unlink(missing_ok=True)
     else:
         p["public"].pop(body.key, None)
+        if prev:
+            p["public"][body.key] = {"prev": prev}
     r.parts = p
     db.commit()
     return _out(db, r)
 
 
 @router.get("/reports/{report_id}/parts/photo")
-def photo(report_id: int, group: str, key: str, slot: int = 0, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def photo(report_id: int, group: str, key: str, slot: int = 0, which: str = "now", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     _check(group, key)
-    path = _path(db, _require(db, user, report_id), group, key, slot)
+    path = _path(db, _require(db, user, report_id), group, key, slot, which)
     if path is None or not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
     return FileResponse(path, media_type="image/jpeg")

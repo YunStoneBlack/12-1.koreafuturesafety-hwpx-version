@@ -262,6 +262,8 @@ class Data:
     history: list = field(default_factory=list)  # [{period, kind, org, grade, result}]
     cost: tuple = ((), 0)
     shots: list = field(default_factory=list)  # 사진첩 [(path, caption)]
+    compare: list = field(default_factory=list)  # 전회차 비교 사진대장 [(prev, now, caption)]
+    public_names: str = ""
     template3: bool = False
     warn: list = field(default_factory=list)
 
@@ -337,9 +339,9 @@ def gather(db, r, f) -> Data:
         d.warn.append("회차 정보에 책임·참여기술자가 없어 기술자 칸이 비었습니다")
     # 사진
     rdir = _report_dir(f, r)
-    for o in r.overview or []:
-        p = rdir / o["file"]
-        if p.exists():
+    for o in r.overview or []:  # 이번 사진, 없으면 전회차(가져온 것, 10/21)
+        p = rdir / o["file"] if o.get("file") else (rdir / o["prev_file"] if o.get("prev_file") else None)
+        if p is not None and p.exists():
             d.overview.append((p, o.get("title") or ""))
     try:
         d.locmap = locmap.map_for(f.address, f.name, _facility_dir(f))
@@ -358,34 +360,40 @@ def gather(db, r, f) -> Data:
                 cap += f"({'0.3mm이상' if float(x.width) >= 0.3 else '0.3mm미만'})"
             except ValueError:
                 pass
-        key = "public" if x.floor == "공중이용시설" else wall_category(x.floor)
+        key = wall_category(x.floor)
         sec[key].append((photo, cap))
         shots.append((photo, cap))
+        if x.photo and Path(x.photo).exists() and x.prev_photo and Path(x.prev_photo).exists():
+            d.compare.append((Path(x.prev_photo), photo, f"{x.floor} {x.seq}번 {cap}"))
     g = G.norm(r.survey, "wall")
     for key, _ in G.WALL_CATS:
-        for x in g["good"][key]:
+        gl = [x for x in g["good"][key] if not x.get("prev")] or [x for x in g["good"][key] if x.get("prev")]  # 이번 사진, 없으면 전회차
+        for x in gl:
             p = rdir / x["file"]
             if p.exists():
                 sec[key].append((p, x["title"] or "상태양호"))
                 shots.append((p, x["title"] or "상태양호"))
+    pub_names = []
     try:
-        for it in P.norm(r.parts)["public"].values() if isinstance(P.norm(r.parts)["public"], dict) else []:
-            pass
         pub = P.norm(r.parts)["public"]
         for k, name in P.PUBLIC:
             it = pub.get(k) or {}
-            p = rdir / it["file"] if it.get("file") else None
+            f_ = it.get("file") or it.get("prev")
+            p = rdir / f_ if f_ else None
             if p and p.exists():
                 sec["public"].append((p, name))
+                shots.append((p, name))
+                pub_names.append(name)
     except Exception:  # noqa: BLE001
         pass
     d.sections = sec
     d.shots = shots
+    d.public_names = ", ".join(pub_names)
     # AI 초안
     fin = (r.ai or {}).get("final") or {}
     defects = [{k: getattr(x, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause", "cause_note")} for x in rows]
     d.prev_grade = wall_ai.word(f.safety_grade or "") or "양호"
-    d.ai = fin if wall_ai.is_wall_ai(fin) else wall_ai.fallback(defects, d.prev_grade)
+    d.ai = fin if wall_ai.is_wall_ai(fin) else wall_ai.fallback(defects, d.prev_grade, d.public_names)
     if not wall_ai.is_wall_ai(fin):
         d.warn.append("AI 초안이 없어 결함 목록으로 만든 기본 글로 채웠습니다 — [🤖 AI 초안]을 먼저 쓰면 좋습니다")
     d.grade = wall_ai.word(d.ai.get("grade") or "") or d.prev_grade
@@ -857,6 +865,11 @@ def album_pdf(d: Data, dest: Path) -> int:
     shots = d.shots
     for i in range(0, len(shots), cols * rows_per):
         page("주 요 손 상 및 현 황 사 진", shots[i:i + cols * rows_per])
+    for i in range(0, len(d.compare), rows_per):  # 전회차 비교 사진대장(건축물 비교 사진대장처럼 — 민재형 10/21 질문2): 왼쪽 전회차 · 오른쪽 금회
+        items = []
+        for prev, now, cap in d.compare[i:i + rows_per]:
+            items += [(prev, f"[전회차] {cap}"), (now, f"[금회] {cap}")]
+        page("전 회 차 비 교 사 진", items)
     if not ov and not shots:
         return 0
     doc.save(dest, garbage=3, deflate=True)

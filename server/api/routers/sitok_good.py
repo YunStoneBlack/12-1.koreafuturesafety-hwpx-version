@@ -50,7 +50,7 @@ def _out(db: Session, r: SitokReport) -> dict:
         counts[k] = counts.get(k, 0) + 1
     se = g["seismic"]
     return {"cats": [{"key": k, "name": name, "defects": counts.get(k, 0),
-                      "photos": [{"idx": i, "title": x["title"]} for i, x in enumerate(g["good"][k]) if (base / x["file"]).exists()]} for k, name in G.cats_for(fam)],
+                      "photos": [{"idx": i, "title": x["title"], "prev": bool(x.get("prev"))} for i, x in enumerate(g["good"][k]) if (base / x["file"]).exists()]} for k, name in G.cats_for(fam)],
             "fam": fam, "per": G.PER, "steel_na": g["steel_na"], "steel_text": G.STEEL_NA_TEXT, "school": (f.template or "") == "3종학교",
             "seismic": {"none": se["none"], "photos": [bool(x and (base / x).exists()) for x in se["photos"]], "rows": se["rows"], "opinion": se["opinion"],
                         "at": se["at"], "items": G.SEISMIC_ITEMS}}
@@ -78,19 +78,20 @@ def get_good(report_id: int, user: User = Depends(get_current_user), db: Session
 
 
 @router.post("/reports/{report_id}/good/photo")
-def add_good(report_id: int, key: str = Form(...), file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def add_good(report_id: int, key: str = Form(...), file: UploadFile = File(...), title: str = Form(""), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
     fam = _fam(db, r)
     _check_key(key, fam)
     g = G.norm(r.survey, fam)
     if key == "steel" and g["steel_na"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "강재가 해당없음으로 되어 있습니다 — [해당없음 풀기] 뒤에 찍으세요.")
-    if len(g["good"][key]) >= G.PER:
+    if sum(1 for x in g["good"][key] if not x.get("prev")) >= G.PER:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"항목마다 {G.PER}장까지입니다 — 지우고 다시 찍으세요.")
     rel = f"{G.DIR_GOOD}/{key}_{uuid.uuid4().hex[:8]}.jpg"
     dest = _base(db, r) / rel
     files.save_jpeg(file.file.read(), file.filename or "photo.jpg", dest)  # 큰 사진 줄여 JPG로(다른 탭과 같게)
-    g["good"][key].append({"file": rel, "title": f"{dict(G.cats_for(fam))[key]} 상태양호"})
+    title = title if isinstance(title, str) else ""  # 시험에서 직접 부르면 Form 기본값 객체
+    g["good"][key].append({"file": rel, "title": title.strip() or f"{dict(G.cats_for(fam))[key]} 상태양호"})
     _save(r, g)
     db.commit()
     return _out(db, r)
@@ -100,6 +101,7 @@ class TitleIn(BaseModel):
     key: str
     idx: int
     title: str
+    file: str | None = None  # (안 씀)
 
 
 @router.patch("/reports/{report_id}/good/photo")

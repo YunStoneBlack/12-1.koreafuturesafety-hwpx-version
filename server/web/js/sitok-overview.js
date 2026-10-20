@@ -18,9 +18,12 @@
       box.innerHTML = '<div class="ov-empty">아직 찍은 전경사진이 없습니다 — 보고서에는 지난 회차 사진이 그대로 들어갑니다.</div>';
       return;
     }
-    box.innerHTML = data.photos.map((p, i) => `<div class="ov-card${p.ai ? " ai" : ""}" data-id="${p.id}">
+    box.innerHTML = data.photos.map((p, i) => `<div class="ov-card${p.ai ? " ai" : ""}${p.has_prev ? " has-prev" : ""}" data-id="${p.id}">
       <div class="ov-no">${i + 1}${i === 0 ? " · 10쪽에도" : ""}<span>전경 ${Math.floor(i / 6) + 1}번째 쪽</span></div>
-      <img src="${BASE}/api${url}/${p.id}/photo?t=${ts}" alt="" loading="lazy" />
+      ${p.has_prev ? `<div class="ov-pair"><figure><img src="${BASE}/api${url}/${p.id}/photo?which=prev&t=${ts}" alt="" loading="lazy" /><figcaption>전회차</figcaption></figure>
+        <figure>${p.has_now ? `<img src="${BASE}/api${url}/${p.id}/photo?t=${ts}" alt="" />` : '<label class="ov-now"><span>📷 이번 찍기</span><input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label>'}
+        <figcaption>이번${p.has_now ? ' <button type="button" class="link-btn ov-del-now">지우기</button>' : " — 안 찍으면 전회차 사진이 들어감"}</figcaption></figure></div>`
+        : `<img src="${BASE}/api${url}/${p.id}/photo?t=${ts}" alt="" loading="lazy" />`}
       <div class="ov-title"><input list="ov-titles" value="${esc(p.title)}" placeholder="제목(예: ${data.wall ? "시점측 전경" : "옥상 전경사진"}) — 🎤 음성 가능" />
         <label class="ov-plate" title="실명판을 찍으면 AI가 실 이름을 읽어 제목으로"${data.wall ? " hidden" : ""}>🏷<input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label></div>
       ${p.ai ? '<div class="ov-ai">🤖 AI 추천 제목 — 맞으면 그대로, 아니면 고치세요</div>' : ""}
@@ -35,6 +38,22 @@
         if (!confirm("이 전경사진을 지울까요?")) return;
         try { data = await api(`${url}/${id}`, { method: "DELETE" }); draw(); } catch (e) { say(e.message); }
       });
+      el.querySelector(".ov-del-now")?.addEventListener("click", async () => { // 이번 사진만(전회차는 둠)
+        if (!confirm("이번에 찍은 사진만 지울까요? 전회차 사진은 남습니다.")) return;
+        try { data = await api(`${url}/${id}?which=now`, { method: "DELETE" }); draw(); } catch (e) { say(e.message); }
+      });
+      const now = el.querySelector(".ov-now input");
+      if (now) {
+        now.addEventListener("change", async () => {
+          if (!now.files[0]) return;
+          el.classList.add("busy");
+          say("올리는 중…", true);
+          const fd = new FormData();
+          fd.append("file", now.files[0]);
+          try { data = await apiUpload(`${url}/${id}/photo`, fd); ts = Date.now(); say(""); draw(); } catch (e) { say(e.message); el.classList.remove("busy"); }
+        });
+        enableFileDrop(el.querySelector(".ov-now"), now);
+      }
       const plate = el.querySelector(".ov-plate input");
       plate.addEventListener("change", async () => {
         if (!plate.files[0]) return;
@@ -48,7 +67,7 @@
           say(`실명판: ${r.title}`, true);
         } catch (e) { say(e.message); el.classList.remove("busy"); }
       });
-      el.querySelector("img").addEventListener("click", (e) => window.open(e.target.src, "_blank"));
+      el.querySelectorAll("img").forEach((im) => im.addEventListener("click", (e) => window.open(e.target.src, "_blank")));
     });
   }
 

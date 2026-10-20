@@ -238,3 +238,15 @@
   .wi-fields { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wi-fields label:first-child { grid-column: 1 / -1; }
 }
+
+/* 전회차 칸(옹벽 가져오기, 10/21) — 전경·공중이용·상태양호 */
+.ov-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ov-pair figure { margin: 0; }
+.ov-pair img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; }
+.ov-pair figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.ov-now { display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; border: 2px dashed var(--primary); border-radius: 8px; color: var(--primary); font-weight: 600; cursor: pointer; }
+.pt-prev { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 12px; color: var(--muted); }
+.pt-prev img { width: 90px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; }
+.gd-prev { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.gd-prev-card { background: #f6f7f9; }
+.wi-pub { grid-column: span 2; }

@@ -86,7 +86,7 @@ def build_input(parts: dict | None, base: Path) -> dict:
     pub = []
     for k, name in PUBLIC:
         it = p["public"].get(k) or {}
-        f = base / it["file"] if it.get("file") else None
+        f = base / (it.get("file") or it.get("prev")) if (it.get("file") or it.get("prev")) else None  # 이번 사진, 없으면 전회차(옹벽 가져오기, 10/21)
         pub.append((name, str(f) if f and f.exists() else None))
     other = []
     for k, name in OTHER:
@@ -99,7 +99,7 @@ def build_input(parts: dict | None, base: Path) -> dict:
 def recorded(parts: dict | None) -> bool:
     """현장 화면에서 하나라도 찍었거나 해당없음을 골랐는지."""
     p = norm(parts)
-    return any(v.get("file") or v.get("none") for v in p["public"].values()) or any(p["other"][k] for k, _ in OTHER)
+    return any(v.get("file") or v.get("none") or v.get("prev") for v in p["public"].values()) or any(p["other"][k] for k, _ in OTHER)
 
 
 def photo_list(parts: dict | None, base: Path) -> list[tuple[str, str, str, Path]]:
@@ -107,7 +107,7 @@ def photo_list(parts: dict | None, base: Path) -> list[tuple[str, str, str, Path
     p = norm(parts)
     out = []
     for k, name in PUBLIC:
-        f = (p["public"].get(k) or {}).get("file")
+        f = (p["public"].get(k) or {}).get("file") or (p["public"].get(k) or {}).get("prev")
         if f and (base / f).exists():
             out.append(("public", k, name, base / f))
     for k, name in OTHER:

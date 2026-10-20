@@ -125,8 +125,18 @@ def pick(album: WallAlbum, facility_name: str) -> int:
 
 # ---------- 설명 → 부위·구분·부재·결함유형 ----------
 RECORD_WORDS = ("양호", "현황", "전경", "상태")
-UNIT_WORDS = [("지반 및 기초부", ("기초", "지반", "세굴", "침하")), ("배수시설", ("배수", "집수", "측구")), ("공중이용시설", ("휀스", "펜스", "난간", "점검로", "방지망", "울타리")),
+UNIT_WORDS = [("지반 및 기초부", ("기초", "지반", "세굴", "침하")), ("배수시설", ("배수", "집수", "측구")),
               ("상부", ("상부", "소단", "상단", "보호콘크리트", "활용부지", "배면")), ("기타", ("사면", "비탈", "주변")), ("전면부", ("블록", "전면", "벽체", "콘크리트", "이격", "백태", "균열", "파손"))]
+# 공중이용 탭 항목(server/sitok/parts.PUBLIC) — 설명 낱말로 고름(10/21 민재형: 공중이용시설 부위 대신 공중이용 탭에)
+PUBLIC_WORDS = [("fall", ("휀스", "펜스", "난간", "울타리", "추락", "점검로", "방지망")), ("road", ("도로포장", "포장", "아스콘")), ("joint", ("신축이음",)), ("vent", ("환기구", "덮개", "점검구"))]
+
+
+def public_key(caption: str) -> str:
+    """설명이 공중이용 항목이면 그 키(fall/road/joint/vent), 아니면 ""."""
+    for key, words in PUBLIC_WORDS:
+        if any(w in (caption or "") for w in words):
+            return key
+    return ""
 MEMBER_WORDS = [("블록", ("블록", "블럭")), ("배수로", ("배수로", "측구")), ("배수공", ("배수공",)), ("집수정", ("집수정",)), ("기초", ("기초", "지반")), ("소단", ("소단",)),
                 ("보호콘크리트", ("보호콘크리트",)), ("사면", ("사면", "비탈")), ("안전펜스", ("휀스", "펜스", "난간", "울타리")), ("낙석방지망", ("방지망",)), ("점검로", ("점검로",)),
                 ("철망", ("철망", "wire")), ("채움재", ("채움재",)), ("뒷채움", ("뒷채움", "배면")), ("콘크리트", ("콘크리트", "옹벽"))]
@@ -156,17 +166,19 @@ def keyword_guess(caption: str) -> dict:
     if m and "균열" in t:
         v = float(m[1])
         width = ("0.3" if m[2] in ("이상", None) else "0.2") if v == 0.3 else f"{v:g}"
-    return {"unit": unit, "part": part, "member": member, "dtype": dtype if not record else f"{(member or unit)} 현황", "record": record, "width": width}
+    pub = public_key(t)
+    return {"unit": unit, "part": part, "member": member, "dtype": dtype if not record else f"{(member or unit)} 현황", "record": record, "width": width, "public": pub}
 
 
 GUESS_PROMPT = """옹벽 정기안전점검 지난 보고서 부록 "주요 손상 및 현황 사진"의 사진 설명 {n}개입니다. 설명마다 우리 현장 조사 칸으로 분류하세요.
 - unit(부위): 반드시 이 중 하나: {units}  (블록·전면 벽체 = 전면부, 기초·지반·세굴·침하 = 지반 및 기초부, 소단·상단·보호콘크리트·배면 활용부지 = 상부,
-  배수로·배수공·집수정 = 배수시설, 휀스·펜스·난간·점검로·낙석방지망 = 공중이용시설, 사면·주변 = 기타)
+  배수로·배수공·집수정 = 배수시설, 사면·주변 = 기타). 휀스·펜스·난간·점검로·낙석방지망·도로포장·신축이음·환기구 덮개는 "공중이 이용하는 부위"라 unit은 "기타", public에 항목 키
+  ("fall" 추락방지시설(펜스·난간·점검로·방지망) / "road" 도로포장 / "joint" 신축이음부 / "vent" 환기구 덮개), 아니면 ""
 - part(구분): "주요시설"(전면부·지반 및 기초부 부재) / "일반시설"(배수·상부·사면) / "부대시설"(펜스·방지망·점검로)
 - member(부재): 반드시 이 중 하나 그대로(모르면 ""): {members}
 - dtype(결함유형): 반드시 이 중 하나 그대로: {types} — "~양호"·"~현황"·"~전경"처럼 결함이 아닌 기록 사진이면 record=true, dtype는 "○○ 현황"(예: "기초부 현황")
 - width: 설명에 균열 폭이 있으면 mm 숫자 글자("0.3"·"0.2"), 없으면 ""
-JSON 배열 하나로만 답하세요(설명 없이): [{{"no": 번호, "unit": "", "part": "", "member": "", "dtype": "", "record": false, "width": ""}}]
+JSON 배열 하나로만 답하세요(설명 없이): [{{"no": 번호, "unit": "", "part": "", "member": "", "dtype": "", "record": false, "width": "", "public": ""}}]
 [설명 — 번호 | 글]
 {rows}"""
 
@@ -207,4 +219,7 @@ def guess_rows(captions: list[str], company_id: int, allowed: dict) -> list[dict
         w = str(g.get("width") or "").strip()
         if re.fullmatch(r"\d+(?:\.\d+)?", w):
             b["width"] = w
+        pub = str(g.get("public") or "").strip()
+        if pub in ("fall", "road", "joint", "vent"):
+            b["public"] = pub
     return base

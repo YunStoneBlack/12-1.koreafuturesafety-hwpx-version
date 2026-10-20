@@ -27,7 +27,8 @@ DIR_GOOD, DIR_SEISMIC = "상태양호", "내진보강"
 
 def norm(sv: dict | None, fam: str = "") -> dict:
     sv = sv or {}
-    good = {k: [{"file": str(x.get("file") or ""), "title": str(x.get("title") or "").strip()} for x in (sv.get("good") or {}).get(k) or [] if isinstance(x, dict) and x.get("file")][:PER]
+    good = {k: [{"file": str(x.get("file") or ""), "title": str(x.get("title") or "").strip(), "prev": bool(x.get("prev"))}
+                for x in (sv.get("good") or {}).get(k) or [] if isinstance(x, dict) and x.get("file")][:PER * 2]  # prev = 전회차 가져온 사진(옹벽 10/21), 이번 PER + 전회차 PER
             for k, _ in cats_for(fam)}
     se = sv.get("seismic") or {}
     rows = [{"mark": r.get("mark") if r.get("mark") in ("○", "×") else "", "text": str(r.get("text") or "").strip(), "action": str(r.get("action") or "").strip()}
@@ -45,7 +46,8 @@ def add_to_rep(rep: dict, sv: dict | None, base: Path, fam: str = "") -> dict:
         if k == "steel" and g["steel_na"]:
             out["steel"] = []
             continue
-        for x in g["good"][k]:
+        rows = [x for x in g["good"][k] if not x.get("prev")] or [x for x in g["good"][k] if x.get("prev")]  # 이번 사진, 없으면 전회차
+        for x in rows:
             p = base / x["file"]
             if p.exists():
                 out.setdefault(k, []).append((str(p), x["title"] or f"{name} 상태양호"))
