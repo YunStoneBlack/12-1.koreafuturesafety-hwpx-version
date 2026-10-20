@@ -100,8 +100,9 @@
         <div class="dc-site">${siteLine(c)}
           <button type="button" class="dc-link">${(c.sites || []).length ? "바꾸기·더하기" : "🔗 현장 연결"}</button></div>
       </div>
-      <div class="dc-docs">${docs}</div>
+      <div class="dc-docs">${docs}${c.changes ? `<span class="dc-doc dc-chg"><b>계약변경</b> ${c.changes}차</span>` : ""}</div>
       <div class="dc-actions">
+        <button type="button" class="secondary dc-change" title="공기연장 등 — 용역기간·금액과 현장 공사기간을 같이 바꾸고 변경 계약서를 붙임">+ 계약변경</button>
         <button type="button" class="secondary dc-start">📑 착수계</button>
         <button type="button" class="secondary dc-done">📑 완수계</button>
         <button type="button" class="secondary dc-del" title="계약 지우기">삭제</button>
@@ -113,6 +114,7 @@
     el.querySelector(".dc-start").addEventListener("click", () => openContractDocs(c.id, "start", load));
     el.querySelector(".dc-done").addEventListener("click", () => openContractDocs(c.id, "done", load));
     el.querySelector(".dc-link").addEventListener("click", () => openLinkSite(c.id, load));
+    el.querySelector(".dc-change").addEventListener("click", () => openChange(c));
     el.querySelector(".dc-del").addEventListener("click", async () => {
       const made = c.made.start.at || c.made.done.at;
       const pw = await dcAskPassword(`"${c.title || "용역 계약"}"을(를) 지웁니다.${made ? " 만든 착수계·완수계·붙임 파일도 같이 지워집니다." : ""} 되돌릴 수 없습니다.`);
@@ -138,6 +140,104 @@
   });
   enableFileDrop(document.querySelector("main.main"), document.getElementById("dc-pdf"));
   document.getElementById("dc-new-btn").addEventListener("click", () => openNewCard([]));
+
+  // ---------- [+ 계약변경] 창(10/20 형 — 공기연장 등): 변경 용역계약서·기술지도계약서를 붙이면 읽어서 칸을 채움(저장 전 고칠 수 있음),
+  // [변경 저장] = 계약 칸 + 현장 칸(공사기간·금액·지도 횟수)을 같이 바꾸고 차수 기록(바뀐 칸 전·후, 첨부). 공기 경과는 바뀐 용역 기간으로.
+  async function openChange(c) {
+    let v;
+    try { v = await api(`/contracts/${c.id}/change`); } catch (err) { showError(errorEl, err); return; }
+    const files = { service: null, guides: {} };
+    const L = v.labels;
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = '<div class="mail-box cd-box dc-change-box" role="dialog" aria-modal="true"></div>';
+    document.body.appendChild(overlay);
+    const box = overlay.querySelector(".mail-box");
+    let busy = false;
+    const close = () => { if (busy) return; overlay.remove(); document.removeEventListener("keydown", onKey, true); };
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+    document.addEventListener("keydown", onKey, true);
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    const lab = (scope, k) => (scope !== "contract" && k === "amount" ? "공사금액" : L[k]); // 현장 칸 금액 = 공사금액
+    const input = (scope, k, val) => `<label class="cd-field"><span>${lab(scope, k)}</span><input data-scope="${scope}" data-k="${k}" ${["amount", "total_guidance_count"].includes(k) ? 'inputmode="numeric"' : 'type="date"'} value="${mailEsc(val ?? "")}" /></label>`;
+    const fileLine = (f) => f ? `<span class="mail-note">📄 ${mailEsc(f.name)}</span>` : "";
+    const hist = v.history.length ? `<details class="cg-hist"><summary>지난 계약변경 ${v.history.length}번</summary>${v.history.slice().reverse().map((h) => {
+      const rows = [...Object.entries(h.after.contract).map(([k, x]) => `${L[k]} ${mailEsc(h.before.contract[k] ?? "-")} → <b>${mailEsc(x ?? "-")}</b>`),
+        ...Object.entries(h.after.sites).flatMap(([sid, d]) => Object.entries(d).map(([k, x]) => `${mailEsc((v.sites.find((s) => String(s.id) === sid) || {}).label || sid)} ${lab("site", k)} ${mailEsc(h.before.sites[sid]?.[k] ?? "-")} → <b>${mailEsc(x ?? "-")}</b>`))];
+      return `<div class="cg-h"><b>${h.no}차</b> ${mailEsc(h.at)} ${mailEsc(h.by)}${h.reason ? ` — ${mailEsc(h.reason)}` : ""}<div>${rows.join("<br>") || "칸 변경 없음"}</div>
+        ${h.files.map((n) => `<a href="${BASE}/api/contracts/${c.id}/change/${h.no}/${encodeURIComponent(n)}" target="_blank" rel="noopener">📄 ${mailEsc(n)}</a>`).join(" ")}</div>`;
+    }).join("")}</details>` : "";
+    box.innerHTML = `<div class="mail-head"><b>📝 계약변경 ${v.next_no}차</b><span class="mail-sub">${mailEsc(c.label)} — 바꾼 칸만 계약·현장 카드에 들어갑니다(보고서는 현장 칸 = 기술지도계약서 기준)</span></div>
+      ${hist}
+      <label class="cd-field"><span>사유</span><input class="cg-reason" placeholder="예: 공기연장(우기 공사중지)" /></label>
+      <div class="mail-label">용역계약서(변경) <span class="mail-note">— 붙이면 읽어서 아래 칸을 채움</span></div>
+      <div class="cg-file" data-kind="service"><label class="cd-add">PDF 붙이기<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label><span class="cg-fname"></span></div>
+      <div class="cd-grid cg-grid">${["start_date", "end_date", "amount", "contract_date"].map((k) => input("contract", k, v.contract[k])).join("")}</div>
+      ${v.sites.map((s) => `<div class="mail-label">현장 ${mailEsc(s.label)} <span class="mail-note">— 기술지도계약서(변경)를 붙이면 읽어서 채움(AI 20초쯤)</span></div>
+        <div class="cg-file" data-kind="guide" data-site="${s.id}"><label class="cd-add">PDF 붙이기<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label><span class="cg-fname"></span></div>
+        <div class="cd-grid cg-grid">${["period_start", "period_end", "amount", "total_guidance_count"].map((k) => input(`site:${s.id}`, k, s[k])).join("")}</div>`).join("")
+        || '<div class="mail-note">연결된 현장이 없습니다 — 계약 칸만 바뀝니다.</div>'}
+      <div class="mail-msg cg-msg" hidden></div>
+      <div class="mail-foot cd-foot"><button type="button" class="cg-close">닫기</button><button type="button" class="mail-primary cg-save">📝 변경 저장</button></div>`;
+    const msg = box.querySelector(".cg-msg");
+    const say = (t, tone) => { msg.hidden = !t; msg.className = `mail-msg cg-msg ${tone || ""}`; msg.innerHTML = t; };
+    box.querySelector(".cg-close").addEventListener("click", close);
+    box.querySelectorAll(".cg-file").forEach((el) => {
+      const inp = el.querySelector("input[type=file]");
+      enableFileDrop(el, inp);
+      inp.addEventListener("change", async () => {
+        const f = inp.files[0];
+        inp.value = "";
+        if (!f) return;
+        const service = el.dataset.kind === "service";
+        if (service) files.service = f; else files.guides[el.dataset.site] = f;
+        el.querySelector(".cg-fname").innerHTML = fileLine(f) + ' <span class="mail-note">읽는 중…</span>';
+        try {
+          const fd = new FormData();
+          fd.append("file", f);
+          const r = await apiUpload(`/contracts/${c.id}/change/read/${service ? "service" : "guide"}`, fd);
+          const scope = service ? "contract" : `site:${el.dataset.site}`;
+          let n = 0;
+          for (const [k, x] of Object.entries(r.values || {})) {
+            const t = box.querySelector(`input[data-scope="${scope}"][data-k="${k}"]`);
+            if (t && x != null && String(t.value) !== String(x)) { t.value = x; t.classList.add("sk-filled"); n += 1; }
+          }
+          el.querySelector(".cg-fname").innerHTML = fileLine(f) + ` <span class="mail-note">${n ? `${n}칸 바뀜 — 확인하세요` : "바뀐 칸 없음(직접 고치세요)"}</span>`;
+        } catch (err) {
+          el.querySelector(".cg-fname").innerHTML = fileLine(f) + ` <span class="cd-bad">못 읽음: ${mailEsc(err.message)} — 칸을 직접 고치세요(파일은 그대로 붙음)</span>`;
+        }
+      });
+    });
+    box.querySelector(".cg-save").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      const body = { reason: box.querySelector(".cg-reason").value, contract: {}, sites: {} };
+      box.querySelectorAll("input[data-scope]").forEach((t) => {
+        const val = t.value.trim().replace(/,/g, "");
+        if (t.dataset.scope === "contract") body.contract[t.dataset.k] = val;
+        else (body.sites[t.dataset.scope.split(":")[1]] ||= {})[t.dataset.k] = val;
+      });
+      const fd = new FormData();
+      fd.append("data", JSON.stringify(body));
+      if (files.service) fd.append("service", files.service);
+      const gids = Object.keys(files.guides);
+      for (const id of gids) fd.append("guides", files.guides[id]);
+      fd.append("guide_ids", gids.join(","));
+      busy = true;
+      btn.disabled = true;
+      try {
+        const out = await apiUpload(`/contracts/${c.id}/change`, fd);
+        busy = false;
+        const n = Object.keys(out.saved.after.contract).length + Object.values(out.saved.after.sites).reduce((a, d) => a + Object.keys(d).length, 0);
+        say(`✓ ${out.saved.no}차 계약변경을 저장했습니다 — 바뀐 칸 ${n}개${out.saved.files.length ? `, 첨부 ${out.saved.files.length}개` : ""}. 현장 카드·공기 경과에도 들어갔습니다.`, "ok");
+        btn.textContent = "저장함";
+        load();
+      } catch (err) {
+        busy = false;
+        btn.disabled = false;
+        say(mailEsc(err.message), "bad");
+      }
+    });
+  }
 
   // ---------- [+ 새 계약] 창 — 계약 카드 + 현장 카드(10/20 형 문서) ----------
   async function openNewCard(initial) {

@@ -3,6 +3,8 @@
 - `GET /contracts` — 계약 목록(관리번호·단계·제출·착수일·완수일·연결 현장), `GET /contracts/next-management-no` — 관리번호 자동생성 — 서류 자동화 계약 목록·제출 현황·일정 달력이 같이 씀
 - `POST /contracts` (빈 계약) / `POST /contracts/from-pdf` (용역계약서 PDF로 새 계약 — 글자 규칙, 못 읽은 칸은 Claude API)
 - `POST /contracts/new-card` — [+ 새 계약](10/20 형): 용역계약서(선택) + 현장별 K2B 기술지도계약서 n개 → 계약 카드 + 현장 카드(n곳이면 26-69-1…) 함께
+- `GET /contracts/{id}/change` · `POST …/change/read/{service|guide}`(첨부 읽기만) · `POST …/change` — [+ 계약변경](10/20 형, 공기연장 등):
+  용역 기간·금액 + 현장별 공사기간·금액·지도 횟수를 같이 바꾸고 차수별 기록(service_contract.changes), 변경 계약서는 계약 폴더 "계약변경/N차/"
 - `GET|PUT|DELETE /contracts/{id}` — 창에 필요한 것 전부 / 계약 값 저장 / 지우기(파일까지, 삭제 비밀번호)
 - `POST /contracts/{id}/pdf` — 계약서 PDF 다시 올리기(읽은 칸만 덮어씀)
 - `POST /contracts/{id}/link {site_id, on}` — 현장 연결·해제(계약 하나에 현장 여럿, 현장 하나는 계약 하나 — contract_site 0057, 같은 번호는 자동)
@@ -213,7 +215,8 @@ def blank_contract(user: User = Depends(get_current_user), db: Session = Depends
     return state(db, user, row)
 
 
-def _read_pdf(db: Session, user: User, row: ServiceContract, data: bytes) -> dict:
+def _parse_service(data: bytes, company_id: int) -> tuple[dict, list[str], str]:
+    """용역계약서 PDF → (읽은 칸, AI로 채운 칸, AI 오류) — 글자 규칙, 못 읽은 중요한 칸만 Claude API(10/6). 계약에 넣지는 않음."""
     if data[:4] != b"%PDF":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "용역계약서 PDF 파일을 올리세요.")
     ai_filled: list[str] = []
@@ -223,17 +226,21 @@ def _read_pdf(db: Session, user: User, row: ServiceContract, data: bytes) -> dic
         src.write_bytes(data)
         try:
             parsed = contract_pdf.parse_pdf(src)
-        except Exception:  # noqa: BLE001 — 글자가 없는 스캔 PDF 등 → 전부 AI로
+        except Exception:  # noqa: BLE001
             parsed = {k: None for k in contract_ai.KEY_FIELDS + ("contract_date",)}
-        # 글자 규칙으로 못 읽은 중요한 칸이 있으면 Claude API로 빈칸만(사용자 10/6) — 키가 없거나 실패해도 계약은 만들고 칸만 빈다
         if contract_ai.needs_ai(parsed):
             try:
-                for k, v in contract_ai.read_with_ai(src, user.company_id).items():
+                for k, v in contract_ai.read_with_ai(src, company_id).items():
                     if v and not parsed.get(k):
                         parsed[k] = v
                         ai_filled.append(k)
             except Exception as err:  # noqa: BLE001
                 ai_error = str(err).splitlines()[0][:200] if str(err) else type(err).__name__
+    return parsed, ai_filled, ai_error
+
+
+def _read_pdf(db: Session, user: User, row: ServiceContract, data: bytes) -> dict:
+    parsed, ai_filled, ai_error = _parse_service(data, user.company_id)
     found = {k: (_iso(v) if k in DATE_FIELDS else v) for k, v in parsed.items() if v}
     _apply_contract(row, found, user)
     db.flush()
@@ -353,6 +360,132 @@ def create_card(guides: list[UploadFile] = File(...), service: UploadFile | None
         made.append({"id": site.id, "label": site_label(site)})
     db.commit()
     return state(db, user, row) | info | {"created_sites": made}
+
+
+# ---------- [+ 계약변경](10/20 형 — 공기연장 등으로 용역기간이 바뀜: 서류 카드에서 바꾸면 현장 카드도, 변경 용역계약서·기술지도계약서 첨부) ----------
+CHANGE_CONTRACT = ("contract_date", "start_date", "end_date", "amount")
+CHANGE_SITE = ("period_start", "period_end", "amount", "total_guidance_count")
+CHANGE_LABEL = {"contract_date": "계약일", "start_date": "착수일", "end_date": "완수일", "amount": "계약금액",
+                "period_start": "공사 시작", "period_end": "공사 종료", "total_guidance_count": "지도 총 횟수"}
+
+
+def _val(v):
+    return _iso(v) if isinstance(v, datetime.date) else v
+
+
+def _change_view(db: Session, row: ServiceContract) -> dict:
+    sites = contract_sites.sites_of(db, row.id)
+    return {"next_no": len(row.changes or []) + 1, "contract": {k: _val(getattr(row, k)) for k in CHANGE_CONTRACT},
+            "sites": [{"id": s.id, "label": site_label(s), **{k: _val(getattr(s, k)) for k in CHANGE_SITE}} for s in sites],
+            "history": row.changes or [], "labels": CHANGE_LABEL}
+
+
+@router.get("/{contract_id}/change")
+def get_change(contract_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _change_view(db, _require(db, user, contract_id))
+
+
+@router.post("/{contract_id}/change/read/{kind}")
+def read_change(contract_id: int, kind: Literal["service", "guide"], file: UploadFile = File(...), user: User = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    """변경 계약서 읽기만(창 칸 채우기 — 저장은 [변경 저장]). service = 용역계약서(변경) 글자 규칙 + AI, guide = 기술지도계약서(변경) AI(20초쯤)."""
+    _require(db, user, contract_id)
+    data = file.file.read()
+    if kind == "service":
+        parsed, ai_filled, ai_error = _parse_service(data, user.company_id)
+        return {"values": {k: _val(parsed.get(k)) for k in CHANGE_CONTRACT if parsed.get(k)}, "ai_filled": ai_filled, "ai_error": ai_error}
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "기술지도계약서 PDF를 올리세요.")
+    if not config.has_api_key(user.company_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Claude API 키가 없어 기술지도계약서를 읽을 수 없습니다 — 칸을 직접 고치세요.")
+    try:
+        found = _read_guide(data, user.company_id)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"기술지도계약서를 읽지 못했습니다: {str(err).splitlines()[0][:160]}") from err
+    fields = _site_fields(found, "", "")
+    return {"values": {k: _val(fields[k]) for k in CHANGE_SITE if k in fields}}
+
+
+def _parse_change(v, key: str):
+    if v in (None, ""):
+        return None
+    if key in ("amount", "total_guidance_count"):
+        try:
+            return int(str(v).replace(",", ""))
+        except ValueError as err:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{CHANGE_LABEL[key]}에는 숫자만 적으세요.") from err
+    try:
+        return datetime.date.fromisoformat(str(v)[:10])
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{CHANGE_LABEL[key]} 날짜 형식이 아닙니다: {v}") from err
+
+
+@router.post("/{contract_id}/change")
+def save_change(contract_id: int, data: str = Form(...), service: UploadFile | None = File(None), guides: list[UploadFile] | None = File(None),
+                guide_ids: str = Form(""), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[변경 저장] — data = {reason, contract: {칸: 값}, sites: {현장 id: {칸: 값}}}(창에 보인 값 전부), service = 용역계약서(변경), guides + guide_ids =
+    현장별 기술지도계약서(변경). 바뀐 칸만 계약·현장에 넣고 차수 기록(전·후 값, 첨부 파일). 공기 경과·자동 배치는 바뀐 기간으로(contract_sites.pace_period)."""
+    import json
+
+    row = _require(db, user, contract_id)
+    try:
+        body = json.loads(data)
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "보낸 값을 읽지 못했습니다.") from err
+    sites = {s.id: s for s in contract_sites.sites_of(db, row.id)}
+    before, after = {"contract": {}, "sites": {}}, {"contract": {}, "sites": {}}
+    for k, v in (body.get("contract") or {}).items():
+        if k in CHANGE_CONTRACT:
+            new = _parse_change(v, k)
+            if new != getattr(row, k):
+                before["contract"][k], after["contract"][k] = _val(getattr(row, k)), _val(new)
+                setattr(row, k, new)
+    for sid, vals in (body.get("sites") or {}).items():
+        s = sites.get(int(sid))
+        if s is None:
+            continue
+        for k, v in (vals or {}).items():
+            if k in CHANGE_SITE:
+                new = _parse_change(v, k)
+                if new != getattr(s, k):
+                    before["sites"].setdefault(str(s.id), {})[k] = _val(getattr(s, k))
+                    after["sites"].setdefault(str(s.id), {})[k] = _val(new)
+                    setattr(s, k, new)
+    ids = [int(x) for x in guide_ids.split(",") if x.strip().isdigit()]
+    uploads = [("service", service)] if service is not None else []
+    uploads += [(f"guide:{sid}", g) for sid, g in zip(ids, guides or [])]
+    if not (after["contract"] or after["sites"] or uploads):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "바뀐 칸도 첨부한 변경 계약서도 없습니다.")
+    no = len(row.changes or []) + 1
+    folder = files.contract_dir(row) / "계약변경" / f"{no}차"
+    saved = []
+    for key, f in uploads:
+        data_ = f.file.read()
+        if not data_.startswith(b"%PDF"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"PDF가 아닌 파일: {f.filename}")
+        if key == "service":
+            name = "용역계약서(변경).pdf"
+        else:
+            s = sites.get(int(key.split(":")[1]))
+            name = f"기술지도계약서(변경)_{short_mgmt(s.management_no) if s else key.split(':')[1]}.pdf"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(data_)
+        saved.append(name)
+    entry = {"no": no, "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "by": user.display_name or "", "reason": (body.get("reason") or "").strip(),
+             "before": before, "after": after, "files": saved}
+    row.changes = (row.changes or []) + [entry]
+    row.updated_at, row.updated_by = datetime.datetime.now(), user.display_name or ""
+    db.commit()
+    return _change_view(db, row) | {"saved": entry}
+
+
+@router.get("/{contract_id}/change/{no}/{name}")
+def view_change_file(contract_id: int, no: int, name: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = _require(db, user, contract_id)
+    path = files.contract_dir(row) / "계약변경" / f"{no}차" / Path(name).name
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
+    return FileResponse(path, media_type="application/pdf", filename=path.name, content_disposition_type="inline")
 
 
 def state(db: Session, user: User, row: ServiceContract) -> dict:

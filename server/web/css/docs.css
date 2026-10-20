@@ -123,3 +123,13 @@
 .dc-newcard .nc-slot { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
 .dc-newcard .cd-file { display: flex; align-items: center; gap: 8px; }
 .dc-newcard .cd-file > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* [+ 계약변경](10/20 형) */
+.main .dc-change { white-space: nowrap; }
+.dc-doc.dc-chg b { color: #B7791F; }
+.dc-change-box .cg-file { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.dc-change-box .cg-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 10px; }
+@media (max-width: 720px) { .dc-change-box .cg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cg-hist { margin: 0 0 10px; font-size: 12.5px; }
+.cg-hist summary { cursor: pointer; color: var(--blue); font-weight: 600; }
+.cg-h { padding: 6px 0; border-bottom: 1px dashed var(--line); line-height: 1.6; }
+.cg-h a { margin-right: 8px; }
