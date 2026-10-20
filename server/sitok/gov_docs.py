@@ -124,10 +124,12 @@ def _sign_png(path: str) -> bytes | None:
         return None
 
 
-def _pledge(ws: Worksheet, p: Person, sign_box: tuple | None, warnings: list[str]) -> None:
-    """사람 보안각서 — B9 주소·생년월일·성명, 서명 그림(본 장의 서명 자리)."""
+def _pledge(ws: Worksheet, p: Person, sign_box: tuple | None, warnings: list[str], sign_on: bool = True) -> None:
+    """사람 보안각서 — B9 주소·생년월일·성명, 서명 그림(본 장의 서명 자리). sign_on=False(도장 빼기 — 10/20 사용자 "대표 도장 뺄 때 이 서명도 같이")면 서명 빈칸."""
     birth = f"{p.birth_date:%Y년 %m월 %d일}" if p.birth_date else ""
     ws["B9"] = f"주        소 : {p.address}\n생 년 월 일 : {birth}\n성        명 : {p.name} (서명)"
+    if not sign_on:
+        return
     png = _sign_png(p.sign) if p.sign and Path(p.sign).exists() else None
     if png and sign_box:
         st.place_picture(ws, png, sign_box)
@@ -214,7 +216,7 @@ def build_start(c: build.Contract, doc_no: str, greet: str, contact: str, seal: 
     copies = [_copy_sheet(wb, pledge_master, pos + 1 + i, f"보안각서({p.name})") for i, p in enumerate(participants)]
     pledge_master.title = f"보안각서({agent.name})"
     for s, p in zip([pledge_master] + copies, [agent] + participants):
-        _pledge(s, p, sign_box, warnings)
+        _pledge(s, p, sign_box, warnings, seal)
 
     if c.start_date is None or c.end_date is None:
         warnings.append("착수일·완수일이 비어 예정공정표 날수가 계산되지 않습니다.")

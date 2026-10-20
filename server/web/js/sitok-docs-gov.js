@@ -97,7 +97,7 @@ async function openSitokGov(contractId, kind, onDone) {
         <label class="cd-field"><span>문서번호 <em>KFSC연도_계약번호_${kind === "start" ? "착수일" : "완수일"}(월일)</em></span><input class="sd-docno" value="${esc(typed.docno ?? d[`doc_no_${kind}`])}" /></label>
         <label class="cd-field"><span>인사말</span><span class="cd-greet">1. 귀 <input class="cd-greeting" value="${esc(typed.greeting ?? d.greeting)}" /> 의 무궁한 발전을…</span></label>
         <label class="cd-field"><span>담당 <em>갑지 아래</em></span><input class="sd-contact" value="${esc(typed.contact ?? d.contact_name)}" /></label>
-        <label class="cd-field sd-seal"><span>도장</span><span class="cd-greet"><input type="checkbox" class="sd-seal-in"${(typed.seal ?? true) ? " checked" : ""} /> 대표이사 도장 넣기(빼면 인쇄 뒤 직접)</span></label>
+        <label class="cd-field sd-seal"><span>도장</span><span class="cd-greet"><input type="checkbox" class="sd-seal-in"${(typed.seal ?? true) ? " checked" : ""} /> 대표이사 도장${kind === "start" ? "·보안각서 기술자 서명" : ""} 넣기(빼면 인쇄 뒤 직접)</span></label>
       </div>
       ${kind === "start" ? peopleBlock() : coverBlock() + companyBlock()}
       ${attachBlock()}
