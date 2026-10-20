@@ -142,6 +142,38 @@ def covered_ids(c: SitokDocContract) -> list[int]:
     return [int(x) for x in (c.facility_ids or ([c.facility_id] if c.facility_id else []))]
 
 
+def contract_index(db: Session, company_id: int) -> list[tuple[SitokDocContract, set[int]]]:
+    """회사의 서류 계약과 맡는 시설물 — 목록·달력을 한 번 그릴 때 한 번만 읽음."""
+    return [(c, set(covered_ids(c))) for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == company_id)
+            .order_by(SitokDocContract.start_date, SitokDocContract.id)]
+
+
+def site_contract(index: list, ids: set[int], year: int, half: str) -> SitokDocContract | None:
+    """현장 담당을 둘 계약 — 그 반기를 맡는 계약(여럿이면 시작일 순 첫 계약), 없으면(다음 계약 전 장기) 이 시설물의 가장 최근 계약."""
+    from server.api.routers.sitok_compose import _overlaps
+
+    mine = [c for c, cov in index if cov & ids]
+    now = [c for c in mine if _overlaps(c, year, half)]
+    if now:
+        return now[0]
+    return max(mine, key=lambda c: (c.start_date or c.end_date or datetime.date.min, c.id), default=None)
+
+
+def site_phone(index: list, ids: set[int], owner_phone: str | None, year: int | None = None, half: str | None = None) -> str:
+    """시설물 전화(10/20 민재형 — 달력·시설물 목록·서류 카드 같은 번호): 계약 정보 "현장 담당" 연락처 — 그 반기 계약, 비었으면 이 시설물 계약 중
+    가장 최근에 넣은 현장 담당 번호 — 가 없으면 관리주체 전화(관리대장). 시설물 칸 "담당자 전화"는 안 씀."""
+    if year is None or half is None:
+        t = datetime.date.today()
+        year, half = t.year, "상반기" if t.month <= 6 else "하반기"
+    c = site_contract(index, ids, year, half)
+    if c is not None and (c.site_phone or "").strip():
+        return c.site_phone.strip()
+    older = [x for x, cov in index if cov & ids and (x.site_phone or "").strip()]
+    if older:
+        return max(older, key=lambda x: (x.start_date or x.end_date or datetime.date.min, x.id)).site_phone.strip()
+    return (owner_phone or "").strip()
+
+
 def card_no(db: Session, c: SitokDocContract) -> str:
     """서류 번호 — 카드 번호(관급-9). 같은 카드에서 기간이 겹치는 계약이 여럿이면(발주처가 나눈 계약) 시작일 순으로 관급-9-1·9-2
     (10/19 민재형 "시설물은 관급-9 하나, 계약은 별도 계약이니 9-1·9-2" — 전엔 시설물 번호에 뒷번호를 붙였음). 카드에 안 넣었으면 ""."""
@@ -295,10 +327,10 @@ def create(body: ContractIn | None = None, user: User = Depends(get_current_user
 
 # ---------- 시설물 카드(10/15 민재형 문서번호 일치화 — 서류 자동화도 시설물 기준, 번호 민간-N·관급-N은 보고서 자동화와 같음) ----------
 
-def card_out(f: SitokFacility, members: list[SitokFacility], viewed: str = "") -> dict:
+def card_out(f: SitokFacility, members: list[SitokFacility], viewed: str = "", phone: str | None = None) -> dict:
     return {"id": f.id, "mgmt_no": f.mgmt_no, "name": f.name, "sector": f.sector or "민간", "badge_field": f.badge_field or "", "badge_kind": f.badge_kind or "",
             "contract_type": f.contract_type, "address": f.address, "owner_name": f.owner_name, "template": f.template,
-            "contact_name": f.contact_name, "contact_phone": f.contact_phone or f.owner_phone,
+            "contact_name": f.contact_name, "contact_phone": f.owner_phone if phone is None else phone,  # 전화 = site_phone(10/20)
             "group_id": f.group_id, "members": [{"id": m.id, "name": m.name} for m in members], "viewed_at": viewed,
             "created_at": f.created_at.isoformat(timespec="seconds") if f.created_at else ""}
 
@@ -333,11 +365,12 @@ def list_cards(user: User = Depends(get_current_user), db: Session = Depends(get
         cards.setdefault(key, []).append((members, name))
     sub = lambda u: (u[0][0].book_order or 0, u[0][0].id)  # noqa: E731 — 카드 안 보고서 순서(0054, 전엔 뒷번호 6-1·6-2)
     out = []
+    index = contract_index(db, user.company_id)
     for key, us in cards.items():
         us.sort(key=sub)
         allm = [m for members, _ in us for m in members]
         lead, lead_name = us[0][0][0], us[0][1]
-        card = card_out(lead, allm, max((seen.get(m.id, "") for m in allm), default=""))
+        card = card_out(lead, allm, max((seen.get(m.id, "") for m in allm), default=""), site_phone(index, {m.id for m in allm}, lead.owner_phone))
         card["mgmt_no"] = key if len(us) > 1 and not key.startswith("#") else lead.mgmt_no
         from server.sitok.visit_plan import tell_apart  # 같은 이름 묶음이 여럿이면 건물 이름을 붙임(10/19 뒷번호 없앰)
 

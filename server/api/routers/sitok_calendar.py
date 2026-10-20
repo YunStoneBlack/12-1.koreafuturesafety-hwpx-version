@@ -52,23 +52,22 @@ def _state(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> tuple
     return ("missed" if V.visit_span(v)[1] < today else "planned"), rid
 
 
-def _cons(db: Session, company_id: int) -> list[tuple[SitokDocContract, set[int]]]:
-    """회사의 서류 계약과 맡는 시설물 — 달력 한 번 그릴 때 한 번만 읽음."""
-    from server.api.routers.sitok_docs import covered_ids
+def _cons(db: Session, company_id: int) -> list:
+    from server.api.routers.sitok_docs import contract_index
 
-    return [(c, set(covered_ids(c))) for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == company_id)
-            .order_by(SitokDocContract.start_date, SitokDocContract.id)]
+    return contract_index(db, company_id)
 
 
 def site_contract(cons: list, u: V.Unit, year: int, half: str) -> SitokDocContract | None:
-    """일정의 현장 담당을 둘 계약 — 그 반기를 맡는 계약(여럿이면 시작일 순 첫 계약), 없으면(다음 계약 전 장기) 이 시설물의 가장 최근 계약."""
-    from server.api.routers.sitok_compose import _overlaps
+    from server.api.routers.sitok_docs import site_contract as pick
 
-    mine = [c for c, ids in cons if ids & set(u.ids)]
-    now = [c for c in mine if _overlaps(c, year, half)]
-    if now:
-        return now[0]
-    return max(mine, key=lambda c: (c.start_date or c.end_date or datetime.date.min, c.id), default=None)
+    return pick(cons, set(u.ids), year, half)
+
+
+def _phone(cons: list, u: V.Unit, year: int, half: str) -> str:
+    from server.api.routers.sitok_docs import site_phone
+
+    return site_phone(cons, set(u.ids), u.lead.owner_phone, year, half)
 
 
 def _site_out(c: SitokDocContract | None) -> dict | None:
@@ -81,7 +80,8 @@ def _visit_out(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date, cons
     st, rid = _state(db, v, u, today)
     cons = cons if cons is not None else _cons(db, v.company_id)
     return {"id": v.id, "date": v.plan_date.isoformat(), "end": V.visit_span(v)[1].isoformat(), "year": v.year, "half": v.half, "kind": v.kind, "pinned": v.source == "manual",
-            "memo": v.memo, "state": st, "report_id": rid, "facility": _unit_out(u), "site": _site_out(site_contract(cons, u, v.year, v.half))}
+            "memo": v.memo, "state": st, "report_id": rid, "facility": _unit_out(u), "site": _site_out(site_contract(cons, u, v.year, v.half)),
+            "phone": _phone(cons, u, v.year, v.half)}  # 현장 담당, 비면 관리주체 전화(10/20)
 
 
 @router.get("")

@@ -209,7 +209,7 @@
         </div>
         <div class="sk-contract">${contract}${renew}</div>`;
       row.querySelectorAll(".sk-dong-chip").forEach((c) => c.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); location.href = c.dataset.href; }));
-      const links = siteLinkButtons(f.contact_phone || f.owner_phone, f.address); // [📞 전화] [📍 지도]
+      const links = siteLinkButtons(f.phone, f.address); // [📞 전화] [📍 지도] — 전화 = 계약 정보 현장 담당, 비면 관리주체(10/20)
       if (links) row.querySelector(".sk-main").appendChild(links);
       row.appendChild(typeSwitch(f));
       list.appendChild(row);

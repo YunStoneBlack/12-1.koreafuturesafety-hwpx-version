@@ -460,7 +460,15 @@ def get_next_mgmt_no(sector: str = "민간", user: User = Depends(get_current_us
 def list_facilities(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id).order_by(SitokFacility.id.desc()).all()
     seen = dict(db.query(SitokView.facility_id, SitokView.viewed_at).filter(SitokView.user_id == user.id))
-    return [_facility_out(db, f, with_contracts=False) | {"viewed_at": seen[f.id].isoformat(timespec="seconds") if f.id in seen else ""}
+    from server.api.routers.sitok_docs import contract_index, site_phone
+
+    index = contract_index(db, user.company_id)
+    group_ids: dict[int, set[int]] = {}
+    for f in rows:
+        if f.group_id:
+            group_ids.setdefault(f.group_id, set()).add(f.id)
+    return [_facility_out(db, f, with_contracts=False) | {"viewed_at": seen[f.id].isoformat(timespec="seconds") if f.id in seen else "",
+                                                         "phone": site_phone(index, group_ids.get(f.group_id) or {f.id}, f.owner_phone)}  # 10/20 현장 담당, 비면 관리주체
             for f in rows]
 
 

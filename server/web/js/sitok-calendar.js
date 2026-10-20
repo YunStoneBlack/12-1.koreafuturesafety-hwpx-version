@@ -151,12 +151,9 @@
   function wireContact(card, v) {
     const s = v.site;
     const box = card.querySelector(".sc-links");
-    const links = siteLinkButtons(s && s.phone, v.facility.address) || Object.assign(document.createElement("div"), { className: "site-links" });
+    const links = siteLinkButtons(v.phone, v.facility.address) || Object.assign(document.createElement("div"), { className: "site-links" }); // 현장 담당, 비면 관리주체 전화
     box.appendChild(links);
-    if (!s) {
-      links.insertAdjacentHTML("afterbegin", '<span class="sc-no-con" title="서류 자동화에 이 시설물 계약이 없어 현장 담당 연락처를 둘 곳이 없습니다">📞 계약 없음</span>');
-      return;
-    }
+    if (!s) return; // 서류 자동화에 계약이 없으면 관리주체 전화만(현장 담당을 둘 곳 없음)
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = s.phone ? "site-link sc-edit" : "site-link sc-reg";
@@ -164,7 +161,7 @@
     btn.innerHTML = s.phone ? '<span class="sl-ico">✏️</span>' : '<span class="sl-ico">📞</span><span>현장 담당 등록</span>';
     const tel = links.querySelector(".site-link.tel");
     if (tel) tel.after(btn); else links.prepend(btn);
-    if (s.manager && tel) tel.title = `현장 담당 ${s.manager}에게 전화(PC에선 번호 복사)`;
+    if (tel) tel.title = s.phone ? `현장 담당${s.manager ? ` ${s.manager}` : ""}에게 전화(PC에선 번호 복사)` : "관리주체 전화 — 현장 담당 번호를 넣으면 그 번호로 바뀜(PC에선 번호 복사)";
     const form = card.querySelector(".sc-contact");
     btn.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
