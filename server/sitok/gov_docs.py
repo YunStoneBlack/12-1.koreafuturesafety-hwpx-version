@@ -7,7 +7,7 @@
 - 완수계 11장(10/20 형 견본 14쪽 — 붙임 완수내역서 포함): 산안법 완수계 양식 갑지·완수계·완수검사원·청구서 + 결과보고서(연결한 시설물 보고서 표지 그림 —
   없으면 올린 표지) + 회사 서류 6장(4대보험 2·국세·지방세·사업자등록증·통장 — 서류 자동화 설정, 산안법과 같은 것). 예전 이름 "완료계"(10/12~10/20).
 - 도장: 양식에 이미 제자리(인쇄 범위 안)에 있음 → 넣기면 그대로(복사한 장에도 같이), 빼기면 지움(산안법은 범위 밖 도장을 새로 놓음 — 여기선 필요 없음).
-- 갑지에 문서번호 줄이 없어 산안법 갑지처럼 4행에 "문  서  번  호" + 번호(KFSC21C_계약번호_월일 — 사용자 10/12 "관급은 산안법 규칙과 동일").
+- 갑지에 문서번호 줄이 없어 산안법 갑지처럼 4행에 "문  서  번  호" + 번호(doc_no — 10/20 형 견본 KFSC26_계약번호_월일, 그 전엔 산안법 KFSC21C_ 규칙).
 - 교육수료증 = 정밀안전진단 교육 수료증(시특법 설정 sitok_edu), 자격증·경력증명서 = 서류 자동화 설정(산안법과 같은 그림), 기술등급 = 시특법 등급(건축분야고급기술자 → 고급기술자).
 """
 from __future__ import annotations
@@ -38,6 +38,15 @@ START_SHEETS = 21
 @dataclass
 class Person(build.Person):
     sign: str = ""  # 서명 그림(보안각서)
+
+
+def doc_no(c: build.Contract, day: datetime.date | None) -> str:
+    """시특법 관급 문서번호 = KFSC연도2자리_계약번호(끝 차수 "-00" 뺌)_월일 — 10/20 형 완수계 견본 "KFSC26_R26TA02127530_0909"(착수계는 착수일,
+    완수계는 완수일). 산안법(build.default_doc_no KFSC21C_계약번호_월일)과 다름."""
+    if not c.contract_no:
+        return ""
+    no = re.sub(r"\s*-\s*\d{1,3}$", "", c.contract_no.strip())
+    return f"KFSC{(day or datetime.date.today()):%y}_{no}" + (f"_{day:%m%d}" if day else "")
 
 
 def greeting(client: str) -> str:

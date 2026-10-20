@@ -1524,7 +1524,7 @@ def gov_state(cid: int, user: User = Depends(get_current_user), db: Session = De
     _, cover = _cover_source(db, c)
     docs = lib.company_docs(db, user.company_id)
     return summary(db, c) | {
-        "defaults": {"doc_no_start": build.default_doc_no(v, c.start_date), "doc_no_done": build.default_doc_no(v, c.end_date),
+        "defaults": {"doc_no_start": gov_docs.doc_no(v, c.start_date), "doc_no_done": gov_docs.doc_no(v, c.end_date),
                      "greeting": gov_docs.greeting(c.client), "contact_name": config.get_doc_contact_name(user.company_id)},
         "agent_id": c.agent_id, "participant_ids": c.participant_ids or [],
         "persons": [_person_state(db, p) for p in lib.persons(db, user.company_id) if p.active],
@@ -1573,7 +1573,7 @@ def make_gov(cid: int, kind: Literal["start", "done"], body: GovIn, user: User =
     label = GOV[kind]
     base = folder(c)
     xlsx, pdf = base / f"{label}.xlsx", base / f"{label}.pdf"
-    doc_no = body.doc_no.strip() or build.default_doc_no(v, c.start_date if kind == "start" else c.end_date)
+    doc_no = body.doc_no.strip() or gov_docs.doc_no(v, c.start_date if kind == "start" else c.end_date)
     greet = body.greeting.strip() or gov_docs.greeting(c.client)
     contact = body.contact.strip() or config.get_doc_contact_name(user.company_id)
     warnings: list[str] = []
