@@ -44,6 +44,7 @@
         <b>📄 지난 보고서 PDF에서 가져오기</b><span class="sk-drop-msg" id="sf-pdf-msg">우리 보고서는 사진첩에서(10~30초), 타회사 보고서는 AI가 결함현황표·사진대장을 읽습니다(1~3분)</span></label>
       <button type="button" class="secondary" id="sf-carry">직전 회차 결함 그대로 가져오기</button>
     </div>
+    <div id="sf-wall-review" class="wi-box" hidden></div>
     <div class="sf-fresh-row"><button type="button" id="sf-fresh">전회차 없이 시작</button>
       <span class="page-sub">처음 점검하는 시설물(신축)이거나 지난 결함 자료가 없을 때 — 층(옹벽은 부위)을 골라 [+ 신규 결함]으로 사진부터 찍으면 AI가 결함 내용을 채웁니다.</span></div>
   </div>
@@ -129,6 +130,7 @@
 
 <script src="app.js"></script>
 <script src="shell.js"></script>
+<script src="js/sitok-wall-import.js"></script>
 <script src="js/sitok-field.js"></script>
 <script src="js/sitok-parts.js"></script>
 <script src="js/sitok-good.js"></script>

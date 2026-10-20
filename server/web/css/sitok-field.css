@@ -215,3 +215,26 @@
   .se-table td:first-child { grid-column: 1 / -1; font-weight: 700; }
   .se-table td:nth-child(4) { grid-column: 1 / -1; }
 }
+
+/* 옹벽 전회차 가져오기 확인 창(10/20, js/sitok-wall-import.js) */
+.wi-box { margin-top: 14px; }
+.wi-fac { display: block; margin: 6px 0 10px; font-size: 13px; }
+.wi-fac select { margin-left: 6px; max-width: 100%; }
+.wi-ov { display: block; margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.wi-list { display: grid; gap: 10px; }
+.wi-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.wi-row img { width: 120px; height: 90px; object-fit: cover; border-radius: 8px; grid-row: span 2; cursor: zoom-in; }
+.wi-row.rec { background: #f3faf4; }
+.wi-row.dim .wi-fields label:not(:first-child) { opacity: 0.45; }
+.wi-cap b { font-size: 14px; }
+.wi-cap small { margin-left: 6px; color: var(--muted); }
+.wi-fields { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.wi-fields label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.wi-fields select, .wi-fields input { min-width: 0; font-size: 13px; padding: 6px 8px; }
+.wi-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+@media (max-width: 720px) {
+  .wi-row { grid-template-columns: 96px minmax(0, 1fr); }
+  .wi-row img { width: 96px; height: 72px; grid-row: auto; }
+  .wi-fields { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wi-fields label:first-child { grid-column: 1 / -1; }
+}

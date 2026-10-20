@@ -540,12 +540,16 @@
     setTimeout(tick, 4000);
   }
 
-  function pollImport() { // 타회사 PDF는 AI가 1~3분 — 4초마다 확인
+  let polling = false;
+  function pollImport() { // 타회사 PDF는 AI가 1~3분(옹벽 한글 파일은 변환까지) — 4초마다 확인
+    if (polling) return;
+    polling = true;
     const msg = document.getElementById("sf-pdf-msg");
     const tick = async () => {
       try {
         const d = await api(`/sitok/reports/${rid}/defects`);
         if (d.importing && d.importing.state === "running") { msg.textContent = `${d.importing.msg} …`; setTimeout(tick, 4000); return; }
+        polling = false;
         if (d.importing && d.importing.state === "failed") { msg.textContent = d.importing.msg; return; }
         refresh();
       } catch (e) { msg.textContent = e.message; }
@@ -567,10 +571,19 @@
       document.getElementById("sf-empty").hidden = !empty;
       document.getElementById("sf-main").hidden = empty;
       if (empty) {
+        const pdfIn = document.getElementById("sf-pdf");
+        const review = document.getElementById("sf-wall-review");
+        if (data.fam === "wall") { // 옹벽: PDF·한글 파일 → 부록 사진첩 읽기 → 확인 창(10/20)
+          pdfIn.accept = "application/pdf,.pdf,.hwp,.hwpx";
+          pdfIn.closest(".sk-drop").querySelector("b").textContent = "📄 지난 보고서 PDF·한글 파일에서 가져오기";
+          if (!data.importing) document.getElementById("sf-pdf-msg").textContent = "부록 사진첩의 사진·설명을 읽어 AI가 부위·결함유형을 추천하고, 확인 창에서 고친 뒤 넣습니다(한글 파일은 변환 1~3분)";
+        }
         if (data.importing) {
           document.getElementById("sf-pdf-msg").textContent = data.importing.msg;
           if (data.importing.state === "running") pollImport();
+          if (data.importing.state === "review" && window.wallImport) { review.hidden = false; window.wallImport.show(rid); return; }
         }
+        if (review) review.hidden = true;
         return;
       }
       drawSummary();

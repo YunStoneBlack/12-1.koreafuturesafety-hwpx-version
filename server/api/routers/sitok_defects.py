@@ -374,7 +374,7 @@ def list_defects(report_id: int, user: User = Depends(get_current_user), db: Ses
     fam = kinds.family_of(f)
     voc = vocab_rows(db, r.company_id, r.id, fam)
     return {"report": {"id": r.id, "year": r.year, "half": r.half, "facility": f.name, "facility_id": f.id},
-            "defects": [_out(d) for d in rows], "floors": facility_floors(f), "importing": _importing(r.id),
+            "defects": [_out(d) for d in rows], "floors": facility_floors(f), "importing": _importing(r.id) or wall_review(r),
             "fam": fam, "unit_label": kinds.unit_label(fam), "parts": list(kinds.parts_of(fam)),  # 옹벽 = 부위·주요/일반/부대시설(10/20)
             "unit_part": kinds.WALL_PART_OF_UNIT if fam == "wall" else {},
             "members": [v.name for v in voc if v.base_kind == "member"], "types": [v.name for v in voc if v.base_kind == "dtype"], "vocab": vocab_out(voc),
@@ -391,6 +391,10 @@ def _require_empty(db: Session, r: SitokReport) -> None:
 @router.post("/reports/{report_id}/defects/import")
 def import_pdf(report_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require_report(db, user, report_id)
+    if _fam(db, r) == "wall":  # 옹벽은 부록 사진첩(사진 + 설명) 읽기 — PDF·한글 파일, 확인 창(10/20)
+        from server.api.routers.sitok_wall_import import start as start_wall
+
+        return start_wall(report_id, file, user, db)
     _require_empty(db, r)
     data = file.file.read()
     if not data.startswith(b"%PDF"):
@@ -424,6 +428,13 @@ def start_import(db: Session, r: SitokReport, data: bytes, company_id: int) -> s
 
 
 IMPORTS: dict[int, dict] = {}  # 회차 id → 타회사 PDF 읽기 상태 {state: running/failed/note, msg}
+
+
+def wall_review(r: SitokReport) -> dict | None:
+    """옹벽 전회차 가져오기 확인 대기(survey["wall_import"], sitok_wall_import) — API가 다시 떠도 남음."""
+    s = (r.survey or {}).get("wall_import")
+    return {"state": "review", "msg": f"지난 보고서 사진 {len(s['rows'])}장을 읽었습니다 — 부위·결함유형을 확인하고 넣으세요"} \
+        if isinstance(s, dict) and isinstance(s.get("rows"), list) else None
 
 
 def _importing(rid: int) -> dict | None:
