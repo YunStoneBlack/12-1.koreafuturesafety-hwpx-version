@@ -98,6 +98,8 @@
 .sf-prog { font-size: 12px; color: var(--muted); padding-bottom: 9px; white-space: nowrap; }
 .sf-prog.on { color: #B7791F; font-weight: 700; }
 .main .sf-sum .sf-cause-ai { margin: 0 0 0 auto; padding: 6px 12px; font-size: 13px; }
+.sf-reprev-msg { flex-basis: 100%; padding: 8px 12px; border-radius: 8px; background: var(--blue-soft); color: var(--ink); font-size: 13px; } /* 전회차 PDF만 다시 결과(10/20) */
+.sf-reprev-msg[hidden] { display: none; }
 .sf-cause-list { max-height: 50vh; overflow: auto; font-size: 13px; line-height: 1.7; }
 .sf-cause-list s { color: var(--faint); }
 .sf-cause-list em { font-style: normal; color: var(--blue); font-weight: 600; }

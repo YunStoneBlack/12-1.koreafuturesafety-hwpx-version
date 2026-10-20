@@ -141,7 +141,10 @@
       <span class="ok">그대로 ${s.same}</span><span class="grew">진행 ${s.grew}</span><span class="rep">보수 ${s.repaired}</span><span class="new">신규 ${s.new}</span>
       <button type="button" class="secondary sf-cause-ai" title="원인이 비었거나 뭉뚱그린 낱말인 결함만 AI가 사진을 보고 구체적으로 — 카드에서 다시 고칠 수 있음">🤖 원인 추천</button>
       ${!data.defects.length ? '<button type="button" class="secondary sf-back-import" title="[전회차 없이 시작]을 잘못 눌렀을 때 — 지난 보고서 PDF·직전 회차에서 가져오는 화면으로">↩ 전회차 결함 가져오기</button>' : ""}
-      ${data.defects.some((d) => d.prev) ? '<button type="button" class="secondary sf-reimport" title="다른 보고서·잘못된 결함표를 가져왔을 때 — 목록을 비우고 가져오기 화면으로">↺ 전회차 결함 다시 가져오기</button>' : ""}
+      ${data.defects.some((d) => d.prev) ? `<button type="button" class="secondary sf-reprev" title="이번 회차에 확인·찍은 것과 원인은 그대로 — 층·번호가 같은 결함의 전회차 값·사진만 새 PDF로">📄 전회차 PDF만 다시 올리기</button>
+        <input type="file" class="sf-reprev-file" accept="application/pdf,.pdf" hidden data-kr-file="skip" />
+        <button type="button" class="secondary sf-reimport" title="다른 보고서·잘못된 결함표를 가져왔을 때 — 목록을 비우고 가져오기 화면으로(이번 회차 확인·사진 연결도 지워짐)">↺ 전회차 결함 다시 가져오기</button>` : ""}
+      <div class="sf-reprev-msg" hidden></div>
       ${off ? `<div class="sf-offbar">⚠ 목록에 없는 이름 ${off}건(지난 보고서 이름) <button type="button" class="secondary btn-sm sf-remap">🤖 한꺼번에 정리</button></div>` : ""}`;
     document.querySelector(".sf-cause-ai").addEventListener("click", suggestCauses);
     document.querySelector(".sf-remap")?.addEventListener("click", remapNames);
@@ -161,6 +164,36 @@
         try { sessionStorage.removeItem(`sf-started-${rid}`); } catch (_) { /* */ }
         refresh();
       } catch (e) { err(e); }
+    });
+    // [📄 전회차 PDF만 다시 올리기](10/20 민재형) — 이번 회차(확인·이번 사진·원인·신규)는 그대로, 전회차 값·사진만. 타회사 양식은 AI(1~3분, 뒤에서)
+    const rpBtn = document.querySelector(".sf-reprev"), rpFile = document.querySelector(".sf-reprev-file");
+    const st = data.importing;
+    if (st && st.state === "note") reprevMsg = st.msg;
+    if (st && st.state === "running") {
+      reprevSay(`${st.msg} …`);
+      if (rpBtn) rpBtn.disabled = true;
+      pollReprev();
+    } else reprevSay(reprevMsg);
+    rpBtn?.addEventListener("click", () => {
+      if (confirm(`지난 보고서 PDF를 다시 올려 전회차 값·사진만 바꿉니다(층·번호가 같은 결함끼리).
+
+그대로 두는 것: 이번 회차에 확인한 것(그대로·진행·보수 완료), 이번에 찍은 사진, 원인, 신규로 넣은 결함
+
+다음 창에서 PDF를 고르세요.`)) rpFile.click();
+    });
+    rpFile?.addEventListener("change", async () => {
+      const f = rpFile.files[0];
+      if (!f) return;
+      reprevSay(`${f.name} 읽는 중…`);
+      rpBtn.disabled = true;
+      try {
+        const fd = new FormData();
+        fd.append("file", f);
+        const r = await apiUpload(`/sitok/reports/${rid}/defects/reprev`, fd);
+        if (r.importing) { reprevSay(`${r.importing.msg} …`); pollReprev(); return; }
+        reprevMsg = r.merged || "";
+        refresh();
+      } catch (e) { reprevSay(`읽지 못했습니다: ${e.message}`); rpBtn.disabled = false; rpFile.value = ""; }
     });
     document.querySelector(".sf-back-import")?.addEventListener("click", () => { // 10/16: [전회차 없이 시작]을 잘못 눌러도 결함이 없으면 되돌림
       started = false;
@@ -474,6 +507,27 @@
       document.body.appendChild(overlay);
       overlay.querySelector("button").addEventListener("click", () => overlay.remove());
     } catch (err) { showError(errorEl, err); btn.disabled = false; btn.textContent = "🤖 원인 추천"; }
+  }
+
+  let reprevMsg = "", reprevPoll = false; // 전회차만 다시 — 결과 글은 다시 그려도 머리줄에 남김
+  function reprevSay(t) {
+    const el = document.querySelector(".sf-reprev-msg");
+    if (el) { el.hidden = !t; el.textContent = t || ""; }
+  }
+  function pollReprev() { // 타회사 양식이면 AI가 1~3분 — 4초마다 확인
+    if (reprevPoll) return;
+    reprevPoll = true;
+    const tick = async () => {
+      try {
+        const d = await api(`/sitok/reports/${rid}/defects`);
+        const st = d.importing;
+        if (st && st.state === "running") { reprevSay(`${st.msg} …`); setTimeout(tick, 4000); return; }
+        reprevPoll = false;
+        reprevMsg = st ? st.msg : "";
+        refresh();
+      } catch (e) { reprevPoll = false; err(e); }
+    };
+    setTimeout(tick, 4000);
   }
 
   function pollImport() { // 타회사 PDF는 AI가 1~3분 — 4초마다 확인

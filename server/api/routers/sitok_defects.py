@@ -2,6 +2,7 @@
 
 - `GET  /sitok/reports/{id}/defects` — 그 회차 결함 전부(층·번호 순) + 요약.
 - `POST /sitok/reports/{id}/defects/import` — 지난 보고서 PDF(외관조사 사진첩이 든 것)에서 전회차 결함·사진 가져오기(server/sitok/album_read.py).
+- `POST /sitok/reports/{id}/defects/reprev` — 전회차 PDF만 다시(10/20 민재형): 층·번호가 같은 결함의 전회차 값·사진만 바꾸고 이번 회차(확인·이번 사진·원인·신규)는 그대로.
 - `POST /sitok/reports/{id}/defects/carry` — 직전 회차 결함을 전회차로 가져오기(이 시스템으로 만든 회차가 있을 때).
 - `POST /sitok/reports/{id}/defects` — 새로 찾은 결함(신규). `PATCH/DELETE /sitok/defects/{id}`, `POST /sitok/defects/{id}/photo`,
   `GET /sitok/defects/{id}/photo/{now|prev}`.
@@ -322,7 +323,7 @@ def list_defects(report_id: int, user: User = Depends(get_current_user), db: Ses
     rows = _rows(db, r.id)
     voc = vocab_rows(db, r.company_id, r.id)
     return {"report": {"id": r.id, "year": r.year, "half": r.half, "facility": f.name, "facility_id": f.id},
-            "defects": [_out(d) for d in rows], "floors": facility_floors(f), "importing": IMPORTS.get(r.id),
+            "defects": [_out(d) for d in rows], "floors": facility_floors(f), "importing": _importing(r.id),
             "members": [v.name for v in voc if v.kind == "member"], "types": [v.name for v in voc if v.kind == "dtype"], "vocab": vocab_out(voc),
             "part_of": {**{m: "구조체" for m in kinds.STRUCT_MEMBERS}, **{m: "비구조체" for m in kinds.NONSTRUCT_MEMBERS}},
             "summary": {"total": len(rows), "unchecked": sum(1 for d in rows if not d.check),
@@ -369,10 +370,18 @@ def start_import(db: Session, r: SitokReport, data: bytes, company_id: int) -> s
     return "running"
 
 
-IMPORTS: dict[int, dict] = {}  # 회차 id → 타회사 PDF 읽기 상태 {state: running/failed, msg}
+IMPORTS: dict[int, dict] = {}  # 회차 id → 타회사 PDF 읽기 상태 {state: running/failed/note, msg}
 
 
-def _import_foreign(report_id: int, data: bytes, company_id: int) -> None:
+def _importing(rid: int) -> dict | None:
+    """읽기 상태 — "note"(전회차만 다시 — 결과·실패 글)는 한 번 알려 주고 지움."""
+    st = IMPORTS.get(rid)
+    if st and st.get("state") == "note":
+        IMPORTS.pop(rid, None)
+    return st
+
+
+def _import_foreign(report_id: int, data: bytes, company_id: int, merge: bool = False) -> None:
     from core.db import SessionLocal
     from server.sitok import foreign_read
 
@@ -382,13 +391,18 @@ def _import_foreign(report_id: int, data: bytes, company_id: int) -> None:
         r = db.get(SitokReport, report_id)
         if not album.rows:
             raise ValueError("결함 줄을 하나도 읽지 못했습니다")
+        if merge:  # 전회차 PDF만 다시(10/20)
+            IMPORTS[report_id] = {"state": "note", "msg": merge_text(_merge_album(db, r, album))}
+            return
         if db.query(SitokDefect).filter(SitokDefect.report_id == report_id).first():
             raise ValueError("그 사이 결함이 들어와 있어 넣지 않았습니다")
         _save_album(db, r, album)
         IMPORTS.pop(report_id, None)
     except Exception as err:  # noqa: BLE001 — 이유를 화면에
         traceback.print_exc()
-        IMPORTS[report_id] = {"state": "failed", "msg": f"타회사 PDF를 읽지 못했습니다: {str(err).splitlines()[0][:150]}"}
+        why = str(err).splitlines()[0][:150]
+        IMPORTS[report_id] = {"state": "note", "msg": f"전회차 PDF를 읽지 못했습니다(바뀐 것 없음): {why}"} if merge else \
+            {"state": "failed", "msg": f"타회사 PDF를 읽지 못했습니다: {why}"}
     finally:
         db.close()
 
@@ -407,6 +421,93 @@ def _save_album(db: Session, r: SitokReport, album) -> None:
             d.prev_photo = str(p)
         db.add(d)
     db.commit()
+
+
+# 전회차 값(SitokDefect.prev 열쇠) ↔ 이번 칸 — 다시 올린 전회차 PDF로 바꿀 때 "가져온 뒤 아무도 손대지 않은 칸"을 가림
+PREV_FIELDS = (("part", "구분"), ("member", "부재"), ("dtype", "결함유형"), ("count", "개수"), ("width", "폭"), ("length", "길이"), ("qty", "물량"),
+               ("area_ratio", "면적률"), ("cause", "결함원인"), ("progress", "진행유무"), ("mark", "비고"))
+
+
+def _merge_album(db: Session, r: SitokReport, album) -> dict:
+    """전회차 PDF만 다시(10/20 민재형 "이번 회차 찍은 게 지워지면 안 됨 — 전회차 파일만 다시 올리는 기능"):
+    층·번호가 같은 결함의 전회차 값(prev)·전회차 사진을 새 PDF로. 이번 회차(확인·이번 사진·원인 추천·신규 결함)는 그대로 —
+    확인 안 한 줄은 가져온 뒤 아무도 손대지 않은 칸(지금 값 == 예전 전회차 값)만 새 값으로. 새 PDF에만 있는 줄은 더하고, 새 PDF에 없는 줄은 지우지 않음."""
+    folder = _photo_dir(db, r)
+    folder.mkdir(parents=True, exist_ok=True)
+    rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id).all()
+    have = {(d.floor, d.seq): d for d in rows if d.prev}
+    taken = {(d.floor, d.seq) for d in rows}
+    upd = photos = added = 0
+    seen = set()
+    for row in album.rows:
+        v = row.values
+        key = (row.floor, row.seq)
+        d = have.get(key)
+        if d is None:  # 새 PDF에만 있는 줄 — 번호가 신규 결함과 겹치면 그 층 끝 번호 다음으로
+            seq = row.seq if key not in taken else max(s for f, s in taken if f == row.floor) + 1
+            taken.add((row.floor, seq))
+            d = SitokDefect(report_id=r.id, floor=row.floor, seq=seq, part=v["구분"], member=v["부재"], dtype=kinds.norm(v["결함유형"]),
+                            count=v["개수"], width=v["폭"], length=v["길이"], qty=v["물량"], area_ratio=v["면적률"], cause=v["결함원인"],
+                            progress=v["진행유무"], mark=v["비고"], prev=dict(v))
+            if row.photo_png:
+                p = folder / f"{row.floor}_{seq:02d}_전회차.jpg"
+                p.write_bytes(row.photo_png)
+                d.prev_photo = str(p)
+            db.add(d)
+            added += 1
+            continue
+        seen.add(key)
+        old = d.prev or {}
+        if not d.check:
+            for attr, k in PREV_FIELDS:
+                before, after = old.get(k) or "", v.get(k) or ""
+                if attr == "dtype":
+                    before, after = kinds.norm(before), kinds.norm(after)
+                if (getattr(d, attr) or "") == before:
+                    setattr(d, attr, after)
+        d.prev = dict(v)
+        if row.photo_png:
+            cur = Path(d.prev_photo) if d.prev_photo else None
+            if not (cur and cur.exists() and cur.read_bytes() == row.photo_png):
+                photos += 1
+            p = folder / f"{row.floor}_{row.seq:02d}_전회차.jpg"
+            p.write_bytes(row.photo_png)
+            d.prev_photo = str(p)
+        upd += 1
+    db.commit()
+    return {"updated": upd, "photos": photos, "added": added, "missing": sum(1 for k in have if k not in seen)}
+
+
+def merge_text(m: dict) -> str:
+    return (f"전회차 PDF로 바꿨습니다 — 전회차 값 {m['updated']}줄 · 사진 바뀜 {m['photos']}장"
+            + (f" · 새 줄 {m['added']}" if m["added"] else "") + (f" · 새 PDF에 없는 줄 {m['missing']}(그대로 둠)" if m["missing"] else "")
+            + ". 이번 회차에 확인·찍은 것과 원인은 그대로입니다.")
+
+
+@router.post("/reports/{report_id}/defects/reprev")
+def reprev_pdf(report_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[📄 전회차 PDF만 다시 올리기](10/20 민재형) — 우리 사진첩이면 바로, 타회사 양식이면 AI가 읽고(1~3분, 뒤에서) 같은 방식으로 합침."""
+    r = _require_report(db, user, report_id)
+    if not any(d.prev for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "전회차에서 가져온 결함이 없습니다 — [전회차 결함 가져오기]를 쓰세요.")
+    data = file.file.read()
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "지난 보고서 PDF(외관조사 사진첩이 든 것)를 올려 주세요.")
+    album = album_read.read(data)
+    if album.rows:
+        msg = merge_text(_merge_album(db, r, album))
+        return {**list_defects(report_id, user, db), "merged": msg}
+    import pymupdf
+
+    from server.sitok import foreign_read
+
+    if not foreign_read.defect_tables(pymupdf.open(stream=data, filetype="pdf")):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF에서 결함현황표를 찾지 못했습니다 — 외관조사 결과(결함 표)가 든 보고서 PDF인지 확인하세요.")
+    if IMPORTS.get(r.id, {}).get("state") == "running":
+        raise HTTPException(status.HTTP_409_CONFLICT, "이미 읽는 중입니다.")
+    IMPORTS[r.id] = {"state": "running", "msg": "타회사 양식 — AI가 결함현황표·사진대장을 읽는 중(1~3분, 전회차만 바꿈)"}
+    threading.Thread(target=_import_foreign, args=(r.id, data, user.company_id, True), daemon=True).start()
+    return {**list_defects(report_id, user, db), "importing": IMPORTS[r.id]}
 
 
 @router.post("/reports/{report_id}/defects/carry")
