@@ -213,7 +213,8 @@ async function openSitokAi(reportId, title, onSaved) {
           note: row.querySelector(".ai-pnote").value.trim() }));
       }
       if ((f.facility || []).length) {
-        body.facility = [...box.querySelectorAll(".ai-fac-row")].map((row) => ({ ...f.facility[Number(row.dataset.i)], has: row.querySelector(".ai-has").value === "1",
+        // 공중이용·기타시설 사진 판단 줄(.ai-part)도 같은 모양 — 빼야 함(10/20 의정부 [✓ 작성 완료] 오류)
+        body.facility = [...box.querySelectorAll(".ai-fac-row:not(.ai-part)")].map((row) => ({ ...f.facility[Number(row.dataset.i)], has: row.querySelector(".ai-has").value === "1",
           state: row.querySelector(".ai-state").value.trim(), where: row.querySelector(".ai-where").value.trim() }));
       }
       const msg = box.querySelector(".mail-msg");
