@@ -1,5 +1,5 @@
 """서류 자동화 · 시특법 계약(2026-10-12 사용자, alembic 0040 sitok_doc_contract) — 산안법처럼 보고서 쪽과 따로, 현장(시설물) 연결.
-화면 sitok-docs.html(js/sitok-docs.js). 민간 계약서 만들기는 server/sitok/civil.py, 관급 착수계·완료계는 2단계.
+화면 sitok-docs.html(js/sitok-docs.js). 민간 계약서 만들기는 server/sitok/civil.py, 관급 착수계·완수계는 2단계.
 
 - `GET    /sitok/docs/contracts` — 목록. `GET .../blank?sector=` 새 계약 기본값(저장 안 함). `POST .../contracts` 만들기. `GET|PUT|DELETE .../{id}`.
 - `POST   /sitok/docs/contracts/{id}/upload/{kind}` — kind: ledger(시설물관리대장 → 시설물명·위치·제원·관리주체) · bizreg(사업자등록증 → 관리주체·대표자·번호·주소)
@@ -10,7 +10,7 @@
   10/14 형 2차 ②: 연결된 시설물이 없으면 올린 관리대장(없으면 계약 칸의 시설물명·위치·관리주체)으로 **시설물 카드를 만들고** 이번 반기 회차까지 만듦("계약서가 없는 경우" 등록 경로).
 - `GET    /sitok/docs/template`, `POST /sitok/docs/template` — 민간 계약서 양식 받기·고친 양식 올리기(자리표시 검사).
 - 관급(2단계, server/sitok/gov_docs.py): 올리기 g2b(나라장터 계약서 — 글자 규칙, 못 읽은 칸만 AI → 읽은 칸 덮어씀)·report_cover(결과보고서 표지),
-  `GET .../{id}/gov` 착수계·완료계 창, `POST .../{id}/gov/{start|done}` 엑셀 + 합본 PDF(붙임 산출내역서·완수내역서), `GET .../{id}/gov/{kind}.{xlsx|pdf}`,
+  `GET .../{id}/gov` 착수계·완수계 창, `POST .../{id}/gov/{start|done}` 엑셀 + 합본 PDF(붙임 산출내역서·완수내역서), `GET .../{id}/gov/{kind}.{xlsx|pdf}`,
   `POST|GET|DELETE .../{id}/gov/{kind}/attach/{칸}[/{파일}]` 붙임 파일. 기술자 = 시특법 보고서 설정과 같은 명단(사용자 10/12).
 """
 from __future__ import annotations
@@ -50,7 +50,8 @@ DATES = ("contract_date", "start_date", "end_date")
 FILES = {"계약서.hwpx": "application/octet-stream", "계약서.pdf": "application/pdf", "날인본.pdf": "application/pdf",
          "시설물관리대장.pdf": "application/pdf", "사업자등록증.pdf": "application/pdf", "결과보고서_표지.pdf": "application/pdf",
          "대가내역서.pdf": "application/pdf", "대가내역서.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}  # 대가내역서(10/15 — FMS e-보고서)
-GOV = {"start": "착수계", "done": "완료계"}  # 관급 서류 — 계약 폴더 착수계.xlsx·착수계.pdf …
+GOV = {"start": "착수계", "done": "완수계"}  # 관급 서류 — 계약 폴더 착수계.xlsx·착수계.pdf … (완수계는 10/20까지 "완료계" — 그 파일도 찾음)
+OLD_GOV = {"done": "완료계"}
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 # 관급 기술자 서류: 착수계 장 종류(build.PERSON_DOCS 이름) ← SubmitDoc 종류 — 교육수료증은 정밀안전진단(견본), 자격증·경력증명서는 산안법과 같은 그림
 GOV_PERSON_DOCS = [("license", "license", "자격증"), ("edu", "sitok_edu", "정밀안전진단 교육 수료증"), ("career", "career", "경력증명서"),
@@ -1426,7 +1427,7 @@ def put_template(file: UploadFile = File(...), user: User = Depends(get_current_
     return {"ok": True, "updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
 
 
-# ---------- 관급 착수계·완료계(2단계, server/sitok/gov_docs.py) ----------
+# ---------- 관급 착수계·완수계(2단계, server/sitok/gov_docs.py) ----------
 
 def _read_g2b(pdf: Path, company_id: int) -> tuple[dict, str]:
     """나라장터 계약서 → 계약 칸(글자 규칙, 못 읽은 중요한 칸만 AI — 산안법과 같음, 용역 종류만 바꾼 물음). 사업 담당(수요기관) = 현장 담당."""
@@ -1458,11 +1459,17 @@ def _read_g2b(pdf: Path, company_id: int) -> tuple[dict, str]:
     return {k: got.get(k) for k in keys}, error
 
 
+def _gov_file(c: SitokDocContract, kind: str, ext: str) -> Path:
+    """만든 착수계·완수계 파일 — 없으면 예전 이름(완료계, 10/20 전에 만든 것)."""
+    path = folder(c) / f"{GOV[kind]}.{ext}"
+    old = folder(c) / f"{OLD_GOV.get(kind, GOV[kind])}.{ext}"
+    return path if path.exists() or not old.exists() else old
+
+
 def _gov_made(c: SitokDocContract, kind: str) -> dict:
     at = c.start_made_at if kind == "start" else c.done_made_at
-    base = folder(c) if c.id else None
-    return {"at": at.strftime("%Y-%m-%d %H:%M") if at else "", "pdf": bool(base and (base / f"{GOV[kind]}.pdf").exists()),
-            "xlsx": bool(base and (base / f"{GOV[kind]}.xlsx").exists())}
+    return {"at": at.strftime("%Y-%m-%d %H:%M") if at else "", "pdf": bool(c.id and _gov_file(c, kind, "pdf").exists()),
+            "xlsx": bool(c.id and _gov_file(c, kind, "xlsx").exists())}
 
 
 def _values(c: SitokDocContract) -> build.Contract:
@@ -1511,10 +1518,11 @@ def _attach_list(c: SitokDocContract, kind: str) -> list[dict]:
 
 @router.get("/contracts/{cid}/gov")
 def gov_state(cid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """착수계·완료계 창 — 기본값(문서번호·인사말·담당), 기술자 명단(빠진 서류), 붙임, 결과보고서 표지."""
+    """착수계·완수계 창 — 기본값(문서번호·인사말·담당), 기술자 명단(빠진 서류), 붙임, 결과보고서 표지, 완수계에 붙는 회사 서류(상태)."""
     c = _require(db, user, cid)
     v = _values(c)
     _, cover = _cover_source(db, c)
+    docs = lib.company_docs(db, user.company_id)
     return summary(db, c) | {
         "defaults": {"doc_no_start": build.default_doc_no(v, c.start_date), "doc_no_done": build.default_doc_no(v, c.end_date),
                      "greeting": gov_docs.greeting(c.client), "contact_name": config.get_doc_contact_name(user.company_id)},
@@ -1522,6 +1530,8 @@ def gov_state(cid: int, user: User = Depends(get_current_user), db: Session = De
         "persons": [_person_state(db, p) for p in lib.persons(db, user.company_id) if p.active],
         "attachments": {k: _attach_list(c, k) for k in GOV},
         "cover": cover,
+        "company_docs": [{"kind": k, "label": label, "status": lib.doc_status(docs.get(k)), "valid_until": _iso(docs[k].valid_until) if k in docs else ""}
+                         for k, label in build.COMPANY_DOCS],
     }
 
 
@@ -1549,7 +1559,7 @@ def _doc_warnings(db: Session, chosen: list[TechPerson]) -> list[str]:
 
 @router.post("/contracts/{cid}/gov/{kind}")
 def make_gov(cid: int, kind: Literal["start", "done"], body: GovIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """착수계·완료계 엑셀(양식 채움) → LibreOffice PDF → 붙임(산출내역서·완수내역서) 끼운 합본 PDF."""
+    """착수계·완수계 엑셀(양식 채움) → LibreOffice PDF → 붙임(산출내역서·완수내역서) 끼운 합본 PDF."""
     import openpyxl
 
     from server.contract_docs import to_pdf
@@ -1579,7 +1589,17 @@ def make_gov(cid: int, kind: Literal["start", "done"], body: GovIn, user: User =
             c.agent_id, c.participant_ids = body.agent_id, part_ids
         else:
             src, _ = _cover_source(db, c)
-            warnings += gov_docs.build_done(v, doc_no, greet, contact, body.seal, gov_docs.cover_image(src) if src else None, xlsx)
+            docs = lib.company_docs(db, user.company_id)
+            on = c.end_date or datetime.date.today()  # 발송 = 완수일(갑지)
+            for k, lab in build.COMPANY_DOCS:
+                if lib.doc_status(docs.get(k), on) == "expired":
+                    warnings.append(f"⚠ {lab} 유효기간 지남({docs[k].valid_until}) — 새로 발급받아 서류 자동화 설정에서 바꾸세요.")
+                elif lib.doc_status(docs.get(k), on) == "nodate":
+                    warnings.append(f"⚠ {lab} 발급일을 모릅니다 — 유효기간을 확인할 수 없으니 서류 자동화 설정에서 발급일을 적으세요.")
+            warnings += gov_docs.build_done(v, doc_no, greet, contact, body.seal, gov_docs.cover_image(src) if src else None,
+                                            {k: d.file for k, d in docs.items() if d.file}, xlsx)
+            for ext in ("xlsx", "pdf"):  # 예전 이름 파일(완료계)은 지움 — 받기는 새 것만
+                (base / f"{OLD_GOV['done']}.{ext}").unlink(missing_ok=True)
     except (FileNotFoundError, ValueError) as err:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
     pdf_error = ""
@@ -1604,7 +1624,7 @@ def make_gov(cid: int, kind: Literal["start", "done"], body: GovIn, user: User =
 def gov_file(cid: int, kind: Literal["start", "done"], ext: Literal["xlsx", "pdf"], inline: bool = False,
              user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _require(db, user, cid)
-    path = folder(c) / f"{GOV[kind]}.{ext}"
+    path = _gov_file(c, kind, ext)
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"아직 만든 {GOV[kind]}가 없습니다.")
     name = re.sub(r'[\\/:*?"<>|]', "_", f"{c.title or c.client or '계약'}_{GOV[kind]}.{ext}")

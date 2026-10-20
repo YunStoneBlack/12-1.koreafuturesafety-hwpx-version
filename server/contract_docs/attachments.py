@@ -22,9 +22,9 @@ from server.contract_docs import hwp_queue, pdf_shrink, to_pdf
 SLOTS = {
     "start": [("calc", "산출내역서", 1)],  # 1. 착수계 → 2. 산출내역서 → 3. 현장대리인계
     "done": [("done_list", "완수내역서", 3), ("report", "기술지도보고서", 3), ("finish_cert", "기술지도 완료증명서", 3)],  # 3. 청구서 뒤
-    # 서류 자동화 · 시특법 관급(10/12, server/sitok/gov_docs.py) — 착수계 2. 산출내역서, 완료계 3. 완수내역서(완수검사원 뒤)
+    # 서류 자동화 · 시특법 관급(10/12, server/sitok/gov_docs.py) — 착수계 2. 산출내역서, 완수계 4. 완수내역서(청구서 뒤, 10/20 형 견본)
     "sitok_start": [("calc", "산출내역서", 1)],
-    "sitok_done": [("done_list", "완수내역서", 2)],
+    "sitok_done": [("done_list", "완수내역서", 3)],
 }
 OFFICE_EXTS = (".xlsx", ".xls", ".xlsm", ".docx", ".doc", ".pptx", ".ppt", ".odt", ".ods", ".rtf")
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".webp")

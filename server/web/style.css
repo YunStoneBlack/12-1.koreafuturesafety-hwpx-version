@@ -36,6 +36,7 @@
 .law-badge { display: inline-block; margin-left: 10px; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; vertical-align: 4px; }
 .law-badge.sanan { color: var(--blue); background: var(--blue-soft); }
 .law-badge.sitok { color: #7c3aed; background: #F3EFFF; }
+.law-badge.common { color: #475569; background: #EEF1F5; } /* 서류 자동화 설정(산안법·시특법 공통, 10/20) */
 /* 그룹웨어 조각이 옛것(소메뉴 CSS 없음)일 때·대체 사이드바용 — 그룹웨어 app.css .nav-sub와 같은 모양 */
 .sidebar .nav-sub { display: flex; flex-direction: column; gap: 1px; margin: 0 0 4px 29px; padding-left: 10px; border-left: 1px solid rgba(237,239,250,.14); }
 .sidebar .nav-subitem { display: block; padding: 5px 10px; border-radius: 6px; font-size: 13px; color: var(--sidebar-muted); }

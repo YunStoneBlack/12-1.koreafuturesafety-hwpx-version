@@ -271,6 +271,7 @@ def build_start(contract: Contract, common: Common, agent: Person, participants:
                                                    **{g[3].title: ("B24", -2) for g in [list(p1)] + groups}})
     _unique_titles(wb)
     out.parent.mkdir(parents=True, exist_ok=True)
+    st.fix_dot_numbers(wb)
     wb.save(out)
     return warnings
 
@@ -306,6 +307,7 @@ def build_done(contract: Contract, common: Common, company_docs: dict[str, str],
     _apply_seals(wb, common.seal, seal, text_cells={ws[1].title: ("A25", 41), ws[2].title: ("A25", 45)},
                  extra=lambda: st.place_seal(ws[3], seal, st.col_x(ws[3], 11) + 39, st.row_y(ws[3], 20) + st.row_px(ws[3], 20) / 2))
     out.parent.mkdir(parents=True, exist_ok=True)
+    st.fix_dot_numbers(wb)
     wb.save(out)
     return warnings
 

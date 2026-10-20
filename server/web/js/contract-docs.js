@@ -130,7 +130,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
         <label class="cd-field"><span>문서번호 <em>KFSC21C_계약번호_${kind === "start" ? "착수일" : "발송일"}(월일)</em></span><input class="cd-docno" value="${mailEsc(typed.docno ?? autoDocNo())}" /></label>
         <label class="cd-field"><span>인사말</span><span class="cd-greet">1. 귀 <input class="cd-greeting" value="${mailEsc(typed.greeting ?? d.greeting)}" /> 의 무궁한 발전을…</span></label>
         ${kind === "done" ? `<label class="cd-field"><span>발송일</span><input class="cd-send" type="date" value="${mailEsc(typed.send ?? d.send_date)}" /></label>` : ""}
-        <div class="cd-field"><span>담당</span><div class="cd-plain">${mailEsc(d.contact_name)} <a href="docs-settings.html#contract-library" class="mail-note">바꾸기(설정 탭)</a></div></div>
+        <div class="cd-field"><span>담당</span><div class="cd-plain">${mailEsc(d.contact_name)} <a href="docs-settings.html#contract-library" class="mail-note">바꾸기(서류 자동화 설정)</a></div></div>
       </div>
       ${peopleHtml}
       ${attachBlock()}
@@ -444,7 +444,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
 
   function peopleBlock() {
     if (!st.persons.length) {
-      return `<div class="mail-label">기술자</div><div class="mail-msg warn">기술자 명단이 비어 있습니다 — <a href="docs-settings.html#contract-library">설정 탭 → 착수계·완수계 서류</a>에서 먼저 추가하세요.</div>`;
+      return `<div class="mail-label">기술자</div><div class="mail-msg warn">기술자 명단이 비어 있습니다 — <a href="docs-settings.html#contract-library">서류 자동화 설정 → 착수계·완수계 서류</a>에서 먼저 추가하세요.</div>`;
     }
     const agent = st.agent_id ?? st.persons[0].id;
     return `<div class="mail-label">현장대리인(책임기술자) <span class="mail-note">— 1명</span></div>
@@ -453,7 +453,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       <div class="cd-people">${st.persons.map((p) => `<label class="cd-person" data-id="${p.id}">
         <input type="checkbox" value="${p.id}" ${st.participant_ids.includes(p.id) ? "checked" : ""} />
         <span><b>${mailEsc(p.name)}</b><span class="mail-note">${personNote(p)}</span></span></label>`).join("")}</div>
-      <div class="mail-note"><a href="docs-settings.html#contract-library">기술자 추가·서류 올리기(설정 탭)</a></div>`;
+      <div class="mail-note"><a href="docs-settings.html#contract-library">기술자 추가·서류 올리기(서류 자동화 설정)</a></div>`;
   }
 
   function wirePeople() {
@@ -484,7 +484,7 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
         : doc.status === "nodate" ? '<span class="cd-bad">⚠ 발급일 모름</span>' : '<span class="cd-bad">없음</span>';
       return `<div><span>${mailEsc(doc.label)}</span><div>${s}</div></div>`;
     }).join("");
-    return `<div class="mail-label">붙는 회사 서류 <span class="mail-note">— <a href="docs-settings.html#contract-library">설정 탭에서 바꾸기</a></span></div>
+    return `<div class="mail-label">붙는 회사 서류 <span class="mail-note">— <a href="docs-settings.html#contract-library">서류 자동화 설정에서 바꾸기</a></span></div>
       <div class="mail-info cd-docs">${rows}</div>`;
   }
 

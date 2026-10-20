@@ -1,16 +1,18 @@
-"""서류 자동화 · 시특법 관급 — 착수계·완료계 엑셀(2026-10-12 2단계, 사용자 "시작"). DB는 모름(값만 받음 — 라우터 server/api/routers/sitok_docs.py).
+"""서류 자동화 · 시특법 관급 — 착수계·완수계 엑셀(2026-10-12 2단계, 사용자 "시작"). DB는 모름(값만 받음 — 라우터 server/api/routers/sitok_docs.py).
 
-양식 = 회사 엑셀(바탕화면 `시특법 견본\\서류자동화\\관급_*.xlsx` → data/templates/시특법_착수계_양식.xlsx·시특법_완료계_양식.xlsx). 산안법 착수계(server/contract_docs/build.py)와
+양식 = 회사 엑셀(바탕화면 `시특법 견본\\서류자동화\\관급_*.xlsx` → data/templates/시특법_착수계_양식.xlsx — 완수계는 산안법 완수계_양식.xlsx, 10/20). 산안법 착수계(server/contract_docs/build.py)와
 칸 자리가 같아 그 함수들(갑지 금액 줄·기술자 서류 장·재직증명서)을 같이 쓰고, 다른 점만 여기서:
 - 착수계 21장: 갑지·착수계·현장대리인계·[현장대리인 자격증·교육수료증·경력증명서·재직증명서]·책임참여기술자 현황·[참여기술자 4장 × 2명(견본)]·예정공정표·
   보안각서(회사)·[보안각서(사람마다 — 주소·생년월일·성명 + 서명 그림)]. 참여기술자 4장·사람 보안각서는 첫 것을 본으로 사람 수만큼 복사(견본 두 번째 것은 지움).
-- 완료계 4장: 갑지·완료계·완수검사원·결과보고서(연결한 시설물 보고서 표지 그림 — 없으면 올린 표지).
+- 완수계 11장(10/20 형 견본 14쪽 — 붙임 완수내역서 포함): 산안법 완수계 양식 갑지·완수계·완수검사원·청구서 + 결과보고서(연결한 시설물 보고서 표지 그림 —
+  없으면 올린 표지) + 회사 서류 6장(4대보험 2·국세·지방세·사업자등록증·통장 — 서류 자동화 설정, 산안법과 같은 것). 예전 이름 "완료계"(10/12~10/20).
 - 도장: 양식에 이미 제자리(인쇄 범위 안)에 있음 → 넣기면 그대로(복사한 장에도 같이), 빼기면 지움(산안법은 범위 밖 도장을 새로 놓음 — 여기선 필요 없음).
 - 갑지에 문서번호 줄이 없어 산안법 갑지처럼 4행에 "문  서  번  호" + 번호(KFSC21C_계약번호_월일 — 사용자 10/12 "관급은 산안법 규칙과 동일").
 - 교육수료증 = 정밀안전진단 교육 수료증(시특법 설정 sitok_edu), 자격증·경력증명서 = 서류 자동화 설정(산안법과 같은 그림), 기술등급 = 시특법 등급(건축분야고급기술자 → 고급기술자).
 """
 from __future__ import annotations
 
+import datetime
 import io
 import re
 from copy import copy
@@ -18,16 +20,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import openpyxl
-from openpyxl.styles import Border
+from openpyxl.styles import Border, Side
+from openpyxl.utils import range_boundaries
 from openpyxl.worksheet.worksheet import Worksheet
 from PIL import Image
 
 from server.contract_docs import build, sheet_tools as st
 
 START_TEMPLATE = build.TEMPLATE_DIR / "시특법_착수계_양식.xlsx"
-DONE_TEMPLATE = build.TEMPLATE_DIR / "시특법_완료계_양식.xlsx"
+DONE_TEMPLATE = build.DONE_TEMPLATE  # 완수계 = 산안법 완수계 양식 + 손질(10/20 형 견본 — 예전 시특법_완료계_양식.xlsx 4장은 안 씀)
+DONE_LIST = ("완수계", "완수검사원", "청구서", "완수내역서", "결과보고서", "4대보험 완납증명서", "국세완납증명서", "지방세완납증명서", "사업자등록증 사본",
+             "법인통장 사본")  # 갑지 붙임(견본)
+REPORT_AT = 4  # 결과보고서 장 자리(청구서 뒤) — 붙임 완수내역서는 청구서 뒤(contract_docs/attachments.py SLOTS sitok_done)
 START_SHEETS = 21
-DONE_SHEETS = 4
 
 
 @dataclass
@@ -58,7 +63,7 @@ def _cover(ws: Worksheet, c: build.Contract, doc_no: str, greet: str, contact: s
     ws["C4"].font, ws["C4"].alignment = copy(ws["C5"].font), copy(ws["C5"].alignment)
     if not any("C4" in r for r in ws.merged_cells.ranges):
         ws.merge_cells("C4:H4")
-    # 완료계 갑지는 로고가 4행까지 내려와 문서번호와 겹침(착수계는 딱 맞음) → 3행을 늘려 4행을 로고 아래로
+    # 갑지 로고가 4행까지 내려오면(예전 완료계 양식) 문서번호와 겹침 → 3행을 늘려 4행을 로고 아래로(착수계는 딱 맞아 그대로)
     max_col = st.print_bounds(ws)[0]
     logo_bottom = max((y + h for img in ws._images if img.anchor._from.row < 3 and img.anchor._from.col < max_col
                        for _, y, _, h in [st.anchor_box(ws, img)]), default=0)
@@ -210,36 +215,98 @@ def build_start(c: build.Contract, doc_no: str, greet: str, contact: str, seal: 
             st.remove_seals(s)
     _titles(wb)
     out.parent.mkdir(parents=True, exist_ok=True)
+    st.fix_dot_numbers(wb)
     wb.save(out)
     return warnings
 
 
-def build_done(c: build.Contract, doc_no: str, greet: str, contact: str, seal: bool, cover_png: bytes | None, out: Path,
+def build_done(c: build.Contract, doc_no: str, greet: str, contact: str, seal: bool, cover_png: bytes | None, company_docs: dict[str, str], out: Path,
                template: Path = DONE_TEMPLATE) -> list[str]:
-    """완료계 엑셀 → out. cover_png = 결과보고서 표지 그림(없으면 그 장은 제목만 — 경고)."""
+    """완수계 엑셀 → out(10/20 형 견본 14쪽 "기술지도 완수계처럼 추가 서류"): 산안법 완수계 양식(갑지·완수계·완수검사원·청구서·회사 서류 6장)에
+    결과보고서 장(통장 사본 장을 본떠 — 연결한 시설물 보고서 표지)을 청구서 뒤에. 견본과 다른 곳만 손질 — 갑지 붙임 10줄, 완수계 감독관 확인 칸은
+    오른쪽 위, 완수검사원 "감독관 경유"·청구서 감독관 칸 없음. 회사 서류 = 서류 자동화 설정(산안법과 같은 것). 발송일·실제준공 = 완수일."""
     warnings: list[str] = []
-    wb = _load(template, DONE_SHEETS)
+    wb = _load(template, build.DONE_SHEETS)
+    seal_png = st.seal_bytes(wb)
     ws = wb.worksheets
-    _cover(ws[0], c, doc_no, greet, contact, "B34")
-    ws[0]["C7"] = '=S5&" 완료계 제출건"'  # 양식은 띄어쓰기 없이 "…용역완료계 제출건"(착수계는 " 착수계")
+    cover = ws[0]
+    end = c.actual_end_date or c.end_date
+    settle = c.settle_amount if c.settle_amount is not None else c.amount
+    build._fill_cover(cover, c, build.Common(doc_no=doc_no, greeting=greet, contact_name=contact), greet)
+    cover["S11"], cover["S12"], cover["H35"] = end, settle, end or datetime.date.today()
+    for k in range(11):  # 붙임 C17~C27(양식 11줄 — 기술지도 결과보고서·완료증명서) → 견본 10줄
+        cover[f"C{17 + k}"] = f"{k + 1}. {DONE_LIST[k]}" if k < len(DONE_LIST) else None
+    for s in (ws[1], ws[2]):  # 완수계·완수검사원 "계약금액"·"정산금액" 줄
+        build._amount_line(s, "H7", c.amount)
+        build._amount_line(s, "H8", settle)
+    build._amount_line(ws[3], "G7", settle)  # 청구서 "청구 금액"
+    _inspector_top(ws[1])
+    ws[2]["I5"] = None  # 완수검사원 "감독관 경유 (인)"
+    _clear_box(ws[3], "B22:F25")  # 청구서 감독관 확인 칸
     for s in ws[1:]:
         st.clear_outside_print(s)
-    for s in (ws[1], ws[2]):  # 완료계·완수검사원 "계약금액" 줄
-        build._amount_line(s, "H7", c.amount)
-    report = ws[3]
+    report = _copy_sheet(wb, ws[9], REPORT_AT, "결과보고서")  # 통장 사본 장 모양(제목 + 큰 그림 칸)
+    report["A2"] = "결과보고서"
+    st.drop_image(report, st.find_image(report, (209, 64)))  # 원본대조필 칸은 빼고
     old = st.main_image(report)
-    if cover_png:
-        if old is not None:
-            st.replace_image(report, old, cover_png)
+    if cover_png and old is not None:
+        st.replace_image(report, old, cover_png)
     else:
         st.drop_image(report, old)
         warnings.append("결과보고서 — 표지가 없어 제목만 나갑니다(현장 연결한 시설물의 보고서를 만들거나, 표지 PDF·그림을 올리세요).")
-    if not seal:
-        for s in ws:
-            st.remove_seals(s)
+    ws = wb.worksheets
+    for s, (kind, label) in zip(ws[REPORT_AT + 1:], build.COMPANY_DOCS):
+        old = st.main_image(s)
+        src = company_docs.get(kind)
+        if src and Path(src).exists():
+            if old is not None:
+                st.replace_image(s, old, src)
+        else:
+            st.drop_image(s, old)
+            warnings.append(f"{label} — 올린 서류가 없어 빈 장으로 나갑니다(서류 자동화 설정에서 올리세요).")
+    build._apply_seals(wb, seal, seal_png, text_cells={ws[1].title: ("A25", 41), ws[2].title: ("A25", 45)},
+                       extra=lambda: st.place_seal(ws[3], seal_png, st.col_x(ws[3], 11) + 39, st.row_y(ws[3], 20) + st.row_px(ws[3], 20) / 2))
     out.parent.mkdir(parents=True, exist_ok=True)
+    st.fix_dot_numbers(wb)
     wb.save(out)
     return warnings
+
+
+def _clear_box(ws: Worksheet, rng: str) -> None:
+    """칸 묶음 비우기 — 글자·선·안쪽 병합."""
+    c1, r1, c2, r2 = range_boundaries(rng)
+    for m in list(ws.merged_cells.ranges):
+        if c1 <= m.min_col and m.max_col <= c2 and r1 <= m.min_row and m.max_row <= r2:
+            ws.unmerge_cells(str(m))
+    for r in range(r1, r2 + 1):
+        for col in range(c1, c2 + 1):
+            ws.cell(r, col).value = None
+            ws.cell(r, col).border = Border()
+
+
+def _inspector_top(ws: Worksheet) -> None:
+    """완수계 "감독관 확인" 칸 — 양식 왼쪽 아래(B18:F21) → 견본처럼 오른쪽 위(K1:M4, 제목 줄 옆), 제목 "완 수 계"는 그 왼쪽에서 가운데(G2:J3)."""
+    head, label, value, sign = (copy(ws[k]._style) for k in ("B18", "B19", "D19", "D21"))
+    _clear_box(ws, "B18:F21")
+    title, tstyle = ws["A2"].value, copy(ws["A2"]._style)
+    ws.unmerge_cells("A2:N3")
+    ws["A2"] = None
+    ws["G2"], ws["G2"]._style = title, tstyle
+    ws.merge_cells("G2:J3")
+    for r in range(1, 5):
+        ws.row_dimensions[r].height = 18
+    for r, text, style in ((1, "감독관 확인", head), (2, "소 속", label), (3, "직 급", label), (4, "성 명", label)):
+        ws[f"K{r}"], ws[f"K{r}"]._style = text, style
+        for col in "LM":
+            ws[f"{col}{r}"]._style = copy(value if r > 1 else head)
+    ws["L4"], ws["L4"]._style = "(인)", sign
+    thin = Side(style="thin")
+    for r in range(1, 5):
+        for col in "KLM":
+            ws[f"{col}{r}"].border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    ws.merge_cells("K1:M1")
+    for r in (2, 3, 4):
+        ws.merge_cells(f"L{r}:M{r}")
 
 
 def cover_image(pdf: Path) -> bytes | None:

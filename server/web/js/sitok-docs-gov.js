@@ -1,11 +1,11 @@
-// ---------- 서류 자동화 · 시특법 관급 — 착수계·완료계 창(sitok-docs.html, 2026-10-12 2단계) ----------
+// ---------- 서류 자동화 · 시특법 관급 — 착수계·완수계 창(sitok-docs.html, 2026-10-12 2단계, 완수계는 10/20까지 "완료계") ----------
 // API server/api/routers/sitok_docs.py(/sitok/docs/contracts/{id}/gov…), 엑셀 양식 채우기는 server/sitok/gov_docs.py. 산안법 착수계 창(js/contract-docs.js)과 같은 흐름:
 // 문서번호(KFSC21C_계약번호_월일)·인사말·담당·도장 → (착수계) 현장대리인 1명 + 참여기술자(시특법 보고서 설정과 같은 명단) → 붙임(산출내역서 / 완수내역서)
-// → (완료계) 결과보고서 표지(연결한 시설물 보고서 첫 쪽, 없으면 올림) → [만들기] = 엑셀 + 합본 PDF.
+// → (완수계) 결과보고서 표지(연결한 시설물 보고서 첫 쪽, 없으면 올림) + 회사 서류 6장(서류 자동화 설정 — 산안법과 같은 것, 10/20 형 견본) → [만들기] = 엑셀 + 합본 PDF.
 
 async function openSitokGov(contractId, kind, onDone) {
   const P = `/sitok/docs/contracts/${contractId}/gov`;
-  const LABEL = { start: "착수계", done: "완료계" }[kind];
+  const LABEL = { start: "착수계", done: "완수계" }[kind];
   const esc = mailEsc;
   const overlay = document.createElement("div");
   overlay.className = "mail-overlay";
@@ -74,6 +74,17 @@ async function openSitokGov(contractId, kind, onDone) {
         <label class="cd-add">${st.cover === "올린 표지" ? "표지 바꾸기" : "표지 올리기"}<input type="file" class="sd-cover-in" hidden data-kr-file="skip" accept=".pdf,.jpg,.jpeg,.png,.hwp,.hwpx" /></label></div>`;
   }
 
+  function companyBlock() { // 완수계 끝 6장(10/20 — 산안법 완수계와 같은 회사 서류)
+    const rows = (st.company_docs || []).map((doc) => {
+      const s = doc.status === "ok" ? `<span class="cd-ok">✓${doc.valid_until ? ` ${esc(doc.valid_until)}까지` : ""}</span>`
+        : doc.status === "expired" ? `<span class="cd-bad">⚠ 기간 지남(${esc(doc.valid_until)})</span>`
+        : doc.status === "nodate" ? '<span class="cd-bad">⚠ 발급일 모름</span>' : '<span class="cd-bad">없음</span>';
+      return `<div><span>${esc(doc.label)}</span><div>${s}</div></div>`;
+    }).join("");
+    return `<div class="mail-label">붙는 회사 서류 <span class="mail-note">— <a href="docs-settings.html#contract-library">서류 자동화 설정에서 바꾸기</a>(산안법 완수계와 같은 서류)</span></div>
+      <div class="mail-info cd-docs">${rows}</div>`;
+  }
+
   function draw() {
     const c = st, d = st.defaults;
     const made = st.gov[kind];
@@ -88,7 +99,7 @@ async function openSitokGov(contractId, kind, onDone) {
         <label class="cd-field"><span>담당 <em>갑지 아래</em></span><input class="sd-contact" value="${esc(typed.contact ?? d.contact_name)}" /></label>
         <label class="cd-field sd-seal"><span>도장</span><span class="cd-greet"><input type="checkbox" class="sd-seal-in"${(typed.seal ?? true) ? " checked" : ""} /> 대표이사 도장 넣기(빼면 인쇄 뒤 직접)</span></label>
       </div>
-      ${kind === "start" ? peopleBlock() : coverBlock()}
+      ${kind === "start" ? peopleBlock() : coverBlock() + companyBlock()}
       ${attachBlock()}
       ${result ? `<div class="mail-msg ${result.pdf_error ? "bad" : result.warnings.length ? "warn" : "ok"}">
           ${result.pdf_error ? `PDF를 만들지 못했습니다(엑셀은 받을 수 있음): ${esc(result.pdf_error)}` : `✓ ${LABEL}를 만들었습니다.`}

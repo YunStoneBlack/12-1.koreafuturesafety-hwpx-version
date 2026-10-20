@@ -1,7 +1,7 @@
 // 서류 자동화 · 시특법 — 제출 현황(sitok-docs-status.html, 2026-10-15 민재형 문서번호 일치화 문서 "서류 제출현황 관리").
 // 상·하반기로(◀ ▶), 한 줄 = 그 반기에 걸친 계약(시설물 카드 번호·이름과 같이). 민간·관급·뱃지 거르기(엑셀 필터처럼).
 // 칸: 관급 착수계·완수계 — [만들기]로 PDF까지 = 제출(첨부 넣고 만들기), 프로그램 쓰기 전 낸 것은 "직접 제출함" / 민간 계약서 — 날인본 받음·만듦 / 계산서 발행일(달력).
-// 칸을 누르면: 관급 서류 = 착수계·완료계 창(js/sitok-docs-gov.js) 또는 직접 제출함 표시, 계산서 = 날짜 넣기.
+// 칸을 누르면: 관급 서류 = 착수계·완수계 창(js/sitok-docs-gov.js) 또는 직접 제출함 표시, 계산서 = 날짜 넣기.
 // API: GET /sitok/status/docs?year&half, POST /sitok/status/docs/{id}/mark — server/api/routers/sitok_status.py
 
 (function () {
@@ -18,7 +18,7 @@
   const doneOk = (r) => !r.done || !!(r.done.made || r.done.mark);
   const CARDS = [["", "전체", "이 반기 계약", () => true],
     ["start", "착수계 미제출", "관급 — 착수계 안 만듦", (r) => r.contract.sector === "관급" && !startOk(r)],
-    ["done", "완수계 미제출", "관급 — 완료계 안 만듦", (r) => r.contract.sector === "관급" && !doneOk(r)],
+    ["done", "완수계 미제출", "관급 — 완수계 안 만듦", (r) => r.contract.sector === "관급" && !doneOk(r)],
     ["civil", "계약서 미완료", "민간 — 날인본 안 받음", (r) => r.contract.sector === "민간" && !r.start.signed && !r.start.mark],
     ["invoice", "계산서 미발행", "발행일 없음", (r) => !r.invoice.date]];
 

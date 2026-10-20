@@ -76,6 +76,15 @@ def print_bounds(ws: Worksheet) -> tuple[int, int]:
     return max_col, max_row
 
 
+def fix_dot_numbers(wb) -> None:
+    """번호 칸 서식 "."(엑셀에선 "1."로 보이지만 LibreOffice PDF는 "."만 — 착수계·완수계 PDF 줄 번호가 빠져 있었음, 10/20) → 0"."."""
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for c in row:
+                if c.number_format == "." and isinstance(c.value, (int, float)):
+                    c.number_format = '0"."'
+
+
 def clear_outside_print(ws: Worksheet) -> None:
     """인쇄 범위 오른쪽 칸의 값 지우기 — 양식을 다른 현장에서 베껴 오며 남은 찌꺼기(화현초·초가팔2리 등, 인쇄엔 안 나옴)."""
     max_col, _ = print_bounds(ws)

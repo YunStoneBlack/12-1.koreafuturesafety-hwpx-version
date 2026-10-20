@@ -1,11 +1,11 @@
 // ---------- 서류 자동화 · 시특법 — 관급 착수·완수 일정 달력(sitok-docs-calendar.html, 2026-10-12) ----------
-// 산안법 착수·완수 일정(js/docs-calendar.js)과 같은 모양: 관급 계약마다 착수일(파랑 = 착수계)·완수일(보라 = 완료계)에 한 칸, 누르면 그 서류 창(js/sitok-docs-gov.js).
-// 민간은 착수계·완료계가 없어 빠짐(사용자 10/12). 시특법은 제출 기록이 아직 없어(제출 방법 확인 전) ✓ = 그 서류 PDF를 만듦.
+// 산안법 착수·완수 일정(js/docs-calendar.js)과 같은 모양: 관급 계약마다 착수일(파랑 = 착수계)·완수일(보라 = 완수계)에 한 칸, 누르면 그 서류 창(js/sitok-docs-gov.js).
+// 민간은 착수계·완수계가 없어 빠짐(사용자 10/12). 시특법은 제출 기록이 아직 없어(제출 방법 확인 전) ✓ = 그 서류 PDF를 만듦.
 // 폰은 달력 아래 그 달 날짜별 목록, PC는 오른쪽 "그날 상세"(산안법과 같음 — css/docs.css .dk-*). 데이터는 GET /sitok/docs/contracts 하나.
 
 (function () {
   const errorEl = document.getElementById("error");
-  const KINDS = [["start", "착수계"], ["done", "완료계"]];
+  const KINDS = [["start", "착수계"], ["done", "완수계"]];
   const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
   const isPhone = () => matchMedia("(max-width: 760px)").matches;
   const pad = (n) => String(n).padStart(2, "0");

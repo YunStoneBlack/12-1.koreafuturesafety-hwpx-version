@@ -4,7 +4,7 @@
 // 한 줄: 계약건명 · 관리주체·기간·금액 · 계약/현장 담당 · 현장(연결/[🔗 현장 연결]) · 계약서·날인본·보고서 쪽 상태 · [열기][삭제].
 // 창: 서류 올리기(관리대장·사업자등록증·날인본) → 관리주체 → 시설물 → 계약 회차(연도·반기·정기/정밀·금액) 또는 계약 해지 시까지(매 반기 단가)
 //     → 계약(계약일·기간·문서번호·계약건명) → 담당자 → [저장] [📝 계약서 만들기]. 닫으면 고친 내용 저장.
-// 관급(2단계): 나라장터 계약서를 올리면 읽어서 칸 채움 → [📑 착수계] [📑 완료계] 창(js/sitok-docs-gov.js).
+// 관급(2단계): 나라장터 계약서를 올리면 읽어서 칸 채움 → [📑 착수계] [📑 완수계] 창(js/sitok-docs-gov.js).
 // 10/15 민재형 문서번호 일치화: 목록 = 시설물 카드(번호 민간-N·관급-N — 보고서 자동화 시설물과 같은 카드·번호, 묶인 동은 카드 하나).
 //   카드 안에 민간은 계약서가 차례로, 관급은 착수계(계약)가 연도별로 쌓임. 계약마다 반기 표시(상반기·하반기·상·하반기·해당없음 — 기간으로 자동, 내진 = 해당없음).
 //   [+ 새 시설물 카드] = 보고서 자동화에도 같은 번호로 바로 생김. 뱃지(분야·관급 종류) 칩 = 개수·거르기. 카드에 안 넣은 계약은 맨 아래.
@@ -296,7 +296,7 @@
     out.push(line(c.sector === "민간" ? "날인본" : "계약서", c.files["날인본.pdf"], c.files["날인본.pdf"] ? "✓ 올림" : "안 올림", c.files["날인본.pdf"] ? fileUrl(c, "날인본.pdf") : ""));
     if (c.facility) out.push(line("보고서 쪽", !!c.report_contract_id, c.report_contract_id ? "✓ 계약 넣음" : "안 넣음"));
     if (c.sector === "관급") {
-      for (const [k, lab] of [["start", "착수계"], ["done", "완료계"]]) {
+      for (const [k, lab] of [["start", "착수계"], ["done", "완수계"]]) {
         const g = c.gov[k];
         out.push(line(lab, g.pdf, g.at ? `${g.at.slice(5)} 만듦` : "아직 안 만듦",
           g.pdf ? `${BASE}/api${P}/contracts/${c.id}/gov/${k}.pdf?inline=true&v=${encodeURIComponent(g.at)}` : ""));
@@ -327,7 +327,7 @@
       </div>
       <div class="dc-docs">${docLines(c)}</div>
       <div class="dc-actions">
-        ${c.sector === "관급" ? '<button type="button" class="secondary sd-gov" data-kind="start">📑 착수계</button><button type="button" class="secondary sd-gov" data-kind="done">📑 완료계</button>' : ""}
+        ${c.sector === "관급" ? '<button type="button" class="secondary sd-gov" data-kind="start">📑 착수계</button><button type="button" class="secondary sd-gov" data-kind="done">📑 완수계</button>' : ""}
         <button type="button" class="secondary sd-edit">${c.sector === "민간" ? "📝 계약서" : "계약 정보"}</button>
         <button type="button" class="secondary dc-del" title="계약 지우기">삭제</button>
       </div>`;
@@ -777,7 +777,7 @@
           ${st.files && st.files["대가내역서.xlsx"] ? `<a href="${fileUrl(st, "대가내역서.xlsx")}">엑셀</a>` : ""}
           <button type="button" class="sd-daega" title="계약 회차·동별 금액으로 대가내역서(형 양식) — FMS e-보고서에도 씀">📑 대가내역서</button>
           ${civil ? '<button type="button" class="mail-primary sd-make">📝 계약서 만들기</button>'
-            : '<button type="button" class="sd-to-gov" data-kind="start">📑 착수계</button><button type="button" class="mail-primary sd-to-gov" data-kind="done">📑 완료계</button>'}
+            : '<button type="button" class="sd-to-gov" data-kind="start">📑 착수계</button><button type="button" class="mail-primary sd-to-gov" data-kind="done">📑 완수계</button>'}
         </div>`;
       wire();
       if (clean) snapshot = JSON.stringify(body());
@@ -896,7 +896,7 @@
         if (!(await save(true))) return;
         pickFacility(st, (out) => { st = out; draw(true); msg(out.facility ? `✓ 현장 "${esc(out.facility.name)}"에 연결했습니다.` : "연결을 끊었습니다.", "ok"); });
       });
-      box.querySelectorAll(".sd-to-gov").forEach((b) => b.addEventListener("click", async () => { // 관급: 저장하고 착수계·완료계 창
+      box.querySelectorAll(".sd-to-gov").forEach((b) => b.addEventListener("click", async () => { // 관급: 저장하고 착수계·완수계 창
         if (!(await save(true))) return;
         openSitokGov(st.id, b.dataset.kind, async () => { st = await api(`${P}/contracts/${st.id}`); draw(true); });
       }));
