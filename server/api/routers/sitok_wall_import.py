@@ -113,7 +113,7 @@ def _run(report_id: int, company_id: int, fac_name: str, data: bytes, ext: str, 
         IMPORTS[report_id] = {"state": "running", "msg": "부록 사진첩을 읽는 중(AI 분류 10~30초)"}
         album = wall_album.read_pdf(pdf)
         if not album.facilities:
-            raise ValueError("부록2 외관조사 사진첩(전경·주요 손상 및 현황 사진)을 찾지 못했습니다 — 지난 보고서 부록이 든 파일인지 확인하세요")
+            raise ValueError("설명 글이 붙은 사진을 찾지 못했습니다 — 지난 보고서 부록2 사진첩(전경·주요 손상 및 현황 사진)이 든 파일인지 확인하세요")
         r = db.get(SitokReport, report_id)
         if db.query(SitokDefect).filter(SitokDefect.report_id == report_id).first():
             raise ValueError("그 사이 결함이 들어와 있어 넣지 않았습니다")

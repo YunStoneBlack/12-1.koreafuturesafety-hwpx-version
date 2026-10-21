@@ -3,6 +3,9 @@
 견본(2026 상반기 산업단지 옹벽 17개소 부록): "부록2.외관조사 사진첩" 간지 → 시설물 간지 "1.보강토옹벽-2" → 전경 쪽(사진 6장, 설명 "시점측 전경"…)
 → "주 요 손 상 및 현 황 사 진" 쪽들(사진 2×3, 설명 "블록 균열(0.3mm이상)"·"배수로 낙엽 및 토사퇴적"·"기초 상태 양호"…) → 다음 시설물 … → "부록3" 간지.
 - 읽기: 쪽마다 그림(Rect)과 바로 아래 같은 열의 낱말(설명 칸)을 짝지음(_caption_below). 한글 파일은 먼저 작업 프로그램이 PDF로(hwp_queue).
+- 어느 쪽을 읽나(10/21 사용자 — 사진 4쪽만 뽑은 PDF를 못 읽음): ① "부록2 … 사진첩" 간지가 있으면 그 안(시설물 간지로 장 나눔),
+  ② 간지가 없으면 "전경사진"·"주요 손상 및 현황사진" 제목이 있는 쪽, ③ 제목도 없으면 설명이 바로 아래 붙은 사진 전부(설명에 "전경"이 있으면 전경).
+  ③은 보고서 전체를 올리면 본문 사진도 딸려 올 수 있음 — 확인 창에서 뺌.
 - 분류: 설명 글을 AI가 부위(kinds.WALL_PARTS)·구분·부재·결함유형으로(guess_rows — AI 한 번, 실패하면 낱말 규칙 keyword_guess), "~양호"·"~현황"은 기록용(상태양호 탭).
   점검자가 확인 창에서 고친 뒤 넣음(server/api/routers/sitok_wall_import.py).
 """
@@ -17,6 +20,7 @@ import pymupdf
 from server.sitok import kinds
 
 SHOTS_HEAD = "주요손상및현황사진"
+OVERVIEW_HEAD = "전경사진"
 OVERVIEW_WORDS = ("전경",)
 
 
@@ -68,6 +72,12 @@ def _caption_below(words: list, im) -> str:
     return "" if _squash(txt) == SHOTS_HEAD else " ".join(txt.split())
 
 
+def _head_kind(text: str) -> str:
+    """쪽 제목 → "shot"(주요 손상 및 현황 사진) / "overview"(전경 사진) / ""(제목 없음)."""
+    sq = _squash(text)
+    return "shot" if SHOTS_HEAD in sq else "overview" if OVERVIEW_HEAD in sq else ""
+
+
 def read_pdf(pdf_bytes: bytes) -> WallAlbum:
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     out = WallAlbum()
@@ -79,34 +89,43 @@ def read_pdf(pdf_bytes: bytes) -> WallAlbum:
         elif start is not None and re.match(r"부록[3-9]", d):
             end = pn
             break
-    if start is None:
-        return out
-    end = end if end is not None else doc.page_count
-    out.pages = (start, end)
+    if start is not None:  # ① 부록2 사진첩 간지 안
+        mode, pages = "appendix", range(start, end if end is not None else doc.page_count)
+        out.pages = (start, pages.stop)
+    else:
+        headed = [pn for pn, page in enumerate(doc) if _head_kind(page.get_text())]
+        mode, pages = ("headed", headed) if headed else ("any", range(doc.page_count))  # ② 제목 쪽 / ③ 설명 붙은 사진 전부
     cur: Facility | None = None
-    for pn in range(start, end):
+    for pn in pages:
         page = doc[pn]
         text = page.get_text()
-        div = _divider(text)
-        if div:
-            name = _facility_name(div) or div
-            cur = Facility(name)
-            out.facilities.append(cur)
-            continue
+        if mode == "appendix":
+            div = _divider(text)
+            if div:
+                name = _facility_name(div) or div
+                cur = Facility(name)
+                out.facilities.append(cur)
+                continue
         imgs = [pymupdf.Rect(i["bbox"]) for i in page.get_image_info() if pymupdf.Rect(i["bbox"]).width > 40]
         if not imgs:
             continue
-        if cur is None:  # 시설물 간지 없이 바로 사진(한 곳짜리 보고서)
+        if cur is None:  # 시설물 간지 없이 바로 사진(한 곳짜리 보고서·사진 쪽만 뽑은 PDF)
             cur = Facility("")
             out.facilities.append(cur)
-        is_shots = SHOTS_HEAD in _squash(text)
+        head = _head_kind(text)
         words = page.get_text("words")
         for rect in sorted(imgs, key=lambda r: (round(r.y0 / 20), r.x0)):  # 줄(위→아래) → 왼쪽부터
             cap = _caption_below(words, rect)
             if not cap:
                 continue
+            if mode == "appendix":
+                shot = head == "shot"
+            elif head:
+                shot = head == "shot"
+            else:  # 제목 없는 쪽 — 설명으로
+                shot = not any(w in cap for w in OVERVIEW_WORDS)
             jpg = page.get_pixmap(clip=rect, dpi=150).tobytes("jpg")
-            if is_shots:
+            if shot:
                 cur.shots.append(Shot(cap, jpg, pn, "shot"))
             else:
                 cur.overview.append(Shot(cap, jpg, pn, "overview"))
