@@ -388,7 +388,7 @@ def list_defects(report_id: int, user: User = Depends(get_current_user), db: Ses
     voc = vocab_rows(db, r.company_id, r.id, fam)
     return {"report": {"id": r.id, "year": r.year, "half": r.half, "facility": f.name, "facility_id": f.id},
             "survey_only": bool(f.survey_only), "tab_presets": TAB_PRESETS,  # 결함조사만(0061) — 화면이 결함 조사 탭만 보임
-            "seismic": r.half == "성능평가",  # 내진성능평가 회차(10/21) — 결함 조사 탭만, 전회차 가져오기 없이
+            "seismic": r.half == "성능평가", "seismic_only": bool(getattr(f, "seismic_only", False)),  # 내진성능평가 회차(10/21) — 결함 조사 탭만, 전회차 가져오기 없이
             "defects": [_out(d) for d in rows], "floors": facility_floors(f), "importing": _importing(r.id) or wall_review(r),
             "fam": fam, "unit_label": kinds.unit_label(fam), "parts": list(kinds.parts_of(fam)),  # 옹벽 = 부위·주요/일반/부대시설(10/20)
             "unit_part": kinds.WALL_PART_OF_UNIT if fam == "wall" else {},

@@ -140,7 +140,8 @@ def _seismic_progress(r: SitokReport) -> dict | None:
     f = db.get(SitokFacility, r.facility_id) if db is not None else None
     sv = RS.view(((f.ledger or {}) if f else {}).get("rebar_schedule"))
     files = {k: Path(str(v)).name for k, v in ((r.survey or {}).get("seismic_files") or {}).items() if v}
-    return {"rebar": len(((r.survey or {}).get("rebar") or {}).get("rows") or []), "schedule": len(sv["items"]), "schedule_need": sv["need"], "files": files}
+    return {"rebar": len(((r.survey or {}).get("rebar") or {}).get("rows") or []), "schedule": len(sv["items"]), "schedule_need": sv["need"], "files": files,
+            "only": bool(getattr(f, "seismic_only", False))}  # 내진성능평가 전용 건(0062) — 회차 화면 대신 건 화면(seismic-project.html)
 
 
 def _is_wall(r: SitokReport) -> bool:

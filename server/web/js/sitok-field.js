@@ -687,6 +687,14 @@
     ["overview", "good", "seismic", "public", "other", "docs", "load", "survey"].forEach((t) => { const el = document.getElementById(`sf-${t}`); if (el) el.hidden = true; });
     document.getElementById("sf-defects").hidden = false;
     if (window.setReportSection) window.setReportSection("seismic"); // 왼쪽 메뉴 내진성능평가 줄·경로 첫 칸(10/21)
+    if (data.seismic_only) { // 내진성능평가 건(0062) — 경로 = 내진성능평가 › 건 이름 › 외관조사
+      const link = document.getElementById("sf-fac-link");
+      link.href = `seismic-project.html?id=${rid}`;
+      const rl = document.getElementById("sf-round-link");
+      rl.hidden = true;
+      if (rl.nextSibling && rl.nextSibling.nodeType === 3) rl.nextSibling.textContent = " ";
+      document.getElementById("sf-title").textContent = "외관조사(결함)";
+    }
   }
 
   async function refresh(redraw = true) {

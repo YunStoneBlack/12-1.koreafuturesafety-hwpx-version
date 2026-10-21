@@ -53,7 +53,7 @@ def _renumber(db: Session, group_id: int) -> None:
 @router.get("/facilities/{facility_id}/group")
 def get_group(facility_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     f = _require_facility(db, user, facility_id)
-    free = (db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id, SitokFacility.group_id.is_(None), SitokFacility.id != f.id, SitokFacility.survey_only.is_(False))
+    free = (db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id, SitokFacility.group_id.is_(None), SitokFacility.id != f.id, SitokFacility.survey_only.is_(False), SitokFacility.seismic_only.is_(False))
             .order_by(SitokFacility.name).all())
     return {"group": group_out(db, f), "candidates": [{"id": x.id, "name": x.name, "owner": x.owner_name, "address": x.address} for x in free]}
 

@@ -9,9 +9,9 @@
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/sitok.css" />
 </head>
-<!-- 내진성능평가(2026-10-21 사용자 "내진성능평가도 보고서 자동화 탭에 따로 빼 줘") — 왼쪽 메뉴 보고서 자동화 아래 시특법 다음 줄.
-     회사 성능평가 회차 전부(연도 최근 순) + [＋ 새 내진성능평가](시설물·연도 → 회차 화면). 회차·현장 조사·현장시험 화면도 이 메뉴 줄을 켬(shell.js setReportSection·?seis=1).
-     서버 GET /sitok/seismic/list(server/api/routers/sitok_seismic.py), 회차 만들기는 시특법과 같은 POST /sitok/facilities/{id}/reports {kind: "성능평가"}. 화면 js/seismic.js -->
+<!-- 내진성능평가(2026-10-21 사용자 — 시특법과 완전히 별개 용역): 왼쪽 메뉴 보고서 자동화 아래 시특법 다음 줄.
+     [＋ 새 내진성능평가] = 용역계약서·건축물대장 PDF를 읽어 건 만들기(시특법 시설물 고르기 없음) → 건 화면(seismic-project.html).
+     서버 server/api/routers/seismic.py(GET·POST /seismic/projects), 화면 js/seismic.js -->
 <body data-report-tab="seismic" data-law="sitok">
 <div class="app">
   <aside class="sidebar" id="gw-sidebar"></aside>
@@ -20,16 +20,20 @@
 <div id="error" class="error"></div>
 
 <section class="panel">
-  <div class="panel-head"><h2>＋ 새 내진성능평가</h2><span class="panel-count">시특법에 등록한 시설물에서 고릅니다 — 계약은 건명에 "성능평가"가 든 것을 저절로 붙임</span></div>
+  <div class="panel-head"><h2>＋ 새 내진성능평가</h2><span class="panel-count">용역계약서·건축물대장 PDF를 올리면 용역·건물 정보를 읽어 건을 만듭니다 — 못 읽은 칸은 건 화면에서 직접</span></div>
   <div class="panel-body">
+    <div class="sk-drops">
+      <label class="sk-drop" id="sv-c-drop"><b>📄 용역계약서 PDF</b><span class="sk-drop-msg" id="sv-c-msg">나라장터 계약서 — 용역명·발주처·금액·착수·완수</span>
+        <input type="file" accept=".pdf,application/pdf" hidden data-kr-file="1" id="sv-c" /></label>
+      <label class="sk-drop" id="sv-r-drop"><b>🏢 건축물대장 PDF</b><span class="sk-drop-msg" id="sv-r-msg">정부24 발급본 — 건물명·주소·구조·층수·면적·사용승인일</span>
+        <input type="file" accept=".pdf,application/pdf" hidden data-kr-file="1" id="sv-r" /></label>
+    </div>
     <div class="field-grid ds-form">
-      <div class="sk-f ds-wide"><label for="sv-q">시설물 <span class="sk-help">이름·주소 몇 글자로 찾기</span></label>
-        <input id="sv-q" placeholder="예: 삼숭초, 덕산초 본관" autocomplete="off" /></div>
-      <div class="sk-f ds-wide"><label for="sv-fac">고르기</label><select id="sv-fac"></select></div>
-      <div class="sk-f"><label for="sv-year">연도</label><select id="sv-year"></select></div>
+      <div class="sk-f ds-wide"><label for="sv-name">건물 이름 <span class="sk-help">비우면 건축물대장 명칭(없으면 계약건명에서)</span></label>
+        <input id="sv-name" placeholder="예: 삼숭초 교사동" maxlength="60" /></div>
     </div>
     <div class="mail-msg" id="sv-msg" hidden></div>
-    <div class="ds-foot sv-foot"><a class="secondary-link" href="sitok-new.html">시설물이 없으면 시특법 › 시설물 등록</a><button type="button" id="sv-create">만들고 회차 열기</button></div>
+    <div class="ds-foot"><button type="button" id="sv-create">읽어서 만들기</button></div>
   </div>
 </section>
 

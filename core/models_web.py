@@ -529,6 +529,7 @@ class SitokFacility(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
     # 0061(10/21 사용자) 결함조사만 — 보고서 자동화 "결함조사" 메뉴에서 만든 숨김 시설물(회차 하나, 현장 결함조사·결함현황표·사진첩만). 시설물 목록 등에서 빠짐
     survey_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    seismic_only: Mapped[bool] = mapped_column(Boolean, default=False)  # 0062 — 내진성능평가 전용 건물(왼쪽 메뉴 내진성능평가, 시특법 목록에서 빠짐)
 
 
 class SitokVisit(Base):

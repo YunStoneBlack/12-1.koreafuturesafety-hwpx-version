@@ -117,7 +117,7 @@ def slot_of(db: Session, u: "Unit | None", d: datetime.date) -> tuple[int, str]:
 
 
 def units(db: Session, company_id: int, with_ended: bool = False) -> list[Unit]:
-    facs = db.query(SitokFacility).filter(SitokFacility.company_id == company_id, SitokFacility.survey_only.is_(False)).order_by(SitokFacility.group_order, SitokFacility.id).all()
+    facs = db.query(SitokFacility).filter(SitokFacility.company_id == company_id, SitokFacility.survey_only.is_(False), SitokFacility.seismic_only.is_(False)).order_by(SitokFacility.group_order, SitokFacility.id).all()
     groups: dict[int, list[SitokFacility]] = {}
     out = []
     for f in facs:

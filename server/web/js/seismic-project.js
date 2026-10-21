@@ -1,0 +1,275 @@
+// 내진성능평가 건 화면(seismic-project.html?id=회차 | ?facility=건물, 2026-10-21 사용자 — 별도 용역).
+// 서류 칸(올리기·바꾸기·보기·지우기, 구조 일람표·구조도면은 여러 장) · 지반조사 확인(값·사진 바꾸기) · 용역 정보 · 건물 정보(층별·변동) ·
+// 현장조사(최소 수량 + 결함·일람표·철근탐사 화면) · 보고서 만들기. 서버 server/api/routers/seismic.py(+ 만들기는 /sitok/reports/{id}/build).
+
+(function () {
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const errorEl = document.getElementById("error");
+  const $ = (id) => document.getElementById(id);
+  const qs = new URLSearchParams(location.search);
+  let id = Number(qs.get("id")) || 0;
+  let P = null; // 건 화면 값(GET /seismic/projects/{id})
+  let timer = null;
+  const dot = (iso) => (iso ? String(iso).slice(0, 10).replace(/-/g, ".") : "");
+  const won = (n) => (n || n === 0 ? Number(n).toLocaleString("ko-KR") : "");
+  const flash = (el, text) => { el.textContent = text; setTimeout(() => { if (el.textContent === text) el.textContent = ""; }, 3500); };
+  const err = (e) => showError(errorEl, e);
+
+  // ---------- 칸 그리기 도우미 ----------
+  function field(key, label, val, opt = {}) {
+    const type = opt.type || "text";
+    const v = val ?? "";
+    const input = opt.options
+      ? `<select data-k="${key}">${opt.options.map((o) => `<option${o === String(v) ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+      : `<input data-k="${key}" type="${type}"${opt.step ? ` step="${opt.step}"` : ""} value="${esc(type === "date" ? String(v).slice(0, 10) : v)}"${opt.ph ? ` placeholder="${esc(opt.ph)}"` : ""} />`;
+    return `<div class="sk-f${opt.wide ? " ds-wide" : ""}"><label>${esc(label)}${opt.help ? ` <span class="sk-help">${esc(opt.help)}</span>` : ""}</label>${input}</div>`;
+  }
+  const read = (box) => Object.fromEntries([...box.querySelectorAll("[data-k]")].map((el) => [el.dataset.k, el.value.trim()]));
+
+  // ---------- 서류 ----------
+  function docRow(d) {
+    const url = (item) => `${BASE}/api/seismic/projects/${id}/docs/${d.key}/file${item ? `?item=${encodeURIComponent(item)}` : ""}`;
+    const files = d.items.map((it) => `<span class="sp-file"><a href="${url(it.id)}" target="_blank" rel="noopener">${esc(it.name)}</a>`
+      + `${it.at ? `<em>${esc(String(it.at).slice(5, 16))}</em>` : ""}<button type="button" class="sp-x" data-del="${esc(it.id)}" title="지우기">✕</button></span>`).join("");
+    const has = d.items.length > 0;
+    const extra = d.key === "schedule" ? `<a class="secondary-link" href="sitok-schedule.html?facility=${P.facility_id}&seis=1">📋 부재 목록</a>` : "";
+    const el = document.createElement("div");
+    el.className = `sp-doc${has ? " on" : ""}`;
+    el.innerHTML = `<div class="sp-doc-main">
+        <div class="sp-doc-t"><b>${esc(d.label)}</b>${has ? '<span class="sp-ok">✓</span>' : '<span class="sp-no">아직</span>'}</div>
+        <div class="sp-doc-fills">${esc(d.fills)}</div>
+        ${has ? `<div class="sp-doc-files">${files}</div>` : ""}
+        <div class="sp-doc-note"${d.note ? "" : " hidden"}>${esc(d.note)}</div>
+      </div>
+      <div class="sp-doc-btns">${extra}
+        <label class="secondary sp-up">${has ? (d.multi ? "＋ 더하기" : "바꾸기") : "올리기"}<input type="file" hidden data-kr-file="1" accept="${d.exts.join(",")}" /></label>
+      </div>`;
+    const input = el.querySelector("input[type=file]");
+    if (typeof enableFileDrop === "function") enableFileDrop(el, input);
+    input.addEventListener("change", async () => {
+      const f = input.files[0];
+      if (!f) return;
+      const note = el.querySelector(".sp-doc-note");
+      note.hidden = false;
+      note.textContent = `${f.name} 올리는 중…${d.key === "ground" ? " (지반조사보고서 읽기 — 10초쯤)" : ""}`;
+      const fd = new FormData();
+      fd.append("file", f);
+      try {
+        const res = await apiUpload(`/seismic/projects/${id}/docs/${d.key}`, fd);
+        draw(res);
+        if (res.msg) { const n = [...document.querySelectorAll(".sp-doc")].find((x) => x.dataset.key === d.key)?.querySelector(".sp-doc-note"); if (n) { n.hidden = false; n.textContent = res.msg; } }
+      } catch (e) { note.textContent = e.message; note.classList.add("bad"); }
+    });
+    el.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm(`${d.label}을(를) 지울까요?`)) return;
+      try { draw(await api(`/seismic/projects/${id}/docs/${d.key}${b.dataset.del ? `?item=${encodeURIComponent(b.dataset.del)}` : ""}`, { method: "DELETE" })); } catch (e) { err(e); }
+    }));
+    el.dataset.key = d.key;
+    return el;
+  }
+
+  // ---------- 지반조사 확인 ----------
+  function groundImg(name) { return `${BASE}/api/seismic/projects/${id}/ground/img/${encodeURIComponent(name)}`; }
+
+  function pickPhoto(h, slot, label) {
+    const ov = document.createElement("div");
+    ov.className = "mail-overlay";
+    const all = (P.ground.holes || []).flatMap((x) => (x.extra || []).map((e) => ({ ...e, bh: x.bh })));
+    ov.innerHTML = `<div class="mail-box sp-pick" role="dialog" aria-modal="true">
+      <div class="mail-head"><b>${esc(h.bh)} ${esc(label)}</b><span class="mail-sub">지반조사보고서 사진대지에서 고르기</span></div>
+      <div class="sp-pick-grid">${all.map((e) => `<button type="button" class="sp-pick-it${h.photos[slot] === e.file ? " on" : ""}" data-f="${esc(e.file)}">
+        <img src="${groundImg(e.file)}" alt="" loading="lazy" /><span>${esc(e.bh)} ${esc(e.caption)} · ${e.page}쪽</span></button>`).join("")}</div>
+      <div class="mail-foot"><button type="button" class="sp-clear">칸 비우기</button><button type="button" class="sp-cancel">닫기</button></div></div>`;
+    document.body.appendChild(ov);
+    const close = () => ov.remove();
+    const choose = async (file) => {
+      try { draw(await apiPatch(`/seismic/projects/${id}/ground`, { bh: h.bh, slot, file })); close(); } catch (e) { alert(e.message); }
+    };
+    ov.querySelectorAll(".sp-pick-it").forEach((b) => b.addEventListener("click", () => choose(b.dataset.f)));
+    ov.querySelector(".sp-clear").addEventListener("click", () => choose(""));
+    ov.querySelector(".sp-cancel").addEventListener("click", close);
+    ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+  }
+
+  function drawGround() {
+    const g = P.ground;
+    $("sp-ground-panel").hidden = !g;
+    if (!g) return;
+    const holes = g.holes || [];
+    const got = holes.reduce((n, h) => n + Object.keys(h.photos || {}).length, 0);
+    $("sp-g-sum").textContent = `시추공 ${holes.length}개 · 사진 ${got}/${holes.length * P.ground_slots.length} · ${holes.map((h) => `${h.bh} ${h.cls || "?"} ${h.vs ?? "?"}m/s`).join(" · ")}`
+      + ((g.warn || []).length ? ` · 확인할 것 ${g.warn.length}개` : " — 눌러서 사진·값 확인");
+    if ((g.warn || []).length && !openedOnce.ground) { $("sp-ground-panel").open = true; openedOnce.ground = true; }
+    const box = $("sp-ground");
+    box.innerHTML = `${(g.warn || []).length ? `<div class="mail-msg bad">${g.warn.map(esc).join("<br>")}</div>` : ""}
+      ${P.ground_sentence ? `<div class="sp-sentence"><span class="sk-help">2.5 (3) 문장</span><br>${esc(P.ground_sentence)}</div>` : ""}
+      <div class="sp-g-map">${g.map ? `<figure><img src="${groundImg(g.map)}" alt="" /><figcaption>지반조사 위치도</figcaption></figure>` : '<div class="sk-none">위치도 못 찾음</div>'}</div>`;
+    for (const h of g.holes || []) {
+      const el = document.createElement("div");
+      el.className = "sp-hole";
+      el.innerHTML = `<h3>${esc(h.bh)}</h3>
+        <div class="field-grid sp-grid sp-g-vals">
+          ${field("depth", "기반암 깊이", h.depth, { help: "KDS 17 10 00:2024" })}${field("vs", "전단파속도 (m/s)", h.vs, { type: "number", step: "0.1" })}
+          ${field("cls", "지반등급", h.cls, { options: ["", "S1", "S2", "S3", "S4", "S5", "S6"] })}${field("apply_depth", "적용심도 (m)", h.apply_depth, { type: "number", step: "0.1" })}
+        </div>
+        <div class="sp-g-photos">${P.ground_slots.map(([slot, label]) => `<button type="button" class="sp-g-ph${h.photos[slot] ? "" : " none"}" data-slot="${slot}" data-label="${esc(label)}">
+          ${h.photos[slot] ? `<img src="${groundImg(h.photos[slot])}" alt="" loading="lazy" />` : '<span class="sp-g-empty">못 찾음 — 눌러서 고르기</span>'}<span class="sp-g-cap">${esc(h.bh)} ${esc(label)}</span></button>`).join("")}</div>
+        ${h.result ? `<figure class="sp-g-res"><img src="${groundImg(h.result)}" alt="" loading="lazy" /><figcaption>${esc(h.bh)} 지반조사 결과(위쪽 표)</figcaption></figure>` : ""}`;
+      el.querySelectorAll(".sp-g-ph").forEach((b) => b.addEventListener("click", () => pickPhoto(h, b.dataset.slot, b.dataset.label)));
+      el.querySelectorAll(".sp-g-vals [data-k]").forEach((inp) => inp.addEventListener("change", async () => {
+        const k = inp.dataset.k;
+        const v = k === "vs" || k === "apply_depth" ? (inp.value === "" ? null : Number(inp.value)) : inp.value.trim();
+        try { draw(await apiPatch(`/seismic/projects/${id}/ground`, { bh: h.bh, [k]: v })); } catch (e) { err(e); }
+      }));
+      box.appendChild(el);
+    }
+  }
+
+  // ---------- 용역·건물 ----------
+  const openedOnce = {}; // 처음 그릴 때만 — 빈 칸·알림이 있으면 펼침(그 뒤로는 사람이 연 대로)
+  function drawContract() {
+    const c = P.contract || {};
+    $("sp-c-sum").textContent = c.title ? [c.title, c.amount ? `${won(c.amount)}원` : "", c.start_date ? `${dot(c.start_date)} ~ ${dot(c.end_date)}` : ""].filter(Boolean).join(" · ")
+      : "용역계약서에서 — 표지·제출문·결과표 가·참여기간";
+    if (!openedOnce.c) { $("sp-c-panel").open = !(c.title && c.client && c.start_date && c.end_date && (P.report || {}).chief_id); openedOnce.c = true; }
+    $("sp-contract").innerHTML = field("title", "용역명", c.title, { wide: true, ph: "예: 삼숭초 교사동 내진성능평가 용역" })
+      + field("client", "발주처", c.client) + field("amount", "계약금액 (원)", c.amount ? won(c.amount) : "", { ph: "32,118,700" })
+      + field("contract_date", "계약일", c.contract_date, { type: "date" }) + field("contract_no", "계약번호", c.contract_no)
+      + field("start_date", "착수일", c.start_date, { type: "date" }) + field("end_date", "완수일", c.end_date, { type: "date", help: "보고서 날짜(표지 연월)" })
+      + field("method", "계약방법", c.method, { ph: "수의계약" }) + field("joint", "공동수급", c.joint, { ph: "단독계약" })
+      + field("manager", "발주처 담당자", c.manager) + field("phone", "담당자 전화", c.phone);
+    const rep = P.report || {};
+    const opts = (sel) => `<option value="">— 고르기 —</option>` + P.persons.map((p) => `<option value="${p.id}"${p.id === sel ? " selected" : ""}>${esc(p.name)}${p.grade ? ` (${esc(p.grade)})` : ""}</option>`).join("");
+    const parts = rep.participant_ids || [];
+    $("sp-people").innerHTML = `<div class="sk-f"><label>사업책임기술자</label><select id="sp-chief">${opts(rep.chief_id)}</select></div>
+      <div class="sk-f ds-wide"><label>분야별 참여기술자 <span class="sk-help">눌러서 고르기</span></label><div class="ds-chips" id="sp-parts">
+      ${P.persons.map((p) => `<button type="button" class="ds-chip${parts.includes(p.id) ? " on" : ""}" data-p="${p.id}">${esc(p.name)}</button>`).join("")}</div></div>`;
+    $("sp-parts").querySelectorAll(".ds-chip").forEach((b) => b.addEventListener("click", () => b.classList.toggle("on")));
+  }
+
+  function rowsEditor(box, rows, cols, blank) {
+    const draw1 = () => {
+      box.innerHTML = `<div class="sp-row sp-row-h">${cols.map(([, label, w]) => `<span style="flex:${w}">${esc(label)}</span>`).join("")}<span class="sp-x-sp"></span></div>`
+        + rows.map((r, i) => `<div class="sp-row">${cols.map(([k, label, w, type]) => `<input data-i="${i}" data-k="${k}" type="${type || "text"}" placeholder="${esc(label)}" title="${esc(label)}" style="flex:${w}" value="${esc(type === "date" ? String(r[k] ?? "").slice(0, 10) : r[k] ?? "")}" />`).join("")}
+        <button type="button" class="sp-x" data-rm="${i}" title="줄 지우기">✕</button></div>`).join("") + '<button type="button" class="secondary sp-add">＋ 줄</button>';
+      box.querySelectorAll("input").forEach((inp) => inp.addEventListener("input", () => { rows[inp.dataset.i][inp.dataset.k] = inp.value; }));
+      box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { rows.splice(Number(b.dataset.rm), 1); draw1(); }));
+      box.querySelector(".sp-add").addEventListener("click", () => { rows.push({ ...blank }); draw1(); });
+    };
+    draw1();
+  }
+
+  let floors = [], changes = [];
+  function drawBuilding() {
+    const b = P.building || {};
+    $("sp-b-sum").textContent = b.address ? [b.structure, `지하${b.below || 0}·지상${b.above || 0}층`, b.total_area ? `연면적 ${won(b.total_area)}㎡` : "", b.approval_date ? `사용승인 ${dot(b.approval_date)}` : "", b.grade].filter(Boolean).join(" · ")
+      : "건축물대장에서 — 1.1 일반사항·1.2 건물규모·1.3 내진등급·1.4 구조변경 이력";
+    if (!openedOnce.b) { $("sp-b-panel").open = !(b.address && b.structure && b.above && b.total_area && b.approval_date); openedOnce.b = true; }
+    $("sp-building").innerHTML = field("name", "건물 이름", b.name, { help: "보고서 이름·폴더 이름" }) + field("use", "주용도", b.use)
+      + field("address", "주소(도로명)", b.address, { wide: true }) + field("lot_address", "대지위치(지번)", b.lot_address) + field("structure", "주구조", b.structure)
+      + field("below", "지하 층수", b.below, { type: "number" }) + field("above", "지상 층수", b.above, { type: "number" })
+      + field("height", "높이 (m)", b.height, { type: "number", step: "0.01" }) + field("roof", "지붕", b.roof)
+      + field("total_area", "연면적 (㎡)", b.total_area, { type: "number", step: "0.01" }) + field("building_area", "건축면적 (㎡)", b.building_area, { type: "number", step: "0.01" })
+      + field("site_area", "대지면적 (㎡)", b.site_area, { type: "number", step: "0.01" }) + field("approval_date", "사용승인일", b.approval_date, { type: "date", help: "준공·경과년수" })
+      + field("permit_date", "허가일", b.permit_date, { type: "date" }) + field("build_start", "착공일", b.build_start, { type: "date" })
+      + field("seismic_design", "내진설계 적용", b.seismic_design, { options: ["", "적용", "비적용"] }) + field("grade", "내진등급", b.grade, { options: ["특등급", "1등급", "2등급"], help: "학교 = 특등급" });
+    floors = (P.floors || []).map((x) => ({ ...x }));
+    changes = (P.changes || []).map((x) => ({ ...x }));
+    rowsEditor($("sp-floors"), floors, [["kind", "구분", 0.6], ["floor", "층", 0.8], ["structure", "구조", 2], ["use", "용도", 1.6], ["area", "면적(㎡)", 1.1, "number"]], { kind: "주" });
+    rowsEditor($("sp-changes"), changes, [["date", "변동일", 1.1, "date"], ["text", "변동내용 및 원인", 4]], {});
+  }
+
+  $("sp-c-save").addEventListener("click", async () => {
+    const c = read($("sp-contract"));
+    c.amount = c.amount ? Number(c.amount.replace(/[^\d]/g, "")) : null;
+    const body = { contract: c, chief_id: Number($("sp-chief").value) || 0, participant_ids: [...$("sp-parts").querySelectorAll(".ds-chip.on")].map((b) => Number(b.dataset.p)) };
+    try { draw(await apiPatch(`/seismic/projects/${id}`, body)); flash($("sp-c-saved"), "✓ 저장했습니다"); } catch (e) { err(e); }
+  });
+
+  $("sp-b-save").addEventListener("click", async () => {
+    const b = read($("sp-building"));
+    for (const k of ["below", "above", "height", "total_area", "building_area", "site_area"]) b[k] = b[k] === "" ? null : Number(b[k]);
+    const fl = floors.filter((x) => x.floor || x.area).map((x) => ({ ...x, area: x.area === "" || x.area == null ? null : Number(x.area) }));
+    try { draw(await apiPatch(`/seismic/projects/${id}`, { building: b, floors: fl, changes: changes.filter((x) => x.date || x.text) })); flash($("sp-b-saved"), "✓ 저장했습니다"); } catch (e) { err(e); }
+  });
+
+  // ---------- 현장조사 ----------
+  function drawField() {
+    const m = P.min_counts, s = (P.report || {}).seismic || {}, f = (P.report || {}).field || {};
+    $("sp-units").textContent = `조사단위 ${P.units}개(지하·지상 층) — 과업지시서 <표 3-1> 최소 수량`;
+    $("sp-min").innerHTML = [["부재 규격", m.member], ["철근배근", m.rebar], ["콘크리트 코어", m.core], ["시추(지반)", m.boring], ["조적조", m.masonry]]
+      .map(([k, v]) => `<span class="sp-min-it"><b>${v}</b>${esc(k)}</span>`).join("")
+      + '<div class="sk-help">부재 규격·철근배근 = 단위 × 부재 종별(기둥·보) × 3, 코어 = max(단위, 6), 시추 = 특등급 2(그 밖 1). 증축·익스팬션조인트로 나뉜 부분은 따로 단위.</div>';
+    const big = (href, ic, label, sub, ok) => `<a class="rd-btn${ok ? " on" : ""}" href="${href}"><span class="rd-ic">${ic}</span><span class="rd-lb">${esc(label)}${ok ? ' <em class="rd-ok">✓</em>' : ""}</span><span class="rd-sub">${esc(sub)}</span></a>`;
+    $("sp-links").innerHTML = big(`sitok-field.html?report=${id}&seis=1`, "📱", "외관조사(결함)", f.defects ? `결함 ${f.checked}/${f.defects} 확인` : "2.3 외관조사 · 부록 4 사진첩", !!f.done)
+      + big(`sitok-schedule.html?facility=${P.facility_id}&seis=1`, "📏", "구조 일람표 부재 목록", s.schedule ? `${s.schedule}칸${s.schedule_need ? ` · 확인 필요 ${s.schedule_need}` : ""}` : "서류 칸에 구조 일람표를 올리고 읽기", s.schedule > 0 && !s.schedule_need)
+      + big(`sitok-seismic.html?report=${id}`, "🧪", "철근탐사", s.rebar ? `${s.rebar}개소 (최소 ${m.rebar})` : "2.2.2 철근배근 · 부록 6", s.rebar >= m.rebar && s.rebar > 0);
+  }
+
+  // ---------- 보고서 ----------
+  function drawReport() {
+    const r = P.report || {};
+    const v = encodeURIComponent(r.made_at || "");
+    const lines = (r.message || "").split("\n").filter(Boolean);
+    const st = r.status === "running" ? `<span class="sk-rep-st run">⏳ ${esc(r.message)}</span>`
+      : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`
+        : r.status === "done" ? `<div class="sp-made">✓ ${esc(r.made_at)} 만듦</div>${lines.length ? `<div class="sp-warn">${lines.map(esc).join("<br>")}</div>` : ""}` : '<span class="sk-rep-st">아직 안 만듦</span>';
+    $("sp-report").innerHTML = `<div class="sp-rep">${st}</div><div class="sp-rep-btns">
+      ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${id}/file/pdf?v=${v}" target="_blank" rel="noopener">PDF 보기</a>` : ""}
+      ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${id}/file/hwpx?v=${v}">한글 받기</a>` : ""}
+      <button type="button" id="sp-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : "보고서 만들기"}</button></div>`;
+    $("sp-build").addEventListener("click", async () => {
+      try { await apiPost(`/sitok/reports/${id}/build`); poll(); } catch (e) { err(e); }
+    });
+  }
+
+  function poll() {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try {
+        const r = await api(`/sitok/reports/${id}`);
+        P.report = r;
+        drawReport();
+        if (r.status === "running") poll();
+      } catch (e) { err(e); }
+    }, 3000);
+  }
+
+  // ---------- 전체 ----------
+  function draw(p) {
+    P = p;
+    const b = p.building || {}, c = p.contract || {};
+    document.title = `${b.name} - 내진성능평가`;
+    $("sp-name").textContent = b.name || "이름 없음";
+    $("sp-crumb").textContent = b.name || "건";
+    $("sp-sub").textContent = [c.title, c.client, c.start_date ? `${dot(c.start_date)} ~ ${dot(c.end_date)}` : ""].filter(Boolean).join(" · ");
+    const box = $("sp-docs");
+    box.innerHTML = "";
+    p.docs.forEach((d) => box.appendChild(docRow(d)));
+    drawGround();
+    drawContract();
+    drawBuilding();
+    drawField();
+    drawReport();
+    if ((p.report || {}).status === "running") poll();
+  }
+
+  $("sp-delete").addEventListener("click", async () => {
+    const pw = prompt(`"${(P.building || {}).name}" 건을 지웁니다 — 서류·결함·철근탐사·보고서가 모두 지워집니다.\n삭제 비밀번호(보고서 자동화 설정):`);
+    if (!pw) return;
+    try { await api(`/seismic/projects/${id}`, { method: "DELETE", body: JSON.stringify({ password: pw }) }); location.href = "seismic.html"; } catch (e) { alert(e.message); }
+  });
+
+  async function load() {
+    try {
+      if (!id && qs.get("facility")) {
+        const d = await api(`/seismic/projects?facility=${encodeURIComponent(qs.get("facility"))}`);
+        id = d.projects[0]?.id || 0;
+      }
+      if (!id) throw new Error("내진성능평가 건을 찾을 수 없습니다.");
+      draw(await api(`/seismic/projects/${id}`));
+    } catch (e) { err(e); }
+  }
+
+  load();
+})();

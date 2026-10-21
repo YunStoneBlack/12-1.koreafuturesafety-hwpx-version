@@ -60,6 +60,7 @@
     const g = data.group;
     document.title = `${r.facility_name} ${title()} - 시특법`;
     $("rd-fac-link").textContent = r.facility_name;
+    if ((r.seismic || {}).only) { location.replace(`seismic-project.html?id=${r.id}`); return; } // 내진성능평가 전용 건(0062) = 건 화면에서
     $("rd-fac-link").href = `sitok-facility.html?id=${r.facility_id}`;
     if (r.half === "성능평가" && window.setReportSection) window.setReportSection("seismic"); // 내진성능평가 회차 = 왼쪽 메뉴 내진성능평가 줄(10/21)
     $("rd-crumb").textContent = title();

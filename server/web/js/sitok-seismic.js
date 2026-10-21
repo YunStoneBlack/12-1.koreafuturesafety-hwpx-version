@@ -57,9 +57,9 @@
   function drawTop() {
     const r = d.report;
     $("ss-fac-link").textContent = r.facility_name;
-    $("ss-fac-link").href = `sitok-facility.html?id=${r.facility_id}`;
+    $("ss-fac-link").href = `seismic-project.html?facility=${r.facility_id}`; // 내진성능평가 건 화면(10/21 — 시특법과 별개)
     $("ss-round-link").textContent = r.half === "성능평가" ? `${r.year}년 내진성능평가` : `${r.year}년 ${r.half}`;
-    $("ss-round-link").href = `sitok-round.html?report=${rid}&one=1&seis=1`;
+    $("ss-round-link").href = `seismic-project.html?id=${rid}`;
     document.title = `현장시험 - ${r.facility_name}`;
     $("ss-count").textContent = d.rows.length ? `${d.rows.length}개소` : "";
     const s = d.schedule;

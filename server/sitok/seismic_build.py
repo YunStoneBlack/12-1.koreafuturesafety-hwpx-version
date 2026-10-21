@@ -51,6 +51,7 @@ def gather(db, r, f) -> dict:
     from core.models_web import SitokContract, TechPerson
 
     c = db.get(SitokContract, r.contract_id) if r.contract_id else None
+    sc = (r.survey or {}).get("seismic_contract") or {}  # 내진성능평가 건(10/21 — 용역계약서에서 읽은 값, 건 화면에서 고침)
     rd = r.report_date or r.period_end or datetime.date.today()
     ids = [x for x in [r.chief_id, *(r.participant_ids or [])] if x]
     people = {p.id: p for p in db.query(TechPerson).filter(TechPerson.id.in_(ids))} if ids else {}
@@ -66,14 +67,19 @@ def gather(db, r, f) -> dict:
     amount_k = (r.amount_k or "").strip()
     if not amount_k and c and c.amount:
         amount_k = f"{c.amount / 1000:,.1f}"
+    if not amount_k and sc.get("amount"):
+        amount_k = f"{int(sc['amount']) / 1000:,.1f}"
     joint = "독자수행 100%"
     if c and c.joint_type and c.joint_type not in ("독자수행", "단독수급"):
         joint = f"{c.joint_type} {c.joint_pct or ''}%".strip()
+    elif sc.get("joint") and sc["joint"] not in ("단독계약", "단독", "독자수행"):
+        joint = sc["joint"]
     rows = RV.normalize((r.survey or {}).get("rebar"))["rows"]
-    return {"name": f.name, "title": (c.title if c and c.title else f"{f.name} 내진성능평가 용역").strip(),
-            "client": (f.owner_name or "").strip() or "-", "address": f.address or "-",
+    title = (c.title if c and c.title else "") or sc.get("title") or f"{f.name} 내진성능평가 용역"
+    return {"name": f.name, "title": title.strip(),
+            "client": (sc.get("client") or f.owner_name or "").strip() or "-", "address": f.address or "-",
             "period_start": r.period_start, "period_end": r.period_end, "month": rd, "persons": persons, "amount_k": amount_k or "-",
-            "joint": joint, "bid": (c.bid_method if c else "") or "수의계약", "use": f.use_type or f.main_use or "-", "class_no": f.class_no or "-",
+            "joint": joint, "bid": (c.bid_method if c else "") or sc.get("method") or "수의계약", "use": f.use_type or f.main_use or "-", "class_no": f.class_no or "-",
             "grade": f.safety_grade or "-", "completion": f.completion_date, "above": f.floors_above or 0, "below": f.floors_below or 0,
             "area": f.total_area, "height": f.max_height, "structure": f.structure or "-", "rebar": rows}
 

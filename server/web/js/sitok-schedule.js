@@ -61,15 +61,18 @@
 
   function draw() {
     $("rs-fac-link").textContent = d.facility.name || "시설물";
-    $("rs-fac-link").href = `sitok-facility.html?id=${fid}`;
+    const seisOnly = !!d.facility.seismic_only; // 내진성능평가 건(0062) — 도면은 건 화면 서류 칸
+    const facHref = seisOnly ? `seismic-project.html?facility=${fid}` : `sitok-facility.html?id=${fid}`;
+    $("rs-fac-link").href = facHref;
     document.title = `구조 일람표 부재 목록 - ${d.facility.name}`;
     const items = d.items || [];
     const by = { 기둥: [], 보: [], 벽체: [] };
     items.forEach((it) => by[it.kind] && by[it.kind].push(it));
     $("rs-count").textContent = items.length ? `기둥 ${by.기둥.length} · 보 ${by.보.length} · 벽체 ${by.벽체.length} — 확인 필요 ${d.need}칸` : "";
     $("rs-files").innerHTML = d.files.length ? `일람표 도면: ${d.files.map((f) => `<span class="rs-file">${esc(f.name)}</span>`).join(" ")}
-        <a class="secondary-link" href="sitok-facility.html?id=${fid}">도면 바꾸기</a>`
-      : `<div class="mail-msg bad">구조 일람표 도면이 없습니다 — <a href="sitok-facility.html?id=${fid}">시설물 정보·서류</a>의 도면 칸 "📏 구조 일람표"에 올리세요.</div>`;
+        <a class="secondary-link" href="${facHref}">도면 바꾸기</a>`
+      : seisOnly ? `<div class="mail-msg bad">구조 일람표 도면이 없습니다 — <a href="${facHref}">건 화면</a>의 서류 칸 "구조 일람표"에 올리세요.</div>`
+        : `<div class="mail-msg bad">구조 일람표 도면이 없습니다 — <a href="sitok-facility.html?id=${fid}">시설물 정보·서류</a>의 도면 칸 "📏 구조 일람표"에 올리세요.</div>`;
     const running = d.status === "running";
     $("rs-read").disabled = running || !d.files.length;
     $("rs-read").textContent = running ? "읽는 중…" : items.length ? "🤖 다시 읽기" : "🤖 일람표 읽기";

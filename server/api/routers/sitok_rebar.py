@@ -50,7 +50,8 @@ def _out(f: SitokFacility) -> dict:
     job = JOBS.get(f.id)
     if job and job.get("state") == "running":
         v["status"], v["message"] = "running", job.get("msg") or "읽는 중…"
-    return v | {"facility": {"id": f.id, "name": f.name, "mgmt_no": f.mgmt_no, "floors_above": f.floors_above, "floors_below": f.floors_below},
+    return v | {"facility": {"id": f.id, "name": f.name, "mgmt_no": f.mgmt_no, "floors_above": f.floors_above, "floors_below": f.floors_below,
+                             "seismic_only": bool(f.seismic_only)},  # 내진성능평가 건(0062) — 도면은 건 화면 서류 칸
                 "files": [{"id": x["id"], "name": x.get("name")} for x in _files(f)], "job": job or {"state": "idle"}}
 
 
@@ -64,7 +65,8 @@ def read_schedule(facility_id: int, user: User = Depends(get_current_user), db: 
     f = _require_facility(db, user, facility_id)
     files = _files(f)
     if not files:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "구조 일람표 도면이 없습니다 — 🏢 시설물 현황 창의 도면 칸 \"📏 구조 일람표\"에 올리세요.")
+        where = "내진성능평가 건 화면 서류 칸 \"구조 일람표\"" if f.seismic_only else "🏢 시설물 현황 창의 도면 칸 \"📏 구조 일람표\""
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"구조 일람표 도면이 없습니다 — {where}에 올리세요.")
     if (JOBS.get(f.id) or {}).get("state") == "running":
         raise HTTPException(status.HTTP_409_CONFLICT, "이미 읽는 중입니다.")
     pages = RS.schedule_pages(files)
