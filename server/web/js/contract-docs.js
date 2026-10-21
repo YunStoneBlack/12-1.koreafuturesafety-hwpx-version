@@ -127,9 +127,9 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
       </div>
       <div class="mail-label">갑지</div>
       <div class="cd-grid">
-        <label class="cd-field"><span>문서번호 <em>KFSC21C_계약번호_${kind === "start" ? "착수일" : "발송일"}(월일)</em></span><input class="cd-docno" value="${mailEsc(typed.docno ?? autoDocNo())}" /></label>
+        <label class="cd-field"><span>문서번호 <em>KFSC21C_계약번호_${kind === "start" ? "착수일" : "완수일"}(월일)</em></span><input class="cd-docno" value="${mailEsc(typed.docno ?? autoDocNo())}" /></label>
         <label class="cd-field"><span>인사말</span><span class="cd-greet">1. 귀 <input class="cd-greeting" value="${mailEsc(typed.greeting ?? d.greeting)}" /> 의 무궁한 발전을…</span></label>
-        ${kind === "done" ? `<label class="cd-field"><span>발송일</span><input class="cd-send" type="date" value="${mailEsc(typed.send ?? d.send_date)}" /></label>` : ""}
+        ${kind === "done" ? `<label class="cd-field"><span>발송일</span><input class="cd-send" type="date" value="${mailEsc(typed.send ?? doneDay())}" /></label>` : ""}
         <div class="cd-field"><span>담당</span><div class="cd-plain">${mailEsc(d.contact_name)} <a href="docs-settings.html#contract-library" class="mail-note">바꾸기(서류 자동화 설정)</a></div></div>
       </div>
       ${peopleHtml}
@@ -406,10 +406,14 @@ async function openContractDocs(contractId, kind, onDone, readInfo) {
   function autoDocNo() {
     const no = (st.contract.contract_no || "").trim();
     if (!no) return "";
-    const day = kind === "start" ? st.contract.start_date : (typed.send ?? st.defaults.send_date);
+    const day = kind === "start" ? st.contract.start_date : (typed.send ?? doneDay());
     return `KFSC21C_${no}${day ? `_${day.slice(5, 7)}${day.slice(8, 10)}` : ""}`;
   }
+  // 완수계 발송일 기본값 = 완수일(실제준공일 > 준공기한, 사용자 10/21 — 전엔 작성일). 발송일을 손으로 고치면 그 날
+  function doneDay() { return st.contract.actual_end_date || st.contract.end_date || st.defaults.send_date; }
   function refreshDocNo() {
+    const send = box.querySelector(".cd-send");
+    if (send && typed.send === undefined) send.value = doneDay() || "";
     if (typed.greeting === undefined) box.querySelector(".cd-greeting").value = greetingWord(st.contract.client);
     if (typed.docno !== undefined) return;
     box.querySelector(".cd-docno").value = autoDocNo();

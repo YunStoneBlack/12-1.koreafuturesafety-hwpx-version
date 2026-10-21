@@ -312,26 +312,27 @@ def _guide_period(found: dict) -> dict:
 
 
 @router.post("/new-card")
-def create_card(guides: list[UploadFile] = File(...), service: UploadFile | None = File(None), management_no: str = Form(""),
+def create_card(guides: list[UploadFile] | None = File(None), service: UploadFile | None = File(None), management_no: str = Form(""),
                 user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """[+ 새 계약](10/20 형 "새 계약은 카드를 만드는 데 쓴다 — 첨부 = 용역계약서 + 기술지도계약서, 용역계약서를 안 쓰면 기술지도계약서만"):
     계약 카드 + 현장 카드를 함께. 관리번호 = 마지막 번호 다음(계약·현장 통틀어, 26-69), 현장이 여럿이면 26-69-1·26-69-2…(현장 목록에서 한 카드).
     기술지도계약서는 현장 등록과 같은 AI 읽기(하나에 20초쯤 — 6개씩 같이, 그룹웨어 통로 180초 안). 하나라도 못 읽으면 아무것도 안 만듦.
-    용역계약서가 없으면 계약 이름 = 첫 현장 이름(외 N곳). 착수계 창은 안 엶 — 카드의 [📑 착수계]로."""
+    용역계약서가 없으면 계약 이름 = 첫 현장 이름(외 N곳). 착수계 창은 안 엶 — 카드의 [📑 착수계]로.
+    10/21 형: 기술지도계약서 전에 착수계를 내는 일이 있어 용역계약서만으로도 계약 카드만 만듦(현장 카드는 나중에 등록 → 카드의 [🔗 현장 연결]) — need_site로 경고."""
     from concurrent.futures import ThreadPoolExecutor
 
     from server.api.site_status import NEW_SITE
 
-    gdata = [(g.filename or f"기술지도계약서{k}.pdf", g.file.read()) for k, g in enumerate(guides, 1)]
-    if not gdata:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "기술지도계약서 PDF를 하나 이상 올리세요.")
+    gdata = [(g.filename or f"기술지도계약서{k}.pdf", g.file.read()) for k, g in enumerate(guides or [], 1)]
+    if not gdata and service is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "용역계약서나 기술지도계약서 PDF를 올리세요.")
     bad = [n for n, d in gdata if not d.startswith(b"%PDF")]
     if bad:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"PDF가 아닌 파일: {', '.join(bad)}")
     sdata = service.file.read() if service is not None else b""
     if sdata and not sdata.startswith(b"%PDF"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "용역계약서는 PDF로 올리세요.")
-    if not config.has_api_key(user.company_id):
+    if gdata and not config.has_api_key(user.company_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Claude API 키가 없어 기술지도계약서를 읽을 수 없습니다 — 설정에서 먼저 넣으세요.")
     no = short_mgmt((management_no or "").strip()) or contract_sites.next_no(db, user.company_id)
     taken = [r for r in db.query(ServiceContract).filter(ServiceContract.company_id == user.company_id) if short_mgmt(r.management_no) == no] + \
@@ -345,8 +346,10 @@ def create_card(guides: list[UploadFile] = File(...), service: UploadFile | None
         except Exception as err:  # noqa: BLE001 — 어느 파일이 왜 안 됐는지 화면에
             return None, str(err).splitlines()[0][:160] if str(err) else type(err).__name__
 
-    with ThreadPoolExecutor(min(6, len(gdata))) as ex:
-        results = list(ex.map(read, gdata))
+    results = []
+    if gdata:
+        with ThreadPoolExecutor(min(6, len(gdata))) as ex:
+            results = list(ex.map(read, gdata))
     failed = [f"{n}({e})" for (n, _), (found, e) in zip(gdata, results) if found is None]
     if failed:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "기술지도계약서를 읽지 못했습니다: " + " / ".join(failed) + " — 아무것도 만들지 않았습니다.")
@@ -355,7 +358,7 @@ def create_card(guides: list[UploadFile] = File(...), service: UploadFile | None
     info = _read_pdf(db, user, row, sdata) if sdata else {}
     many = len(gdata) > 1
     periods = [_guide_period(found) for found, _ in results]
-    if not sdata:  # 용역계약서 없이(민간 등) — 계약 이름은 현장에서, 착수·완수는 기술지도계약서 계약기간(여럿이면 가장 이른 시작~가장 늦은 끝, 10/20 사용자)
+    if not sdata and gdata:  # 용역계약서 없이(민간 등) — 계약 이름은 현장에서, 착수·완수는 기술지도계약서 계약기간(여럿이면 가장 이른 시작~가장 늦은 끝, 10/20 사용자)
         first = (results[0][0] or {}).get("name") or Path(gdata[0][0]).stem
         row.title = f"{first} 외 {len(gdata) - 1}곳" if many else first
         starts, ends = [g["contract_start"] for g in periods if "contract_start" in g], [g["contract_end"] for g in periods if "contract_end" in g]
@@ -376,7 +379,7 @@ def create_card(guides: list[UploadFile] = File(...), service: UploadFile | None
         dest.write_bytes(data)
         made.append({"id": site.id, "label": site_label(site)})
     db.commit()
-    return state(db, user, row) | info | {"created_sites": made}
+    return state(db, user, row) | info | {"created_sites": made, "need_site": not made}
 
 
 # ---------- [+ 계약변경](10/20 형 — 공기연장 등으로 용역기간이 바뀜: 서류 카드에서 바꾸면 현장 카드도, 변경 용역계약서·기술지도계약서 첨부) ----------
@@ -531,6 +534,7 @@ def state(db: Session, user: User, row: ServiceContract) -> dict:
     """착수계·완수계 창에 필요한 것 전부."""
     c = _contract_values(row)
     today = datetime.date.today()
+    done_day = c.actual_end_date or c.end_date or today  # 완수계 발송일·문서번호 끝 월일 = 완수일(실제준공일 > 준공기한, 사용자 10/21 — 전엔 작성일)
     docs = company_docs(db, user.company_id)
     return summary(db, row) | {
         "contract": {k: (_iso(v) if k in DATE_FIELDS else v) for k, v in vars(c).items()}
@@ -538,8 +542,8 @@ def state(db: Session, user: User, row: ServiceContract) -> dict:
         "defaults": {
             "greeting": build.greeting_word(c.client),
             "doc_no_start": build.default_doc_no(c, c.start_date),
-            "doc_no_done": build.default_doc_no(c, today),
-            "send_date": today.isoformat(),
+            "doc_no_done": build.default_doc_no(c, done_day),
+            "send_date": done_day.isoformat(),
             "contact_name": config.get_doc_contact_name(user.company_id),
         },
         "agent_id": row.agent_id,
@@ -743,7 +747,7 @@ def make_docs(contract_id: int, kind: Literal["start", "done"], body: MakeIn, us
     if not c.title or not c.client:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "발주처·용역명을 먼저 채우세요(계약서 PDF를 올리면 자동으로 채워집니다).")
     try:
-        send = datetime.date.fromisoformat(body.send_date[:10]) if body.send_date else datetime.date.today()
+        send = datetime.date.fromisoformat(body.send_date[:10]) if body.send_date else (c.actual_end_date or c.end_date or datetime.date.today())
     except ValueError as err:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "발송일 형식이 아닙니다.") from err
     common = build.Common(doc_no=body.doc_no.strip(), greeting=body.greeting.strip(), send_date=send,

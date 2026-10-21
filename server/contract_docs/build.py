@@ -86,7 +86,7 @@ def greeting_word(client: str) -> str:
 
 
 def default_doc_no(contract: Contract, day: datetime.date | None) -> str:
-    """문서번호 = KFSC21C_계약번호_월일(사용자 10/6 회사 확인 — 착수계는 착수일, 완수계는 발송일). 화면(js/contract-docs.js autoDocNo)도 같은 규칙."""
+    """문서번호 = KFSC21C_계약번호_월일(사용자 10/6 회사 확인 — 착수계는 착수일, 완수계는 발송일 = 기본 완수일(10/21)). 화면(js/contract-docs.js autoDocNo)도 같은 규칙."""
     if not contract.contract_no:
         return ""
     return f"KFSC21C_{contract.contract_no}" + (f"_{day:%m%d}" if day else "")
@@ -287,7 +287,7 @@ def build_done(contract: Contract, common: Common, company_docs: dict[str, str],
     _fill_cover(cover, contract, common, greeting_word(contract.client))
     cover["S11"] = contract.actual_end_date or contract.end_date
     cover["S12"] = contract.settle_amount if contract.settle_amount is not None else contract.amount
-    cover["H35"] = common.send_date or datetime.date.today()
+    cover["H35"] = common.send_date or contract.actual_end_date or contract.end_date or datetime.date.today()  # 발송일 = 완수일(10/21)
     settle = contract.settle_amount if contract.settle_amount is not None else contract.amount
     for sheet in (ws[1], ws[2]):  # 완수계·완수검사원 "계약금액"·"정산금액" 줄
         _amount_line(sheet, "H7", contract.amount)

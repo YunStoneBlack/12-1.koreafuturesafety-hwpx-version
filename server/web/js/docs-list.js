@@ -79,7 +79,7 @@
   // 현장 — 계약 하나에 현장 여럿(10/20 형, 같은 번호는 자동 연결): 하나면 이름, 여럿이면 "현장 N곳 ▾"로 펼침
   function siteLine(c) {
     const ss = c.sites || [];
-    if (!ss.length) return '<span class="dc-nosite">현장 연결 안 됨</span>';
+    if (!ss.length) return '<span class="dc-nosite" title="기술지도계약서가 나오면 현장을 등록하고 [🔗 현장 연결]로 이으세요">⚠ 현장 카드 없음 — 현장 등록 후 연결</span>';
     if (ss.length === 1) return `현장 <a href="site.html?id=${ss[0].id}">${mailEsc(ss[0].label)}</a>`;
     return `<details class="dc-sites"><summary>현장 ${ss.length}곳</summary>${ss.map((s) => `<a href="site.html?id=${s.id}">${mailEsc(s.label)}</a>`).join("")}</details>`;
   }
@@ -277,19 +277,19 @@
     function draw(result) {
       const n = st.guides.length;
       const no = box.querySelector(".nc-no")?.value ?? next;
-      box.innerHTML = `<div class="mail-head"><b>📄 새 계약</b><span class="mail-sub">계약 카드와 현장 카드를 함께 만듭니다 — 착수계·완수계는 카드의 버튼으로</span></div>
+      box.innerHTML = `<div class="mail-head"><b>📄 새 계약</b><span class="mail-sub">계약 카드와 현장 카드를 함께 만듭니다 — 기술지도계약서가 아직 없으면 용역계약서만으로 계약 카드만(착수계를 먼저 낼 때). 착수계·완수계는 카드의 버튼으로</span></div>
         <label class="cd-field"><span>관리번호 <em>비우면 자동(마지막 번호 다음)</em></span><input class="nc-no" value="${mailEsc(no)}" placeholder="${mailEsc(next)}" /></label>
         <div class="mail-label">용역계약서 <span class="mail-note">— 나라장터·국방조달 계약서(선택, 없으면 기술지도계약서만)</span></div>
         <div class="cd-slot nc-slot" data-kind="service">${st.service ? fileRow(st.service, 0, "service") : ""}
           <label class="drop-box drop-sm"><b class="drop-pc">⬇ 용역계약서 PDF를 끌어다 놓기</b><b class="drop-touch">눌러서 용역계약서 고르기</b>
             <input type="file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label></div>
-        <div class="mail-label">K2B 기술지도계약서 <span class="mail-note">— 현장마다 하나(필수). 여럿이면 현장 카드 하나에 ${mailEsc(no || next)}-1 · -2 …</span></div>
+        <div class="mail-label">K2B 기술지도계약서 <span class="mail-note">— 현장마다 하나. 없으면 계약 카드만 만들고 현장 카드는 나중에. 여럿이면 현장 카드 하나에 ${mailEsc(no || next)}-1 · -2 …</span></div>
         <div class="cd-slot nc-slot" data-kind="guides">${st.guides.map((f, i) => fileRow(f, i, "guides")).join("")}
           <label class="drop-box drop-sm"><b class="drop-pc">⬇ 기술지도계약서 PDF를 끌어다 놓기(여러 개 가능)</b><b class="drop-touch">눌러서 기술지도계약서 고르기</b>
             <input type="file" accept="application/pdf,.pdf" multiple hidden data-kr-file="skip" /></label></div>
         <div class="mail-msg nc-msg ${result ? result.tone : ""}"${result ? "" : " hidden"}>${result ? result.html : ""}</div>
         <div class="mail-foot cd-foot"><button type="button" class="nc-close">닫기</button>
-          <button type="button" class="mail-primary nc-make"${n ? "" : " disabled"}>📄 계약 카드 + 현장 ${n || ""}${n ? "곳" : ""} 만들기</button></div>`;
+          <button type="button" class="mail-primary nc-make"${n || st.service ? "" : " disabled"}>${n ? `📄 계약 카드 + 현장 ${n}곳 만들기` : st.service ? "📄 계약 카드만 만들기(현장 카드는 나중에)" : "📄 계약 카드 + 현장 만들기"}</button></div>`;
       box.querySelector(".nc-close").addEventListener("click", close);
       box.querySelectorAll(".nc-slot").forEach((slot) => {
         const input = slot.querySelector("input[type=file]");
@@ -313,7 +313,7 @@
       const msg = box.querySelector(".nc-msg");
       busy = true;
       btn.disabled = true;
-      btn.textContent = `읽는 중… (기술지도계약서 ${st.guides.length}개 — AI로 20~60초)`;
+      btn.textContent = st.guides.length ? `읽는 중… (기술지도계약서 ${st.guides.length}개 — AI로 20~60초)` : "용역계약서 읽는 중…";
       msg.hidden = true;
       try {
         const fd = new FormData();
@@ -325,7 +325,8 @@
         await load();
         box.innerHTML = `<div class="mail-head"><b>✓ 만들었습니다</b><span class="mail-sub">${mailEsc(out.label)}</span></div>
           <div class="mail-info"><div><span>계약 카드</span><div>${mailEsc(out.short_no)} · ${mailEsc(out.title || "")}</div></div>
-            <div><span>현장 카드</span><div>${out.created_sites.map((s) => `<a href="site.html?id=${s.id}">${mailEsc(s.label)}</a>`).join("<br>")}</div></div></div>
+            <div><span>현장 카드</span><div>${out.created_sites.length ? out.created_sites.map((s) => `<a href="site.html?id=${s.id}">${mailEsc(s.label)}</a>`).join("<br>") : "없음"}</div></div></div>
+          ${out.need_site ? '<div class="mail-msg warn">⚠ 현장 카드가 아직 없습니다 — 기술지도계약서가 나오면 현장을 등록하고 이 계약 카드의 [🔗 현장 연결]로 이으세요(같은 관리번호로 등록하면 자동 연결).</div>' : ""}
           ${(out.ai_filled || []).length ? `<div class="mail-note">용역계약서의 못 읽은 칸 ${out.ai_filled.length}개는 AI로 채웠습니다 — [📑 착수계] 창에서 확인하세요.</div>` : ""}
           <div class="mail-foot cd-foot"><button type="button" class="nc-close">닫기</button>
             <button type="button" class="mail-primary nc-start">📑 착수계 창 열기</button></div>`;

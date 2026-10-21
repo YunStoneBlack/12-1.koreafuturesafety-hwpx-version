@@ -73,6 +73,7 @@ class Hwpx:
             self.header_refs = set(re.findall(r'binaryItemIDRef="([^"]+)"', header.decode("utf-8")))
             self.header = etree.fromstring(header)  # 글자 모양(charPr) 복제용(10/21 표지·책등 자간·크기)
         self.dropped: set[str] = set()
+        self.pic_tpl = None  # 그림 개체 견본(시설물편 전경 표 pic) — 채우기 전에 잡아 둠: 전경이 없으면 그 표 그림이 지워져 뒤 서류·위치도가 못 씀(10/21)
         self.new_masters: list[str] = []  # 복제한 바탕쪽(장마다 꼬리말 "제 N 장 이름")
         self.added: list[tuple[str, bytes]] = []
         self.run = datetime.datetime.now().strftime("%y%m%d%H%M%S") + f"{random.randint(0, 999):03d}"
@@ -1019,6 +1020,8 @@ def fill_front(doc: Hwpx, d: Data) -> None:
         kill += blk
     _del(root, kill)
     tpl = next((copy.deepcopy(p) for blk in ov_blocks[:1] for q in blk for p in q.iter(f"{{{HP}}}pic")), None)
+    if tpl is None:
+        tpl = _doc_tpl(doc)
     for k, s in enumerate(sites):  # 위치도(새 합본 10/21 — 곳마다 "k. 이름 위치도" + 1×1 표)
         if k >= len(map_blocks):
             break
@@ -1107,6 +1110,24 @@ def _doc_into_cell(tc, path: Path, tpl, add_image) -> None:
         return
     rb._slot_put(tc, None, img, "", "", tpl, add_image)
     _size_pic(next(tc.iter(f"{{{HP}}}pic"), None), w, h, img, inline=True)
+
+
+def _doc_tpl(doc):
+    """채우기 전에 잡아 둔 그림 견본(Hwpx.pic_tpl) — _View면 그 문서 것."""
+    d = getattr(doc, "doc", doc)
+    t = getattr(d, "pic_tpl", None)
+    return copy.deepcopy(t) if t is not None else None
+
+
+SHAPES = ("line", "rect", "ellipse", "container", "curve", "connectLine", "polygon", "arc")
+
+
+def _drop_shapes(tc) -> None:
+    """칸 안 도형(견본 위치도 위의 이름 상자·지시선) 지우기 — 우리 위치도 그림엔 이름표가 이미 있음(10/21 형 "위치도 통일")."""
+    for tag in SHAPES:
+        for el in list(tc.iter(f"{{{HP}}}{tag}")):
+            if el.getparent() is not None:
+                el.getparent().remove(el)
 
 
 def _map_into_cell(tc, s: Data, tpl, add_image, many: bool = False) -> None:
@@ -1342,6 +1363,8 @@ def fill_docs(doc: Hwpx, loc: dict, d: Data) -> int:
             elif tx.startswith("◎") and "~" in tx:
                 rb._set_para(p, f"◎ {d.period_days}")
         _fill_status_table(_tbl(v.root, 18, 8, "연 번") or _tbl(v.root, 18, 8, "연번"), d, v)
+        if "plan_map" not in loc:  # 새 합본(10/21 형 "위치도 틀 변경 시설물당 1개") — 마. 위치도가 과업수행계획서 구역 안에
+            _fill_plan_maps(doc, v.root, d)
         n += 1
     if "plan_map" in loc:
         _fill_map_pages(doc, loc, d)
@@ -1373,6 +1396,19 @@ def fill_docs(doc: Hwpx, loc: dict, d: Data) -> int:
     if "precheck" in loc:
         v = doc.view(loc["precheck"])
         _set_cover_lines(_tbl(v.root, 1, 1), d, "사전검토보고서", v.root)
+        t42 = _tbl(v.root, 7, 4, "구분")  # _tbl은 띄어쓰기 없이 비교
+        if t42 is not None:  # 4.2 유지관리자료 보유현황 = 본문 1.3.1 자료수집 현황(형 10/21 "본문 1.3.1과 연동") — 비고는 한 칸으로 합쳐져 있어 견본 그대로
+            cells = rb._cells(t42)
+            for key, row in wall_collect.ROW_INDEX.items():
+                st = ((d.collect.get(key) or {}).get("status") or "-").strip()
+                _set(cells, (row, 2), "-" if st in ("", "-") else f"∘{st}")
+        t411 = _tbl(v.root, 8, 7, "구분")
+        if t411 is not None:  # 4.1.1 "∘ 기본시설물" 한 줄로(형 10/21 "자간조절") — 칸이 좁아 "물"이 다음 줄로 넘어감
+            tc = rb._cells(t411).get((2, 0))
+            for q in (tc.iter(f"{{{HP}}}p") if tc is not None else []):
+                runs = _runs_of(q)
+                if runs and "기본시설물" in _sq("".join(x.text or "" for x in q.iter(T))):
+                    _set_charpr(q, doc.clone_charpr(runs[0].get("charPrIDRef"), spacing=-12))
         for p in _tops(v.root):
             tx = _ptext(p)
             if re.fullmatch(r"\d{4}\.\s*\d{2}\.?", tx):
@@ -1380,7 +1416,9 @@ def fill_docs(doc: Hwpx, loc: dict, d: Data) -> int:
             elif tx.startswith("1. 과업명"):
                 rb._set_para(p, f"1. 과업명 : {d.title}")
         _fill_status_table(_tbl(v.root, 18, 8, "연 번") or _tbl(v.root, 18, 8, "연번"), d, v)
-        tpl = _pic_tpl(doc.roots[loc["chapter"]]) if "chapter" in loc else None
+        tpl = _doc_tpl(doc)
+        if tpl is None and "chapter" in loc:
+            tpl = _pic_tpl(doc.roots[loc["chapter"]])
         for t in _tables(v.root):  # 부록6 책임기술자 자격·정밀안전진단 교육 수료증(2×1 표 — 제목 줄 + 빈 칸) ← 시특법 설정 책임기술자 서류(형 10/21)
             if (t.get("rowCnt"), t.get("colCnt")) != ("2", "1"):
                 continue
@@ -1400,7 +1438,9 @@ def _fill_map_pages(doc: Hwpx, loc: dict, d: Data) -> None:
     tp = next((p for p in tops if any((x.get("rowCnt"), x.get("colCnt")) == ("1", "1") for x in p.iter(f"{{{HP}}}tbl"))), None)
     if tp is None:
         return
-    tpl = _pic_tpl(doc.roots[loc["chapter"]]) if "chapter" in loc else None
+    tpl = _doc_tpl(doc)
+    if tpl is None and "chapter" in loc:
+        tpl = _pic_tpl(doc.roots[loc["chapter"]])
     if tpl is None:
         return
     from server.sitok.merge import _renew_ids
@@ -1439,6 +1479,49 @@ def _fill_map_pages(doc: Hwpx, loc: dict, d: Data) -> None:
 
 
 MAP_W, MAP_H = 47624, 30000  # 과업수행계획서 위치도 표(세로 쪽 본문 폭, 두 곳이 한 쪽에)
+
+
+def _fill_plan_maps(doc: Hwpx, root, d: Data) -> None:
+    """새 합본 과업수행계획서 "마. 과업대상 시설물 위치도" — 견본 "1) 이름" + 1×1 틀 묶음(세로 쪽에 둘). 곳 수만큼: 모자라면 마지막 묶음 복제(세 번째부터
+    홀수 번째에서 쪽 나눔), 남으면 지움. 틀에는 본문 1.2.2·서두와 같은 위치도(locmap)."""
+    from server.sitok.merge import _renew_ids
+
+    tops = _tops(root)
+    hp = next((p for p in tops if _sq(_ptext(p)).startswith("마.과업대상시설물위치도")), None)
+    if hp is None:
+        return
+    i0 = tops.index(hp)
+    pairs = []
+    for j in range(i0 + 1, len(tops)):
+        t = _ptext(tops[j])
+        if re.match(r"\d+\)", t):
+            tb = next((q for q in tops[j + 1:j + 3] if any((x.get("rowCnt"), x.get("colCnt")) == ("1", "1") for x in q.iter(f"{{{HP}}}tbl"))), None)
+            if tb is not None:
+                pairs.append((tops[j], tb))
+        elif t and not pairs:
+            continue
+        elif t:
+            break
+    if not pairs:
+        return
+    sites = d.many
+    while len(pairs) < len(sites):
+        lab, tb = pairs[-1]
+        nl, nt = copy.deepcopy(lab), copy.deepcopy(tb)
+        _renew_ids(nl)
+        _renew_ids(nt)
+        tb.addnext(nl)
+        nl.addnext(nt)
+        pairs.append((nl, nt))
+    _del(root, [p for lab, tb in pairs[len(sites):] for p in (lab, tb)])
+    tpl = _doc_tpl(doc)
+    for k, (s, (lab, tb)) in enumerate(zip(sites, pairs), 1):
+        rb._set_para(lab, f"{k}) {s.name}")
+        lab.set("pageBreak", "1" if k > 1 and k % 2 == 1 else "0")
+        tbl = next(x for x in tb.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) == ("1", "1"))
+        tc = rb._cells(tbl)[(0, 0)]
+        _drop_shapes(tc)
+        _map_into_cell(tc, s, tpl, doc.add_image, many=len(sites) > 1)
 
 
 def _size_pic(pic, w: int, h: int, img_bytes: bytes, inline: bool = False) -> None:
@@ -1694,8 +1777,10 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
     one = [t for t in _tables(root) if (t.get("rowCnt"), t.get("colCnt")) == ("1", "1") and list(t.iter(f"{{{HP}}}pic"))]
     for t in one:
         pics = list(t.iter(f"{{{HP}}}pic"))
-        if len(pics) == 1 and d.locmap and d.locmap.exists():
-            rb._put_pic(pics[0], d.locmap, doc.add_image)
+        if len(pics) == 1:  # 1.2.2 위치도 — 서두·과업수행계획서와 같은 그림(견본 그림의 잘라 보기·이름 상자 때문에 확대돼 보였음, 형 10/21)
+            tc = rb._cells(t)[(0, 0)]
+            _drop_shapes(tc)
+            _map_into_cell(tc, d, tpl if tpl is not None else _doc_tpl(doc), doc.add_image)
         elif len(pics) >= 3:  # 주요도면 — 도면이 없으면 빈 그림
             for pic in pics:
                 img = next(pic.iter(f"{{{HC}}}img"), None)
@@ -2081,6 +2166,7 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     say("원본 여는 중…")
     doc = Hwpx(master_path())
     loc = locate(doc)
+    doc.pic_tpl = _pic_tpl(doc.roots[loc["chapter"]])
     changed = 0
     for key, fn in (("cover", fill_cover), ("summary", fill_summary), ("front", fill_front), ("intro", fill_intro)):
         say(f"{key} 채우는 중…")
