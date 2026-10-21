@@ -28,6 +28,8 @@ from pathlib import Path
 import pymupdf
 from lxml import etree
 
+from core.stored_path import to_full
+
 from server.sitok import wall_ai, wall_ledger, wall_manual
 from server.sitok import report_build as rb
 from server.sitok.report_build import HP, T
@@ -66,8 +68,10 @@ class Hwpx:
             self.masters = sorted(n for n in z.namelist() if re.fullmatch(r"Contents/masterpage\d+\.xml", n))  # 바탕쪽 — 머리말 용역명·장 꼬리말이 여기(10/21)
             self.roots = {s: etree.fromstring(z.read(s)) for s in self.sections + self.masters}
             self.hpf = z.read("Contents/content.hpf").decode("utf-8")
+            header = z.read("Contents/header.xml")
             # header.xml 테두리/배경 정의(borderFill 그림 무늬 imgBrush)가 쓰는 그림 — "안 쓰는 그림"으로 빼면 한글이 테두리 정의를 잘못 읽어 표 선·칠이 어긋남(10/21 형 "표 선이 이상")
-            self.header_refs = set(re.findall(r'binaryItemIDRef="([^"]+)"', z.read("Contents/header.xml").decode("utf-8")))
+            self.header_refs = set(re.findall(r'binaryItemIDRef="([^"]+)"', header.decode("utf-8")))
+            self.header = etree.fromstring(header)  # 글자 모양(charPr) 복제용(10/21 표지·책등 자간·크기)
         self.dropped: set[str] = set()
         self.new_masters: list[str] = []  # 복제한 바탕쪽(장마다 꼬리말 "제 N 장 이름")
         self.added: list[tuple[str, bytes]] = []
@@ -111,6 +115,73 @@ class Hwpx:
         self.roots[new] = root
         self.sections.insert(self.sections.index(name) + n + 1, new)
         return new
+
+    def clone_charpr(self, cid: str, height: int | None = None, spacing: int | None = None, ratio: int | None = None) -> str:
+        """header.xml 글자 모양 cid를 복제해 크기(height, 1/100pt)·자간(spacing %)·장평(ratio %)만 바꾼 새 id — 긴 이름 표지·책등."""
+        HH = "http://www.hancom.co.kr/hwpml/2011/head"
+        props = next(self.header.iter(f"{{{HH}}}charProperties"))
+        src = next((x for x in props if x.get("id") == str(cid)), None)
+        if src is None:
+            return str(cid)
+        new = copy.deepcopy(src)
+        nid = str(max(int(x.get("id")) for x in props) + 1)
+        new.set("id", nid)
+        if height is not None:
+            new.set("height", str(height))
+        for tag, val in (("spacing", spacing), ("ratio", ratio)):
+            el = new.find(f"{{{HH}}}{tag}")
+            if el is not None and val is not None:
+                for k in el.attrib:
+                    el.set(k, str(val))
+        props.append(new)
+        props.set("itemCnt", str(len(props)))
+        return nid
+
+    def clone_parapr(self, pid: str, keep_with_next: bool | None = None, intent: int | None = None) -> str:
+        """문단 모양 복제 — keepWithNext(다음 문단과 함께)·intent(첫 줄 들여쓰기, HWPUNIT) 바꿔 새 id."""
+        HH = "http://www.hancom.co.kr/hwpml/2011/head"
+        props = next(self.header.iter(f"{{{HH}}}paraProperties"))
+        src = next((x for x in props if x.get("id") == str(pid)), None)
+        if src is None:
+            return str(pid)
+        new = copy.deepcopy(src)
+        nid = str(max(int(x.get("id")) for x in props) + 1)
+        new.set("id", nid)
+        bs = new.find(f"{{{HH}}}breakSetting")
+        if bs is not None and keep_with_next is not None:
+            bs.set("keepWithNext", "1" if keep_with_next else "0")
+        if intent is not None:
+            it = new.find(f"{{{HH}}}margin/{{http://www.hancom.co.kr/hwpml/2011/core}}intent")
+            if it is not None:
+                it.set("value", str(intent))
+        props.append(new)
+        props.set("itemCnt", str(len(props)))
+        return nid
+
+    def clone_borderfill(self, bf: str, bottom_from: str) -> str:
+        """테두리 정의 bf를 복제해 아랫선만 bottom_from 것으로 — 한 줄짜리 표의 마지막 줄(첫 줄 윗선 + 마지막 줄 아랫선)."""
+        HH = "http://www.hancom.co.kr/hwpml/2011/head"
+        props = next(self.header.iter(f"{{{HH}}}borderFills"))
+        src = next((x for x in props if x.get("id") == str(bf)), None)
+        ref = next((x for x in props if x.get("id") == str(bottom_from)), None)
+        if src is None or ref is None:
+            return str(bf)
+        key = ("bf", str(bf), str(bottom_from))
+        cache = getattr(self, "_bf_cache", {})
+        if key in cache:
+            return cache[key]
+        new = copy.deepcopy(src)
+        nid = str(max(int(x.get("id")) for x in props) + 1)
+        new.set("id", nid)
+        nb, rb_ = new.find(f"{{{HH}}}bottomBorder"), ref.find(f"{{{HH}}}bottomBorder")
+        if nb is not None and rb_ is not None:
+            for k, v in rb_.attrib.items():
+                nb.set(k, v)
+        props.append(new)
+        props.set("itemCnt", str(len(props)))
+        cache[key] = nid
+        self._bf_cache = cache
+        return nid
 
     def add_image(self, path_or_bytes) -> str:
         key = f"wall{self.run}_{len(self.added) + 1}"
@@ -177,7 +248,8 @@ class Hwpx:
                 elif name.startswith("BinData/") and drop_unused and id_of.get(name[8:]) not in used:
                     continue
                 elif name == "Contents/header.xml":
-                    data = re.sub(rb'secCnt="\d+"', f'secCnt="{len(kept)}"'.encode(), data, count=1)
+                    self.header.set("secCnt", str(len(kept)))
+                    data = etree.tostring(self.header, xml_declaration=True, encoding="UTF-8", standalone=True)
                 out_name = rename.get(name, name)
                 if out_name == name:
                     zout.writestr(info, data, compress_type=zipfile.ZIP_STORED if name == "mimetype" else zipfile.ZIP_DEFLATED)
@@ -224,6 +296,15 @@ class _View:
     def replace_here(self, old: str, new: str) -> int:
         """이 구역과 그 바탕쪽(꼬리말 장 제목)에서만."""
         return sum(replace_text(r, old, new) for r in self.roots)
+
+    def clone_charpr(self, cid: str, **kw) -> str:
+        return self.doc.clone_charpr(cid, **kw)
+
+    def clone_parapr(self, pid: str, **kw) -> str:
+        return self.doc.clone_parapr(pid, **kw)
+
+    def clone_borderfill(self, bf: str, bottom_from: str) -> str:
+        return self.doc.clone_borderfill(bf, bottom_from)
 
 
 NEEDED = ("cover", "front", "summary", "toc", "intro", "chapter", "conclusion", "appendix")
@@ -428,6 +509,7 @@ class Data:
     address: str = ""
     spec: dict = field(default_factory=dict)
     persons: list = field(default_factory=list)  # (역할, 이름, 직급, 분야, 등급)
+    signs: list = field(default_factory=list)  # persons와 같은 순서의 서명 그림 경로(없으면 None) — 명단 "서명" 칸(10/21)
     overview: list = field(default_factory=list)  # [(path, caption)]
     locmap: Path | None = None
     sections: dict = field(default_factory=dict)  # found/front/etc/public → [(path, caption)]
@@ -546,6 +628,8 @@ def gather(db, r, f) -> Data:
         p = people.get(pid)
         if p:
             d.persons.append(("사업책임기술자" if i == 0 else "참여기술자", p.name, p.position or "", p.sitok_field or "토목", p.sitok_grade or p.grade or ""))
+            sp = Path(to_full(p.sign_path)) if p.sign_path else None
+            d.signs.append(sp if sp and sp.exists() else None)
     if not d.persons:
         d.warn.append("회차 정보에 책임·참여기술자가 없어 기술자 칸이 비었습니다")
     # 사진
@@ -624,12 +708,52 @@ def gather(db, r, f) -> Data:
 
 
 # ---------- 부분마다 채우기 ----------
+def _runs_of(p) -> list:
+    return [r for r in p.findall(f"{{{HP}}}run")]
+
+
+def _set_charpr(p, cid: str) -> None:
+    for r in _runs_of(p):
+        r.set("charPrIDRef", cid)
+
+
+def _cover_title(tc, d: Data, last: str, doc=None) -> None:
+    """표지 칸 — 견본은 문단 둘(윗줄 "ㅇㅇ에대한 2026년 상반기 정기안전점검" 작은 글자·자간 좁게 / 아랫줄 "종합보고서" 큰 글자). 문단마다 제 글자 모양을 두고 글만 바꿈
+    (_set_lines로 한 문단에 몰면 아랫줄이 윗줄 모양이 됨 — 사용자 10/21). 윗줄이 길면(시설물명이 긺) "이름에 대한" / "2026년 하반기 정기안전점검" 두 줄로."""
+    ps = [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]
+    if not ps:
+        return
+    head, tail = ps[0], ps[-1] if len(ps) > 1 else None
+    for q in ps[1:-1]:
+        q.getparent().remove(q)
+    line = f"{d.name}에 대한 {d.year}년 {d.half} 정기안전점검"
+    lines = [line]
+    if len(line) > 26:  # 견본 자간(-5)으로 한 줄 26자쯤 — 1) 자간 더 좁혀(-15, +10%) 29자까지, 2) 그래도 길면 두 줄(형 10/21)
+        if len(line) <= 29 and doc is not None and _runs_of(head):
+            _set_charpr(head, doc.clone_charpr(_runs_of(head)[0].get("charPrIDRef"), spacing=-15))
+        else:
+            lines = [f"{d.name}에 대한", f"{d.year}년 {d.half} 정기안전점검"]
+    rb._set_para(head, lines[0], in_table=True)
+    anchor = head
+    for extra in lines[1:]:
+        q = copy.deepcopy(head)
+        rb._set_para(q, extra, in_table=True)
+        anchor.addnext(q)
+        anchor = q
+    if tail is not None:
+        rb._set_para(tail, last, in_table=True)
+    else:
+        q = copy.deepcopy(head)
+        rb._set_para(q, last, in_table=True)
+        anchor.addnext(q)
+
+
 def fill_cover(doc: Hwpx, d: Data) -> None:
     root = doc.root
     big = _tbl(root, 11, 1)
     if big is not None:
         inner = next(t for t in big.iter(f"{{{HP}}}tbl") if t is not big)
-        rb._set_lines(rb._cells(inner)[(0, 0)], [f"{d.name}에 대한 {d.year}년 {d.half} 정기안전점검", "종합보고서"])
+        _cover_title(rb._cells(inner)[(0, 0)], d, "종합보고서", doc)
         cells = rb._cells(big)
         _set(cells, (5, 0), d.month)
         last = cells.get((10, 0))
@@ -643,13 +767,53 @@ def fill_cover(doc: Hwpx, d: Data) -> None:
         _set(cells, (0, 0), f"{d.name}에 대한")
         _set(cells, (0, 1), f"{d.year}년 {d.half} 정기안전점검")
         _set(cells, (2, 0), d.month_dot)
+        _fit_spine(doc, cells, f"{d.name}에 대한", f"{d.year}년 {d.half} 정기안전점검")
+
+
+def _char_pr(doc, cid: str) -> tuple[int, int]:
+    """(글자 크기 height, 자간 spacing %) — header.xml."""
+    HH = "http://www.hancom.co.kr/hwpml/2011/head"
+    x = next((c for c in doc.doc.header.iter(f"{{{HH}}}charPr") if c.get("id") == str(cid)), None)
+    if x is None:
+        return 1300, 20
+    sp = x.find(f"{{{HH}}}spacing")
+    return int(x.get("height") or 1300), int(sp.get("hangul") or 0) if sp is not None else 0
+
+
+def _fit_spine(doc, cells: dict, text1: str, text2: str) -> None:
+    """책등(세로 글, 4×2 표 첫 줄 두 칸) — 긴 이름이 칸 높이를 넘으면 1) 자간 0, 2) 글자 크기 1100, 3) 첫 줄 높이를 늘리고 "종합보고서" 줄을 줄임(형 10/21)."""
+    c1, c2, c3 = cells.get((0, 0)), cells.get((0, 1)), cells.get((1, 0))
+    if c1 is None or c2 is None or c3 is None:
+        return
+    sz1, sz2, sz3 = (c.find(f"{{{HP}}}cellSz") for c in (c1, c2, c3))
+    cap = int(sz1.get("height"))
+    p1 = next(c1.iter(f"{{{HP}}}p"))
+    p2 = next(c2.iter(f"{{{HP}}}p"))
+    if not _runs_of(p1):
+        return
+    h1, sp1 = _char_pr(doc, _runs_of(p1)[0].get("charPrIDRef"))
+    need = lambda n, h, sp: int(n * h * (1 + sp / 100) * 1.02)  # noqa: E731 — 세로 글 한 글자 = 크기 + 자간
+    n1 = len(text1)
+    if need(n1, h1, sp1) <= cap:
+        return
+    sp1 = 0
+    if need(n1, h1, sp1) > cap:
+        h1 = 1100
+    _set_charpr(p1, doc.clone_charpr(_runs_of(p1)[0].get("charPrIDRef"), height=h1, spacing=sp1))
+    if need(n1, h1, sp1) > cap and _runs_of(p2):  # 그래도 넘치면 첫 줄 높이를 늘리고 종합보고서 줄에서 뺌(둘째 칸 자간도 0)
+        h2, _ = _char_pr(doc, _runs_of(p2)[0].get("charPrIDRef"))
+        _set_charpr(p2, doc.clone_charpr(_runs_of(p2)[0].get("charPrIDRef"), height=min(h2, 1100), spacing=0))
+        delta = need(n1, h1, sp1) - cap + 600
+        sz1.set("height", str(cap + delta))
+        sz2.set("height", str(cap + delta))
+        sz3.set("height", str(max(int(sz3.get("height")) - delta, 8000)))
 
 
 def fill_summary(doc: Hwpx, d: Data) -> None:
     root = doc.root
     t = _tbl(root, 1, 1)
     if t is not None:
-        rb._set_lines(rb._cells(t)[(0, 0)], [f"{d.name}에 대한 {d.year}년 {d.half} 정기안전점검", "요           약          문"])
+        _cover_title(rb._cells(t)[(0, 0)], d, "요           약          문", doc)
     for p in _tops(root):
         if re.fullmatch(r"\d{4}\.\s*\d{2}\.?", _ptext(p)):
             rb._set_para(p, d.month)
@@ -665,7 +829,7 @@ def fill_summary(doc: Hwpx, d: Data) -> None:
             rb._set_para(p, f"※ 옹벽 총 {len(sites)}개소({_grade_summary(sites)})")
     t = _tbl(root, 18, 11)
     if t is not None:
-        _resize(t, len(sites), 1, 1)
+        _resize(t, len(sites), 1, 1, doc)
         cells = rb._cells(t)
         for i, s in enumerate(sites, 1):
             vals = [str(i), s.name, f"{s.class_no}종", s.year_month, s.spec.get("form") or "-", s.spec.get("length") or "-", s.spec.get("height") or "-",
@@ -687,14 +851,34 @@ def _grade_summary(sites: list) -> str:
     return " / ".join(out)
 
 
-def _resize(tbl, want: int, first: int, per: int = 1) -> None:
-    """값 줄이 first줄부터 per줄씩 있는 표를 want곳 분량으로 — 모자라면 마지막 묶음 복제, 남으면 지움(머리줄·꼬리줄은 그대로)."""
+def _resize(tbl, want: int, first: int, per: int = 1, doc=None) -> None:
+    """값 줄이 first줄부터 per줄씩 있는 표를 want곳 분량으로 — 모자라면 마지막 묶음 복제, 남으면 지움(머리줄·꼬리줄은 그대로).
+    doc을 주면(per=1) 줄 테두리를 견본대로: 첫 줄 = 첫 줄 모양(윗선), 가운데 = 가운데 줄(얇은 선), 마지막 = 마지막 줄(굵은 아랫선), 한 줄뿐이면 첫 줄 모양 + 굵은 아랫선(형 10/21)."""
     rows = int(tbl.get("rowCnt"))
     have = (rows - first) // per
+    fills = None
+    if doc is not None and per == 1 and have >= 2:
+        cells = rb._cells(tbl)
+        row_f = lambda r: {c: tc.get("borderFillIDRef") for (rr, c), tc in cells.items() if rr == r}  # noqa: E731
+        fills = (row_f(first), row_f(first + 1), row_f(first + have - 1))
     if want > have:
         rb._dup_rows(tbl, first + (have - 1) * per, per, want - have)
     elif want < have:
         rb._del_rows(tbl, first + want * per, (have - want) * per)
+    if fills:
+        f_first, f_mid, f_last = fills
+        cells = rb._cells(tbl)
+        for i in range(want):
+            r = first + i
+            use = f_first if i == 0 else f_last if i == want - 1 else f_mid
+            for c, bf in use.items():
+                tc = cells.get((r, c))
+                if tc is None:
+                    continue
+                if want == 1 and bf and f_last.get(c):
+                    bf = doc.clone_borderfill(bf, f_last[c])
+                if bf:
+                    tc.set("borderFillIDRef", bf)
 
 
 def _fill_result_table(tbl, d: Data) -> None:
@@ -717,18 +901,31 @@ def _fill_result_table(tbl, d: Data) -> None:
     _set(cells, (9, 2), d.ai.get("public") or "⦁전반적으로 양호한 상태")
     _set(cells, (10, 2), "\n".join(d.ai.get("findings") or []))
     _set(cells, (11, 2), "\n".join(d.ai.get("repairs") or []))
-    rows = [r for r in sorted({k[0] for k in cells}) if (r, 0) in cells and rb._n(rb._cell_text(cells[(r, 0)])).endswith("기술자")]
-    for i, r in enumerate(rows):
-        if i < len(d.persons):
-            role, name, _, _, grade = d.persons[i]
-            _set(cells, (r, 0), role)
-            _set(cells, (r, 3), _spaced(name))
-            _set(cells, (r, 4), d.period)
-            _set(cells, (r, 7), grade)
-        else:
-            for c in (0, 3, 4, 7):
-                _set(cells, (r, c), "")
-    _set(cells, (19, 0), d.ai.get("next_focus") or "-")
+    # 다. 책임(참여)기술자 — 줄 수 = 사람 수(형 10/21 "2명일 때 2칸, 3명일 때 3칸"): "구 분" 머리줄 다음부터 "라." 줄 앞까지가 사람 줄
+    all_rows = sorted({k[0] for k in cells})
+    r_head = next((r for r in all_rows if (r, 0) in cells and rb._n(rb._cell_text(cells[(r, 0)])).startswith("구분")), None)
+    r_end = next((r for r in all_rows if r > (r_head or 0) and (r, 0) in cells and rb._n(rb._cell_text(cells[(r, 0)])).startswith("라.")), None)
+    if r_head is not None and r_end is not None:
+        have = r_end - r_head - 1
+        want = max(len(d.persons), 1)
+        if want > have:
+            rb._dup_rows(tbl, r_end - 1, 1, want - have)
+        elif want < have:
+            rb._del_rows(tbl, r_head + 1 + want, have - want)
+        cells = rb._cells(tbl)
+        for i in range(want):
+            r = r_head + 1 + i
+            if i < len(d.persons):
+                role, name, _, _, grade = d.persons[i]
+                _set(cells, (r, 0), role)
+                _set(cells, (r, 3), _spaced(name))
+                _set(cells, (r, 4), d.period)
+                _set(cells, (r, 7), grade)
+            else:
+                for c in (0, 3, 4, 7):
+                    _set(cells, (r, c), "")
+    last = max(k[0] for k in cells)
+    _set(cells, (last, 0), d.ai.get("next_focus") or "-")
 
 
 def fill_front(doc: Hwpx, d: Data) -> None:
@@ -753,11 +950,15 @@ def fill_front(doc: Hwpx, d: Data) -> None:
         elif len(d.persons) < n_rows and d.persons:
             rb._del_rows(tl, 1 + len(d.persons), n_rows - len(d.persons))
         cells = rb._cells(tl)
+        tpl_sign = next((copy.deepcopy(p) for p in root.iter(f"{{{HP}}}pic")), None)
         for i, (role, name, pos, fld, grade) in enumerate(d.persons, 1):
             _set(cells, (i, 0), "책임기술자" if i == 1 else ("참여기술자" if i == 2 else ""))
             _set(cells, (i, 1), " ".join(name.replace(" ", "")))
             _set(cells, (i, 2), pos)
             _set(cells, (i, 3), f"{fld}\n{grade}" if grade else fld)
+            sign = d.signs[i - 1] if i - 1 < len(d.signs) else None
+            if sign is not None and (i, 4) in cells and tpl_sign is not None:  # 서명 칸 — 설정에 올린 서명 그림(10/21 형)
+                _sign_into_cell(cells[(i, 4)], sign, tpl_sign, doc.add_image)
     # 위치도 4장 지움, 결과표·전경 덩이는 곳 수만큼(견본 17개 — 모자라면 마지막 덩이 복제)
     sites = d.many
     tops = _tops(root)
@@ -791,16 +992,65 @@ def fill_front(doc: Hwpx, d: Data) -> None:
             _map_into_cell(rb._cells(tbl)[(0, 0)], s, tpl, doc.add_image, many=len(sites) > 1)
     for k, s in enumerate(sites):
         head, *rest = res_blocks[k]
-        rb._set_para(head, f"{k + 1}. {s.name} 정기점검 결과표")
+        title = f"{k + 1}. {s.name} 정기점검 결과표"
+        rb._set_para(head, title)
         res = next((x for q in rest for x in q.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) in (("20", "9"), ("21", "9"))), None)
         if res is not None:
             _fill_result_table(res, s)
+            if len(title) > 23 and _runs_of(head):  # 제목이 두 줄(한 줄 23자쯤)이면 1) 자간 -10, 2) 그래도 두 줄이면 결과표 글 줄 높이를 줄여 한 쪽에(형 10/21)
+                if len(title) <= 25:
+                    _set_charpr(head, doc.clone_charpr(_runs_of(head)[0].get("charPrIDRef"), spacing=-10))
+                else:
+                    _shrink_rows(res, 0.8)
         if k < len(ov_blocks):
             head, *rest = ov_blocks[k]
             rb._set_para(head, f"{s.name} 전경사진")
             ov = next((x for q in rest for x in q.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) == ("6", "2")), None)
             if ov is not None:
                 _fill_photo_table(ov, s.overview[:6], tpl, doc.add_image, "")
+
+
+def _shrink_rows(tbl, ratio: float, all_rows: bool = False) -> None:
+    """결과표 줄 높이를 ratio로(all_rows=False면 글 줄 — 높이 4000 넘는 중대결함·공중이용·주요결과만) — 글이 많으면 한글이 다시 늘림. 표 전체 높이(sz)도 같이."""
+    total = 0
+    for tc in tbl.iter(f"{{{HP}}}tc"):
+        sz = tc.find(f"{{{HP}}}cellSz")
+        if sz is None:
+            continue
+        h = int(sz.get("height") or 0)
+        if all_rows or h > 4000:
+            sz.set("height", str(int(h * ratio)))
+    tsz = tbl.find(f"{{{HP}}}sz")
+    if tsz is not None and all_rows:
+        tsz.set("height", str(int(int(tsz.get("height") or 0) * ratio)))
+    _ = total
+
+
+def _contain(path: Path, w: int, h: int) -> tuple[bytes, int, int]:
+    """그림을 w×h(HWPUNIT) 안에 비율대로 맞춤(자르지 않음, 흰 바탕) → (JPG 바이트, 그림 너비, 높이 HWPUNIT)."""
+    import io
+
+    from PIL import Image
+
+    im = Image.open(path).convert("RGB")
+    pw, ph = im.size
+    k = min(w / pw, h / ph)
+    out = io.BytesIO()
+    im.save(out, "JPEG", quality=90)
+    return out.getvalue(), int(pw * k), int(ph * k)
+
+
+def _sign_into_cell(tc, sign: Path, tpl, add_image) -> None:
+    """참여기술자 명단 "서명" 칸에 서명 그림(칸 안에 비율대로, 글자처럼)."""
+    sz = tc.find(f"{{{HP}}}cellSz")
+    cw, ch = (int(sz.get("width")) - 800, int(sz.get("height")) - 800) if sz is not None else (6000, 3000)
+    cw, ch = min(cw, 7000), min(ch, 3200)
+    try:
+        img, w, h = _contain(sign, cw, ch)
+    except Exception:  # noqa: BLE001
+        return
+    rb._slot_put(tc, None, img, "", "", tpl, add_image)
+    _size_pic(next(tc.iter(f"{{{HP}}}pic"), None), w, h, img, inline=True)
 
 
 def _map_into_cell(tc, s: Data, tpl, add_image, many: bool = False) -> None:
@@ -878,6 +1128,16 @@ def fill_toc(doc: Hwpx, d: Data, pages: dict[str, int]) -> int:
         first = next((pc for x in new.iter(T) for pc in rb._pieces(x) if pc.text and pc.text.strip()), None)
         if first is not None:
             first.text = f"{k}.5 안전등급 평가"
+    tops = _tops(root)  # "< 부 록 >"부터 부록 목록 첫 줄 앞까지 "다음 문단과 함께" — 칸이 넘어가면 제목·목록이 같이 넘어가게(형 10/21)
+    i_ap = next((i for i, p in enumerate(tops) if re.match(r"<\s*부\s*록", _ptext(p))), None)
+    if i_ap is not None:
+        cache: dict[str, str] = {}
+        for p in tops[i_ap:]:
+            if re.match(r"\d+\.\s*\S", _ptext(p)):
+                break
+            pid = p.get("paraPrIDRef") or "0"
+            cache.setdefault(pid, doc.clone_parapr(pid, keep_with_next=True))
+            p.set("paraPrIDRef", cache[pid])
     n = 0
     lines = []  # (문단, 장 줄인지, 제목 열쇠)
     for p in _tops(root):
@@ -917,25 +1177,25 @@ def fill_intro(doc: Hwpx, d: Data) -> None:
                             f"{d.name}에 대한 상태를 정밀히 파악하여 안전사고 예방 및 사후 조치에 만전을 기하고, 필요시 향후 유지관리 방안을 제시하여 시설물의 안전한 관리에 목적이 있다.")
         elif t.startswith("￭ 과업기간"):
             rb._set_para(p, f"￭ 과업기간 : {d.period}")
-    _fill_target_table(_tbl(root, 18, 9, "번호"), d)
+    _fill_target_table(_tbl(root, 18, 9, "번호"), d, doc)
 
 
-def _fill_target_table(t, d: Data) -> None:
+def _fill_target_table(t, d: Data, doc=None) -> None:
     """과업대상 시설물 표(18×9: 번호·시설물명·형식별·종별·길이·높이·준공연도·점검종류·비고) — 개요 1.2·과업지시서 Ⅱ."""
     if t is None:
         return
-    _resize(t, len(d.many), 1, 1)
+    _resize(t, len(d.many), 1, 1, doc)
     cells = rb._cells(t)
     for i, s in enumerate(d.many, 1):
         for c, v in enumerate([str(i), s.name, s.spec.get("form") or "-", f"{s.class_no}종", s.spec.get("length") or "-", s.spec.get("height") or "-", s.year_month, "정기점검", ""]):
             _set(cells, (i, c), v)
 
 
-def _fill_status_table(t, d: Data) -> None:
+def _fill_status_table(t, d: Data, doc=None) -> None:
     """대상시설물 현황 표(18×8: 연번·시설명·위치·연장·높이·준공년도·구조형식·종별) — 과업수행계획서 라.·사전검토보고서 3."""
     if t is None:
         return
-    _resize(t, len(d.many), 1, 1)
+    _resize(t, len(d.many), 1, 1, doc)
     cells = rb._cells(t)
     for i, s in enumerate(d.many, 1):
         done = f"{s.completion.year}년 {s.completion.month}월" if s.completion else "-"
@@ -994,7 +1254,7 @@ def fill_docs(doc: Hwpx, loc: dict, d: Data) -> int:
                 j += 1
             rb._set_para(tops[i0], _purpose_text(d))
             _del(v.root, [p for p in tops[i0 + 1:j] if _ptext(p)])
-        _fill_target_table(_tbl(v.root, 18, 9, "번호"), d)
+        _fill_target_table(_tbl(v.root, 18, 9, "번호"), d, v)
         n += 1
     if "plan" in loc:
         v = doc.view(loc["plan"])
@@ -1007,7 +1267,7 @@ def fill_docs(doc: Hwpx, loc: dict, d: Data) -> int:
                 rb._set_para(p, f"가. 과업명 : {d.title}")
             elif tx.startswith("◎") and "~" in tx:
                 rb._set_para(p, f"◎ {d.period_days}")
-        _fill_status_table(_tbl(v.root, 18, 8, "연 번") or _tbl(v.root, 18, 8, "연번"), d)
+        _fill_status_table(_tbl(v.root, 18, 8, "연 번") or _tbl(v.root, 18, 8, "연번"), d, v)
         n += 1
     if "plan_map" in loc:
         _fill_map_pages(doc, loc, d)
@@ -1035,7 +1295,7 @@ def fill_docs(doc: Hwpx, loc: dict, d: Data) -> int:
                 rb._set_para(p, d.start_month)
             elif tx.startswith("1. 과업명"):
                 rb._set_para(p, f"1. 과업명 : {d.title}")
-        _fill_status_table(_tbl(v.root, 18, 8, "연 번") or _tbl(v.root, 18, 8, "연번"), d)
+        _fill_status_table(_tbl(v.root, 18, 8, "연 번") or _tbl(v.root, 18, 8, "연번"), d, v)
         n += 1
     return n
 
@@ -1144,14 +1404,114 @@ def _fill_history(tbl, rows: list) -> None:
         _set(cells, (i, 6), h.get("note", ""))
 
 
-def fill_chapter(doc: Hwpx, d: Data, k: int = 1) -> None:
-    """시설물편 한 장(구역 하나 + 그 바탕쪽) — k = 장 번호(묶음이면 2장부터 복제 구역, 제목 번호 1.x → k.x)."""
+def fill_chapter(doc: Hwpx, d: Data, k: int = 1, names: list | None = None, intro_root=None) -> None:
+    """시설물편 한 장(구역 하나 + 그 바탕쪽) — k = 장 번호(묶음이면 2장부터 복제 구역, 제목 번호 1.x → k.x).
+    names = 책의 모든 곳 이름(제Ⅱ편 간지 소목차 "제k장 이름" — 첫 장에만, 2장부터는 간지를 뺌), intro_root = 제Ⅰ편 구역(소목차 모양을 거기서 베낌, 형 10/21 "위치와 폰트 맞추기")."""
     root = doc.root
     doc.replace_all(SAMPLE_TITLE, d.title)
     doc.replace_here(SAMPLE_NAME, d.name)
+    tops = _tops(root)
+    i_title = next((i for i, p in enumerate(tops) if any((x.get("rowCnt"), x.get("colCnt")) == ("4", "1") for x in p.iter(f"{{{HP}}}tbl"))), None)
+    if k > 1 and i_title:  # 편 간지(제Ⅱ편 표지 + 소목차)는 첫 장에만
+        _del(root, tops[:i_title])
+        tops = _tops(root)
+        if tops:
+            tops[0].set("pageBreak", "0")
+    elif i_title:
+        _divider_list(doc, tops[:i_title], names or [d.name], intro_root)
     _fill_chapter_body(doc, d)
     if k > 1:
         _renumber_chapter(doc, k)
+
+
+def _divider_list(doc: Hwpx, paras: list, names: list, intro_root) -> None:
+    """제Ⅱ편 간지 소목차(3×4 표 (0,3) 칸) — 제Ⅰ편 간지의 소목차 칸(빈 줄·"제1장 …" 줄 모양·탭)을 베껴 "제k장 이름" 줄을 곳 수만큼."""
+    tbl = next((x for p in paras for x in p.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) == ("3", "4")), None)
+    if tbl is None:
+        return
+    tc = rb._cells(tbl).get((0, 3))
+    if tc is None:
+        return
+    src_tc = None
+    if intro_root is not None:
+        it = next((x for x in intro_root.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) == ("3", "4")), None)
+        src_tc = rb._cells(it).get((0, 3)) if it is not None else None
+    full = lambda q: "".join(pc.text or "" for x in q.iter(T) for pc in rb._pieces(x)).strip()  # noqa: E731 — 탭 뒤 글(tail)까지
+    if src_tc is not None:
+        src_ps = [q for q in src_tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is src_tc]
+        i_line = next((i for i, q in enumerate(src_ps) if re.match(r"제\s*\d+\s*장", full(q))), None)
+        if i_line is not None:
+            sub = next(tc.iter(f"{{{HP}}}subList"))
+            for q in list(sub.findall(f"{{{HP}}}p")):
+                sub.remove(q)
+            for q in src_ps[:i_line]:  # 위 빈 줄(위치)
+                sub.append(copy.deepcopy(q))
+            line = src_ps[i_line]
+            for k, name in enumerate(names, 1):
+                q = copy.deepcopy(line)
+                pieces = [pc for x in q.iter(T) for pc in rb._pieces(x)]
+                texts = [pc for pc in pieces if pc.text and pc.text.strip()]
+                if texts:
+                    texts[0].text = f"제{k}장 {name}"
+                    for pc in texts[1:]:
+                        pc.text = ""
+                sub.append(q)
+            return
+    ps = [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]  # 제Ⅰ편 없으면 — 이 칸 줄 모양으로 N줄
+    lines = [q for q in ps if re.match(r"제\s*\d+\s*장", full(q))]
+    if not lines:
+        return
+    for q in lines[1:]:
+        q.getparent().remove(q)
+    anchor = lines[0]
+    for k, name in enumerate(names, 1):
+        q = lines[0] if k == 1 else copy.deepcopy(lines[0])
+        rb._set_para(q, f"제{k}장 {name}", in_table=True)
+        if k > 1:
+            anchor.addnext(q)
+        anchor = q
+
+
+def _fit_chapter_title(doc, root, d: Data, res) -> None:
+    """장 제목 표(4×1 두 번째 문단 "제 1 장  이름" — 번호 조각·이름 조각) 긴 이름: 1) 이름 자간 0, 2) 그래도 두 줄이면 1.1 결과표 글 줄을 줄여 같은 쪽에(형 10/21)."""
+    t41 = _tbl(root, 4, 1)
+    if t41 is None:
+        return
+    ps = [q for q in t41.iter(f"{{{HP}}}p") if "제" in "".join(x.text or "" for x in q.iter(T)) and len(_runs_of(q)) >= 2]
+    if not ps:
+        return
+    q = ps[0]
+    runs = _runs_of(q)
+    width = 36428
+    tc = next(q.iterancestors(f"{{{HP}}}tc"), None)
+    sz = tc.find(f"{{{HP}}}cellSz") if tc is not None else None
+    if sz is not None:
+        width = int(sz.get("width"))
+    need = 0
+    for r in runs:
+        h, sp = _char_pr(doc, r.get("charPrIDRef"))
+        need += len("".join(x.text or "" for x in r.iter(T))) * h * (1 + sp / 100) * 0.95
+    if need <= width:
+        return
+    need0 = 0
+    for r in runs:
+        h, sp = _char_pr(doc, r.get("charPrIDRef"))
+        if sp > 0:
+            r.set("charPrIDRef", doc.clone_charpr(r.get("charPrIDRef"), spacing=0))
+        need0 += len("".join(x.text or "" for x in r.iter(T))) * h * 0.95
+    if need0 > width and res is not None:  # 두 줄 제목(큰 글자) + 결과표가 한 쪽에 — 줄 높이를 다 20% 줄임(글이 많은 줄은 한글이 다시 늘림)
+        _shrink_rows(res, 0.8, all_rows=True)
+
+
+_PARA_CACHE: dict = {}
+
+
+def _para_cache(doc, pid: str) -> str:
+    """1.4 절 글 문단 모양(첫 줄 들여쓰기 0) — 파일마다 한 번만 복제."""
+    key = (id(doc.doc), pid)
+    if key not in _PARA_CACHE:
+        _PARA_CACHE[key] = doc.clone_parapr(pid, intent=0)
+    return _PARA_CACHE[key]
 
 
 def _renumber_chapter(doc: Hwpx, k: int) -> None:
@@ -1201,12 +1561,10 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
                 replace_text(p, "1.5 유지관리방안", "1.5 안전등급 평가")
             elif k == "1.6안전등급평가":
                 replace_text(p, "1.6 안전등급 평가", "1.6 유지관리방안")
-    t34 = _tbl(root, 3, 4)
-    if t34 is not None:
-        _set(rb._cells(t34), (0, 3), f"제1장 {d.name}")  # 장 번호는 _renumber_chapter가
     res = _tbl(root, 20, 9, "가. 일반현황")
     if res is not None:
         _fill_result_table(res, d)
+    _fit_chapter_title(doc, root, d, res)
     st = _tbl(root, 12, 8, "시설물 번호")
     if st is not None:
         cells = rb._cells(st)
@@ -1285,6 +1643,7 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
             text = (d.ai.get("sections") or {}).get(key) or ""
             if body:
                 rb._set_para(body[0], text)
+                body[0].set("paraPrIDRef", _para_cache(doc, body[0].get("paraPrIDRef") or "0"))  # 첫 줄 내어쓰기(-2000) 없애 줄 시작을 맞춤(형 10/21)
                 _del(root, body[1:])
             if j < len(tops):
                 tbl = next((x for x in tops[j].iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) == ("4", "2")), None)
@@ -1576,7 +1935,7 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     chapters = [loc["chapter"]] + [doc.clone_section(loc["chapter"]) for _ in sites[1:]]  # 2장부터 구역(+바탕쪽) 복제
     for k, (sec, s) in enumerate(zip(chapters, sites), 1):
         say(f"제{k}장 {s.name} 채우는 중…")
-        fill_chapter(doc.view(sec), s, k)
+        fill_chapter(doc.view(sec), s, k, [x.name for x in sites], doc.roots[loc["intro"]])
         changed += 1
     for key, fn in (("conclusion", fill_conclusion), ("appendix", fill_appendix)):
         say(f"{key} 채우는 중…")

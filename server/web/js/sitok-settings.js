@@ -65,8 +65,36 @@
       }));
       const docs = card.querySelector(".ss-person-docs");
       p.docs.forEach((d) => docs.appendChild(docRow(d, `/sitok/settings/persons/${p.id}/docs/${d.kind}`, `/sitok/settings/persons/${p.id}/docs/${d.kind}`, load)));
+      docs.appendChild(signRow(p)); // 서명 그림(10/21 형) — 옹벽 참여기술자 명단 "서명" 칸
       box.appendChild(card);
     }
+  }
+
+  function signRow(p) { // 기술자 서명 그림 줄 — 보기·올리기(바꾸기)·지우기
+    const row = document.createElement("div");
+    row.className = "ss-doc";
+    row.innerHTML = `<b>서명 그림</b>${p.has_sign ? '<span class="ss-st ok">✓ 올림</span>' : '<span class="ss-st none">없음 — 명단 서명 칸이 빔</span>'}
+      <span class="sk-help">흰 바탕 PNG·JPG(사인 사진을 잘라서) — 옹벽 보고서 참여기술자 명단 "서명" 칸</span>
+      <span class="ss-acts">${p.has_sign ? `<a class="secondary-link" href="${BASE}/api/sitok/settings/persons/${p.id}/sign/file?t=${p.sign_ts}" target="_blank" rel="noopener">보기</a>` : ""}
+        <label class="secondary-link">${p.has_sign ? "바꾸기" : "올리기"}<input type="file" accept="image/*" hidden data-kr-file="1" /></label>
+        ${p.has_sign ? '<button type="button" class="secondary btn-sm ss-del">지우기</button>' : ""}</span>`;
+    const file = row.querySelector('input[type="file"]');
+    file.addEventListener("change", async () => {
+      const f = file.files[0];
+      if (!f) return;
+      row.classList.add("busy");
+      try {
+        const fd = new FormData();
+        fd.append("file", f);
+        await apiUpload(`/sitok/settings/persons/${p.id}/sign`, fd);
+        load();
+      } catch (x) { err(x); row.classList.remove("busy"); }
+    });
+    row.querySelector(".ss-del")?.addEventListener("click", async () => {
+      if (!confirm(`${p.name} 서명 그림을 지울까요?`)) return;
+      try { await api(`/sitok/settings/persons/${p.id}/sign`, { method: "DELETE" }); load(); } catch (x) { err(x); }
+    });
+    return row;
   }
 
   function flash(el) {

@@ -42,8 +42,10 @@ EQUIP_DIR = ROOT / "장비"
 
 def _person_out(db: Session, p: TechPerson) -> dict:
     docs = lib.person_docs(db, p.id)
+    sign = Path(to_full(p.sign_path)) if p.sign_path else None
     return {"id": p.id, "name": p.name, "position": p.position, "grade": p.grade, "qualification": p.qualification, "active": p.active,
             "sitok_field": p.sitok_field, "sitok_grade": p.sitok_grade,
+            "has_sign": bool(sign and sign.exists()), "sign_ts": int(sign.stat().st_mtime) if sign and sign.exists() else 0,  # 서명 그림(10/21)
             "docs": [lib.doc_out(docs.get(k), k, label) for k, label in SITOK_PERSON_DOCS]}
 
 
@@ -360,6 +362,42 @@ def upload_person_doc(person_id: int, kind: str, file: UploadFile = File(...), i
         row.valid_until = lib.default_valid_until(kind, row.issued_on) if row.issued_on else None
         db.commit()
     return _person_out(db, p)
+
+
+@router.post("/persons/{person_id}/sign")
+def upload_person_sign(person_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """기술자 서명 그림(10/21 형) — PNG·JPG 등 그림을 JPG로 저장(흰 바탕), 옹벽 참여기술자 명단 "서명" 칸에 들어감."""
+    p = lib._require_person(db, user, person_id)
+    data = file.file.read()
+    try:
+        jpeg = files.to_jpeg(data, file.filename or "")
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"그림 파일을 읽지 못했습니다: {str(err)[:100]}") from err
+    path = files.person_doc_path(p.id, p.name, "서명")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(jpeg)
+    p.sign_path = to_stored(str(path))
+    db.commit()
+    return _person_out(db, p)
+
+
+@router.delete("/persons/{person_id}/sign")
+def delete_person_sign(person_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    p = lib._require_person(db, user, person_id)
+    if p.sign_path:
+        Path(to_full(p.sign_path)).unlink(missing_ok=True)
+        p.sign_path = ""
+        db.commit()
+    return _person_out(db, p)
+
+
+@router.get("/persons/{person_id}/sign/file")
+def person_sign_file(person_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    p = lib._require_person(db, user, person_id)
+    path = Path(to_full(p.sign_path)) if p.sign_path else None
+    if not path or not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "서명 그림이 없습니다.")
+    return FileResponse(path, media_type="image/jpeg", filename=f"{p.name} 서명.jpg")
 
 
 @router.delete("/persons/{person_id}/docs/{kind}")

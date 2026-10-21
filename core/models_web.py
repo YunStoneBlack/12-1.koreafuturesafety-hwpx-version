@@ -402,6 +402,7 @@ class TechPerson(Base):
     # 시특법(2026-10-10 alembic 0028) — 참여기술자 명단 "분야"·결과표 "기술등급" 문구(예: 건축분야특급기술자). 같은 사람을 산안법·시특법이 같이 씀
     sitok_field: Mapped[str] = mapped_column(Text, default="건축")
     sitok_grade: Mapped[str] = mapped_column(Text, default="")
+    sign_path: Mapped[str] = mapped_column(StoredPath, default="")  # 서명 그림(0059, 10/21 형) — 시특법 설정에서 올림, 참여기술자 명단 "서명" 칸
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
 
