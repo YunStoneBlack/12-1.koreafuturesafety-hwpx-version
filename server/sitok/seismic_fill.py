@@ -187,9 +187,53 @@ def _resize_flat(tbl, header: int, want: int) -> None:
         rb._dup_rows(tbl, header, 1, want - 1)
 
 
+def _empty_para(p) -> bool:
+    """글·표·그림·조판 부호가 없는 빈 문단(쪽 나눔만 든 것 포함)."""
+    if next(p.iter(f"{{{HP}}}tbl", f"{{{HP}}}pic", f"{{{HP}}}ctrl", f"{{{HP}}}secPr"), None) is not None:
+        return False
+    return not "".join(x.text or "" for x in p.iter(f"{{{HP}}}t")).strip()
+
+
+def _drop_empty_before(p) -> None:
+    """p 바로 앞의 빈 문단들을 지움(견본 표 사이 빈 줄·쪽 나눔 — 앞 표가 쪽을 꽉 채우면 다음 쪽으로 밀려 빈 쪽이 생김, 10/22)."""
+    q = p.getprevious()
+    while q is not None and q.tag == f"{{{HP}}}p" and _empty_para(q):
+        prev = q.getprevious()
+        q.getparent().remove(q)
+        q = prev
+
+
+def even_rows(tbl, header: int) -> None:
+    """데이터 줄 높이·글자 모양을 표에서 가장 많이 쓴 것으로 — 견본 줄마다 달랐던 높이(두 줄 글 자리)·글자(파란·작은 비고)가 우리 값에 남던 것(10/22)."""
+    from collections import Counter
+
+    data = tbl.findall(f"{{{HP}}}tr")[header:]
+    single = [tc for tr in data for tc in tr.findall(f"{{{HP}}}tc") if tc.find(f"{{{HP}}}cellSpan").get("rowSpan") == "1"]
+    if not single:
+        return
+    h = Counter(int(tc.find(f"{{{HP}}}cellSz").get("height")) for tc in single).most_common(1)[0][0]
+    delta = 0
+    for tr in data:
+        old = rb._row_height(tr)
+        for tc in tr.findall(f"{{{HP}}}tc"):
+            if tc.find(f"{{{HP}}}cellSpan").get("rowSpan") == "1":
+                tc.find(f"{{{HP}}}cellSz").set("height", str(h))
+        if old:
+            delta += h - old
+    sz = tbl.find(f"{{{HP}}}sz")
+    if sz is not None and sz.get("height") and delta:
+        sz.set("height", str(max(int(sz.get("height")) + delta, 0)))
+    runs = [x for tr in data for x in tr.iter(f"{{{HP}}}run")]
+    if runs:
+        base = Counter(x.get("charPrIDRef") for x in runs).most_common(1)[0][0]
+        for x in runs:
+            x.set("charPrIDRef", base)
+
+
 def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, flat: bool) -> int:
     """견본 표들(같은 모양)에 rows를 per줄씩 — 표가 모자라면 마지막 표 문단을 복사(쪽 나눔), 남는 견본 표는 지움. 넣은 줄 수.
-    표는 문단 안 몇 번째 표인지로 집음(부록은 사진 머리 표와 값 표가 한 문단에 같이 있음, 10/22)."""
+    표는 문단 안 몇 번째 표인지로 집음(부록은 사진 머리 표와 값 표가 한 문단에 같이 있음, 10/22). 둘째 표부터는 앞 빈 문단을 지우고 그 표 문단에서 새 쪽,
+    남는 견본 표를 지울 때는 앞 빈 문단·뒤 "※" 주석도(빈 쪽·겹친 주석 없게), 줄 높이·글자 모양은 고르게(even_rows — 줄 복사로 만든 flat 표는 이미 고름)."""
     if not tables:
         return 0
     slots = []
@@ -203,6 +247,9 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
     for k, chunk in enumerate(chunks):
         if k < len(slots):
             p, idx = slots[k]
+            if k > 0 and len(_outer(p)) == 1:
+                _drop_empty_before(p)
+                p.set("pageBreak", "1")
         else:
             p, idx = copy.deepcopy(tpl), tpl_idx
             rb._new_ids(p)
@@ -211,6 +258,8 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
         used.append(p)
         t = _outer(p)[idx]
         (_resize_flat if flat else _resize_tail)(t, header, len(chunk))
+        if not flat:
+            even_rows(t, header)
         cells = rb._cells(t)
         for j, vals in enumerate(chunk):
             for c, v in enumerate(vals):
@@ -221,6 +270,12 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
         if p.getparent() is None:
             continue
         if len(_outer(p)) <= 1:
+            _drop_empty_before(p)
+            nxt = p.getnext()
+            while nxt is not None and nxt.tag == f"{{{HP}}}p" and next(nxt.iter(f"{{{HP}}}tbl"), None) is None                     and "".join(x.text or "" for x in nxt.iter(f"{{{HP}}}t")).strip().startswith("※"):
+                after = nxt.getnext()
+                nxt.getparent().remove(nxt)
+                nxt = after
             p.getparent().remove(p)
         else:  # 다른 표(사진 머리 등)와 같은 문단이면 그 표만
             t = _outer(p)[idx]
