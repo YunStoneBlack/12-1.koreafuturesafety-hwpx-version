@@ -196,8 +196,11 @@
       trash.addEventListener("click", () => removeDong(fac.id));
       trash.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); removeDong(fac.id); } });
     }
-    document.getElementById("fi-dongs-t").textContent = members.length > 1 ? `건물 ${members.length}곳` : "건물";
-    document.getElementById("fi-dongs-s").textContent = members.length > 1 ? "이름을 누르면 그 건물 시설물 정보(이름·주소·관리주체 등) — 아래 서류·도면도 그 건물 것으로, 보고서 권수는 📚 보고서 구성"
+    const byKind = {}; // 종류별 수(건물 3 · 옹벽 1 — 사용자 10/21, 토목시설물은 서버 kinds.CIVIL_KINDS 이름)
+    members.forEach((m) => { const k = m.kind || (fac.is_wall && m.id === fac.id ? "옹벽" : "건물"); byKind[k] = (byKind[k] || 0) + 1; });
+    const kindsText = Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join(" · ");
+    document.getElementById("fi-dongs-t").textContent = members.length > 1 ? (Object.keys(byKind).length > 1 ? kindsText : `${Object.keys(byKind)[0]} ${members.length}곳`) : (Object.keys(byKind)[0] || "건물");
+    document.getElementById("fi-dongs-s").textContent = members.length > 1 ? "이름을 누르면 그 시설물 정보(이름·주소·관리주체 등) — 아래 서류·도면도 그 시설물 것으로, 보고서 권수는 📚 보고서 구성"
       : "누르면 시설물 정보(이름·주소·관리주체 등)가 열립니다";
     document.getElementById("fi-compose-link").hidden = members.length < 2;
     document.getElementById("fi-cur").textContent = fac.name; // 이름만(10/20 — 제N장은 보고서 구성에서)

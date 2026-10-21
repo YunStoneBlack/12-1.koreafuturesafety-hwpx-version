@@ -32,7 +32,9 @@ def group_out(db: Session, f: SitokFacility) -> dict | None:
         return None
     g = db.get(SitokGroup, f.group_id)
     ms = members(db, f.group_id)
-    return {"id": g.id, "name": g.name, "members": [{"id": m.id, "name": m.name, "template": m.template} for m in ms],
+    from server.sitok import kinds as _kinds
+
+    return {"id": g.id, "name": g.name, "members": [{"id": m.id, "name": m.name, "template": m.template, "kind": _kinds.civil_kind(m) or "건물"} for m in ms],
             "lead": bool(ms) and ms[0].id == f.id, "index": next((i for i, m in enumerate(ms, 1) if m.id == f.id), 0)}
 
 

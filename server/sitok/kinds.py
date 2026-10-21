@@ -40,6 +40,20 @@ def is_wall(facility) -> bool:
     return family_of(facility) == "wall"
 
 
+# 토목시설물 종류(사용자 10/21 — 시특법 시설물 구분) — 시설물 묶음 타일 머리 "건물 3 · 옹벽 1"(건축물이 아니면 그 종류 이름)
+CIVIL_KINDS = ("교량", "터널", "항만", "항만외곽시설", "댐", "하구둑", "수문", "제방", "배수펌프", "상수도", "하수처리장", "옹벽", "절토사면", "공동구", "방음시설")
+
+
+def civil_kind(facility) -> str:
+    """토목시설물이면 그 종류 이름(긴 이름 먼저 — "항만외곽시설"이 "항만"보다), 건축물이면 ""."""
+    if is_wall(facility):
+        return "옹벽"
+    kind = (getattr(facility, "kind", "") or "").replace(" ", "")
+    if kind.startswith("건축물"):
+        return ""
+    return next((k for k in sorted(CIVIL_KINDS, key=len, reverse=True) if k in kind), "")
+
+
 def vocab_kind(fam: str, kind: str) -> str:
     """SitokVocab.kind 값 — 건축물은 member/dtype 그대로, 옹벽은 wall_member/wall_dtype."""
     return f"{fam}_{kind}" if fam else kind
