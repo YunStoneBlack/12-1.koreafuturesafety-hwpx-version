@@ -273,6 +273,9 @@ def fill_rebar(root, d: dict, warn: list) -> int:
                 if j % 2 == 1 and col in (0, 1):  # 시험번호·측정위치는 두 줄 합친 칸(윗줄에만)
                     continue
                 _set(cells, (r, col), v)
+        from server.sitok.seismic_fill import thick_bottom
+
+        thick_bottom(t)  # 표 끝 굵은 선(10/22)
     # 조사 수량 — "금회 조사 수량 = N개소"(철근 표 앞의 수량 표: 두 번째 2×4)
     qty = [x for x in _tables(root) if (x.get("rowCnt"), x.get("colCnt")) == ("2", "4") and "금회조사수량" in rb._n(rb._cell_text(rb._cells(x).get((0, 3), x)))]
     if len(qty) >= 2:
@@ -400,14 +403,15 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
             warn.append("외주 한글에서 \"제3장\"을 못 찾아 끼워 넣지 않았습니다 — 파일을 확인해 주세요")
     else:
         warn.append(NO_FRONT)
-    changed = replace_globals(doc, d)
-    changed += fill_persons(root, d) + fill_result_ga(root, d) + fill_result_people(root, d) + fill_chapter1(root, d) + fill_field_summary(root, d)
-    changed += fill_rebar(root, d, warn)
-    if f.seismic_only or (r.survey or {}).get("seismic_field") or (r.survey or {}).get("seismic_docs"):  # 별개 건(10/21) — 현장조사 입력·서류 값
-        from server.sitok import seismic_fill
+    from server.sitok import seismic_fill
 
-        say("현장조사·서류 값 채우는 중…")
-        changed += seismic_fill.fill_all(doc, root, r, f, folder, d, warn, front_taken=front_taken, vendor_text=vendor_text)
+    with seismic_fill.borders_for(doc):  # 표 줄 지우기·복사 때 끝줄 굵은 선·맞닿는 선(10/22)
+        changed = replace_globals(doc, d)
+        changed += fill_persons(root, d) + fill_result_ga(root, d) + fill_result_people(root, d) + fill_chapter1(root, d) + fill_field_summary(root, d)
+        changed += fill_rebar(root, d, warn)
+        if f.seismic_only or (r.survey or {}).get("seismic_field") or (r.survey or {}).get("seismic_docs"):  # 별개 건(10/21) — 현장조사 입력·서류 값
+            say("현장조사·서류 값 채우는 중…")
+            changed += seismic_fill.fill_all(doc, root, r, f, folder, d, warn, front_taken=front_taken, vendor_text=vendor_text)
     ours = folder / f"{base}(1~2장).hwpx"
     doc.save(ours)
     hwpx = folder / f"{base}.hwpx"
@@ -424,8 +428,6 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     pdf = folder / f"{base}.pdf"
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
     if f.seismic_only:  # 목차 쪽 번호 — 첫 PDF로 세어 넣고 다시(10/22)
-        from server.sitok import seismic_fill
-
         if seismic_fill.fill_toc(hwpx, pdf):
             say("목차 쪽 번호 넣고 다시 PDF로…")
             pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
@@ -437,7 +439,8 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
 
         say("부록 채우는 중…")
         adoc = Hwpx(master.master_path("성능평가부록"))
-        SA.fill_appendix(adoc, d, r, f, folder, warn)
+        with seismic_fill.borders_for(adoc):
+            SA.fill_appendix(adoc, d, r, f, folder, warn)
         appx = folder / f"{base}_부록.hwpx"
         adoc.save(appx)
         say("부록 PDF·합본 만드는 중(2~4분)…")

@@ -1373,12 +1373,8 @@ def _first_report(db: Session, user: User, f: SitokFacility, rc: SitokContract) 
     from server.api.routers.sitok_reports import _new_report
 
     today = datetime.date.today()
-    if seasons.is_seismic_title(rc.title):  # 내진성능평가 계약(10/21) — 계약 해의 성능평가 회차(오늘 날짜와 상관없이)
-        year = (rc.start_date or today).year
-        if db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == year, SitokReport.half == seasons.SEISMIC).first():
-            return None
-        chief, parts = _default_people(db, user.company_id)
-        return _new_report(db, user.display_name or "", f, year, seasons.SEISMIC, contract_id=rc.id, chief_id=chief, participant_ids=parts, kind="성능평가").id
+    if seasons.is_seismic_title(rc.title):  # 내진성능평가 계약 — 시특법과 별개 용역(10/21 사용자), 건은 왼쪽 메뉴 내진성능평가에서 만듦 → 시특법 회차 안 만듦(10/22)
+        return None
     half = "상반기" if today.month <= 6 else "하반기"
     ss = sorted({r.get("half") for r in (rc.rounds or []) if r.get("year") == today.year and seasons.is_season(r.get("half"))}, key=seasons.order)
     if ss:  # 연 3회 계약(해빙기·우기·동절기, 10/16) — 오늘이 드는 시기, 지났으면 올해 다음 시기

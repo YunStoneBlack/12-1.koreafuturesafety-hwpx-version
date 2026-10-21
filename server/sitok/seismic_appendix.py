@@ -181,6 +181,18 @@ def assemble(db, main_pdf: Path, appx_hwpx: Path, dest: Path, r, f, rdir: Path, 
         p = _doc_pdf(r, rdir, key, cache / f"부록{n}.pdf")
         if p is not None:
             adds[n] = [p]
+    if 2 not in adds:  # 과업수행계획서를 안 올렸으면 자동으로(10/22)
+        try:
+            from server.contract_docs import attachments
+            from server.sitok import seismic_plan
+
+            hw = seismic_plan.build_plan(db, r, f, cache / "부록2_과업수행계획서.hwpx")
+            out = cache / "부록2.pdf"
+            out.write_bytes(attachments.to_pdf_bytes(hw.read_bytes(), hw.name))
+            adds[2] = [out]
+            warn.append("부록 2 과업수행계획서는 자동으로 만들었습니다(건 화면 서류 칸에서 받아 고칠 수 있음)")
+        except Exception as err:  # noqa: BLE001
+            warn.append(f"부록 2 과업수행계획서를 자동으로 못 만들었습니다: {str(err).splitlines()[0][:80]}")
     alb = _album(db, r, cache / "부록4_사진첩.pdf")
     if alb is not None:
         adds[4] = [alb]

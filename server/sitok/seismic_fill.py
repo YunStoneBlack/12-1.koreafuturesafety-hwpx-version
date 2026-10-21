@@ -9,6 +9,7 @@ seismic_build.build가 우리 1~2장 원본(견본 삼숭초 교사동)에 이�
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import io
 import re
@@ -59,6 +60,47 @@ def _set(cells: dict, rc: tuple, text) -> None:
 
 def _fmt(v, nd: int = 1) -> str:
     return f"{v:,.{nd}f}" if isinstance(v, (int, float)) else str(v or "")
+
+
+@contextlib.contextmanager
+def borders_for(doc):
+    """내진성능평가 한글(Hwpx) 채우는 동안 테두리 도구(report_build.using_borders) — 줄 지울 때 끝줄 굵은 선 옮기기·줄 복사 때 맞닿는 선 얇게(10/22).
+    끝나면 더한 테두리 모양을 doc.header에 붙임."""
+    from lxml import etree
+
+    from server.sitok.borders import Borders
+
+    b = Borders(etree.tostring(doc.header, encoding="unicode"))
+    with rb.using_borders(b):
+        yield b
+    if b.added or getattr(b, "chars_added", None):
+        doc.header = etree.fromstring(b.result(etree.tostring(doc.header, encoding="unicode")).encode("utf-8"))
+
+
+def thick_bottom(tbl) -> int:
+    """표 끝줄(아래로 끝까지 닿는 칸) 아래 선 = 머리줄 첫 칸의 위 선 모양(보통 굵은 선) — 다음 쪽으로 이어지던 견본 표를 틀로 쓴 표도 그 쪽에서 끝나면
+    굵게(10/22 사용자 "표 맨 아래 굵은선"). 테두리 도구(borders_for) 안에서만. 바꾼 칸 수."""
+    b = getattr(rb._TL, "borders", None)
+    trs = tbl.findall(f"{{{HP}}}tr")
+    if b is None or len(trs) < 2:
+        return 0
+    first = trs[0].find(f"{{{HP}}}tc")
+    d0 = b.by_id.get(str(first.get("borderFillIDRef"))) if first is not None else None
+    m = re.search(r"<hh:topBorder ([^>]*)/>", d0 or "")
+    if not m:
+        return 0
+    last, n = len(trs) - 1, 0
+    for (r, _c), tc in rb._cells(tbl).items():
+        if r + int(tc.find(f"{{{HP}}}cellSpan").get("rowSpan")) - 1 != last:
+            continue
+        d = b.by_id.get(str(tc.get("borderFillIDRef")))
+        if not d:
+            continue
+        new = re.sub(r"<hh:bottomBorder [^>]*/>", f"<hh:bottomBorder {m.group(1)}/>", d, count=1)
+        if new != d:
+            tc.set("borderFillIDRef", b.adopt(new))
+            n += 1
+    return n
 
 
 def replace_loose(doc, old: str, new: str) -> int:
@@ -174,6 +216,7 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
             for c, v in enumerate(vals):
                 if v is not None:
                     _set(cells, (header + j, c), v)
+        thick_bottom(t)
     for p, idx in slots[len(chunks):]:
         if p.getparent() is None:
             continue
@@ -835,9 +878,10 @@ def fill_defects(root, rows: list[list], member_tpl) -> int:
         root.remove(p)
     tp = copy.deepcopy(member_tpl)
     rb._new_ids(tp)
-    for x in tp.iter(f"{{{HP}}}t"):  # 부재 단면 표 틀에 붙은 "※ □ : 조사불가" 주석은 뺌
-        if next(x.iterancestors(f"{{{HP}}}tbl"), None) is None and "조사불가" in (x.text or ""):
-            x.text = ""
+    for x in tp.iter(f"{{{HP}}}t"):  # 부재 단면 표 틀 문단에 붙은 "※ □ : 조사불가" 주석(표 밖 글)은 다 뺌
+        if next(x.iterancestors(f"{{{HP}}}tbl"), None) is None:
+            for pc in rb._pieces(x):
+                pc.text = ""
     if note is not None:
         tops[i].addnext(note)
     tops[i].addnext(tp)
@@ -860,7 +904,7 @@ def plan_images(f, rdir: Path) -> list[tuple[str, Path]]:
     cache = rdir / "보고서그림"
     cache.mkdir(parents=True, exist_ok=True)
     k = 0
-    for it in D.items(f, "plan", _facility_dir(f)):
+    for it in D.items(f, "floorplan", _facility_dir(f)):  # 서류 칸 "층별 평면도"(키 floorplan — "plan"은 과업수행계획서)
         p = Path(it["path"])
         stem = Path(it.get("name") or p.name).stem
         if p.suffix.lower() == ".pdf":

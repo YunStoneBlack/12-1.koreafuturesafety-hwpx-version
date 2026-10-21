@@ -143,6 +143,39 @@ def read_register(pdf: Path) -> dict:
     return out
 
 
+REGISTER_PROMPT = """첨부한 PDF는 한국 건축물대장(일반건축물대장 갑·을 등, 스캔일 수 있음)입니다. 다음 값을 읽어 JSON 하나로만 답하세요(못 읽은 칸은 빈 글 또는 null):
+{"name": "명칭", "address": "도로명주소(괄호 동 이름 빼고)", "lot_address": "대지위치", "site_area": 대지면적 숫자, "total_area": 연면적 숫자, "building_area": 건축면적 숫자,
+ "structure": "주구조", "use": "주용도", "below": 지하 층수 숫자, "above": 지상 층수 숫자, "height": 높이 m 숫자, "roof": "지붕",
+ "permit_date": "허가일 YYYY-MM-DD", "start_date": "착공일 YYYY-MM-DD", "approval_date": "사용승인일 YYYY-MM-DD", "seismic_design": "적용 또는 비적용",
+ "floors": [{"kind": "주 또는 부", "floor": "지1·1층·옥탑1층처럼", "structure": "구조", "use": "용도", "area": 면적 숫자}],
+ "changes": [{"date": "YYYY-MM-DD", "text": "변동내용 및 원인"}]}"""
+
+
+def read_register_ai(pdf: Path, company_id: int) -> dict:
+    """글자 없는(스캔) 건축물대장 → read_register와 같은 모양(AI, 약 30원 — 건 화면 [🤖 AI로 읽기])."""
+    from server.sitok import reader
+
+    d = reader._ask(pdf, REGISTER_PROMPT, company_id)
+    num = lambda v: _num(str(v)) if v not in (None, "") else None  # noqa: E731
+    out = {"text_ok": True, "ai": True}
+    for k in ("name", "lot_address", "structure", "use", "roof"):
+        out[k] = str(d.get(k) or "").strip()
+    out["address"] = _addr(str(d.get("address") or ""))
+    for k in ("site_area", "total_area", "building_area", "height"):
+        out[k] = num(d.get(k))
+    for k in ("below", "above"):
+        v = num(d.get(k))
+        out[k] = int(v) if v is not None else (0 if k == "below" else None)
+    for k in ("permit_date", "start_date", "approval_date"):
+        out[k] = _date(str(d.get(k) or ""))
+    sd = str(d.get("seismic_design") or "").strip()
+    out["seismic_design"] = sd if sd in ("적용", "비적용") else ""
+    out["floors"] = [{"kind": str(x.get("kind") or "주"), "floor": str(x.get("floor") or ""), "structure": str(x.get("structure") or ""),
+                      "use": str(x.get("use") or ""), "area": num(x.get("area"))} for x in d.get("floors") or [] if isinstance(x, dict)]
+    out["changes"] = [{"date": _date(str(x.get("date") or "")), "text": str(x.get("text") or "").strip()} for x in d.get("changes") or [] if isinstance(x, dict) and x.get("text")]
+    return {k: v for k, v in out.items() if v not in (None, "") or k in ("floors", "changes", "below")}
+
+
 # ---------- 최소 조사 수량(과업지시서 <표 3-1>) ----------
 def min_counts(units: int, grade: str = "특등급", kinds: int = 2) -> dict:
     """조사단위(층) 수 → {member, rebar, core, boring, masonry} 최소 개소 — 부재 규격·철근배근 = 단위 × 부재 종별 × 3, 코어 = max(단위, 6),

@@ -32,7 +32,9 @@
     const files = d.items.map((it) => `<span class="sp-file"><a href="${url(it.id)}" target="_blank" rel="noopener">${esc(it.name)}</a>`
       + `${it.at ? `<em>${esc(String(it.at).slice(5, 16))}</em>` : ""}<button type="button" class="sp-x" data-del="${esc(it.id)}" title="지우기">✕</button></span>`).join("");
     const has = d.items.length > 0;
-    const extra = d.key === "schedule" ? `<a class="secondary-link" href="sitok-schedule.html?facility=${P.facility_id}&seis=1">📋 부재 목록</a>` : "";
+    const extra = d.key === "schedule" ? `<a class="secondary-link" href="sitok-schedule.html?facility=${P.facility_id}&seis=1">📋 부재 목록</a>`
+      : d.key === "plan" ? '<button type="button" class="secondary sp-act" data-act="plan/auto" title="견본 과업수행계획서에 용역명·기간·건물·위치도·일정·기술자를 채움">📝 자동으로 만들기</button>'
+        : d.key === "register" && has ? '<button type="button" class="secondary sp-act" data-act="register/ai" data-cost="1" title="글자 없는 스캔본일 때 — AI가 읽어 건물 정보에 넣음">🤖 AI로 읽기 <span class="sk-help">약 30원</span></button>' : "";
     const el = document.createElement("div");
     el.className = `sp-doc${has ? " on" : ""}`;
     el.innerHTML = `<div class="sp-doc-main">
@@ -60,6 +62,20 @@
         if (res.msg) { const n = [...document.querySelectorAll(".sp-doc")].find((x) => x.dataset.key === d.key)?.querySelector(".sp-doc-note"); if (n) { n.hidden = false; n.textContent = res.msg; } }
       } catch (e) { note.textContent = e.message; note.classList.add("bad"); }
     });
+    el.querySelectorAll(".sp-act").forEach((b) => b.addEventListener("click", async () => {
+      if (b.dataset.cost && !confirm("AI로 건축물대장을 읽습니다(약 30원). 지금 건물 정보 칸이 바뀝니다. 할까요?")) return;
+      const note = el.querySelector(".sp-doc-note");
+      note.hidden = false;
+      note.classList.remove("bad");
+      note.textContent = b.dataset.cost ? "AI가 읽는 중…(20~40초)" : "만드는 중…";
+      b.disabled = true;
+      try {
+        const res = await apiPost(`/seismic/projects/${id}/docs/${b.dataset.act}`);
+        draw(res);
+        const n = [...document.querySelectorAll(".sp-doc")].find((x) => x.dataset.key === d.key)?.querySelector(".sp-doc-note");
+        if (n && res.msg) { n.hidden = false; n.textContent = res.msg; }
+      } catch (e) { note.textContent = e.message; note.classList.add("bad"); b.disabled = false; }
+    }));
     el.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
       if (!confirm(`${d.label}을(를) 지울까요?`)) return;
       try { draw(await api(`/seismic/projects/${id}/docs/${d.key}${b.dataset.del ? `?item=${encodeURIComponent(b.dataset.del)}` : ""}`, { method: "DELETE" })); } catch (e) { err(e); }

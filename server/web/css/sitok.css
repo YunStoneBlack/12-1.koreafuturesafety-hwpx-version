@@ -861,6 +861,7 @@ div.sf-miss-it { cursor: default; }
 .sp-doc-btns { display: flex; gap: 6px; align-items: center; flex: none; }
 .main label.sp-up { margin: 0; cursor: pointer; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .main label.sp-up:hover { border-color: var(--blue); background: var(--blue-soft); }
+.main .sp-doc-btns button.sp-act { margin: 0; padding: 8px 12px; font-size: 13px; white-space: nowrap; }
 .sp-sentence { padding: 10px 12px; border-radius: 10px; background: var(--paper); font-size: 13.5px; margin-bottom: 12px; }
 .sp-g-map figure, .sp-g-res { margin: 0 0 12px; }
 .sp-g-map img { max-width: 520px; width: 100%; border-radius: 8px; border: 1px solid var(--line); }

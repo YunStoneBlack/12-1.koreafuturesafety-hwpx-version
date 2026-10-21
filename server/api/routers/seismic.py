@@ -41,7 +41,7 @@ DOCS = [
     ("plan", "과업수행계획서", (".hwp", ".hwpx", ".pdf"), "부록 2"),
     ("schedule", "구조 일람표", (".pdf", ".png", ".jpg", ".jpeg"), "철근탐사 설계값(📏 부재 목록)"),
     ("struct", "구조도면", (".pdf", ".png", ".jpg", ".jpeg"), "부록 9"),
-    ("plan", "층별 평면도", (".pdf", ".png", ".jpg", ".jpeg"), "1.2 건물규모 평면도 — 파일 이름에 층(예: 지상1층.png), PDF는 쪽마다 지상 1층부터"),
+    ("floorplan", "층별 평면도", (".pdf", ".png", ".jpg", ".jpeg"), "1.2 건물규모 평면도 — 파일 이름에 층(예: 지상1층.png), PDF는 쪽마다 지상 1층부터"),
     ("core", "압축강도 시험성적서", (".pdf", ".png", ".jpg", ".jpeg"), "2.2.3 콘크리트 압축강도 · 부록 5"),
     ("ground", "지반조사보고서", (".pdf",), "2.5 지반 및 기초(값·위치도·사진·결과 표) · 부록 3"),
     ("vendor", "외주 결과물 한글", (".hwp", ".hwpx"), "결과표 나~마·확인서·체크리스트·3~7장"),
@@ -50,7 +50,7 @@ DOCS = [
     ("estimate", "보강공사 내역서", (".pdf", ".xlsx", ".xls"), "부록 8"),
 ]
 DOC = {k: (label, exts, fills) for k, label, exts, fills in DOCS}
-MULTI = ("schedule", "struct", "plan")  # 시설물 도면 칸(drawings) — 여러 장
+MULTI = ("schedule", "struct", "floorplan")  # 시설물 도면 칸(drawings) — 여러 장
 CONTRACT_KEYS = ("title", "client", "amount", "contract_no", "contract_date", "start_date", "end_date", "days", "method", "joint", "manager", "phone")
 DATE_KEYS = ("contract_date", "start_date", "end_date", "permit_date", "approval_date", "build_start")
 
@@ -712,3 +712,46 @@ def make_summary(rid: int, mode: str, user: User = Depends(get_current_user), db
     _put(r, seismic_field=sf)
     db.commit()
     return _field_out(db, f, r) | {"made": mode}
+
+
+# ---------- 과업수행계획서 자동(10/22) · 스캔 건축물대장 AI 읽기(10/22) ----------
+@router.post("/projects/{rid}/docs/plan/auto")
+def auto_plan(rid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """견본 과업수행계획서에 용역명·기간·건물·위치도·일정·기술자를 채워 서류 칸 "과업수행계획서"로 둠(내려받아 고치고 다시 올려도 됨)."""
+    from server.sitok import seismic_plan
+
+    f, r = _require(db, user, rid)
+    _, rdir = _dirs(f, r)
+    for old in (rdir / "서류").glob("과업수행계획서.*") if (rdir / "서류").exists() else []:
+        old.unlink(missing_ok=True)
+    try:
+        seismic_plan.build_plan(db, r, f, rdir / "서류" / "과업수행계획서.hwpx")
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    docs = dict(_sv(r).get("seismic_docs") or {})
+    docs["plan"] = {"rel": "서류/과업수행계획서.hwpx", "name": f"{f.name}_과업수행계획서(자동).hwpx", "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "by": user.display_name or "", "note": "자동으로 만들었습니다 — 받아서 고치고 다시 올려도 됩니다"}
+    _put(r, seismic_docs=docs)
+    db.commit()
+    return _project_out(db, f, r) | {"msg": "과업수행계획서를 자동으로 만들었습니다"}
+
+
+@router.post("/projects/{rid}/docs/register/ai")
+def register_ai(rid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """올린 건축물대장을 AI로 읽어 건물 정보에 넣음(글자 없는 스캔본용, 약 30원)."""
+    f, r = _require(db, user, rid)
+    fdir, rdir = _dirs(f, r)
+    d = (_sv(r).get("seismic_docs") or {}).get("register") or {}
+    if not d.get("rel") or not (rdir / d["rel"]).exists():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "먼저 건축물대장을 올려 주세요.")
+    try:
+        reg = SD.read_register_ai(rdir / d["rel"], user.company_id)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"건축물대장을 못 읽었습니다: {str(err).splitlines()[0][:120]}") from err
+    _apply_building(f, _register_to_building(reg))
+    _rename(db, f, r, fdir)
+    docs = dict(_sv(r).get("seismic_docs") or {})
+    docs["register"] = {**d, "note": "AI로 읽었습니다 — 건물 정보에서 확인해 주세요"}
+    _put(r, seismic_docs=docs)
+    db.commit()
+    return _project_out(db, f, r) | {"msg": "AI로 읽었습니다 — 건물 정보에서 확인해 주세요"}

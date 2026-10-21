@@ -1636,16 +1636,34 @@ def _dup_rows(tbl, start: int, count: int, times: int, clear_cols: set | None = 
 
 
 def _del_rows(tbl, start: int, count: int) -> None:
-    """start줄부터 count줄을 지움(가운데 줄도) — 뒤 줄 주소·줄 수·표 높이 같이(결과표 남는 기술자 줄, 10/14)."""
+    """start줄부터 count줄을 지움(가운데 줄도) — 뒤 줄 주소·줄 수·표 높이 같이(결과표 남는 기술자 줄, 10/14).
+    끝줄까지 지우면 새 끝줄에 원래 끝줄의 아래 선(보통 굵은 선)을 옮김(10/22 사용자 "표 맨 아래 굵은선이 자꾸 안 됨")."""
     trs = tbl.findall(f"{{{HP}}}tr")
     block = trs[start:start + count]
     if not block:
         return
+    to_end = start + len(block) >= len(trs) and start > 0
+    end_bf = {int(tc.find(f"{{{HP}}}cellAddr").get("colAddr")): tc.get("borderFillIDRef") for tc in trs[-1].findall(f"{{{HP}}}tc")} if to_end else {}
     h = sum(_row_height(tr) for tr in block)
     _span_over(tbl, start, start + len(block) - 1, -len(block))
     for tr in block:
         tbl.remove(tr)
     _shift_rows(tbl, start + count, -len(block), -h)
+    if to_end and end_bf:
+        _bottom_from(tbl.findall(f"{{{HP}}}tr")[start - 1], end_bf)
+
+
+def _bottom_from(tr, end_bf: dict) -> None:
+    """tr(새 끝줄) 칸마다 아래 선 = 원래 끝줄 같은 열(없으면 가까운 열) 칸의 아래 선. 테두리 도구가 없으면 그 칸 모양째."""
+    b = getattr(_TL, "borders", None)
+    for tc in tr.findall(f"{{{HP}}}tc"):
+        c = int(tc.find(f"{{{HP}}}cellAddr").get("colAddr"))
+        src = end_bf.get(c) or end_bf[min(end_bf, key=lambda k: abs(k - c))]
+        if not src or src == tc.get("borderFillIDRef"):
+            continue
+        new = b.side_from(tc.get("borderFillIDRef"), "bottom", src) if b is not None else src
+        if new:
+            tc.set("borderFillIDRef", new)
 
 
 def engineer_rows(root, persons: list[tuple[str, str]]) -> int:

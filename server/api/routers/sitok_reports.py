@@ -292,6 +292,8 @@ def _group_reports(db: Session, r: SitokReport, by: str = "") -> list[tuple[Sito
 def create_report(facility_id: int, body: ReportIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     f = _require_facility(db, user, facility_id)
     if body.kind == "성능평가" or seasons.is_seismic(body.half):  # 내진성능평가 — 반기 칸·종류 둘 다 "성능평가"(같은 해 정기 회차와 따로)
+        if not f.seismic_only:  # 별개 용역(10/22) — 시특법 시설물에는 안 만듦
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "내진성능평가는 왼쪽 메뉴 보고서 자동화 › 내진성능평가에서 용역계약서·건축물대장으로 만드세요.")
         body.half, body.kind = seasons.SEISMIC, "성능평가"
     if not body.year or body.half not in HALVES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "연도와 반기를 고르세요.")
