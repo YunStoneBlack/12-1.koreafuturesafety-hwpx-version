@@ -59,6 +59,19 @@ def _overlaps(c: SitokDocContract, year: int, half: str) -> bool:
     return c.start_date <= b and end >= a
 
 
+def _overlap_days(c: SitokDocContract, year: int, half: str) -> int:
+    """이 반기와 겹치는 날 수(상자 계약 기본값 고르기) — 민간 회차 줄 계약은 반기 전체로 봄.
+    10/21 관급-30: 상반기 계약(4/13~7/11)이 하반기와 11일 겹쳐 하반기 상자 기본값이 상반기 계약(시작이 이른 것)이 됐던 것."""
+    if not _overlaps(c, year, half):
+        return 0
+    hb = seasons.bucket(half)
+    a, b = (datetime.date(year, 1, 1), datetime.date(year, 6, 30)) if hb == "상반기" else (datetime.date(year, 7, 1), datetime.date(year, 12, 31))
+    if c.rounds or c.start_date is None:
+        return (b - a).days + 1
+    end = c.end_date or (b if c.open_ended else c.start_date)
+    return (min(b, end) - max(a, c.start_date)).days + 1
+
+
 def _contracts(db: Session, ids: set[int], year: int, half: str) -> list[SitokDocContract]:
     from server.api.routers.sitok_docs import covered_ids
 
@@ -89,8 +102,9 @@ def get_compose(facility_id: int, year: int | None = None, half: str | None = No
     reps = {r.facility_id: r for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(ids), SitokReport.year == year,
                                                                    SitokReport.half.in_(seasons.in_bucket(half)))}
 
-    def con_of(book: list[SitokFacility]) -> int | None:
-        return next((c.id for c in cons if set(covered_ids(c)) & {x.id for x in book}), None)
+    def con_of(book: list[SitokFacility]) -> int | None:  # 이 상자 건물을 맡는 계약 중 반기와 가장 많이 겹치는 것(같으면 늦게 시작한 것)
+        mine = [c for c in cons if set(covered_ids(c)) & {x.id for x in book}]
+        return max(mine, key=lambda c: (_overlap_days(c, year, half), c.start_date or datetime.date.min, c.id)).id if mine else None
 
     suggest = None
     if len(cons) >= 2:  # 추천 — 계약마다 건명·내역서에 나오는 건물, 겹치지 않고 다 들어가면

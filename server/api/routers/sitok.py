@@ -442,14 +442,16 @@ def contract_for(db: Session, f: SitokFacility, year: int, half: str) -> SitokCo
 
 
 def attach_contract(db: Session, c: SitokContract) -> int:
-    """계약을 추가·고친 뒤 — 이 동(묶인 동 포함) 회차 중 계약 없이 만든 것을 이 계약이 덮으면 붙임. 이미 계약이 있는 회차는 그대로. 붙인 수."""
+    """계약을 추가·고친 뒤 — 이 동(묶인 동 포함) 회차 중 계약 없이 만든 것을 이 계약이 덮으면 붙임. 이미 계약이 있는 회차는 그대로. 붙인 수.
+    붙이는 건 그 반기에 맞는 계약(contract_for — 늦게 시작한 것): 계약 둘을 잇달아 넣을 때 상반기 계약(~7/11)이 하반기 회차를 먼저 가져가지 않게(10/21 관급-30)."""
     from core.models_web import SitokReport
 
     f = db.get(SitokFacility, c.facility_id)
     n = 0
     for r in db.query(SitokReport).filter(SitokReport.facility_id.in_(_family(db, f)), SitokReport.contract_id.is_(None)).all():
         if covers(c, r.year, r.half):
-            r.contract_id = c.id
+            best = contract_for(db, db.get(SitokFacility, r.facility_id), r.year, r.half)
+            r.contract_id = (best or c).id
             n += 1
     return n
 
