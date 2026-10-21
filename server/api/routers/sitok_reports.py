@@ -46,8 +46,8 @@ from server.sitok import prev_pdf, seasons, steps
 
 router = APIRouter(prefix="/sitok", tags=["sitok"])
 
-HALVES = seasons.ALL  # 상반기·하반기 + 연 3회 해빙기·우기·동절기(10/16 — D·E등급)
-KINDS = ("정기", "정밀")  # 회차 종류(안전점검) — 계약서 그 반기 줄에서 자동, 틀리면 직접(민재형 10/13)
+HALVES = seasons.ALL + (seasons.SEISMIC,)  # 상반기·하반기 + 연 3회 해빙기·우기·동절기(10/16 — D·E등급) + 내진성능평가(10/21)
+KINDS = ("정기", "정밀", "성능평가")  # 회차 종류 — 정기·정밀은 계약서 그 반기 줄에서 자동, 틀리면 직접(민재형 10/13). 성능평가 = 반기 칸도 "성능평가"(10/21)
 PDF_WAIT = 1200  # 한글 PDF 대기(초) — 135쪽 보고서 + 앞에 산안법 보고서 작업이 있을 수도
 
 
@@ -170,6 +170,7 @@ def _order(r: SitokReport) -> tuple:
 def _previous(db: Session, r: SitokReport) -> SitokReport | None:
     """이 회차보다 앞선 회차 중 만든 한글이 있는 가장 최근 것."""
     rows = db.query(SitokReport).filter(SitokReport.facility_id == r.facility_id, SitokReport.id != r.id).all()
+    rows = [x for x in rows if seasons.is_seismic(x.half) == seasons.is_seismic(r.half)]  # 성능평가 ↔ 정기·정밀은 서로 전회차가 아님(10/21)
     done = [x for x in rows if _order(x) < _order(r) and _data_hwpx(x) and Path(_data_hwpx(x)).exists()]
     return max(done, key=_order) if done else None
 
@@ -274,10 +275,12 @@ def _group_reports(db: Session, r: SitokReport, by: str = "") -> list[tuple[Sito
 @router.post("/facilities/{facility_id}/reports")
 def create_report(facility_id: int, body: ReportIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     f = _require_facility(db, user, facility_id)
+    if body.kind == "성능평가" or seasons.is_seismic(body.half):  # 내진성능평가 — 반기 칸·종류 둘 다 "성능평가"(같은 해 정기 회차와 따로)
+        body.half, body.kind = seasons.SEISMIC, "성능평가"
     if not body.year or body.half not in HALVES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "연도와 반기를 고르세요.")
     if db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.year == body.year, SitokReport.half == body.half).first():
-        raise HTTPException(status.HTTP_409_CONFLICT, f"{body.year}년 {body.half} 보고서가 이미 있습니다.")
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{body.year}년 {'내진성능평가' if seasons.is_seismic(body.half) else body.half} 회차가 이미 있습니다.")
     vals = body.model_dump(exclude_unset=True, exclude={"year", "half"})
     if "contract_id" not in vals:  # 안 보내면 그 반기를 덮는 계약(10/13), null을 보내면 "계약 없이"
         c = contract_for(db, f, body.year, body.half)
@@ -302,6 +305,8 @@ def update_report(report_id: int, body: ReportIn, user: User = Depends(get_curre
         data["amount_k"] = (data["amount_k"] or "").strip()
     if "kind" in data and data["kind"] not in KINDS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회차 종류는 정기·정밀입니다.")
+    if "kind" in data and (data["kind"] == "성능평가") != seasons.is_seismic(r.half):  # 반기 칸과 짝 — 성능평가 ↔ 정기·정밀은 새 회차로
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "내진성능평가 회차와 정기·정밀 회차는 서로 바꿀 수 없습니다 — 새 회차를 만드세요.")
     for k, v in data.items():
         setattr(r, k, v)
     shared = {k: v for k, v in data.items() if k in SHARED}

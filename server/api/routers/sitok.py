@@ -244,6 +244,8 @@ def kind_known(db: Session, c: SitokContract | None, year: int, half: str) -> st
 
     if c is None:
         return None
+    if seasons.is_seismic_title(c.title):  # 내진성능평가 계약(10/21)
+        return "성능평가"
     rounds = c.rounds or []
     unit = next((r for r in rounds if r.get("open_ended")), None)
     k = civil.kind_for(rounds, unit, unit is not None, year, half)
@@ -415,7 +417,10 @@ def half_range(year: int, half: str) -> tuple[datetime.date, datetime.date]:
 
 
 def covers(c: SitokContract, year: int, half: str) -> bool:
-    """계약이 그 반기를 덮는지 — 계약기간이 반기와 겹치고, 반기 하나 계약(halves 상반기/하반기)이면 그 반기만. 끝 날짜가 없으면 계속."""
+    """계약이 그 반기를 덮는지 — 계약기간이 반기와 겹치고, 반기 하나 계약(halves 상반기/하반기)이면 그 반기만. 끝 날짜가 없으면 계속.
+    내진성능평가(10/21): 성능평가 회차는 건명에 "성능평가"가 있는 계약만, 정기·정밀 회차는 그런 계약을 안 씀(같은 기간이어도)."""
+    if seasons.is_seismic_title(c.title) != seasons.is_seismic(half):
+        return False
     if c.halves in ("상반기", "하반기") and c.halves != seasons.bucket(half):
         return False
     if c.start_date is None:

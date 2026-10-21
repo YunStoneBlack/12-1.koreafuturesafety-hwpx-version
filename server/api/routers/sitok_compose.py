@@ -49,6 +49,8 @@ def _books_now(db: Session, f: SitokFacility) -> list[list[SitokFacility]]:
 
 def _overlaps(c: SitokDocContract, year: int, half: str) -> bool:
     """이 계약이 이 반기를 덮나 — 민간은 회차 줄(또는 끝 없는 계약), 관급·그 밖은 용역 기간."""
+    if seasons.is_seismic_title(c.title) != seasons.is_seismic(half):  # 내진성능평가 계약은 성능평가 회차에만(10/21 — 정기 보고서 구성·제출 현황에 안 섞임)
+        return False
     hb = seasons.bucket(half)
     if c.rounds:
         return any(int(r.get("year") or 0) == year and seasons.bucket(r.get("half") or "") == hb for r in c.rounds)

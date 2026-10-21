@@ -42,6 +42,7 @@ from server.api.routers import (
     sitok_split,
     sitok_survey_only,
     sitok_rebar,
+    sitok_seismic,
     sitok_cycle,
     sitok_prev,
     sitok_overview,
@@ -135,6 +136,7 @@ web_app.include_router(sitok_good.router, prefix="/api")  # 시특법 현장 조
 web_app.include_router(sitok_split.router, prefix="/api")  # 시특법 분권 — 묶음과 같은 내용으로 일부 동만 따로 묶은 책(성과품만, 민재형 2026-10-19)
 web_app.include_router(sitok_survey_only.router, prefix="/api")  # 결함조사만 — 보고서 틀이 없는 시설물도 현장 결함조사·결함현황표·사진첩(사용자 2026-10-21)
 web_app.include_router(sitok_rebar.router, prefix="/api")  # 구조 일람표 부재 목록 — 내진성능평가 철근탐사 설계값(AI 읽기 + 사람 확인, 2026-10-21)
+web_app.include_router(sitok_seismic.router, prefix="/api")  # 내진성능평가 현장시험 — 철근탐사(설계값 일람표·캡처 읽기·표, 2026-10-21)
 web_app.include_router(sitok_cycle.router, prefix="/api")  # 시특법 정밀안전점검·정밀안전진단 도래주기 — 계약 창 회차 줄(민재형 2026-10-20, 시행령 별표 3)
 web_app.include_router(sitok_overview.router, prefix="/api")  # 시특법 전경사진(10·11쪽)
 web_app.include_router(sitok_groups.router, prefix="/api")  # 시특법 동 묶음(한 계약 여러 동 — 2026-10-12)
