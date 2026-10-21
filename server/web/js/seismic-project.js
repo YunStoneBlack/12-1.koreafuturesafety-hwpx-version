@@ -218,8 +218,9 @@
       : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`
         : r.status === "done" ? `<div class="sp-made">✓ ${esc(r.made_at)} 만듦</div>${lines.length ? `<div class="sp-warn">${lines.map(esc).join("<br>")}</div>` : ""}` : '<span class="sk-rep-st">아직 안 만듦</span>';
     $("sp-report").innerHTML = `<div class="sp-rep">${st}</div><div class="sp-rep-btns">
-      ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${id}/file/pdf?v=${v}" target="_blank" rel="noopener">PDF 보기</a>` : ""}
-      ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${id}/file/hwpx?v=${v}">한글 받기</a>` : ""}
+      ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${id}/file/pdf?v=${v}" target="_blank" rel="noopener">${r.has_appendix ? "합본 PDF" : "PDF 보기"}</a>` : ""}
+      ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${id}/file/hwpx?v=${v}">본문 한글</a>` : ""}
+      ${r.has_appendix ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${id}/file/appendix?v=${v}">부록 한글</a>` : ""}
       <button type="button" id="sp-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : "보고서 만들기"}</button></div>`;
     $("sp-build").addEventListener("click", async () => {
       try { await apiPost(`/sitok/reports/${id}/build`); poll(); } catch (e) { err(e); }

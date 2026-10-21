@@ -146,36 +146,42 @@ def _resize_flat(tbl, header: int, want: int) -> None:
 
 
 def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, flat: bool) -> int:
-    """견본 표들(같은 모양)에 rows를 per줄씩 — 표가 모자라면 마지막 표 문단을 복사(쪽 나눔), 남는 견본 표 문단은 지움. 넣은 줄 수."""
+    """견본 표들(같은 모양)에 rows를 per줄씩 — 표가 모자라면 마지막 표 문단을 복사(쪽 나눔), 남는 견본 표는 지움. 넣은 줄 수.
+    표는 문단 안 몇 번째 표인지로 집음(부록은 사진 머리 표와 값 표가 한 문단에 같이 있음, 10/22)."""
     if not tables:
         return 0
-    paras = []
+    slots = []
     for t in tables:
         p = _top_p(t)
-        if p not in paras:
-            paras.append(p)
-    tpl = copy.deepcopy(paras[0])
+        slots.append((p, _outer(p).index(t)))
+    tpl_p, tpl_idx = slots[-1]
+    tpl = copy.deepcopy(tpl_p)
     chunks = [rows[i:i + per] for i in range(0, len(rows), per)] or [[]]
     used = []
     for k, chunk in enumerate(chunks):
-        if k < len(paras):
-            p = paras[k]
+        if k < len(slots):
+            p, idx = slots[k]
         else:
-            p = copy.deepcopy(tpl)
+            p, idx = copy.deepcopy(tpl), tpl_idx
             rb._new_ids(p)
             used[-1].addnext(p)
             p.set("pageBreak", "1")
         used.append(p)
-        t = _outer(p)[0]
+        t = _outer(p)[idx]
         (_resize_flat if flat else _resize_tail)(t, header, len(chunk))
         cells = rb._cells(t)
         for j, vals in enumerate(chunk):
             for c, v in enumerate(vals):
                 if v is not None:
                     _set(cells, (header + j, c), v)
-    for p in paras[len(chunks):]:
-        if p.getparent() is not None:
+    for p, idx in slots[len(chunks):]:
+        if p.getparent() is None:
+            continue
+        if len(_outer(p)) <= 1:
             p.getparent().remove(p)
+        else:  # 다른 표(사진 머리 등)와 같은 문단이면 그 표만
+            t = _outer(p)[idx]
+            t.getparent().remove(t)
     return len(rows)
 
 
@@ -368,7 +374,7 @@ def fill_cores(doc, root, field: dict, rdir: Path, core_doc: dict | None, warn: 
         decided = round(mm - 1.34 * ss if (ss / mm if mm else 0) <= 0.2 else 0.75 * (mm - ss), 1)  # 2.2.4 본문 규칙: s/m ≤ 0.2면 m−1.34s, 넘으면 0.75(m−s)
         vals = {"m": f"{mm:.1f}", "s": f"{ss:.1f}", "s/m": f"{(ss / mm if mm else 0):.2f}", "m-1.34s": f"{mm - 1.34 * ss:.1f}",
                 "0.75(m-s)": f"{0.75 * (mm - ss):.1f}", "0.75m": f"{0.75 * mm:.1f}", "설계기준강도": f"{decided:.1f}", "평균강도": f"{mm:.1f}"}
-        t = next((t for t in _outer(root) if _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "압축강도(MPa)"
+        t = next((t for t in _tables(root) if _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "압축강도(MPa)"  # 부록은 다른 표 안에 들어 있음
                   and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "구분"), None)
         if t is not None:
             cells = rb._cells(t)

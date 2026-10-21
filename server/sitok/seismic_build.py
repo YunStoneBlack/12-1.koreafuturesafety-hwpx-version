@@ -422,7 +422,22 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
     with pymupdf.open(pdf) as x:
         pages = x.page_count
-    warn.insert(0, f"{pages}쪽")
+    head = f"{pages}쪽"
+    if f.seismic_only and master.master_path("성능평가부록").exists():  # 별개 건(10/21) — 부록 채우고 서류 PDF 끼워 합본
+        from server.sitok import seismic_appendix as SA
+
+        say("부록 채우는 중…")
+        adoc = Hwpx(master.master_path("성능평가부록"))
+        SA.fill_appendix(adoc, d, r, f, folder, warn)
+        appx = folder / f"{base}_부록.hwpx"
+        adoc.save(appx)
+        say("부록 PDF·합본 만드는 중(2~4분)…")
+        _, merged = SA.assemble(db, pdf, appx, folder / f"{base}_합본.pdf", r, f, folder, warn)
+        r.survey = {**(r.survey or {}), "appendix_hwpx": str(appx)}
+        with pymupdf.open(merged) as x:
+            head = f"본문 {pages}쪽 · 합본 {x.page_count}쪽"
+        pdf = merged
+    warn.insert(0, head)
     warn += STILL_SAMPLE
     return hwpx, pdf, warn, changed
 
