@@ -59,7 +59,7 @@
     $("ss-fac-link").textContent = r.facility_name;
     $("ss-fac-link").href = `sitok-facility.html?id=${r.facility_id}`;
     $("ss-round-link").textContent = r.half === "성능평가" ? `${r.year}년 내진성능평가` : `${r.year}년 ${r.half}`;
-    $("ss-round-link").href = `sitok-round.html?report=${rid}`;
+    $("ss-round-link").href = `sitok-round.html?report=${rid}&one=1&seis=1`;
     document.title = `현장시험 - ${r.facility_name}`;
     $("ss-count").textContent = d.rows.length ? `${d.rows.length}개소` : "";
     const s = d.schedule;

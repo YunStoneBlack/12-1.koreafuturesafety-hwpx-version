@@ -6,6 +6,7 @@
 - `POST  /sitok/reports/{id}/seismic/rebar/{row}/capture/{line}` — 탐사기 화면 캡처 → 조사값·피복(server/sitok/rebar_capture, AI 약 10원)
 - `GET   /sitok/reports/{id}/seismic/rebar/{row}/capture/{line}` — 올린 캡처
 - `GET   /sitok/reports/{id}/seismic/rebar.xlsx` — 철근배근 상태조사 표(본문 2.2.2 = 부록, 같은 표)
+- `GET   /sitok/seismic/list` — 왼쪽 메뉴 "내진성능평가" 화면(seismic.html, 10/21 사용자 "보고서 자동화 탭에 따로") — 회사 성능평가 회차 전부 + 새로 만들 시설물 목록
 화면 sitok-seismic.html(js/sitok-seismic.js). 값은 회차 survey["rebar"](재료시험 tests는 저장 때 모르는 칸을 지워서 따로).
 """
 from __future__ import annotations
@@ -63,6 +64,31 @@ def _out(db: Session, r: SitokReport) -> dict:
                          "items": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"], "range": RS.floor_range(x["floors"]),
                                     "position": x.get("position") or "", "confirmed": x["confirmed"], "check_ok": x["check"]["ok"]} for x in sv["items"]]},
             "lines": RV.LINES, "rows": rows, "counts": RV.counts(data["rows"], floors)}
+
+
+@router.get("/seismic/list")
+def seismic_list(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """성능평가 회차(연도 최근 순) + 만들기 칸 시설물(결함조사만 빼고, 이름 순 — 이미 성능평가가 있는 해 표시)."""
+    import datetime
+
+    from core.models_web import SitokContract
+    from server.api.routers.sitok_reports import _out as report_out
+    from server.sitok import seasons
+
+    rows = (db.query(SitokReport, SitokFacility).join(SitokFacility, SitokFacility.id == SitokReport.facility_id)
+            .filter(SitokFacility.company_id == user.company_id, SitokReport.half == seasons.SEISMIC)
+            .order_by(SitokReport.year.desc(), SitokReport.id.desc()).all())
+    cids = {r.contract_id for r, _ in rows if r.contract_id}
+    titles = {c.id: c.title or "" for c in db.query(SitokContract).filter(SitokContract.id.in_(cids))} if cids else {}
+    years: dict[int, list[int]] = {}
+    for r, f in rows:
+        years.setdefault(f.id, []).append(r.year)
+    facs = (db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id, SitokFacility.survey_only.is_(False))
+            .order_by(SitokFacility.name).all())
+    return {"year": datetime.date.today().year,
+            "reports": [report_out(r) | {"facility_id": f.id, "facility_name": f.name, "address": f.address or "",
+                                         "contract_title": titles.get(r.contract_id, "")} for r, f in rows],
+            "facilities": [{"id": f.id, "name": f.name, "address": f.address or "", "years": sorted(years.get(f.id, []))} for f in facs]}
 
 
 @router.get("/reports/{report_id}/seismic")

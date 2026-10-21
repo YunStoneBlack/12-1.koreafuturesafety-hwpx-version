@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>내진성능평가 - 보고서 자동화</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+</head>
+<!-- 내진성능평가(2026-10-21 사용자 "내진성능평가도 보고서 자동화 탭에 따로 빼 줘") — 왼쪽 메뉴 보고서 자동화 아래 시특법 다음 줄.
+     회사 성능평가 회차 전부(연도 최근 순) + [＋ 새 내진성능평가](시설물·연도 → 회차 화면). 회차·현장 조사·현장시험 화면도 이 메뉴 줄을 켬(shell.js setReportSection·?seis=1).
+     서버 GET /sitok/seismic/list(server/api/routers/sitok_seismic.py), 회차 만들기는 시특법과 같은 POST /sitok/facilities/{id}/reports {kind: "성능평가"}. 화면 js/seismic.js -->
+<body data-report-tab="seismic" data-law="sitok">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>＋ 새 내진성능평가</h2><span class="panel-count">시특법에 등록한 시설물에서 고릅니다 — 계약은 건명에 "성능평가"가 든 것을 저절로 붙임</span></div>
+  <div class="panel-body">
+    <div class="field-grid ds-form">
+      <div class="sk-f ds-wide"><label for="sv-q">시설물 <span class="sk-help">이름·주소 몇 글자로 찾기</span></label>
+        <input id="sv-q" placeholder="예: 삼숭초, 덕산초 본관" autocomplete="off" /></div>
+      <div class="sk-f ds-wide"><label for="sv-fac">고르기</label><select id="sv-fac"></select></div>
+      <div class="sk-f"><label for="sv-year">연도</label><select id="sv-year"></select></div>
+    </div>
+    <div class="mail-msg" id="sv-msg" hidden></div>
+    <div class="ds-foot sv-foot"><a class="secondary-link" href="sitok-new.html">시설물이 없으면 시특법 › 시설물 등록</a><button type="button" id="sv-create">만들고 회차 열기</button></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>내진성능평가 목록</h2><span class="panel-count" id="sv-count"></span></div>
+  <div class="panel-body" id="sv-list"></div>
+</section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/seismic.js"></script>
+</body>
+</html>

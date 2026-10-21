@@ -61,6 +61,7 @@
     document.title = `${r.facility_name} ${title()} - 시특법`;
     $("rd-fac-link").textContent = r.facility_name;
     $("rd-fac-link").href = `sitok-facility.html?id=${r.facility_id}`;
+    if (r.half === "성능평가" && window.setReportSection) window.setReportSection("seismic"); // 내진성능평가 회차 = 왼쪽 메뉴 내진성능평가 줄(10/21)
     $("rd-crumb").textContent = title();
     const dongs = !r.past && !one && kind !== "성능평가" && (r.group_rounds || []).length > 1 ? r.group_rounds : null; // 내진성능평가는 건물마다 따로(10/21)
     const seis = kind === "성능평가";
@@ -85,8 +86,8 @@
       // 현장 점검
       const sm = r.seismic || {};
       $("rd-field").innerHTML = r.past ? '<div class="empty-note">이미 낸 보고서를 등록한 회차라 현장 점검은 없습니다.</div>'
-        : seis ? big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, (r.field || {}).defects ? fieldSub(kind) : "결함조사 — 외관조사망도·사진첩") // 내진성능평가(10/21)
-          + big(`sitok-schedule.html?facility=${r.facility_id}`, "📏", "구조 일람표 부재 목록", sm.schedule > 0 && !sm.schedule_need,
+        : seis ? big(`sitok-field.html?report=${r.id}&seis=1`, "📱", "현장 조사", r.has_field, (r.field || {}).defects ? fieldSub(kind) : "결함조사 — 외관조사망도·사진첩") // 내진성능평가(10/21)
+          + big(`sitok-schedule.html?facility=${r.facility_id}&seis=1`, "📏", "구조 일람표 부재 목록", sm.schedule > 0 && !sm.schedule_need,
             sm.schedule ? `${sm.schedule}칸${sm.schedule_need ? ` · 확인 필요 ${sm.schedule_need}칸` : " · 모두 확인"}` : "일람표를 AI로 읽어 설계값 — 철근탐사 전에")
           + big(`sitok-seismic.html?report=${r.id}`, "🧪", "현장시험(철근탐사)", sm.rebar > 0, sm.rebar ? `철근탐사 ${sm.rebar}개소` : "층·부호만 고르면 설계값, 탐사기 캡처로 조사값")
         : big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, fieldSub(kind))
@@ -178,7 +179,7 @@
     }));
     $("rd-info").querySelector(".rd-del").addEventListener("click", async () => {
       if (!confirm(`${title()} 보고서를 지울까요? 만든 한글·PDF도 지워집니다.`)) return;
-      try { await api(`/sitok/reports/${r.id}`, { method: "DELETE" }); location.href = `sitok-facility.html?id=${r.facility_id}`; } catch (e) { err(e); }
+      try { await api(`/sitok/reports/${r.id}`, { method: "DELETE" }); location.href = r.half === "성능평가" ? "seismic.html" : `sitok-facility.html?id=${r.facility_id}`; } catch (e) { err(e); }
     });
     const opener = (sel, open) => document.querySelectorAll(sel).forEach((b) => b.addEventListener("click", () => // 묶음이면 그 동 회차(data-rid)
       open(b.dataset.rid ? Number(b.dataset.rid) : r.id, b.dataset.name ? `${b.dataset.name} ${title()}` : title(), load)));

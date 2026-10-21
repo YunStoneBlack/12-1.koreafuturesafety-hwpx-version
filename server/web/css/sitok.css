@@ -818,7 +818,12 @@ div.sf-miss-it { cursor: default; }
   .ds-card-btns { flex-wrap: wrap; }
   .ds-card-btns > * { flex: 1 1 auto; justify-content: center; }
   .main .ds-card-btns button.ds-del { flex: 0 0 auto; }
+  .main .sv-foot { flex-direction: column-reverse; align-items: stretch; }  /* .main = 아래 기본 줄(align center)보다 앞서게 */
+  .main .sv-foot button, .sv-foot .secondary-link { width: 100%; justify-content: center; text-align: center; box-sizing: border-box; }
 }
+/* 내진성능평가 목록(seismic.html, 10/21) — 만들기 칸 아래 단추 줄: 시설물 등록 안내 + 만들기, 폰은 세로로(위 미디어 쿼리) */
+.sv-foot { gap: 8px; align-items: center; }
+.sv-foot .secondary-link { font-size: 13px; white-space: nowrap; }
 
 /* 설정 > 시특법 > 기술자 [+ 기술자 추가](10/21) — 머리 줄 오른쪽 끝, 추가 창 칸 */
 .main .panel-head .ss-head-count { margin-left: auto; margin-right: 12px; }  /* 설명은 예전처럼 오른쪽, 그 옆 끝에 단추 */

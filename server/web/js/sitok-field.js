@@ -686,6 +686,7 @@
     if (tabs) tabs.style.display = "none";
     ["overview", "good", "seismic", "public", "other", "docs", "load", "survey"].forEach((t) => { const el = document.getElementById(`sf-${t}`); if (el) el.hidden = true; });
     document.getElementById("sf-defects").hidden = false;
+    if (window.setReportSection) window.setReportSection("seismic"); // 왼쪽 메뉴 내진성능평가 줄·경로 첫 칸(10/21)
   }
 
   async function refresh(redraw = true) {
@@ -700,7 +701,7 @@
         link.href = `sitok-facility.html?id=${data.report.facility_id}`;
         const rl = document.getElementById("sf-round-link"); // 회차 화면(10/14 3층 구조)
         rl.textContent = `${data.report.year}년 ${half}`;
-        rl.href = `sitok-round.html?report=${rid}&one=1`;
+        rl.href = `sitok-round.html?report=${rid}&one=1${data.seismic ? "&seis=1" : ""}`;
         if (data.seismic) seismicOnly();
       }
       const empty = !data.defects.length && !started;

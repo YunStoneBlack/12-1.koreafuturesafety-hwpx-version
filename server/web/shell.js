@@ -42,6 +42,15 @@ function renderReportHeader() {
   const tabsOnly = document.body.dataset.tabsOnly !== undefined;
   const head = document.createElement("div");
   head.className = "report-head";
+  if (active === "seismic") { // 내진성능평가(10/21 사용자 "보고서 자동화 탭에 따로") — 결함조사처럼 탭 없이, 회차·현장 조사 등(tabs-only)은 경로 표시만
+    if (!tabsOnly) {
+      head.classList.add("no-tabs");
+      head.innerHTML = '<h1>보고서 자동화<span class="law-badge common">내진성능평가</span></h1><p class="page-sub">건물 내진성능평가 — 현장조사(결함·구조 일람표·철근탐사)는 우리가 하고, 외주 결과물 한글을 끼워 넣어 보고서를 만듭니다.</p>';
+      main.prepend(head);
+    }
+    document.documentElement.style.setProperty("--tabs-h", "0px");
+    return;
+  }
   if (active === "defect") { // 결함조사만(10/21 사용자 — 왼쪽 메뉴 시특법과 설정 사이): 탭 없이, 현장 조사 화면(tabs-only)은 머리도 없이 경로 표시만
     if (!tabsOnly) {
       head.classList.add("no-tabs");
@@ -116,7 +125,7 @@ function writeSidebarCache(html) {
 // 서류 자동화 아래 "실적"(10/15 민재형 "서류 자동화 밑에 실적 탭")·"설정"(10/20 형), 보고서 자동화 아래 "설정"(10/20 사용자) — 산안법·시특법 공통.
 // 그룹웨어 조각에 아직 그 줄이 없으면 여기서 더한다(그룹웨어 appshell.html에도 같은 줄을 넣어 두었고, 그쪽이 배포되면 이미 있으니 안 더함).
 const MENU_EXTRA = {
-  report: [["defect", "defect-survey.html", "결함조사", "set"], ["set", "settings.html", "설정"]],  // 결함조사(10/21 사용자) = 시특법과 설정 사이 — 넷째 = 이 줄 앞에
+  report: [["seismic", "seismic.html", "내진성능평가", "defect"], ["defect", "defect-survey.html", "결함조사", "set"], ["set", "settings.html", "설정"]],  // 내진성능평가·결함조사(10/21 사용자) = 시특법과 설정 사이 — 넷째 = 이 줄 앞에
   docs: [["perf", "docs-performance.html", "실적"], ["set", "docs-settings.html", "설정"]],
 };
 function addMenuItems(aside) {
@@ -149,7 +158,7 @@ function markSidebar(aside) {
   const subs = parent.nextElementSibling;
   if (subs && subs.classList.contains("nav-sub")) {
     const tab = document.body.dataset.docsTab || document.body.dataset.reportTab;
-    const law = { performance: "perf", settings: "set", defect: "defect" }[tab] || pageLaw();  // 실적·설정·결함조사 화면이면 그 줄
+    const law = { performance: "perf", settings: "set", defect: "defect", seismic: "seismic" }[tab] || pageLaw();  // 실적·설정·결함조사·내진성능평가 화면이면 그 줄
     subs.querySelector(`.nav-subitem[data-law="${law}"]`)?.classList.add("active");
   }
 }
@@ -245,6 +254,25 @@ function enhanceFileInputs(root) {
     });
   });
 }
+
+// 내진성능평가 회차 화면들(회차·현장 조사·현장시험·구조 일람표 — 10/21 사용자 "보고서 자동화 탭에 따로"): 왼쪽 메뉴 "내진성능평가" 줄을 켜고
+// 시특법 탭 줄 없이, 경로 첫 칸 "시설물 목록" → "내진성능평가". 내진성능평가 목록에서 온 주소(?seis=1)면 처음부터, 아니면 화면이 회차를 읽고 나서 setReportSection("seismic").
+function seismicCrumb() {
+  const a = document.querySelector(".main .crumb > a");
+  if (a && /sitok\.html$/.test(a.getAttribute("href") || "")) { a.href = "seismic.html"; a.textContent = "내진성능평가"; }
+}
+function setReportSection(tab) {
+  if (document.body.dataset.reportTab === tab) return;
+  document.body.dataset.reportTab = tab;
+  document.querySelectorAll("main.main > .report-head, main.main > .report-tabs").forEach((el) => el.remove());
+  renderReportHeader();
+  const aside = document.getElementById("gw-sidebar");
+  if (aside && aside.querySelector(".nav-item")) markSidebar(aside);
+  if (tab === "seismic") seismicCrumb();
+}
+window.setReportSection = setReportSection;
+if (document.body.dataset.law === "sitok" && /[?&]seis=1(&|$)/.test(location.search)) document.body.dataset.reportTab = "seismic";
+if (document.body.dataset.reportTab === "seismic") seismicCrumb();
 
 renderReportHeader();
 loadGroupwareSidebar();
