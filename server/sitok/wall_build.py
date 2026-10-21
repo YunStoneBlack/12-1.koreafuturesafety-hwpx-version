@@ -66,6 +66,8 @@ class Hwpx:
             self.masters = sorted(n for n in z.namelist() if re.fullmatch(r"Contents/masterpage\d+\.xml", n))  # 바탕쪽 — 머리말 용역명·장 꼬리말이 여기(10/21)
             self.roots = {s: etree.fromstring(z.read(s)) for s in self.sections + self.masters}
             self.hpf = z.read("Contents/content.hpf").decode("utf-8")
+            # header.xml 테두리/배경 정의(borderFill 그림 무늬 imgBrush)가 쓰는 그림 — "안 쓰는 그림"으로 빼면 한글이 테두리 정의를 잘못 읽어 표 선·칠이 어긋남(10/21 형 "표 선이 이상")
+            self.header_refs = set(re.findall(r'binaryItemIDRef="([^"]+)"', z.read("Contents/header.xml").decode("utf-8")))
         self.dropped: set[str] = set()
         self.new_masters: list[str] = []  # 복제한 바탕쪽(장마다 꼬리말 "제 N 장 이름")
         self.added: list[tuple[str, bytes]] = []
@@ -152,7 +154,7 @@ class Hwpx:
         return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
     def save(self, dest: Path, drop_unused: bool = True) -> Path:
-        used = {img.get("binaryItemIDRef") for r in self.roots.values() for img in r.iter(f"{{{HC}}}img")}
+        used = {img.get("binaryItemIDRef") for r in self.roots.values() for img in r.iter(f"{{{HC}}}img")} | self.header_refs
         kept = self.kept()
         rename = {old: f"Contents/section{i}.xml" for i, old in enumerate(kept)}  # 뺀 구역·복제 구역 → 번호를 차례로
         dest.parent.mkdir(parents=True, exist_ok=True)
