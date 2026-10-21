@@ -44,6 +44,17 @@ def kind_text_of(facility_class: str) -> str:
     return "기타옹벽"
 
 
+def facility_kind_text(f, spec: dict | None = None) -> str:
+    """옹벽 "종류"(결과표·시설물 칸) — 시설물 칸에 적은 값(세분류 글이면 FMS 표로 시설물종류로) > 관리대장에서 읽은 kind_text > 관리대장 세분류 글 > 시설물 구분 글."""
+    from server.sitok import fms_classes
+
+    v = (getattr(f, "use_type", "") or "").strip()
+    if v:
+        return fms_classes.kind_of(v) or v
+    w = spec if spec is not None else ((getattr(f, "ledger", None) or {}).get("wall") or {})
+    return w.get("kind_text") or kind_text_of(w.get("facility_class") or getattr(f, "kind", "") or "")
+
+
 def parse_text(text: str) -> dict:
     out: dict = {}
     t = " ".join((text or "").split())

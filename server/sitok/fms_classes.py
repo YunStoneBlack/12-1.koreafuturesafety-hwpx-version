@@ -31,7 +31,8 @@ def lookup(sub_text: str) -> dict | None:
     exact = next((r for r in rows() if _sq(r["sub"]) == t), None)
     if exact:
         return exact
-    part = [r for r in rows() if len(_sq(r["sub"])) >= 6 and (_sq(r["sub"]) in t or t in _sq(r["sub"]))]
+    # 짧은 글("옹벽")이 아무 세분류에나 걸리지 않게 — 입력이 세분류를 품거나, 입력이 충분히 길 때만 세분류 안에 든 경우
+    part = [r for r in rows() if len(_sq(r["sub"])) >= 6 and (_sq(r["sub"]) in t or (len(t) >= 15 and t in _sq(r["sub"])))]
     return max(part, key=lambda r: len(_sq(r["sub"]))) if part else None
 
 

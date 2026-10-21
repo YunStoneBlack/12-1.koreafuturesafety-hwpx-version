@@ -193,8 +193,12 @@ function sitokSurveyWall(box, close, reportId, title, s, onSaved) {
       <h4>1.3.2 기존 점검 실시결과 요약 <span class="sk-help">FMS 점검진단실적 엑셀을 올리면 전체 이력이 들어옴 · 한 번 쓰면 다음 회차부터 전회차 줄이 자동으로 더해짐 · 비우면 보고서에 "-"</span>${srcTag(s.history_src)}</h4>
       <div class="sv-reg"><label class="secondary-link">📊 FMS 점검이력 엑셀 올리기<input type="file" accept=".xlsx,.xls" hidden data-kr-file="1" class="sv-fms-file" /></label>
         <span class="sv-reg-msg sk-help">FMS → 시설물 → 점검진단실적 → 엑셀 저장(xlsx)</span></div>
-      <div id="sv-hists">${(s.history || []).map(histRow).join("")}</div>
-      <button type="button" class="secondary btn-sm sv-add-h">+ 점검 이력 줄 더하기</button>
+      <div class="sv-hist-sum"></div>
+      <div class="mail-overlay sv-hist-ov" hidden><div class="mail-box ai-box sv-hist-box" role="dialog" aria-modal="true">
+        <div class="mail-head"><b>📋 1.3.2 점검 이력</b><span class="mail-sub">줄마다 고치고 [확인] — 면담 창 아래 [저장]을 눌러야 저장됩니다</span></div>
+        <div class="ai-form"><div id="sv-hists">${(s.history || []).map(histRow).join("")}</div>
+          <button type="button" class="secondary btn-sm sv-add-h">+ 점검 이력 줄 더하기</button></div>
+        <div class="mail-foot"><button type="button" class="mail-primary sv-hist-done">확인</button></div></div></div>
       <h4>1.3.3 보수·보강 이력 <span class="sk-help">전회차 회차 값 → 없으면 관리주체 면담으로 직접(없으면 비움 → "-")</span>${srcTag(s.repairs_src)}</h4>
       <div id="sv-reps">${(s.repairs || []).map(repRow).join("")}</div>
       <button type="button" class="secondary btn-sm sv-add">+ 보수 줄 더하기</button>
@@ -209,6 +213,25 @@ function sitokSurveyWall(box, close, reportId, title, s, onSaved) {
     <div class="mail-foot"><button type="button" class="mail-cancel">닫기</button><button type="button" class="mail-primary sv-save">저장</button></div>`;
   const hists = box.querySelector("#sv-hists");
   const reps = box.querySelector("#sv-reps");
+  // 점검 이력은 FMS 엑셀로 10줄 넘게 들어오기도 해서(사용자 10/21) 면담 창엔 요약만, 줄 고치기는 모달로
+  const histOv = box.querySelector(".sv-hist-ov");
+  const drawSum = () => {
+    const rows = [...hists.querySelectorAll(".sv-card")].map((row) => {
+      const v = (f) => row.querySelector(`[data-f="${f}"]`)?.value.trim() || "";
+      return { period: v("period"), kind: v("kind"), org: v("org"), grade: v("grade") };
+    });
+    const last = rows.slice(-3).reverse();
+    box.querySelector(".sv-hist-sum").innerHTML = `<div class="sv-card sv-hist-card"><div class="sv-card-h"><b>점검 이력 ${rows.length}줄</b>
+        <button type="button" class="secondary btn-sm sv-hist-open">📋 점검 이력 보기·고치기</button></div>
+      ${rows.length ? `<div class="sv-hist-list">${last.map((r) => `<div><span>${esc(r.period || "-")}</span><span>${esc(r.kind)}</span><span>${esc(r.org || "-")}</span><span>${esc(r.grade || "-")}</span></div>`).join("")}
+        ${rows.length > 3 ? `<div class="sk-help">최근 3줄 — 나머지 ${rows.length - 3}줄은 [보기·고치기]</div>` : ""}</div>`
+        : '<div class="sk-help">없음 — 보고서에 "-" · FMS 엑셀을 올리거나 [보기·고치기]에서 줄 더하기</div>'}</div>`;
+    box.querySelector(".sv-hist-open").addEventListener("click", () => { histOv.hidden = false; histOv.querySelector(".sv-hist-box").scrollTop = 0; });
+  };
+  const closeHist = () => { histOv.hidden = true; drawSum(); };
+  histOv.querySelector(".sv-hist-done").addEventListener("click", closeHist);
+  histOv.addEventListener("click", (e) => { if (e.target === histOv) closeHist(); });
+  drawSum();
   const getA = (f) => box.querySelector(`[data-f="${f}"]`)?.value.trim() || "";
   const readAll = () => { // 화면 값 모으기(저장·AI 공통)
     const get = (row, f) => row.querySelector(`[data-f="${f}"]`).value.trim();
@@ -242,7 +265,8 @@ function sitokSurveyWall(box, close, reportId, title, s, onSaved) {
       hn = 0;
       hists.innerHTML = r.history.map(histRow).join("");
       bindX();
-      msg.textContent = `FMS 점검 이력 ${r.history.length}줄을 넣었습니다 — 확인하고 [저장]`;
+      drawSum();
+      msg.textContent = `FMS 점검 이력 ${r.history.length}줄을 넣었습니다 — [보기·고치기]로 확인하고 [저장]`;
     } catch (x) { msg.textContent = x.message; }
   });
   box.querySelector(".sv-an-ai").addEventListener("click", async (e) => { // 1.3.4 AI

@@ -631,7 +631,7 @@ def gather(db, r, f) -> Data:
             spec = {**got, **{k: v for k, v in spec.items() if v}}
             f.ledger = {**led, "wall": spec}
     d.spec = spec
-    d.kind_text = spec.get("kind_text") or wall_ledger.kind_text_of(spec.get("facility_class") or f.kind or "")
+    d.kind_text = wall_ledger.facility_kind_text(f, spec)  # 시설물 칸 "종류" > 관리대장(세분류 → FMS 시설물종류, 10/21)
     d.class_no = (f.class_no or spec.get("class_no") or "2").strip()
     d.template3 = (f.template or "").startswith("3종")
     d.form = wall_manual.form_of(spec.get("form") or "", f.name, f.kind or "")
