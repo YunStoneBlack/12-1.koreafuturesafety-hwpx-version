@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>현장조사 입력 - 내진성능평가</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+</head>
+<!-- 내진성능평가 현장조사 입력(2026-10-21 사용자 "규격조사·조적조사·철근조사 등등, 성적서 첨부하는 칸 이런 식으로") — ?id=회차.
+     부재 단면(2.2.1)·코어 압축강도(2.2.3·2.2.4)·조적조(2.4.3)·현장 사진·분석 글(2.3·2.4). 철근탐사는 sitok-seismic.html, 외관조사(결함)는 sitok-field.html.
+     서버 GET/PATCH /seismic/projects/{id}/field(server/api/routers/seismic.py, server/sitok/seismic_field.py), 화면 js/seismic-field.js -->
+<body data-report-tab="seismic" data-law="sitok" data-tabs-only>
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div class="crumb"><a href="seismic.html">내진성능평가</a> › <a id="sf2-proj" href="#">건</a> › <span>현장조사 입력</span></div>
+<div class="sp-head"><h1 id="sf2-name">현장조사 입력</h1><p class="page-sub">견본 2장 표 그대로 — 넣은 값은 보고서 2.2.1 부재 단면·2.2.3 코어·2.4.3 조적조와 사진 칸에 들어갑니다</p></div>
+<div id="error" class="error"></div>
+<div class="sp-min" id="sf2-min"></div>
+
+<details class="panel sk-fold" id="sf2-m-panel" open>
+  <summary class="panel-head"><h2>📐 부재 단면</h2><span class="panel-count" id="sf2-m-sum">2.2.1 부재 단면 치수 조사 결과 — 일람표 칸을 고르면 도면치수</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body"><div class="sf2-rows" id="sf2-members"></div>
+    <div class="ds-foot"><span class="sp-saved" id="sf2-m-saved"></span><button type="button" id="sf2-m-save">저장</button></div></div>
+</details>
+
+<details class="panel sk-fold" id="sf2-c-panel" open>
+  <summary class="panel-head"><h2>🧪 코어 압축강도</h2><span class="panel-count" id="sf2-c-sum">2.2.3·2.2.4 — 성적서에서 읽거나 직접</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body">
+    <div class="sf2-core-top"><button type="button" class="secondary" id="sf2-c-read">🤖 성적서에서 읽기 <span class="sk-help">약 20원</span></button><span class="sk-help" id="sf2-c-note"></span></div>
+    <div class="sf2-rows" id="sf2-cores"></div>
+    <div class="sf2-stats" id="sf2-c-stats"></div>
+    <div class="ds-foot"><span class="sp-saved" id="sf2-c-saved"></span><button type="button" id="sf2-c-save">저장</button></div></div>
+</details>
+
+<details class="panel sk-fold" id="sf2-w-panel" open>
+  <summary class="panel-head"><h2>🧱 조적조</h2><span class="panel-count" id="sf2-w-sum">2.4.3 조적벽 치수 및 상태조사 결과표</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body"><div class="sf2-rows" id="sf2-masonry"></div>
+    <div class="sk-help">적용 = 경계면 불량·노출이면 불량, 2면 모르타르 양호, 1면 보통(고르면 그대로)</div>
+    <div class="ds-foot"><span class="sp-saved" id="sf2-w-saved"></span><button type="button" id="sf2-w-save">저장</button></div></div>
+</details>
+
+<details class="panel sk-fold" id="sf2-p-panel" open>
+  <summary class="panel-head"><h2>📷 현장 사진</h2><span class="panel-count" id="sf2-p-sum">칸마다 한 장 — 누르면 올리기·바꾸기</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body"><div class="sf2-photos" id="sf2-photos"></div></div>
+</details>
+
+<details class="panel sk-fold" id="sf2-t-panel">
+  <summary class="panel-head"><h2>📝 분석 글</h2><span class="panel-count">2.3 외관조사·2.4 중량물·마감재 — 견본 글이 기본, 고쳐 쓰기</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body"><div class="sf2-texts" id="sf2-texts"></div>
+    <div class="ds-foot"><span class="sp-saved" id="sf2-t-saved"></span><button type="button" id="sf2-t-save">저장</button></div></div>
+</details>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/seismic-field.js"></script>
+</body>
+</html>

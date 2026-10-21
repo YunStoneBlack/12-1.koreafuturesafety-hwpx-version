@@ -192,6 +192,7 @@ def _project_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "ground": ground, "ground_slots": [[k, label] for k, label, _ in SD.GROUND_SLOTS],
             "ground_sentence": SD.ground_sentence((ground or {}).get("holes") or []),
             "units": units, "min_counts": SD.min_counts(units, building["grade"]),
+            "field_counts": {k: len(_field(r)[k]) for k in ("members", "cores", "masonry", "photos")},
             "persons": [{"id": p.id, "name": p.name, "grade": p.grade or "", "position": p.position or ""} for p in persons],
             "report": report_out(r)}
 
@@ -521,3 +522,135 @@ def delete_project(rid: int, password: str = Body("", embed=True), user: User = 
     _delete_facility(db, f)
     db.commit()
     return {"ok": True}
+
+
+# ---------- 현장조사 입력(2단계 — 부재 단면·코어·조적조·현장 사진·분석 글, server/sitok/seismic_field) ----------
+def _field(r: SitokReport) -> dict:
+    from server.sitok import seismic_field as SF
+
+    return SF.normalize(_sv(r).get("seismic_field"))
+
+
+def _field_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
+    from server.sitok import rebar_schedule as RS
+    from server.sitok import seismic_field as SF
+
+    fd = _field(r)
+    sch = RS.view((f.ledger or {}).get("rebar_schedule"))
+    below, above = f.floors_below or 0, f.floors_above or 0
+    floors = [-b for b in range(below, 0, -1)] + list(range(1, above + 1)) or [1]
+    grade = ((f.ledger or {}).get("register") or {}).get("grade") or grade_of(f.main_use or f.use_type or "")
+    _, rdir = _dirs(f, r)
+    core_doc = (_sv(r).get("seismic_docs") or {}).get("core") or {}
+    return {"id": r.id, "facility_id": f.id, "name": f.name, "members": fd["members"], "cores": fd["cores"], "masonry": fd["masonry"],
+            "texts": fd["texts"], "text_labels": [[k, label] for k, label, _ in SF.TEXTS], "core_note": fd["core_note"],
+            "photos": {k: {"at": v.get("at", ""), "name": v.get("name", "")} for k, v in fd["photos"].items()},
+            "photo_slots": [[k, label, where] for k, label, where in SF.PHOTO_SLOTS], "core_stats": SF.core_stats(fd["cores"]),
+            "has_core_report": bool(core_doc.get("rel") and (rdir / core_doc["rel"]).exists()),
+            "floors": [{"n": n, "label": SF.floor_label(n)} for n in floors], "units": below + above,
+            "min_counts": SD.min_counts(below + above, grade), "rebar": len(((_sv(r).get("rebar") or {}).get("rows")) or []),
+            "schedule": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"], "size": x.get("size") or ""}
+                         for x in sch["items"] if x["kind"] in ("기둥", "보")]}
+
+
+@router.get("/projects/{rid}/field")
+def get_field(rid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    f, r = _require(db, user, rid)
+    return _field_out(db, f, r)
+
+
+@router.patch("/projects/{rid}/field")
+def save_field(rid: int, body: dict = Body(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """{members?, cores?, masonry?, texts?, core_note?} — 보낸 것만 바꿈. 부재 단면은 일람표 칸(item_id)을 고르면 도면치수·부호를 채움(사람이 쓴 값은 그대로)."""
+    from server.sitok import rebar_schedule as RS
+    from server.sitok import seismic_field as SF
+
+    f, r = _require(db, user, rid)
+    cur = _field(r)
+    for k in ("members", "cores", "masonry", "texts", "core_note"):
+        if k in body:
+            cur[k] = body[k]
+    cur = SF.normalize(cur)
+    items = {x["id"]: x for x in RS.view((f.ledger or {}).get("rebar_schedule"))["items"]}
+    for m in cur["members"]:
+        it = items.get(m["item_id"])
+        if it is not None:
+            m["kind"] = it["kind"] if it["kind"] in SF.MEMBER_KINDS else m["kind"]
+            m["mark"] = m["mark"] or (it["marks"][0] if it["marks"] else "")
+            m["design"] = m["design"] or SF.size_text(it.get("size") or "")
+    _put(r, seismic_field={**(_sv(r).get("seismic_field") or {}), **cur})
+    db.commit()
+    return _field_out(db, f, r)
+
+
+@router.post("/projects/{rid}/field/photo/{slot}")
+def upload_field_photo(rid: int, slot: str, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.contract_docs import files
+    from server.sitok import seismic_field as SF
+
+    if slot not in SF.PHOTO:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "없는 사진 칸입니다.")
+    f, r = _require(db, user, rid)
+    _, rdir = _dirs(f, r)
+    dest = rdir / "현장사진" / f"{slot}.jpg"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        files.save_jpeg(file.file.read(), file.filename or f"{slot}.jpg", dest)
+    except Exception as err:  # noqa: BLE001 — 그림이 아니면
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "사진(jpg·png 등)을 올려 주세요.") from err
+    sf = dict(_sv(r).get("seismic_field") or {})
+    photos = dict(sf.get("photos") or {})
+    photos[slot] = {"rel": f"현장사진/{slot}.jpg", "name": file.filename or "", "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    sf["photos"] = photos
+    _put(r, seismic_field=sf)
+    db.commit()
+    return _field_out(db, f, r)
+
+
+@router.delete("/projects/{rid}/field/photo/{slot}")
+def delete_field_photo(rid: int, slot: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    f, r = _require(db, user, rid)
+    _, rdir = _dirs(f, r)
+    sf = dict(_sv(r).get("seismic_field") or {})
+    photos = dict(sf.get("photos") or {})
+    p = photos.pop(slot, None)
+    if p and p.get("rel"):
+        (rdir / p["rel"]).unlink(missing_ok=True)
+    sf["photos"] = photos
+    _put(r, seismic_field=sf)
+    db.commit()
+    return _field_out(db, f, r)
+
+
+@router.get("/projects/{rid}/field/photo/{slot}")
+def field_photo(rid: int, slot: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    f, r = _require(db, user, rid)
+    p = (_field(r)["photos"].get(slot) or {}).get("rel")
+    path = _dirs(f, r)[1] / p if p else None
+    if path is None or not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@router.post("/projects/{rid}/field/cores/read")
+def read_cores(rid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """서류 칸 압축강도 시험성적서 → 코어 줄(AI, 약 20원 — 화면 [🤖 성적서에서 읽기]). 읽은 줄로 바꿈(사람이 확인·고침)."""
+    from server.sitok import seismic_field as SF
+
+    f, r = _require(db, user, rid)
+    _, rdir = _dirs(f, r)
+    doc = (_sv(r).get("seismic_docs") or {}).get("core") or {}
+    if not doc.get("rel") or not (rdir / doc["rel"]).exists():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "먼저 건 화면 서류 칸에 압축강도 시험성적서를 올려 주세요.")
+    try:
+        got = SF.read_core_report(user.company_id, rdir / doc["rel"])
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"성적서를 읽지 못했습니다(직접 넣어 주세요): {str(err).splitlines()[0][:120]}") from err
+    if not got["rows"]:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "성적서에서 코어 강도 줄을 못 찾았습니다 — 직접 넣어 주세요.")
+    sf = dict(_sv(r).get("seismic_field") or {})
+    sf["cores"] = got["rows"]
+    sf["core_note"] = " · ".join(x for x in (got["lab"], f"접수번호 {got['test_no']}" if got["test_no"] else "", f"발급 {got['issued']}" if got["issued"] else "") if x)
+    _put(r, seismic_field=sf)
+    db.commit()
+    return _field_out(db, f, r) | {"read": len(got["rows"])}

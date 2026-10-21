@@ -201,7 +201,10 @@
       .map(([k, v]) => `<span class="sp-min-it"><b>${v}</b>${esc(k)}</span>`).join("")
       + '<div class="sk-help">부재 규격·철근배근 = 단위 × 부재 종별(기둥·보) × 3, 코어 = max(단위, 6), 시추 = 특등급 2(그 밖 1). 증축·익스팬션조인트로 나뉜 부분은 따로 단위.</div>';
     const big = (href, ic, label, sub, ok) => `<a class="rd-btn${ok ? " on" : ""}" href="${href}"><span class="rd-ic">${ic}</span><span class="rd-lb">${esc(label)}${ok ? ' <em class="rd-ok">✓</em>' : ""}</span><span class="rd-sub">${esc(sub)}</span></a>`;
-    $("sp-links").innerHTML = big(`sitok-field.html?report=${id}&seis=1`, "📱", "외관조사(결함)", f.defects ? `결함 ${f.checked}/${f.defects} 확인` : "2.3 외관조사 · 부록 4 사진첩", !!f.done)
+    const fc = P.field_counts || {};
+    $("sp-links").innerHTML = big(`seismic-field.html?id=${id}`, "🧱", "현장조사 입력", `부재 단면 ${fc.members || 0}/${m.member} · 코어 ${fc.cores || 0}/${m.core} · 조적 ${fc.masonry || 0}/${m.masonry} · 사진 ${fc.photos || 0}장`,
+      (fc.members || 0) >= m.member && (fc.cores || 0) >= m.core)
+      + big(`sitok-field.html?report=${id}&seis=1`, "📱", "외관조사(결함)", f.defects ? `결함 ${f.checked}/${f.defects} 확인` : "2.3 외관조사 · 부록 4 사진첩", !!f.done)
       + big(`sitok-schedule.html?facility=${P.facility_id}&seis=1`, "📏", "구조 일람표 부재 목록", s.schedule ? `${s.schedule}칸${s.schedule_need ? ` · 확인 필요 ${s.schedule_need}` : ""}` : "서류 칸에 구조 일람표를 올리고 읽기", s.schedule > 0 && !s.schedule_need)
       + big(`sitok-seismic.html?report=${id}`, "🧪", "철근탐사", s.rebar ? `${s.rebar}개소 (최소 ${m.rebar})` : "2.2.2 철근배근 · 부록 6", s.rebar >= m.rebar && s.rebar > 0);
   }
