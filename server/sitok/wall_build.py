@@ -607,7 +607,7 @@ def gather(db, r, f) -> Data:
     rd = r.report_date or r.period_end or datetime.date.today()
     d.month, d.month_dot = f"{rd.year}. {rd.month:02d}.", f"{rd.year}∙{rd.month:02d}"
     d.owner = f.owner_name or (c.rep_name if c else "") or "-"
-    d.owner_rep = (c.rep_name if c and c.rep_name else "") or "-"
+    d.owner_rep = str((f.ledger or {}).get("holder") or "").strip() or (c.rep_name if c and c.rep_name else "") or "-"  # 대표자 = 관리대장 소유주(10/21)
     d.owner_type = "공공" if (f.sector or (c.sector if c else "")) == "관급" or (f.owner_type or "") == "공공" else "민간"
     if c:
         d.joint = "단독수급" if (c.joint_type or "") in ("", "독자수행", "단독수급") else c.joint_type

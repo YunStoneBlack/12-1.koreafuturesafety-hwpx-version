@@ -55,7 +55,7 @@
         <span class="sk-help">건물 ${d.buildings.length}개 → 보고서 ${live}권 · ${d.contracts.length ? `이 반기 계약 ${d.contracts.length}건${multiCon ? " — 보고서마다 계약을 고르세요" : "(자동 연결)"}` : "이 반기 계약 없음"}</span></div>
       <div class="cp-tools"><button type="button" class="secondary btn-sm cp-one">전부 한 권</button><button type="button" class="secondary btn-sm cp-each">전부 따로</button>
         ${d.suggest ? '<button type="button" class="secondary btn-sm cp-sug" title="계약 건명·내역서에 나오는 건물 이름으로">🤖 계약대로 추천 배치</button>' : ""}
-        <span class="sk-help cp-tip">PC: 건물을 끌어다 상자에 놓기 · 폰: 건물을 누른 뒤 넣을 상자를 누르기 · 건물 더블클릭 = 그 건물 회차</span></div>
+        <span class="sk-help cp-tip">PC: 건물을 끌어다 상자에 놓기(다른 건물 위에 놓으면 그 앞으로 — 순서 = 제1장·제2장…) · 폰: 건물을 누른 뒤 넣을 상자나 앞에 둘 건물을 누르기 · 건물 더블클릭 = 그 건물 회차</span></div>
       <div class="cp-books">${books.map((b, k) => `<div class="cp-book${b.ids.length ? "" : " empty"}" data-k="${k}">
           <div class="cp-head"><b>보고서 ${books.slice(0, k + 1).filter((x) => x.ids.length).length || "—"}</b>
             ${b.ids.length && !dirty ? (bld(b.ids[0]).round ? `<a class="cp-open" href="sitok-round.html?report=${bld(b.ids[0]).round.id}">회차 열기 ›</a>` : '<span class="sk-help">이 반기 회차 없음</span>') : ""}
@@ -80,6 +80,17 @@
     draw();
   }
 
+  function place(id, before) { // 건물 id를 before 건물 바로 앞으로(같은 상자면 순서만, 다른 상자면 그 상자로) — 묶음 보고서 장 순서(10/21 사용자)
+    picked = null;
+    if (id === before) { draw(); return; }
+    const k = books.findIndex((b) => b.ids.includes(before));
+    if (k < 0) return;
+    books.forEach((b) => { b.ids = b.ids.filter((x) => x !== id); });
+    books[k].ids.splice(books[k].ids.indexOf(before), 0, id);
+    dirty = changed();
+    draw();
+  }
+
   function wire() {
     box.querySelector(".cp-prev").addEventListener("click", () => shift(-1));
     box.querySelector(".cp-next").addEventListener("click", () => shift(1));
@@ -96,8 +107,19 @@
       c.addEventListener("click", (e) => { // 고르기는 색만 바꿈 — 다시 그리면 더블클릭이 사라진 칸에 감(10/17)
         e.stopPropagation();
         const id = Number(c.dataset.id);
+        if (picked && picked !== id) { place(picked, id); return; } // 폰: 고른 건물을 이 건물 앞으로
         picked = picked === id ? null : id;
         box.querySelectorAll(".cp-chip").forEach((x) => x.classList.toggle("on", Number(x.dataset.id) === picked));
+      });
+      c.addEventListener("dragover", (e) => { e.preventDefault(); e.stopPropagation(); c.classList.add("before"); });
+      c.addEventListener("dragleave", () => c.classList.remove("before"));
+      c.addEventListener("drop", (e) => { // 다른 건물 위에 놓으면 그 앞으로
+        e.preventDefault();
+        e.stopPropagation();
+        c.classList.remove("before");
+        box.querySelectorAll(".cp-book.over").forEach((x) => x.classList.remove("over"));
+        const id = Number(e.dataTransfer.getData("text/plain"));
+        if (id) place(id, Number(c.dataset.id));
       });
     });
     box.querySelectorAll(".cp-book").forEach((bk) => {
@@ -142,6 +164,12 @@
     const bookOf = (list, id) => list.findIndex((b) => b.ids.includes(id));
     const moved = d.buildings.filter((b) => b.round && b.round.data && JSON.stringify(d.books[bookOf(d.books, b.id)]?.ids) !== JSON.stringify(live[bookOf(live, b.id)]?.ids)).length; // 조사 내용 있는 건물의 상자가 바뀜
     if (moved && !confirm(`이 반기 현장 조사 내용이 있는 건물이 ${moved}개 있습니다. 조사 내용은 건물마다 그대로 남고 보고서 묶음만 바뀝니다. 저장할까요?`)) return;
+    const leadChanged = d.books.some((o) => { // 저장된 묶음의 맨 앞 건물이 새 구성에서 맨 앞이 아니게 됨
+      if (o.ids.length < 2) return false;
+      const nb = live.find((x) => x.ids.includes(o.ids[0]));
+      return nb && nb.ids.length > 1 && nb.ids[0] !== o.ids[0];
+    });
+    if (leadChanged && !confirm("묶음 맨 앞 건물(제1장 — 묶음 대표 회차)이 바뀝니다. 저장할까요?")) return;
     const btn = box.querySelector(".cp-save");
     btn.disabled = true;
     msg.textContent = "저장하는 중…";

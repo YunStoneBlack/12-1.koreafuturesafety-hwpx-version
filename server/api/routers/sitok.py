@@ -100,6 +100,7 @@ class FacilityIn(BaseModel):
     contract_type: str | None = None  # 장기 / 1회성 / 종료
     base_wall: float | None = None  # 면적률 기준 면적(㎡) — ledger JSON에 보관(10/11)
     base_slab: float | None = None
+    holder: str | None = None  # 소유주 — 관리대장 "소유자" 칸(10/21 사용자, 결과표 대표자), ledger JSON에 보관
     land_area: float | None = None  # 대지면적(㎡)·건폐율(%)·용적율(%) — SafetyMan 건물개요(10/15 민재형), ledger JSON에 보관
     coverage_ratio: float | None = None
     floor_area_ratio: float | None = None
@@ -186,7 +187,7 @@ def _check(field: str, value, allowed) -> None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{field}은(는) {'·'.join(allowed)} 중 하나입니다.")
 
 
-LEDGER_KEYS = ("base_wall", "base_slab", "land_area", "coverage_ratio", "floor_area_ratio")  # 표 열 없이 ledger JSON에 두는 시설물 칸
+LEDGER_KEYS = ("base_wall", "base_slab", "land_area", "coverage_ratio", "floor_area_ratio", "holder")  # 표 열 없이 ledger JSON에 두는 시설물 칸
 WALL_KEYS = ("form", "material", "length", "height", "base_width", "route", "surround", "builder", "attached", "project")  # ledger["wall"] — 시설물 칸 wall_*
 BASE_WALL, BASE_SLAB = 24.5, 49.0  # 기준 면적 기본값 — 벽 한 면 = 기둥간격 7m × 층고 3.5m, 슬래브 한 칸 = 7m × 7m
 

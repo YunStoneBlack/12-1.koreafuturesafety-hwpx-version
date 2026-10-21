@@ -1,5 +1,6 @@
 // 시특법 현장 조사(sitok-field.html?report=, 2026-10-10 5단계) — 폰 우선. 층을 고르면 전회차 결함이 번호 순으로, 전회차 사진 옆에 이번 사진.
-// [그대로] = 전회차 크기 그대로(비고 기존) · [진행] = 크기 다시(기존) · [보수] = 보수 완료(비고 보수) · ⭐ = 비교 사진대장에 꼭 넣기. [+ 신규] = 못 보던 결함.
+// [비진행](10/21 전 "그대로") = 전회차 크기 그대로(비고 기존, 진행유무 비진행성) · [진행] = 크기 다시(기존) · [보수] = 보수 완료(비고 보수) · ⭐ = 비교 사진대장에 꼭 넣기.
+// [+ 신규] = 못 보던 결함(비진행·진행을 눌러도 비고 "신규").
 // 서버 server/api/routers/sitok_defects.py.
 // 10/12: 부재·결함유형은 고정 목록에서만 고름(회사 목록 + 이 보고서에만 추가한 것) — 없으면 "➕ 새로 추가…" → 이 보고서에만 / 회사 전체 목록에.
 // 원인은 목록 없이 AI가 사진마다 구체적으로 + 근거 한 줄(cause_note).
@@ -153,7 +154,7 @@
     const off = data.defects.filter((d) => outOfList("member", d.member) || outOfList("dtype", d.dtype) || !parts().includes(d.part)).length;
     document.getElementById("sf-sum").innerHTML = `<b>${esc(data.report.facility)} · ${data.report.year}년 ${esc(data.report.half)}</b>
       <span>확인 ${s.total - s.unchecked} / ${s.total}</span>
-      <span class="ok">그대로 ${s.same}</span><span class="grew">진행 ${s.grew}</span><span class="rep">보수 ${s.repaired}</span><span class="new">신규 ${s.new}</span>
+      <span class="ok">비진행 ${s.same}</span><span class="grew">진행 ${s.grew}</span><span class="rep">보수 ${s.repaired}</span><span class="new">신규 ${s.new}</span>
       <button type="button" class="secondary sf-cause-ai" title="원인이 비었거나 뭉뚱그린 낱말인 결함만 AI가 사진을 보고 구체적으로 — 카드에서 다시 고칠 수 있음">🤖 원인 추천</button>
       ${!data.defects.length ? '<button type="button" class="secondary sf-back-import" title="[전회차 없이 시작]을 잘못 눌렀을 때 — 지난 보고서 PDF·직전 회차에서 가져오는 화면으로">↩ 전회차 결함 가져오기</button>' : ""}
       ${data.defects.some((d) => d.prev) ? `<button type="button" class="secondary sf-reprev" title="이번 회차에 확인·찍은 것과 원인은 그대로 — 층·번호가 같은 결함의 전회차 값·사진만 새 PDF로">📄 전회차 PDF만 다시 올리기</button>
@@ -192,7 +193,7 @@
     rpBtn?.addEventListener("click", () => {
       if (confirm(`지난 보고서 PDF를 다시 올려 전회차 값·사진만 바꿉니다(층·번호가 같은 결함끼리).
 
-그대로 두는 것: 이번 회차에 확인한 것(그대로·진행·보수 완료), 이번에 찍은 사진, 원인, 신규로 넣은 결함
+그대로 두는 것: 이번 회차에 확인한 것(비진행·진행·보수 완료), 이번에 찍은 사진, 원인, 신규로 넣은 결함
 
 다음 창에서 PDF를 고르세요.`)) rpFile.click();
     });
@@ -293,7 +294,7 @@
           <input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label><figcaption>이번</figcaption></figure>
       </div>
       <div class="sf-acts">
-        <button type="button" data-c="same" class="${d.check === "same" ? "on" : ""}">그대로</button>
+        <button type="button" data-c="same" class="${d.check === "same" ? "on" : ""}">비진행</button>
         <button type="button" data-c="grew" class="${d.check === "grew" ? "on" : ""}">진행</button>
         <button type="button" data-c="repaired" class="${d.check === "repaired" ? "on" : ""}">보수 완료</button>
       </div>
@@ -363,10 +364,10 @@
   function showAnalysis(el, d, r, save) {
     const msg = el.querySelector(".sf-ai-msg");
     if (!msg) return;
-    const what = r.grew === true ? "커짐(진행) 같음 — 확인하고 [진행으로]" : r.grew === false ? "전회차와 비슷함 → 그대로" : "";
+    const what = r.grew === true ? "커짐(진행) 같음 — 확인하고 [진행으로]" : r.grew === false ? "전회차와 비슷함 → 비진행" : "";
     msg.innerHTML = `${esc([what, r.width ? `폭 약 ${r.width}mm` : "", r.note].filter(Boolean).join(" · "))}
       ${r.grew === true && d.check !== "grew" ? '<button type="button" class="link-btn" data-a="grew">진행으로</button>' : ""}
-      ${r.grew === false && d.check !== "same" ? '<button type="button" class="link-btn" data-a="same">그대로로</button>' : ""}
+      ${r.grew === false && d.check !== "same" ? '<button type="button" class="link-btn" data-a="same">비진행으로</button>' : ""}
       ${r.width ? `<button type="button" class="link-btn" data-a="w">폭 ${r.width} 넣기</button>` : ""}`;
     msg.querySelectorAll(".link-btn").forEach((b) => b.addEventListener("click", () => {
       if (b.dataset.a === "w") save({ check: d.check === "same" || !d.check ? "grew" : d.check, width: r.width });

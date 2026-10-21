@@ -650,11 +650,15 @@ def _apply(d: SitokDefect, body: DefectIn, user: User, bases: tuple[float, float
         setattr(d, k, v.strip() if isinstance(v, str) else v)
     if "check" in data:
         d.mark = MARK.get(d.check, d.mark)
-        if d.check == "same" and d.prev:  # 그대로 = 전회차 크기
+        if not d.prev and d.check != "repaired":  # 이번에 새로 찾은 결함은 [비진행]·[진행]을 눌러도 결함현황표 비고 "신규"(10/21 사용자)
+            d.mark = "신규"
+        if d.check == "same" and d.prev:  # 비진행(옛 "그대로") = 전회차 크기
             d.count, d.width, d.length = d.prev.get("개수", d.count), d.prev.get("폭", d.width), d.prev.get("길이", d.length)
         d.checked_by, d.checked_at = user.display_name or "", datetime.datetime.now()
         if d.check == "grew":  # 크기가 커졌으면 진행성
             d.progress = "진행성"
+        elif d.check == "same":  # [비진행](10/21 사용자 — 단추 이름 "그대로" → "비진행")
+            d.progress = "비진행성"
         elif d.prev and d.prev.get("진행유무"):
             d.progress = d.prev["진행유무"]
     if d.check == "repaired":

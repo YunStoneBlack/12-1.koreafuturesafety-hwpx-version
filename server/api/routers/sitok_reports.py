@@ -495,6 +495,7 @@ def _new_values(db: Session, r: SitokReport, old: rb.Values, prior: rb.Values | 
     else:
         new.scale = p.scale or "-"
     new.rep, new.amount_k = p.rep or "-", p.amount_k or "-"
+    holder = str((f.ledger or {}).get("holder") or "").strip()  # 결과표 대표자 = 관리대장 소유주(10/21 사용자 — 전엔 계약서 대표자)
     if c is not None:
         new.rep = c.rep_name or new.rep
         if c.amount:
@@ -508,6 +509,10 @@ def _new_values(db: Session, r: SitokReport, old: rb.Values, prior: rb.Values | 
         warn.append("계약을 고르지 않아 대표자·점검금액은 전회차 보고서 값입니다" if prior else "계약을 고르지 않아 대표자·점검금액이 비었습니다")
     if (r.amount_k or "").strip():  # 이 동 점검금액(같은 계약서를 여러 동이 같이 쓸 때 — 회차에서 넣음)
         new.amount_k = r.amount_k.strip()
+    if holder:
+        new.rep = holder
+    else:
+        warn.append("시설물 칸 소유주(관리대장 소유자)가 비어 결과표 대표자는 " + ("계약서 대표자" if c is not None and c.rep_name else "전회차 보고서") + " 값입니다")
     new.period_start, new.period_end = r.period_start, r.period_end
     rd = r.report_date or r.period_end or datetime.date.today()
     new.report_month = (rd.year, rd.month)

@@ -23,7 +23,7 @@ LEDGER_PROMPT = """첨부는 국토안전관리원 FMS에서 출력한 "시설�
  "facility_class": "시설물분류", "main_use": "주용도", "address": "주소(도로명 우선, 없으면 지번) 한 줄",
  "owner_name": "관리주체", "owner_type": "관리주체구분(민간·공공 등)", "owner_phone": "관리주체 전화번호",
  "completion_date": "준공(사용승인)일", "construction_end": "설계/시공 공사기간의 끝 날짜", "defect_end": "하자담보책임 만료일",
- "owner_rep": "소유자·관리주체의 대표자 이름(사람 이름)", "structure": "구조형식", "floors_above": null, "floors_below": null, "floors_roof": null,
+ "owner_rep": "소유자·관리주체의 대표자 이름(사람 이름)", "holder": "기본현황 표의 소유자 칸 값 그대로(기관·회사·사람 이름)", "structure": "구조형식", "floors_above": null, "floors_below": null, "floors_roof": null,
  "max_height": null, "total_area": "연면적(건축 연면적)", "building_area": "건축면적(1층 바닥 — 연면적보다 작음)",
  "land_area": "대지면적(없으면 null)", "coverage_ratio": "건폐율 % 숫자(없으면 null)", "floor_area_ratio": "용적률 % 숫자(없으면 null)",
  "use_type_guess": "결과표 '종류' 칸에 쓸 건축법 용도 분류 추정(예: 종교시설·교육연구시설·업무시설) — 주용도로 판단"}"""
@@ -136,6 +136,45 @@ def _completion(d: dict, pdf: Path | None = None) -> datetime.date | None:
     return done
 
 
+HOLDER_SKIP = {"공공", "민간", "중앙부처", "지자체", "공기업", "V", "v", "√", "■", "□"}
+
+
+def ledger_holder(pdf) -> str:
+    """관리대장 PDF 글자에서 "소유자" 칸 값(10/21 사용자 — 결과표 대표자) — 표가 돌려진 쪽이라 좌표를 화면 방향으로 돌려
+    "소유자" 머리 아래 줄(관리주체 값과 같은 줄)에서 소유자구분(중앙부처·지자체…) 칸 앞까지. 그림 PDF·못 찾으면 ""."""
+    import pymupdf
+
+    try:
+        doc = pymupdf.open(str(pdf))
+    except Exception:  # noqa: BLE001
+        return ""
+    try:
+        for pg in doc:
+            if "소유자" not in pg.get_text():
+                continue
+            m = pg.rotation_matrix
+            ws = [(pymupdf.Rect(w[:4]) * m, w[4]) for w in pg.get_text("words")]
+            head = next((r for r, t in ws if t == "소유자"), None)
+            if head is None:
+                continue
+            below = [(r, t) for r, t in ws if head.y1 + 15 < r.y0 < head.y1 + 65]
+            subs = [r.x0 for r, t in below if t in HOLDER_SKIP and r.x0 > head.x1]
+            right = min(subs) - 2 if subs else head.x1 + 60
+            left = head.x0 - 45
+            vals = [(r, t) for r, t in below if left <= (r.x0 + r.x1) / 2 <= right and t not in HOLDER_SKIP and not t.startswith(("(", ")"))]
+            lines: dict[int, list] = {}
+            for r, t in vals:
+                lines.setdefault(round(r.y0 / 6), []).append((r.x0, t))
+            # 줄 안은 띄어 쓰고, 칸이 좁아 줄이 바뀐 이름("아시아신탁주식회" / "사")은 붙임
+            out = "".join(" ".join(t for _, t in sorted(ws_)) for _, ws_ in sorted(lines.items())).strip()
+            if len(out) < 2 or any(w in out for w in ("미만", "이상인", "제곱미터", "~", "관련시설", "순환")):
+                return ""  # 다른 칸 글(시설물종류 설명)이 섞임 — 못 읽은 것으로
+            return out
+    finally:
+        doc.close()
+    return ""
+
+
 def read_ledger(pdf: Path, company_id: int) -> dict:
     """관리대장 PDF → 시설물 칸(SitokFacility 이름) + grade(종별)·owner_rep(관리주체 대표자 — 계약 칸에 씀)."""
     d = _ask(pdf, LEDGER_PROMPT, company_id)
@@ -148,10 +187,11 @@ def read_ledger(pdf: Path, company_id: int) -> dict:
         "grade": _str(d.get("grade"))[:1], "main_use": _str(d.get("main_use")), "use_type": _str(d.get("use_type_guess")),
         "address": _str(d.get("address")), "owner_name": _str(d.get("owner_name")), "owner_type": _str(d.get("owner_type")),
         "owner_phone": _str(d.get("owner_phone")), "completion_date": _completion(d, pdf), "owner_rep": _str(d.get("owner_rep")), "structure": _str(d.get("structure")),
+        "holder": ledger_holder(pdf) or _str(d.get("holder")),  # 소유주 — 결과표 대표자(10/21, 글자 PDF는 좌표로, 그림이면 AI 값)
         "floors_above": _int(d.get("floors_above")), "floors_below": _int(d.get("floors_below")), "floors_roof": _int(d.get("floors_roof")),
         "max_height": _num(d.get("max_height")), "total_area": _num(d.get("total_area")), "building_area": _num(d.get("building_area")),
         "land_area": _num(d.get("land_area")), "coverage_ratio": _num(d.get("coverage_ratio")), "floor_area_ratio": _num(d.get("floor_area_ratio")),
-        "ledger": {"facility_class": _str(d.get("facility_class"))},
+        "ledger": {"facility_class": _str(d.get("facility_class")), "holder": ledger_holder(pdf) or _str(d.get("holder"))},
     }
 
 

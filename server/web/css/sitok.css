@@ -786,3 +786,5 @@ div.sf-miss-it { cursor: default; }
 .sv-card textarea, .sv-card .sk-f input, .sv-card .sk-f select { width: 100%; box-sizing: border-box; }
 .ai-box .mail-foot { flex-wrap: wrap; }
 .ai-box .mail-foot button { white-space: nowrap; }
+/* 보고서 구성 — 건물 위에 놓으면 그 앞으로(10/21) */
+.cp-chip.before { box-shadow: -3px 0 0 var(--blue); }
