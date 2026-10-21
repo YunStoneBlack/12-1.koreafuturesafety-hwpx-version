@@ -73,8 +73,8 @@
   function signRow(p) { // 기술자 서명 그림 줄 — 보기·올리기(바꾸기)·지우기
     const row = document.createElement("div");
     row.className = "ss-doc";
-    row.innerHTML = `<b>서명 그림</b>${p.has_sign ? '<span class="ss-st ok">✓ 올림</span>' : '<span class="ss-st none">없음 — 명단 서명 칸이 빔</span>'}
-      <span class="sk-help">흰 바탕 PNG·JPG(사인 사진을 잘라서) — 옹벽 보고서 참여기술자 명단 "서명" 칸</span>
+    row.innerHTML = `<b>서명 그림</b>${p.has_sign ? '<span class="ss-st ok">✓ 올림</span>' : '<span class="ss-st none">없음 — 서명·도장 그림으로</span>'}
+      <span class="sk-help">옹벽 보고서 참여기술자 명단 "서명" 칸 — 비우면 위 "서명·도장(관급 보안각서)" 그림을 씀(도장 없이 사인만 넣고 싶을 때 올리기)</span>
       <span class="ss-acts">${p.has_sign ? `<a class="secondary-link" href="${BASE}/api/sitok/settings/persons/${p.id}/sign/file?t=${p.sign_ts}" target="_blank" rel="noopener">보기</a>` : ""}
         <label class="secondary-link">${p.has_sign ? "바꾸기" : "올리기"}<input type="file" accept="image/*" hidden data-kr-file="1" /></label>
         ${p.has_sign ? '<button type="button" class="secondary btn-sm ss-del">지우기</button>' : ""}</span>`;

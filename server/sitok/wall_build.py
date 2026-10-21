@@ -629,6 +629,10 @@ def gather(db, r, f) -> Data:
         if p:
             d.persons.append(("사업책임기술자" if i == 0 else "참여기술자", p.name, p.position or "", p.sitok_field or "토목", p.sitok_grade or p.grade or ""))
             sp = Path(to_full(p.sign_path)) if p.sign_path else None
+            if not (sp and sp.exists()):  # 따로 올린 서명이 없으면 설정의 "서명·도장(관급 보안각서)" 그림(SubmitDoc sitok_sign)을 씀(10/21 — 두 번 안 올리게)
+                from core.models_web import SubmitDoc
+                row = db.query(SubmitDoc).filter(SubmitDoc.person_id == p.id, SubmitDoc.kind == "sitok_sign").first()
+                sp = Path(to_full(row.file)) if row is not None and row.file else None
             d.signs.append(sp if sp and sp.exists() else None)
     if not d.persons:
         d.warn.append("회차 정보에 책임·참여기술자가 없어 기술자 칸이 비었습니다")
