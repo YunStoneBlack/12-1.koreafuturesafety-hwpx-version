@@ -510,7 +510,7 @@ def get_next_mgmt_no(sector: str = "민간", user: User = Depends(get_current_us
 
 @router.get("/facilities")
 def list_facilities(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id).order_by(SitokFacility.id.desc()).all()
+    rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id, SitokFacility.survey_only.is_(False)).order_by(SitokFacility.id.desc()).all()  # 결함조사만(0061)은 빠짐
     seen = dict(db.query(SitokView.facility_id, SitokView.viewed_at).filter(SitokView.user_id == user.id))
     from server.api.routers.sitok_docs import contract_index, site_phone
 

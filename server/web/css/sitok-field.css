@@ -5,8 +5,28 @@
 .sf-sum { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
 .sf-sum b { color: var(--ink); font-size: 15px; margin-right: 4px; }
 .sf-sum .ok { color: var(--green); } .sf-sum .grew { color: var(--warn); } .sf-sum .rep { color: var(--blue); } .sf-sum .new { color: #7c3aed; }
-.sf-floors { position: sticky; top: var(--tabs-h, 0px); z-index: 5; display: flex; gap: 6px; overflow-x: auto; padding: 8px 0; background: var(--paper); scrollbar-width: none; }
-.sf-floors::-webkit-scrollbar { display: none; }
+.sf-floors { position: sticky; top: var(--tabs-h, 0px); z-index: 5; padding: 8px 0; background: var(--paper); }
+/* 층 탭 줄(10/21) = 탭(가로 스크롤) + [＋][＋ ____][🗑] — 탭이 많아도 단추는 늘 보임 */
+.sf-floor-row { display: flex; align-items: center; gap: 6px; }
+.sf-floor-scroll { display: flex; gap: 6px; overflow-x: auto; min-width: 0; flex: 0 1 auto; scrollbar-width: none; }
+.sf-floor-scroll::-webkit-scrollbar { display: none; }
+.sf-floor-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+.main button.sf-unit-btn { margin: 0; width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px dashed var(--line); background: var(--surface); color: var(--muted);
+  font-size: 17px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.main button.sf-unit-btn:hover { border-color: var(--blue); color: var(--blue); }
+.main button.sf-unit-add.on { border-style: solid; border-color: var(--blue); background: var(--blue-soft); color: var(--blue); }
+.main button.sf-unit-trash.on, .main button.sf-unit-trash.over { border-style: solid; border-color: var(--crit); background: #FDECEC; color: var(--crit); }
+.sf-unit-new { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 12px; border: 1px solid var(--blue); border-radius: 999px; background: var(--surface); color: var(--blue); font-weight: 700; }
+.main .sf-unit-new input { width: 110px; margin: 0; padding: 5px 6px; border: 0; background: transparent; font-size: 13px; box-shadow: none; outline: none; }
+.main .sf-unit-new button.sf-unit-ok { margin: 0; padding: 5px 10px; border-radius: 999px; font-size: 12px; }
+.sf-unit-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 12.5px; color: var(--crit); }
+.sf-unit-hint.sf-unit-sug { color: var(--muted); }
+.main .sf-unit-hint button { margin: 0; padding: 4px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.main .sf-unit-hint button.sf-unit-pick:hover { border-color: var(--blue); color: var(--blue); }
+.sf-floor-scroll.trash .sf-floor:not(.locked) { border-color: var(--crit); border-style: dashed; }
+.main .sf-floor-scroll.trash button.sf-floor.on:not(.locked) { background: #FDECEC; color: var(--crit); }
+.main .sf-floor-scroll.trash button.sf-floor.on:not(.locked) small { color: var(--crit); }
+.sf-floor.locked { opacity: .4; }
 .main button.sf-floor { flex: none; margin: 0; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
   font-size: 13px; font-weight: 600; display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
 .sf-floor small { font-size: 10.5px; font-weight: 500; color: var(--warn); }

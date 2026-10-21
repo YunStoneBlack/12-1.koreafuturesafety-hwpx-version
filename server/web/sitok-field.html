@@ -129,6 +129,8 @@
 </div>
 
 <script src="app.js"></script>
+<script>/* 결함조사만(?so=1, 10/21) — 왼쪽 메뉴 결함조사 켜기·위 탭 줄 없이(먼저 숨겨 깜빡임 없게) */
+if (/[?&]so=1(&|$)/.test(location.search)) { document.body.dataset.reportTab = "defect"; document.querySelector(".sf-tabs").style.display = "none"; }</script>
 <script src="shell.js"></script>
 <script src="js/sitok-wall-import.js"></script>
 <script src="js/sitok-field.js"></script>

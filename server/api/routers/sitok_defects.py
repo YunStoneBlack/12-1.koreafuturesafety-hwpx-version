@@ -84,11 +84,24 @@ def calc_ratio(dtype: str, member: str, count: str, width: str, length: str, bas
     return f"{area / base * 100:.1f}".rstrip("0").rstrip(".") if base else ""
 
 
+TAB_PRESETS = ["외부", "정면", "배면", "좌측면", "우측면", "측면", "내부"]  # [＋ 탭] 고르기(10/21 사용자 "외부, 정면, 배면 등")
+
+
+def is_custom_unit(floor: str) -> bool:
+    """사람이 [＋ 탭]으로 만든 탭(외부·정면·배면…) — 층(옥상·지상·지하·N층)이나 옹벽 부위가 아닌 이름."""
+    import re
+    f = (floor or "").strip()
+    return bool(f) and f not in kinds.WALL_PARTS and not re.search(r"\d|옥상|옥탑|지붕|지하|지상|층$", f)
+
+
 def floor_key(floor: str) -> tuple:
-    """옥상 → 지상 높은 층 → 지하 깊은 층 순(사진첩 순서). 옹벽 부위는 kinds.WALL_PARTS 순(지반 및 기초부 → 전면부 → …)."""
+    """옥상 → 지상 높은 층 → 지하 깊은 층 순(사진첩 순서). 옹벽 부위는 kinds.WALL_PARTS 순(지반 및 기초부 → 전면부 → …).
+    사람이 만든 탭(외부·정면·배면…)은 맨 뒤(TAB_PRESETS 순, 그 밖은 이름 순)."""
     import re
     if floor in kinds.WALL_PARTS:
         return (-1, kinds.WALL_PARTS.index(floor))
+    if is_custom_unit(floor):
+        return (3, TAB_PRESETS.index(floor) if floor in TAB_PRESETS else len(TAB_PRESETS))
     m = re.search(r"(\d+)", floor or "")
     k = int(m[1]) if m else 0
     if floor.startswith(("옥상", "옥탑", "지붕")):
@@ -374,6 +387,7 @@ def list_defects(report_id: int, user: User = Depends(get_current_user), db: Ses
     fam = kinds.family_of(f)
     voc = vocab_rows(db, r.company_id, r.id, fam)
     return {"report": {"id": r.id, "year": r.year, "half": r.half, "facility": f.name, "facility_id": f.id},
+            "survey_only": bool(f.survey_only), "tab_presets": TAB_PRESETS,  # 결함조사만(0061) — 화면이 결함 조사 탭만 보임
             "defects": [_out(d) for d in rows], "floors": facility_floors(f), "importing": _importing(r.id) or wall_review(r),
             "fam": fam, "unit_label": kinds.unit_label(fam), "parts": list(kinds.parts_of(fam)),  # 옹벽 = 부위·주요/일반/부대시설(10/20)
             "unit_part": kinds.WALL_PART_OF_UNIT if fam == "wall" else {},
@@ -900,11 +914,74 @@ WIDTH_BANDS = ["0.1", "0.2", "0.3", "0.5", "1.0"]
 
 
 def facility_floors(f: SitokFacility) -> list[str]:
-    """관리대장 층수로 층 목록(옥상 → 지상 위층부터 → 지하) — 전회차 결함이 없는 층도 고를 수 있게. 옹벽은 부위 목록(kinds.WALL_PARTS)."""
+    """관리대장 층수로 층 목록(옥상 → 지상 위층부터 → 지하) — 전회차 결함이 없는 층도 고를 수 있게. 옹벽은 부위 목록(kinds.WALL_PARTS).
+    + 사람이 [＋ 탭]으로 더한 탭(ledger.units_extra — 외부·정면·배면…), − 🗑로 지운 기본 탭(ledger.units_hidden). 시설물에 두어 다음 회차도 같음(10/21)."""
+    led = f.ledger or {}
     if kinds.is_wall(f):
-        return list(kinds.WALL_PARTS)
-    out = ["옥상층"] + [f"지상{n}층" for n in range(int(f.floors_above or 0), 0, -1)] + [f"지하{n}층" for n in range(1, int(f.floors_below or 0) + 1)]
-    return out if len(out) > 1 else []
+        base = list(kinds.WALL_PARTS)
+    else:
+        base = ["옥상층"] + [f"지상{n}층" for n in range(int(f.floors_above or 0), 0, -1)] + [f"지하{n}층" for n in range(1, int(f.floors_below or 0) + 1)]
+        if len(base) == 1:
+            base = []
+    hidden = set(led.get("units_hidden") or [])
+    out = [u for u in dict.fromkeys(base + [x for x in led.get("units_extra") or [] if x]) if u not in hidden]
+    return sorted(out, key=lambda u: (floor_key(u), (led.get("units_extra") or []).index(u) if u in (led.get("units_extra") or []) else 0))
+
+
+class UnitIn(BaseModel):
+    name: str
+
+
+def _unit_name(s: str) -> str:
+    import re
+    name = re.sub(r"\s+", " ", s or "").strip()[:30]
+    if not name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "탭 이름을 넣으세요.")
+    return name
+
+
+def _save_units(db: Session, f: SitokFacility, extra: list[str], hidden: list[str]) -> None:
+    from sqlalchemy.orm.attributes import flag_modified
+
+    led = dict(f.ledger or {})
+    led["units_extra"], led["units_hidden"] = extra, hidden
+    f.ledger = led
+    flag_modified(f, "ledger")
+
+
+@router.post("/reports/{report_id}/units")
+def add_unit(report_id: int, body: UnitIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """층 탭 [＋ 탭] — 외부·정면·배면 같은 이름이나 빠진 층(지상5층)을 탭으로. 지웠던 기본 탭이면 다시 보이기만."""
+    r = _require_report(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    name = _unit_name(body.name)
+    led = f.ledger or {}
+    extra, hidden = list(led.get("units_extra") or []), [u for u in led.get("units_hidden") or [] if u != name]
+    if name in facility_floors(f):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"'{name}' 탭은 이미 있습니다.")
+    if name not in extra:
+        extra.append(name)
+    _save_units(db, f, extra, hidden)
+    db.commit()
+    return {"floors": facility_floors(f), "name": name}
+
+
+@router.post("/reports/{report_id}/units/delete")
+def delete_unit(report_id: int, body: UnitIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """층 탭 🗑 — 결함이 하나도 없는 탭만(있으면 409). 더한 탭은 목록에서 빼고, 관리대장 층수로 생긴 기본 탭은 숨김에 넣음."""
+    r = _require_report(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    name = _unit_name(body.name)
+    n = db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == name).count()
+    if n:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"'{name}'에 결함이 {n}개 있어 지울 수 없습니다 — 결함 카드를 먼저 지우세요.")
+    led = f.ledger or {}
+    extra, hidden = [u for u in led.get("units_extra") or [] if u != name], list(led.get("units_hidden") or [])
+    if name in facility_floors(f) and name not in (led.get("units_extra") or []) and name not in hidden:
+        hidden.append(name)
+    _save_units(db, f, extra, hidden)
+    db.commit()
+    return {"floors": facility_floors(f)}
 
 
 ANALYZE = """시설물 정기안전점검 현장에서 점검자가 찍은 결함 사진입니다({where}). 사진을 보고 결함현황표 한 줄의 초안을 JSON 객체 하나로만 답하세요(설명 없이).

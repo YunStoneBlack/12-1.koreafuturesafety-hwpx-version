@@ -343,7 +343,7 @@ def list_cards(user: User = Depends(get_current_user), db: Session = Depends(get
 
     from server.api.routers.sitok import base_no
 
-    rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id).order_by(SitokFacility.group_order, SitokFacility.id).all()
+    rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id, SitokFacility.survey_only.is_(False)).order_by(SitokFacility.group_order, SitokFacility.id).all()
     seen = {k: v.isoformat(timespec="seconds") for k, v in db.query(SitokView.facility_id, SitokView.viewed_at).filter(SitokView.user_id == user.id)}
     groups: dict[int, list[SitokFacility]] = {}
     for f in rows:
@@ -902,7 +902,7 @@ def match_card(db: Session, c: SitokDocContract, why: dict | None = None) -> lis
     client = _norm(c.client)
     fac = _norm(c.facility_name) if _norm(c.facility_name) != client else ""  # 시설물명이 발주처와 같으면(관급 기본값) 시설물 근거가 아님
     hits, weak = {}, {}
-    for f in db.query(SitokFacility).filter(SitokFacility.company_id == c.company_id, SitokFacility.sector == c.sector):
+    for f in db.query(SitokFacility).filter(SitokFacility.company_id == c.company_id, SitokFacility.sector == c.sector, SitokFacility.survey_only.is_(False)):
         names = {_norm(f.name), _norm(f.owner_name)} - {""}
         fs = school_names(f.name, f.owner_name)
         strong = (fac and fac in names) or (schools and schools & fs) or (title and len(_norm(f.name)) >= 4 and _norm(f.name) in title)
@@ -1230,7 +1230,7 @@ def candidates(cid: int, user: User = Depends(get_current_user), db: Session = D
 
     c = _require(db, user, cid)
     key = c.facility_name or c.client or c.title
-    rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id).all()
+    rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id, SitokFacility.survey_only.is_(False)).all()
     rows.sort(key=lambda f: -max(similarity(key, f.name), similarity(key, f.owner_name or "")))
     return {"facilities": [{"id": f.id, "name": f.name, "owner": f.owner_name, "address": f.address} for f in rows]}
 

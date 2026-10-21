@@ -788,3 +788,34 @@ div.sf-miss-it { cursor: default; }
 .ai-box .mail-foot button { white-space: nowrap; }
 /* 보고서 구성 — 건물 위에 놓으면 그 앞으로(10/21) */
 .cp-chip.before { box-shadow: -3px 0 0 var(--blue); }
+
+/* 결함조사만(defect-survey.html, 10/21 사용자) — 만들기 칸(.field-grid/.sk-f)·탭 미리보기·목록 카드 */
+.ds-form .ds-wide { grid-column: 1 / -1; }
+.ds-form input:not([type="checkbox"]), .ds-form select { width: 100%; box-sizing: border-box; }
+.main .ds-form label.ds-check { display: flex; align-items: center; gap: 8px; margin: 0; padding: 9px 0; font-weight: 500; font-size: 13.5px; cursor: pointer; }
+.ds-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.main button.ds-chip { margin: 0; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 600; }
+.main button.ds-chip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.main .ds-chips input.ds-chip-in { width: 130px; margin: 0; padding: 6px 12px; border-radius: 999px; font-size: 13px; }
+.ds-preview { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--paper); min-height: 20px; }
+.ds-tab { padding: 4px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: 12.5px; font-weight: 600; }
+.ds-foot { display: flex; justify-content: flex-end; margin-top: 14px; }
+.main .ds-foot button { margin: 0; }
+.ds-card { display: flex; align-items: center; gap: 14px; padding: 14px 4px; border-bottom: 1px solid var(--line); }
+.ds-card:last-child { border-bottom: 0; }
+.ds-card-main { flex: 1; min-width: 0; }
+.ds-card-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; }
+.ds-kind { padding: 2px 8px; border-radius: 6px; background: #F3EFFF; color: #7c3aed; font-size: 12px; font-weight: 700; }
+.ds-done { padding: 2px 8px; border-radius: 6px; background: #E8F7EE; color: var(--green); font-size: 12px; font-weight: 700; }
+.ds-card-sub { margin-top: 4px; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-card-meta { margin-top: 2px; font-size: 12px; color: var(--faint); }
+.ds-card-btns { display: flex; gap: 6px; flex: none; align-items: center; }
+.main .ds-card-btns button { margin: 0; padding: 8px 12px; font-size: 13px; white-space: nowrap; }
+.ds-card-btns .secondary-link { white-space: nowrap; }
+.ds-empty { padding: 18px 4px; color: var(--muted); font-size: 13px; }
+@media (max-width: 760px) {
+  .ds-card { flex-direction: column; align-items: stretch; gap: 10px; }
+  .ds-card-btns { flex-wrap: wrap; }
+  .ds-card-btns > * { flex: 1 1 auto; justify-content: center; }
+  .main .ds-card-btns button.ds-del { flex: 0 0 auto; }
+}

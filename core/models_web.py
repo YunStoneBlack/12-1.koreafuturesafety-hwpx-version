@@ -527,6 +527,8 @@ class SitokFacility(Base):
     fms_owner_pw: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+    # 0061(10/21 사용자) 결함조사만 — 보고서 자동화 "결함조사" 메뉴에서 만든 숨김 시설물(회차 하나, 현장 결함조사·결함현황표·사진첩만). 시설물 목록 등에서 빠짐
+    survey_only: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class SitokVisit(Base):

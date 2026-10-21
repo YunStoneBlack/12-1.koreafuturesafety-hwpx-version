@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>결함조사 - 보고서 자동화</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+</head>
+<!-- 결함조사만(2026-10-21 사용자 — 왼쪽 메뉴 보고서 자동화 아래 시특법과 설정 사이): 보고서 틀이 아직 없는 시설물(교량·수리 등)도 현장 결함조사를.
+     이름·구분·지상/지하 층수·추가 탭(외부·정면·배면…)만 넣으면 탭이 생기고, 현장 조사 화면(sitok-field.html?report=)의 결함 조사 탭만 씀.
+     조사가 끝나면 결함현황표(엑셀)·사진첩(PDF). 서버 server/api/routers/sitok_survey_only.py, 화면 js/defect-survey.js -->
+<body data-report-tab="defect">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>＋ 새 결함조사</h2><span class="panel-count">시설물 등록·관리대장 없이 이름과 층수만 — 전경사진·상태양호 등은 없습니다</span></div>
+  <div class="panel-body">
+    <div class="field-grid ds-form">
+      <div class="sk-f ds-wide"><label for="ds-name">시설물 이름</label><input id="ds-name" placeholder="예: 한탄강 ○○교, ○○아파트 101동" maxlength="60" /></div>
+      <div class="sk-f"><label for="ds-kind">시설물 구분</label><select id="ds-kind"></select></div>
+      <div class="sk-f ds-roof-f"><label>옥상층</label><label class="ds-check"><input type="checkbox" id="ds-roof" checked /> 옥상층 탭 만들기</label></div>
+      <div class="sk-f ds-floor-f"><label for="ds-above">지상 층수</label><input id="ds-above" type="number" inputmode="numeric" min="0" max="99" placeholder="0" /></div>
+      <div class="sk-f ds-floor-f"><label for="ds-below">지하 층수</label><input id="ds-below" type="number" inputmode="numeric" min="0" max="20" placeholder="0" /></div>
+      <div class="sk-f ds-wide"><label>추가 탭 <span class="sk-help">층이 아닌 곳 — 눌러서 고르기, 없으면 직접 쓰고 Enter</span></label>
+        <div class="ds-chips" id="ds-chips"></div></div>
+      <div class="sk-f ds-wide"><label>만들 탭</label><div class="ds-preview" id="ds-preview"></div></div>
+    </div>
+    <div class="mail-msg" id="ds-msg" hidden></div>
+    <div class="ds-foot"><button type="button" id="ds-create">만들고 조사 시작</button></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>결함조사 목록</h2><span class="panel-count" id="ds-count"></span></div>
+  <div class="panel-body" id="ds-list"></div>
+</section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/defect-survey.js"></script>
+</body>
+</html>

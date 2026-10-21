@@ -125,9 +125,11 @@
     });
   }
 
-  const floorKey = (f) => { // 옥상 → 지상 위층부터 → 지하(서버 floor_key와 같은 순서), 옹벽 부위는 서버 목록 순
+  const FLOOR_RE = /\d|옥상|옥탑|지붕|지하|지상|층$/; // 이 글자가 없으면 사람이 [＋]로 만든 탭(외부·정면·배면…, 서버 is_custom_unit)
+  const floorKey = (f) => { // 옥상 → 지상 위층부터 → 지하 → 만든 탭(서버 floor_key와 같은 순서), 옹벽 부위는 서버 목록 순
     const i = (data.floors || []).indexOf(f);
     if (data.fam === "wall" && i >= 0) return [-1, i];
+    if (!FLOOR_RE.test(f)) return [3, i >= 0 ? i : 999];
     const n = Number((String(f).match(/\d+/) || [0])[0]);
     if (/옥상|옥탑/.test(f)) return [0, -n];
     if (/지하/.test(f)) return [2, n];
@@ -152,11 +154,11 @@
   function drawSummary() {
     const s = data.summary;
     const off = data.defects.filter((d) => outOfList("member", d.member) || outOfList("dtype", d.dtype) || !parts().includes(d.part)).length;
-    document.getElementById("sf-sum").innerHTML = `<b>${esc(data.report.facility)} · ${data.report.year}년 ${esc(data.report.half)}</b>
+    document.getElementById("sf-sum").innerHTML = `<b>${esc(data.report.facility)}${data.survey_only ? "" : ` · ${data.report.year}년 ${esc(data.report.half)}`}</b>
       <span>확인 ${s.total - s.unchecked} / ${s.total}</span>
       <span class="ok">비진행 ${s.same}</span><span class="grew">진행 ${s.grew}</span><span class="rep">보수 ${s.repaired}</span><span class="new">신규 ${s.new}</span>
       <button type="button" class="secondary sf-cause-ai" title="원인이 비었거나 뭉뚱그린 낱말인 결함만 AI가 사진을 보고 구체적으로 — 카드에서 다시 고칠 수 있음">🤖 원인 추천</button>
-      ${!data.defects.length ? '<button type="button" class="secondary sf-back-import" title="[전회차 없이 시작]을 잘못 눌렀을 때 — 지난 보고서 PDF·직전 회차에서 가져오는 화면으로">↩ 전회차 결함 가져오기</button>' : ""}
+      ${!data.defects.length && !data.survey_only ? '<button type="button" class="secondary sf-back-import" title="[전회차 없이 시작]을 잘못 눌렀을 때 — 지난 보고서 PDF·직전 회차에서 가져오는 화면으로">↩ 전회차 결함 가져오기</button>' : ""}
       ${data.defects.some((d) => d.prev) ? `<button type="button" class="secondary sf-reprev" title="이번 회차에 확인·찍은 것과 원인은 그대로 — 층·번호가 같은 결함의 전회차 값·사진만 새 PDF로">📄 전회차 PDF만 다시 올리기</button>
         <input type="file" class="sf-reprev-file" accept="application/pdf,.pdf" hidden data-kr-file="skip" />
         <button type="button" class="secondary sf-reimport" title="다른 보고서·잘못된 결함표를 가져왔을 때 — 목록을 비우고 가져오기 화면으로(이번 회차 확인·사진 연결도 지워짐)">↺ 전회차 결함 다시 가져오기</button>` : ""}
@@ -263,18 +265,106 @@
     });
   }
 
-  function drawFloors() {
-    const map = floors();
-    if (!map.has(floor)) floor = [...map.keys()][0] || "";
-    document.getElementById("sf-floors").innerHTML = [...map.entries()].map(([f, c]) =>
-      `<button type="button" class="sf-floor${f === floor ? " on" : ""}" data-f="${esc(f)}">${esc(f)}<small>${!c.total ? "-" : c.left ? `${c.left} 남음` : "✓"}</small></button>`).join("");
-    document.querySelectorAll(".sf-floor").forEach((b) => b.addEventListener("click", () => {
-      floor = b.dataset.f;
+  // 층 탭 [＋] [＋ ____] [🗑](10/21 사용자 그림 — 결함조사만·기존 보고서 결함 조사 둘 다): [＋] = 이름 칸이 열림(외부·정면·배면 고르기 또는 직접, 빠진 층도),
+  // 🗑 = 누른 뒤 지울 탭을 누르거나 탭을 휴지통으로 끌어 놓기(결함이 있는 탭은 못 지움). 탭은 시설물에 저장 — 다음 회차도 같음(서버 /units).
+  let adding = false;
+  let trashMode = false;
+
+  function nextFloors(map) { // [＋ ____] 고르기 목록 — 고르기 탭 + 빠진 층(맨 위 다음 층·맨 아래 다음 지하층)
+    const names = [...map.keys()];
+    const out = (data.tab_presets || []).filter((p) => !map.has(p));
+    if (data.fam !== "wall") {
+      const top = Math.max(0, ...names.map((f) => Number((f.match(/^지상(\d+)층$/) || [0, 0])[1])));
+      const low = Math.max(0, ...names.map((f) => Number((f.match(/^지하(\d+)층$/) || [0, 0])[1])));
+      if (!map.has("옥상층")) out.push("옥상층");
+      out.push(`지상${top + 1}층`, `지하${low + 1}층`);
+      for (let n = 1; n < top; n += 1) if (!map.has(`지상${n}층`)) out.push(`지상${n}층`);
+    }
+    return out;
+  }
+
+  async function addUnit(name) {
+    name = String(name || "").trim().replace(/\s+/g, " ");
+    if (!name) return;
+    try {
+      const r = await apiPost(`/sitok/reports/${rid}/units`, { name });
+      data.floors = r.floors;
+      adding = false;
+      floor = r.name;
       try { sessionStorage.setItem(`sf-floor-${rid}`, floor); } catch (_) { /* */ }
       drawFloors();
       drawList();
-      window.scrollTo({ top: 0 });
-    }));
+    } catch (e) { alert(e.message); }
+  }
+
+  async function deleteUnit(name) {
+    const c = floors().get(name);
+    if (c && c.total) { alert(`'${name}'에 결함이 ${c.total}개 있어 지울 수 없습니다 — 결함 카드를 먼저 지우세요.`); return; }
+    if (!confirm(`'${name}' 탭을 지울까요?`)) return;
+    try {
+      const r = await apiPost(`/sitok/reports/${rid}/units/delete`, { name });
+      data.floors = r.floors;
+      trashMode = false;
+      if (floor === name) floor = "";
+      drawFloors();
+      drawList();
+    } catch (e) { alert(e.message); }
+  }
+
+  function drawFloors() {
+    const map = floors();
+    if (!map.has(floor)) floor = [...map.keys()][0] || "";
+    const box = document.getElementById("sf-floors");
+    const sug = adding ? nextFloors(map) : [];
+    box.innerHTML = `<div class="sf-floor-row"><div class="sf-floor-scroll${trashMode ? " trash" : ""}">${[...map.entries()].map(([f, c]) =>
+      `<button type="button" class="sf-floor${f === floor ? " on" : ""}${trashMode && c.total ? " locked" : ""}" data-f="${esc(f)}" draggable="true">${esc(f)}<small>${!c.total ? "-" : c.left ? `${c.left} 남음` : "✓"}</small></button>`).join("")}</div>
+      <div class="sf-floor-tools">
+        <button type="button" class="sf-unit-btn sf-unit-add${adding ? " on" : ""}" title="${esc(unit())} 탭 추가 — 외부·정면·배면처럼 ${data.fam === "wall" ? "부위가 아닌 곳" : "층이 아닌 곳이나 빠진 층"}">＋</button>
+        ${adding ? `<span class="sf-unit-new">＋<input id="sf-unit-in" list="sf-unit-list" placeholder="탭 이름" maxlength="30" enterkeyhint="done" /><button type="button" class="sf-unit-ok">추가</button></span>
+          <datalist id="sf-unit-list">${sug.map((x) => `<option value="${esc(x)}">`).join("")}</datalist>` : ""}
+        <button type="button" class="sf-unit-btn sf-unit-trash${trashMode ? " on" : ""}" title="탭 지우기 — 누른 뒤 지울 탭을 누르거나, 탭을 여기로 끌어 놓기(결함이 있는 탭은 못 지움)">🗑</button>
+      </div></div>
+      ${trashMode ? '<div class="sf-unit-hint">지울 탭을 누르세요 — 결함이 있는 탭(흐린 것)은 지울 수 없습니다. <button type="button" class="sf-unit-cancel">취소</button></div>' : ""}
+      ${adding && sug.length ? `<div class="sf-unit-hint sf-unit-sug">${sug.slice(0, 9).map((x) => `<button type="button" class="sf-unit-pick" data-n="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}`;
+    box.querySelectorAll(".sf-floor").forEach((b) => {
+      b.addEventListener("click", () => {
+        if (trashMode) { deleteUnit(b.dataset.f); return; }
+        floor = b.dataset.f;
+        try { sessionStorage.setItem(`sf-floor-${rid}`, floor); } catch (_) { /* */ }
+        drawFloors();
+        drawList();
+        window.scrollTo({ top: 0 });
+      });
+      b.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/sf-unit", b.dataset.f); e.dataTransfer.effectAllowed = "move"; });
+    });
+    box.querySelector(".sf-unit-add").addEventListener("click", () => { adding = !adding; trashMode = false; drawFloors(); });
+    const trash = box.querySelector(".sf-unit-trash");
+    trash.addEventListener("click", () => { trashMode = !trashMode; adding = false; drawFloors(); });
+    trash.addEventListener("dragover", (e) => {
+      if (![...(e.dataTransfer?.types || [])].includes("text/sf-unit")) return;
+      e.preventDefault();
+      trash.classList.add("over");
+    });
+    trash.addEventListener("dragleave", () => trash.classList.remove("over"));
+    trash.addEventListener("drop", (e) => {
+      const f = e.dataTransfer.getData("text/sf-unit");
+      trash.classList.remove("over");
+      if (!f) return;
+      e.preventDefault();
+      deleteUnit(f);
+    });
+    box.querySelector(".sf-unit-cancel")?.addEventListener("click", () => { trashMode = false; drawFloors(); });
+    box.querySelectorAll(".sf-unit-pick").forEach((b) => b.addEventListener("click", () => addUnit(b.dataset.n)));
+    const inp = box.querySelector("#sf-unit-in");
+    if (inp) {
+      inp.focus();
+      inp.addEventListener("keydown", (e) => {
+        if (e.isComposing) return;
+        if (e.key === "Enter") { e.preventDefault(); addUnit(inp.value); }
+        if (e.key === "Escape") { adding = false; drawFloors(); }
+      });
+      box.querySelector(".sf-unit-ok").addEventListener("click", () => addUnit(inp.value));
+    }
   }
 
   function card(d) {
@@ -580,16 +670,29 @@
     setTimeout(tick, 4000);
   }
 
+  function surveyOnly() { // 결함조사만(0061, 10/21) — 결함 조사 탭만(전경·상태양호 등 없음), 경로 = 결함조사 › 이름, 가져오기 화면 없이 바로
+    started = true;
+    const tabs = document.querySelector(".sf-tabs");
+    if (tabs) tabs.style.display = "none";
+    ["overview", "good", "seismic", "public", "other", "docs", "load", "survey"].forEach((t) => { const el = document.getElementById(`sf-${t}`); if (el) el.hidden = true; });
+    document.getElementById("sf-defects").hidden = false;
+    document.querySelector(".crumb").innerHTML = `<a href="defect-survey.html">결함조사</a> › <span>${esc(data.report.facility)}</span>`;
+    document.title = `${data.report.facility} - 결함조사`;
+  }
+
   async function refresh(redraw = true) {
     try {
       data = await api(`/sitok/reports/${rid}/defects`);
-      document.getElementById("sf-title").textContent = `${data.report.year}년 ${data.report.half} 현장 조사`;
-      const link = document.getElementById("sf-fac-link");
-      link.textContent = data.report.facility;
-      link.href = `sitok-facility.html?id=${data.report.facility_id}`;
-      const rl = document.getElementById("sf-round-link"); // 회차 화면(10/14 3층 구조)
-      rl.textContent = `${data.report.year}년 ${data.report.half}`;
-      rl.href = `sitok-round.html?report=${rid}&one=1`;
+      if (data.survey_only) surveyOnly();
+      else {
+        document.getElementById("sf-title").textContent = `${data.report.year}년 ${data.report.half} 현장 조사`;
+        const link = document.getElementById("sf-fac-link");
+        link.textContent = data.report.facility;
+        link.href = `sitok-facility.html?id=${data.report.facility_id}`;
+        const rl = document.getElementById("sf-round-link"); // 회차 화면(10/14 3층 구조)
+        rl.textContent = `${data.report.year}년 ${data.report.half}`;
+        rl.href = `sitok-round.html?report=${rid}&one=1`;
+      }
       const empty = !data.defects.length && !started;
       document.getElementById("sf-empty").hidden = !empty;
       document.getElementById("sf-main").hidden = empty;

@@ -42,6 +42,15 @@ function renderReportHeader() {
   const tabsOnly = document.body.dataset.tabsOnly !== undefined;
   const head = document.createElement("div");
   head.className = "report-head";
+  if (active === "defect") { // 결함조사만(10/21 사용자 — 왼쪽 메뉴 시특법과 설정 사이): 탭 없이, 현장 조사 화면(tabs-only)은 머리도 없이 경로 표시만
+    if (!tabsOnly) {
+      head.classList.add("no-tabs");
+      head.innerHTML = '<h1>보고서 자동화<span class="law-badge common">결함조사</span></h1><p class="page-sub">보고서 틀이 아직 없는 시설물도 현장 결함조사를 하고 결함현황표·사진첩을 내려받습니다.</p>';
+      main.prepend(head);
+    }
+    document.documentElement.style.setProperty("--tabs-h", "0px");
+    return;
+  }
   if (active === "settings") { // 서류·보고서 자동화 설정(10/20 — 산안법·시특법 공통, 왼쪽 메뉴에서): 법 표시·탭 없이
     head.classList.add("no-tabs");
     head.innerHTML = docs
@@ -107,7 +116,7 @@ function writeSidebarCache(html) {
 // 서류 자동화 아래 "실적"(10/15 민재형 "서류 자동화 밑에 실적 탭")·"설정"(10/20 형), 보고서 자동화 아래 "설정"(10/20 사용자) — 산안법·시특법 공통.
 // 그룹웨어 조각에 아직 그 줄이 없으면 여기서 더한다(그룹웨어 appshell.html에도 같은 줄을 넣어 두었고, 그쪽이 배포되면 이미 있으니 안 더함).
 const MENU_EXTRA = {
-  report: [["set", "settings.html", "설정"]],
+  report: [["defect", "defect-survey.html", "결함조사", "set"], ["set", "settings.html", "설정"]],  // 결함조사(10/21 사용자) = 시특법과 설정 사이 — 넷째 = 이 줄 앞에
   docs: [["perf", "docs-performance.html", "실적"], ["set", "docs-settings.html", "설정"]],
 };
 function addMenuItems(aside) {
@@ -115,14 +124,16 @@ function addMenuItems(aside) {
     const item = aside.querySelector(`.nav-item[data-menu="${menu}"]`);
     const subs = item ? item.nextElementSibling : null;
     if (!subs || !subs.classList.contains("nav-sub")) continue;
-    for (const [law, href, label] of items) {
+    for (const [law, href, label, before] of items) {
       if (subs.querySelector(`.nav-subitem[data-law="${law}"]`)) continue;
       const a = document.createElement("a");
       a.className = "nav-subitem";
       a.dataset.law = law;
       a.href = href;
       a.textContent = label;
-      subs.appendChild(a);
+      const next = before && subs.querySelector(`.nav-subitem[data-law="${before}"]`);
+      if (next) subs.insertBefore(a, next);
+      else subs.appendChild(a);
     }
   }
 }
@@ -138,7 +149,7 @@ function markSidebar(aside) {
   const subs = parent.nextElementSibling;
   if (subs && subs.classList.contains("nav-sub")) {
     const tab = document.body.dataset.docsTab || document.body.dataset.reportTab;
-    const law = { performance: "perf", settings: "set" }[tab] || pageLaw();  // 실적·설정 화면이면 그 줄
+    const law = { performance: "perf", settings: "set", defect: "defect" }[tab] || pageLaw();  // 실적·설정·결함조사 화면이면 그 줄
     subs.querySelector(`.nav-subitem[data-law="${law}"]`)?.classList.add("active");
   }
 }

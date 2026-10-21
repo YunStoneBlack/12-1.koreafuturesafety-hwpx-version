@@ -40,6 +40,7 @@ from server.api.routers import (
     sitok_steps,
     sitok_good,
     sitok_split,
+    sitok_survey_only,
     sitok_cycle,
     sitok_prev,
     sitok_overview,
@@ -131,6 +132,7 @@ web_app.include_router(sitok_prev.router, prefix="/api")  # 시특법 전회차 
 web_app.include_router(sitok_steps.router, prefix="/api")  # 시특법 회차 칸 [✓ 조사 완료]·[✓ 작성 완료](미기재 항목 경고, 2026-10-18)
 web_app.include_router(sitok_good.router, prefix="/api")  # 시특법 현장 조사 [👍 상태양호]·[🏫 내진보강] 탭(민재형 B3·B5, 2026-10-19)
 web_app.include_router(sitok_split.router, prefix="/api")  # 시특법 분권 — 묶음과 같은 내용으로 일부 동만 따로 묶은 책(성과품만, 민재형 2026-10-19)
+web_app.include_router(sitok_survey_only.router, prefix="/api")  # 결함조사만 — 보고서 틀이 없는 시설물도 현장 결함조사·결함현황표·사진첩(사용자 2026-10-21)
 web_app.include_router(sitok_cycle.router, prefix="/api")  # 시특법 정밀안전점검·정밀안전진단 도래주기 — 계약 창 회차 줄(민재형 2026-10-20, 시행령 별표 3)
 web_app.include_router(sitok_overview.router, prefix="/api")  # 시특법 전경사진(10·11쪽)
 web_app.include_router(sitok_groups.router, prefix="/api")  # 시특법 동 묶음(한 계약 여러 동 — 2026-10-12)
