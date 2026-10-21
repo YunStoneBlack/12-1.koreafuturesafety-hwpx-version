@@ -55,6 +55,7 @@
     $("sf2-c-stats").innerHTML = s.n ? `<b>${s.n}개</b> · 평균(m) <b>${s.mean}</b> MPa · 표준편차(s) ${s.std} · 최소 ${s.min} · 최대 ${s.max}` : "";
     $("sf2-c-note").textContent = F.core_note || (F.has_core_report ? "" : "건 화면 서류 칸에 성적서를 올리면 읽을 수 있습니다");
     $("sf2-c-read").disabled = !F.has_core_report;
+    $("sf2-c-design").value = F.core_design ?? "";
     $("sf2-c-sum").textContent = `${F.cores.length}개 (최소 ${F.min_counts.core})${s.n ? ` · 평균 ${s.mean}MPa` : ""} — 2.2.3·2.2.4`;
   }
 
@@ -127,7 +128,7 @@
   }
   const nz = (v) => (v === "" || v == null ? null : Number(v));
   $("sf2-m-save").addEventListener("click", () => save("members", { members: members.filter((x) => x.where || x.mark || x.design || x.measured).map((x) => ({ ...x, floor: Number(x.floor) })) }, "sf2-m-saved"));
-  $("sf2-c-save").addEventListener("click", () => save("cores", { cores: cores.filter((x) => x.name || x.mpa).map((x) => ({ ...x, mpa: nz(x.mpa) })) }, "sf2-c-saved"));
+  $("sf2-c-save").addEventListener("click", () => save("cores", { cores: cores.filter((x) => x.name || x.mpa).map((x) => ({ ...x, mpa: nz(x.mpa) })), core_design: nz($("sf2-c-design").value) }, "sf2-c-saved"));
   $("sf2-w-save").addEventListener("click", () => save("masonry", { masonry: masonry.filter((x) => x.mid || x.height || x.width).map((x) => ({ ...x, floor: Number(x.floor), height: nz(x.height), width: nz(x.width), finish: nz(x.finish) })) }, "sf2-w-saved"));
   $("sf2-t-save").addEventListener("click", () => save("texts", { texts: Object.fromEntries([...document.querySelectorAll("[data-t]")].map((t) => [t.dataset.t, t.value.trim()])) }, "sf2-t-saved"));
   $("sf2-c-read").addEventListener("click", async () => {

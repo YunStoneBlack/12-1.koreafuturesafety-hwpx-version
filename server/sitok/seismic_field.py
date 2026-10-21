@@ -99,7 +99,7 @@ def normalize(data: dict | None) -> dict:
             "cores": [norm_core(x) for x in d.get("cores") or [] if isinstance(x, dict)][:60],
             "masonry": [norm_masonry(x) for x in d.get("masonry") or [] if isinstance(x, dict)][:300],
             "texts": texts, "photos": {k: v for k, v in (d.get("photos") or {}).items() if k in PHOTO and isinstance(v, dict)},
-            "core_note": _s(d.get("core_note"), 200)}
+            "core_note": _s(d.get("core_note"), 200), "core_design": _num(d.get("core_design"))}  # 설계기준강도(도면, MPa) — 2.2.4 85%·75% 비교
 
 
 def core_stats(cores: list[dict]) -> dict:

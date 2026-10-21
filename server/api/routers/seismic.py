@@ -543,7 +543,7 @@ def _field_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
     _, rdir = _dirs(f, r)
     core_doc = (_sv(r).get("seismic_docs") or {}).get("core") or {}
     return {"id": r.id, "facility_id": f.id, "name": f.name, "members": fd["members"], "cores": fd["cores"], "masonry": fd["masonry"],
-            "texts": fd["texts"], "text_labels": [[k, label] for k, label, _ in SF.TEXTS], "core_note": fd["core_note"],
+            "texts": fd["texts"], "text_labels": [[k, label] for k, label, _ in SF.TEXTS], "core_note": fd["core_note"], "core_design": fd["core_design"],
             "photos": {k: {"at": v.get("at", ""), "name": v.get("name", "")} for k, v in fd["photos"].items()},
             "photo_slots": [[k, label, where] for k, label, where in SF.PHOTO_SLOTS], "core_stats": SF.core_stats(fd["cores"]),
             "has_core_report": bool(core_doc.get("rel") and (rdir / core_doc["rel"]).exists()),
@@ -567,7 +567,7 @@ def save_field(rid: int, body: dict = Body(...), user: User = Depends(get_curren
 
     f, r = _require(db, user, rid)
     cur = _field(r)
-    for k in ("members", "cores", "masonry", "texts", "core_note"):
+    for k in ("members", "cores", "masonry", "texts", "core_note", "core_design"):
         if k in body:
             cur[k] = body[k]
     cur = SF.normalize(cur)

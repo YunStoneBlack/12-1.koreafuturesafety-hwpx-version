@@ -259,6 +259,20 @@ def read_ground(pdf: Path, out_dir: Path) -> dict:
     return res
 
 
+GROUND_NAMES = {"S1": "암반 지반", "S2": "얕고 단단한 지반", "S3": "얕고 연약한 지반", "S4": "깊고 단단한 지반", "S5": "깊고 연약한 지반",
+                "S6": "부지 고유의 특성평가가 필요한 지반"}
+
+
+def ground_phrase(holes: list[dict]) -> str:
+    """"얕고 단단한 지반인 S2 지반(기반암 깊이 1~20이하, 전단파속도 BH-1 : 305.9m/s, BH-2 : 569.9m/s)" — 2.5 (3)·요약 지반 분석 글."""
+    if not holes:
+        return ""
+    cls = holes[0].get("cls") or "S2"
+    depth = (holes[0].get("depth") or "").replace(" ", "")
+    vs = ", ".join(f"{h['bh']} : {h['vs']:g}m/s" for h in holes if h.get("vs") is not None)
+    return f"{GROUND_NAMES.get(cls, '')}인 {cls} 지반(기반암 깊이 {depth}, 전단파속도 {vs})"
+
+
 def ground_sentence(holes: list[dict]) -> str:
     """2.5 (3) 문장 — "지반조사결과를 토대로 얕고 단단한 지반인 S2 지반(기반암 깊이 1~20.0이하, 전단파속도 BH-1 : 305.9m/s, BH-2 : 569.9m/s)을 적용함."."""
     if not holes:

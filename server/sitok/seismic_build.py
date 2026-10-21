@@ -32,12 +32,10 @@ SAMPLE_MONTHS = ("2026년 01월", "2026. 01.", "2026․01", "2026∙01")
 PER_TABLE = 18  # 철근배근 표 하나에 시험 18개(견본 한 쪽)
 
 NO_FRONT = "결과표 나~마·(2) 내진성능평가 적용·확인서·체크리스트는 견본 값 그대로입니다 — 견본 전체에 외주 몫까지 쓴 한글을 올리면 옮겨 넣습니다"
-STILL_SAMPLE = [  # 아직 견본 값 그대로인 곳 — 만들기 알림
+STILL_SAMPLE = [  # 아직 견본 값 그대로인 곳 — 만들기 알림(나머지는 server/sitok/seismic_fill이 채우고 빈 입력만 알림)
     "요약문 책임기술자 종합의견(견본 글)",
-    "시설물 위치도·전경사진(견본 그림)",
-    "1.2 건물 길이·평면도, 1.3 내진등급·성능목표, 1.4 구조변경 이력(견본 값)",
-    "2.2.1 부재단면·2.2.3 콘크리트 압축강도·2.2.4 재료강도(견본 값 — 현장시험에 칸 추가 예정)",
-    "2.3 외관조사(견본 값 — 현장 조사 결함으로 채울 예정)·2.4 중량물·마감재·조적조·2.5 지반 및 기초(견본 값)",
+    "1.2 건물 길이·층별 평면도(견본 그림)",
+    "2.3 금회 균열 및 기타 결함현황 조사 결과표 — 층별 외관조사망도(견본 그림)",
 ]
 
 
@@ -196,7 +194,8 @@ def fill_chapter1(root, d: dict) -> int:
     t = next((x for x in _tables(root) if (x.get("rowCnt"), x.get("colCnt")) == ("9", "6") and "건물명" in rb._n(rb._cell_text(rb._cells(x).get((0, 1), x)))), None)
     if t is not None:
         cells = rb._cells(t)
-        age = datetime.date.today().year - d["completion"].year if d["completion"] else None
+        ref = d["period_start"] or datetime.date.today()  # 경과년수 = 조사(착수) 연도 기준(견본 2025 착수 − 2005 = 20년)
+        age = ref.year - d["completion"].year if d["completion"] else None
         _set(cells, (0, 3), d["name"])
         _set(cells, (1, 3), d["address"])
         _set(cells, (2, 3), d["structure"])
@@ -401,6 +400,11 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     changed = replace_globals(doc, d)
     changed += fill_persons(root, d) + fill_result_ga(root, d) + fill_result_people(root, d) + fill_chapter1(root, d) + fill_field_summary(root, d)
     changed += fill_rebar(root, d, warn)
+    if f.seismic_only or (r.survey or {}).get("seismic_field") or (r.survey or {}).get("seismic_docs"):  # 별개 건(10/21) — 현장조사 입력·서류 값
+        from server.sitok import seismic_fill
+
+        say("현장조사·서류 값 채우는 중…")
+        changed += seismic_fill.fill_all(doc, root, r, f, folder, d, warn)
     ours = folder / f"{base}(1~2장).hwpx"
     doc.save(ours)
     hwpx = folder / f"{base}.hwpx"
