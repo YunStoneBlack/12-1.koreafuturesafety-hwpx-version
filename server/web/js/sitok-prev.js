@@ -3,7 +3,7 @@
 // [🤖 전회차 보고서로 초안]이 읽음. 올리기만 하면 AI 안 씀, 처음 누를 때 한 번 읽어 저장. 직전 회차 한글이 있는 회차는 칸 대신 안내만.
 // 서버 server/api/routers/sitok_prev.py, 읽기 server/sitok/prev_pdf.py.
 
-async function sitokPrevSlot(el, reportId, onChange) {
+async function sitokPrevSlot(el, reportId, onChange, opts = {}) {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const url = `/sitok/reports/${reportId}/prev-pdf`;
   let st = null;
@@ -16,9 +16,10 @@ async function sitokPrevSlot(el, reportId, onChange) {
     const rd = st.read;
     const c = rd ? rd.counts : {};
     el.innerHTML = `<div class="pv-slot${st.has ? " on" : ""}"><div class="pv-head"><b>📄 전회차 보고서 PDF</b>
-        <span class="sk-help">전회차가 있으면(우리 회사·타사) 이 동의 결과표·1.1~1.2.8 쪽 PDF — 보고서 통째로 올려도 필요한 쪽만 읽습니다. 처음 점검이면 비워 두세요.</span></div>
+        <span class="sk-help">${opts.wall ? "전회차 보고서(우리 회사·타사, 통째로 올려도 됨) — 1.3.1 자료수집 현황·1.4.5 요약표 전회 칸·1.2.4 도면 쪽(첨부 도면에 자동)을 읽습니다. 현장 조사에서 전회차 가져오기로 올렸으면 이미 들어 있음. 처음 점검이면 비워 두세요. 끌어다 놓아도 됩니다."
+          : "전회차가 있으면(우리 회사·타사) 이 동의 결과표·1.1~1.2.8 쪽 PDF — 보고서 통째로 올려도 필요한 쪽만 읽습니다. 처음 점검이면 비워 두세요."}</span></div>
       <div class="pv-row">${st.has ? `<a class="secondary-link" href="${BASE}/api${url}/file" target="_blank" rel="noopener">${esc(st.name)}</a>
-        <span class="pv-read${rd ? " ok" : ""}">${rd ? `✓ ${esc(rd.at)} 읽음 — 현황 ${c.fields}칸 · 체크 ${c.checks} · 용도 ${c.uses}줄 · 점검이력 ${c.history} · 보수 ${c.repairs} · 변경 ${c.changes}${c.grade ? ` · 등급 ${esc(c.grade)}` : ""}`
+        <span class="pv-read${rd ? " ok" : ""}">${opts.wall ? "✓ 올려 둠" : rd ? `✓ ${esc(rd.at)} 읽음 — 현황 ${c.fields}칸 · 체크 ${c.checks} · 용도 ${c.uses}줄 · 점검이력 ${c.history} · 보수 ${c.repairs} · 변경 ${c.changes}${c.grade ? ` · 등급 ${esc(c.grade)}` : ""}`
           : "아직 안 읽음 — 🤖 버튼을 처음 누를 때 한 번 읽어 둡니다"}</span>` : ""}
         <label class="secondary-link pv-up">${st.has ? "바꾸기" : "＋ 올리기"}<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" /></label>
         ${st.has ? '<button type="button" class="link-btn pv-del">빼기</button>' : ""}</div><div class="pv-msg sk-help"></div></div>`;

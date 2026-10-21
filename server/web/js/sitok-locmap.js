@@ -21,6 +21,7 @@ async function sitokDrawLocmap(el, facilityId, name) {
       ${st.has_image ? `<a href="${BASE}/api/sitok/files/locmap/${facilityId}?v=${Date.now()}" target="_blank" rel="noopener">올린 그림 보기</a><button type="button" class="link-btn sk-img-del">그림 지우기</button>` : ""}
       <span class="sk-help sk-locmap-msg"></span></div></div>`;
   const msg = el.querySelector(".sk-locmap-msg");
+  enableFileDrop(el.querySelector(".sk-locmap"), el.querySelector("input[type=file]")); // 위치도 그림 끌어다 놓기(사용자 10/21)
   const center = st.pin || st.address || [37.5665, 126.978];
   const map = L.map(el.querySelector(".sk-locmap-map"), { scrollWheelZoom: false }).setView(center, st.pin || st.address ? 17 : 7);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" }).addTo(map);

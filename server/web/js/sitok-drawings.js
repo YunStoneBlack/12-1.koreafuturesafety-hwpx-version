@@ -8,9 +8,10 @@ async function sitokDrawDrawings(el, url, data, wall) {
   wall = !!el.dataset.wall;
   try { data = data || await api(url); } catch (e) { el.innerHTML = `<div class="mail-msg bad">${esc(e.message)}</div>`; return; }
   const KIND = { struct: ["📐 구조일반사항·건축개요 도면", "시설물 현황 [🤖 채우기]가 같이 읽음(콘크리트 강도·철근 종류·기초형식·지하깊이·슬래브 두께·방수 등)"],
-    attach: ["🗂 첨부 도면(평·입·단면도)", wall ? "옹벽 보고서 1.2.4 시설물 주요도면 쪽 뒤에 이 순서로 한 장 한 쪽 — 전회차 보고서를 올리면 그 도면 쪽이 자동으로 들어옴(없을 때만)"
+    attach: [wall ? "🗂 첨부 도면(옹벽 단면도·전개도 등)" : "🗂 첨부 도면(평·입·단면도)", wall ? "옹벽 보고서 1.2.4 시설물 주요도면 쪽 뒤에 이 순서로 한 장 한 쪽 — 전회차 보고서를 올리면 그 도면 쪽이 자동으로 들어옴(없을 때만)"
       : "보고서 1.2.9 관련 설계도면 쪽 뒤에 이 순서로 붙음 — 없으면 \"-\""],
     schedule: ["📏 구조 일람표(기둥·보·슬래브·벽 단면표)", "정밀 📐 재료시험 [🤖 일람표에서 설계 치수 채우기]가 읽음"] };
+  if (wall) { delete KIND.struct; delete KIND.schedule; } // 옹벽은 첨부 도면만(건축개요·구조 일람표는 건축물 것, 사용자 10/21)
   el.innerHTML = Object.entries(KIND).map(([k, [label, help]]) => `<div class="dt-dwg-k${(data[k] || []).length ? " has" : ""}" data-k="${k}"><div class="dt-dwg-h"><b>${label}</b> <span class="sk-help">${help}</span>
       <label class="secondary-link" title="PDF·그림, 여러 개">＋ 올리기<input type="file" accept="application/pdf,.pdf,image/*" multiple hidden data-kr-file="1" /></label></div>
       ${(data[k] || []).length ? `<ol class="dt-dwg-list">${data[k].map((d, i) => `<li data-id="${d.id}"><a href="${BASE}/api${url}/${k}/${d.id}/file" target="_blank" rel="noopener">${esc(d.name)}</a>
@@ -20,6 +21,7 @@ async function sitokDrawDrawings(el, url, data, wall) {
   el.querySelectorAll(".dt-dwg-k").forEach((row) => {
     const k = row.dataset.k;
     const inp = row.querySelector("input[type=file]");
+    enableFileDrop(row, inp); // 도면 끌어다 놓기(사용자 10/21)
     inp.addEventListener("change", async () => {
       const files = [...inp.files];
       for (let i = 0; i < files.length; i++) {

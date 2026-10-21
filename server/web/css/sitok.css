@@ -390,6 +390,8 @@ details.sk-fold:not([open]) > summary.panel-head { border-bottom: 0; }
 .main .sk-con-top button { margin: 0; }
 .sk-con-used { font-size: 12px; font-weight: 600; color: var(--blue); background: var(--blue-soft); padding: 2px 8px; border-radius: 999px; }
 .sk-con-order { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+/* 끌어다 놓기(10/21) — FMS 엑셀·과업지시서·도면·위치도 칸 */
+.sv-reg.drop-over, .sk-con-order.drop-over, #sk-dwg .dt-dwg-k.drop-over, .pv-slot.drop-over { outline: 2px dashed var(--blue); outline-offset: 2px; background: var(--blue-soft); border-radius: 8px; }
 /* 옹벽 위치도 카드(10/21) — Leaflet 지도에서 핀 끌기 */
 #sk-locmap { margin-top: 10px; }
 .sk-locmap-map { height: 340px; margin-top: 10px; border-radius: 8px; border: 1px solid var(--line); z-index: 0; }

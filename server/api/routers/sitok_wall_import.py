@@ -94,12 +94,18 @@ def _run(report_id: int, company_id: int, fac_name: str, data: bytes, ext: str, 
     try:
         pdf = data if ext == ".pdf" else hwp_queue.convert_via_worker(data, ext, to="pdf", wait=HWP_WAIT)
         (folder / "원본.pdf").write_bytes(pdf)
-        try:  # 1.2.4 뒤 도면 쪽 → 시설물 첨부 도면(아직 없을 때만, 형 10/21)
+        try:  # 같은 PDF를 회차 "전회차 보고서 PDF" 칸에도(1.3.1·1.4.5 전회 칸·도면이 읽음) + 1.2.4 뒤 도면 쪽 → 시설물 첨부 도면(아직 없을 때만, 형 10/21)
             from server.api.routers.sitok import _facility_dir
-            from server.sitok import wall_drawings
+            from server.sitok import prev_pdf, wall_drawings
 
             r0 = db.get(SitokReport, report_id)
             f0 = db.get(SitokFacility, r0.facility_id)
+            pv = prev_pdf.path(_report_dir(f0, r0))
+            if not pv.exists():
+                pv.parent.mkdir(parents=True, exist_ok=True)
+                pv.write_bytes(pdf)
+                r0.survey = {**(r0.survey or {}), "prev_name": "전회차 가져오기 원본.pdf"}
+                db.commit()
             if wall_drawings.seed(f0, _facility_dir(f0), folder / "원본.pdf"):
                 db.commit()
         except Exception:  # noqa: BLE001

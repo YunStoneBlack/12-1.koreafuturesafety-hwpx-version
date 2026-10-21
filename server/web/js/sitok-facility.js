@@ -90,6 +90,7 @@
   function bindOrder(card, c) {
     if (!c?.id) return;
     const msg = card.querySelector(".sk-order-msg");
+    enableFileDrop(card.querySelector(".sk-con-order"), card.querySelector(".sk-order-up input")); // 끌어다 놓기(사용자 10/21)
     card.querySelector(".sk-order-up input")?.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -313,6 +314,7 @@
       document.getElementById("sk-register").classList.toggle("has", !!fac.has_register);
       sitokDrawDrawings(document.getElementById("sk-dwg"), `/sitok/facilities/${fac.id}/drawings`, undefined, !!fac.is_wall);
       if (fac.is_wall) sitokDrawLocmap(document.getElementById("sk-locmap"), fac.id, fac.name); // 옹벽 위치도 핀·그림(10/21 형)
+      document.getElementById("sk-register").closest(".sk-drop, .fi-card")?.toggleAttribute("hidden", !!fac.is_wall); // 옹벽은 건축물대장 없음(사용자 10/21)
     } else {
       cons.appendChild(conCard(null));
     }

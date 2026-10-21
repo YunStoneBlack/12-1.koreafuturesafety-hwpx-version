@@ -188,6 +188,7 @@ function sitokSurveyWall(box, close, reportId, title, s, onSaved) {
   box.innerHTML = `<div class="mail-head"><b>📝 면담·점검 이력 조사</b><span class="mail-sub">${esc(title)} — 보고서 1.3 자료수집 및 분석(옹벽): 1.3.1 자료수집 현황 · 1.3.2 점검 이력 · 1.3.3 보수 이력 · 1.3.4 자료분석</span></div>
     <div class="ai-form">
       <h4>1.3.1 자료수집 현황 <span class="sk-help">전회차 보고서 PDF → 없으면 전회차 회차 → 기본값. 보유현황·비고는 직접 고침</span>${srcTag(s.collect_src)}</h4>
+      <div class="pv-box"></div>
       <div id="sv-cols">${collectRows}</div>
       <h4>1.3.2 기존 점검 실시결과 요약 <span class="sk-help">FMS 점검진단실적 엑셀을 올리면 전체 이력이 들어옴 · 한 번 쓰면 다음 회차부터 전회차 줄이 자동으로 더해짐 · 비우면 보고서에 "-"</span>${srcTag(s.history_src)}</h4>
       <div class="sv-reg"><label class="secondary-link">📊 FMS 점검이력 엑셀 올리기<input type="file" accept=".xlsx,.xls" hidden data-kr-file="1" class="sv-fms-file" /></label>
@@ -220,7 +221,13 @@ function sitokSurveyWall(box, close, reportId, title, s, onSaved) {
       analysis: { build_result: getA("build_result"), build_dir: getA("build_dir"), maint_result: getA("maint_result"), maint_dir: getA("maint_dir"), ai: !!(s.analysis_ai), hash: (s.analysis || {}).hash || "" },
     };
   };
+  sitokPrevSlot(box.querySelector(".pv-box"), reportId, async (st) => { // 전회차 PDF를 올리면 1.3.1·전회 칸을 다시 읽어야 함(10/21)
+    if (st?.has && confirm("전회차 보고서 PDF를 올렸습니다. 1.3.1 자료수집 현황에 반영하려면 창을 다시 불러옵니다(아직 저장 안 한 고친 내용은 사라짐). 지금 다시 불러올까요?")) {
+      try { const next = await api(`/sitok/reports/${reportId}/survey`); sitokSurveyWall(box, close, reportId, title, next, onSaved); } catch (e) { alert(e.message); }
+    }
+  }, { wall: true });
   const fms = box.querySelector(".sv-fms-file");
+  enableFileDrop(box.querySelector(".sv-reg"), fms); // 끌어다 놓기(사용자 10/21)
   fms.addEventListener("change", async () => { // FMS 점검이력 엑셀 → 1.3.2 전체 바꿈
     const f = fms.files[0];
     fms.value = "";

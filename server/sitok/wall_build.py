@@ -2032,6 +2032,27 @@ def _safe(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "_", name).strip()
 
 
+def _free(p: Path) -> Path:
+    """같은 이름 파일이 열려 있어(윈도 잠금 — 형이 PDF·한글을 띄워 둔 채 다시 만들기, 10/21 WinError 5) 덮어쓸 수 없으면 "(2)", "(3)"… 이름으로."""
+    if not p.exists():
+        return p
+    try:
+        p.unlink()
+        return p
+    except PermissionError:
+        pass
+    for n in range(2, 50):
+        q = p.with_name(f"{p.stem}({n}){p.suffix}")
+        if not q.exists():
+            return q
+        try:
+            q.unlink()
+            return q
+        except PermissionError:
+            continue
+    return p
+
+
 def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: str = "", tag: str = "") -> tuple[Path, Path, list[str], int]:
     """옹벽 보고서 — pairs = [(시설물, 회차)] 장 순서(한 곳이면 하나). 여러 곳이면 한 권(서두 결과표·전경 곳마다, 시설물편 장 복제, 부록 사진첩 곳마다).
     name/title = 책 표지 이름·용역명(여러 곳일 때, 비면 첫 곳 것), tag = 파일 이름 꼬리("(분권 1)"). → (한글, PDF, 알림, 채운 구역 수)."""
@@ -2051,7 +2072,8 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     d = sites[0] if len(sites) == 1 else make_book(sites, name or sites[0].name, title or sites[0].title)
     folder.mkdir(parents=True, exist_ok=True)
     base = _safe(f"{lead_r.year}년 {lead_r.half} 정기안전점검 보고서_{d.name}{tag}")
-    hwpx_out, pdf_out, pdf1 = folder / f"{base}.hwpx", folder / f"{base}.pdf", folder / f"{base}.1차.pdf"
+    hwpx_out, pdf_out, pdf1 = _free(folder / f"{base}.hwpx"), _free(folder / f"{base}.pdf"), _free(folder / f"{base}.1차.pdf")
+    locked = pdf_out.name != f"{base}.pdf" or hwpx_out.name != f"{base}.hwpx"
     say("원본 여는 중…")
     doc = Hwpx(master_path())
     loc = locate(doc)
@@ -2125,6 +2147,8 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
         if n_dw:
             merged.append(f"도면 {n_dw}쪽")
     warn = list(d.warn)
+    if locked:
+        warn.append("전에 만든 보고서 파일이 열려 있어(PDF 보기·한글) 덮어쓰지 못하고 다른 이름으로 저장했습니다 — 닫고 다시 만들면 원래 이름")
     for s in sites:
         if not s.overview:
             warn.append(f"{s.name}: 전경사진이 없어 전경 칸이 비었습니다" if len(sites) > 1 else "전경사진이 없어 전경 칸이 비었습니다")
