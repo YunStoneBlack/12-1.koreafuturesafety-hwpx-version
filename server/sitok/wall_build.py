@@ -525,6 +525,7 @@ class Data:
     analysis: dict = field(default_factory=dict)  # 1.3.4 자료분석 결과 {build_result, build_dir, maint_result, maint_dir}
     cost: tuple = ((), 0)
     deliver: dict = field(default_factory=lambda: {"book": "-", "usb": "-", "note": "협의"})  # 과업성과물 납품 항목(계약의 발주처 과업지시서에서 읽음·직접) — 과업수행계획서 5.
+    drawings: list = field(default_factory=list)  # 첨부 도면 [(경로, 전회차 보고서에서 자른 것인지)] — 1.2.4 뒤 쪽마다 그림(10/21)
     order_pdf: Path | None = None  # 발주처 과업지시서 PDF(계약) — 있으면 우리 과업지시서 대신 부록3에 끼움(형 10/21)
     chief_docs: dict = field(default_factory=dict)  # 책임기술자 자격·정밀안전진단 교육 수료증 그림 {license, edu} — 부록 "책임기술자 자격" 쪽
     shots: list = field(default_factory=list)  # 사진첩 [(path, caption)]
@@ -662,6 +663,11 @@ def gather(db, r, f) -> Data:
         p = rdir / o["file"] if o.get("file") else (rdir / o["prev_file"] if o.get("prev_file") else None)
         if p is not None and p.exists():
             d.overview.append((p, o.get("title") or ""))
+    try:  # 첨부 도면(시설물 칸) — 전회차 보고서에서 자른 쪽은 머리말·꼬리말 띠를 잘라 넣음
+        from server.sitok import drawings as DW
+        d.drawings = [(x["path"], str(x.get("name") or "").startswith("전회차 보고서 도면")) for x in DW.items(f, "attach", _facility_dir(f))]
+    except Exception:  # noqa: BLE001
+        d.drawings = []
     try:
         d.locmap = locmap.facility_map(f, _facility_dir(f))  # 올린 그림 > 핀 좌표 > 주소(10/21 형 — 옹벽은 주소와 자리가 다름)
     except Exception:  # noqa: BLE001
@@ -1570,6 +1576,55 @@ def _size_pic(pic, w: int, h: int, img_bytes: bytes, inline: bool = False) -> No
         clip.set("bottom", str(ph * 75))
 
 
+def _split_table(tbl, doc=None) -> None:
+    """표를 쪽에서 나눠지게(셀 단위) + 머리줄 반복 — 견본은 "나누지 않음"·"글자처럼 취급"이라 이력이 길면 표가 통째로 다음 쪽으로 넘어가거나
+    아래로 넘쳐 잘림(형 10/21). 글자처럼 취급인 표는 한글이 쪽에서 못 나눔 → 본문 흐름 표(평가표와 같은 배치)로. doc을 주면 바로 앞 제목 문단을 다음 문단과 함께."""
+    tbl.set("pageBreak", "CELL")
+    tbl.set("repeatHeader", "1")
+    pos = tbl.find(f"{{{HP}}}pos")
+    if pos is not None and pos.get("treatAsChar") == "1":
+        pos.set("treatAsChar", "0")
+        pos.set("horzRelTo", "COLUMN")
+        pos.set("horzAlign", "CENTER")
+        pos.set("vertOffset", "0")
+        pos.set("horzOffset", "0")
+    for tc in tbl.iter(f"{{{HP}}}tc"):  # 머리줄(첫 줄)을 쪽마다 되풀이
+        addr = tc.find(f"{{{HP}}}cellAddr")
+        if addr is not None and addr.get("rowAddr") == "0":
+            tc.set("header", "1")
+    if doc is not None:
+        _keep_heading(tbl, doc)
+
+
+def _keep_heading(tbl, doc) -> None:
+    """표 바로 앞 제목들("1.3 …"·"1.3.1 …")과 그 사이 빈 문단을 "다음 문단과 함께"로 — 제목만 앞 쪽 맨 아래에 홀로 남지 않게(형 10/21)."""
+    host = next(tbl.iterancestors(f"{{{HP}}}p"), None)
+    if host is None:
+        return
+    chain, prev = [], host.getprevious()
+    while prev is not None and prev.tag == f"{{{HP}}}p" and len(chain) < 5:
+        if list(prev.iter(f"{{{HP}}}tbl")) or list(prev.iter(f"{{{HP}}}pic")):
+            break  # 위 표·그림(1.2.4 틀 등)에서 멈춤
+        t = _ptext(prev)
+        if t and not re.match(r"\d+\.\d+", t):
+            break
+        chain.append(prev)
+        prev = prev.getprevious()
+    while chain and not _ptext(chain[-1]):  # 맨 위 제목 앞 빈 줄은 안 묶음
+        chain.pop()
+    for q in chain:
+        q.set("paraPrIDRef", _keep_pp(doc, q.get("paraPrIDRef") or "0"))
+
+
+def _keep_pp(doc, pid: str) -> str:
+    target = getattr(doc, "doc", doc)
+    cache = getattr(target, "_keep_cache", {})
+    if pid not in cache:
+        cache[pid] = doc.clone_parapr(pid, keep_with_next=True)
+        target._keep_cache = cache
+    return cache[pid]
+
+
 def _fill_history(tbl, rows: list) -> None:
     n_tpl = int(tbl.get("rowCnt")) - 1
     if not rows:
@@ -1611,6 +1666,131 @@ def fill_chapter(doc: Hwpx, d: Data, k: int = 1, names: list | None = None, intr
     _fill_chapter_body(doc, d)
     if k > 1:
         _renumber_chapter(doc, k)
+    _fit_footer(doc, d.name)
+    _drawing_pages(doc, d)
+
+
+def _fit_footer(doc, name: str) -> None:
+    """꼬리말 "제 k 장 이름"(바탕쪽 표 칸, 폭 고정) — 넘치면 자간 -5·-10·-15, 그래도면 장평 80·글자 900으로 한 줄(형 10/21 "한줄로")."""
+    HH = "http://www.hancom.co.kr/hwpml/2011/head"
+    header = getattr(doc, "doc", doc).header
+    for r in getattr(doc, "roots", [])[1:]:
+        for p in r.iter(f"{{{HP}}}p"):
+            t = "".join(x.text or "" for x in p.iter(T)).strip()
+            if not re.match(r"제\s*\d+\s*장", t) or name not in t:
+                continue
+            tc = next(p.iterancestors(f"{{{HP}}}tc"), None)
+            sz = tc.find(f"{{{HP}}}cellSz") if tc is not None else None
+            runs = _runs_of(p)
+            if sz is None or not runs:
+                continue
+            cid = runs[0].get("charPrIDRef")
+            cp = next((x for x in header.iter(f"{{{HH}}}charPr") if x.get("id") == str(cid)), None)
+            if cp is None:
+                continue
+            h = int(cp.get("height") or 1000)
+            ra = int((cp.find(f"{{{HH}}}ratio") if cp.find(f"{{{HH}}}ratio") is not None else cp).get("hangul", 100))
+            sp0 = int((cp.find(f"{{{HH}}}spacing") if cp.find(f"{{{HH}}}spacing") is not None else cp).get("hangul", 0))
+            units = sum(1.0 if ord(ch) > 0x2000 else 0.5 for ch in t)
+            avail = (int(sz.get("width")) - 600) * 0.97
+            width = lambda hh, rr, ss: units * hh * rr / 100 * (1 + ss / 100)  # noqa: E731
+            if width(h, ra, sp0) <= avail:
+                continue
+            pick = next(((h, ra, s) for s in (-5, -10, -15) if width(h, ra, s) <= avail), None) \
+                or next(((h, rr, -15) for rr in (85, 80) if width(h, rr, -15) <= avail), None) or (900, 80, -15)
+            _set_charpr(p, doc.clone_charpr(cid, height=pick[0] if pick[0] != h else None, spacing=pick[2], ratio=pick[1] if pick[1] != ra else None))
+
+
+DRAW_W, DRAW_H = 47000, 64000  # 도면 쪽 그림 최대(세로 본문 48190×68597 안)
+
+
+def _drawing_images(path: Path, prior: bool) -> list[bytes]:
+    """도면 파일 → 쪽마다 JPG. PDF는 150dpi(전회차 보고서에서 자른 쪽은 위 머리말·아래 꼬리말 띠를 잘라 — 그 보고서 꼬리말·쪽 번호가 안 나오게),
+    가로 그림은 90° 돌려 세로 쪽을 채움."""
+    import io
+
+    from PIL import Image, ImageOps
+
+    out = []
+    try:
+        if path.suffix.lower() == ".pdf":
+            with pymupdf.open(path) as pdf:
+                for pg in pdf:
+                    r = pg.rect
+                    clip = pymupdf.Rect(0, 58, r.width, r.height - 80) if prior else None
+                    out.append(pg.get_pixmap(dpi=150, clip=clip).tobytes("jpg"))
+        else:
+            out.append(path.read_bytes())
+    except Exception:  # noqa: BLE001
+        return []
+    fixed = []
+    for b in out:
+        try:
+            im = ImageOps.exif_transpose(Image.open(io.BytesIO(b))).convert("RGB")
+        except Exception:  # noqa: BLE001
+            continue
+        if im.width > im.height * 1.05:
+            im = im.rotate(90, expand=True)
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=85)
+        fixed.append(buf.getvalue())
+    return fixed
+
+
+def _drawing_pages(doc, d: Data) -> None:
+    """1.2.4 시설물 주요도면 틀 쪽 뒤에 첨부 도면을 쪽마다 그림 문단으로(쪽 나눔) — 한글이 쪽 번호·꼬리말을 붙임(전엔 PDF에 끼워 전회차 꼬리말이 남았음, 형 10/21)."""
+    if not d.drawings:
+        return
+    from server.sitok.merge import _renew_ids
+
+    root = doc.root
+    tops = _tops(root)
+    i = next((i for i, p in enumerate(tops) if re.match(r"\d+\.2\.4\s*시설물\s*주요도면", _ptext(p))), None)
+    if i is None:
+        return
+    frame = next((p for p in tops[i + 1:i + 4] if list(p.iter(f"{{{HP}}}tbl"))), tops[i])
+    tpl = _doc_tpl(doc)
+    if tpl is None:
+        return
+    center = doc.clone_parapr(frame.get("paraPrIDRef") or "0", align="CENTER")
+    run0 = frame.find(f"{{{HP}}}run")
+    anchor = frame
+    for path, prior in d.drawings:
+        for img in _drawing_images(Path(path), prior):
+            p = copy.deepcopy(frame)
+            for ch in list(p):
+                p.remove(ch)
+            p.set("pageBreak", "1")
+            p.set("paraPrIDRef", center)
+            run = etree.SubElement(p, f"{{{HP}}}run", charPrIDRef=run0.get("charPrIDRef") if run0 is not None else "0")
+            pic = copy.deepcopy(tpl)
+            _renew_ids(pic)
+            pic.set("id", str(random.randint(1_000_000_000, 2_000_000_000)))
+            pic.set("instid", str(random.randint(100_000_000, 999_999_999)))
+            run.append(pic)
+            im = next(pic.iter(f"{{{HC}}}img"), None)
+            if im is not None:
+                im.set("binaryItemIDRef", doc.add_image(img))
+            w, h = _img_size(img)
+            k = min(DRAW_W / w, DRAW_H / h)
+            _size_pic(pic, int(w * k), int(h * k), img, inline=True)
+            anchor.addnext(p)
+            anchor = p
+    if anchor is not frame:  # 도면 다음 절("1.3 자료수집 및 분석")은 새 쪽에서 — 마지막 도면 그림 밑에 붙지 않게
+        nxt = anchor.getnext()
+        while nxt is not None and nxt.tag == f"{{{HP}}}p" and not _ptext(nxt) and not list(nxt.iter(f"{{{HP}}}tbl")):
+            nxt = nxt.getnext()
+        if nxt is not None and nxt.tag == f"{{{HP}}}p":
+            nxt.set("pageBreak", "1")
+
+
+def _img_size(b: bytes) -> tuple[int, int]:
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(b)) as im:
+        return im.size
 
 
 def _divider_list(doc: Hwpx, paras: list, names: list, intro_root) -> None:
@@ -1789,6 +1969,9 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
     ov = _tbl(root, 6, 2)
     if ov is not None:
         _fill_photo_table(ov, d.overview[:6], tpl, doc.add_image, "")
+    for tt in (_tbl(root, 7, 4, "보존대상 목록"), _tbl(root, 3, 6, "구분"), _tbl(root, 8, 4, "부재명"), _tbl(root, 2, 2, "구"), _tbl(root, 6, 8, "구 분")):
+        if tt is not None:  # 1.3.1·1.3.4·1.4.5·1.5·1.6 — 제목이 표와 같이 다음 쪽으로
+            _keep_heading(tt, doc)
     t71 = _tbl(root, 7, 4, "보존대상 목록")
     if t71 is not None:  # 1.3.1 자료수집 현황 — 면담 창 값(보유현황·비고, wall_collect)
         cells = rb._cells(t71)
@@ -1806,11 +1989,14 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
     th = _tbl(root, 17, 7, "번호")
     if th is not None:
         _fill_history(th, d.history)
+        _split_table(th, doc)
     cont = _tbl(root, 5, 6, "번호")
     if cont is not None:
         p = next(cont.iterancestors(f"{{{HP}}}p"))
         _del(root, [p])
     trep = _tbl(root, 2, 6, "번호")  # 1.3.3 보수 및 보강 이력(번호·기간·시공사·내용·비고) — 면담 창
+    if trep is not None:
+        _split_table(trep, doc)
     if trep is not None:
         rows = [x for x in d.repairs if x.get("method") or x.get("where")]
         if rows:
@@ -2231,11 +2417,9 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     from server.api.routers.sitok import _facility_dir as _fdir
     from server.sitok import drawings as D
     from server.sitok import wall_drawings
-    dw = [(k, [x["path"] for x in D.items(f, "attach", _fdir(f))]) for k, (f, _) in enumerate(pairs, 1)]
-    if any(paths for _, paths in dw):  # 첨부 도면 — k.2.4 시설물 주요도면 쪽 뒤에 후면첨부(형 10/21, 건축물과 같은 방식)
-        n_dw = len(wall_drawings.insert(pdf_out, dw))
-        if n_dw:
-            merged.append(f"도면 {n_dw}쪽")
+    n_dw = sum(len(s.drawings) for s in sites)  # 첨부 도면은 한글 본문 1.2.4 뒤 그림 쪽으로(_drawing_pages, 10/21 — 우리 꼬리말·쪽 번호)
+    if n_dw:
+        merged.append(f"도면 {n_dw}개(1.2.4 뒤)")
     warn = list(d.warn)
     if locked:
         warn.append("전에 만든 보고서 파일이 열려 있어(PDF 보기·한글) 덮어쓰지 못하고 다른 이름으로 저장했습니다 — 닫고 다시 만들면 원래 이름")
