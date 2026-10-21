@@ -25,8 +25,26 @@ const SitokFields = (() => {
     ["land_area", "대지면적(㎡)", "num", "상태평가 결과(SafetyMan 건물개요) — 건축물대장"], ["coverage_ratio", "건폐율(%)", "num", ""], ["floor_area_ratio", "용적율(%)", "num", ""],
     ["base_wall", "면적률 기준 — 벽 한 면(㎡)", "num", "비우면 24.5(기둥간격 7m × 층고 3.5m)"],
     ["base_slab", "면적률 기준 — 슬래브 한 칸(㎡)", "num", "비우면 49(7m × 7m)"],
+    // 옹벽 관리대장 칸(10/21 형) — 옹벽 시설물이면 건축물 칸(주용도·구조·층수·면적) 대신 이것(applyKind). 보고서 1.2.1 현황표·요약문·과업대상 표에 들어감
+    ["wall_form", "옹벽형식", "text", "관리대장 — 예: 블록쌓기·역T형·중력식"], ["wall_material", "재료", "text", "예: 보강토·철근콘크리트"],
+    ["wall_length", "연장(m)", "text", ""], ["wall_height", "지면노출높이(m)", "text", ""], ["wall_base_width", "저판폭(m)", "text", ""],
+    ["wall_route", "노선", "text", "관리대장 노선·도로명"], ["wall_surround", "주변환경", "text", "예: 산업단지·도로변·주거지"],
+    ["wall_builder", "시공자", "text", ""], ["wall_project", "공사명", "text", "관리대장 공사명(1.3.1 자료수집 보존대상 목록)"], ["wall_attached", "부대시설", "text", "예: 안전펜스·점검로·배수시설"],
     ["memo", "메모", "text", "보고서엔 안 나감"],
   ];
+  const WALL_ONLY = new Set(["wall_form", "wall_material", "wall_length", "wall_height", "wall_base_width", "wall_route", "wall_surround", "wall_builder", "wall_project", "wall_attached"]);
+  const BUILDING_ONLY = new Set(["main_use", "structure", "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "land_area", "coverage_ratio", "floor_area_ratio", "base_wall", "base_slab"]);
+
+  function applyKind(box, isWall) { // 옹벽이면 건축물 칸을 숨기고 옹벽 관리대장 칸을, 아니면 그 반대(10/21)
+    for (const el of box.querySelectorAll(".sk-f")) {
+      const key = el.className.replace(/.*sk-f-(\S+).*/, "$1");
+      el.classList.toggle("sk-off", isWall ? BUILDING_ONLY.has(key) : WALL_ONLY.has(key));
+    }
+    const kind = box.querySelector("[data-key=kind]");
+    const use = box.querySelector("[data-key=use_type]");
+    if (kind && kind.closest(".sk-f")) kind.closest(".sk-f").querySelector(".sk-help").textContent = isWall ? "결과표 — 옹벽" : "결과표 — 보통 건축물";
+    if (use && use.closest(".sk-f")) use.closest(".sk-f").querySelector(".sk-help").textContent = isWall ? "결과표 — 건축물옹벽·도로옹벽 등(관리대장 시설물종류)" : "결과표 — 종교시설·교육연구시설 등";
+  }
   const CON = [
     ["sector", "계약 구분", "sector", ""], ["title", "계약건명", "text", ""], ["contract_no", "계약번호", "text", "관급(나라장터)"],
     ["contract_date", "계약일", "date", ""], ["start_date", "계약기간 시작(착수일)", "date", ""], ["end_date", "계약기간 끝(완수일)", "date", ""],
@@ -93,5 +111,5 @@ const SitokFields = (() => {
     return sync;
   }
 
-  return { esc, FAC, CON, TEMPLATE_LABEL, input, setValues, values, linkLegal };
+  return { esc, FAC, CON, TEMPLATE_LABEL, input, setValues, values, linkLegal, applyKind };
 })();

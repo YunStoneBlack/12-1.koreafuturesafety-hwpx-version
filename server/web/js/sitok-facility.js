@@ -237,6 +237,7 @@
     if (fac) setValues(facBox, fac);
     facBox.querySelectorAll(".sk-filled").forEach((el) => el.classList.remove("sk-filled"));
     SitokFields.linkLegal(facBox);
+    SitokFields.applyKind(facBox, !!(fac && fac.is_wall)); // 옹벽은 관리대장 칸(10/21 형)
     const cons = document.getElementById("sk-cons");
     cons.innerHTML = "";
     if (fac) {

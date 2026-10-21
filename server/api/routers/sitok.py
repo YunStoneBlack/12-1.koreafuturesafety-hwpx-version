@@ -32,6 +32,7 @@ from core.models_web import SitokContract, SitokFacility, SitokView, User, Sitok
 from server.api import storage
 from server.api.deps import get_current_user, get_db
 from server.api.security import verify_password
+from server.sitok import kinds as _kinds
 from server.sitok import reader
 from server.sitok import seasons
 
@@ -102,6 +103,17 @@ class FacilityIn(BaseModel):
     land_area: float | None = None  # 대지면적(㎡)·건폐율(%)·용적율(%) — SafetyMan 건물개요(10/15 민재형), ledger JSON에 보관
     coverage_ratio: float | None = None
     floor_area_ratio: float | None = None
+    # 옹벽 관리대장 칸(10/21 형 "옹벽 시설물관리대장 양식으로") — ledger JSON "wall"에 보관(wall_ledger.KEYS), 보고서 1.2.1 현황표·요약문·과업대상 표가 씀
+    wall_form: str | None = None
+    wall_material: str | None = None
+    wall_length: str | None = None
+    wall_height: str | None = None
+    wall_base_width: str | None = None
+    wall_route: str | None = None
+    wall_surround: str | None = None
+    wall_builder: str | None = None
+    wall_attached: str | None = None
+    wall_project: str | None = None
 
 
 class ContractIn(BaseModel):
@@ -175,6 +187,7 @@ def _check(field: str, value, allowed) -> None:
 
 
 LEDGER_KEYS = ("base_wall", "base_slab", "land_area", "coverage_ratio", "floor_area_ratio")  # 표 열 없이 ledger JSON에 두는 시설물 칸
+WALL_KEYS = ("form", "material", "length", "height", "base_width", "route", "surround", "builder", "attached", "project")  # ledger["wall"] — 시설물 칸 wall_*
 BASE_WALL, BASE_SLAB = 24.5, 49.0  # 기준 면적 기본값 — 벽 한 면 = 기둥간격 7m × 층고 3.5m, 슬래브 한 칸 = 7m × 7m
 
 
@@ -201,6 +214,9 @@ def _apply_facility(row: SitokFacility, body: FacilityIn) -> None:
     bases = {k: data.pop(k) for k in LEDGER_KEYS if k in data}
     if bases:
         row.ledger = {**(row.ledger or {}), **bases}
+    wall = {k: (data.pop(f"wall_{k}") or "").strip() for k in WALL_KEYS if f"wall_{k}" in data}
+    if wall:
+        row.ledger = {**(row.ledger or {}), "wall": {**((row.ledger or {}).get("wall") or {}), **wall}}
     for k, v in data.items():
         setattr(row, k, v.strip() if isinstance(v, str) else v)
 
@@ -266,6 +282,7 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
     out = {"id": f.id, **{k: _iso(getattr(f, k)) for k in FAC_FIELDS}, "ledger": f.ledger or {},
            "has_ledger_pdf": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()), "has_register": register_path(f).exists(),
            **{k: (f.ledger or {}).get(k) for k in LEDGER_KEYS},
+           "is_wall": _kinds.is_wall(f), **{f"wall_{k}": ((f.ledger or {}).get("wall") or {}).get(k) or "" for k in WALL_KEYS},  # 옹벽 칸(10/21)
            "latest": _contract_out(contracts[0]) if contracts else None, "contract_count": len(contracts)}
     from server.api.routers.sitok_groups import group_out
     out["group"] = group_out(db, f)  # 한 보고서로 묶인 동(10/12)
