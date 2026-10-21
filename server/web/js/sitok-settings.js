@@ -51,10 +51,11 @@
 
   function drawPersons() {
     const box = document.getElementById("ss-persons");
-    box.innerHTML = data.persons.length ? "" : '<div class="empty-note">기술자가 없습니다. <a href="docs-settings.html">서류 자동화 설정</a>에서 추가하세요.</div>';
+    box.innerHTML = data.persons.length ? "" : '<div class="empty-note">기술자가 없습니다. 위 [+ 기술자 추가]로 넣으세요.</div>';
     for (const p of data.persons.filter((x) => x.active)) {
       const card = document.createElement("div");
       card.className = "ss-person";
+      card.dataset.id = p.id;
       card.innerHTML = `<div class="ss-person-head"><b>${esc(p.name)}</b><span>${esc([p.position, p.grade].filter(Boolean).join(" · "))}</span></div>
         <div class="ss-person-fields">
           <label>분야 <input data-k="sitok_field" value="${esc(p.sitok_field)}" placeholder="건축" /></label>
@@ -222,6 +223,51 @@
 
   document.getElementById("ss-add-price").addEventListener("click", async () => {
     try { await apiPost("/sitok/settings/prices", { method: "새 공법", unit: "m" }); await load(); } catch (x) { err(x); }
+  });
+
+  // [+ 기술자 추가](10/21 사용자) — 서류 자동화와 같은 명단(tech_person)에 넣고 시특법 칸(분야·결과표 기술등급)까지. 서류·서명은 추가된 카드에서 올림.
+  // 생년월일·입사일·주소·기술자격(산안법 착수계 칸)은 서류 자동화 설정에서.
+  document.getElementById("ss-add-person").addEventListener("click", () => {
+    const ov = document.createElement("div");
+    ov.className = "mail-overlay";
+    ov.innerHTML = `<div class="mail-box ss-add-box" role="dialog" aria-modal="true">
+      <div class="mail-head"><b>+ 기술자 추가</b><span class="mail-sub">서류 자동화 설정과 같은 명단에 들어갑니다 — 수료증·자격·서명은 추가한 뒤 카드에서 올리세요</span></div>
+      <div class="field-grid">
+        <div class="sk-f"><label for="ap-name">이름</label><input class="mail-input" id="ap-name" maxlength="20" /></div>
+        <div class="sk-f"><label for="ap-pos">직책</label><input class="mail-input" id="ap-pos" placeholder="예: 차장" maxlength="20" /></div>
+        <div class="sk-f"><label for="ap-grade">기술등급</label><input class="mail-input" id="ap-grade" placeholder="예: 특급기술자" maxlength="30" /></div>
+        <div class="sk-f"><label for="ap-field">분야</label><input class="mail-input" id="ap-field" value="건축" list="ap-fields" maxlength="20" /><datalist id="ap-fields"><option value="건축"><option value="토목"></datalist></div>
+        <div class="sk-f ap-wide"><label for="ap-sgrade">결과표 기술등급</label><input class="mail-input" id="ap-sgrade" placeholder="예: 건축분야특급기술자" maxlength="40" /></div>
+      </div>
+      <div class="mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="mail-cancel">취소</button><button type="button" class="mail-primary ap-ok">추가</button></div></div>`;
+    document.body.appendChild(ov);
+    const q = (s) => ov.querySelector(s);
+    const say = (m) => { const el = q(".mail-msg"); el.hidden = false; el.className = "mail-msg bad"; el.textContent = m; };
+    const sgradeAuto = () => { // 결과표 기술등급 — 비었으면 분야 + 기술등급으로 채워 줌(건축 + 특급기술자 → 건축분야특급기술자)
+      const s = q("#ap-sgrade");
+      if (s.dataset.touched) return;
+      const f = q("#ap-field").value.trim(), g = q("#ap-grade").value.trim().replace(/\s+/g, "");
+      s.value = f && g ? `${f}분야${g}` : "";
+    };
+    q("#ap-sgrade").addEventListener("input", (e) => { e.target.dataset.touched = "1"; });
+    ["#ap-field", "#ap-grade"].forEach((s) => q(s).addEventListener("input", sgradeAuto));
+    q(".mail-cancel").addEventListener("click", () => ov.remove());
+    q(".ap-ok").addEventListener("click", async () => {
+      const name = q("#ap-name").value.trim();
+      if (!name) { say("이름을 넣으세요."); q("#ap-name").focus(); return; }
+      if (data.persons.some((p) => p.name === name) && !confirm(`"${name}" 기술자가 이미 있습니다. 그래도 추가할까요?`)) return;
+      q(".ap-ok").disabled = true;
+      try {
+        const p = await apiPost("/contract-docs/persons", { name, position: q("#ap-pos").value, grade: q("#ap-grade").value });
+        await apiPatch(`/sitok/settings/persons/${p.id}`, { sitok_field: q("#ap-field").value, sitok_grade: q("#ap-sgrade").value });
+        ov.remove();
+        await load();
+        const card = document.querySelector(`.ss-person[data-id="${p.id}"]`);
+        if (card) { card.scrollIntoView({ behavior: "smooth", block: "center" }); flash(card); }
+      } catch (x) { say(x.message); q(".ap-ok").disabled = false; }
+    });
+    q("#ap-name").focus();
   });
 
   document.getElementById("ss-add-eq").addEventListener("click", async () => {

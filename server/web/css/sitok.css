@@ -819,3 +819,12 @@ div.sf-miss-it { cursor: default; }
   .ds-card-btns > * { flex: 1 1 auto; justify-content: center; }
   .main .ds-card-btns button.ds-del { flex: 0 0 auto; }
 }
+
+/* 설정 > 시특법 > 기술자 [+ 기술자 추가](10/21) — 머리 줄 오른쪽 끝, 추가 창 칸 */
+.main .panel-head .ss-head-count { margin-left: auto; margin-right: 12px; }  /* 설명은 예전처럼 오른쪽, 그 옆 끝에 단추 */
+.main .panel-head .ss-head-add { flex: none; }
+@media (max-width: 600px) { .main .panel-head .ss-head-count { display: none; } }
+.ss-add-box { width: min(560px, calc(100vw - 32px)); }
+.ss-add-box .field-grid { margin-top: 4px; }
+.ss-add-box .sk-f label { display: block; margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.ss-add-box .ap-wide { grid-column: 1 / -1; }

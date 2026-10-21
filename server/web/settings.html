@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="css/contract-docs.css" />
 <link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/mail.css" />
 </head>
 <!-- 보고서 자동화 설정(10/20 사용자 — 왼쪽 메뉴 보고서 자동화 아래 '설정'): 공통(Claude API 키·삭제 비밀번호) + [산안법][시특법] 전환.
      산안법 칸 = 예전 이 화면, 시특법 칸 = 예전 sitok-settings.html(지금은 settings.html?law=sitok으로 넘김, js/sitok-settings.js·sitok-learn.js).
@@ -137,7 +138,8 @@
 </section>
 
 <section class="panel">
-  <div class="panel-head"><h2>기술자</h2><span class="panel-count">참여기술자 명단·결과표·부록 — 사람 추가·이름·직위는 <a href="docs-settings.html">서류 자동화 설정</a>(같은 명단)</span></div>
+  <div class="panel-head"><h2>기술자</h2><span class="panel-count ss-head-count">참여기술자 명단·결과표·부록 — <a href="docs-settings.html">서류 자동화 설정</a>과 같은 명단</span>
+    <button type="button" class="secondary btn-sm ss-head-add" id="ss-add-person">+ 기술자 추가</button></div>
   <div class="panel-body" id="ss-persons"></div>
 </section>
 
