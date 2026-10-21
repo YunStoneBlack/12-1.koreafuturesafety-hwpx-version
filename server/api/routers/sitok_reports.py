@@ -1560,9 +1560,12 @@ def _wall_ai_draft(db: Session, r: SitokReport, f: SitokFacility, rows: list, us
         pass
     target_word = wall_ai.word(target) if target else ""
     prev_grade = wall_ai.word(f.safety_grade or "")
+    from server.sitok import wall_manual
+    form = wall_manual.form_of(spec.get("form") or "", f.name, f.kind or "")
+    eval_items = wall_manual.items_for(form) if (f.template or "").startswith("3종") else None  # 3종 18항목(5단계, 10/21)
     try:
         data = wall_ai.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, prev, facts, user.company_id,
-                             target_word, prev_grade, ", ".join(pub))
+                             target_word, prev_grade, ", ".join(pub), eval_items, form)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
     if target_word:
@@ -1714,8 +1717,14 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
     final = {k: body.get(k) for k in keys}
     if wall:
         final["wall"] = True
-    if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선)
-        final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
+    if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선) — 옹벽은 매뉴얼 단서(보강토 11번)까지(wall_manual.score)
+        if wall:
+            from server.sitok import wall_manual
+            wf = db.get(SitokFacility, r.facility_id)
+            form = wall_manual.form_of(((wf.ledger or {}).get("wall") or {}).get("form") or "", wf.name, wf.kind or "")
+            final["grade"] = wall_manual.score(final["items"], form)["grade"] or final.get("grade")
+        else:
+            final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
     from server.sitok import ai_draft as _AD
 
     tpl = db.get(SitokFacility, r.facility_id).template

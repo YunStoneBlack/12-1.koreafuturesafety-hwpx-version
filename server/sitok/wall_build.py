@@ -28,7 +28,7 @@ from pathlib import Path
 import pymupdf
 from lxml import etree
 
-from server.sitok import wall_ai, wall_ledger
+from server.sitok import wall_ai, wall_ledger, wall_manual
 from server.sitok import report_build as rb
 from server.sitok.report_build import HP, T
 
@@ -424,6 +424,7 @@ class Data:
     compare: list = field(default_factory=list)  # 전회차 비교 사진대장 [(prev, now, caption)]
     public_names: str = ""
     template3: bool = False
+    form: str = ""  # 옹벽 형식 열쇠(콘크리트·보강토·석축·돌망태 — 3종 제외항목)
     warn: list = field(default_factory=list)
     sites: list = field(default_factory=list)  # 묶음 책이면 곳마다 Data(장 순서), 한 곳이면 빈 목록
     index: int = 1  # 책 안 순서(장 번호)
@@ -431,6 +432,11 @@ class Data:
     @property
     def many(self) -> list:
         return self.sites or [self]
+
+    @property
+    def grade_cell(self) -> str:
+        """결과표 "등급" 칸 — 3종은 글자(A~E, 견본 "B"), 2종은 말(양호)."""
+        return wall_ai.letter3(self.ai.get("grade") or self.grade, self.ai.get("items"), self.form) if self.template3 else self.grade
 
     @property
     def size(self) -> str:
@@ -503,6 +509,7 @@ def gather(db, r, f) -> Data:
     d.kind_text = spec.get("kind_text") or wall_ledger.kind_text_of(f.kind or "")
     d.class_no = (f.class_no or spec.get("class_no") or "2").strip()
     d.template3 = (f.template or "").startswith("3종")
+    d.form = wall_manual.form_of(spec.get("form") or "", f.name, f.kind or "")
     # 사람
     ids = [x for x in [r.chief_id, *(r.participant_ids or [])] if x]
     people = {p.id: p for p in db.query(TechPerson).filter(TechPerson.id.in_(ids))} if ids else {}
@@ -568,9 +575,13 @@ def gather(db, r, f) -> Data:
     fin = (r.ai or {}).get("final") or {}
     defects = [{k: getattr(x, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause", "cause_note")} for x in rows]
     d.prev_grade = wall_ai.word(f.safety_grade or "") or "양호"
-    d.ai = fin if wall_ai.is_wall_ai(fin) else wall_ai.fallback(defects, d.prev_grade, d.public_names)
+    eval_items = wall_manual.items_for(d.form) if d.template3 else None
+    d.ai = dict(fin) if wall_ai.is_wall_ai(fin) else wall_ai.fallback(defects, d.prev_grade, d.public_names, eval_items, d.form)
     if not wall_ai.is_wall_ai(fin):
         d.warn.append("AI 초안이 없어 결함 목록으로 만든 기본 글로 채웠습니다 — [🤖 AI 초안]을 먼저 쓰면 좋습니다")
+    elif eval_items and not d.ai.get("items"):  # 5단계 전에 만든 3종 초안 — 18항목은 결함으로 어림(저장 안 함)
+        d.ai = wall_ai._with_items(d.ai, None, eval_items, d.form, defects)
+        d.warn.append("AI 초안에 18항목 안전등급 평가가 없어 결함으로 어림했습니다 — [🤖 AI 초안]을 다시 쓰면 AI가 매깁니다")
     d.grade = wall_ai.word(d.ai.get("grade") or "") or d.prev_grade
     # 이력·공사비
     d.history = list(spec.get("history") or [])
@@ -669,7 +680,7 @@ def _fill_result_table(tbl, d: Data) -> None:
     _set(cells, (4, 8), f"{d.class_no}종")
     _set(cells, (5, 2), d.completion_text)
     _set(cells, (5, 6), d.amount_k)
-    _set(cells, (5, 8), d.grade)
+    _set(cells, (5, 8), d.grade_cell)
     _set(cells, (6, 2), d.address)
     _set(cells, (6, 6), d.size)
     _set(cells, (8, 2), d.ai.get("critical") or "⦁없음")
@@ -1032,6 +1043,8 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
         _set(cells, (6, 1), f"⦁{d.prev_grade}")
         _set(cells, (6, 2), f"⦁{d.grade}")
         _set(cells, (7, 1), d.ai.get("summary_opinion") or "")
+    if d.template3:
+        _fill_eval_table(root, d)
     t22 = _tbl(root, 2, 2, "구")
     if t22 is not None:
         _set(rb._cells(t22), (1, 0), d.name)
@@ -1057,6 +1070,38 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
         _set(cells, (1, 1), "\n".join(con.get("survey") or ["⦁-"]))
         _set(cells, (2, 1), "\n".join(con.get("repair") or ["⦁-"]))
         _set(cells, (3, 1), con.get("urgent") or "⦁필요치 않음")
+
+
+def _fill_eval_table(root, d: Data) -> None:
+    """k.5 안전등급 평가 표(22×10 — 줄 2~19 = 1~18항목, 칸 2 점검자 의견·3 보수필요·4~8 a~e·9 해당없음, 줄 20 평가결과, 줄 21 종합의견) — AI 초안 items로."""
+    t = _tbl(root, 22, 10, "구분")
+    if t is None:
+        return
+    items = d.ai.get("items") or []
+    if not items:
+        return
+    cells = rb._cells(t)
+    by_no = {int(it.get("no", 0)): it for it in items}
+    cols = {"우수": 4, "양호": 5, "보통": 6, "미흡": 7, "불량": 8, "해당없음": 9}
+    for r in range(2, 20):
+        name = rb._cell_text(cells[(r, 1)]) if (r, 1) in cells else ""
+        m = re.match(r"\s*(\d+)\.", name)
+        it = by_no.get(int(m[1])) if m else None
+        if it is None:
+            continue
+        for c in range(4, 10):
+            _set(cells, (r, c), "○" if cols.get(it.get("rating") or "") == c else "")
+        _set(cells, (r, 2), it.get("opinion") or "-")
+        _set(cells, (r, 3), it.get("repair") or "×")
+    res = wall_manual.score(items, d.form)
+    letter = res.get("grade") or ""
+    for (r, c), tc in cells.items():
+        if r == 20 and "안전등급" in rb._cell_text(tc):
+            serious = letter in ("D", "E")
+            rb._set_lines(tc, ["안전등급 : " + "   ".join(("■" if g == letter else "□") + g for g in "ABCDE"),
+                               f"긴급점검·진단 필요성 : {'■있음 □없음' if serious else '□있음 ■없음'}", f"안전조치 필요성 : {'■있음 □없음' if serious else '□있음 ■없음'}"])
+        elif r == 21 and c > 0:
+            rb._set_lines(tc, [f"◦ {d.ai.get('eval_opinion') or '-'}"] + ([f"◦ {res['forced']}"] if res.get("forced") else []))
 
 
 def _k(s: str) -> str:

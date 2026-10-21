@@ -31,7 +31,7 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 - 조치: 잡목식생 → 잡목 및 식생제거, 배수로 퇴적 → 배수로 정비, 채움재유출 → 충진보수, 이격 → 실링보수, 균열 0.3mm 미만 → 표면처리·주의관찰, 0.3mm 이상 → 주입보수, 경미하면 주의관찰.
 - 문장은 보고서 문어체("~조사되었다", "~판단된다"), 절마다 2~4문장. 지난 보고서를 베끼지 말고 이번 숫자·부위를 구체적으로.
 - 결과표 "점검 주요결과"는 반드시 4줄: "⦁기초부 : …", "⦁상  부 : …", "⦁전면부 : …", "⦁기  타 : …"(각 80자 이내).
-- 점검결과 등급(제2종시설물)은 양호·보통·미흡·불량 중 하나와 근거(중대결함 없고 국부 손상뿐이면 보통 양호, 주요부(전면부·기초)에 진행성 결함이면 보통~미흡, 위험하면 불량).{grade_rule}
+{items_rule}- 점검결과 등급(제2종시설물)은 양호·보통·미흡·불량 중 하나와 근거(중대결함 없고 국부 손상뿐이면 보통 양호, 주요부(전면부·기초)에 진행성 결함이면 보통~미흡, 위험하면 불량).{grade_rule}
 
 아래 JSON 객체 하나로만 답하세요(설명 없이):
 {{"critical": "결과표 중대결함 칸(예: 없음)",
@@ -43,7 +43,16 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
  "summary_rows": [{{"name": "전면부", "prev": "⦁전회 결과(줄마다 ⦁)", "now": "⦁금회 결과", "action": "⦁조치필요사항"}}, {{"name": "상부", ...}}, {{"name": "기초/지반", ...}}, {{"name": "배수시설", ...}}, {{"name": "공중이 이용하는시설", ...}}],
  "summary_opinion": "실시결과 요약표 종합의견 한두 문장(⦁로 시작)",
  "conclusion": {{"survey": ["종합결론 외관조사결과 글머리 1~3개(⦁)"], "repair": ["보수필요사항 글머리 1~3개(⦁)"], "urgent": "긴급점검 및 정밀안전진단 필요여부(예: ⦁필요치 않음)"}},
- "grade": "양호", "grade_reason": "근거"}}"""
+ "grade": "양호", "grade_reason": "근거"{items_spec}}}"""
+
+ITEMS_RULE = "- 3종시설물: 안전등급은 아래 18항목 평가 점수로 프로그램이 계산(우수10·양호8·보통5·미흡2·불량0, 주요60·일반20·부대20, 9·7·5·3점 이상 A~D) — \"grade\"도 그 계산과 맞게(A는 양호로 적음).\n"
+ITEMS_SPEC = """,
+ "items": [{{"no": 항목번호, "rating": "우수|양호|보통|미흡|불량|해당없음", "repair": "○ 또는 ×", "opinion": "점검자 의견 15자 안팎(예: 일부 균열 발생)", "basis": "근거 결함 — 부위·번호·크기와 맞춘 기준(걸린 결함이 없으면 빈 글)"}} — 아래 18항목 전부],
+ "eval_opinion": "안전등급 평가 종합의견 및 특기사항 한두 문장"
+
+18항목 평가는 반드시 제3종시설물 정기안전점검 매뉴얼(2026) 옹벽 평가방법대로 — 아래 원칙과 항목마다 적힌 a~e 기준으로.
+
+{items}"""
 
 
 def _line(d: dict) -> str:
@@ -57,12 +66,12 @@ def _bul(s: str) -> str:
     return s if not s or s.startswith("⦁") else "⦁" + s
 
 
-def _norm(raw: dict, defects: list) -> dict:
-    """AI 답 → 보고서가 쓰는 꼴(빈 칸은 fallback 값)."""
+def _norm(raw: dict, defects: list, eval_items: list | None = None, form: str = "") -> dict:
+    """AI 답 → 보고서가 쓰는 꼴(빈 칸은 fallback 값). eval_items(3종)면 18항목·등급(점수)도."""
     fb = fallback(defects, "")
     out = dict(fb)
     if not isinstance(raw, dict):
-        return out
+        return _with_items(out, None, eval_items, form, defects) if eval_items else out
     for k in ("critical", "public", "next_focus", "summary_opinion", "grade_reason"):
         if str(raw.get(k) or "").strip():
             out[k] = str(raw[k]).strip()
@@ -82,11 +91,16 @@ def _norm(raw: dict, defects: list) -> dict:
                          "urgent": _bul(str(con.get("urgent") or fb["conclusion"]["urgent"]))}
     g = str(raw.get("grade") or "").strip()
     out["grade"] = g if g in GRADES2 else fb["grade"]
-    return out
+    return _with_items(out, raw, eval_items, form, defects) if eval_items else out
 
 
-def fallback(defects: list, prev_grade: str = "", public: str = "") -> dict:
-    """AI 없이 — 결함 목록으로 만든 고정 틀(점검자가 고침). public = 공중이용 탭 사진 항목 이름들(쉼표) — 없으면 양호."""
+def fallback(defects: list, prev_grade: str = "", public: str = "", eval_items: list | None = None, form: str = "") -> dict:
+    """AI 없이 — 결함 목록으로 만든 고정 틀(점검자가 고침). public = 공중이용 탭 사진 항목 이름들(쉼표) — 없으면 양호. eval_items(3종)면 18항목도 어림."""
+    out = _fallback(defects, prev_grade, public)
+    return _with_items(out, None, eval_items, form, defects) if eval_items else out
+
+
+def _fallback(defects: list, prev_grade: str = "", public: str = "") -> dict:
     by_unit: dict[str, list] = {}
     for d in defects:
         if d.get("check") == "repaired" or kinds.is_record(d.get("dtype") or ""):
@@ -128,19 +142,53 @@ def fallback(defects: list, prev_grade: str = "", public: str = "") -> dict:
 
 
 def draft(facility: str, period: str, defects: list, prev_captions: list[str], facts: str, company_id: int, target_grade: str = "", prev_grade: str = "",
-          public: str = "") -> dict:
-    from server.sitok import vision
+          public: str = "", eval_items: list | None = None, form: str = "") -> dict:
+    """eval_items = 3종 18항목(wall_manual.items_for — 제외항목은 해당없음)이면 항목 평가도 AI가(등급은 점수로), 2종이면 None."""
+    from server.sitok import vision, wall_manual
 
     rule = f"\n- 점검자가 요청한 등급: {target_grade} — 그 등급에 맞는 근거·문장으로." if target_grade else ""
+    if eval_items:
+        rule += "·18항목 평가(평가 점수 합이 이 등급이 나오게)" if target_grade else ""
     prompt = PROMPT.format(facility=facility, period=period, defects="\n".join(_line(d) for d in defects) or "(결함 없음)",
-                           prev="\n".join(prev_captions) or "(없음)", facts=facts or "", grade_rule=rule)
+                           prev="\n".join(prev_captions) or "(없음)", facts=facts or "", grade_rule=rule,
+                           items_rule=ITEMS_RULE if eval_items else "", items_spec=ITEMS_SPEC.format(items=wall_manual.criteria(eval_items, form)) if eval_items else "")
     try:
-        raw = vision.ask_json(company_id, [], prompt, max_tokens=6000)
+        raw = vision.ask_json(company_id, [], prompt, max_tokens=8000 if eval_items else 6000)
     except Exception:  # noqa: BLE001
         raw = None
-    out = _norm(raw, defects) if raw else fallback(defects, prev_grade, public)
+    out = _norm(raw, defects, eval_items, form) if raw else fallback(defects, prev_grade, public, eval_items, form)
     out["wall"] = True
     out["ai_ok"] = bool(raw)
+    return out
+
+
+def _with_items(out: dict, raw: dict | None, eval_items: list, form: str, defects: list) -> dict:
+    """18항목: 이름·영역·제외는 매뉴얼 것, 평가·의견·보수필요·근거는 AI 답(없으면 결함으로 어림) → 등급은 점수로(wall_manual.score)."""
+    from server.sitok import wall_manual
+
+    ok = {"우수", "양호", "보통", "미흡", "불량", "해당없음"}
+    got = {}
+    for x in (raw or {}).get("items") or []:
+        try:
+            got[int(x.get("no"))] = x
+        except (TypeError, ValueError):
+            continue
+    base = wall_manual.default_ratings(eval_items, defects, form)
+    ex = wall_manual.EXCLUDE.get(form, set())
+    items = []
+    for it, dft in zip(eval_items, base):
+        g = got.get(it["no"], {})
+        rating = g.get("rating") if g.get("rating") in ok else dft["rating"]
+        if it["no"] in ex:
+            rating = "해당없음"
+        items.append({**it, "rating": rating, "repair": "○" if str(g.get("repair") or dft.get("repair")).strip() == "○" else "×",
+                      "opinion": str(g.get("opinion") or dft.get("opinion") or "").strip()[:60], "basis": str(g.get("basis") or "").strip()[:120]})
+    out["items"] = items
+    out["eval_opinion"] = str((raw or {}).get("eval_opinion") or "").strip() or ("점검결과 " + ("중대한 결함 없이 국부적인 손상만 조사되어 " if out.get("grade") in ("양호", "우수") else "") + "안전등급 평가 결과와 같이 판정함")
+    res = wall_manual.score(items, form)
+    if res.get("grade"):
+        out["grade"] = res["grade"]  # 글자(A~E) — 결과표 3종 등급 칸, 요약표·요약문은 word()로
+        out["grade_reason"] = (out.get("grade_reason") or "") + f" (18항목 점수 {res['total']}점: " + ", ".join(f"{g} {a}/{b}={v:g}" for g, (a, b, v) in res["groups"].items()) + f" → {res['grade']}등급" + (f", {res['forced']}" if res.get("forced") else "") + ")"
     return out
 
 
@@ -157,6 +205,18 @@ def word(letter_or_word: str) -> str:
     if v in GRADES2:
         return v
     return {"A": "양호", "B": "양호", "C": "보통", "D": "미흡", "E": "불량"}.get(v.upper(), "")
+
+
+def letter3(grade: str, items: list | None = None, form: str = "") -> str:
+    """3종 결과표 "등급" 칸 글자(A~E) — 18항목이 있으면 점수로, 없으면 글자 그대로나 말 → 글자."""
+    if items:
+        from server.sitok import wall_manual
+
+        got = wall_manual.score(items, form).get("grade")
+        if got:
+            return got
+    v = (grade or "").strip().upper()
+    return v if v in ("A", "B", "C", "D", "E") else letter(grade)
 
 
 def is_wall_ai(final: dict | None) -> bool:
