@@ -7,7 +7,7 @@
 - result_title(root, half): "○○ 정기안전점검 결과표" → "○○ 정기안전점검(하반기) 결과표"(양식 제목).
 - schedule_days(root, days): 과업수행계획서 "과업 추진 일정(일)" 머리 숫자 = 1 … 점검기간 날수(중간은 고르게, 형 10/21).
 - org_names(root, names): 과업수행조직 그림표 책임기술자·참여기술자 이름 = 결과표 기술자(참여가 모자라면 마지막 사람을 되풀이).
-- precheck_other(root): 사전검토보고서 3.1 범위표 "기타시설 ∘외벽마감재" → "∘ 마감재" / "∘ 부착물 등" 두 줄(○ ○ ○).
+- precheck_other(root): 사전검토보고서 3.1 범위표 "기타시설 ∘외벽마감재" → "∘ 마감재" / "∘ 부착물 등" 두 줄(○는 정기안전점검 칸만, 10/21 형).
 """
 from __future__ import annotations
 
@@ -218,17 +218,24 @@ def precheck_other(root) -> int:
         r = next((r for (r, c), tc in cells.items() if c == 0 and _n(rb._cell_text(tc)) == "기타시설"), None)
         if r is None or (r, 1) not in cells:
             continue
-        if any("부착물" in rb._cell_text(tc) for tc in cells.values()):
-            continue
         ncol = int(tbl.get("colCnt") or 0)
+        regular = next((c for (rr, c), tc in cells.items() if _n(rb._cell_text(tc)) == "정기안전점검"), 2)  # 실시범위 중 정기안전점검 열(형 10/21 "정기점검만 체크")
+        if any("부착물" in rb._cell_text(tc) for tc in cells.values()):  # 이미 두 줄(전회차 보고서가 원본) — ○가 정기 말고 다른 칸에도 있으면 정기만
+            for (rr, c), tc in list(cells.items()):
+                if c == 1 and ("마감재" in rb._cell_text(tc) or "부착물" in rb._cell_text(tc)):
+                    for c2 in range(2, max(ncol - 1, 2)):
+                        if c2 != regular and (rr, c2) in cells and _n(rb._cell_text(cells[(rr, c2)])) == "○":
+                            rb._set_lines(cells[(rr, c2)], [""])
+                            n += 1
+            continue
         rb._dup_rows(tbl, r, 1, 1)
         cells = rb._cells(tbl)
         for rr, name in ((r, "∘ 마감재"), (r + 1, "∘ 부착물 등")):
             if (rr, 1) in cells:
                 rb._set_lines(cells[(rr, 1)], [name])
-            for c in range(2, max(ncol - 1, 2)):  # 실시범위 열(정기·정밀점검·정밀진단) — 비고 열 앞까지
+            for c in range(2, max(ncol - 1, 2)):  # 실시범위 열(정기·정밀점검·정밀진단) — 비고 열 앞까지, ○는 정기안전점검만
                 if (rr, c) in cells:
-                    rb._set_lines(cells[(rr, c)], ["○"])
+                    rb._set_lines(cells[(rr, c)], ["○" if c == regular else ""])
         for c in range(1, ncol):  # 윗줄은 가운데 줄 테두리(아랫선 얇게) — 위 줄 것을 씀
             if (r, c) in cells and (r - 1, c) in cells:
                 cells[(r, c)].set("borderFillIDRef", cells[(r - 1, c)].get("borderFillIDRef"))

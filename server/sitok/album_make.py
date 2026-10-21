@@ -23,20 +23,34 @@ def _fonts(page):
     page.insert_font(fontname="mgb", fontfile=FONT_B)
 
 
-def _cell(page, rect, text, size=6.5, bold=False, fill=None):
+def _two_lines(f, text: str, size: float, width: float) -> list[str]:
+    """한 줄에 안 들어가는 글을 두 줄로 — 띄어쓰기 자리 중 두 줄 길이가 가장 고른 곳(띄어쓰기가 없으면 글자 사이)."""
+    if f.text_length(text, fontsize=size) <= width:
+        return [text]
+    words = text.split(" ")
+    if len(words) > 1:
+        cuts = [(" ".join(words[:i]), " ".join(words[i:])) for i in range(1, len(words))]
+    else:
+        cuts = [(text[:i], text[i:]) for i in range(1, len(text))]
+    return list(min(cuts, key=lambda c: max(f.text_length(c[0], fontsize=size), f.text_length(c[1], fontsize=size)))) if cuts else [text]
+
+
+def _cell(page, rect, text, size=6.5, bold=False, fill=None, max_lines=1):
+    """칸 글 — 가운데 맞춤. max_lines=2면 긴 글을 두 줄로 나눈 뒤(결함원인, 10/21 형), 그래도 넘치면 글자를 줄임(모든 줄 같은 크기)."""
     if fill:
         page.draw_rect(rect, color=None, fill=fill)
     page.draw_rect(rect, color=(0.35, 0.35, 0.35), width=0.4)
+    f = pymupdf.Font(fontfile=FONT_B if bold else FONT)
     lines = str(text).split("\n")
+    if max_lines >= 2 and len(lines) == 1:
+        lines = _two_lines(f, lines[0], size, rect.width - 2)
+    while size > 4 and (max(f.text_length(ln, fontsize=size) for ln in lines) > rect.width - 2 or size * 1.25 * len(lines) > rect.height - 1):
+        size -= 0.3  # 넘치면 글자 줄임
     lh = size * 1.25
     y = rect.y0 + (rect.height - lh * len(lines)) / 2 + size
     font = "mgb" if bold else "mg"
     for ln in lines:
-        f = pymupdf.Font(fontfile=FONT_B if bold else FONT)
         tw = f.text_length(ln, fontsize=size)
-        while tw > rect.width - 2 and size > 4:  # 넘치면 글자 줄임
-            size -= 0.3
-            tw = f.text_length(ln, fontsize=size)
         page.insert_text((rect.x0 + (rect.width - tw) / 2, y), ln, fontname=font, fontsize=size)
         y += lh
 
@@ -70,7 +84,7 @@ def status_pages(doc, floor: str, rows: list[dict]) -> None:
             x = M
             for k, (name, w) in enumerate(cols):
                 key = ["번호", "구분", "부재", "결함유형", "개수", "폭", "길이", "물량", "면적률", "결함원인", "진행유무", "비고", "사진번호"][k]
-                _cell(page, pymupdf.Rect(x, y, x + w, y + rh), (vals.get(key) or "-") if vals else "-")
+                _cell(page, pymupdf.Rect(x, y, x + w, y + rh), (vals.get(key) or "-") if vals else "-", max_lines=2 if key == "결함원인" else 1)
                 x += w
             y += rh
 
