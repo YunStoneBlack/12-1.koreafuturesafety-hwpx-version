@@ -21,6 +21,8 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 {defects}
 [전회차 사진 설명(지난 보고서 사진첩) — 전회 결과 참고]
 {prev}
+[전회 정기점검 결과 — 요약표 "전회" 칸(전회차 보고서 그대로, 바꾸지 말 것)]
+{prev_rows}
 {facts}
 
 규칙:
@@ -31,6 +33,9 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 - 조치: 잡목식생 → 잡목 및 식생제거, 배수로 퇴적 → 배수로 정비, 채움재유출 → 충진보수, 이격 → 실링보수, 균열 0.3mm 미만 → 표면처리·주의관찰, 0.3mm 이상 → 주입보수, 경미하면 주의관찰.
 - 문장은 보고서 문어체("~조사되었다", "~판단된다"), 절마다 2~4문장. 지난 보고서를 베끼지 말고 이번 숫자·부위를 구체적으로.
 - 결과표 "점검 주요결과"는 반드시 4줄: "⦁기초부 : …", "⦁상  부 : …", "⦁전면부 : …", "⦁기  타 : …"(각 80자 이내).
+- 요약표 "금회 점검 결과"·"조치필요사항"·"종합의견"은 이번 결함·상태양호 사진으로. "전회" 칸은 위 [전회 정기점검 결과]를 그대로(없으면 빈 글).
+- 1.5 유지관리방안(maint_plan)은 이번 결함·상태양호 사진과 옹벽 형식으로 중점 유지관리방안 글머리 6~10줄(예: "⦁균열, 이격, 백태, 진행여부", "⦁기울기, 배부름 진행여부",
+  "⦁기초 침하, 활동, 노출 여부", "⦁배수불량으로 인한 체수 및 월류", 보강토면 "⦁보강토 블록 균열, 이격, 채움재 유출 진행여부", 잡목이 있으면 "⦁잡목 및 식생 제거 여부").
 {items_rule}- 점검결과 등급(제2종시설물)은 양호·보통·미흡·불량 중 하나와 근거(중대결함 없고 국부 손상뿐이면 보통 양호, 주요부(전면부·기초)에 진행성 결함이면 보통~미흡, 위험하면 불량).{grade_rule}
 
 아래 JSON 객체 하나로만 답하세요(설명 없이):
@@ -42,8 +47,9 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
  "sections": {{"found": "1.4.1 지반 및 기초부 조사결과 글", "front": "1.4.2 옹벽 전면부 조사결과 글", "etc": "1.4.3 기타(배수시설·사면·점검로) 조사결과 글", "public": "1.4.4 공중이 이용하는 부위 글"}},
  "summary_rows": [{{"name": "전면부", "prev": "⦁전회 결과(줄마다 ⦁)", "now": "⦁금회 결과", "action": "⦁조치필요사항"}}, {{"name": "상부", ...}}, {{"name": "기초/지반", ...}}, {{"name": "배수시설", ...}}, {{"name": "공중이 이용하는시설", ...}}],
  "summary_opinion": "실시결과 요약표 종합의견 한두 문장(⦁로 시작)",
+ "maint_plan": ["⦁중점 유지관리방안 글머리 6~10줄"],
  "conclusion": {{"survey": ["종합결론 외관조사결과 글머리 1~3개(⦁)"], "repair": ["보수필요사항 글머리 1~3개(⦁)"], "urgent": "긴급점검 및 정밀안전진단 필요여부(예: ⦁필요치 않음)"}},
- "grade": "양호", "grade_reason": "근거"{items_spec}}}"""
+ "grade": "양호", "grade_reason": "근거"{items_spec}{methods_spec}}}"""
 
 ITEMS_RULE = "- 3종시설물: 안전등급은 아래 18항목 평가 점수로 프로그램이 계산(우수10·양호8·보통5·미흡2·불량0, 주요60·일반20·부대20, 9·7·5·3점 이상 A~D) — \"grade\"도 그 계산과 맞게(A는 양호로 적음).\n"
 ITEMS_SPEC = """,
@@ -68,14 +74,14 @@ def _bul(s: str) -> str:
 
 def _norm(raw: dict, defects: list, eval_items: list | None = None, form: str = "") -> dict:
     """AI 답 → 보고서가 쓰는 꼴(빈 칸은 fallback 값). eval_items(3종)면 18항목·등급(점수)도."""
-    fb = fallback(defects, "")
+    fb = fallback(defects, "", "", None, form)
     out = dict(fb)
     if not isinstance(raw, dict):
         return _with_items(out, None, eval_items, form, defects) if eval_items else out
     for k in ("critical", "public", "next_focus", "summary_opinion", "grade_reason"):
         if str(raw.get(k) or "").strip():
             out[k] = str(raw[k]).strip()
-    for k in ("findings", "repairs"):
+    for k in ("findings", "repairs", "maint_plan"):
         v = raw.get(k)
         if isinstance(v, list) and v:
             out[k] = [_bul(str(x)) for x in v if str(x).strip()]
@@ -96,11 +102,11 @@ def _norm(raw: dict, defects: list, eval_items: list | None = None, form: str = 
 
 def fallback(defects: list, prev_grade: str = "", public: str = "", eval_items: list | None = None, form: str = "") -> dict:
     """AI 없이 — 결함 목록으로 만든 고정 틀(점검자가 고침). public = 공중이용 탭 사진 항목 이름들(쉼표) — 없으면 양호. eval_items(3종)면 18항목도 어림."""
-    out = _fallback(defects, prev_grade, public)
+    out = _fallback(defects, prev_grade, public, form)
     return _with_items(out, None, eval_items, form, defects) if eval_items else out
 
 
-def _fallback(defects: list, prev_grade: str = "", public: str = "") -> dict:
+def _fallback(defects: list, prev_grade: str = "", public: str = "", form: str = "") -> dict:
     by_unit: dict[str, list] = {}
     for d in defects:
         if d.get("check") == "repaired" or kinds.is_record(d.get("dtype") or ""):
@@ -127,7 +133,7 @@ def _fallback(defects: list, prev_grade: str = "", public: str = "") -> dict:
             {"name": "배수시설", "prev": "⦁-", "now": _bul(drain or "상태양호"), "action": "⦁배수로 정비" if "퇴적" in drain else "⦁주의관찰"},
             {"name": "공중이 이용하는시설", "prev": "⦁-", "now": _bul(pub_txt), "action": "⦁주의관찰"}]
     grade = prev_grade if prev_grade in GRADES2 else ("보통" if sev else "양호")
-    return {"critical": "⦁없음", "public": "⦁" + (f"{public} 전반적으로 양호한 상태" if public else "전반적으로 양호한 상태"), "findings": findings, "repairs": repairs,
+    return {"critical": "⦁없음", "maint_plan": maint_plan(defects, form), "public": "⦁" + (f"{public} 전반적으로 양호한 상태" if public else "전반적으로 양호한 상태"), "findings": findings, "repairs": repairs,
             "next_focus": "균열 및 이격부 추가 손상 발생 여부 점검",
             "sections": {"found": f"지반 및 기초부 조사결과, {base + '이(가) 조사되었으나 ' if base else ''}침하·활동·세굴 등 구조적 이상은 없는 양호한 상태로 조사되었다.",
                          "front": f"옹벽 전면부 외관조사 결과 {front + ' 등이 국부적으로 조사되었으며, ' if front else '특이 손상은 조사되지 않았으며, '}"
@@ -141,17 +147,59 @@ def _fallback(defects: list, prev_grade: str = "", public: str = "") -> dict:
             "grade": grade, "grade_reason": "중대한 결함 없이 국부적인 손상만 조사됨" if not sev else "진행성 결함이 있어 지속 관찰 필요"}
 
 
+MAINT_COMMON = ["⦁균열, 이격, 백태, 진행여부", "⦁기울기, 배부름 진행여부", "⦁기초 침하, 활동, 노출 여부",
+                "⦁수평활동력의 증가 및 옹벽과 지반의 마찰저항 감소에 의한 활동 여부 확인", "⦁추가적인 수평활동력의 증가 및 저항력 감소에 의한 계획선형오차 여부 확인",
+                "⦁기초지반 토립자의 이동에 의한 세굴 발생 여부 확인", "⦁배면 지반의 침하에 의한 전면부 배부름 발생 여부 확인", "⦁배수불량으로 인한 체수 및 월류", "⦁배수로 정비 여부"]
+MAINT_FORM = {"보강토": "⦁보강토 블록 균열, 이격, 채움재 유출 진행여부", "콘크리트": "⦁콘크리트 균열, 박락, 철근노출 진행여부",
+              "석축": "⦁석재 이탈, 줄눈 탈락 진행여부", "돌망태": "⦁철망 부식·파손, 채움돌 유실 진행여부"}
+
+
+def maint_plan(defects: list, form: str = "") -> list[str]:
+    """1.5 유지관리방안 기본 글머리(AI 없을 때) — 형식 줄 + 공통 + 이번 결함(잡목·퇴적)으로 더하는 줄."""
+    out = ([MAINT_FORM[form]] if form in MAINT_FORM else []) + list(MAINT_COMMON)
+    kinds_ = " ".join(str(d.get("dtype") or "") for d in defects)
+    if "잡목" in kinds_ or "식생" in kinds_:
+        out.append("⦁잡목 및 식생 제거 여부")
+    if "퇴적" in kinds_:
+        out.append("⦁배수로 낙엽·토사 퇴적 제거 여부")
+    return out
+
+
+def apply_prev(out: dict, ps: dict | None) -> dict:
+    """요약표 "전회" 칸을 자료(prev_summary: 전회차 회차 > 전회차 PDF)로 — AI가 쓴 전회 글은 버림. 없으면(첫 회차) 빈 글 + src none(표엔 "전회차 없음")."""
+    ps = ps or {"rows": {}, "label": "", "src": "none", "grade": ""}
+    rows = ps.get("rows") or {}
+    sq = lambda s: (s or "").replace(" ", "")  # noqa: E731
+    for row in out.get("summary_rows") or []:
+        hit = next((v for k, v in rows.items() if sq(k) == sq(row.get("name"))), None)
+        row["prev"] = _bul(hit) if hit and hit.strip("⦁ -") else ("" if ps.get("src") == "none" else row.get("prev") or "")
+    out["summary_prev_src"] = ps.get("src") or "none"
+    out["summary_prev_label"] = ps.get("label") or ""
+    if ps.get("grade"):
+        out["summary_prev_grade"] = ps["grade"]
+    return out
+
+
 def draft(facility: str, period: str, defects: list, prev_captions: list[str], facts: str, company_id: int, target_grade: str = "", prev_grade: str = "",
-          public: str = "", eval_items: list | None = None, form: str = "") -> dict:
-    """eval_items = 3종 18항목(wall_manual.items_for — 제외항목은 해당없음)이면 항목 평가도 AI가(등급은 점수로), 2종이면 None."""
-    from server.sitok import vision, wall_manual
+          public: str = "", eval_items: list | None = None, form: str = "", prev_rows: dict | None = None, combos: list | None = None,
+          price_list: list | None = None) -> dict:
+    """eval_items = 3종 18항목(wall_manual.items_for — 제외항목은 해당없음)이면 항목 평가도 AI가(등급은 점수로), 2종이면 None.
+    prev_rows = 요약표 전회 칸 {부재명: 글}(wall_collect.prev_summary — AI에게 보여 주고 결과에도 그대로 넣음).
+    combos/price_list = 보수공법 묶음(sitok_defects.method_combos)·단가표 — 건축물처럼 묶음마다 공법(단가표 이름이면 단가, 아니면 1식 금액) → 1.6 개략공사비(형 10/21)."""
+    from server.sitok import ai_draft, vision, wall_manual
 
     rule = f"\n- 점검자가 요청한 등급: {target_grade} — 그 등급에 맞는 근거·문장으로." if target_grade else ""
     if eval_items:
         rule += "·18항목 평가(평가 점수 합이 이 등급이 나오게)" if target_grade else ""
     prompt = PROMPT.format(facility=facility, period=period, defects="\n".join(_line(d) for d in defects) or "(결함 없음)",
                            prev="\n".join(prev_captions) or "(없음)", facts=facts or "", grade_rule=rule,
-                           items_rule=ITEMS_RULE if eval_items else "", items_spec=ITEMS_SPEC.format(items=wall_manual.criteria(eval_items, form)) if eval_items else "")
+                           prev_rows="\n".join(f"{k}: {v}" for k, v in (prev_rows or {}).items() if v) or "(전회차 없음 — 첫 회차)",
+                           items_rule=ITEMS_RULE if eval_items else "", items_spec=ITEMS_SPEC.format(items=wall_manual.criteria(eval_items, form)) if eval_items else "",
+                           methods_spec=ai_draft.METHOD_SPEC.format(
+                               prices=", ".join(f"{m}({u} {p:,}원)" if p else m for m, u, p in price_list or []),
+                               combos="\n".join(f"{i} | {c['part']} | {c['member']} | {c['dtype']}{' (0.3mm 이상)' if c['wide'] else ''} | {c['count']}개소 | "
+                                                 f"{c['qty']}{c['unit']} | {c['max_width'] if c['max_width'] is not None else '-'} | {', '.join(c['causes']) or '-'} | "
+                                                 f"{c['default']}" for i, c in enumerate(combos, 1))) if combos else "")
     try:
         raw = vision.ask_json(company_id, [], prompt, max_tokens=8000 if eval_items else 6000)
     except Exception:  # noqa: BLE001
@@ -159,7 +207,30 @@ def draft(facility: str, period: str, defects: list, prev_captions: list[str], f
     out = _norm(raw, defects, eval_items, form) if raw else fallback(defects, prev_grade, public, eval_items, form)
     out["wall"] = True
     out["ai_ok"] = bool(raw)
+    if combos:
+        out["methods"] = methods_rows(raw, combos, price_list)
     return out
+
+
+def methods_rows(raw: dict | None, combos: list, price_list: list | None) -> list[dict]:
+    """묶음 정보는 프로그램 것, 공법·1식 금액만 AI 답(없으면 기본 공법) — ai_draft와 같은 꼴(AI 창 보수공법 줄·cost_rows)."""
+    known = {m.replace(" ", "") for m, _, _ in price_list or []}
+    got = {}
+    for x in (raw or {}).get("methods") or []:
+        try:
+            got[int(x.get("no"))] = x
+        except (TypeError, ValueError):
+            continue
+    rows = []
+    for i, c in enumerate(combos, 1):
+        g = got.get(i, {})
+        method = str(g.get("method") or "").strip() or c["default"]
+        try:
+            lump = int(float(str(g.get("lump") or 0).replace(",", ""))) if method.replace(" ", "") not in known else None
+        except ValueError:
+            lump = None
+        rows.append({**{k: c[k] for k in ("key", "part", "member", "dtype", "wide", "count", "qty", "unit")}, "method": method, "lump": lump or None})
+    return rows
 
 
 def _with_items(out: dict, raw: dict | None, eval_items: list, form: str, defects: list) -> dict:

@@ -602,6 +602,9 @@ class SitokContract(Base):
     bid_method: Mapped[str] = mapped_column(Text, default="수의계약")
     field: Mapped[str] = mapped_column(Text, default="건축")
     contract_pdf: Mapped[str] = mapped_column(StoredPath, default="")
+    # 발주처 과업지시서(0060, 형 10/21) — 올리면 옹벽 보고서 부록3에 우리 과업지시서 대신 끼움. deliver = 납품 항목 {book, usb, note, src(text|ai|manual|default)}
+    order_pdf: Mapped[str] = mapped_column(StoredPath, default="")
+    deliver: Mapped[dict | None] = mapped_column(JSON, default=None)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 

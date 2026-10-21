@@ -389,6 +389,13 @@ details.sk-fold:not([open]) > summary.panel-head { border-bottom: 0; }
 .sk-con-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .main .sk-con-top button { margin: 0; }
 .sk-con-used { font-size: 12px; font-weight: 600; color: var(--blue); background: var(--blue-soft); padding: 2px 8px; border-radius: 999px; }
+.sk-con-order { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.sk-con-order-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; margin-bottom: 8px; }
+.sk-con-order-head b { font-size: 13.5px; }
+.sk-con-order-head .sk-help { flex-basis: 100%; }
+.main .sk-con-order-head .secondary-link { padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
+.main .sk-con-order-head button, .main .sk-deliver-act button { margin: 0; }
+.sk-deliver-act { display: flex; flex-direction: column; gap: 6px; }
 .sk-con-used.none { color: var(--faint); background: var(--paper); }
 #sk-dwg .dt-dwg-k { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
 #sk-dwg .dt-dwg-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }

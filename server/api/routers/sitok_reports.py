@@ -1563,11 +1563,17 @@ def _wall_ai_draft(db: Session, r: SitokReport, f: SitokFacility, rows: list, us
     from server.sitok import wall_manual
     form = wall_manual.form_of(spec.get("form") or "", f.name, f.kind or "")
     eval_items = wall_manual.items_for(form) if (f.template or "").startswith("3종") else None  # 3종 18항목(5단계, 10/21)
+    from server.api.routers.sitok_defects import method_combos
+    from server.api.routers.sitok_settings import prices
+    from server.sitok import wall_collect
+    ps = wall_collect.prev_summary(db, r, f)  # 요약표 전회 칸(⑫): 전회차 회차 > 전회차 PDF > 없음
     try:
         data = wall_ai.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, prev, facts, user.company_id,
-                             target_word, prev_grade, ", ".join(pub), eval_items, form)
+                             target_word, prev_grade, ", ".join(pub), eval_items, form, prev_rows=ps["rows"], combos=method_combos(db, r.id),
+                             price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)])
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}") from err
+    wall_ai.apply_prev(data, ps)
     if target_word:
         data["requested_grade"] = wall_ai.letter(target_word)
     data["made_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -1712,8 +1718,8 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
     keys = ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason", "items", "eval_opinion", "facility", "methods", "parts")
     from server.sitok import kinds as _kinds
     wall = _kinds.is_wall(db.get(SitokFacility, r.facility_id))
-    if wall:  # 옹벽(10/20): 실시결과 요약표 줄·종합의견도, 종합결론은 {survey, repair, urgent}
-        keys += ("summary_rows", "summary_opinion")
+    if wall:  # 옹벽(10/20): 실시결과 요약표 줄·종합의견도, 종합결론은 {survey, repair, urgent}; 10/21 1.5 유지관리방안·전회 칸 출처
+        keys += ("summary_rows", "summary_opinion", "maint_plan", "summary_prev_src", "summary_prev_label", "summary_prev_grade")
     final = {k: body.get(k) for k in keys}
     if wall:
         final["wall"] = True

@@ -105,6 +105,11 @@ async function openSitokAi(reportId, title, onSaved) {
       return;
     }
     const lines = (a) => esc((a || []).join("\n"));
+    const prevNote = (fin) => { // 전회 칸 출처(10/21 형): 전회차 회차 > 전회차 보고서 PDF > 없음(첫 회차)
+      const s = fin.summary_prev_src, lb = fin.summary_prev_label ? `(${fin.summary_prev_label})` : "";
+      return s === "round" ? `전회 칸은 전회차 회차${lb}에서 가져옴` : s === "pdf" ? `전회 칸은 전회차 보고서 PDF${lb}에서 읽음`
+        : s === "none" ? '전회차 없음(첫 회차) — 전회 칸을 비워 두면 표에 "전회차 없음", 직접 써도 됨' : "전회 칸은 전회차 자료가 있으면 자동";
+    };
     const two = !String(ai.template || "3종").startsWith("3종"); // 2종 = 양호·보통·미흡·불량
     const GR = two ? SITOK_GRADES2 : SITOK_GRADES;
     const curGrade = two && f.grade === "A" ? "B" : f.grade;
@@ -134,12 +139,14 @@ async function openSitokAi(reportId, title, onSaved) {
         <h4>${wall ? "1.4 현장조사 결과(절마다 서술)" : "1.3 외관조사 실시결과(항목별 서술 — 결과의 분석 표에도 같은 글)"}</h4>
         ${SECS.map(([k, label]) => `<label>${label} ${wall ? "" : `<span class="sk-help">결함 ${st[k]?.count ?? 0}건${st[k]?.grew ? ` · 진행 ${st[k].grew}` : ""}${st[k]?.new ? ` · 신규 ${st[k].new}` : ""}${st[k]?.repaired ? ` · 보수 ${st[k].repaired}` : ""}</span>`}
           <textarea data-k="sections.${k}" rows="3">${esc((f.sections || {})[k])}</textarea></label>`).join("")}
-        ${wall ? `<h4>1.4.5 정기점검 실시결과 요약표 <span class="sk-help">부위마다 전회·금회·조치(줄마다 ⦁)</span></h4>
+        ${wall ? `<h4>1.4.5 정기점검 실시결과 요약표 <span class="sk-help">부위마다 전회·금회·조치(줄마다 ⦁) — ${esc(prevNote(f))}</span></h4>
           <div class="ai-wsum">${(f.summary_rows || []).map((row, i) => `<div class="ai-wsum-row"><b>${esc(row.name)}</b>
             <textarea data-k="summary_rows.${i}.prev" rows="2" placeholder="전회 결과">${esc(row.prev)}</textarea>
             <textarea data-k="summary_rows.${i}.now" rows="2" placeholder="금회 결과">${esc(row.now)}</textarea>
             <textarea data-k="summary_rows.${i}.action" rows="2" placeholder="조치필요사항">${esc(row.action)}</textarea></div>`).join("")}</div>
-          <label>요약표 종합의견<textarea data-k="summary_opinion" rows="2">${esc(f.summary_opinion)}</textarea></label>` : ""}
+          <label>요약표 종합의견<textarea data-k="summary_opinion" rows="2">${esc(f.summary_opinion)}</textarea></label>
+          <h4>1.5 유지관리방안 <span class="sk-help">결함·상태양호 사진으로 AI가 씀 — 한 줄에 글머리 하나</span></h4>
+          <label>중점 유지관리방안<textarea data-k="maint_plan" data-lines rows="6">${lines(f.maint_plan)}</textarea></label>` : ""}
         ${(f.parts || []).length ? `<h4>공중이용·기타시설 사진 판단 <span class="sk-help">현장 화면 탭 사진을 AI가 조사항목·상태평가기준(a~e)으로 본 것 — 위 6)·7) 글과 결과표 칸이 이걸로 쓰였음(글은 위에서 고치세요)</span></h4>
           <div class="ai-fac">${f.parts.map((it, i) => `<div class="ai-fac-row ai-part" data-i="${i}"><span class="ai-name"><small>${it.group === "public" ? "공중이용" : "기타시설"}</small>${esc(it.name)}</span>
             <select class="ai-pgrade">${["", "a", "b", "c", "d", "e", "해당없음"].map((g) => `<option value="${g}"${it.grade === g ? " selected" : ""}>${g || "-"}</option>`).join("")}</select>
@@ -210,7 +217,10 @@ async function openSitokAi(reportId, title, onSaved) {
     });
     const save = async () => { // [저장]·[✓ 작성 완료](먼저 저장) — 성공하면 true
       const body = { sections: {} };
-      if (wall) body.summary_rows = (f.summary_rows || []).map((row) => ({ ...row }));
+      if (wall) {
+        body.summary_rows = (f.summary_rows || []).map((row) => ({ ...row }));
+        ["summary_prev_src", "summary_prev_label", "summary_prev_grade"].forEach((k) => { body[k] = f[k] || ""; }); // 전회 칸 출처(10/21)
+      }
       const put = (obj, path, v) => { // "summary_rows.0.prev"처럼 점으로 깊이 들어가 넣음(옹벽, 10/20)
         const keys = path.split(".");
         let cur = obj;

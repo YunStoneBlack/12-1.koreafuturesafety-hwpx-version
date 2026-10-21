@@ -88,6 +88,87 @@ def read_prior_pdf(pdf_path) -> dict | None:
     return None
 
 
+SUMMARY_NAMES = ["전면부", "상부", "기초/지반", "배수시설", "공중이 이용하는시설"]
+
+
+def _cell_bullets(text: str) -> str:
+    """PDF 표 칸 글(줄바꿈으로 끊긴 ⦁ 글머리들) → 글머리마다 한 줄."""
+    parts = [re.sub(r"\s+", " ", x).strip() for x in (text or "").split("⦁")]
+    parts = [x for x in parts if x]
+    return "\n".join("⦁" + x for x in parts) if parts else ""
+
+
+def read_prior_summary(pdf_path, name: str = "") -> dict | None:
+    """전회차 보고서 PDF의 1.4.5 정기점검 실시결과 요약표 → {"rows": {부재명: 그 보고서의 "금회" 칸}, "label": "2025년 하반기"(그 보고서 회차), "grade": 등급 말}.
+    묶음 책이면 이 곳 이름이 든 쪽(꼬리말 "제 N 장 이름")을 먼저. 못 읽으면 None."""
+    import pymupdf
+
+    try:
+        doc = pymupdf.open(str(pdf_path))
+    except Exception:  # noqa: BLE001
+        return None
+    sq = lambda s: re.sub(r"\s+", "", s or "")  # noqa: E731
+    try:
+        pages = [i for i in range(len(doc)) if "실시결과 요약표" in doc[i].get_text() and "부재명" in doc[i].get_text()]
+        if not pages:
+            return None
+        if name:
+            hit = [i for i in pages if sq(name) in sq(doc[i].get_text())]
+            pages = hit or pages
+        for i in pages:
+            try:
+                tabs = doc[i].find_tables().tables
+            except Exception:  # noqa: BLE001
+                continue
+            for tb in tabs:
+                rows = tb.extract()
+                if not rows or not any("부재명" in str(c or "") for c in rows[0]):
+                    continue
+                head = [str(c or "") for c in rows[0]]
+                m = re.search(r"\((\d{4})\s*년\s*(상반기|하반기)\)", head[2] if len(head) > 2 else "")
+                out = {"rows": {}, "label": f"{m[1]}년 {m[2]}" if m else "", "grade": ""}
+                for r in rows[1:]:
+                    cells = [str(c or "") for c in r]
+                    key = sq(cells[0])
+                    now = cells[2] if len(cells) > 2 else ""
+                    if key == "안전등급":
+                        out["grade"] = re.sub(r"[⦁\s]", "", now)
+                    elif key == "종합의견":
+                        continue
+                    else:
+                        nm = next((n for n in SUMMARY_NAMES if sq(n) == key), None)
+                        if nm:
+                            out["rows"][nm] = _cell_bullets(now)
+                if out["rows"]:
+                    return out
+    finally:
+        doc.close()
+    return None
+
+
+def prev_summary(db, r, f) -> dict:
+    """1.4.5 요약표 "전회 정기점검 결과" 칸(형 10/21): 전회차 회차(그룹웨어 AI 초안 금회 칸) > 전회차 보고서 PDF 표 > 없음(첫 회차).
+    → {"rows": {부재명: 글}, "label": "2025년 하반기", "src": "round"|"pdf"|"none", "grade": 등급 말}."""
+    from server.api.routers.sitok_prev import prev_file
+    from server.api.routers.sitok_reports import _wall_prev_report
+    from server.sitok import wall_ai
+
+    prev = _wall_prev_report(db, r)
+    if prev is not None:
+        fin = (prev.ai or {}).get("final") or {}
+        rows = {str(x.get("name") or ""): str(x.get("now") or "") for x in (fin.get("summary_rows") or []) if isinstance(x, dict)}
+        if any(v.strip("⦁ -") for v in rows.values()):
+            return {"rows": rows, "label": f"{prev.year}년 {prev.half}", "src": "round", "grade": wall_ai.word(fin.get("grade") or "") or ""}
+    try:
+        pdf = prev_file(db, r)
+    except Exception:  # noqa: BLE001
+        pdf = None
+    got = read_prior_summary(pdf, f.name if f is not None else "") if pdf is not None and pdf.exists() else None
+    if got:
+        return {**got, "src": "pdf", "grade": wall_ai.word(got.get("grade") or "") or got.get("grade") or ""}
+    return {"rows": {}, "label": "", "src": "none", "grade": ""}
+
+
 def fms_history(data: bytes) -> list[dict]:
     """FMS 점검진단실적 엑셀(머리: No·점검진단구분·시작일·종료일·점검진단기관·책임기술자·비용·안전등급·주요점검진단결과·주요보수보강안…) → 1.3.2 줄(오래된 것부터)."""
     import openpyxl

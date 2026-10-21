@@ -266,8 +266,11 @@ def kind_for(db: Session, c: SitokContract | None, year: int, half: str) -> str:
 
 
 def _contract_out(c: SitokContract) -> dict:
+    dv = c.deliver or {}
     return {"id": c.id, **{k: _iso(getattr(c, k)) for k in CON_FIELDS}, "rounds": c.rounds or [],
             "has_pdf": bool(c.contract_pdf and Path(c.contract_pdf).exists()),
+            "has_order": bool(c.order_pdf and Path(c.order_pdf).exists()),  # 발주처 과업지시서(0060, 형 10/21)
+            "deliver": {"book": str(dv.get("book") or "-"), "usb": str(dv.get("usb") or "-"), "note": str(dv.get("note") or "협의"), "src": str(dv.get("src") or "")},
             "created_at": c.created_at.strftime("%Y-%m-%d") if c.created_at else ""}
 
 
@@ -797,3 +800,58 @@ def contract_file(contract_id: int, user: User = Depends(get_current_user), db: 
     if not c.contract_pdf or not Path(c.contract_pdf).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "올린 계약서가 없습니다.")
     return FileResponse(c.contract_pdf, media_type="application/pdf", filename=f"계약서_{c.id}.pdf", content_disposition_type="inline")
+
+
+# ---------- 발주처 과업지시서(0060, 민재형 10/21) ----------
+# 원칙은 발주처가 과업지시서를 주는 것 — 올리면 옹벽 보고서 부록3에 우리 과업지시서 대신 그 PDF를 끼우고, 납품 항목(책자·USB)을 읽어
+# 과업수행계획서 5. 과업성과물 납품 항목에 넣음(못 읽으면·없으면 점검자가 직접, 기본 책자 -·USB -·비고 협의).
+
+class DeliverIn(BaseModel):
+    book: str = "-"
+    usb: str = "-"
+    note: str = "협의"
+
+
+@router.post("/contracts/{contract_id}/order")
+def order_upload(contract_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.sitok import wall_order
+
+    c = _require_contract(db, user, contract_id)
+    f = db.get(SitokFacility, c.facility_id)
+    data = file.file.read()
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF 파일만 올릴 수 있습니다.")
+    dest = _facility_dir(f) / f"과업지시서_{c.id}.pdf"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    c.order_pdf = str(dest)
+    got = wall_order.read_deliver(dest, user.company_id)
+    c.deliver = dict(got) if got else dict(wall_order.DEFAULT)
+    db.commit()
+    return _facility_out(db, f)
+
+
+@router.delete("/contracts/{contract_id}/order")
+def order_delete(contract_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = _require_contract(db, user, contract_id)
+    if c.order_pdf:
+        Path(c.order_pdf).unlink(missing_ok=True)
+    c.order_pdf = ""
+    db.commit()
+    return _facility_out(db, db.get(SitokFacility, c.facility_id))
+
+
+@router.patch("/contracts/{contract_id}/deliver")
+def deliver_save(contract_id: int, body: DeliverIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = _require_contract(db, user, contract_id)
+    c.deliver = {"book": body.book.strip() or "-", "usb": body.usb.strip() or "-", "note": body.note.strip() or "협의", "src": "manual"}
+    db.commit()
+    return _facility_out(db, db.get(SitokFacility, c.facility_id))
+
+
+@router.get("/files/order/{contract_id}")
+def order_file(contract_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = _require_contract(db, user, contract_id)
+    if not c.order_pdf or not Path(c.order_pdf).exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "올린 과업지시서가 없습니다.")
+    return FileResponse(c.order_pdf, media_type="application/pdf", filename=f"과업지시서_{c.id}.pdf", content_disposition_type="inline")

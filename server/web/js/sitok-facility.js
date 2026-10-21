@@ -37,7 +37,8 @@
         ${id ? `<label class="secondary-link sk-con-pdf">계약서 PDF로 채우기<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" /></label>` : ""}
         <span class="sk-con-msg"></span>
         ${c?.id ? '<button type="button" class="secondary btn-sm sk-con-save">이 계약 저장</button><button type="button" class="secondary btn-sm sk-con-del">삭제</button>' : ""}</div>
-      <div class="field-grid">${CON.map((f) => input(`${key}`, f)).join("")}</div>`;
+      <div class="field-grid">${CON.map((f) => input(`${key}`, f)).join("")}</div>
+      ${c?.id ? orderBlock(c) : ""}`;
     const defaults = { sector: "민간", halves: "연간", joint_type: "독자수행", joint_pct: 100, bid_method: "수의계약", field: "건축" };
     setValues(card, { ...defaults, ...(c || {}) });
     card.querySelectorAll(".sk-filled").forEach((el) => el.classList.remove("sk-filled"));
@@ -54,6 +55,7 @@
     card.querySelector('[data-key="halves"]').addEventListener("change", sync);
     sync();
     card.querySelector(".sk-con-pdf input")?.addEventListener("change", (e) => readPdf("contract", e.target.files[0], card));
+    bindOrder(card, c);
     card.querySelector(".sk-con-save")?.addEventListener("click", async () => {
       try {
         fac = await apiPatch(`/sitok/contracts/${c.id}`, { ...values(card), contract_token: conTokens[key] || null, ...(conRounds[key] ? { rounds: conRounds[key] } : {}) });
@@ -66,6 +68,50 @@
       try { fac = await api(`/sitok/contracts/${c.id}`, { method: "DELETE" }); draw(); } catch (err) { showError(errorEl, err); }
     });
     return card;
+  }
+
+  // ---------- 발주처 과업지시서(10/21 민재형) — 올리면 옹벽 보고서 부록3에 우리 과업지시서 대신 들어가고, 납품 항목(책자·USB)을 읽어 과업수행계획서에 ----------
+  function orderBlock(c) {
+    const dv = c.deliver || {};
+    const src = { text: "과업지시서에서 읽음", ai: "과업지시서를 AI가 읽음", manual: "직접 적음", default: "과업지시서에서 못 읽음 — 기본값" }[dv.src] || "";
+    return `<div class="sk-con-order">
+      <div class="sk-con-order-head"><b>발주처 과업지시서</b><span class="sk-help">올리면 보고서 부록3에 이 파일이 들어가고(우리 과업지시서 대신), 납품 항목을 읽어 과업수행계획서에 넣습니다</span>
+        ${c.has_order ? `<a href="${BASE}/api/sitok/files/order/${c.id}" target="_blank" rel="noopener">과업지시서 보기</a><button type="button" class="secondary btn-sm sk-order-del">지우기</button>` : ""}
+        <label class="secondary-link sk-order-up">${c.has_order ? "다시 올리기" : "과업지시서 PDF 올리기"}<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" /></label>
+        <span class="sk-con-msg sk-order-msg"></span></div>
+      <div class="field-grid sk-deliver">
+        <div class="sk-f"><label>납품 책자 <span class="sk-help">없으면 -</span></label><input data-dk="book" value="${esc(dv.book || "-")}" /></div>
+        <div class="sk-f"><label>USB <span class="sk-help">없으면 -</span></label><input data-dk="usb" value="${esc(dv.usb || "-")}" /></div>
+        <div class="sk-f"><label>비고 <span class="sk-help">기본 협의</span></label><input data-dk="note" value="${esc(dv.note || "협의")}" /></div>
+        <div class="sk-f sk-deliver-act"><label>&nbsp;</label><button type="button" class="secondary btn-sm sk-deliver-save">납품 항목 저장</button>${src ? `<span class="sk-help">${esc(src)}</span>` : ""}</div>
+      </div></div>`;
+  }
+
+  function bindOrder(card, c) {
+    if (!c?.id) return;
+    const msg = card.querySelector(".sk-order-msg");
+    card.querySelector(".sk-order-up input")?.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      msg.textContent = `${file.name} — 올리고 납품 항목 읽는 중…`;
+      msg.classList.remove("bad");
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        fac = await apiUpload(`/sitok/contracts/${c.id}/order`, fd);
+        flash("과업지시서를 올렸습니다.");
+        draw();
+      } catch (err) { msg.textContent = `올리지 못했습니다: ${err.message}`; msg.classList.add("bad"); }
+    });
+    card.querySelector(".sk-order-del")?.addEventListener("click", async () => {
+      if (!confirm("올린 과업지시서를 지울까요? 보고서에는 다시 우리 과업지시서가 들어갑니다.")) return;
+      try { fac = await api(`/sitok/contracts/${c.id}/order`, { method: "DELETE" }); draw(); } catch (err) { showError(errorEl, err); }
+    });
+    card.querySelector(".sk-deliver-save")?.addEventListener("click", async () => {
+      const body = {};
+      card.querySelectorAll("[data-dk]").forEach((el) => { body[el.dataset.dk] = el.value.trim(); });
+      try { fac = await apiPatch(`/sitok/contracts/${c.id}/deliver`, body); flash("납품 항목을 저장했습니다."); draw(); } catch (err) { showError(errorEl, err); }
+    });
   }
 
   // ---------- 계약서 PDF 읽기(계약 카드마다 — 관리대장은 ① 등록·관리대장 카드 [다시 올리기]) ----------
