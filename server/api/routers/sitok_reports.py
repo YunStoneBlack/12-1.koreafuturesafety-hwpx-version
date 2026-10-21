@@ -1658,11 +1658,13 @@ def ai_draft_new(report_id: int, body: DraftIn | None = None, user: User = Depen
 def busy(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """API 안에서 뒤에서 도는 일(10/21) — 재시작 전에 확인(server/scripts/safe_restart_api.py). 보고서 만들기(DB status)·분권·AI 초안·전회차 가져오기."""
     from server.api.routers.sitok_defects import IMPORTS
+    from server.api.routers.sitok_rebar import JOBS as SCHEDULE_JOBS
     from server.api.routers.sitok_split import _RUNNING
 
     builds = [rid for (rid,) in db.query(SitokReport.id).filter(SitokReport.status == "running")]
     return {"builds": builds, "splits": sorted(_RUNNING), "ai": [k for k, v in AI_JOBS.items() if v.get("state") == "running"],
-            "imports": [k for k, v in IMPORTS.items() if (v or {}).get("state") == "running"]}
+            "imports": [k for k, v in IMPORTS.items() if (v or {}).get("state") == "running"],
+            "schedules": [k for k, v in SCHEDULE_JOBS.items() if (v or {}).get("state") == "running"]}  # 구조 일람표 읽기(10/21)
 
 
 @router.get("/reports/{report_id}/ai/draft/state")

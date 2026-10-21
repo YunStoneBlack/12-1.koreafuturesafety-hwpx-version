@@ -1,0 +1,38 @@
+/* 구조 일람표 부재 목록(sitok-schedule.html, 2026-10-21) — 카드 = 왼쪽 단면 그림 + 오른쪽 값 칸(.field-grid/.sk-f, 홈페이지 창 스타일) */
+.rs-files { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 6px 0 10px; font-size: 13px; color: var(--muted); }
+.rs-file { padding: 3px 10px; border-radius: 999px; background: var(--surface-2, #f3f5f9); color: var(--ink); font-weight: 600; }
+.rs-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 4px 0 8px; }
+.rs-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
+.rs-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 12px; }
+.rs-card { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.rs-card.need { border-color: #f0b44c; box-shadow: 0 0 0 1px rgba(240, 180, 76, .25) inset; }
+.rs-card-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 14px; }
+.rs-badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.rs-badge.ok { background: #e6f6ec; color: #1f7a3f; }
+.rs-badge.todo { background: #fff3dc; color: #a2620b; }
+.rs-why { font-size: 12px; color: var(--muted); }
+.rs-why.bad { color: #c0392b; font-weight: 600; }
+.rs-card-b { display: grid; grid-template-columns: 200px 1fr; gap: 12px; align-items: start; }
+.rs-img { border: 1px solid var(--line); border-radius: 8px; background: #fff; min-height: 120px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.rs-img img { display: block; max-width: 100%; max-height: 260px; object-fit: contain; }
+.rs-noimg { font-size: 12px; color: var(--muted); padding: 20px 8px; text-align: center; }
+.rs-fields { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px 10px; margin: 0; }
+.rs-fields .sk-f label { font-size: 12px; }
+.rs-fields input, .rs-fields select { width: 100%; margin: 0; }
+.sk-f.rs-unsure input, .sk-f.rs-unsure select { border-color: #f0b44c; background: #fffaf0; }
+.rs-q { display: inline-block; width: 15px; height: 15px; line-height: 15px; text-align: center; border-radius: 50%; background: #f0b44c; color: #fff; font-size: 11px; font-weight: 700; }
+.rs-card-f { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rs-preview { flex: 1; min-width: 200px; font-size: 13px; color: var(--ink); font-weight: 600; }
+.main .rs-card-f button.rs-del { margin: 0; padding: 4px 8px; background: transparent; border: 1px solid var(--line); color: var(--muted); font-size: 14px; box-shadow: none; }
+.main .rs-card-f button.rs-del:hover { color: #c0392b; border-color: #c0392b; }
+
+.rs-add { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.rs-add-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+
+@media (max-width: 760px) {
+  .rs-cards { grid-template-columns: 1fr; }
+  .rs-card-b { grid-template-columns: 1fr; }
+  .rs-img img { max-height: 220px; }
+  .rs-fields { grid-template-columns: repeat(2, 1fr); }
+}

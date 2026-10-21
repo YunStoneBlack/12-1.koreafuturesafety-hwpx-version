@@ -1,6 +1,6 @@
 """API 안전 재시작(2026-10-21) — 뒤에서 도는 일이 없을 때만 웹판 API(uvicorn 8000)를 껐다가 워치독이 다시 띄우게 함.
 
-뒤에서 도는 일 = GET /api/sitok/busy: 시특법 보고서 만들기(DB status "running")·분권·AI 초안(89차부터 뒤에서)·전회차 가져오기.
+뒤에서 도는 일 = GET /api/sitok/busy: 시특법 보고서 만들기(DB status "running")·분권·AI 초안(89차부터 뒤에서)·전회차 가져오기·구조 일람표 읽기(10/21).
 API가 꺼져 있거나 옛판이라 조회가 없으면 DB의 보고서 만들기만 봄. 10/20 보고서 만드는 중에 재시작해 의정부 441이 끊긴 뒤로 늘 이 확인을 함.
 끄는 대상 = data/logs/watchdog.log 마지막 "api 시작 (PID n)" — 끄면 워치독(server/scripts/web_watchdog.ps1)이 몇 초 안에 다시 띄움.
 
@@ -62,7 +62,7 @@ def busy() -> dict:
 
 
 def _is_busy(b: dict) -> bool:
-    return any(b.get(k) for k in ("builds", "splits", "ai", "imports"))
+    return any(b.get(k) for k in ("builds", "splits", "ai", "imports", "schedules"))  # schedules = 구조 일람표 읽기(10/21)
 
 
 def _last_pid() -> int | None:
