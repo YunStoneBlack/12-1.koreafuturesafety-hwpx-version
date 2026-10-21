@@ -24,6 +24,8 @@
     const n = d.buildings.length;
     panel.hidden = n < 2 || d.kind === "정밀"; // 묶음·정기만(정밀 묶음은 아직)
     if (panel.hidden) return;
+    const intro = panel.querySelector(".bk-intro");
+    if (intro && d.wall) intro.textContent = "곳마다 몇 권째에 넣을지 고르세요. 같은 권 = 한 책(표지·용역명은 곳 개수 규칙 그대로), \"안 함\" = 분권에 안 넣음. 옹벽은 원본에서 바로 묶으니 묶음 보고서를 먼저 안 만들어도 됩니다(현장 조사·AI 초안 값 그대로)."; // 10/21
     const running = d.status === "running";
     const seg = (b) => {
       const cur = Number(d.assign[String(b.id)] || 0);

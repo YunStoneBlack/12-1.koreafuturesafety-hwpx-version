@@ -28,7 +28,7 @@
   function dongPick(d) {
     if (!d.report_id) return `<div class="rd-btn rd-off"><span class="rd-ic">🏢</span><span class="rd-lb">제${d.index}장 ${esc(d.name)}</span><span class="rd-sub">이 반기 회차가 아직 없습니다 — [묶음 보고서 만들기] 때 같이 생깁니다</span></div>`;
     const pre = (d.kind || "정기") === "정밀";
-    const steps = [["현장 조사", d.has_field], ...(pre ? [["재료시험", d.has_tests], ["상태평가", d.has_rating]] : []), ["면담", d.has_survey], ["현황", d.has_detail], ["AI 초안", d.has_ai]];
+    const steps = [["현장 조사", d.has_field], ...(pre ? [["재료시험", d.has_tests], ["상태평가", d.has_rating]] : []), ["면담", d.has_survey], ...(r && r.wall ? [] : [["현황", d.has_detail]]), ["AI 초안", d.has_ai]]; // 옹벽은 현황 없음(10/21)
     const done = d.has_field && (!pre || (d.has_tests && d.has_rating));
     return big(`sitok-round.html?report=${d.report_id}&one=1`, "🏢", `제${d.index}장 ${esc(d.name)}`, done, steps.map(([t, ok]) => `${t}${ok ? " ✓" : ""}`).join(" · "));
   }

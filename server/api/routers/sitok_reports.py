@@ -1033,21 +1033,55 @@ def _run_wall_build(db: Session, r: SitokReport, f: SitokFacility) -> None:
     """옹벽 한 곳 정기 보고서(server/sitok/wall_build) — 옹벽 원본 한 파일(형이 합친 것, 10/21)을 채워 한글 한 파일 + PDF(관리대장·사진첩·계약서 끼움)."""
     from server.sitok import wall_build
 
+    pairs: list = []
     try:
-        folder = _report_dir(f, r)
+        if f.group_id:  # 묶음 — 곳마다 회차(없으면 만듦), 한 권(10/21 4단계 — 건축물 묶음과 같은 규칙: 표지 "첫 곳 등 N개소", 같은 계약이면 곳별 점검금액 필요)
+            pairs = _group_reports(db, r)
+            for _, x in pairs:
+                x.status, x.message = "running", "옹벽 묶음 보고서 만드는 중…"
+            db.commit()
+            _group_amounts(pairs, db)
+            missing = [m.name for m, x in pairs if not (x.period_start and x.period_end)]
+            if missing:
+                raise ValueError("점검기간이 없는 곳: " + ", ".join(missing))
+        else:
+            pairs = [(f, r)]
+        lead_f, lead_r = pairs[0]
+        folder = _report_dir(lead_f, lead_r)
 
         def say(msg: str) -> None:
-            r.message = f"옹벽 보고서 — {msg}"
+            for _, x in pairs:
+                x.message = f"옹벽 보고서 — {msg}"
             db.commit()
 
-        hwpx, pdf, warn, changed = wall_build.build(db, r, f, folder, say)
-        r.out_hwpx = str(hwpx)
-        r.out_pdf, r.status, r.made_at = str(pdf), "done", datetime.datetime.now()
+        name = title = ""
+        if len(pairs) > 1:
+            name, title = wall_book_name(db, pairs, r)
+        hwpx, pdf, warn, changed = wall_build.build_many(db, pairs, folder, say, name=name, title=title)
         pages = pymupdf.open(pdf).page_count
-        r.message = _done_msg(f"{pages}쪽, {changed}곳 바꿈", "합본", {f.name: []}, warn)
+        head = f"{len(pairs)}곳 묶음 {pages}쪽, {changed}곳 채움" if len(pairs) > 1 else f"{pages}쪽, {changed}곳 채움"
+        msg = _done_msg(head, "합본", {"": []}, warn)
+        now = datetime.datetime.now()
+        for _, x in pairs:
+            x.out_hwpx, x.out_pdf, x.status, x.made_at, x.message = str(hwpx), str(pdf), "done", now, msg
     except Exception as err:  # noqa: BLE001
-        _fail([r], err)
+        _fail([x for _, x in pairs] or [r], err)
     db.commit()
+
+
+def wall_book_name(db: Session, pairs: list, r: SitokReport) -> tuple[str, str]:
+    """옹벽 묶음 책 표지 이름·용역명 — 이름은 건축물 규칙(merge.cover_name "첫 곳 등 N개소"), 용역명은 곳들이 같은 계약(용역명 있음)이면 그 계약 용역명,
+    아니면 표지 문구(service_title)."""
+    from core.models_web import SitokGroup
+    from server.sitok import merge
+
+    lead_f = pairs[0][0]
+    g = db.get(SitokGroup, lead_f.group_id) if lead_f.group_id else None
+    name = merge.cover_name([{"name": m.name} for m, _ in pairs], (g.name if g else "") or lead_f.name)
+    cids = {x.contract_id for _, x in pairs}
+    c = db.get(SitokContract, next(iter(cids))) if len(cids) == 1 and next(iter(cids)) else None
+    title = (c.title if c and c.title else "").strip() or service_title(name, r)
+    return name, title
 
 
 def _split_cover(pdf: Path, title: str, reps: list[SitokReport]) -> Path | None:

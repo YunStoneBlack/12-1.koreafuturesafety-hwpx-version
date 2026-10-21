@@ -78,11 +78,20 @@ def _cover_name(sub: list) -> str:
     return merge.cover_name([{"name": n} for n in names], default_name(names))
 
 
+def _is_wall(db: Session, lead: SitokReport) -> bool:
+    from server.sitok import kinds
+
+    f = db.get(SitokFacility, lead.facility_id)
+    return bool(f) and kinds.is_wall(f)
+
+
 def _why_not(db: Session, lead: SitokReport, pairs: list) -> str:
     if (lead.kind or "정기") == "정밀":
         return "분권은 정기안전점검 묶음 보고서만 됩니다(정밀은 아직)."
     if len(pairs) < 2:
         return "묶음(2동 이상) 보고서만 분권할 수 있습니다."
+    if _is_wall(db, lead):  # 옹벽은 동별 한글 없이 원본에서 바로 묶음(wall_build.build_many, 10/21) — 묶음을 먼저 안 만들어도 됨
+        return ""
     if lead.status != "done" or not lead.out_pdf:
         return "묶음 보고서를 먼저 만드세요 — 그때 만든 동별 한글로 분권을 묶습니다."
     miss = [m.name for m, x in pairs if not Path(str((x.survey or {}).get("single_hwpx") or "")).exists()]
@@ -105,7 +114,7 @@ def _out(db: Session, lead: SitokReport) -> dict:
                       "has_cover": same and Path(str(made.get("cover") or "")).exists(), "message": made.get("message") if same else "",
                       "stale": bool(same and made.get("made_at") and lead.made_at and made["made_at"] < lead.made_at.strftime("%Y-%m-%d %H:%M"))})  # 묶음을 다시 만든 뒤 옛 분권
     why = _why_not(db, lead, pairs)
-    return {"available": not why, "why": why, "lead_id": lead.id, "kind": lead.kind or "정기",
+    return {"available": not why, "why": why, "lead_id": lead.id, "kind": lead.kind or "정기", "wall": _is_wall(db, lead),
             "buildings": [{"id": m.id, "name": m.name} for m, _ in pairs], "assign": cfg["assign"], "books": books,
             "status": cfg["status"], "message": cfg["message"]}
 
@@ -148,6 +157,14 @@ def _build_one(db: Session, lead: SitokReport, k: int, sub: list) -> dict:
     folder.mkdir(parents=True, exist_ok=True)
     base = _safe(f"{lead.year}년 {lead.half} {lead.kind or '정기'}안전점검 보고서_{name}(분권 {k})")
     hwpx, pdf = folder / f"{base}.hwpx", folder / f"{base}.pdf"
+    if _is_wall(db, lead):  # 옹벽 — 원본에서 바로(현장 조사·AI 초안 값은 회차 것 그대로)
+        from server.sitok import wall_build
+
+        _, wtitle = SR.wall_book_name(db, sub, lead)
+        hwpx, pdf, warn, _ = wall_build.build_many(db, sub, folder, name=name, title=wtitle if len(sub) > 1 else "", tag=f"(분권 {k})")
+        pages = pymupdf.open(pdf).page_count
+        return {"ids": [m.id for m, _ in sub], "pdf": str(pdf), "hwpx": str(hwpx), "cover": "", "pages": pages,
+                "made_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "message": SR._done_msg(f"{k}권 {len(sub)}곳 {pages}쪽", "합본", {"": []}, warn)}
     parts = []
     for i, (m, x) in enumerate(sub, 1):
         floors = " / ".join(s for s in (f"B{m.floors_below}F" if m.floors_below else "", f"{m.floors_above}F" if m.floors_above else "") if s)

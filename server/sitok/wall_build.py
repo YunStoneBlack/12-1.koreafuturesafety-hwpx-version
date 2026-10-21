@@ -57,15 +57,17 @@ def _sq(s: str) -> str:
 
 class Hwpx:
     """원본 hwpx 한 파일 — 구역(section)·바탕쪽(masterpage) root를 고치고 그림을 더해 저장. 안 쓰는 구역은 빼고(drop) 안 쓰는 BinData도 뺌.
-    구역 번호 순서(section10이 section2 앞에 오지 않게)."""
+    구역 번호 순서(section10이 section2 앞에 오지 않게). 구역은 이름(Contents/sectionN.xml)으로 다룸 — 복제(clone_section)하면 번호가 밀리므로."""
 
     def __init__(self, src: Path):
         self.src = src
         with zipfile.ZipFile(src) as z:
             self.sections = sorted((n for n in z.namelist() if re.fullmatch(r"Contents/section\d+\.xml", n)), key=lambda n: int(re.search(r"\d+", n)[0]))
-            self.masters = sorted(n for n in z.namelist() if re.fullmatch(r"Contents/masterpage\d+\.xml", n))  # 바탕쪽 — 머리말 용역명이 여기(10/21)
+            self.masters = sorted(n for n in z.namelist() if re.fullmatch(r"Contents/masterpage\d+\.xml", n))  # 바탕쪽 — 머리말 용역명·장 꼬리말이 여기(10/21)
             self.roots = {s: etree.fromstring(z.read(s)) for s in self.sections + self.masters}
+            self.hpf = z.read("Contents/content.hpf").decode("utf-8")
         self.dropped: set[str] = set()
+        self.new_masters: list[str] = []  # 복제한 바탕쪽(장마다 꼬리말 "제 N 장 이름")
         self.added: list[tuple[str, bytes]] = []
         self.run = datetime.datetime.now().strftime("%y%m%d%H%M%S") + f"{random.randint(0, 999):03d}"
 
@@ -73,12 +75,40 @@ class Hwpx:
     def root(self):
         return self.roots[self.sections[0]]
 
-    def view(self, i: int) -> "_View":
-        return _View(self, self.sections[i])
+    def view(self, name: str) -> "_View":
+        return _View(self, name)
 
-    def text(self, i: int) -> str:
+    def text(self, name: str) -> str:
         """구역 글 전부(표 안 포함) 띄어쓰기 없이."""
-        return _sq("".join(t.text or "" for t in self.roots[self.sections[i]].iter(T)))
+        return _sq("".join(x.text or "" for x in self.roots[name].iter(T)))
+
+    def masters_of(self, name: str) -> list[str]:
+        """구역이 가리키는 바탕쪽 파일 이름들."""
+        refs = [x.get("idRef") for x in self.roots[name].iter(f"{{{HP}}}masterPage") if x.get("idRef")]
+        return [f"Contents/{r}.xml" for r in refs if f"Contents/{r}.xml" in self.roots]
+
+    def clone_section(self, name: str) -> str:
+        """구역을 복제해 그 구역(과 앞선 복제들) 바로 뒤에 끼움 → 새 이름. 바탕쪽도 복제해 새 번호로 가리킴(장마다 꼬리말이 다르게), 표·그림 id 새로."""
+        from server.sitok.merge import _renew_ids
+
+        stem = name[:-4]
+        n = sum(1 for s in self.sections if s.startswith(stem + "_"))
+        new = f"{stem}_{n + 1}.xml"
+        root = copy.deepcopy(self.roots[name])
+        for mp in root.iter(f"{{{HP}}}masterPage"):
+            old = f"Contents/{mp.get('idRef')}.xml"
+            if old in self.roots:
+                mid = f"masterpage{len(self.masters) + len(self.new_masters)}"
+                mroot = copy.deepcopy(self.roots[old])
+                if mroot.get("id"):
+                    mroot.set("id", mid)
+                self.roots[f"Contents/{mid}.xml"] = mroot
+                self.new_masters.append(f"Contents/{mid}.xml")
+                mp.set("idRef", mid)
+        _renew_ids(root)
+        self.roots[new] = root
+        self.sections.insert(self.sections.index(name) + n + 1, new)
+        return new
 
     def add_image(self, path_or_bytes) -> str:
         key = f"wall{self.run}_{len(self.added) + 1}"
@@ -89,18 +119,19 @@ class Hwpx:
         """구역·바탕쪽(머리말·꼬리말) 전부에서 글자 바꾸기."""
         return sum(replace_text(r, old, new) for r in self.roots.values())
 
-    def drop(self, idxs) -> None:
-        for i in idxs:
-            name = self.sections[i]
-            self.dropped.add(name)
-            self.roots.pop(name, None)
+    def drop_except(self, names) -> None:
+        keep = set(names)
+        for s in self.sections:
+            if s not in keep:
+                self.dropped.add(s)
+                self.roots.pop(s, None)
 
     def kept(self) -> list[str]:
         return [s for s in self.sections if s not in self.dropped]
 
-    def renumber_pages(self, restart: list[int]) -> None:
+    def renumber_pages(self, restart) -> None:
         """"새 번호로 시작"(hp:newNum PAGE)은 restart 구역의 첫 것만(1로) 두고 나머지는 지움 — 견본은 2장 9·시설물편 15로 박혀 있음."""
-        keep = {self.sections[i] for i in restart}
+        keep = set(restart)
         for name in self.kept():
             root = self.roots[name]
             nums = [x for x in root.iter(f"{{{HP}}}newNum") if x.get("numType") == "PAGE"]
@@ -114,17 +145,22 @@ class Hwpx:
                 elif parent is not None:
                     parent.remove(x)
 
+    @staticmethod
+    def _xml(root) -> bytes:
+        for el in list(root.iter(f"{{{HP}}}linesegarray")):
+            el.getparent().remove(el)
+        return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
     def save(self, dest: Path, drop_unused: bool = True) -> Path:
         used = {img.get("binaryItemIDRef") for r in self.roots.values() for img in r.iter(f"{{{HC}}}img")}
         kept = self.kept()
-        rename = {old: f"Contents/section{i}.xml" for i, old in enumerate(kept)}  # 뺀 구역이 있으면 번호를 당김
-        sec_no = {re.search(r"\d+", old)[0]: str(i) for i, old in enumerate(kept)}
+        rename = {old: f"Contents/section{i}.xml" for i, old in enumerate(kept)}  # 뺀 구역·복제 구역 → 번호를 차례로
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".tmp")
         with zipfile.ZipFile(self.src) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
-            hpf = zin.read("Contents/content.hpf").decode("utf-8")
+            names = set(zin.namelist())
             id_of = {}
-            for it in re.findall(r"<opf:item [^>]*href=\"BinData/[^\"]+\"[^>]*/>", hpf):
+            for it in re.findall(r"<opf:item [^>]*href=\"BinData/[^\"]+\"[^>]*/>", self.hpf):
                 m = re.search(r'id="([^"]+)"', it)
                 h = re.search(r'href="BinData/([^"]+)"', it)
                 if m and h:
@@ -134,29 +170,31 @@ class Hwpx:
                 if name in self.dropped or name in ("Contents/content.hpf", "Preview/PrvText.txt", "Preview/PrvImage.png"):
                     continue
                 data = zin.read(name)
-                out_name = rename.get(name, name)
                 if name in self.roots:
-                    root = self.roots[name]
-                    for el in list(root.iter(f"{{{HP}}}linesegarray")):
-                        el.getparent().remove(el)
-                    data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                    data = self._xml(self.roots[name])
                 elif name.startswith("BinData/") and drop_unused and id_of.get(name[8:]) not in used:
                     continue
-                elif name == "Contents/header.xml" and self.dropped:
+                elif name == "Contents/header.xml":
                     data = re.sub(rb'secCnt="\d+"', f'secCnt="{len(kept)}"'.encode(), data, count=1)
+                out_name = rename.get(name, name)
                 if out_name == name:
                     zout.writestr(info, data, compress_type=zipfile.ZIP_STORED if name == "mimetype" else zipfile.ZIP_DEFLATED)
                 else:
                     zout.writestr(out_name, data, compress_type=zipfile.ZIP_DEFLATED)
-            text = hpf
+            for name in kept + self.new_masters:  # 복제한 구역·바탕쪽(원본 zip에 없음)
+                if name not in names:
+                    zout.writestr(rename.get(name, name), self._xml(self.roots[name]), compress_type=zipfile.ZIP_DEFLATED)
+            text = self.hpf
             if drop_unused:
                 text = re.sub(r'<opf:item [^>]*href="BinData/[^"]+"[^>]*/>', lambda m: m[0] if re.search(r'id="([^"]+)"', m[0])[1] in used else "", text)
-            if self.dropped:  # 목록(manifest)·순서(spine)에서 뺀 구역은 지우고 남은 구역은 새 번호로
-                def fix(m):
-                    no = m.group(2)
-                    return "" if no not in sec_no else m.group(0).replace(f"section{no}", f"section{sec_no[no]}")
-                text = re.sub(r'(<opf:item id="section(\d+)"[^>]*/>)', fix, text)
-                text = re.sub(r'(<opf:itemref idref="section(\d+)"[^>]*/>)', fix, text)
+            # 목록(manifest)·순서(spine)는 구역·바탕쪽을 새로 적음
+            text = re.sub(r'<opf:item id="(section|masterpage)\d+"[^>]*/>', "", text)
+            text = re.sub(r'<opf:itemref idref="section\d+"[^>]*/>', "", text)
+            items = "".join(f'<opf:item id="section{i}" href="Contents/section{i}.xml" media-type="application/xml"/>' for i in range(len(kept)))
+            items += "".join(f'<opf:item id="{m[9:-4]}" href="{m}" media-type="application/xml"/>' for m in self.masters + self.new_masters)
+            text = re.sub(r'(<opf:item id="header"[^>]*/>)', lambda m: m[1] + items, text, count=1)
+            refs = "".join(f'<opf:itemref idref="section{i}" linear="yes"/>' for i in range(len(kept)))
+            text = re.sub(r'(<opf:itemref idref="header"[^>]*/>)', lambda m: m[1] + refs, text, count=1)
             new = "".join(f'<opf:item id="{k}" href="BinData/{k}.jpg" media-type="image/jpg" isEmbeded="1"/>' for k, _ in self.added)
             zout.writestr("Contents/content.hpf", text.replace("</opf:manifest>", new + "</opf:manifest>").encode("utf-8"))
             texts = "\r\n".join("".join(t.text or "" for t in p.iter(T)) for n in kept for p in self.roots[n].iter(f"{{{HP}}}p"))
@@ -168,11 +206,12 @@ class Hwpx:
 
 
 class _View:
-    """구역 하나(채우는 함수가 보는 것) — root는 그 구역, 그림 더하기·머리말 바꾸기는 파일 전체."""
+    """구역 하나(채우는 함수가 보는 것) — root는 그 구역, roots = 구역 + 그 바탕쪽(replace_here), 그림 더하기·용역명 바꾸기는 파일 전체."""
 
     def __init__(self, doc: Hwpx, name: str):
         self.doc, self.name = doc, name
         self.root = doc.roots[name]
+        self.roots = [self.root] + [doc.roots[m] for m in doc.masters_of(name)]
 
     def add_image(self, path_or_bytes) -> str:
         return self.doc.add_image(path_or_bytes)
@@ -180,14 +219,18 @@ class _View:
     def replace_all(self, old: str, new: str) -> int:
         return self.doc.replace_all(old, new)
 
+    def replace_here(self, old: str, new: str) -> int:
+        """이 구역과 그 바탕쪽(꼬리말 장 제목)에서만."""
+        return sum(replace_text(r, old, new) for r in self.roots)
+
 
 NEEDED = ("cover", "front", "summary", "toc", "intro", "chapter", "conclusion", "appendix")
 
 
-def locate(doc: Hwpx) -> dict[str, int]:
-    """구역을 글로 찾음 → {이름: 구역 번호}. 못 찾은 필수 구역이 있으면 RuntimeError."""
-    out: dict[str, int] = {}
-    for i in range(len(doc.sections)):
+def locate(doc: Hwpx) -> dict[str, str]:
+    """구역을 글로 찾음 → {역할: 구역 파일 이름}. 못 찾은 필수 구역이 있으면 RuntimeError."""
+    out: dict[str, str] = {}
+    for i in doc.sections:
         t = doc.text(i)
         head = t[:300]
         if "cover" not in out and "종합보고서" in head and "제출문" not in head and "요약문" not in head:
@@ -382,6 +425,12 @@ class Data:
     public_names: str = ""
     template3: bool = False
     warn: list = field(default_factory=list)
+    sites: list = field(default_factory=list)  # 묶음 책이면 곳마다 Data(장 순서), 한 곳이면 빈 목록
+    index: int = 1  # 책 안 순서(장 번호)
+
+    @property
+    def many(self) -> list:
+        return self.sites or [self]
 
     @property
     def size(self) -> str:
@@ -399,6 +448,16 @@ class Data:
 
 def _spaced(name: str) -> str:
     return "  ".join(name.replace(" ", ""))
+
+
+def make_book(sites: list, name: str, title: str) -> Data:
+    """묶음 책의 공통 값 = 첫 곳 값에 표지 이름·용역명·곳 목록. 등급·종별 요약은 요약문·총괄표에서 곳마다."""
+    import dataclasses
+
+    b = dataclasses.replace(sites[0], name=name, title=title, sites=list(sites), template3=any(s.template3 for s in sites), warn=[])
+    for s in sites:
+        b.warn += [f"{s.name}: {w}" for w in s.warn]
+    return b
 
 
 def gather(db, r, f) -> Data:
@@ -557,19 +616,44 @@ def fill_summary(doc: Hwpx, d: Data) -> None:
     if t31 is not None:
         _set(rb._cells(t31), (0, 0), d.owner)
     replace_text(root, "어쩌구에 대한 2026년 상반기 정기안전점검", f"{d.name}에 대한 {d.year}년 {d.half} 정기안전점검")
-    replace_text(root, "총 옹벽 17개소", "옹벽 1개소")
+    sites = d.many
+    replace_text(root, "총 옹벽 17개소", f"옹벽 {len(sites)}개소")
     replace_text(root, "2026년 04월 13일 ~ 2026년 07월 11일", f"{_date(d.period_start, False)} ~ {_date(d.period_end, False)}")
     for p in _tops(root):
         if _ptext(p).startswith("※ 옹벽 총"):
-            rb._set_para(p, f"※ 옹벽 총 1개소({d.class_no}종시설물 : {d.grade} 1개소)")
+            rb._set_para(p, f"※ 옹벽 총 {len(sites)}개소({_grade_summary(sites)})")
     t = _tbl(root, 18, 11)
     if t is not None:
+        _resize(t, len(sites), 1, 1)
         cells = rb._cells(t)
-        vals = ["1", d.name, f"{d.class_no}종", d.year_month, d.spec.get("form") or "-", d.spec.get("length") or "-", d.spec.get("height") or "-",
-                d.prev_grade, d.grade, "\n".join(d.ai.get("findings") or []), "\n".join(d.ai.get("repairs") or [])]
-        for c, v in enumerate(vals):
-            _set(cells, (1, c), v)
-        rb._del_rows(t, 2, 16)
+        for i, s in enumerate(sites, 1):
+            vals = [str(i), s.name, f"{s.class_no}종", s.year_month, s.spec.get("form") or "-", s.spec.get("length") or "-", s.spec.get("height") or "-",
+                    s.prev_grade, s.grade, "\n".join(s.ai.get("findings") or []), "\n".join(s.ai.get("repairs") or [])]
+            for c, v in enumerate(vals):
+                _set(cells, (i, c), v)
+
+
+def _grade_summary(sites: list) -> str:
+    """"2종시설물 : 양호 15개소, 보통 2개소 / 3종시설물 : 양호 1개소" — 종별·등급별 곳 수."""
+    out = []
+    for cls in sorted({s.class_no for s in sites}):
+        cnt: dict[str, int] = {}
+        for s in sites:
+            if s.class_no == cls:
+                cnt[s.grade] = cnt.get(s.grade, 0) + 1
+        order = ["우수", "양호", "보통", "미흡", "불량"]
+        out.append(f"{cls}종시설물 : " + ", ".join(f"{g} {cnt[g]}개소" for g in sorted(cnt, key=lambda g: order.index(g) if g in order else 9)))
+    return " / ".join(out)
+
+
+def _resize(tbl, want: int, first: int, per: int = 1) -> None:
+    """값 줄이 first줄부터 per줄씩 있는 표를 want곳 분량으로 — 모자라면 마지막 묶음 복제, 남으면 지움(머리줄·꼬리줄은 그대로)."""
+    rows = int(tbl.get("rowCnt"))
+    have = (rows - first) // per
+    if want > have:
+        rb._dup_rows(tbl, first + (have - 1) * per, per, want - have)
+    elif want < have:
+        rb._del_rows(tbl, first + want * per, (have - want) * per)
 
 
 def _fill_result_table(tbl, d: Data) -> None:
@@ -633,59 +717,62 @@ def fill_front(doc: Hwpx, d: Data) -> None:
             _set(cells, (i, 1), " ".join(name.replace(" ", "")))
             _set(cells, (i, 2), pos)
             _set(cells, (i, 3), f"{fld}\n{grade}" if grade else fld)
-    # 위치도 4장·결과표 2~17·전경 2~17 지움
+    # 위치도 4장 지움, 결과표·전경 덩이는 곳 수만큼(견본 17개 — 모자라면 마지막 덩이 복제)
+    sites = d.many
     tops = _tops(root)
     idx_res = [i for i, p in enumerate(tops) if re.match(r"\d+\.\s*.+정기점검 결과표", _ptext(p))]
     idx_ov = [i for i, p in enumerate(tops) if _ptext(p).endswith("전경사진")]
-    kill = []
     i_map = [i for i, p in enumerate(tops) if _ptext(p).endswith("위치도")]
+    kill = []
     if i_map and idx_res:
         kill += tops[i_map[0]:idx_res[0]]
-    if len(idx_res) > 1 and idx_ov:
-        kill += tops[idx_res[1]:idx_ov[0]]
-    if len(idx_ov) > 1:
-        kill += tops[idx_ov[1]:]
+    res_blocks = [tops[idx_res[k]:(idx_res[k + 1] if k + 1 < len(idx_res) else (idx_ov[0] if idx_ov else len(tops)))] for k in range(len(idx_res))]
+    ov_blocks = [tops[idx_ov[k]:(idx_ov[k + 1] if k + 1 < len(idx_ov) else len(tops))] for k in range(len(idx_ov))]
+    _extend_blocks(res_blocks, len(sites))
+    _extend_blocks(ov_blocks, len(sites))
+    for blk in res_blocks[len(sites):] + ov_blocks[len(sites):]:
+        kill += blk
     _del(root, kill)
-    tops = _tops(root)
-    for p in tops:
-        t = _ptext(p)
-        if re.match(r"1\.\s*.+정기점검 결과표", t):
-            rb._set_para(p, f"1. {d.name} 정기점검 결과표")
-        elif t.endswith("전경사진"):
-            rb._set_para(p, f"{d.name} 전경사진")
-    res = _tbl(root, 20, 9, "가. 일반현황")
-    if res is None:
-        res = _tbl(root, 21, 9, "가. 일반현황")
-    if res is not None:
-        _fill_result_table(res, d)
-    ov = _tbl(root, 6, 2)
-    if ov is not None:
-        _fill_photo_table(ov, d.overview[:6], next((copy.deepcopy(p) for p in ov.iter(f"{{{HP}}}pic")), None), doc.add_image, "")
+    tpl = next((copy.deepcopy(p) for blk in ov_blocks[:1] for q in blk for p in q.iter(f"{{{HP}}}pic")), None)
+    for k, s in enumerate(sites):
+        head, *rest = res_blocks[k]
+        rb._set_para(head, f"{k + 1}. {s.name} 정기점검 결과표")
+        res = next((x for q in rest for x in q.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) in (("20", "9"), ("21", "9"))), None)
+        if res is not None:
+            _fill_result_table(res, s)
+        if k < len(ov_blocks):
+            head, *rest = ov_blocks[k]
+            rb._set_para(head, f"{s.name} 전경사진")
+            ov = next((x for q in rest for x in q.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) == ("6", "2")), None)
+            if ov is not None:
+                _fill_photo_table(ov, s.overview[:6], tpl, doc.add_image, "")
+
+
+def _extend_blocks(blocks: list, want: int) -> None:
+    """문단 덩이 목록이 want개가 안 되면 마지막 덩이를 복제해 바로 뒤에(표·그림 id 새로)."""
+    from server.sitok.merge import _renew_ids
+
+    while blocks and len(blocks) < want:
+        last = blocks[-1]
+        new = [copy.deepcopy(p) for p in last]
+        for p in new:
+            _renew_ids(p)
+        anchor = last[-1]
+        for p in reversed(new):
+            anchor.addnext(p)
+        blocks.append(new)
 
 
 def fill_toc(doc: Hwpx, d: Data, pages: dict[str, int]) -> int:
-    """목차 — 제Ⅱ편은 제1장 한 줄로, 줄 끝 숫자(tab 뒤 조각) = 본문 쪽(pages: 제목 → 쪽). 장 줄 숫자는 그 장 첫 소절 쪽(견본 규칙). 바꾼 줄 수."""
+    """목차 — 제Ⅱ편은 곳 수만큼 장(견본 17장, 이름 바꿈), 3종인 곳은 "k.5 안전등급 평가" 줄 더함, 줄 끝 숫자(tab 뒤 조각) = 본문 쪽(pages: 제목 → 쪽).
+    장 줄 숫자는 그 장 첫 소절 쪽(견본 규칙). 바꾼 줄 수."""
     root = doc.root
-    if d.template3:  # 목차 원본은 2종 번호(1.5 유지관리방안·1.6 개략공사비·1.7 종합결론) — 3종은 본문처럼 "1.5 안전등급 평가" 줄을 앞에 더하고 뒤 줄 번호를 올림
-        tops = _tops(root)
-        p15 = next((p for p in tops if _sq(_ptext(p)).startswith("1.5유지관리방안")), None)
-        if p15 is not None:
-            for p in tops:
-                t = _ptext(p)
-                if t.startswith("1.7 종합결론"):
-                    replace_text(p, "1.7 종합결론", "1.8 종합결론")
-                elif t.startswith("1.6 보수"):
-                    replace_text(p, "1.6 보수", "1.7 보수")
-            new = copy.deepcopy(p15)
-            replace_text(p15, "1.5 유지관리방안", "1.6 유지관리방안")
-            p15.addprevious(new)
-            first = next((pc for x in new.iter(T) for pc in rb._pieces(x) if pc.text and pc.text.strip()), None)
-            if first is not None:
-                first.text = "1.5 안전등급 평가"
+    sites = d.many
+    n_ch = len(sites)
     tops = _tops(root)
-    kill, n = [], 0
+    kill: list = []
     in_ch = 0
-    lines = []  # (문단, 장 줄인지, 제목 열쇠)
+    chapter_lines: dict[int, list] = {}
     for p in tops:
         t = _ptext(p)
         m = re.match(r"제\s*(\d+)\s*장\s+(.+?)\s*(\d+)?$", t)
@@ -693,18 +780,44 @@ def fill_toc(doc: Hwpx, d: Data, pages: dict[str, int]) -> int:
             in_ch = int(m[1])
         elif re.match(r"제\s*[ⅠⅡⅢ]\s*편", t) or re.match(r"<\s*부\s*록", t):
             in_ch = 0
-        if in_ch >= 2:
+        if in_ch > n_ch:
             kill.append(p)
             continue
-        if in_ch == 1 and m:
-            for x in p.iter(T):
-                for pc in rb._pieces(x):
-                    if pc.text and SAMPLE_NAME in pc.text:
-                        pc.text = pc.text.replace(SAMPLE_NAME, d.name)
-            t = t.replace(SAMPLE_NAME, d.name)
+        if in_ch >= 1:
+            chapter_lines.setdefault(in_ch, []).append(p)
+            if m:  # 장 줄 — 이름을 그 곳 이름으로(견본 이름은 장마다 다름)
+                for x in p.iter(T):
+                    for pc in rb._pieces(x):
+                        if pc.text and re.search(r"제\s*\d+\s*장", pc.text):
+                            pc.text = re.sub(r"(제\s*\d+\s*장\s*).*$", lambda mm: mm[1] + sites[in_ch - 1].name, pc.text, count=1)
+                            break
+    _del(root, kill)
+    for k, s in enumerate(sites, 1):  # 3종 — 목차 원본은 2종 번호(k.5 유지관리방안·k.6 개략공사비·k.7 종합결론)
+        if not s.template3:
+            continue
+        lines = chapter_lines.get(k) or []
+        p15 = next((p for p in lines if _sq(_ptext(p)).startswith(f"{k}.5유지관리방안")), None)
+        if p15 is None:
+            continue
+        for p in lines:
+            t = _ptext(p)
+            if t.startswith(f"{k}.7 종합결론"):
+                replace_text(p, f"{k}.7 종합결론", f"{k}.8 종합결론")
+            elif t.startswith(f"{k}.6 보수"):
+                replace_text(p, f"{k}.6 보수", f"{k}.7 보수")
+        new = copy.deepcopy(p15)
+        replace_text(p15, f"{k}.5 유지관리방안", f"{k}.6 유지관리방안")
+        p15.addprevious(new)
+        first = next((pc for x in new.iter(T) for pc in rb._pieces(x) if pc.text and pc.text.strip()), None)
+        if first is not None:
+            first.text = f"{k}.5 안전등급 평가"
+    n = 0
+    lines = []  # (문단, 장 줄인지, 제목 열쇠)
+    for p in _tops(root):
+        t = _ptext(p)
+        m = re.match(r"제\s*(\d+)\s*장\s+(.+?)\s*(\d+)?$", t)
         key = re.sub(r"\s+", "", re.sub(r"\s*\d+$", "", t))
         lines.append((p, bool(m), key))
-    _del(root, kill)
     for i, (p, is_ch, key) in enumerate(lines):
         page = pages.get(key)
         if is_ch:  # 장 줄 = 다음 소절 줄의 쪽
@@ -732,16 +845,18 @@ def fill_intro(doc: Hwpx, d: Data) -> None:
         t = _ptext(p)
         if t.startswith("본 과업은 「시설물의 안전"):
             where = d.address if d.address != "-" else ""
-            rb._set_para(p, f"본 과업은 「시설물의 안전 및 유지관리에 관한 특별법」에 따른 정기점검 용역으로 {where + '에 위치한 ' if where else ''}제{d.class_no}종 시설물로 지정된 "
+            cls = "·".join(sorted({s.class_no for s in d.many}))
+            rb._set_para(p, f"본 과업은 「시설물의 안전 및 유지관리에 관한 특별법」에 따른 정기점검 용역으로 {where + '에 위치한 ' if where else ''}제{cls}종 시설물로 지정된 "
                             f"{d.name}에 대한 상태를 정밀히 파악하여 안전사고 예방 및 사후 조치에 만전을 기하고, 필요시 향후 유지관리 방안을 제시하여 시설물의 안전한 관리에 목적이 있다.")
         elif t.startswith("￭ 과업기간"):
             rb._set_para(p, f"￭ 과업기간 : {d.period}")
     t = _tbl(root, 18, 9, "번호")
     if t is not None:
+        _resize(t, len(d.many), 1, 1)
         cells = rb._cells(t)
-        for c, v in enumerate(["1", d.name, d.spec.get("form") or "-", f"{d.class_no}종", d.spec.get("length") or "-", d.spec.get("height") or "-", d.year_month, "정기점검", ""]):
-            _set(cells, (1, c), v)
-        rb._del_rows(t, 2, 16)
+        for i, s in enumerate(d.many, 1):
+            for c, v in enumerate([str(i), s.name, s.spec.get("form") or "-", f"{s.class_no}종", s.spec.get("length") or "-", s.spec.get("height") or "-", s.year_month, "정기점검", ""]):
+                _set(cells, (i, c), v)
 
 
 def _fill_history(tbl, rows: list) -> None:
@@ -767,10 +882,34 @@ def _fill_history(tbl, rows: list) -> None:
         _set(cells, (i, 6), h.get("note", ""))
 
 
-def fill_chapter(doc: Hwpx, d: Data) -> None:
+def fill_chapter(doc: Hwpx, d: Data, k: int = 1) -> None:
+    """시설물편 한 장(구역 하나 + 그 바탕쪽) — k = 장 번호(묶음이면 2장부터 복제 구역, 제목 번호 1.x → k.x)."""
     root = doc.root
     doc.replace_all(SAMPLE_TITLE, d.title)
-    doc.replace_all(SAMPLE_NAME, d.name)
+    doc.replace_here(SAMPLE_NAME, d.name)
+    _fill_chapter_body(doc, d)
+    if k > 1:
+        _renumber_chapter(doc, k)
+
+
+def _renumber_chapter(doc: Hwpx, k: int) -> None:
+    """장 번호 — "제 1 장"·"제1장" → k, 문단 첫머리 "1.x"(소절 제목·소목차 줄·꼬리말) → "k.x". 표 안 숫자 값("1.2")은 뒤에 한글이 있어야 바꿈."""
+    for root in doc.roots:
+        for p in root.iter(f"{{{HP}}}p"):
+            pieces = [pc for x in p.iter(T) if next(x.iterancestors(f"{{{HP}}}p"), None) is p for pc in rb._pieces(x)]
+            if not pieces:
+                continue
+            joined = "".join(pc.text or "" for pc in pieces)
+            new = re.sub(r"^(\s*)1\.(\d(?:\.\d)?\s*[가-힣(])", lambda m: f"{m[1]}{k}.{m[2]}", joined, count=1)
+            new = re.sub(r"제(\s*)1(\s*)장", lambda m: f"제{m[1]}{k}{m[2]}장", new)
+            if new != joined:
+                pieces[0].text = new
+                for pc in pieces[1:]:
+                    pc.text = ""
+
+
+def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
+    root = doc.root
     # 원본은 3종 — 본문 1.5 안전등급 평가·1.6 유지관리방안·1.7 개략공사비·1.8 종합결론(장 표지 소목차는 1.5 유지관리방안·1.6 안전등급 평가로 어긋나 있어 본문에 맞춤)
     nested = [p for p in root.iter(f"{{{HP}}}p") if p.getparent() is not root]
     if not d.template3:  # 2종은 안전등급 평가 절을 빼고 뒤 번호를 당김(1.5 유지관리방안·1.6 개략공사비·1.7 종합결론)
@@ -802,7 +941,7 @@ def fill_chapter(doc: Hwpx, d: Data) -> None:
                 replace_text(p, "1.6 안전등급 평가", "1.6 유지관리방안")
     t34 = _tbl(root, 3, 4)
     if t34 is not None:
-        _set(rb._cells(t34), (0, 3), f"제1장 {d.name}")
+        _set(rb._cells(t34), (0, 3), f"제1장 {d.name}")  # 장 번호는 _renumber_chapter가
     res = _tbl(root, 20, 9, "가. 일반현황")
     if res is not None:
         _fill_result_table(res, d)
@@ -934,34 +1073,47 @@ def fill_conclusion(doc: Hwpx, d: Data) -> None:
     for p in _tops(root):
         t = _ptext(p)
         if t.startswith("본 점검 대상시설물"):
+            fine = all(s.grade in ("우수", "양호", "보통") for s in d.many)
             rb._set_para(p, f"본 점검 대상시설물 {d.name}에 대한 외관조사 결과 시설물 안전성에 영향을 주는 구조적 손상은 "
                             + ("없는 것으로 조사되었으며, 전반적으로 양호한 것으로 판단됨으로 긴급점검 및 정밀안전진단이 필요하지 않은 것으로 판단된다."
-                               if d.grade in ("양호", "보통") else "일부 조사되어 지속적인 관찰과 보수·보강이 필요한 것으로 판단된다."))
+                               if fine else "일부 조사되어 지속적인 관찰과 보수·보강이 필요한 것으로 판단된다."))
     tops = _tops(root)
     firsts = [p for p in tops if _ptext(p).startswith("1.2 점검결과 총괄표")]
     if len(firsts) > 1:
         i0 = tops.index(firsts[1])
         _del(root, tops[i0:])
     t = _tbl(root, 21, 6, "No")
-    if t is not None:
+    if t is not None:  # 곳마다 4줄(이름·준공 / H / L / 등급)
+        _resize(t, len(d.many), 1, 4)
         cells = rb._cells(t)
-        _set(cells, (1, 1), d.name)
-        _set(cells, (1, 3), f"{d.completion.year}년" if d.completion else "-")
-        _set(cells, (1, 4), "\n".join(d.ai.get("findings") or []))
-        _set(cells, (1, 5), "\n".join(d.ai.get("repairs") or []) or "\n".join(con.get("repair") or []))
-        _set(cells, (2, 3), d.spec.get("height") or "-")
-        _set(cells, (3, 3), d.spec.get("length") or "-")
-        _set(cells, (4, 3), d.grade)
-        rb._del_rows(t, 5, 16)
+        for i, s in enumerate(d.many):
+            r0 = 1 + i * 4
+            scon = s.ai.get("conclusion") or {}
+            _set(cells, (r0, 0), str(i + 1))
+            _set(cells, (r0, 1), s.name)
+            _set(cells, (r0, 3), f"{s.completion.year}년" if s.completion else "-")
+            _set(cells, (r0, 4), "\n".join(s.ai.get("findings") or []))
+            _set(cells, (r0, 5), "\n".join(s.ai.get("repairs") or []) or "\n".join(scon.get("repair") or []))
+            _set(cells, (r0 + 1, 3), s.spec.get("height") or "-")
+            _set(cells, (r0 + 2, 3), s.spec.get("length") or "-")
+            _set(cells, (r0 + 3, 3), s.grade)
 
 
 def fill_appendix(doc: Hwpx, d: Data) -> None:
     root = doc.root
     doc.replace_all(SAMPLE_TITLE, d.title)
     tops = _tops(root)
-    for p in tops:
-        if re.fullmatch(r"1\.\s*" + re.escape(SAMPLE_NAME), _ptext(p)):
-            rb._set_para(p, f"1.{d.name}")
+    sites = d.many
+    div = next((p for p in tops if re.fullmatch(r"1\.\s*" + re.escape(SAMPLE_NAME), _ptext(p))), None)
+    if div is not None:  # 사진첩 간지 "k.이름" — 곳마다 한 쪽(복제는 쪽 나눔)
+        rb._set_para(div, f"1.{sites[0].name}")
+        anchor = div
+        for k, s in enumerate(sites[1:], 2):
+            new = copy.deepcopy(div)
+            new.set("pageBreak", "1")
+            rb._set_para(new, f"{k}.{s.name}")
+            anchor.addnext(new)
+            anchor = new
     tops = _tops(root)
     i_ov = next((i for i, p in enumerate(tops) if _ptext(p).replace(" ", "") == "전경사진"), None)
     full = lambda p: re.sub(r"\s", "", "".join(x.text or "" for x in p.iter(T)))  # noqa: E731 — 표 안 글까지(간지 표 첫 칸은 비어 있음)
@@ -1076,24 +1228,48 @@ def _page_map(pdf: Path) -> dict[str, int]:
 
 
 def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]:
-    """옹벽 한 곳 보고서 → (한글 파일, 합본 PDF, 알림, 채운 구역 수). folder = 회차 폴더. say(msg)로 진행 글."""
+    """옹벽 한 곳 보고서 → (한글 파일, 합본 PDF, 알림, 채운 구역 수)."""
+    return build_many(db, [(f, r)], folder, say)
+
+
+def _safe(name: str) -> str:
+    return re.sub(r'[\\/:*?"<>|]', "_", name).strip()
+
+
+def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: str = "", tag: str = "") -> tuple[Path, Path, list[str], int]:
+    """옹벽 보고서 — pairs = [(시설물, 회차)] 장 순서(한 곳이면 하나). 여러 곳이면 한 권(서두 결과표·전경 곳마다, 시설물편 장 복제, 부록 사진첩 곳마다).
+    name/title = 책 표지 이름·용역명(여러 곳일 때, 비면 첫 곳 것), tag = 파일 이름 꼬리("(분권 1)"). → (한글, PDF, 알림, 채운 구역 수)."""
     from server.contract_docs import hwp_queue
 
     say = say or (lambda m: None)
     missing = ready()
     if missing:
         raise RuntimeError("옹벽 원본이 없습니다(시특법 설정 → 옹벽 정기안전점검 원본 올리기): " + ", ".join(missing))
-    d = gather(db, r, f)
+    sites = []
+    for i, (f, r) in enumerate(pairs, 1):
+        say(f"값 모으는 중 — {i}/{len(pairs)}곳…")
+        s = gather(db, r, f)
+        s.index = i
+        sites.append(s)
+    lead_f, lead_r = pairs[0]
+    d = sites[0] if len(sites) == 1 else make_book(sites, name or sites[0].name, title or sites[0].title)
     folder.mkdir(parents=True, exist_ok=True)
-    base = f"{r.year}년 {r.half} 정기안전점검 보고서_{f.name}"
+    base = _safe(f"{lead_r.year}년 {lead_r.half} 정기안전점검 보고서_{d.name}{tag}")
     hwpx_out, pdf_out, pdf1 = folder / f"{base}.hwpx", folder / f"{base}.pdf", folder / f"{base}.1차.pdf"
     say("원본 여는 중…")
     doc = Hwpx(master_path())
     loc = locate(doc)
-    fills = [("cover", fill_cover), ("summary", fill_summary), ("front", fill_front), ("intro", fill_intro), ("chapter", fill_chapter),
-             ("conclusion", fill_conclusion), ("appendix", fill_appendix)]
     changed = 0
-    for key, fn in fills:
+    for key, fn in (("cover", fill_cover), ("summary", fill_summary), ("front", fill_front), ("intro", fill_intro)):
+        say(f"{key} 채우는 중…")
+        fn(doc.view(loc[key]), d)
+        changed += 1
+    chapters = [loc["chapter"]] + [doc.clone_section(loc["chapter"]) for _ in sites[1:]]  # 2장부터 구역(+바탕쪽) 복제
+    for k, (sec, s) in enumerate(zip(chapters, sites), 1):
+        say(f"제{k}장 {s.name} 채우는 중…")
+        fill_chapter(doc.view(sec), s, k)
+        changed += 1
+    for key, fn in (("conclusion", fill_conclusion), ("appendix", fill_appendix)):
         say(f"{key} 채우는 중…")
         fn(doc.view(loc[key]), d)
         changed += 1
@@ -1101,7 +1277,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
         keep_from(doc.view(loc["app5"]), "부록5")
     if "app6" in loc:
         keep_from(doc.view(loc["app6"]), "부록6")
-    doc.drop([i for i in range(len(doc.sections)) if i not in set(loc.values())])  # 과업지시서·과업수행계획서·사전검토보고서 본문(견본 17곳 것)
+    doc.drop_except(set(loc.values()) | set(chapters))  # 과업지시서·과업수행계획서·사전검토보고서 본문(견본 17곳 것)
     doc.renumber_pages([loc["summary"], loc["intro"]])
     say("한글 파일 저장 중…")
     doc.save(hwpx_out)
@@ -1113,34 +1289,42 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     say("PDF로 바꾸는 중(2/2)…")
     pdf_out.write_bytes(hwp_queue.convert_via_worker(hwpx_out.read_bytes(), ".hwpx", wait=PDF_WAIT))
     pdf1.unlink(missing_ok=True)
-    # 부록 끼우기 — 사진첩·관리대장·계약서
-    album = folder / "사진첩.pdf"
-    n_album = album_pdf(d, album)
+    # 부록 끼우기 — 관리대장(곳마다 차례로)·사진첩(곳마다 간지 뒤)·계약서(계약서마다)
     merged: list[str] = []
     out = pymupdf.open(pdf_out)
-    _insert_after(out, ("부록1", "관리대장"), [Path(f.ledger_pdf)] if f.ledger_pdf and Path(f.ledger_pdf).exists() else [], merged, "시설물관리대장")
-    if n_album:
-        _insert_after(out, (f"1.{f.name}".replace(" ", ""),), [album], merged, "외관조사 사진첩", squash=True)
+    ledgers = [Path(f.ledger_pdf) for f, _ in pairs if f.ledger_pdf and Path(f.ledger_pdf).exists()]
+    _insert_after(out, ("부록1", "관리대장"), ledgers, merged, "시설물관리대장")
+    albums = []
+    for k, s in enumerate(sites, 1):
+        album = folder / f"사진첩_{k}.pdf"
+        if album_pdf(s, album):
+            albums.append(album)
+            _insert_after(out, (f"{k}.{s.name}".replace(" ", ""),), [album], merged, "외관조사 사진첩" if k == 1 else f"사진첩 {k}", squash=True)
     from core.models_web import SitokContract
-    c = db.get(SitokContract, r.contract_id) if r.contract_id else None
-    if c and c.contract_pdf and Path(c.contract_pdf).exists():
-        _insert_after(out, ("계약서",), [Path(c.contract_pdf)], merged, "계약서")
+    contracts: list[Path] = []
+    for _, r in pairs:
+        c = db.get(SitokContract, r.contract_id) if r.contract_id else None
+        if c and c.contract_pdf and Path(c.contract_pdf).exists() and Path(c.contract_pdf) not in contracts:
+            contracts.append(Path(c.contract_pdf))
+    _insert_after(out, ("계약서",), contracts, merged, "계약서")
     tmp = pdf_out.with_suffix(".tmp.pdf")
     out.save(tmp, garbage=3, deflate=True)
     out.close()
     tmp.replace(pdf_out)
-    album.unlink(missing_ok=True)
+    for a in albums:
+        a.unlink(missing_ok=True)
     warn = list(d.warn)
-    if not d.overview:
-        warn.append("전경사진이 없어 전경 칸이 비었습니다")
+    for s in sites:
+        if not s.overview:
+            warn.append(f"{s.name}: 전경사진이 없어 전경 칸이 비었습니다" if len(sites) > 1 else "전경사진이 없어 전경 칸이 비었습니다")
     if not pages:
         warn.append("목차 쪽 번호를 못 찾아 견본 숫자 그대로입니다")
     elif n_toc:
         merged.append(f"목차 쪽 번호 {n_toc}곳")
     if d.template3:
-        warn.append("3종 안전등급 평가표(1.6)는 아직 견본 값 그대로입니다 — 다음 단계")
+        warn.append("3종 안전등급 평가표(k.5)는 아직 견본 값 그대로입니다 — 다음 단계")
     if merged:
-        warn.append("끼운 것: " + ", ".join(merged))
+        warn.append("끼운 것: " + ", ".join(dict.fromkeys(merged)))
     return hwpx_out, pdf_out, warn, changed
 
 
