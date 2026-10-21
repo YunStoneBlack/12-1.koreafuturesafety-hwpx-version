@@ -94,6 +94,16 @@ def _run(report_id: int, company_id: int, fac_name: str, data: bytes, ext: str, 
     try:
         pdf = data if ext == ".pdf" else hwp_queue.convert_via_worker(data, ext, to="pdf", wait=HWP_WAIT)
         (folder / "원본.pdf").write_bytes(pdf)
+        try:  # 1.2.4 뒤 도면 쪽 → 시설물 첨부 도면(아직 없을 때만, 형 10/21)
+            from server.api.routers.sitok import _facility_dir
+            from server.sitok import wall_drawings
+
+            r0 = db.get(SitokReport, report_id)
+            f0 = db.get(SitokFacility, r0.facility_id)
+            if wall_drawings.seed(f0, _facility_dir(f0), folder / "원본.pdf"):
+                db.commit()
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
         IMPORTS[report_id] = {"state": "running", "msg": "부록 사진첩을 읽는 중(AI 분류 10~30초)"}
         album = wall_album.read_pdf(pdf)
         if not album.facilities:

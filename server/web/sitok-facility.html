@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 </head>
 <!-- 시특법 시설물 화면(2026-10-10 2단계, 10/14 형 피드백 ⑦ 3층 구조) — ?id= 없으면 새 등록(sitok-new.html).
      위 = "① 시설물 등록·정보"(10/16 개편 2차 — 등록·동 타일·고른 동 서류·도면, 시설물 칸은 팝업)
@@ -44,6 +45,7 @@
         <label class="sk-drop" id="sk-register"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" />
           <b>📄 건축물대장 PDF</b><span class="sk-drop-msg" id="sk-register-msg">시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 읽습니다(층별 용도·면적·변동사항)</span></label>
         <div id="sk-dwg"></div>
+        <div id="sk-locmap" hidden></div>
       </div>
     </section>
   </div>
@@ -93,6 +95,8 @@
 <script src="js/docs-common.js"></script>
 <script src="js/sitok-fields.js"></script>
 <script src="js/sitok-drawings.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="js/sitok-locmap.js"></script>
 <script src="js/sitok-facility.js"></script>
 <script src="js/sitok-reports.js"></script>
 <script src="js/sitok-compose.js"></script>

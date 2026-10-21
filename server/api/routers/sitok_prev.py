@@ -79,11 +79,26 @@ def upload_prev(report_id: int, file: UploadFile = File(...), user: User = Depen
     p = prev_file(db, r)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
+    _seed_drawings(db, r, p)
     sv = {k: v for k, v in (r.survey or {}).items() if k != "prev"}  # 다시 올리면 전에 읽은 값은 버림
     sv["prev_name"] = file.filename or prev_pdf.NAME
     r.survey = sv
     db.commit()
     return _status(db, r)
+
+
+def _seed_drawings(db: Session, r: SitokReport, pdf: Path) -> int:
+    """옹벽(10/21 형): 전회차 보고서의 1.2.4 뒤 도면 쪽을 시설물 첨부 도면에(아직 없을 때만)."""
+    from server.api.routers.sitok import _facility_dir
+    from server.sitok import kinds, wall_drawings
+
+    f = db.get(SitokFacility, r.facility_id)
+    if f is None or not kinds.is_wall(f):
+        return 0
+    try:
+        return wall_drawings.seed(f, _facility_dir(f), pdf)
+    except Exception:  # noqa: BLE001
+        return 0
 
 
 @router.delete("/reports/{report_id}/prev-pdf")

@@ -59,22 +59,51 @@ def render(lat: float, lng: float, name: str, w: int = 1200, h: int = 900, z: in
     return buf.getvalue()
 
 
-def map_for(address: str, name: str, folder: Path) -> Path | None:
-    """주소의 위치도 그림 파일(없으면 만듦). 좌표를 못 찾거나 지도를 못 받으면 None."""
+UPLOADED = "위치도_올린것.jpg"  # 점검자가 밖에서 만들어 올린 위치도(옹벽, 10/21 형 방법1) — 있으면 이게 우선
+
+
+def map_for(address: str, name: str, folder: Path, latlng: tuple[float, float] | None = None) -> Path | None:
+    """위치도 그림 파일(없으면 만듦) — latlng(점검자가 핀을 끌어 둔 좌표, 10/21 형 방법2)가 있으면 그 자리, 없으면 주소를 좌표로.
+    좌표를 못 찾거나 지도를 못 받으면 None."""
     from server.api import geocode
 
-    if not address:
+    if latlng:
+        key = f"{latlng[0]:.6f},{latlng[1]:.6f}"
+    elif address:
+        key = address
+    else:
         return None
-    p = folder / f"위치도_{hashlib.md5((address + name).encode()).hexdigest()[:8]}.jpg"
+    p = folder / f"위치도_{hashlib.md5((key + name).encode()).hexdigest()[:8]}.jpg"
     if p.exists():
         return p
-    g = geocode.geocode(address)
-    if not g:
-        return None
+    if latlng:
+        lat, lng = latlng
+    else:
+        g = geocode.geocode(address)
+        if not g:
+            return None
+        lat, lng = g[0], g[1]
     try:
-        data = render(g[0], g[1], name)
+        data = render(lat, lng, name)
     except Exception:  # noqa: BLE001 — 지도 서버가 안 되면 틀 그림 그대로
         return None
     folder.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
     return p
+
+
+def pin_of(f) -> tuple[float, float] | None:
+    """시설물에 저장한 핀 좌표(ledger.wall.lat/lng — 옹벽처럼 주소와 자리가 다른 시설물)."""
+    w = (f.ledger or {}).get("wall") or {}
+    try:
+        return (float(w["lat"]), float(w["lng"])) if w.get("lat") and w.get("lng") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def facility_map(f, folder: Path) -> Path | None:
+    """보고서에 넣을 위치도 — 올린 그림 > 핀 좌표 지도 > 주소 지도."""
+    up = folder / UPLOADED
+    if up.exists():
+        return up
+    return map_for(f.address or "", f.name, folder, pin_of(f))

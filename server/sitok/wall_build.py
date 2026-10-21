@@ -662,7 +662,7 @@ def gather(db, r, f) -> Data:
         if p is not None and p.exists():
             d.overview.append((p, o.get("title") or ""))
     try:
-        d.locmap = locmap.map_for(f.address, f.name, _facility_dir(f))
+        d.locmap = locmap.facility_map(f, _facility_dir(f))  # 올린 그림 > 핀 좌표 > 주소(10/21 형 — 옹벽은 주소와 자리가 다름)
     except Exception:  # noqa: BLE001
         d.locmap = None
     rows = SD._rows(db, r.id)
@@ -2116,6 +2116,14 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     tmp.replace(pdf_out)
     for a in albums:
         a.unlink(missing_ok=True)
+    from server.api.routers.sitok import _facility_dir as _fdir
+    from server.sitok import drawings as D
+    from server.sitok import wall_drawings
+    dw = [(k, [x["path"] for x in D.items(f, "attach", _fdir(f))]) for k, (f, _) in enumerate(pairs, 1)]
+    if any(paths for _, paths in dw):  # 첨부 도면 — k.2.4 시설물 주요도면 쪽 뒤에 후면첨부(형 10/21, 건축물과 같은 방식)
+        n_dw = len(wall_drawings.insert(pdf_out, dw))
+        if n_dw:
+            merged.append(f"도면 {n_dw}쪽")
     warn = list(d.warn)
     for s in sites:
         if not s.overview:

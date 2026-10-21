@@ -849,6 +849,96 @@ def deliver_save(contract_id: int, body: DeliverIn, user: User = Depends(get_cur
     return _facility_out(db, db.get(SitokFacility, c.facility_id))
 
 
+# ---------- 위치도(10/21 형 — 옹벽은 주소와 자리가 다름): 시설물 화면 지도에서 핀을 끌어 저장(ledger.wall.lat/lng) 또는 밖에서 만든 그림 올리기 ----------
+# 보고서 1.2.2·서두·과업수행계획서 위치도 = 올린 그림 > 핀 좌표 지도 > 주소 지도(server/sitok/locmap.facility_map).
+
+class PinIn(BaseModel):
+    lat: float
+    lng: float
+
+
+def _locmap_out(f: SitokFacility) -> dict:
+    from server.api import geocode
+    from server.sitok import locmap
+
+    pin = locmap.pin_of(f)
+    addr = None
+    try:
+        g = geocode.geocode(f.address or "") if f.address else None
+        addr = [g[0], g[1]] if g else None
+    except Exception:  # noqa: BLE001
+        addr = None
+    return {"pin": [pin[0], pin[1]] if pin else None, "address": addr, "has_image": (_facility_dir(f) / locmap.UPLOADED).exists(),
+            "src": "image" if (_facility_dir(f) / locmap.UPLOADED).exists() else "pin" if pin else "address" if addr else ""}
+
+
+@router.get("/facilities/{facility_id}/locmap")
+def locmap_get(facility_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _locmap_out(_require_facility(db, user, facility_id))
+
+
+@router.put("/facilities/{facility_id}/locmap")
+def locmap_pin(facility_id: int, body: PinIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    f = _require_facility(db, user, facility_id)
+    led = dict(f.ledger or {})
+    led["wall"] = {**(led.get("wall") or {}), "lat": round(body.lat, 6), "lng": round(body.lng, 6)}
+    f.ledger = led
+    db.commit()
+    return _locmap_out(f)
+
+
+@router.delete("/facilities/{facility_id}/locmap")
+def locmap_unpin(facility_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    f = _require_facility(db, user, facility_id)
+    led = dict(f.ledger or {})
+    led["wall"] = {k: v for k, v in (led.get("wall") or {}).items() if k not in ("lat", "lng")}
+    f.ledger = led
+    db.commit()
+    return _locmap_out(f)
+
+
+@router.post("/facilities/{facility_id}/locmap/image")
+def locmap_image(facility_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.contract_docs import files
+    from server.sitok import locmap
+
+    f = _require_facility(db, user, facility_id)
+    data = file.file.read()
+    dest = _facility_dir(f) / locmap.UPLOADED
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if data.startswith(b"%PDF"):
+        import pymupdf
+
+        with pymupdf.open(stream=data, filetype="pdf") as pdf:
+            data = pdf[0].get_pixmap(dpi=150).tobytes("jpg")
+    try:
+        files.save_jpeg(data, file.filename or "x.jpg", dest)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"그림을 읽지 못했습니다: {str(err)[:100]}") from err
+    return _locmap_out(f)
+
+
+@router.delete("/facilities/{facility_id}/locmap/image")
+def locmap_image_delete(facility_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.sitok import locmap
+
+    f = _require_facility(db, user, facility_id)
+    (_facility_dir(f) / locmap.UPLOADED).unlink(missing_ok=True)
+    return _locmap_out(f)
+
+
+@router.get("/files/locmap/{facility_id}")
+def locmap_file(facility_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """보고서에 들어갈 위치도 그림(올린 그림 > 핀 > 주소) — 화면 미리보기."""
+    from server.sitok import locmap
+
+    f = _require_facility(db, user, facility_id)
+    p = locmap.facility_map(f, _facility_dir(f))
+    if p is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "위치도를 만들지 못했습니다(주소로 좌표를 못 찾음) — 지도에서 핀을 찍어 저장하세요.")
+    return FileResponse(p, media_type="image/jpeg", filename=f"위치도_{f.id}.jpg", content_disposition_type="inline")
+
+
 @router.get("/files/order/{contract_id}")
 def order_file(contract_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _require_contract(db, user, contract_id)
