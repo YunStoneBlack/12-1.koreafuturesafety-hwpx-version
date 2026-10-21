@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime
 import io
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -150,8 +151,6 @@ def download_table(facility_id: int, user: User = Depends(get_current_user), db:
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    from urllib.parse import quote
-
     fname = quote(f"{f.name}_결함현황표.xlsx")
     return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})

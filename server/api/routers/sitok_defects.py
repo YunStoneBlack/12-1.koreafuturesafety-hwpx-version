@@ -924,8 +924,9 @@ def facility_floors(f: SitokFacility) -> list[str]:
         if len(base) == 1:
             base = []
     hidden = set(led.get("units_hidden") or [])
-    out = [u for u in dict.fromkeys(base + [x for x in led.get("units_extra") or [] if x]) if u not in hidden]
-    return sorted(out, key=lambda u: (floor_key(u), (led.get("units_extra") or []).index(u) if u in (led.get("units_extra") or []) else 0))
+    extra = [x for x in led.get("units_extra") or [] if x]
+    out = [u for u in dict.fromkeys(base + extra) if u not in hidden]
+    return sorted(out, key=lambda u: (floor_key(u), extra.index(u) if u in extra else 0))  # 만든 탭끼리는 만든 순
 
 
 class UnitIn(BaseModel):

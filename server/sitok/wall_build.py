@@ -1807,8 +1807,8 @@ def _drawing_pages(doc, d: Data) -> None:
             anchor.addnext(p)
             anchor = p
     if anchor is not frame:
-        _mark_back(doc, frame)
-    if anchor is not frame:  # 도면 다음 절("1.3 자료수집 및 분석")은 새 쪽에서 — 마지막 도면 그림 밑에 붙지 않게
+        _mark_back(doc, frame)  # 틀 = 점선 X + 후면첨부
+        # 도면 다음 절("1.3 자료수집 및 분석")은 새 쪽에서 — 마지막 도면 그림 밑에 붙지 않게
         nxt = anchor.getnext()
         while nxt is not None and nxt.tag == f"{{{HP}}}p" and not _ptext(nxt) and not list(nxt.iter(f"{{{HP}}}tbl")):
             nxt = nxt.getnext()
@@ -2220,7 +2220,6 @@ def _k(s: str) -> str:
 def fill_conclusion(doc: Hwpx, d: Data) -> None:
     root = doc.root
     doc.replace_all(SAMPLE_TITLE, d.title)
-    con = d.ai.get("conclusion") or {}
     for p in _tops(root):
         t = _ptext(p)
         if t.startswith("본 점검 대상시설물"):
@@ -2494,9 +2493,6 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     tmp.replace(pdf_out)
     for a in albums:
         a.unlink(missing_ok=True)
-    from server.api.routers.sitok import _facility_dir as _fdir
-    from server.sitok import drawings as D
-    from server.sitok import wall_drawings
     n_dw = sum(len(s.drawings) for s in sites)  # 첨부 도면은 한글 본문 1.2.4 뒤 그림 쪽으로(_drawing_pages, 10/21 — 우리 꼬리말·쪽 번호)
     if n_dw:
         merged.append(f"도면 {n_dw}개(1.2.4 뒤)")
@@ -2512,8 +2508,8 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
         warn.append("목차 쪽 번호를 못 찾아 견본 숫자 그대로입니다")
     elif n_toc:
         merged.append(f"목차 쪽 번호 {n_toc}곳")
-    if d.template3:
-        warn.append("3종 안전등급 평가표(k.5)는 아직 견본 값 그대로입니다 — 다음 단계")
+    if d.template3 and not d.ai.get("items"):  # 71차부터 k.5 표를 AI 초안 items로 채움 — 18항목이 없을 때만(전엔 늘 "견본 값 그대로"라고 잘못 알렸음)
+        warn.append("3종 안전등급 평가표(k.5) 18항목이 없어 견본 값 그대로입니다 — AI 초안을 만드세요")
     if merged:
         warn.append("끼운 것: " + ", ".join(dict.fromkeys(merged)))
     return hwpx_out, pdf_out, warn, changed
