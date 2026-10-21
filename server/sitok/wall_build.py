@@ -188,6 +188,30 @@ class Hwpx:
         self._bf_cache = cache
         return nid
 
+    def diag_borderfill(self, bf: str, line: str = "DASH") -> str:
+        """테두리 정의 bf를 복제해 칸 대각선 두 개(／ ＼, 모서리에서 모서리) — 선 모양 line(점선 DASH). 1.2.4 도면 틀 "후면첨부"(형 10/21)."""
+        HH = "http://www.hancom.co.kr/hwpml/2011/head"
+        props = next(self.header.iter(f"{{{HH}}}borderFills"))
+        src = next((x for x in props if x.get("id") == str(bf)), None)
+        if src is None:
+            return str(bf)
+        new = copy.deepcopy(src)
+        nid = str(max(int(x.get("id")) for x in props) + 1)
+        new.set("id", nid)
+        for tag in ("slash", "backSlash"):
+            el = new.find(f"{{{HH}}}{tag}")
+            if el is not None:
+                el.set("type", "CENTER")
+        dg = new.find(f"{{{HH}}}diagonal")
+        if dg is None:
+            dg = etree.SubElement(new, f"{{{HH}}}diagonal")
+        dg.set("type", line)
+        dg.set("width", "0.12 mm")
+        dg.set("color", "#000000")
+        props.append(new)
+        props.set("itemCnt", str(len(props)))
+        return nid
+
     def add_image(self, path_or_bytes) -> str:
         key = f"wall{self.run}_{len(self.added) + 1}"
         self.added.append((key, path_or_bytes if isinstance(path_or_bytes, bytes) else Path(path_or_bytes).read_bytes()))
@@ -310,6 +334,9 @@ class _View:
 
     def clone_borderfill(self, bf: str, bottom_from: str) -> str:
         return self.doc.clone_borderfill(bf, bottom_from)
+
+    def diag_borderfill(self, bf: str, line: str = "DASH") -> str:
+        return self.doc.diag_borderfill(bf, line)
 
 
 NEEDED = ("cover", "front", "summary", "toc", "intro", "chapter", "conclusion", "appendix")
@@ -1383,6 +1410,7 @@ def fill_docs(doc: Hwpx, loc: dict, d: Data) -> int:
             tx = _ptext(p)
             if tx.startswith("◎ 과업기간"):
                 rb._set_para(p, f"◎ 과업기간 : {d.period_days}")
+        _schedule_dates(v.root, d.period_start, d.period_end)  # 2.2 과업 예정 공정표 머리 = 날짜(10/21)
         org = _tbl(v.root, 7, 8)
         if org is not None:  # 조직도 — (1,2) 책임기술자, (6,0)·(6,5) 참여기술자
             cells = rb._cells(org)
@@ -1778,12 +1806,62 @@ def _drawing_pages(doc, d: Data) -> None:
             _size_pic(pic, int(w * k), int(h * k), img, inline=True)
             anchor.addnext(p)
             anchor = p
+    if anchor is not frame:
+        _mark_back(doc, frame)
     if anchor is not frame:  # 도면 다음 절("1.3 자료수집 및 분석")은 새 쪽에서 — 마지막 도면 그림 밑에 붙지 않게
         nxt = anchor.getnext()
         while nxt is not None and nxt.tag == f"{{{HP}}}p" and not _ptext(nxt) and not list(nxt.iter(f"{{{HP}}}tbl")):
             nxt = nxt.getnext()
         if nxt is not None and nxt.tag == f"{{{HP}}}p":
             nxt.set("pageBreak", "1")
+
+
+def _mark_back(doc, frame) -> None:
+    """1.2.4 시설물 주요도면 틀(칸 하나짜리 표) — 점선 대각선 X + 칸 가운데 "후면첨부", 도면은 뒤 쪽마다(형 10/21 그림)."""
+    tc = next(frame.iter(f"{{{HP}}}tc"), None)
+    if tc is None:
+        return
+    tc.set("borderFillIDRef", doc.diag_borderfill(tc.get("borderFillIDRef") or "0"))
+    sub = tc.find(f"{{{HP}}}subList")
+    if sub is not None:
+        sub.set("vertAlign", "CENTER")
+    ps = [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]
+    if not ps:
+        return
+    p0 = ps[0]
+    for q in ps[1:]:
+        q.getparent().remove(q)
+    run0 = p0.find(f"{{{HP}}}run")
+    cid = run0.get("charPrIDRef") if run0 is not None else "0"
+    for ch in list(p0):  # 견본 칸의 표시 선(빨간 선 도형)·줄 정보까지 비움
+        p0.remove(ch)
+    p0.set("paraPrIDRef", doc.clone_parapr(p0.get("paraPrIDRef") or "0", align="CENTER"))
+    run = etree.SubElement(p0, f"{{{HP}}}run", charPrIDRef=doc.clone_charpr(cid, height=2000))
+    etree.SubElement(run, T).text = "후면첨부"
+
+
+def _schedule_dates(root, s, e) -> int:
+    """과업수행계획서 2.2 과업 예정 공정표 머리 "5일 10일 20일 30일 40일 90일" → 과업기간 날짜(형 10/21 "과업기간 연동에서 날짜 쓰기").
+    칸 수만큼 고르게 나눈 날(마지막 칸 = 완료일), "MM.DD"."""
+    import datetime
+
+    if not (s and e) or e < s:
+        return 0
+    total = (e - s).days + 1
+    n = 0
+    for t in _tables(root):
+        cells = rb._cells(t)
+        if rb._n(rb._cell_text(cells.get((0, 0), t))) != "공종":
+            continue
+        heads = sorted((c, tc) for (r, c), tc in cells.items() if r == 0 and re.fullmatch(r"\d+일|\d{1,2}\.\d{2}", rb._n(rb._cell_text(tc))))
+        if len(heads) < 2:
+            continue
+        m = len(heads)
+        for i, (c, tc) in enumerate(heads):
+            day = s + datetime.timedelta(days=max(1, round(total * (i + 1) / m)) - 1)
+            rb._set_lines(tc, [f"{day.month:02d}.{day.day:02d}"])
+        n += 1
+    return n
 
 
 def _img_size(b: bytes) -> tuple[int, int]:
