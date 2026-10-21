@@ -183,6 +183,20 @@ def _survey(db: Session, r: SitokReport) -> _Miss:
     """면담·변경사항 — 저장 여부, 1.2.7 이번 보수 줄·빈 칸, 1.2.8 체크·변경전·위치 빈 칸, 건축물대장."""
     out = _Miss()
     sv = r.survey or {}
+    from server.sitok import kinds as _kinds
+    if _kinds.is_wall(db.get(SitokFacility, r.facility_id)):  # 옹벽(10/21) — 1.3.2 점검 이력·1.3.3 보수 이력
+        if "history" not in sv and "repairs" not in sv:
+            out.add("면담·점검 이력 조사", "아직 저장하지 않았습니다")
+        hist = sv.get("history") or []
+        if not hist:
+            out.add("1.3.2 기존 점검 실시결과 요약", "점검 이력 줄이 없습니다 — 처음 점검이면 그대로(보고서에 \"-\")")
+        holes = sum(1 for x in hist if not all((x.get(k) or "").strip() for k in ("period", "org", "grade", "result")))
+        if holes:
+            out.add("1.3.2 기존 점검 실시결과 요약", f"기간·점검기관·등급·결과 중 빈 칸이 있는 줄 {holes}개")
+        rh = sum(1 for x in sv.get("repairs") or [] if not all((x.get(k) or "").strip() for k in ("period", "method", "where")))
+        if rh:
+            out.add("1.3.3 보수·보강 이력", f"기간·시공사·내용 중 빈 칸이 있는 줄 {rh}개")
+        return out
     if "repairs" not in sv and "changes" not in sv:
         out.add("면담·변경사항 조사", "아직 저장하지 않았습니다")
     _prev_miss(db, r, out, "전회차 보고서 PDF", "1.2.7 [🤖 지난 이력 읽기] 또는 1.2.8 [🤖 전회차 보고서로 초안]")

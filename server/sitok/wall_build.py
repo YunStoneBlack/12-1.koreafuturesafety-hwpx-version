@@ -432,7 +432,8 @@ class Data:
     locmap: Path | None = None
     sections: dict = field(default_factory=dict)  # found/front/etc/public → [(path, caption)]
     ai: dict = field(default_factory=dict)
-    history: list = field(default_factory=list)  # [{period, kind, org, grade, result}]
+    history: list = field(default_factory=list)  # [{period, kind, org, grade, result, note}] — 면담 창(회차 survey.history) > 관리대장
+    repairs: list = field(default_factory=list)  # 1.3.3 보수·보강 이력 [{period, where(시공사), method(내용), note}] — 면담 창
     cost: tuple = ((), 0)
     shots: list = field(default_factory=list)  # 사진첩 [(path, caption)]
     compare: list = field(default_factory=list)  # 전회차 비교 사진대장 [(prev, now, caption)]
@@ -612,7 +613,8 @@ def gather(db, r, f) -> Data:
         d.warn.append("AI 초안에 18항목 안전등급 평가가 없어 결함으로 어림했습니다 — [🤖 AI 초안]을 다시 쓰면 AI가 매깁니다")
     d.grade = wall_ai.word(d.ai.get("grade") or "") or d.prev_grade
     # 이력·공사비
-    d.history = list(spec.get("history") or [])
+    d.history = list((r.survey or {}).get("history") or spec.get("history") or [])
+    d.repairs = list((r.survey or {}).get("repairs") or [])
     try:
         methods = SD.method_map(fin.get("methods")) if fin else None
         d.cost = SD.cost_rows(db, r.id, prices(db, r.company_id), methods)
@@ -763,16 +765,30 @@ def fill_front(doc: Hwpx, d: Data) -> None:
     idx_ov = [i for i, p in enumerate(tops) if _ptext(p).endswith("전경사진")]
     i_map = [i for i, p in enumerate(tops) if _ptext(p).endswith("위치도")]
     kill = []
-    if i_map and idx_res:
-        kill += tops[i_map[0]:idx_res[0]]
+    end_map = idx_res[0] if idx_res else len(tops)
+    map_blocks = [tops[i_map[k]:(i_map[k + 1] if k + 1 < len(i_map) else end_map)] for k in range(len(i_map))]
+    one_by_one = bool(map_blocks) and any((x.get("rowCnt"), x.get("colCnt")) == ("1", "1") for q in map_blocks[0] for x in q.iter(f"{{{HP}}}tbl"))
+    if map_blocks and not one_by_one:  # 옛 합본 — 단지별 위치도 그림 쪽은 지움
+        kill += tops[i_map[0]:end_map]
+        map_blocks = []
     res_blocks = [tops[idx_res[k]:(idx_res[k + 1] if k + 1 < len(idx_res) else (idx_ov[0] if idx_ov else len(tops)))] for k in range(len(idx_res))]
     ov_blocks = [tops[idx_ov[k]:(idx_ov[k + 1] if k + 1 < len(idx_ov) else len(tops))] for k in range(len(idx_ov))]
     _extend_blocks(res_blocks, len(sites))
     _extend_blocks(ov_blocks, len(sites))
-    for blk in res_blocks[len(sites):] + ov_blocks[len(sites):]:
+    if map_blocks:
+        _extend_blocks(map_blocks, len(sites))
+    for blk in res_blocks[len(sites):] + ov_blocks[len(sites):] + map_blocks[len(sites):]:
         kill += blk
     _del(root, kill)
     tpl = next((copy.deepcopy(p) for blk in ov_blocks[:1] for q in blk for p in q.iter(f"{{{HP}}}pic")), None)
+    for k, s in enumerate(sites):  # 위치도(새 합본 10/21 — 곳마다 "k. 이름 위치도" + 1×1 표)
+        if k >= len(map_blocks):
+            break
+        head, *rest = map_blocks[k]
+        rb._set_para(head, f"{k + 1}. {s.name} 위치도")
+        tbl = next((x for q in rest for x in q.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) == ("1", "1")), None)
+        if tbl is not None:
+            _map_into_cell(rb._cells(tbl)[(0, 0)], s, tpl, doc.add_image, many=len(sites) > 1)
     for k, s in enumerate(sites):
         head, *rest = res_blocks[k]
         rb._set_para(head, f"{k + 1}. {s.name} 정기점검 결과표")
@@ -785,6 +801,18 @@ def fill_front(doc: Hwpx, d: Data) -> None:
             ov = next((x for q in rest for x in q.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) == ("6", "2")), None)
             if ov is not None:
                 _fill_photo_table(ov, s.overview[:6], tpl, doc.add_image, "")
+
+
+def _map_into_cell(tc, s: Data, tpl, add_image, many: bool = False) -> None:
+    """1×1 표 칸에 그 곳 위치도(locmap) 그림을 칸 크기로(글자처럼) — 서두 위치도·과업수행계획서 마. 위치도."""
+    sz = tc.find(f"{{{HP}}}cellSz")
+    if s.locmap and s.locmap.exists() and tpl is not None:
+        w, h = (int(sz.get("width")) - 900, int(sz.get("height")) - 2400) if sz is not None else (24000, 18000)
+        img = _fit(s.locmap, w, h)
+        rb._slot_put(tc, None, img, "", "", tpl, add_image)
+        _size_pic(next(tc.iter(f"{{{HP}}}pic"), None), w, h, img, inline=True)
+    else:
+        rb._set_lines(tc, [f"{s.name} — 위치도 없음(주소로 지도를 못 찾음)" if many else "위치도 없음(주소로 지도를 못 찾음)"])
 
 
 def _extend_blocks(blocks: list, want: int) -> None:
@@ -1044,15 +1072,7 @@ def _fill_map_pages(doc: Hwpx, loc: dict, d: Data) -> None:
             anchor.addnext(para)
         anchor = para
         tbl = next(x for x in para.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) == ("1", "1"))
-        tc = rb._cells(tbl)[(0, 0)]
-        sz = tc.find(f"{{{HP}}}cellSz")
-        if s.locmap and s.locmap.exists():
-            w, h = (int(sz.get("width")) - 900, int(sz.get("height")) - 2400) if sz is not None else (24000, 18000)
-            img = _fit(s.locmap, w, h)
-            rb._slot_put(tc, None, img, "", "", tpl, doc.add_image)
-            _size_pic(next(tc.iter(f"{{{HP}}}pic"), None), w, h, img, inline=True)  # 글자처럼(떠 있는 그림은 칸을 넘겨 빈 쪽이 생김)
-        else:
-            rb._set_lines(tc, [f"{s.name} — 위치도 없음(주소로 지도를 못 찾음)"])
+        _map_into_cell(rb._cells(tbl)[(0, 0)], s, tpl, doc.add_image, many=len(d.many) > 1)
 
 
 def _size_pic(pic, w: int, h: int, img_bytes: bytes, inline: bool = False) -> None:
@@ -1234,6 +1254,19 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
     if cont is not None:
         p = next(cont.iterancestors(f"{{{HP}}}p"))
         _del(root, [p])
+    trep = _tbl(root, 2, 6, "번호")  # 1.3.3 보수 및 보강 이력(번호·기간·시공사·내용·비고) — 면담 창
+    if trep is not None:
+        rows = [x for x in d.repairs if x.get("method") or x.get("where")]
+        if rows:
+            _resize(trep, len(rows), 1, 1)
+            cells = rb._cells(trep)
+            for i, x in enumerate(rows, 1):
+                _set(cells, (i, 0), str(i))
+                _set(cells, (i, 1), x.get("period") or "-")
+                _set(cells, (i, 2), x.get("where") or "-")
+                _set(cells, (i, 3), (f"{x.get('kind')} — " if x.get("kind") and x.get("kind") != "보수공사" else "") + (x.get("method") or "-"))
+                _set(cells, (i, 5), x.get("note") or "")
+            replace_text(root, "보수∙보강 이력 미기재", "보수∙보강 이력 보유")
     # 1.4 글·사진 표
     tops = _tops(root)
     sec_keys = {"1.4.1": "found", "1.4.2": "front", "1.4.3": "etc", "1.4.4": "public"}

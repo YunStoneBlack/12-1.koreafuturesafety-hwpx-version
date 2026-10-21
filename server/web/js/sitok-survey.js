@@ -14,6 +14,7 @@ async function openSitokSurvey(reportId, title, onSaved) {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   let s;
   try { s = await api(`/sitok/reports/${reportId}/survey`); } catch (e) { box.innerHTML = `<div class="mail-msg bad">${esc(e.message)}</div>`; return; }
+  if (s.wall) { sitokSurveyWall(box, close, reportId, title, s, onSaved); return; } // 옹벽판(10/21 형 "보고서랑 맞추기")
   const oldRows = (rows) => (rows.length ? rows.map((r) => `<div>${r.map(esc).join(" · ")}</div>`).join("") : "지난 이력 없음");
   const repRow = (x) => `<div class="sv-rep"><input data-f="period" value="${esc(x.period || s.period)}" placeholder="보수기간" />
     <input data-f="kind" value="${esc(x.kind || "보수공사")}" placeholder="공사종류" /><input data-f="method" value="${esc(x.method)}" placeholder="보수방안(예: 옥상 방수공사)" />
@@ -152,4 +153,65 @@ async function openSitokSurvey(reportId, title, onSaved) {
   };
   box.querySelector(".sv-save").addEventListener("click", save);
   sitokStepFoot(box, reportId, "survey", save, onSaved); // [✓ 조사 완료](10/18 민재형, js/sitok-steps.js)
+}
+
+
+// 옹벽 면담 창(10/21 형 "현재 건축물 틀에 맞춰져 있음 — 토목 보고서 견본에 필요한 내용으로") — 1.3.2 기존 점검 실시결과 요약(점검 이력)·1.3.3 보수·보강 이력.
+// 변경사항 실태조사(1.2.8)·건축물대장은 옹벽 보고서에 없어 안 보임. 저장 = 회차 survey.history·survey.repairs → 보고서(wall_build 1.3.2·1.3.3 표).
+function sitokSurveyWall(box, close, reportId, title, s, onSaved) {
+  const esc = (x) => String(x ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const KINDS = ["정기점검", "정밀점검", "정밀안전진단", "긴급점검"];
+  // 줄 = 카드(시설물 칸과 같은 .field-grid/.sk-f — 칸 이름이 위, PC 두 칸·폰 한 칸)
+  const fld = (key, label, inner, wide) => `<div class="sk-f sk-f-${key}${wide ? " sv-wide" : ""}"><label>${label}</label>${inner}</div>`;
+  const inp = (f, v, ph) => `<input data-f="${f}" value="${esc(v || "")}" placeholder="${ph}" />`;
+  const card = (title, body) => `<div class="sv-card"><div class="sv-card-h"><b>${title}</b><button type="button" class="link-btn sv-x">✕ 이 줄 지우기</button></div><div class="field-grid">${body}</div></div>`;
+  let hn = 0, rn = 0;
+  const histRow = (h) => card(`점검 이력 ${++hn}`,
+    fld("period", "기간", inp("period", h.period, "예: 2025.11.05.~2025.12.01."))
+    + fld("kind", "종류", `<select data-f="kind">${KINDS.map((k) => `<option${(h.kind || "정기점검") === k ? " selected" : ""}>${k}</option>`).join("")}</select>`)
+    + fld("org", "점검기관", inp("org", h.org, "예: ㈜한국미래안전")) + fld("grade", "등급", inp("grade", h.grade, "양호 또는 B"))
+    + fld("result", "점검진단결과", `<textarea data-f="result" rows="3" placeholder="줄마다 ⦁ 하나(예: ⦁전면부 블록 균열, 주의관찰)">${esc(h.result)}</textarea>`, true)
+    + fld("note", "비고", inp("note", h.note, "")));
+  const repRow = (x) => card(`보수·보강 ${++rn}`,
+    fld("period", "기간", inp("period", x.period, "예: 2025.08")) + fld("where", "시공사", inp("where", x.where, ""))
+    + fld("method", "보수·보강공사 내용", inp("method", x.method, "예: 전면부 블록 균열 주입보수"), true) + fld("note", "비고", inp("note", x.note, "")));
+  box.innerHTML = `<div class="mail-head"><b>📝 면담·점검 이력 조사</b><span class="mail-sub">${esc(title)} — 보고서 1.3.2 기존 점검 실시결과 요약, 1.3.3 보수·보강 이력(옹벽)</span></div>
+    <div class="ai-form">
+      <h4>1.3.2 기존 점검 실시결과 요약 <span class="sk-help">지난 점검·진단 이력 — 관리대장(FMS 점검 이력)이나 전회차 보고서 1.3.2 표를 보고 줄마다. 비우면 보고서에 "-"</span></h4>
+      <div id="sv-hists">${(s.history || []).map(histRow).join("")}</div>
+      <button type="button" class="secondary btn-sm sv-add-h">+ 점검 이력 줄 더하기</button>
+      <h4>1.3.3 보수·보강 이력 <span class="sk-help">관리주체 면담 — 지금까지 한 보수·보강(없으면 비움 → "-")</span></h4>
+      <div id="sv-reps">${(s.repairs || []).map(repRow).join("")}</div>
+      <button type="button" class="secondary btn-sm sv-add">+ 보수 줄 더하기</button>
+    </div>
+    <div class="mail-msg" hidden></div>
+    <div class="mail-foot"><button type="button" class="mail-cancel">닫기</button><button type="button" class="mail-primary sv-save">저장</button></div>`;
+  const hists = box.querySelector("#sv-hists");
+  const reps = box.querySelector("#sv-reps");
+  const renum = () => { // 카드 번호 다시
+    hists.querySelectorAll(".sv-card-h b").forEach((b, i) => { b.textContent = `점검 이력 ${i + 1}`; });
+    reps.querySelectorAll(".sv-card-h b").forEach((b, i) => { b.textContent = `보수·보강 ${i + 1}`; });
+  };
+  const bindX = () => box.querySelectorAll(".sv-x").forEach((b) => { b.onclick = () => { b.closest(".sv-card").remove(); renum(); }; });
+  bindX();
+  box.querySelector(".sv-add-h").addEventListener("click", () => { hists.insertAdjacentHTML("beforeend", histRow({})); bindX(); renum(); hists.lastElementChild.querySelector("input").focus(); });
+  box.querySelector(".sv-add").addEventListener("click", () => { reps.insertAdjacentHTML("beforeend", repRow({})); bindX(); renum(); reps.lastElementChild.querySelector("input").focus(); });
+  box.querySelector(".mail-cancel").addEventListener("click", close);
+  const save = async () => {
+    const get = (row, f) => row.querySelector(`[data-f="${f}"]`).value.trim();
+    const body = {
+      history: [...hists.querySelectorAll(".sv-card")].map((row) => ({ period: get(row, "period"), kind: get(row, "kind"), org: get(row, "org"), grade: get(row, "grade"), result: get(row, "result"), note: get(row, "note") })),
+      repairs: [...reps.querySelectorAll(".sv-card")].map((row) => ({ period: get(row, "period"), kind: "", method: get(row, "method"), where: get(row, "where"), note: get(row, "note") })),
+      changes: {},
+    };
+    const msg = box.querySelector(".mail-msg");
+    try {
+      await api(`/sitok/reports/${reportId}/survey`, { method: "PUT", body: JSON.stringify(body) });
+      msg.hidden = false; msg.className = "mail-msg ok"; msg.textContent = "저장했습니다 — [보고서 만들기]를 누르면 1.3.2·1.3.3 표에 들어갑니다.";
+      if (onSaved) onSaved();
+      return true;
+    } catch (e) { msg.hidden = false; msg.className = "mail-msg bad"; msg.textContent = e.message; return false; }
+  };
+  box.querySelector(".sv-save").addEventListener("click", save);
+  sitokStepFoot(box, reportId, "survey", save, onSaved);
 }

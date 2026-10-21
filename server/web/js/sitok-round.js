@@ -82,7 +82,7 @@
         : big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, fieldSub(kind))
           + (kind === "정밀" ? big(`sitok-tests.html?report=${r.id}`, "📐", "재료시험", r.has_tests, doneSub("tests", "표본층·규격·강도·탄산화·기울기·부등침하"))
             + big(`sitok-rating.html?report=${r.id}`, "📊", "상태평가", r.has_rating, doneSub("rating", "부재 개수 → 상태평가 등급")) : "")
-          + bigBtn("rd-survey", "📝", "면담·변경사항 조사", r.has_survey, doneSub("survey", "1.2.7 보수 이력 · 1.2.8 변경사항"));
+          + bigBtn("rd-survey", "📝", r.wall ? "면담·점검 이력 조사" : "면담·변경사항 조사", r.has_survey, doneSub("survey", r.wall ? "1.3.2 점검 이력 · 1.3.3 보수 이력" : "1.2.7 보수 이력 · 1.2.8 변경사항"));
       // 보고서
       $("rd-report").innerHTML = r.past ? "" : (r.wall ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, doneSub("detail", "1.1 현황표 · 1.2 구조·마감·용도"))) // 옹벽은 현황 칸 없음(제원은 관리대장에서, 10/21)
         + ((r.ai_left || []).length // 10/18 형 요청1 — 앞 칸을 다 [완료]해야 AI 초안이 열림

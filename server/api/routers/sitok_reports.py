@@ -1743,6 +1743,12 @@ def survey_get(report_id: int, user: User = Depends(get_current_user), db: Sessi
     """면담·변경사항 창 — 1.2.7 지난 이력(전회차 보고서)·1.2.8 항목(회사 원본) + 이번에 넣은 값."""
     r = _require(db, user, report_id)
     prior = _prior(r)
+    if _is_wall(r):  # 옹벽(10/21 형 "보고서랑 맞추기") — 1.3.2 기존 점검 실시결과 요약(점검 이력)·1.3.3 보수·보강 이력, 1.2.8 변경사항은 없음
+        f = db.get(SitokFacility, r.facility_id)
+        spec = ((f.ledger or {}).get("wall") or {}) if f else {}
+        sv = r.survey or {}
+        return {"wall": True, "history": sv.get("history") or list(spec.get("history") or []), "repairs": sv.get("repairs") or [],
+                "repairs_old": [], "change_items": [], "changes": {}, "has_prior": prior is not None, "has_register": False, "period": f"{r.year}년 {r.half}"}
     m = master.master_path()
     prev = (r.survey or {}).get("prev") or {}
     base = {"repairs_old": rb.read_survey(prior)["repairs_old"] if prior else prev.get("repairs") or [],
@@ -1809,7 +1815,12 @@ def survey_save(report_id: int, body: dict, user: User = Depends(get_current_use
     repairs = [{k: str(x.get(k) or "").strip() for k in keys} for x in body.get("repairs") or []]
     changes = {str(k): {f: str((v or {}).get(f) or "").strip() for f in ("before", "after", "where", "note")}
                for k, v in (body.get("changes") or {}).items() if str((v or {}).get("after") or "").strip()}
-    r.survey = {**(r.survey or {}), "repairs": [x for x in repairs if x["method"] or x["kind"]], "changes": changes}  # 시설물 현황(detail)은 그대로
+    extra = {}
+    if _is_wall(r):  # 옹벽 1.3.2 점검 이력 줄 [{period, kind, org, grade, result, note}]
+        hk = ("period", "kind", "org", "grade", "result", "note")
+        hist = [{k: str(x.get(k) or "").strip() for k in hk} for x in body.get("history") or []]
+        extra["history"] = [x for x in hist if x["period"] or x["result"]]
+    r.survey = {**(r.survey or {}), "repairs": [x for x in repairs if x["method"] or x["kind"] or x["where"]], "changes": changes, **extra}  # 시설물 현황(detail)은 그대로
     db.commit()
     return survey_get(report_id, user, db)
 
