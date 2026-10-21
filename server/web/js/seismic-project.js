@@ -169,6 +169,7 @@
       + field("address", "주소(도로명)", b.address, { wide: true }) + field("lot_address", "대지위치(지번)", b.lot_address) + field("structure", "주구조", b.structure)
       + field("below", "지하 층수", b.below, { type: "number" }) + field("above", "지상 층수", b.above, { type: "number" })
       + field("height", "높이 (m)", b.height, { type: "number", step: "0.01" }) + field("roof", "지붕", b.roof)
+      + field("length_x", "건물 길이 장변 X (m)", b.length_x, { type: "number", step: "0.1", help: "1.2 건물규모" }) + field("length_y", "건물 길이 단변 Y (m)", b.length_y, { type: "number", step: "0.1" })
       + field("total_area", "연면적 (㎡)", b.total_area, { type: "number", step: "0.01" }) + field("building_area", "건축면적 (㎡)", b.building_area, { type: "number", step: "0.01" })
       + field("site_area", "대지면적 (㎡)", b.site_area, { type: "number", step: "0.01" }) + field("approval_date", "사용승인일", b.approval_date, { type: "date", help: "준공·경과년수" })
       + field("permit_date", "허가일", b.permit_date, { type: "date" }) + field("build_start", "착공일", b.build_start, { type: "date" })
@@ -188,7 +189,7 @@
 
   $("sp-b-save").addEventListener("click", async () => {
     const b = read($("sp-building"));
-    for (const k of ["below", "above", "height", "total_area", "building_area", "site_area"]) b[k] = b[k] === "" ? null : Number(b[k]);
+    for (const k of ["below", "above", "height", "total_area", "building_area", "site_area", "length_x", "length_y"]) b[k] = b[k] === "" ? null : Number(b[k]);
     const fl = floors.filter((x) => x.floor || x.area).map((x) => ({ ...x, area: x.area === "" || x.area == null ? null : Number(x.area) }));
     try { draw(await apiPatch(`/seismic/projects/${id}`, { building: b, floors: fl, changes: changes.filter((x) => x.date || x.text) })); flash($("sp-b-saved"), "✓ 저장했습니다"); } catch (e) { err(e); }
   });

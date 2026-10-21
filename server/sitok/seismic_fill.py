@@ -682,9 +682,14 @@ def fill_ground(doc, root, ground: dict | None, rdir: Path, warn: list) -> int:
     return n
 
 
-def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list) -> int:
-    """seismic_build.build에서 — 현장조사 입력·서류(지반·성적서)·건축물대장 값으로 나머지 칸."""
+def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool = False, vendor_text: str = "") -> int:
+    """seismic_build.build에서 — 현장조사 입력·서류(지반·성적서)·건축물대장 값으로 나머지 칸. front_taken = 외주 견본 전체에서 결과표 나~마를 옮김."""
+    from sqlalchemy.orm import object_session
+
     sv = r.survey or {}
+    mt = [t for t in _outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"
+          and _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "조사위치"]
+    member_tpl = copy.deepcopy(_top_p(mt[0])) if mt else None  # 2.3 결함 표 틀(채우기 전에)
     field = SF.normalize(sv.get("seismic_field"))
     docs = sv.get("seismic_docs") or {}
     ground = (docs.get("ground") or {}).get("parsed")
@@ -700,4 +705,275 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list) -> int:
     n += fill_texts(root, field)
     n += fill_masonry(root, field, warn)
     n += fill_ground(doc, root, ground, rdir, warn)
+    n += fill_size_plans(doc, root, f, reg, rdir, warn)
+    db = object_session(r)
+    if db is not None:
+        n += fill_defects(root, defect_rows(db, r.id), member_tpl)
+    if not front_taken:
+        n += fill_result_na(root, d, reg, ground, field)
+    saved = (field.get("summary") or "").strip()
+    chief = d["persons"][0]["name"] if d.get("persons") else ""
+    n += fill_opinion(root, saved or summary_text(d, field, f, reg, vendor_text), chief)
+    if not saved:
+        warn.append("요약문 종합의견은 자동 문장입니다 — 현장조사 입력 📝에서 고치거나 🤖 AI 초안")
+    return n
+
+
+# ---------- 코어 강도 결정(2.2.4 규칙) ----------
+def core_decided(cores: list[dict]) -> tuple[float, float, float] | None:
+    """(평균 m, 표준편차 s, 설계기준강도) — s/m ≤ 0.2면 m−1.34s, 넘으면 0.75(m−s)(2.2.4 본문)."""
+    v = [c["mpa"] for c in cores if c.get("mpa") is not None]
+    if not v:
+        return None
+    mm = sum(v) / len(v)
+    ss = (sum((x - mm) ** 2 for x in v) / (len(v) - 1)) ** 0.5 if len(v) > 1 else 0.0
+    return mm, ss, round(mm - 1.34 * ss if (ss / mm if mm else 0) <= 0.2 else 0.75 * (mm - ss), 1)
+
+
+# ---------- 요약문 책임기술자 종합의견(10/22 민재형 "둘 다 가능하게" — 견본 문장 채우기 + AI 초안) ----------
+MANUAL = "「학교시설 내진성능평가 및 보강매뉴얼(2021.10, 교육부)」"
+
+
+def vendor_results(text: str) -> dict:
+    """외주 글(5·6·7장)에서 보유성능지수 보강 전·후(X, Y), 보강안. 견본은 "보유성능지수 = 0.80 (불만족)"이 X·Y 차례로, 보강 후는 앞에 "보강후".
+    바로 앞 값 다음부터 이 값까지 글에 "보강후"가 있으면 보강 후. 문장 모양("보유성능지수는 X방향 1.12, Y방향 1.05")도 봄."""
+    t = re.sub(r"\s+", " ", text or "")
+    out: dict = {}
+    before, after, prev = [], [], 0
+    for m in re.finditer(r"보유성능지수\s*=\s*([\d.]+)", t):
+        (after if re.search(r"보강\s*후", t[prev:m.start()]) else before).append(m.group(1))
+        prev = m.end()
+    if len(before) >= 2:
+        out["before"] = (before[0], before[1])
+    if len(after) >= 2:
+        out["after"] = (after[0], after[1])
+    for m in re.finditer(r"보유성능지수(?:가|는)?\s*X방향\s*([\d.]+)\s*,?\s*Y방향\s*([\d.]+)", t):
+        out.setdefault("after" if "보강" in t[max(0, m.start() - 120):m.start()] else "before", (m.group(1), m.group(2)))
+    m = re.search(r"보강안은\s*(.{2,30}?)\s*보강으로", t)
+    if m:
+        out["method"] = m.group(1).strip()
+    return out
+
+
+def summary_text(d: dict, field: dict, f, reg: dict, vendor_text: str = "") -> str:
+    """견본 문장 그대로 값만 이번 건으로 — 우리 값(이름·사용승인·경과년수·등급·도면·중량물·결함·코어) + 외주 값(보유성능지수·보강안, 없으면 그 문장 뺌)."""
+    import datetime
+
+    from server.api.routers.sitok import _facility_dir
+    from server.sitok import drawings as D
+
+    name = d["name"]
+    comp = d.get("completion")
+    ref = d.get("period_start") or datetime.date.today()
+    grade = reg.get("grade") or ("특등급" if re.search(r"교육|학교", d.get("use") or "") else "1등급")
+    has_dwg = bool(D.items(f, "struct", _facility_dir(f)) or D.items(f, "schedule", _facility_dir(f)) or (f.ledger or {}).get("rebar_schedule"))
+    lines = [f"본 내진성능평가 대상 건축물은 “{name}”으로 " + (f"{comp.year}년 최초 사용승인 되어 약 {ref.year - comp.year}년이 경과된 시설물로 " if comp else "")
+             + f"내진 등급은 {grade}이며 해당 건축물은 " + ("도면이 존재하여 도면과 현장조사를 토대로" if has_dwg else "도면이 없어 현장조사를 토대로") + " 내진성능평가를 실시하였다."]
+    heavy = field["texts"]["heavy"].strip()
+    if heavy:
+        lines.append(heavy if heavy.startswith("육안조사") else f"육안조사 결과, {heavy}")
+    crack = field["texts"]["crack"].strip()
+    if crack:
+        lines.append(f"외관 조사 결과, {crack}" if not crack.startswith(("외관", "본 시설물", "육안")) else crack)
+    lines.append("현장조사 필수항목 및 세부기준에 따라 조사 항목 및 수량을 선정하고, 이에 따라 부재규격조사, 구조성능 저하 및 손상조사, 중량물조사, 마감재조사, "
+                 "콘크리트 코어 시험, 철근배근상태 조사, 조적벽체 상태조사를 실시하였다.")
+    cd = core_decided(field["cores"])
+    if cd:
+        lines.append(f"평가대상 건축물에 콘크리트 코어채취를 실시한 결과 {MANUAL}에 따른 설계 기준강도 {cd[2]:g}MPa로 측정되어 이를 내진성능평가에 적용하였다.")
+    v = vendor_results(vendor_text)
+    if v.get("before"):
+        x, y = v["before"]
+        ok = min(float(x), float(y)) >= 1.0
+        lines.append(f"{MANUAL}에 따른 내진성능 선형해석평가를 실시한 결과, 구조모델에 대한 선형해석평가 결과 보유성능지수가 X방향 {x}, Y방향 {y}로 성능수준을 "
+                     + ("만족하는 것으로 검토되어 보강이 불필요한 것으로 판단됨." if ok else "불만족하는 것으로 검토되어 보강이 필요한 것으로 판단됨."))
+        if not ok and v.get("after"):
+            ax, ay = v["after"]
+            lines.append(f"해당 건축물의 X, Y방향으로 보강하여 선형해석법을 수행하였으며, 보강안은 {v.get('method') or '○○'} 보강으로 보강안에 따른 선형해석평가 결과 "
+                         f"보유성능지수는 X방향 {ax}, Y방향 {ay}로 산정되어 안전한 것으로 평가됨.")
+    return "\n".join(lines)
+
+
+def fill_opinion(root, text: str, chief: str) -> int:
+    """요약문 표 두 곳(요약 4×3 "(인)" · 결과 요약 4×5 "(서명)") — 글과 책임기술자 이름(뒤 괄호 모양은 그대로)."""
+    n = 0
+    for t in _outer(root):
+        cells = rb._cells(t)
+        if _n(rb._cell_text(cells.get((0, 0), t))) != "책임기술자종합의견":
+            continue
+        _set(cells, (2, 0), text)
+        old = rb._cell_text(cells.get((3, 0), t)) if (3, 0) in cells else ""
+        m = re.match(r"(\s*책\s*임\s*기\s*술\s*자\s*:\s*)(.*?)(\s*\(.*\)\s*)$", old)
+        if chief and m:
+            _set(cells, (3, 0), f"{m.group(1)}{' '.join(chief)}{m.group(3)}")
+        n += 1
+    return n
+
+
+# ---------- 2.3 결함 현황 표(10/22 민재형 "층별 외관조사망도는 없어 — 결함, 사진첩만") ----------
+def defect_rows(db, report_id: int) -> list[list]:
+    from server.api.routers.sitok_defects import album_floors
+
+    out = []
+    for floor, rows in album_floors(db, report_id):
+        for x in rows:
+            size = ", ".join(s for s in (f"{x['폭']}mm" if x.get("폭") not in (None, "", "-") else "", f"{x['길이']}m" if x.get("길이") not in (None, "", "-") else "",
+                                         f"{x['개수']}개소" if x.get("개수") not in (None, "", "-") else "") if s) or "-"
+            prog = " / ".join(s for s in (x.get("진행유무") or "", x.get("결함원인") or "") if s and s != "-") or "-"
+            out.append([str(len(out) + 1), f"{floor} {x.get('구분') or ''}".strip(), x.get("부재") or "-", x.get("결함유형") or "-", size, prog])
+    return out
+
+
+def fill_defects(root, rows: list[list], member_tpl) -> int:
+    """【 금회 균열 및 기타 결함현황 조사 결과표 】 — 견본 층별 망도 그림(문단들)을 빼고 결함 표(부재 단면 표 틀, 18줄씩) + "부록4 사진첩 참조"."""
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    i = next((k for k, p in enumerate(tops) if _n(_t(p)) == "【금회균열및기타결함현황조사결과표】"), None)
+    if i is None or member_tpl is None:
+        return 0
+    j = next((k for k in range(i + 1, len(tops)) if _n(_t(tops[k])).startswith("2.4")), len(tops))
+    note = next((copy.deepcopy(p) for p in tops[i + 1:j] if "부록4" in _n(_t(p))), None)
+    for p in tops[i + 1:j]:
+        root.remove(p)
+    tp = copy.deepcopy(member_tpl)
+    rb._new_ids(tp)
+    for x in tp.iter(f"{{{HP}}}t"):  # 부재 단면 표 틀에 붙은 "※ □ : 조사불가" 주석은 뺌
+        if next(x.iterancestors(f"{{{HP}}}tbl"), None) is None and "조사불가" in (x.text or ""):
+            x.text = ""
+    if note is not None:
+        tops[i].addnext(note)
+    tops[i].addnext(tp)
+    t = _outer(tp)[0]
+    cells = rb._cells(t)
+    for c, label in enumerate(("NO", "위치", "부재", "결함유형", "크기·개수", "진행유무·원인")):
+        _set(cells, (0, c), label)
+    return fill_chunks(root, [t], rows or [["-", "-", "-", "결함 없음", "-", "-"]], 18, 1, flat=False)
+
+
+# ---------- 1.2 건물 길이·층별 평면도 ----------
+def plan_images(f, rdir: Path) -> list[tuple[str, Path]]:
+    """서류 칸 층별 평면도 → [(제목, 그림)] — 파일 이름에 "층"이 있으면 그 이름, PDF는 쪽마다 지상 1층부터."""
+    import pymupdf
+
+    from server.api.routers.sitok import _facility_dir
+    from server.sitok import drawings as D
+
+    out: list[tuple[str, Path]] = []
+    cache = rdir / "보고서그림"
+    cache.mkdir(parents=True, exist_ok=True)
+    k = 0
+    for it in D.items(f, "plan", _facility_dir(f)):
+        p = Path(it["path"])
+        stem = Path(it.get("name") or p.name).stem
+        if p.suffix.lower() == ".pdf":
+            with pymupdf.open(p) as doc:
+                for pg in doc:
+                    k += 1
+                    img = cache / f"평면도_{k}.png"
+                    pg.get_pixmap(dpi=130).save(img)
+                    out.append((f"{stem} 평면도" if "층" in stem and doc.page_count == 1 else f"지상 {k}층 평면도", img))
+        else:
+            k += 1
+            out.append((f"{stem} 평면도" if "층" in stem else f"지상 {k}층 평면도", p))
+    return out
+
+
+def fill_size_plans(doc, root, f, reg: dict, rdir: Path, warn: list) -> int:
+    n = 0
+    lx, ly = reg.get("length_x"), reg.get("length_y")
+    t = next((t for t in _outer(root) if (t.get("rowCnt"), t.get("colCnt")) == ("8", "4") and _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "층수"), None)
+    if t is not None and (lx or ly):
+        cells = rb._cells(t)
+        _set(cells, (3, 3), f"장변방향 (X방향) {float(lx):g}m" if lx else "장변방향 (X방향) -")
+        _set(cells, (4, 3), f"단변방향 (Y방향) {float(ly):g}m" if ly else "단변방향 (Y방향) -")
+        n += 1
+    elif t is not None:
+        warn.append("1.2 건물 길이(장변·단변)가 없어 견본 값 그대로입니다(건 화면 🏢 건물 정보)")
+    plans = plan_images(f, rdir)
+    tables = [t for t in _outer(root) if (t.get("rowCnt"), t.get("colCnt")) == ("3", "4") and rb._pic_slots(t)
+              and _n(rb._cell_text(rb._cells(t).get((2, 0), t))).endswith("평면도")]
+    if not plans:
+        if tables:
+            warn.append("1.2 층별 평면도가 없어 견본 그림 그대로입니다(건 화면 서류 칸 층별 평면도)")
+        return n
+    if not tables:
+        return n
+    paras = [_top_p(t) for t in tables]
+    tpl = copy.deepcopy(paras[-1])
+    used = []
+    for k, (cap, img) in enumerate(plans):
+        if k < len(paras):
+            p = paras[k]
+        else:
+            p = copy.deepcopy(tpl)
+            rb._new_ids(p)
+            used[-1].addnext(p)
+        used.append(p)
+        tb = next(x for x in _outer(p) if rb._pic_slots(x))
+        _set(rb._cells(tb), (2, 0), cap)
+        n += _put(doc, rb._pic_slots(tb)[0][1], img, crop=False)
+    for p in paras[len(plans):]:
+        if p.getparent() is not None:
+            p.getparent().remove(p)
+    return n
+
+
+# ---------- 결과표 나 — 외주가 3~7장만 줄 때 우리가 아는 값 ----------
+def _right_of(cells: dict, r: int, c: int):
+    nxt = sorted(cc for (rr, cc) in cells if rr == r and cc > c)
+    return (r, nxt[0]) if nxt else None
+
+
+def fill_result_na(root, d: dict, reg: dict, ground: dict | None, field: dict) -> int:
+    t = next((t for t in _outer(root) if t.get("colCnt") == "13" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))).startswith("가.일반현황")), None)
+    if t is None:
+        return 0
+    grade = reg.get("grade") or "특등급"
+    imp = {"특등급": "1.5", "1등급": "1.2", "2등급": "1.0"}.get(grade, "1.5")
+    holes = (ground or {}).get("holes") or []
+    cd = core_decided(field["cores"])
+    vals = {"층수": (f"지하{d['below']}층/" if d.get("below") else "") + f"지상{d.get('above') or 0}층",
+            "건물높이": f"{d['height']:g}m" if d.get("height") else None,
+            "지반종류": holes[0].get("cls") if holes and holes[0].get("cls") else None,
+            "내진설계여부": reg.get("seismic_design") or None,
+            "중요도/내진등급": f"{imp}/{grade}", "콘크리트": f"{cd[2]:g}MPa" if cd else None}
+    cells = rb._cells(t)
+    n = 0
+    for (r, c), x in sorted(cells.items()):
+        if r < 7:
+            continue
+        lab = _n(rb._cell_text(x))
+        if lab in vals and vals[lab]:
+            rc = _right_of(cells, r, c)
+            if rc:
+                _set(cells, rc, vals[lab])
+                n += 1
+    return n
+
+
+# ---------- 목차 쪽 번호(첫 PDF로 세어 넣고 다시 PDF) ----------
+def fill_toc(hwpx: Path, pdf: Path) -> int:
+    """우리 목차("목차" ~ "부록" 줄)의 "N.N 제목 … 쪽" 줄 끝 숫자를 본문 꼬리말 쪽 번호로(wall_build._page_map — 간지·번호 없는 쪽은 뺌). 바꾼 줄 수."""
+    from server.sitok.wall_build import Hwpx, _page_map
+
+    pages = _page_map(pdf)
+    if not pages:
+        return 0
+    doc = Hwpx(hwpx)
+    tops = [p for p in doc.root if p.tag == f"{{{HP}}}p"]
+    i0 = next((k for k, p in enumerate(tops) if _n(_t(p)) == "목차"), None)
+    if i0 is None:
+        return 0
+    i1 = next((k for k in range(i0 + 1, len(tops)) if _n(_t(tops[k])) == "부록"), min(len(tops), i0 + 80))
+    n = 0
+    for p in tops[i0 + 1:i1]:
+        key = re.sub(r"\d+$", "", _n(_t(p)))
+        page = pages.get(key)
+        if not page or not re.match(r"\d+\.\d+", key):
+            continue
+        pieces = [pc for x in p.iter(f"{{{HP}}}t") for pc in rb._pieces(x)]
+        tail = next((pc for pc in reversed(pieces) if pc.text and re.fullmatch(r"\s*\d+\s*", pc.text)), None)
+        if tail is not None and tail.text.strip() != str(page):
+            tail.text = str(page)
+            n += 1
+    if n:
+        doc.save(hwpx, drop_unused=False)
     return n

@@ -41,6 +41,7 @@ DOCS = [
     ("plan", "과업수행계획서", (".hwp", ".hwpx", ".pdf"), "부록 2"),
     ("schedule", "구조 일람표", (".pdf", ".png", ".jpg", ".jpeg"), "철근탐사 설계값(📏 부재 목록)"),
     ("struct", "구조도면", (".pdf", ".png", ".jpg", ".jpeg"), "부록 9"),
+    ("plan", "층별 평면도", (".pdf", ".png", ".jpg", ".jpeg"), "1.2 건물규모 평면도 — 파일 이름에 층(예: 지상1층.png), PDF는 쪽마다 지상 1층부터"),
     ("core", "압축강도 시험성적서", (".pdf", ".png", ".jpg", ".jpeg"), "2.2.3 콘크리트 압축강도 · 부록 5"),
     ("ground", "지반조사보고서", (".pdf",), "2.5 지반 및 기초(값·위치도·사진·결과 표) · 부록 3"),
     ("vendor", "외주 결과물 한글", (".hwp", ".hwpx"), "결과표 나~마·확인서·체크리스트·3~7장"),
@@ -49,7 +50,7 @@ DOCS = [
     ("estimate", "보강공사 내역서", (".pdf", ".xlsx", ".xls"), "부록 8"),
 ]
 DOC = {k: (label, exts, fills) for k, label, exts, fills in DOCS}
-MULTI = ("schedule", "struct")  # 시설물 도면 칸(drawings) — 여러 장
+MULTI = ("schedule", "struct", "plan")  # 시설물 도면 칸(drawings) — 여러 장
 CONTRACT_KEYS = ("title", "client", "amount", "contract_no", "contract_date", "start_date", "end_date", "days", "method", "joint", "manager", "phone")
 DATE_KEYS = ("contract_date", "start_date", "end_date", "permit_date", "approval_date", "build_start")
 
@@ -136,7 +137,7 @@ def _apply_building(f: SitokFacility, b: dict) -> None:
     if "approval_date" in b:
         f.completion_date = _d(b["approval_date"])
     reg = dict((f.ledger or {}).get("register") or {})
-    for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "approval_date", "seismic_design", "grade", "floors", "changes"):
+    for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "approval_date", "seismic_design", "grade", "floors", "changes", "length_x", "length_y"):
         if k in b:
             reg[k] = b[k]
     f.ledger = {**(f.ledger or {}), "register": _jsonable(reg)}
@@ -183,7 +184,7 @@ def _project_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
     building = {"name": f.name, "address": f.address or "", "structure": f.structure or "", "use": f.main_use or f.use_type or "",
                 "below": f.floors_below or 0, "above": f.floors_above or 0, "height": f.max_height, "total_area": f.total_area,
                 "building_area": f.building_area, "approval_date": _iso(f.completion_date) or reg.get("approval_date", ""),
-                **{k: reg.get(k, "") for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "seismic_design", "grade")}}
+                **{k: reg.get(k, "") for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "seismic_design", "grade", "length_x", "length_y")}}
     building["grade"] = building["grade"] or grade_of(building["use"])
     units = (f.floors_below or 0) + (f.floors_above or 0)
     persons = db.query(TechPerson).filter(TechPerson.company_id == f.company_id, TechPerson.active.is_(True)).order_by(TechPerson.name).all()
@@ -545,6 +546,7 @@ def _field_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
     core_doc = (_sv(r).get("seismic_docs") or {}).get("core") or {}
     return {"id": r.id, "facility_id": f.id, "name": f.name, "members": fd["members"], "cores": fd["cores"], "masonry": fd["masonry"],
             "texts": fd["texts"], "text_labels": [[k, label] for k, label, _ in SF.TEXTS], "core_note": fd["core_note"], "core_design": fd["core_design"],
+            "summary": fd["summary"],
             "photos": {k: {"at": v.get("at", ""), "name": v.get("name", "")} for k, v in fd["photos"].items()},
             "photo_slots": [[k, label, where] for k, label, where in SF.PHOTO_SLOTS], "core_stats": SF.core_stats(fd["cores"]),
             "has_core_report": bool(core_doc.get("rel") and (rdir / core_doc["rel"]).exists()),
@@ -568,7 +570,7 @@ def save_field(rid: int, body: dict = Body(...), user: User = Depends(get_curren
 
     f, r = _require(db, user, rid)
     cur = _field(r)
-    for k in ("members", "cores", "masonry", "texts", "core_note", "core_design"):
+    for k in ("members", "cores", "masonry", "texts", "core_note", "core_design", "summary"):
         if k in body:
             cur[k] = body[k]
     cur = SF.normalize(cur)
@@ -655,3 +657,58 @@ def read_cores(rid: int, user: User = Depends(get_current_user), db: Session = D
     _put(r, seismic_field=sf)
     db.commit()
     return _field_out(db, f, r) | {"read": len(got["rows"])}
+
+
+# ---------- 요약문 책임기술자 종합의견(10/22 민재형 "둘 다 가능하게") ----------
+def _summary_base(db: Session, f: SitokFacility, r: SitokReport) -> tuple[str, dict]:
+    """견본 문장 채우기 글 + AI에 줄 자료."""
+    from core.stored_path import to_full
+    from server.sitok import seismic_build as SB
+    from server.sitok import seismic_field as SF
+    from server.sitok import seismic_fill as SFL
+    from server.sitok import seismic_vendor as SV
+    from server.sitok.wall_build import Hwpx
+
+    d = SB.gather(db, r, f)
+    field = _field(r)
+    reg = (f.ledger or {}).get("register") or {}
+    body = (_sv(r).get("seismic_files") or {}).get("body")
+    vendor_text = ""
+    if body and Path(to_full(body)).exists():
+        try:
+            vendor_text = " ".join(SV._text(Hwpx(SV.vendor_hwpx(Path(to_full(body)))).root).split())
+        except Exception:  # noqa: BLE001 — 외주 글 없이
+            vendor_text = ""
+    text = SFL.summary_text(d, field, f, reg, vendor_text)
+    facts = {"건물": d["name"], "사용승인": d["completion"].isoformat() if d.get("completion") else "", "내진등급": reg.get("grade") or "",
+             "중량물": field["texts"]["heavy"], "균열": field["texts"]["crack"], "누수": field["texts"]["leak"], "철근노출": field["texts"]["rebar"],
+             "노후화": field["texts"]["aging"], "코어": SF.core_stats(field["cores"]), "외주결과": SFL.vendor_results(vendor_text),
+             "결함": [x[3] for x in SFL.defect_rows(db, r.id)][:40]}
+    return text, facts
+
+
+@router.post("/projects/{rid}/field/summary/{mode}")
+def make_summary(rid: int, mode: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """mode = template(견본 문장에 값만, 무료) | ai(이번 건 자료로 AI가 다시 씀, 약 30원). 만든 글을 저장하고 돌려줌(화면에서 고쳐 저장)."""
+    import json
+
+    if mode not in ("template", "ai"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "template 또는 ai")
+    f, r = _require(db, user, rid)
+    text, facts = _summary_base(db, f, r)
+    if mode == "ai":
+        from server.sitok import vision
+
+        prompt = ("아래는 학교시설 내진성능평가 보고서 '책임기술자 종합의견' 초안과 이번 건 자료입니다. 초안의 문단 구성과 말투(…하였다, …판단됨)를 따라 "
+                  "이번 건 자료에 맞게 다듬어 주세요. 자료에 없는 수치·부재 이름은 지어내지 말고, 결함이 있으면 주된 결함 종류와 의견을 한 문장 넣으세요. "
+                  "문단마다 줄을 바꾸고, 머리말 없이 글만 주세요.\n\n[초안]\n" + text + "\n\n[자료]\n" + json.dumps(facts, ensure_ascii=False, default=str))
+        try:
+            got = vision.ask(user.company_id, [], prompt, max_tokens=3000, effort="low").strip()
+        except Exception as err:  # noqa: BLE001
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 못 만들었습니다: {str(err).splitlines()[0][:120]}") from err
+        text = got or text
+    sf = dict(_sv(r).get("seismic_field") or {})
+    sf["summary"] = text
+    _put(r, seismic_field=sf)
+    db.commit()
+    return _field_out(db, f, r) | {"made": mode}

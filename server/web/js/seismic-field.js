@@ -103,6 +103,7 @@
   }
 
   function drawTexts() {
+    $("sf2-summary").value = F.summary || "";
     $("sf2-texts").innerHTML = F.text_labels.map(([k, label]) => `<div class="sk-f"><label>${esc(label)}</label><textarea data-t="${k}" rows="2">${esc(F.texts[k] || "")}</textarea></div>`).join("");
   }
 
@@ -130,7 +131,17 @@
   $("sf2-m-save").addEventListener("click", () => save("members", { members: members.filter((x) => x.where || x.mark || x.design || x.measured).map((x) => ({ ...x, floor: Number(x.floor) })) }, "sf2-m-saved"));
   $("sf2-c-save").addEventListener("click", () => save("cores", { cores: cores.filter((x) => x.name || x.mpa).map((x) => ({ ...x, mpa: nz(x.mpa) })), core_design: nz($("sf2-c-design").value) }, "sf2-c-saved"));
   $("sf2-w-save").addEventListener("click", () => save("masonry", { masonry: masonry.filter((x) => x.mid || x.height || x.width).map((x) => ({ ...x, floor: Number(x.floor), height: nz(x.height), width: nz(x.width), finish: nz(x.finish) })) }, "sf2-w-saved"));
-  $("sf2-t-save").addEventListener("click", () => save("texts", { texts: Object.fromEntries([...document.querySelectorAll("[data-t]")].map((t) => [t.dataset.t, t.value.trim()])) }, "sf2-t-saved"));
+  $("sf2-t-save").addEventListener("click", () => save("texts", { texts: Object.fromEntries([...document.querySelectorAll("[data-t]")].map((t) => [t.dataset.t, t.value.trim()])), summary: $("sf2-summary").value.trim() }, "sf2-t-saved"));
+  for (const [btn, mode, busy] of [["sf2-s-tpl", "template", "견본 문장 채우는 중…"], ["sf2-s-ai", "ai", "AI가 쓰는 중…(20~40초)"]]) {
+    $(btn).addEventListener("click", async () => {
+      if ($("sf2-summary").value.trim() && !confirm("지금 글을 바꿉니다. 할까요?")) return;
+      $(btn).disabled = true;
+      $("sf2-s-note").textContent = busy;
+      try { draw(await apiPost(`/seismic/projects/${id}/field/summary/${mode}`)); $("sf2-t-panel").open = true; $("sf2-s-note").textContent = "✓ 채웠습니다 — 고치고 [저장]"; }
+      catch (e) { $("sf2-s-note").textContent = e.message; }
+      $(btn).disabled = false;
+    });
+  }
   $("sf2-c-read").addEventListener("click", async () => {
     if (cores.length && !confirm("성적서에서 다시 읽으면 지금 코어 줄이 바뀝니다. 읽을까요?")) return;
     const b = $("sf2-c-read");

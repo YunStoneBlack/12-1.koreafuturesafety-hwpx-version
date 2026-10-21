@@ -380,11 +380,14 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     body = Path(to_full(files["body"])) if files.get("body") else None
     chapters = None
     checks: list[str] = []
+    front_taken, vendor_text = False, ""
     if body is not None and body.exists():
         say("외주 한글 살피는 중…")
         vx = SV.vendor_hwpx(body)
         ven = Hwpx(vx)
         info = SV.analyze(ven)
+        front_taken = bool(info["full"])
+        vendor_text = " ".join(SV._text(ven.root).split())
         checks = SV.review(ven, d)
         if info["full"]:  # 우리 견본 전체에 외주 몫까지 쓴 파일 — 앞 외주 몫 옮기고 3~7장만 잘라 끼움
             SV.take_front(doc, ven, warn)
@@ -404,14 +407,14 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
         from server.sitok import seismic_fill
 
         say("현장조사·서류 값 채우는 중…")
-        changed += seismic_fill.fill_all(doc, root, r, f, folder, d, warn)
+        changed += seismic_fill.fill_all(doc, root, r, f, folder, d, warn, front_taken=front_taken, vendor_text=vendor_text)
     ours = folder / f"{base}(1~2장).hwpx"
     doc.save(ours)
     hwpx = folder / f"{base}.hwpx"
     if chapters is not None:
         say("외주 3~7장 한글 끼워 넣는 중(1~2분)…")
         fixed = merge_vendor(ours, chapters, hwpx)
-        warn.append(f"외주 3~7장을 끼워 넣었습니다(장 번호 {fixed}곳 3장부터 고침) — 목차 쪽 번호는 아직 견본 숫자")
+        warn.append(f"외주 3~7장을 끼워 넣었습니다(장 번호 {fixed}곳 3장부터 고침)")
     else:
         hwpx.write_bytes(ours.read_bytes())
         if body is None or not body.exists():
@@ -420,6 +423,12 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     say("PDF로 바꾸는 중(2~3분)…")
     pdf = folder / f"{base}.pdf"
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
+    if f.seismic_only:  # 목차 쪽 번호 — 첫 PDF로 세어 넣고 다시(10/22)
+        from server.sitok import seismic_fill
+
+        if seismic_fill.fill_toc(hwpx, pdf):
+            say("목차 쪽 번호 넣고 다시 PDF로…")
+            pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
     with pymupdf.open(pdf) as x:
         pages = x.page_count
     head = f"{pages}쪽"
@@ -438,7 +447,8 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
             head = f"본문 {pages}쪽 · 합본 {x.page_count}쪽"
         pdf = merged
     warn.insert(0, head)
-    warn += STILL_SAMPLE
+    if not f.seismic_only:
+        warn += STILL_SAMPLE
     return hwpx, pdf, warn, changed
 
 
