@@ -6,7 +6,9 @@
 - 만들기: 묶음 보고서를 만들 때 동마다 만든 "(이 동만)" 한글(survey.single_hwpx)로 — 1동은 그대로, 여러 동은 merge.merge로 다시 묶고
   묶음과 같은 뒤처리(머리말·쪽 넘김·목차 쪽 번호·도면·요약문·관리대장·계약서·사진첩·표지/책등 따로). 현장 조사·AI 초안은 다시 안 함,
   요약문 결언은 기본 문장(묶음 결언 AI는 다른 동 얘기도 있어서). 표지·용역명은 동 개수 규칙(merge.cover_name).
-- 파일: 대표 동 회차 폴더/분권/N권/. 정기만(정밀 묶음은 아직).
+- 정밀(10/21): 묶음 정밀 보고서를 만들 때 만든 동별 본문 한글(survey.single_hwpx)을 precision_merge.merge_body로 다시 묶어 본문 PDF·도면·쪽 검사,
+  동별 부록 PDF(survey.appendix_hwpx 옆 .pdf — 관리대장·사진첩·측정데이터 등 이미 끼운 것)를 merge_appendix_pdfs로 이어 부록, 본문 + 부록 = 합본(묶음 정밀과 같은 차례).
+- 파일: 대표 동 회차 폴더/분권/N권/.
 
 - `GET  /sitok/reports/{id}/split` — {available, why, buildings, assign, books, status, message}
 - `POST /sitok/reports/{id}/split` {assign: {동 id: 권(0 = 안 함)}} — 권 번호는 1부터 차례로 다시 매김
@@ -89,8 +91,6 @@ def _why_not(db: Session, lead: SitokReport, pairs: list) -> str:
     block = SR._template_block(db, lead)  # 틀 없는 시설물(교량·수리 등, 형 10/21)
     if block:
         return block
-    if (lead.kind or "정기") == "정밀":
-        return "분권은 정기안전점검 묶음 보고서만 됩니다(정밀은 아직)."
     if len(pairs) < 2:
         return "묶음(2동 이상) 보고서만 분권할 수 있습니다."
     if _is_wall(db, lead):  # 옹벽은 동별 한글 없이 원본에서 바로 묶음(wall_build.build_many, 10/21) — 묶음을 먼저 안 만들어도 됨
@@ -100,7 +100,17 @@ def _why_not(db: Session, lead: SitokReport, pairs: list) -> str:
     miss = [m.name for m, x in pairs if not Path(str((x.survey or {}).get("single_hwpx") or "")).exists()]
     if miss:
         return "동별 한글이 없습니다(" + ", ".join(miss) + ") — 묶음 보고서를 다시 만드세요."
+    if (lead.kind or "정기") == "정밀":
+        miss = [m.name for m, x in pairs if not _appendix_pdf(x).exists()]
+        if miss:
+            return "동별 부록 PDF가 없습니다(" + ", ".join(miss) + ") — 묶음 보고서를 다시 만드세요."
     return ""
+
+
+def _appendix_pdf(x: SitokReport) -> Path:
+    """정밀 묶음 만들 때 동마다 만든 부록 PDF(끼울 자료까지 들어간 것)."""
+    a = str((x.survey or {}).get("appendix_hwpx") or "")
+    return Path(a).with_suffix(".pdf") if a else Path("")
 
 
 def _out(db: Session, lead: SitokReport) -> dict:
@@ -168,6 +178,8 @@ def _build_one(db: Session, lead: SitokReport, k: int, sub: list) -> dict:
         pages = pymupdf.open(pdf).page_count
         return {"ids": [m.id for m, _ in sub], "pdf": str(pdf), "hwpx": str(hwpx), "cover": "", "pages": pages,
                 "made_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "message": SR._done_msg(f"{k}권 {len(sub)}곳 {pages}쪽", "합본", {"": []}, warn)}
+    if (lead.kind or "정기") == "정밀":
+        return _build_precision(db, lead, k, sub, folder, base)
     parts = []
     for i, (m, x) in enumerate(sub, 1):
         floors = " / ".join(s for s in (f"B{m.floors_below}F" if m.floors_below else "", f"{m.floors_above}F" if m.floors_above else "") if s)
@@ -202,6 +214,48 @@ def _build_one(db: Session, lead: SitokReport, k: int, sub: list) -> dict:
     return {"ids": [m.id for m, _ in sub], "pdf": str(pdf), "hwpx": str(hwpx), "cover": str(cover) if cover else "", "pages": pages,
             "made_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
             "message": SR._done_msg(f"{k}권 {len(sub)}동 {pages}쪽", "합본", {"": merged}, warn)}
+
+
+def _build_precision(db: Session, lead: SitokReport, k: int, sub: list, folder: Path, base: str) -> dict:
+    """정밀 한 권 — 동별 본문 한글 → (여러 동이면 merge_body) → 본문 PDF(빈 자리 당기기)·도면·쪽 검사, 동별 부록 PDF → (여러 동이면 merge_appendix_pdfs), 합본.
+    묶음 정밀 만들기(SR._run_precision_group_build)의 뒷부분과 같음 — 본문·부록 한글을 다시 만들지 않음(현장 조사·AI 초안 값은 묶음 때 것)."""
+    from server.api.routers.sitok_compose import default_name
+    from server.sitok import drawings as D
+    from server.sitok import precision_merge
+    from server.sitok import report_build as rb
+
+    warn: list[str] = []
+    name = _cover_name(sub)
+    title = SR.service_title(name, lead)
+    hwpx, pdf = folder / f"{base}(본문).hwpx", folder / f"{base}(본문).pdf"
+    singles = [Path(x.survey["single_hwpx"]) for _, x in sub]
+    if len(sub) == 1:  # 한 동 — 그 동 본문 한글(표지·용역명 = 시설물명) 그대로
+        shutil.copy(singles[0], hwpx)
+    else:
+        parts = [{"hwpx": h, "name": m.name, "title": rb.read_old(h).title} for h, (m, _) in zip(singles, sub)]
+        warn += precision_merge.merge_body(parts, hwpx, default_name([m.name for m, _ in sub]), title)
+    SR._convert_pushing(hwpx, pdf, precision=True)
+    chapters = [(i, [it["path"] for it in D.items(m, "attach", SR._facility_dir(m))]) for i, (m, _) in enumerate(sub, 1)]
+    with pymupdf.open(pdf) as doc:  # 동마다 "1.2 시설물 관련도면 [후면첨부]" 쪽 — i번째 것(묶음 정밀과 같음)
+        hits = [i for i, pg in enumerate(doc) if pg.search_for("시설물 관련도면") and pg.search_for("후면첨부")]
+    drawn = D.insert(pdf, chapters, finder=lambda pg, n: n <= len(hits) and pg.number == hits[n - 1]) if any(p for _, p in chapters) else []
+    warn = SR._page_check(pdf, hwpx, drawn) + warn
+    body_pages = pymupdf.open(pdf).page_count
+    apdf = folder / f"{base}(부록).pdf"
+    apdfs = [(m.name, _appendix_pdf(x)) for m, x in sub]
+    if len(apdfs) == 1:
+        shutil.copy(apdfs[0][1], apdf)
+    else:
+        warn += precision_merge.merge_appendix_pdfs(apdfs, apdf)
+    full = folder / f"{base}_합본.pdf"
+    with pymupdf.open(pdf) as a, pymupdf.open(apdf) as b, pymupdf.open() as out:
+        out.insert_pdf(a)
+        out.insert_pdf(b)
+        out.save(full, garbage=3, deflate=True)
+    pages = pymupdf.open(full).page_count
+    return {"ids": [m.id for m, _ in sub], "pdf": str(full), "hwpx": str(hwpx), "cover": "", "pages": pages,
+            "made_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "message": SR._done_msg(f"{k}권 {len(sub)}동 {pages}쪽(본문 {body_pages})", "합본", {"": []}, warn)}
 
 
 def _run(lead_id: int) -> None:
