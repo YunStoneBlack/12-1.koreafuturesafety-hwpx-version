@@ -5,8 +5,10 @@
 (hwp_queue "merge" — 사람이 붙여 넣은 것처럼 쪽 번호·꼬리말이 이어짐, 10/21 시험: PDF로 따로 바꾸면 외주 쪽에 쪽 번호가 없고 "제1장 설계하중"),
 외주 장 제목 번호는 fix_vendor_chapters로 3장부터.
 
-1차에 채우는 것: 이름·용역명·발주처·주소·날짜(문서 전체), 참여기술자 명단, 결과표 가(일반현황), 1.1 일반사항·1.2 건물규모(아는 칸),
-2.2.2 철근배근 조사결과 표(현장시험 철근탐사 줄 — 18개씩 표 하나)와 조사 수량. 나머지(결과표 나~마·요약문 종합의견·1.2 건물 길이·평면도·1.3·1.4·
+채우는 것: 이름·용역명·발주처·주소·날짜(문서 전체), 참여기술자 명단, 결과표 가(일반현황)·사(책임기술자), 1.1 일반사항·1.2 건물규모(아는 칸),
+(1) 현장 시험 철근배근 개소, 2.2.2 철근배근 조사결과 표(현장시험 철근탐사 줄 — 18개씩 표 하나)와 조사 수량.
+외주 한글이 견본 전체 모양이면(10/21 형 "걔네가 그냥 작성하고 줄 때도 있어서") 결과표 나~마·(2) 내진성능평가 적용·확인서·체크리스트를
+외주 것으로 옮기고 3~7장만 잘라 끼움 + 값 검토(server/sitok/seismic_vendor). 나머지(요약문 종합의견·1.2 건물 길이·평면도·1.3·1.4·
 2.2.1 부재단면·2.2.3 코어·2.2.4·2.3 외관조사·2.4·2.5·위치도·전경)는 견본 값 그대로 — 알림으로 하나하나 알림(다음 단계에서 채움).
 """
 from __future__ import annotations
@@ -29,8 +31,8 @@ SAMPLE_PERIOD_DOT = "2025. 10. 24. ~ 2026. 01. 02."
 SAMPLE_MONTHS = ("2026년 01월", "2026. 01.", "2026․01", "2026∙01")
 PER_TABLE = 18  # 철근배근 표 하나에 시험 18개(견본 한 쪽)
 
-STILL_SAMPLE = [  # 1차에서 아직 견본 값 그대로인 곳 — 만들기 알림
-    "결과표 나~마(구조물 정보·성능목표·판정결과)·(2) 내진성능평가 적용·확인서·체크리스트 = 외주 값 자리(견본 그대로)",
+NO_FRONT = "결과표 나~마·(2) 내진성능평가 적용·확인서·체크리스트는 견본 값 그대로입니다 — 견본 전체에 외주 몫까지 쓴 한글을 올리면 옮겨 넣습니다"
+STILL_SAMPLE = [  # 아직 견본 값 그대로인 곳 — 만들기 알림
     "요약문 책임기술자 종합의견(견본 글)",
     "시설물 위치도·전경사진(견본 그림)",
     "1.2 건물 길이·평면도, 1.3 내진등급·성능목표, 1.4 구조변경 이력(견본 값)",
@@ -58,8 +60,9 @@ def gather(db, r, f) -> dict:
         if p:
             qual = ", ".join(x.strip() for x in (p.qualification or "").splitlines() if x.strip())
             grade = f"{p.sitok_field or '건축'}{(p.grade or '').replace('기술자', '').replace('기술인', '')}기술인" if p.grade else (p.sitok_grade or "")
+            short = f"{p.sitok_field or '건축'} {(p.grade or '').replace('기술자', '').replace('기술인', '')}".strip() if p.grade else (p.sitok_grade or "")
             persons.append({"role": "사업책임기술자" if i == 0 else "분야별 참여기술자", "name": p.name, "qual": f"{grade} ({qual})" if qual else grade,
-                            "duty": "사업책임 기술인" if i == 0 else "현장조사 및 보고서 작성"})
+                            "duty": "사업책임 기술인" if i == 0 else "현장조사 및 보고서 작성", "grade": short})
     amount_k = (r.amount_k or "").strip()
     if not amount_k and c and c.amount:
         amount_k = f"{c.amount / 1000:,.1f}"
@@ -119,7 +122,7 @@ def fill_result_ga(root, d: dict) -> int:
     n = 0
     for t in _tables(root):
         cells = rb._cells(t)
-        if (t.get("rowCnt"), t.get("colCnt")) != ("18", "13") or not rb._n(rb._cell_text(cells.get((0, 0), t))).startswith("가.일반현황"):
+        if t.get("colCnt") != "13" or not rb._n(rb._cell_text(cells.get((0, 0), t))).startswith("가.일반현황"):  # 외주 표로 바뀌면 줄 수가 다를 수 있음
             continue
         area = f"{d['area']:,.2f}㎡" if d["area"] else "-"
         floors = (f"지하{d['below']}층/" if d["below"] else "") + f"지상{d['above']}층"
@@ -132,6 +135,54 @@ def fill_result_ga(root, d: dict) -> int:
             _set(cells, rc, v)
         n += 1
     return n
+
+
+def fill_result_people(root, d: dict) -> int:
+    """결과표 "사. 책임(참여)기술자 현황"(라~사 표 안, 우리 몫) — 머리 줄(구분·성명·과업참여기간·기술등급) 칸 위치로, 남는 줄은 비움."""
+    if not d["persons"]:
+        return 0
+    period = f"{_date(d['period_start'])} ~ {_date(d['period_end'])}" if d["period_start"] and d["period_end"] else "-"
+    for t in _tables(root):
+        cells = rb._cells(t)
+        if not rb._n(rb._cell_text(cells.get((0, 0), t))).startswith("라.내진성능"):
+            continue
+        head = next((r for (r, c), x in cells.items() if c == 0 and rb._n(rb._cell_text(x)) == "사업책임기술자"), None)
+        if head is None:
+            return 0
+        hdr = {rb._n(rb._cell_text(x)): c for (r, c), x in cells.items() if r == head - 1}
+        cn, cp, cg = hdr.get("성명"), hdr.get("과업참여기간"), hdr.get("기술등급")
+        if cn is None:
+            return 0
+        rows = []
+        r = head
+        while (r, cn) in cells and not rb._n(rb._cell_text(cells.get((r, 0), t))).startswith("사.사용"):
+            rows.append(r)
+            r += 1
+        for k, r in enumerate(rows):
+            p = d["persons"][k] if k < len(d["persons"]) else None
+            _set(cells, (r, cn), p["name"] if p else "")
+            if cp is not None:
+                _set(cells, (r, cp), period if p else "")
+            if cg is not None:
+                _set(cells, (r, cg), p["grade"] if p else "")
+        return 1
+    return 0
+
+
+def fill_field_summary(root, d: dict) -> int:
+    """(1) 현장 시험 및 분석 — 조사·시험항목 표의 철근배근 조사개소(철근탐사 줄 수)."""
+    n = len(d["rebar"])
+    if not n:
+        return 0
+    for t in _tables(root):
+        cells = rb._cells(t)
+        if rb._n(rb._cell_text(cells.get((0, 1), t))) != "조사·시험항목":
+            continue
+        for (r, c), x in cells.items():
+            if c == 1 and rb._n(rb._cell_text(x)) == "철근배근":
+                _set(cells, (r, 3), f"{n}EA")
+                return 1
+    return 0
 
 
 def fill_chapter1(root, d: dict) -> int:
@@ -307,6 +358,8 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     from server.contract_docs import hwp_queue
     from server.sitok import master
 
+    from server.sitok import seismic_vendor as SV
+
     say = say or (lambda m: None)
     folder.mkdir(parents=True, exist_ok=True)
     src = master.master_path("성능평가본문")
@@ -317,22 +370,43 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     warn: list[str] = []
     doc = Hwpx(src)
     root = doc.root
-    changed = replace_globals(doc, d)
-    changed += fill_persons(root, d) + fill_result_ga(root, d) + fill_chapter1(root, d)
-    changed += fill_rebar(root, d, warn)
     base = f"{r.year}년 내진성능평가 보고서_{f.name}"
-    ours = folder / f"{base}(1~2장).hwpx"
-    doc.save(ours)
     files = (r.survey or {}).get("seismic_files") or {}
     body = Path(to_full(files["body"])) if files.get("body") else None
-    hwpx = folder / f"{base}.hwpx"
+    chapters = None
+    checks: list[str] = []
     if body is not None and body.exists():
+        say("외주 한글 살피는 중…")
+        vx = SV.vendor_hwpx(body)
+        ven = Hwpx(vx)
+        info = SV.analyze(ven)
+        checks = SV.review(ven, d)
+        if info["full"]:  # 우리 견본 전체에 외주 몫까지 쓴 파일 — 앞 외주 몫 옮기고 3~7장만 잘라 끼움
+            SV.take_front(doc, ven, warn)
+            chapters = folder / "외주_3~7장.hwpx"
+            SV.cut_chapters(vx, chapters)
+        elif info["chapter3"] is not None:
+            chapters = vx
+            warn.append(NO_FRONT)
+        else:
+            warn.append("외주 한글에서 \"제3장\"을 못 찾아 끼워 넣지 않았습니다 — 파일을 확인해 주세요")
+    else:
+        warn.append(NO_FRONT)
+    changed = replace_globals(doc, d)
+    changed += fill_persons(root, d) + fill_result_ga(root, d) + fill_result_people(root, d) + fill_chapter1(root, d) + fill_field_summary(root, d)
+    changed += fill_rebar(root, d, warn)
+    ours = folder / f"{base}(1~2장).hwpx"
+    doc.save(ours)
+    hwpx = folder / f"{base}.hwpx"
+    if chapters is not None:
         say("외주 3~7장 한글 끼워 넣는 중(1~2분)…")
-        fixed = merge_vendor(ours, body, hwpx)
+        fixed = merge_vendor(ours, chapters, hwpx)
         warn.append(f"외주 3~7장을 끼워 넣었습니다(장 번호 {fixed}곳 3장부터 고침) — 목차 쪽 번호는 아직 견본 숫자")
     else:
         hwpx.write_bytes(ours.read_bytes())
-        warn.append("외주 3~7장 한글이 없어 우리 1~2장만 — 회차 화면 🧪 현장시험의 [외주 결과물]에서 올리세요")
+        if body is None or not body.exists():
+            warn.append("외주 한글이 없어 우리 1~2장만 — 회차 화면 [📎 외주 결과물]에서 올리세요")
+    warn += [f"검토: {x}" for x in checks]
     say("PDF로 바꾸는 중(2~3분)…")
     pdf = folder / f"{base}.pdf"
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))

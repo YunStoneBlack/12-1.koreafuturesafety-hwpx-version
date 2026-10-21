@@ -141,12 +141,13 @@ def get_capture(report_id: int, row_id: str, line: int, user: User = Depends(get
     return FileResponse(p, media_type="image/png")
 
 
-VENDOR_KEYS = {"body": ("외주 3~7장 한글", (".hwp", ".hwpx"))}  # 다음 단계: 결과표·체크리스트 한글, GEN 부록·내역서·지반조사보고서 PDF
+VENDOR_KEYS = {"body": ("외주 결과물 한글", (".hwp", ".hwpx"))}  # 3~7장만 또는 견본 전체(seismic_vendor가 가려 씀) — 다음: GEN 부록·내역서·지반조사보고서 PDF
 
 
 @router.post("/reports/{report_id}/seismic/files/{key}")
 def upload_vendor(report_id: int, key: str, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """외주 결과물 올리기 — body = 3~7장 한글(만들 때 우리 1~2장 끝에 한글이 끼워 넣음). 회차 폴더 외주/에 보관, survey.seismic_files."""
+    """외주 결과물 올리기 — body = 외주 한글(3~7장만 또는 우리 견본 전체에 외주 몫까지 쓴 것 — 만들 때 server/sitok/seismic_vendor가 가려
+    앞 외주 몫은 옮기고 3~7장은 한글이 끼워 넣음, 값 검토). 회차 폴더 외주/에 보관, survey.seismic_files. 올리면 어떤 파일인지 바로 알려 줌."""
     if key not in VENDOR_KEYS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "올릴 수 있는 것: " + ", ".join(v[0] for v in VENDOR_KEYS.values()))
     label, exts = VENDOR_KEYS[key]
@@ -163,7 +164,25 @@ def upload_vendor(report_id: int, key: str, file: UploadFile = File(...), user: 
     files[key] = str(dest)
     r.survey = {**(r.survey or {}), "seismic_files": files}
     db.commit()
-    return {"ok": True, "files": {k: Path(str(v)).name for k, v in files.items() if v}}
+    return {"ok": True, "files": {k: Path(str(v)).name for k, v in files.items() if v}, "kind": _vendor_kind(dest)}
+
+
+def _vendor_kind(path: Path) -> str:
+    """올린 외주 한글이 어떤 것인지 한 줄(.hwpx만 바로 — .hwp는 만들 때 한글로 바꿔 봄)."""
+    from server.sitok import seismic_vendor as SV
+    from server.sitok.wall_build import Hwpx
+
+    if path.suffix.lower() != ".hwpx":
+        return "올렸습니다(.hwp — 보고서 만들 때 3~7장만인지 견본 전체인지 살펴 씁니다)."
+    try:
+        info = SV.analyze(Hwpx(path))
+    except Exception:  # noqa: BLE001
+        return "올렸지만 한글 내용을 읽지 못했습니다 — 파일을 확인해 주세요."
+    if info["full"]:
+        return "견본 전체 모양입니다 — 결과표 나~마·확인서·체크리스트를 옮기고 3~7장을 끼워 넣습니다."
+    if info["chapter3"] is not None:
+        return "3~7장만 있는 파일입니다 — 3~7장을 끼워 넣습니다(결과표 나~마·체크리스트는 견본 값)."
+    return "\"제3장\"을 못 찾았습니다 — 외주 결과물이 맞는지 확인해 주세요."
 
 
 @router.get("/reports/{report_id}/seismic/rebar.xlsx")

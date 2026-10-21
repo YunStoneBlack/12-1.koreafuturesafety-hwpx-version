@@ -16,6 +16,7 @@
   let data = null; // 시설물 회차 목록 응답(persons·group·group_contracts)
   let contracts = [];
   let timer = null;
+  let vendorNote = ""; // 외주 한글 올린 뒤 서버가 알려 준 파일 종류(3~7장만·견본 전체)
   const one = new URLSearchParams(location.search).get("one") === "1"; // 묶음에서 한 동만 보는 화면
   if (!rid) { err(new Error("회차가 없습니다 (?report=)")); return; }
 
@@ -65,7 +66,7 @@
     const seis = kind === "성능평가";
     $("rd-head").innerHTML = `<h1>${esc(dongs && g ? g.name : r.facility_name)} <span class="rd-round">${title()}</span>${seis ? '<span class="sk-kind pre">내진성능평가</span>'
       : `<button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button>`}</h1>
-      <div class="rd-src">${seis ? "내진성능평가 — 현장 조사(결함)·구조 일람표·철근탐사는 지금, 보고서(우리 1~2장 + 외주 3~7장 합치기)는 준비 중" : r.past ? "이미 낸 보고서를 등록한 회차 — 다음 회차가 이 보고서의 데이터를 씁니다"
+      <div class="rd-src">${seis ? "내진성능평가 — 현장 조사(결함)·구조 일람표·철근탐사 + 외주 결과물 한글을 올리면 보고서(우리 1~2장 + 외주 몫)를 만듭니다" : r.past ? "이미 낸 보고서를 등록한 회차 — 다음 회차가 이 보고서의 데이터를 씁니다"
         : r.has_source ? `전회차 보고서: ${esc(r.source_note)}` : "전회차 보고서 없음 — 처음 세팅하는 시설물(전회차가 있으면 🏢 시설물 현황·📝 면담 창에 전회차 보고서 PDF)"}
         ${r.period_start ? ` · 점검기간 ${ymdDot(r.period_start)} ~ ${ymdDot(r.period_end)}` : ""}</div>
       ${g && !r.past && !seis ? `<div class="sk-rep-group">📚 묶음 보고서 <b>${esc(g.name)}</b> — ${g.members.map((m, i) => `제${i + 1}장 ${esc(m.name)}`).join(" · ")}
@@ -93,9 +94,9 @@
             + big(`sitok-rating.html?report=${r.id}`, "📊", "상태평가", r.has_rating, doneSub("rating", "부재 개수 → 상태평가 등급")) : "")
           + bigBtn("rd-survey", "📝", r.wall ? "면담·점검 이력 조사" : "면담·변경사항 조사", r.has_survey, doneSub("survey", r.wall ? "1.3.2 점검 이력 · 1.3.3 보수 이력" : "1.2.7 보수 이력 · 1.2.8 변경사항"));
       // 보고서
-      const vf = ((r.seismic || {}).files || {}).body; // 내진성능평가 외주 3~7장 한글(10/21) — 만들 때 우리 1~2장 끝에 한글이 끼워 넣음
-      $("rd-report").innerHTML = r.past ? "" : seis ? `<label class="rd-btn${vf ? " on" : ""}" title="외주가 준 3장 설계하중~7장 결론 한글(.hwp·.hwpx)"><span class="rd-ic">📎</span>
-          <span class="rd-lb">외주 3~7장 한글${vf ? ' <em class="rd-ok">✓</em>' : ""}</span><span class="rd-sub">${vf ? esc(vf) + " — 바꾸려면 다시 올리기" : "만들 때 우리 1~2장 뒤에 끼워 넣음(장·쪽 번호 이어짐)"}</span>
+      const vf = ((r.seismic || {}).files || {}).body; // 내진성능평가 외주 한글(10/21) — 3~7장만 또는 견본 전체, 만들 때 앞 외주 몫 옮기고 3~7장 끼워 넣음 + 검토
+      $("rd-report").innerHTML = r.past ? "" : seis ? `<label class="rd-btn${vf ? " on" : ""}" title="외주가 준 한글(.hwp·.hwpx) — 3장 설계하중~7장 결론만 있는 파일, 또는 우리 견본 전체에 외주 몫(결과표 나~마·확인서·체크리스트·3~7장)까지 쓴 파일"><span class="rd-ic">📎</span>
+          <span class="rd-lb">외주 결과물 한글${vf ? ' <em class="rd-ok">✓</em>' : ""}</span><span class="rd-sub">${vf ? esc(vf) + " — " + esc(vendorNote || "바꾸려면 다시 올리기") : "3~7장만 또는 견본 전체 — 만들 때 끼워 넣고 값 검토"}</span>
           <input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" id="rd-vendor" /></label>` : (r.wall ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, doneSub("detail", "1.1 현황표 · 1.2 구조·마감·용도"))) // 옹벽은 현황 칸 없음(제원은 관리대장에서, 10/21)
         + ((r.ai_left || []).length // 10/18 형 요청1 — 앞 칸을 다 [완료]해야 AI 초안이 열림
           ? `<div class="rd-btn rd-off rd-lock" title="앞 칸을 다 완료하면 열립니다"><span class="rd-ic">🤖</span><span class="rd-lb">AI 초안 🔒</span><span class="rd-sub">먼저 완료: ${r.ai_left.map(esc).join(" · ")}</span></div>`
@@ -149,13 +150,13 @@
     const vin = $("rd-vendor");
     if (vin) {
       if (typeof enableFileDrop === "function") enableFileDrop(vin.closest("label"), vin);
-      vin.addEventListener("change", async () => { // 외주 3~7장 한글 올리기(10/21)
+      vin.addEventListener("change", async () => { // 외주 결과물 한글 올리기(10/21)
         if (!vin.files[0]) return;
         const sub = vin.closest("label").querySelector(".rd-sub");
         sub.textContent = `${vin.files[0].name} 올리는 중…`;
         const fd = new FormData();
         fd.append("file", vin.files[0]);
-        try { await apiUpload(`/sitok/reports/${r.id}/seismic/files/body`, fd); load(); } catch (e) { err(e); sub.textContent = e.message; }
+        try { const res = await apiUpload(`/sitok/reports/${r.id}/seismic/files/body`, fd); vendorNote = (res && res.kind) || ""; load(); } catch (e) { err(e); sub.textContent = e.message; }
       });
     }
     $("rd-head").querySelector(".sk-kind-btn")?.addEventListener("click", async () => { // 종류 바꾸기(10/14 형 피드백)

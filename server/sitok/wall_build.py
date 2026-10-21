@@ -76,6 +76,7 @@ class Hwpx:
         self.pic_tpl = None  # 그림 개체 견본(시설물편 전경 표 pic) — 채우기 전에 잡아 둠: 전경이 없으면 그 표 그림이 지워져 뒤 서류·위치도가 못 씀(10/21)
         self.new_masters: list[str] = []  # 복제한 바탕쪽(장마다 꼬리말 "제 N 장 이름")
         self.added: list[tuple[str, bytes]] = []
+        self.added_ext: dict[str, tuple[str, str]] = {}  # 그림 key → (확장자, media-type) — 없으면 jpg(외주 그림 png 옮기기, 10/21)
         self.run = datetime.datetime.now().strftime("%y%m%d%H%M%S") + f"{random.randint(0, 999):03d}"
 
     @property
@@ -212,10 +213,15 @@ class Hwpx:
         props.set("itemCnt", str(len(props)))
         return nid
 
-    def add_image(self, path_or_bytes) -> str:
+    def add_image(self, path_or_bytes, ext: str = "", media: str = "") -> str:
         key = f"wall{self.run}_{len(self.added) + 1}"
         self.added.append((key, path_or_bytes if isinstance(path_or_bytes, bytes) else Path(path_or_bytes).read_bytes()))
+        if ext and ext.lower() != "jpg":
+            self.added_ext[key] = (ext.lower(), media or f"image/{ext.lower()}")
         return key
+
+    def _ext(self, key: str) -> tuple[str, str]:
+        return self.added_ext.get(key, ("jpg", "image/jpg"))
 
     def replace_all(self, old: str, new: str) -> int:
         """구역·바탕쪽(머리말·꼬리말) 전부에서 글자 바꾸기."""
@@ -298,12 +304,12 @@ class Hwpx:
             text = re.sub(r'(<opf:item id="header"[^>]*/>)', lambda m: m[1] + items, text, count=1)
             refs = "".join(f'<opf:itemref idref="section{i}" linear="yes"/>' for i in range(len(kept)))
             text = re.sub(r'(<opf:itemref idref="header"[^>]*/>)', lambda m: m[1] + refs, text, count=1)
-            new = "".join(f'<opf:item id="{k}" href="BinData/{k}.jpg" media-type="image/jpg" isEmbeded="1"/>' for k, _ in self.added)
+            new = "".join(f'<opf:item id="{k}" href="BinData/{k}.{self._ext(k)[0]}" media-type="{self._ext(k)[1]}" isEmbeded="1"/>' for k, _ in self.added)
             zout.writestr("Contents/content.hpf", text.replace("</opf:manifest>", new + "</opf:manifest>").encode("utf-8"))
             texts = "\r\n".join("".join(t.text or "" for t in p.iter(T)) for n in kept for p in self.roots[n].iter(f"{{{HP}}}p"))
             zout.writestr("Preview/PrvText.txt", texts[:2000].encode("utf-8"))
             for k, b in self.added:
-                zout.writestr(f"BinData/{k}.jpg", b, compress_type=zipfile.ZIP_STORED)
+                zout.writestr(f"BinData/{k}.{self._ext(k)[0]}", b, compress_type=zipfile.ZIP_STORED)
         tmp.replace(dest)
         return dest
 
