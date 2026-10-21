@@ -399,13 +399,28 @@ def keep_from(view: _View, prefix: str) -> None:
     i = next((i for i, p in enumerate(tops) if _full(p).startswith(prefix)), None)
     if i is None or i == 0:
         return
+    _drop_before(root, tops, i)
+
+
+def _drop_before(root, tops: list, i: int, sec_only: bool = False) -> None:
+    """tops[:i] 문단을 지우되 첫 문단의 구역 설정(secPr·colPr·머리말·꼬리말 ctrl)은 tops[i] 앞으로 옮김 — 구역 설정이 없어지면 바탕쪽(장 꼬리말) 연결도
+    없어져 한글이 앞 구역 것을 이어 씀(10/21 묶음 2장부터 꼬리말이 전부 "제 1 장 첫 곳"이던 것).
+    sec_only = 구역 정의(secPr·colPr)만 옮기고 꼬리말(쪽 번호)·쪽 감추기 ctrl은 버림 — 쪽 가득한 간지 표 앞에 그 둘이 같이 있으면 한글이 앞에 빈 쪽을 하나 만듦
+    (10/21 실험: 둘 다 빼야 빈 쪽이 없어짐). 쪽 번호 꼬리말은 앞 구역 것이 이어지고 장 이름은 바탕쪽에 있어 그대로 나옴."""
     first, keep = tops[0], tops[i]
     moved = []
     for run in list(first.findall(f"{{{HP}}}run")):
-        if next(run.iter(f"{{{HP}}}secPr", f"{{{HP}}}colPr", f"{{{HP}}}header", f"{{{HP}}}footer"), None) is not None:
-            for t in list(run.findall(T)):
-                run.remove(t)
-            moved.append(run)
+        if sec_only:
+            if next(run.iter(f"{{{HP}}}secPr", f"{{{HP}}}colPr"), None) is None:
+                continue
+            for c in list(run.findall(f"{{{HP}}}ctrl")):
+                if next(c.iter(f"{{{HP}}}header", f"{{{HP}}}footer", f"{{{HP}}}pageHiding"), None) is not None:
+                    run.remove(c)
+        elif next(run.iter(f"{{{HP}}}secPr", f"{{{HP}}}colPr", f"{{{HP}}}header", f"{{{HP}}}footer"), None) is None:
+            continue
+        for t in list(run.findall(T)):
+            run.remove(t)
+        moved.append(run)
     for j, run in enumerate(moved):
         keep.insert(j, run)
     keep.set("pageBreak", "0")
@@ -1397,7 +1412,7 @@ def fill_docs(doc: Hwpx, loc: dict, d: Data) -> int:
                 rb._set_para(p, f"가. 과업명 : {d.title}")
             elif tx.startswith("◎") and "~" in tx:
                 rb._set_para(p, f"◎ {d.period_days}")
-        _fill_status_table(_tbl(v.root, 18, 8, "연 번") or _tbl(v.root, 18, 8, "연번"), d, v)
+        _fill_status_table(_tbl(v.root, 18, 8, "연번"), d, v)  # 머리 글은 띄어쓰기 빼고 비교("연 번"도 같음)
         if "plan_map" not in loc:  # 새 합본(10/21 형 "위치도 틀 변경 시설물당 1개") — 마. 위치도가 과업수행계획서 구역 안에
             _fill_plan_maps(doc, v.root, d)
         n += 1
@@ -1451,7 +1466,7 @@ def fill_docs(doc: Hwpx, loc: dict, d: Data) -> int:
                 rb._set_para(p, d.start_month)
             elif tx.startswith("1. 과업명"):
                 rb._set_para(p, f"1. 과업명 : {d.title}")
-        _fill_status_table(_tbl(v.root, 18, 8, "연 번") or _tbl(v.root, 18, 8, "연번"), d, v)
+        _fill_status_table(_tbl(v.root, 18, 8, "연번"), d, v)  # 머리 글은 띄어쓰기 빼고 비교("연 번"도 같음)
         tpl = _doc_tpl(doc)
         if tpl is None and "chapter" in loc:
             tpl = _pic_tpl(doc.roots[loc["chapter"]])
@@ -1686,11 +1701,8 @@ def fill_chapter(doc: Hwpx, d: Data, k: int = 1, names: list | None = None, intr
     doc.replace_here(SAMPLE_NAME, d.name)
     tops = _tops(root)
     i_title = next((i for i, p in enumerate(tops) if any((x.get("rowCnt"), x.get("colCnt")) == ("4", "1") for x in p.iter(f"{{{HP}}}tbl"))), None)
-    if k > 1 and i_title:  # 편 간지(제Ⅱ편 표지 + 소목차)는 첫 장에만
-        _del(root, tops[:i_title])
-        tops = _tops(root)
-        if tops:
-            tops[0].set("pageBreak", "0")
+    if k > 1 and i_title:  # 편 간지(제Ⅱ편 표지 + 소목차)는 첫 장에만 — 구역 설정(바탕쪽 = 이 장 꼬리말)은 남김
+        _drop_before(root, tops, i_title, sec_only=True)
     elif i_title:
         _divider_list(doc, tops[:i_title], names or [d.name], intro_root)
     _fill_chapter_body(doc, d)
@@ -2508,8 +2520,10 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
         warn.append("목차 쪽 번호를 못 찾아 견본 숫자 그대로입니다")
     elif n_toc:
         merged.append(f"목차 쪽 번호 {n_toc}곳")
-    if d.template3 and not d.ai.get("items"):  # 71차부터 k.5 표를 AI 초안 items로 채움 — 18항목이 없을 때만(전엔 늘 "견본 값 그대로"라고 잘못 알렸음)
-        warn.append("3종 안전등급 평가표(k.5) 18항목이 없어 견본 값 그대로입니다 — AI 초안을 만드세요")
+    # 71차부터 k.5 표를 AI 초안 items로 채움 — 18항목이 없는 3종 곳만(묶음 책 d는 첫 곳 초안을 들고 있어 곳마다 봄, 10/21)
+    for s in sites:
+        if s.template3 and not s.ai.get("items"):
+            warn.append(f"{s.name + ': ' if len(sites) > 1 else ''}3종 안전등급 평가표(k.5) 18항목이 없어 견본 값 그대로입니다 — AI 초안을 만드세요")
     if merged:
         warn.append("끼운 것: " + ", ".join(dict.fromkeys(merged)))
     return hwpx_out, pdf_out, warn, changed
