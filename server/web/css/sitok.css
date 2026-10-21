@@ -13,6 +13,7 @@
 .sk-tpl { display: inline-block; width: fit-content; margin-top: 2px; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: var(--paper); color: var(--muted); }
 .sk-tpl.t3종일반 { background: #F3EFFF; color: #7c3aed; }
 .sk-tpl.t3종학교 { background: var(--green-soft); color: var(--green); }
+.sk-tpl.tnone { background: #FFF4E5; color: #B45309; }
 .sk-sector { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11.5px; font-weight: 700; margin-right: 4px; }
 .sk-sector.pri { background: var(--warn-soft); color: var(--warn); }
 .sk-sector.gov { background: var(--blue-soft); color: var(--blue); }
@@ -406,6 +407,11 @@ details.sk-fold:not([open]) > summary.panel-head { border-bottom: 0; }
 .main .sk-con-order-head .secondary-link { padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
 .main .sk-con-order-head button, .main .sk-deliver-act button { margin: 0; }
 .sk-deliver-act { display: flex; flex-direction: column; gap: 6px; }
+.fi-card[hidden] { display: none; }
+.fi-card.sk-order-card { grid-column: 1 / -1; }
+.sk-order-card .sk-con-order { margin: 0; padding: 0; border: 0; }
+.sk-order-card .sk-con-order-head b { font-size: 14px; font-weight: 800; }
+.sk-order-card .sk-help { -webkit-line-clamp: unset; display: block; }
 .sk-con-used.none { color: var(--faint); background: var(--paper); }
 #sk-dwg .dt-dwg-k { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
 #sk-dwg .dt-dwg-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }

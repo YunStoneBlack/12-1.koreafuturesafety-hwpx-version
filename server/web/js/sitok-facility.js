@@ -71,11 +71,11 @@
   }
 
   // ---------- 발주처 과업지시서(10/21 민재형) — 올리면 옹벽 보고서 부록3에 우리 과업지시서 대신 들어가고, 납품 항목(책자·USB)을 읽어 과업수행계획서에 ----------
-  function orderBlock(c) {
+  function orderBlock(c, which = "") {
     const dv = c.deliver || {};
     const src = { text: "과업지시서에서 읽음", ai: "과업지시서를 AI가 읽음", manual: "직접 적음", default: "과업지시서에서 못 읽음 — 기본값" }[dv.src] || "";
     return `<div class="sk-con-order">
-      <div class="sk-con-order-head"><b>발주처 과업지시서</b><span class="sk-help">올리면 보고서 부록3에 이 파일이 들어가고(우리 과업지시서 대신), 납품 항목을 읽어 과업수행계획서에 넣습니다</span>
+      <div class="sk-con-order-head"><b>📑 발주처 과업지시서</b><span class="sk-help">${which ? `최근 계약(${esc(which)}) — ` : ""}발주처가 준 과업지시서를 올리면 보고서 부록3에 이 파일이 들어가고(우리 과업지시서 대신), 납품 항목(책자·USB)을 읽어 과업수행계획서에 넣습니다. 없으면 우리 과업지시서. 끌어다 놓아도 됩니다</span>
         ${c.has_order ? `<a href="${BASE}/api/sitok/files/order/${c.id}" target="_blank" rel="noopener">과업지시서 보기</a><button type="button" class="secondary btn-sm sk-order-del">지우기</button>` : ""}
         <label class="secondary-link sk-order-up">${c.has_order ? "다시 올리기" : "과업지시서 PDF 올리기"}<input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" /></label>
         <span class="sk-con-msg sk-order-msg"></span></div>
@@ -85,6 +85,21 @@
         <div class="sk-f"><label>비고 <span class="sk-help">기본 협의</span></label><input data-dk="note" value="${esc(dv.note || "협의")}" /></div>
         <div class="sk-f sk-deliver-act"><label>&nbsp;</label><button type="button" class="secondary btn-sm sk-deliver-save">납품 항목 저장</button>${src ? `<span class="sk-help">${esc(src)}</span>` : ""}</div>
       </div></div>`;
+  }
+
+  function drawOrderCard() { // ① 서류·도면 칸의 과업지시서 카드 = 최근 계약(계약 칸 카드와 같은 값·같은 단추)
+    const el = document.getElementById("sk-order");
+    el.hidden = !fac || !fac.is_wall;
+    if (el.hidden) return;
+    const c = (fac.contracts || [])[0];
+    if (!c) {
+      el.innerHTML = '<b>📑 발주처 과업지시서</b><div class="sk-help">계약이 없습니다 — 아래 ② 계약에 계약을 먼저 넣으면 여기서 과업지시서를 올립니다.</div>';
+      el.classList.remove("has");
+      return;
+    }
+    el.innerHTML = orderBlock(c, (fac.contracts || []).length > 1 ? c.title : "");
+    el.classList.toggle("has", !!c.has_order);
+    bindOrder(el, c);
   }
 
   function bindOrder(card, c) {
@@ -287,7 +302,7 @@
     if (fac) setValues(facBox, fac);
     facBox.querySelectorAll(".sk-filled").forEach((el) => el.classList.remove("sk-filled"));
     SitokFields.linkLegal(facBox);
-    SitokFields.applyKind(facBox, !!(fac && fac.is_wall)); // 옹벽은 관리대장 칸(10/21 형)
+    SitokFields.applyKind(facBox, !!(fac && fac.is_wall), (fac && fac.civil_kind) || ""); // 옹벽은 관리대장 칸·틀 2종/3종, 교량 등은 틀 준비 중(10/21 형)
     const cons = document.getElementById("sk-cons");
     cons.innerHTML = "";
     if (fac) {
@@ -317,6 +332,7 @@
       document.getElementById("sk-register").classList.toggle("has", !!fac.has_register);
       sitokDrawDrawings(document.getElementById("sk-dwg"), `/sitok/facilities/${fac.id}/drawings`, undefined, !!fac.is_wall);
       if (fac.is_wall) sitokDrawLocmap(document.getElementById("sk-locmap"), fac.id, fac.name); // 옹벽 위치도 핀·그림(10/21 형)
+      drawOrderCard(); // 옹벽 발주처 과업지시서 — ① 서류·도면에도(계약 칸은 접혀 있어 못 찾음, 10/21 형 "첨부칸 미생성")
       document.getElementById("sk-register").closest(".sk-drop, .fi-card")?.toggleAttribute("hidden", !!fac.is_wall); // 옹벽은 건축물대장 없음(사용자 10/21)
     } else {
       cons.appendChild(conCard(null));

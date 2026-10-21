@@ -1402,11 +1402,40 @@ def _fill_period(db: Session, r: SitokReport) -> str:
     return ""
 
 
+def _template_block_safe(db: Session, r: SitokReport) -> str:
+    """회차 화면 보기용 — 묶음 동 회차를 새로 만들지 않게(_group_reports는 없는 동 회차를 만듦) 동 시설물만 봄."""
+    from server.api.routers.sitok_groups import members
+    from server.sitok import kinds as _kinds
+
+    f = db.get(SitokFacility, r.facility_id)
+    out: list[str] = []
+    for m in members(db, f.group_id) or [f]:
+        why = _kinds.template_block(m, r.kind or "정기")
+        if why and why not in out:
+            out.append(why)
+    return " ".join(out)
+
+
+def _template_block(db: Session, r: SitokReport) -> str:
+    """이 회차(묶음이면 동마다)의 보고서 틀이 없으면 안내 글 — 형 10/21 "보고서 틀이 없는 경우 준비 중입니다, 보고서 만들기 막기"."""
+    from server.sitok import kinds as _kinds
+
+    f = db.get(SitokFacility, r.facility_id)
+    if f is None:
+        return ""
+    if f.group_id:
+        return _template_block_safe(db, r)
+    return _kinds.template_block(f, r.kind or "정기")
+
+
 @router.post("/reports/{report_id}/build")
 def start_build(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
     if r.status == "running":
         raise HTTPException(status.HTTP_409_CONFLICT, "이미 만드는 중입니다.")
+    block = _template_block(db, r)
+    if block:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, block)
     if (r.kind or "정기") == "정밀":  # 정밀(10/13 ⑤) — 본문 원본으로 본문 한글·PDF(부록은 다음)
         if not master.master_path("정밀본문").exists():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전점검 본문 원본이 없습니다 — 시특법 설정에서 올리세요.")
@@ -1439,7 +1468,8 @@ def get_report(report_id: int, user: User = Depends(get_current_user), db: Sessi
         s, e, why = period_default(db, r)
         auto = {"start": _iso(s), "end": _iso(e), "rule": why}
     return {**_out(r), "facility_id": f.id, "facility_name": f.name,  # 회차 화면(sitok-round.html, 10/14)이 경로 표시에 씀
-            "group_rounds": _group_rounds(db, f, r), "build_left": _build_left(db, r), "auto_period": auto}
+            "group_rounds": _group_rounds(db, f, r), "build_left": _build_left(db, r), "auto_period": auto,
+            "build_block": _template_block(db, r) if not f.group_id else _template_block_safe(db, r)}  # 틀 없음 → 만들기 막음(10/21)
 
 
 def _build_left(db: Session, r: SitokReport) -> list[str]:

@@ -35,7 +35,26 @@ const SitokFields = (() => {
   const WALL_ONLY = new Set(["wall_form", "wall_material", "wall_length", "wall_height", "wall_base_width", "wall_route", "wall_surround", "wall_builder", "wall_project", "wall_attached"]);
   const BUILDING_ONLY = new Set(["main_use", "structure", "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "land_area", "coverage_ratio", "floor_area_ratio", "base_wall", "base_slab"]);
 
-  function applyKind(box, isWall) { // 옹벽이면 건축물 칸을 숨기고 옹벽 관리대장 칸을, 아니면 그 반대(10/21)
+  // 보고서 틀(10/21 형): 건축물 = 2종 / 3종 일반 / 3종 학교, 옹벽 = 2종 / 3종(속값은 3종일반), 교량·수리 등 다른 토목 = 준비 중(만들기 막힘)
+  function applyTemplate(box, isWall, civil) {
+    const tpl = box.querySelector('[data-key="template"]');
+    if (!tpl) return;
+    const help = tpl.closest(".sk-f")?.querySelector(".sk-help");
+    const cur = tpl.value;
+    if (isWall) {
+      tpl.innerHTML = '<option value="2종">2종</option><option value="3종일반">3종</option>';
+      tpl.value = cur === "2종" ? "2종" : "3종일반";
+      tpl.disabled = false;
+      if (help) help.textContent = "옹벽 2종 / 3종(+18항목 안전등급 평가)";
+    } else if (civil) {
+      tpl.innerHTML = `<option value="${esc(cur || "2종")}">준비 중 — ${esc(civil)} 보고서 틀 없음</option>`;
+      tpl.disabled = true;
+      if (help) help.textContent = `${civil} 보고서 틀은 준비 중입니다 — 보고서 만들기가 막혀 있습니다`;
+    }
+  }
+
+  function applyKind(box, isWall, civil = "") { // 옹벽이면 건축물 칸을 숨기고 옹벽 관리대장 칸을, 아니면 그 반대(10/21)
+    applyTemplate(box, isWall, civil);
     for (const el of box.querySelectorAll(".sk-f")) {
       const key = el.className.replace(/.*sk-f-(\S+).*/, "$1");
       el.classList.toggle("sk-off", isWall ? BUILDING_ONLY.has(key) : WALL_ONLY.has(key));
@@ -111,5 +130,8 @@ const SitokFields = (() => {
     return sync;
   }
 
-  return { esc, FAC, CON, TEMPLATE_LABEL, input, setValues, values, linkLegal, applyKind };
+  // 목록 뱃지 글 — 옹벽은 3종일반을 "3종", 틀 없는 토목은 "준비 중"(10/21)
+  const templateLabel = (f) => (f.civil_kind && f.civil_kind !== "옹벽" ? "틀 준비 중" : f.civil_kind === "옹벽" ? (f.template === "2종" ? "2종" : "3종")
+    : TEMPLATE_LABEL[f.template] || f.template);
+  return { esc, FAC, CON, TEMPLATE_LABEL, templateLabel, input, setValues, values, linkLegal, applyKind };
 })();

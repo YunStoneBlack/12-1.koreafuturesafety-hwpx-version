@@ -201,7 +201,7 @@
       row.innerHTML = `
         <div class="sk-main">
           <div class="sk-title">${f.mgmt_no ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<span class="sk-sector ${sectorOf(f) === "관급" ? "gov" : "pri"}">${esc(sectorOf(f))}</span><b>${esc(multi ? f.group_name : f.name)}</b>
-            ${multi ? `<span class="sk-dong-n">${ids.length}동</span>` : ""}<span class="sk-tpl t${esc(f.template)}">${esc(TEMPLATE_LABEL[f.template] || f.template)}</span>
+            ${multi ? `<span class="sk-dong-n">${ids.length}동</span>` : ""}<span class="sk-tpl t${esc(f.civil_kind && f.civil_kind !== "옹벽" ? "none" : f.template)}">${esc(f.civil_kind && f.civil_kind !== "옹벽" ? "틀 준비 중" : f.civil_kind === "옹벽" ? (f.template === "2종" ? "옹벽 2종" : "옹벽 3종") : TEMPLATE_LABEL[f.template] || f.template)}</span>
             ${f.badge_field ? `<span class="sk-badge b-field">${esc(f.badge_field)}</span>` : ""}${f.badge_kind ? `<span class="sk-badge b-kind">${esc(f.badge_kind)}</span>` : ""}</div>
           <div class="sk-sub">${esc([f.address, f.owner_name].filter(Boolean).join(" · "))}</div>
           ${multi ? `<div class="sk-dong-chips">${f.members.map((m, i) => `<span class="sk-dong-chip" data-href="sitok-facility.html?id=${m.id}" title="${esc(m.name)} 화면">제${i + 1}장 ${esc(m.name)}${m.fms_no ? ` <small>${esc(m.fms_no)}</small>` : ""}</span>`).join("")}</div>`

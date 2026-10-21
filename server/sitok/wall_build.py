@@ -756,9 +756,13 @@ def _cover_title(tc, d: Data, last: str, doc=None) -> None:
     ps = [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]
     if not ps:
         return
-    head, tail = ps[0], ps[-1] if len(ps) > 1 else None
-    for q in ps[1:-1]:
-        q.getparent().remove(q)
+    # 글이 있는 문단 = 윗줄·아랫줄 — 요약문 표지는 위아래에 빈 문단이 있어(빈·빈·제목·요약문·빈·빈) 첫·끝 문단을 쓰면 제목이 지워짐(10/21 형 "제목 사라짐")
+    texted = [q for q in ps if "".join(x.text or "" for x in q.iter(T)).strip()] or ps
+    head = texted[0]
+    tail = texted[-1] if len(texted) > 1 else None
+    if tail is not None:
+        for q in ps[ps.index(head) + 1:ps.index(tail)]:
+            q.getparent().remove(q)
     line = f"{d.name}에 대한 {d.year}년 {d.half} 정기안전점검"
     lines = [line]
     if len(line) > 26:  # 견본 자간(-5)으로 한 줄 26자쯤 — 1) 자간 더 좁혀(-15, +10%) 29자까지, 2) 그래도 길면 두 줄(형 10/21)

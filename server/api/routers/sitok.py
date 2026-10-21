@@ -293,7 +293,8 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
            "has_ledger_pdf": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()), "has_register": register_path(f).exists(),
            **{k: (f.ledger or {}).get(k) for k in LEDGER_KEYS},
            "is_wall": _kinds.is_wall(f), **{f"wall_{k}": ((f.ledger or {}).get("wall") or {}).get(k) or "" for k in WALL_KEYS},  # 옹벽 칸(10/21)
-           **({"wall_kind_text": _wall_kind_text(f), "use_type": _wall_kind_text(f)} if _kinds.is_wall(f) else {}),  # 옹벽 "종류" 칸 = use_type(비면 관리대장 세분류 → FMS 시설물종류)
+           **({"wall_kind_text": _wall_kind_text(f), "use_type": _wall_kind_text(f)} if _kinds.is_wall(f) else {}),
+           "civil_kind": _kinds.civil_kind(f), "template_block": _kinds.template_block(f),  # 보고서 틀 종류별(10/21 형)  # 옹벽 "종류" 칸 = use_type(비면 관리대장 세분류 → FMS 시설물종류)
            "latest": _contract_out(contracts[0]) if contracts else None, "contract_count": len(contracts)}
     from server.api.routers.sitok_groups import group_out
     out["group"] = group_out(db, f)  # 한 보고서로 묶인 동(10/12)

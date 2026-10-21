@@ -86,6 +86,9 @@ def _is_wall(db: Session, lead: SitokReport) -> bool:
 
 
 def _why_not(db: Session, lead: SitokReport, pairs: list) -> str:
+    block = SR._template_block(db, lead)  # 틀 없는 시설물(교량·수리 등, 형 10/21)
+    if block:
+        return block
     if (lead.kind or "정기") == "정밀":
         return "분권은 정기안전점검 묶음 보고서만 됩니다(정밀은 아직)."
     if len(pairs) < 2:
