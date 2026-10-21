@@ -821,25 +821,41 @@ def _ai_front(root, ai: dict, template: str) -> int:
     if cells is None:
         return 0
     n = 0
-    g = lambda r, c: _cell_text(cells[(r, c)]) if (r, c) in cells else ""  # noqa: E731
-    if ai.get("critical") and (8, 1) in cells:
-        _set_lines(cells[(8, 1)], [ai["critical"]]); n += 1  # noqa: E702
-    if ai.get("public") and (9, 1) in cells:
-        _set_lines(cells[(9, 1)], [ai["public"]]); n += 1  # noqa: E702
-    rows = []
-    r = 10
-    while (r, 1) in cells and not re.sub(r"\s", "", g(r, 0)).startswith(("주요보수", "다.")):
-        rows.append(r)
-        r += 1
-    repair_row = r if (r, 1) in cells and re.sub(r"\s", "", g(r, 0)).startswith("주요보수") else None
+    from server.sitok import form_fix
+
+    def val(*names, starts=False):  # 이름칸 오른쪽 값 칸 — 공식 양식(중대한 결함등)으로 바꾸면 값 칸 열이 달라져 위치 대신 이름으로(10/21)
+        k = _label(cells, *names, starts=starts)
+        return _row_right(cells, k[0], k[1] + _span(cells[k], "colSpan")) if k else None
+
+    crit, pub = val("중대결함", "중대한결함"), val("공중이", starts=True)
+    if ai.get("critical") and crit is not None:
+        _set_lines(crit, [form_fix.none_text(ai["critical"])]); n += 1  # noqa: E702
+    if ai.get("public") and pub is not None:
+        _set_lines(pub, [form_fix.none_text(ai["public"])]); n += 1  # noqa: E702
+    fk = _label(cells, "점검주요결과", "점검(진단)주요결과", starts=True)
+    rows, repair_cell = [], None
+    if fk:
+        mincol = fk[1] + _span(cells[fk], "colSpan")
+        allrows = sorted({k[0] for k in cells})
+        for rr in [x for x in allrows if x >= fk[0]]:
+            lab = next((_n(_cell_text(cells[(rr, c)])) for c in range(0, mincol) if (rr, c) in cells), "")
+            if rr > fk[0] and lab.startswith(("주요보수", "다.")):
+                if lab.startswith("주요보수"):
+                    repair_cell = _row_right(cells, rr, mincol)
+                break
+            v = _row_right(cells, rr, mincol)
+            if v is None:
+                break
+            rows.append(v)
     f = [x if x.startswith(("ㆍ", "-", "·")) else f"ㆍ{x}" for x in ai.get("findings") or []]
     if f and rows:
-        for i, rr in enumerate(rows):
+        for i, tc in enumerate(rows):
             part = f[i:i + 1] if i < len(rows) - 1 else f[i:]
-            _set_lines(cells[(rr, 1)], part or [""])
+            _set_lines(tc, part or [""])
         n += 1
-    if ai.get("repairs") and repair_row is not None:
-        _set_lines(cells[(repair_row, 1)], ai["repairs"]); n += 1  # noqa: E702
+    if ai.get("repairs") and repair_cell is not None:
+        reps = [x for x in ai["repairs"] if str(x).strip()]
+        _set_lines(repair_cell, reps if reps else ["없음"]); n += 1  # noqa: E702
     if ai.get("next_focus"):
         for tc in cells.values():
             for q in tc.iter(f"{{{HP}}}p"):
@@ -2328,6 +2344,10 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     is_front = info.filename == ordered[0]
                     heights = table_heights(root) if not is_front else {}  # 내용 넣기 전 표 높이 어림(_let_split — 늘어난 표만 나눔)
                     changed += _apply(root, whole, parts, front, is_front)
+                    from server.sitok import form_fix  # 공식 결과표 양식·작성방법(10/21 형 "첨부1#")
+                    if is_front:
+                        changed += form_fix.result_official(root)
+                        changed += form_fix.result_title(root, new.half)
                     if is_front and new.persons:
                         changed += engineer_rows(root, new.persons)  # 결과표 기술자 줄은 위치로(글자 바꾸기 충돌 방지, 10/14)
                     if extras.base:
@@ -2355,6 +2375,14 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                         changed += 1
                     if extras.ai:
                         changed += _ai_front(root, extras.ai, extras.template) if is_front else _ai_body(root, extras.ai, extras.template, old.grade)
+                    if is_front:
+                        changed += form_fix.result_none(root)  # 결함이 없으면 "없음"만(작성방법)
+                    else:  # 부록 과업수행계획서·사전검토보고서(10/21 형 수정사항 2~4)
+                        if new.period_start and new.period_end:
+                            changed += form_fix.schedule_days(root, (new.period_end - new.period_start).days + 1)
+                        if new.persons:
+                            changed += form_fix.org_names(root, [p[0] for p in new.persons])
+                        changed += form_fix.precheck_other(root)
                     if is_front and new.persons:
                         changed += engineer_list(root, new.persons)  # 참여기술자 명단도 이번 회차 사람으로(10/14)
                     if is_front:

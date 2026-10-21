@@ -406,10 +406,10 @@ def _fill_result_table(root, D: Data) -> int:
     t = D.texts
     k = right("중대한결함")
     if k:
-        _set(cells, *k, "ㆍ중대결함 없음"); n += 1  # noqa: E702
+        _set(cells, *k, "없음"); n += 1  # noqa: E702
     k = right("공중이이용하는부위")
     if k:
-        _set(cells, *k, "ㆍ중대결함 없음" if not any(g in ("d", "e") for g in (D.pr["grades"] and [x["grade"] for x in D.pr["grades"]["public"]] or [])) else "ㆍ보수가 필요한 손상 있음"); n += 1  # noqa: E702
+        _set(cells, *k, "없음" if not any(g in ("d", "e") for g in (D.pr["grades"] and [x["grade"] for x in D.pr["grades"]["public"]] or [])) else "ㆍ보수가 필요한 손상 있음"); n += 1  # noqa: E702
     k = right("점검주요결과")
     if k:
         r0, c = k

@@ -677,7 +677,7 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
     if not (body.floor or "").strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{kinds.unit_label(fam)}을(를) 고르세요.")
     last = max((d.seq for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == body.floor.strip())), default=0)
-    d = SitokDefect(report_id=r.id, seq=last + 1, check="new", mark="신규")
+    d = SitokDefect(report_id=r.id, seq=last + 1, check="new", mark="신규", progress="비진행성")  # 진행유무 기본(10/21 형 — 신규도 칸이 비지 않게, [진행]을 누르면 진행성)
     _apply(d, body.model_copy(update={"check": "new"}), user, None if fam == "wall" else base_areas(f), vocab_names(db, r.company_id, r.id, fam))
     d.ai_guess = learn.guess_from(body.ai_guess)
     db.add(d)

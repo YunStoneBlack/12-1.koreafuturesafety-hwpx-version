@@ -39,8 +39,8 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 {items_rule}- 점검결과 등급(제2종시설물)은 양호·보통·미흡·불량 중 하나와 근거(중대결함 없고 국부 손상뿐이면 보통 양호, 주요부(전면부·기초)에 진행성 결함이면 보통~미흡, 위험하면 불량).{grade_rule}
 
 아래 JSON 객체 하나로만 답하세요(설명 없이):
-{{"critical": "결과표 중대결함 칸(예: 없음)",
- "public": "결과표 공중이 이용하는 부위에 결함 칸 한 문장(펜스·점검로·도로포장 — 없으면 해당없음)",
+{{"critical": "결과표 중대한 결함 칸 — 시행령 제18조제1항의 중대한 결함이 있을 때만 그 내용 한 줄, 없으면 \"없음\"만",
+ "public": "결과표 공중이 이용하는 부위에 결함 칸 — 펜스·점검로·도로포장에 결함이 있을 때만 위치·결함 한 줄, 없으면 \"없음\"만",
  "findings": ["⦁기초부 : …", "⦁상  부 : …", "⦁전면부 : …", "⦁기  타 : …"],
  "repairs": ["결과표 주요 보수·보강 줄 1~3개(예: ⦁잡목 및 식생제거)"],
  "next_focus": "참고사항 — 차기 점검 시 중점 확인 부위 한 줄(예: 균열 및 이격부 추가 손상 발생 여부 점검)",
@@ -133,7 +133,7 @@ def _fallback(defects: list, prev_grade: str = "", public: str = "", form: str =
             {"name": "배수시설", "prev": "⦁-", "now": _bul(drain or "상태양호"), "action": "⦁배수로 정비" if "퇴적" in drain else "⦁주의관찰"},
             {"name": "공중이 이용하는시설", "prev": "⦁-", "now": _bul(pub_txt), "action": "⦁주의관찰"}]
     grade = prev_grade if prev_grade in GRADES2 else ("보통" if sev else "양호")
-    return {"critical": "⦁없음", "maint_plan": maint_plan(defects, form), "public": "⦁" + (f"{public} 전반적으로 양호한 상태" if public else "전반적으로 양호한 상태"), "findings": findings, "repairs": repairs,
+    return {"critical": "없음", "maint_plan": maint_plan(defects, form), "public": "없음", "findings": findings, "repairs": repairs,  # 작성방법 — 결함이 없으면 "없음"(10/21)
             "next_focus": "균열 및 이격부 추가 손상 발생 여부 점검",
             "sections": {"found": f"지반 및 기초부 조사결과, {base + '이(가) 조사되었으나 ' if base else ''}침하·활동·세굴 등 구조적 이상은 없는 양호한 상태로 조사되었다.",
                          "front": f"옹벽 전면부 외관조사 결과 {front + ' 등이 국부적으로 조사되었으며, ' if front else '특이 손상은 조사되지 않았으며, '}"

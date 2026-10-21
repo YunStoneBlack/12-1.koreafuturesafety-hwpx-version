@@ -941,10 +941,12 @@ def _fill_result_table(tbl, d: Data) -> None:
     _set(cells, (5, 8), d.grade_cell)
     _set(cells, (6, 2), d.address)
     _set(cells, (6, 6), d.size)
-    _set(cells, (8, 2), d.ai.get("critical") or "⦁없음")
-    _set(cells, (9, 2), d.ai.get("public") or "⦁전반적으로 양호한 상태")
+    from server.sitok import form_fix  # 작성방법 — 없으면 "없음"(10/21 형 "첨부1#")
+
+    _set(cells, (8, 2), form_fix.none_text(d.ai.get("critical") or ""))
+    _set(cells, (9, 2), form_fix.none_text(d.ai.get("public") or ""))
     _set(cells, (10, 2), "\n".join(d.ai.get("findings") or []))
-    _set(cells, (11, 2), "\n".join(d.ai.get("repairs") or []))
+    _set(cells, (11, 2), "\n".join(d.ai.get("repairs") or []) or "없음")
     # 다. 책임(참여)기술자 — 줄 수 = 사람 수(형 10/21 "2명일 때 2칸, 3명일 때 3칸"): "구 분" 머리줄 다음부터 "라." 줄 앞까지가 사람 줄
     all_rows = sorted({k[0] for k in cells})
     r_head = next((r for r in all_rows if (r, 0) in cells and rb._n(rb._cell_text(cells[(r, 0)])).startswith("구분")), None)
@@ -1006,7 +1008,7 @@ def fill_front(doc: Hwpx, d: Data) -> None:
     # 위치도 4장 지움, 결과표·전경 덩이는 곳 수만큼(견본 17개 — 모자라면 마지막 덩이 복제)
     sites = d.many
     tops = _tops(root)
-    idx_res = [i for i, p in enumerate(tops) if re.match(r"\d+\.\s*.+정기점검 결과표", _ptext(p))]
+    idx_res = [i for i, p in enumerate(tops) if re.match(r"\d+\.\s*.+정기(안전)?점검.*결과표", _ptext(p))]
     idx_ov = [i for i, p in enumerate(tops) if _ptext(p).endswith("전경사진")]
     i_map = [i for i, p in enumerate(tops) if _ptext(p).endswith("위치도")]
     kill = []
@@ -1038,7 +1040,7 @@ def fill_front(doc: Hwpx, d: Data) -> None:
             _map_into_cell(rb._cells(tbl)[(0, 0)], s, tpl, doc.add_image, many=len(sites) > 1)
     for k, s in enumerate(sites):
         head, *rest = res_blocks[k]
-        title = f"{k + 1}. {s.name} 정기점검 결과표"
+        title = f"{k + 1}. {s.name} 정기안전점검({s.half}) 결과표"  # 공식 양식 제목(10/21 형)
         rb._set_para(head, title)
         res = next((x for q in rest for x in q.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) in (("20", "9"), ("21", "9"))), None)
         if res is not None:
