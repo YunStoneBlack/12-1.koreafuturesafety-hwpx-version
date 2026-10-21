@@ -31,8 +31,11 @@
     document.getElementById("pt-public").innerHTML = data.public.map((p) => `<div class="pt-card${p.none ? " none" : ""}" data-group="public" data-key="${p.key}" data-slot="0">
       <div class="pt-name">${esc(p.name)}<span>${p.has ? "✓ 사진" : p.none ? "해당없음" : "아직"}</span></div>
       <div class="pt-hint">${esc(p.hint)}</div>
-      ${p.has_prev ? `<div class="pt-prev"><img src="${src("public", p.key, 0)}&which=prev" alt="" loading="lazy" /><span>전회차${p.has ? "" : " — 이번 사진을 찍으세요(안 찍으면 전회차가 들어감)"}</span></div>` : ""}
-      ${p.has ? `<img src="${src("public", p.key, 0)}" alt="" loading="lazy" />` : `<div class="pt-blank">${p.none ? "해당없음 — 보고서 칸에 \"해당없음\"" : p.has_prev ? "이번 사진 없음" : "사진 없음"}</div>`}
+      ${p.has_prev ? `<div class="ov-pair"><figure><img src="${src("public", p.key, 0)}&which=prev" alt="" loading="lazy" /><figcaption>전회차</figcaption></figure>
+        <figure>${p.has ? `<img src="${src("public", p.key, 0)}" alt="" loading="lazy" />` : p.none ? '<div class="pt-blank">해당없음</div>'
+          : '<label class="ov-now"><span>📷 이번 찍기</span><input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label>'}
+          <figcaption>이번${p.has || p.none ? "" : " — 안 찍으면 전회차 사진이 들어감"}</figcaption></figure></div>`
+        : p.has ? `<img src="${src("public", p.key, 0)}" alt="" loading="lazy" />` : `<div class="pt-blank">${p.none ? "해당없음 — 보고서 칸에 \"해당없음\"" : "사진 없음"}</div>`}
       <div class="pt-acts">${p.none ? "" : shot(p.has ? "다시 찍기" : "찍기")}
         <button type="button" class="pt-none">${p.none ? "해당없음 풀기" : "해당없음"}</button>
         ${p.has ? '<button type="button" class="pt-del">지우기</button>' : ""}</div></div>`).join("");
@@ -44,7 +47,7 @@
     document.querySelectorAll(".pt-card").forEach((el) => {
       const { group, key, slot } = el.dataset;
       const msg = group === "public" ? "pt-msg" : "pt-msg2";
-      el.querySelectorAll(".pt-shot input").forEach((inp) => inp.addEventListener("change", async () => {
+      el.querySelectorAll(".pt-shot input, .ov-now input").forEach((inp) => inp.addEventListener("change", async () => {
         if (!inp.files[0]) return;
         el.classList.add("busy");
         say(msg, "올리는 중…", true);

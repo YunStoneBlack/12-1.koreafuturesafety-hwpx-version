@@ -22,7 +22,7 @@
     <label class="ov-shot secondary pt-shot">🖼 고르기<input type="file" accept="image/*" hidden data-kr-file="1" /></label>`;
 
   function onFile(el, send) {
-    el.querySelectorAll(".pt-shot input").forEach((inp) => inp.addEventListener("change", async () => {
+    el.querySelectorAll(".pt-shot input, .ov-now input").forEach((inp) => inp.addEventListener("change", async () => {
       if (!inp.files[0]) return;
       el.classList.add("busy");
       await send(inp.files[0]); // send가 오류를 알림·busy 풂
@@ -40,19 +40,31 @@
       if (na) return `<div class="pt-group" data-key="${c.key}">${head}<div class="pt-card none gd-na-card"><div class="pt-name">해당없음<span>철근콘크리트 구조</span></div>
         <div class="pt-hint">보고서 1.3 강재구조 글: "${esc(data.steel_text)}" · 사진 칸 "해당없음"</div></div></div>`;
       const nowP = c.photos.filter((p) => !p.prev), prevP = c.photos.filter((p) => p.prev);
-      const cards = nowP.map((p) => `<div class="pt-card" data-idx="${p.idx}">
-        <img src="${BASE}/api${url}/good/photo?key=${c.key}&idx=${p.idx}&t=${ts}" alt="" loading="lazy" />
+      const img = (p) => `<img src="${BASE}/api${url}/good/photo?key=${c.key}&idx=${p.idx}&t=${ts}" alt="" loading="lazy" />`;
+      // 전회차(가져온 것) 사진마다 한 카드에 [전회차 | 이번](결함 조사처럼, 10/21 형) — 이번 사진은 같은 제목으로 짝지음
+      const used = new Set();
+      const pairs = prevP.map((pp) => {
+        const m = nowP.find((n) => !used.has(n.idx) && n.title && n.title === pp.title);
+        if (m) used.add(m.idx);
+        return [pp, m];
+      });
+      const room = nowP.length < data.per;
+      const pairCards = pairs.map(([pp, m]) => `<div class="pt-card gd-pair" data-prev="${pp.idx}" data-title="${esc(pp.title)}"${m ? ` data-idx="${m.idx}"` : ""}>
+        <div class="pt-name">${esc(pp.title || "상태양호")}<span>${m ? "✓ 이번 사진" : "이번 사진 아직"}</span></div>
+        <div class="ov-pair"><figure>${img(pp)}<figcaption>전회차</figcaption></figure>
+          <figure>${m ? img(m) : room ? '<label class="ov-now"><span>📷 이번 찍기</span><input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label>'
+            : '<div class="pt-blank">이번 사진 칸이 찼습니다</div>'}
+            <figcaption>이번${m ? "" : " — 안 찍으면 전회차 사진이 들어감"}</figcaption></figure></div>
+        ${m ? `<input class="gd-title" value="${esc(m.title)}" placeholder="사진 설명(보고서 사진 아래 글)" />` : ""}
+        <div class="pt-acts">${m ? '<button type="button" class="pt-del">이번 사진 지우기</button>' : room ? '<label class="ov-shot secondary pt-shot">🖼 고르기<input type="file" accept="image/*" hidden data-kr-file="1" /></label>' : ""}
+          <button type="button" class="gd-del-prev">전회차 빼기</button></div></div>`).join("");
+      const cards = nowP.filter((p) => !used.has(p.idx)).map((p) => `<div class="pt-card" data-idx="${p.idx}">
+        ${img(p)}
         <input class="gd-title" value="${esc(p.title)}" placeholder="사진 설명(보고서 사진 아래 글)" />
         <div class="pt-acts"><button type="button" class="pt-del">지우기</button></div></div>`).join("");
-      const add = nowP.length < data.per ? `<div class="pt-card gd-add"><div class="pt-name">사진 ${nowP.length + 1}<span>${data.per}장까지</span></div>
-        <div class="pt-blank">결함 사진 다음 빈 칸에 들어갑니다</div><div class="pt-acts">${shot("찍기")}</div></div>` : "";
-      // 전회차(가져온 것, 10/21 민재형) — 같은 자리를 이번에 찍으면 같은 제목으로 이번 사진에 들어감
-      const prev = prevP.length ? `<div class="gd-prev"><div class="sk-help">전회차 상태양호 사진 ${prevP.length}장 — 이번 사진이 없으면 보고서에 이 사진이 들어갑니다</div>
-        <div class="pt-grid">${prevP.map((p) => `<div class="pt-card gd-prev-card" data-idx="${p.idx}" data-title="${esc(p.title)}">
-          <img src="${BASE}/api${url}/good/photo?key=${c.key}&idx=${p.idx}&t=${ts}" alt="" loading="lazy" />
-          <div class="pt-name">${esc(p.title)}<span>전회차</span></div>
-          <div class="pt-acts">${nowP.length < data.per ? shot("이번 찍기") : ""}<button type="button" class="pt-del">지우기</button></div></div>`).join("")}</div></div>` : "";
-      return `<div class="pt-group" data-key="${c.key}">${head}<div class="pt-grid">${cards}${add}</div>${prev}</div>`;
+      const add = room ? `<div class="pt-card gd-add"><div class="pt-name">새 사진 ${nowP.length + 1}<span>${data.per}장까지</span></div>
+        <div class="pt-blank">${prevP.length ? "전회차에 없던 자리" : "결함 사진 다음 빈 칸에 들어갑니다"}</div><div class="pt-acts">${shot("찍기")}</div></div>` : "";
+      return `<div class="pt-group" data-key="${c.key}">${head}<div class="pt-grid">${pairCards}${cards}${add}</div></div>`;
     }).join("");
     $("gd-list").querySelectorAll(".pt-group").forEach((g) => {
       const key = g.dataset.key;
@@ -71,7 +83,17 @@
       };
       const add = g.querySelector(".gd-add");
       if (add) onFile(add, sendNew(add, ""));
-      g.querySelectorAll(".gd-prev-card").forEach((el) => onFile(el, sendNew(el, el.dataset.title)));
+      g.querySelectorAll(".gd-pair:not([data-idx])").forEach((el) => {
+        onFile(el, sendNew(el, el.dataset.title));
+        const lab = el.querySelector(".ov-now");
+        if (lab) enableFileDrop(lab, lab.querySelector("input"));
+      });
+      g.querySelectorAll(".gd-del-prev").forEach((b) => b.addEventListener("click", async () => {
+        const idx = Number(b.closest(".gd-pair").dataset.prev);
+        if (!confirm("전회차 사진을 뺄까요? (이번 사진이 없으면 보고서 이 칸이 비게 됩니다)")) return;
+        try { data = await api(`${url}/good/photo?key=${key}&idx=${idx}`, { method: "DELETE" }); ts = Date.now(); draw(); } catch (e) { say("gd-msg", e.message); }
+      }));
+      g.querySelectorAll(".gd-pair img").forEach((im) => im.addEventListener("click", (e) => window.open(e.target.src, "_blank")));
       g.querySelectorAll(".pt-card[data-idx]").forEach((el) => {
         const idx = Number(el.dataset.idx);
         el.querySelector(".gd-title").addEventListener("change", async (e) => {
@@ -81,7 +103,7 @@
           if (!confirm("이 사진을 지울까요?")) return;
           try { data = await api(`${url}/good/photo?key=${key}&idx=${idx}`, { method: "DELETE" }); ts = Date.now(); draw(); } catch (e) { say("gd-msg", e.message); }
         });
-        el.querySelector("img").addEventListener("click", (e) => window.open(e.target.src, "_blank"));
+        if (!el.classList.contains("gd-pair")) el.querySelector("img").addEventListener("click", (e) => window.open(e.target.src, "_blank"));
       });
     });
   }

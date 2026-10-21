@@ -17,6 +17,15 @@
   const partOptions = (v) => parts().map((p) => `<option${p === v ? " selected" : ""}>${esc(p)}</option>`).join("");
   const partValue = (v) => (parts().includes(v) ? v : parts()[parts().length - 1]);
   const DEPTH_RE = /박리|박락|층분리/; // 깊이(mm) 칸 — 정밀 상태평가 기준(박리 0.5/1.0/2.5, 박락·층분리 15/20/25mm, 10/13)
+  const WALL_DEPTH_RE = /박리|박락|층분리|파손/; // 옹벽은 파손도(10/21 형 "박리 박락 파손 등은 깊이")
+  const isWall = () => !!(data && data.fam === "wall");
+  const depthOf = (dtype) => !!dtype && (isWall() ? WALL_DEPTH_RE : DEPTH_RE).test(dtype);
+  // 크기 칸 이름(10/21 형): 옹벽 면적 결함(식생·파손·백태 등) = 가로·세로(m) 점검자 입력, 균열 등 = 폭(mm, AI 추천)·길이(m), 개수 = 개소
+  const sizeLabels = (dtype) => {
+    const area = !!dtype && AREA_RE.test(dtype);
+    if (isWall()) return area ? ["개소", "가로(m)", "세로(m)"] : ["개소", "폭(mm)", "길이(m)"];
+    return ["개수", area ? "폭(m)" : "폭(mm)", "길이(m)"];
+  };
   let data = null;
   let started = false; // [전회차 없이 시작]을 누름(신축·전회차 자료 없음)
   try { started = sessionStorage.getItem(`sf-started-${rid}`) === "1"; } catch (_) { /* */ }
@@ -288,12 +297,12 @@
         <button type="button" data-c="grew" class="${d.check === "grew" ? "on" : ""}">진행</button>
         <button type="button" data-c="repaired" class="${d.check === "repaired" ? "on" : ""}">보수 완료</button>
       </div>
-      <div class="sf-size"${d.check === "grew" || d.check === "new" ? "" : " hidden"}>
-        <label>개수<input inputmode="decimal" data-k="count" value="${esc(d.count)}" /></label>
-        <label>폭${d.dtype && AREA_RE.test(d.dtype) ? "(m)" : "(mm)"}<input inputmode="decimal" data-k="width" value="${esc(d.width)}" /></label>
-        <label>길이(m)<input inputmode="decimal" data-k="length" value="${esc(d.length)}" /></label>
-        ${d.dtype && DEPTH_RE.test(d.dtype) ? `<label>깊이(mm)<input inputmode="decimal" data-k="depth" value="${esc(d.depth)}" placeholder="파인 깊이" /></label>` : ""}
-        <span class="sf-qty">${d.qty ? `물량 ${esc(d.qty)}` : ""}</span>
+      <div class="sf-size"${d.check === "grew" || d.check === "new" || (isWall() && d.check !== "repaired" && !isRecord(d.dtype)) ? "" : " hidden"}>
+        <label>${sizeLabels(d.dtype)[0]}<input inputmode="decimal" data-k="count" value="${esc(d.count)}" /></label>
+        <label>${sizeLabels(d.dtype)[1]}<input inputmode="decimal" data-k="width" value="${esc(d.width)}" /></label>
+        <label>${sizeLabels(d.dtype)[2]}<input inputmode="decimal" data-k="length" value="${esc(d.length)}" /></label>
+        ${depthOf(d.dtype) ? `<label>깊이(mm)<input inputmode="decimal" data-k="depth" value="${esc(d.depth)}" placeholder="파인 깊이" /></label>` : ""}
+        <span class="sf-qty">${d.qty ? `물량 ${esc(d.qty)}${d.dtype && AREA_RE.test(d.dtype) ? "㎡" : "m"}` : isWall() ? "물량 — 개소·크기를 넣으면 계산(1.7 개략공사비)" : ""}</span>
       </div>
       ${d.check === "repaired" || isRecord(d.dtype) ? "" : `<div class="sf-cause"><label>원인<input data-k="cause" value="${esc(d.cause)}" placeholder="결함원인(구체적으로)" /></label>
         <span class="sf-prog${d.progress === "진행성" ? " on" : ""}">${esc(d.progress || "")}</span></div>
@@ -370,7 +379,13 @@
     if (d.has_prev_photo) {
       try { r = await apiPost(`/sitok/defects/${d.id}/analyze`); aiHints[d.id] = r; } catch (_) { r = null; }
     }
-    if (!r || r.grew !== true) await apiPatch(`/sitok/defects/${d.id}`, { check: "same" });
+    let cur = d;
+    if (!r || r.grew !== true) cur = await apiPatch(`/sitok/defects/${d.id}`, { check: "same" });
+    // 옹벽 균열: AI가 본 폭을 폭 칸이 비었으면 넣음(10/21 형 "균열 폭 같은 건 AI 추천") — 개소·길이는 점검자가
+    if (isWall() && d.dtype && !AREA_RE.test(d.dtype)) {
+      if (!r && !d.has_prev_photo) { try { r = await apiPost(`/sitok/defects/${d.id}/analyze`); aiHints[d.id] = r; } catch (_) { r = null; } }
+      if (r && r.width && !String((cur && cur.width) || "").trim()) await apiPatch(`/sitok/defects/${d.id}`, { width: r.width });
+    }
   }
 
   function drawList() {
@@ -414,7 +429,14 @@
       const p = (data.unit_part || {})[q(".n-floor").value.trim()];
       if (p) q(".n-part").value = p;
     });
-    const depthBox = () => { q(".n-depth-box").hidden = !DEPTH_RE.test(q(".n-dtype").value || ""); }; // 박리·박락·층분리만 깊이 칸
+    const depthBox = () => { // 박리·박락·층분리(옹벽은 파손도)만 깊이 칸 + 옹벽 칸 이름(개소·가로·세로)
+      const dt = q(".n-dtype").value || "";
+      q(".n-depth-box").hidden = !depthOf(dt);
+      const [a, b, c] = sizeLabels(dt);
+      const labs = [...overlay.querySelectorAll(".sf-size label")];
+      [a, b, c].forEach((t, i) => { const lb = labs[i]; if (lb && lb.firstChild) lb.firstChild.textContent = t; });
+    };
+    depthBox();
     q(".n-dtype").addEventListener("change", depthBox);
     const suggest = (a) => { // 목록에 맞는 게 없을 때 AI 제안 → [이 보고서에만] [회사 목록에] 또는 목록에서 고르기
       const box = q(".n-suggest");
