@@ -31,13 +31,16 @@
     const report = r.status === "running" ? `<span class="sk-chip run">⏳ 만드는 중 — ${esc(r.message)}</span>`
       : r.status === "failed" ? `<span class="sk-chip bad">✗ 만들기 실패</span>`
         : r.has_pdf ? `<span class="sk-chip on">✓ 보고서 ${esc((r.made_at || "").slice(5, 10).replace("-", "."))}</span>` : chip(false, "보고서");
+    const seis = kind === "성능평가", sm = r.seismic || {}; // 내진성능평가 회차(10/21)
     const chips = r.past ? '<span class="sk-chip on">✓ 이미 낸 보고서(등록)</span>'
+      : seis ? chip(r.has_field, "현장 조사") + chip(sm.schedule > 0 && !sm.schedule_need, "일람표") + chip(sm.rebar > 0, "철근탐사") + report
       : chip(r.has_field, "현장 조사") + (kind === "정밀" ? chip(r.has_tests, "재료시험") + chip(r.has_rating, "상태평가") : "")
         + chip(r.has_survey, "면담") + chip(r.has_detail, "현황") + chip(r.has_ai, "AI 초안") + report;
-    el.innerHTML = `<div class="sk-round-main"><div class="sk-round-title"><b>${r.year}년 ${esc(r.half)}</b><button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button>
+    el.innerHTML = `<div class="sk-round-main"><div class="sk-round-title"><b>${r.year}년 ${seis ? "내진성능평가" : esc(r.half)}</b>${seis ? '<span class="sk-kind pre">내진성능평가</span>'
+      : `<button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button>`}
         ${r.period_start ? `<span class="sk-help">${ymdDot(r.period_start)} ~ ${ymdDot(r.period_end)}</span>` : ""}</div>
       <div class="sk-round-prog">${chips}</div></div><span class="sk-round-open">열기 ›</span>`;
-    el.querySelector(".sk-kind-btn").addEventListener("click", async (e) => { // 종류 바꾸기(10/14 형 피드백 — 회차 정보 안에만 있어 못 찾음)
+    el.querySelector(".sk-kind-btn")?.addEventListener("click", async (e) => { // 종류 바꾸기(10/14 형 피드백 — 회차 정보 안에만 있어 못 찾음)
       e.preventDefault();
       e.stopPropagation();
       const to = kind === "정밀" ? "정기" : "정밀";
@@ -171,7 +174,7 @@
     el.innerHTML = `<b>새 회차</b>
       <input type="number" class="nr-year" value="${d.year}" min="2000" max="2100" aria-label="연도" />년
       <select class="nr-half" title="연 3회(D·E등급)면 해빙기·우기·동절기">${["상반기", "하반기", "해빙기", "우기", "동절기"].map((h) => `<option${d.half === h ? " selected" : ""}>${h}</option>`).join("")}</select>
-      <select class="nr-kind" title="회차 종류 — 계약서 그 반기 줄(정기/정밀)에서 자동, 틀리면 고르기"><option value="">계약서대로</option><option>정기</option><option>정밀</option></select>
+      <select class="nr-kind" title="회차 종류 — 계약서 그 반기 줄(정기/정밀)에서 자동, 틀리면 고르기. 내진성능평가는 반기 없이 해마다 하나(10/21)"><option value="">계약서대로</option><option>정기</option><option>정밀</option><option value="성능평가">내진성능평가</option></select>
       <button type="button" class="btn-sm nr-add">+ 회차 만들기</button>
       <label class="secondary-link nr-past" title="이미 낸 지난 반기 보고서 한글(.hwp·.hwpx) — 연도·반기·점검기간은 결과표에서 읽고, 다음 회차가 이걸 틀로 씁니다">이미 낸 보고서 등록<input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" /></label>
       <span class="sk-help nr-msg">보고서는 회사 원본 템플릿으로 만들고, 직전 회차(또는 [이미 낸 보고서 등록]으로 올린 지난 반기 한글)에서는 이력·시설물 현황·지난 평가 같은 데이터만 가져옵니다.</span>`;
@@ -189,9 +192,11 @@
       } catch (e) { err(e); el.classList.remove("busy"); msg.textContent = ""; }
     });
     enableFileDrop(el.querySelector(".nr-past"), past);
+    const kindSel = el.querySelector(".nr-kind"), halfSel = el.querySelector(".nr-half"); // 내진성능평가 = 반기 칸 없음(서버가 "성능평가"로)
+    kindSel.addEventListener("change", () => { halfSel.hidden = kindSel.value === "성능평가"; });
     el.querySelector(".nr-add").addEventListener("click", async () => { // 그 반기를 덮는 계약을 찾아 붙임 — 없으면 계약서 올리기 칸
-      const year = Number(el.querySelector(".nr-year").value), half = el.querySelector(".nr-half").value;
       const kind = el.querySelector(".nr-kind").value || "";
+      const year = Number(el.querySelector(".nr-year").value), half = kind === "성능평가" ? "성능평가" : el.querySelector(".nr-half").value;
       el.classList.add("busy");
       try {
         const r = await api(`/sitok/facilities/${fid}/contract-for?year=${year}&half=${encodeURIComponent(half)}`);

@@ -680,18 +680,28 @@
     document.title = `${data.report.facility} - 결함조사`;
   }
 
+  function seismicOnly() { // 내진성능평가(10/21) — 결함 조사 탭만(외관조사망도·사진첩), 전회차 가져오기 없이 바로. 철근탐사는 회차 화면 🧪 현장시험
+    started = true;
+    const tabs = document.querySelector(".sf-tabs");
+    if (tabs) tabs.style.display = "none";
+    ["overview", "good", "seismic", "public", "other", "docs", "load", "survey"].forEach((t) => { const el = document.getElementById(`sf-${t}`); if (el) el.hidden = true; });
+    document.getElementById("sf-defects").hidden = false;
+  }
+
   async function refresh(redraw = true) {
     try {
       data = await api(`/sitok/reports/${rid}/defects`);
       if (data.survey_only) surveyOnly();
       else {
-        document.getElementById("sf-title").textContent = `${data.report.year}년 ${data.report.half} 현장 조사`;
+        const half = data.seismic ? "내진성능평가" : data.report.half; // 내진성능평가 회차(반기 칸 "성능평가", 10/21)
+        document.getElementById("sf-title").textContent = `${data.report.year}년 ${half} 현장 조사`;
         const link = document.getElementById("sf-fac-link");
         link.textContent = data.report.facility;
         link.href = `sitok-facility.html?id=${data.report.facility_id}`;
         const rl = document.getElementById("sf-round-link"); // 회차 화면(10/14 3층 구조)
-        rl.textContent = `${data.report.year}년 ${data.report.half}`;
+        rl.textContent = `${data.report.year}년 ${half}`;
         rl.href = `sitok-round.html?report=${rid}&one=1`;
+        if (data.seismic) seismicOnly();
       }
       const empty = !data.defects.length && !started;
       document.getElementById("sf-empty").hidden = !empty;

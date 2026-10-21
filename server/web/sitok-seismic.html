@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>현장시험 - 내진성능평가</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/sitok-seismic.css" />
+</head>
+<!-- 내진성능평가 현장시험(2026-10-21 형 "내진성능평가로 새로 항목 만들기") — 철근탐사: 줄 = 시험 하나(RC-n), 층·부재·일람표 칸·위치·변을 고르면
+     설계값(구조 일람표 부재 목록), 두 줄(기둥 주근·대근 / 보 하부근·늑근 / 벽 수직근·수평근)마다 조사값·피복·실측불가·탐사기 캡처(올리면 자동).
+     서버 server/api/routers/sitok_seismic.py(계산 server/sitok/rebar_survey.py), 화면 js/sitok-seismic.js. ?report=회차 id -->
+<body data-report-tab="facilities" data-law="sitok" data-tabs-only>
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div class="crumb"><a href="sitok.html">시설물 목록</a> › <a id="ss-fac-link" href="#">시설물</a> › <a id="ss-round-link" href="#">회차</a> › <span>현장시험</span></div>
+<div id="error" class="error"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>🧪 철근탐사</h2><span class="panel-count" id="ss-count"></span></div>
+  <div class="panel-body">
+    <p class="page-sub">본문 2.2.2 철근배근 조사결과와 부록 "철근배근 상태조사"에 같은 표로 들어갑니다. 층·부재·일람표 칸을 고르면 설계값이 들어가고(기둥은 단변·장변, 단부·중앙부),
+      탐사기 화면 캡처를 올리면 조사값·피복이 채워집니다(간격 = 철근 사이 간격 평균, 피복 = 평균 반올림). 고치는 대로 저장됩니다.</p>
+    <div class="ss-sched" id="ss-sched"></div>
+    <div class="ss-qty" id="ss-qty"></div>
+    <div class="ss-bar">
+      <button type="button" id="ss-add">＋ 시험 추가</button>
+      <a class="secondary-link" id="ss-xlsx" href="#">📊 철근배근 상태조사 표(엑셀)</a>
+      <span class="sk-help" id="ss-saved"></span>
+    </div>
+  </div>
+</section>
+
+<div id="ss-rows"></div>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/sitok-seismic.js"></script>
+</body>
+</html>

@@ -19,7 +19,7 @@
   const one = new URLSearchParams(location.search).get("one") === "1"; // 묶음에서 한 동만 보는 화면
   if (!rid) { err(new Error("회차가 없습니다 (?report=)")); return; }
 
-  const title = () => `${r.year}년 ${r.half}`;
+  const title = () => (r.half === "성능평가" ? `${r.year}년 내진성능평가` : `${r.year}년 ${r.half}`); // 내진성능평가 회차 = 반기 칸 "성능평가"(10/21)
   const personOptions = (selected) => '<option value="">—</option>' + data.persons.map((p) => `<option value="${p.id}"${p.id === selected ? " selected" : ""}>${esc(p.name)}${p.position ? ` ${esc(p.position)}` : ""}</option>`).join("");
   const big = (href, icon, label, on, sub) => `<a class="rd-btn${on ? " on" : ""}" href="${href}"><span class="rd-ic">${icon}</span><span class="rd-lb">${label}${on ? ' <em class="rd-ok">✓</em>' : ""}</span>${sub ? `<span class="rd-sub">${sub}</span>` : ""}</a>`;
   const bigBtn = (cls, icon, label, on, sub) => `<button type="button" class="rd-btn ${cls}${on ? " on" : ""}"><span class="rd-ic">${icon}</span><span class="rd-lb">${label}${on ? ' <em class="rd-ok">✓</em>' : ""}</span>${sub ? `<span class="rd-sub">${sub}</span>` : ""}</button>`;
@@ -62,14 +62,18 @@
     $("rd-fac-link").href = `sitok-facility.html?id=${r.facility_id}`;
     $("rd-crumb").textContent = title();
     const dongs = !r.past && !one && (r.group_rounds || []).length > 1 ? r.group_rounds : null;
-    $("rd-head").innerHTML = `<h1>${esc(dongs && g ? g.name : r.facility_name)} <span class="rd-round">${title()}</span><button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button></h1>
-      <div class="rd-src">${r.past ? "이미 낸 보고서를 등록한 회차 — 다음 회차가 이 보고서의 데이터를 씁니다"
+    const seis = kind === "성능평가";
+    $("rd-head").innerHTML = `<h1>${esc(dongs && g ? g.name : r.facility_name)} <span class="rd-round">${title()}</span>${seis ? '<span class="sk-kind pre">내진성능평가</span>'
+      : `<button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button>`}</h1>
+      <div class="rd-src">${seis ? "내진성능평가 — 현장 조사(결함)·구조 일람표·철근탐사는 지금, 보고서(우리 1~2장 + 외주 3~7장 합치기)는 준비 중" : r.past ? "이미 낸 보고서를 등록한 회차 — 다음 회차가 이 보고서의 데이터를 씁니다"
         : r.has_source ? `전회차 보고서: ${esc(r.source_note)}` : "전회차 보고서 없음 — 처음 세팅하는 시설물(전회차가 있으면 🏢 시설물 현황·📝 면담 창에 전회차 보고서 PDF)"}
         ${r.period_start ? ` · 점검기간 ${ymdDot(r.period_start)} ~ ${ymdDot(r.period_end)}` : ""}</div>
       ${g && !r.past ? `<div class="sk-rep-group">📚 묶음 보고서 <b>${esc(g.name)}</b> — ${g.members.map((m, i) => `제${i + 1}장 ${esc(m.name)}`).join(" · ")}
         <span class="sk-help">점검기간·제출일·기술자는 묶인 동 회차도 같이 바뀝니다. 현장 조사·현황·AI 초안은 동마다.</span></div>` : ""}
       ${g && one && !r.past ? `<a class="rd-back" href="sitok-round.html?report=${r.id}">← ${esc(g.name)} 동 고르기</a>` : ""}${booksBar()}`;
 
+    const fms = $("rd-fms-panel");
+    if (fms) fms.hidden = seis; // 내진성능평가는 FMS 정기·정밀 제출이 아님(10/21)
     if (dongs) {
       // 묶음 — 동 이름만(누르면 그 동 화면), 보고서 칸은 묶음 공통(만들기·합본)만
       $("rd-field").innerHTML = dongs.map(dongPick).join("");
@@ -78,13 +82,18 @@
     } else {
       $("rd-report").hidden = false;
       // 현장 점검
+      const sm = r.seismic || {};
       $("rd-field").innerHTML = r.past ? '<div class="empty-note">이미 낸 보고서를 등록한 회차라 현장 점검은 없습니다.</div>'
+        : seis ? big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, (r.field || {}).defects ? fieldSub(kind) : "결함조사 — 외관조사망도·사진첩") // 내진성능평가(10/21)
+          + big(`sitok-schedule.html?facility=${r.facility_id}`, "📏", "구조 일람표 부재 목록", sm.schedule > 0 && !sm.schedule_need,
+            sm.schedule ? `${sm.schedule}칸${sm.schedule_need ? ` · 확인 필요 ${sm.schedule_need}칸` : " · 모두 확인"}` : "일람표를 AI로 읽어 설계값 — 철근탐사 전에")
+          + big(`sitok-seismic.html?report=${r.id}`, "🧪", "현장시험(철근탐사)", sm.rebar > 0, sm.rebar ? `철근탐사 ${sm.rebar}개소` : "층·부호만 고르면 설계값, 탐사기 캡처로 조사값")
         : big(`sitok-field.html?report=${r.id}`, "📱", "현장 조사", r.has_field, fieldSub(kind))
           + (kind === "정밀" ? big(`sitok-tests.html?report=${r.id}`, "📐", "재료시험", r.has_tests, doneSub("tests", "표본층·규격·강도·탄산화·기울기·부등침하"))
             + big(`sitok-rating.html?report=${r.id}`, "📊", "상태평가", r.has_rating, doneSub("rating", "부재 개수 → 상태평가 등급")) : "")
           + bigBtn("rd-survey", "📝", r.wall ? "면담·점검 이력 조사" : "면담·변경사항 조사", r.has_survey, doneSub("survey", r.wall ? "1.3.2 점검 이력 · 1.3.3 보수 이력" : "1.2.7 보수 이력 · 1.2.8 변경사항"));
       // 보고서
-      $("rd-report").innerHTML = r.past ? "" : (r.wall ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, doneSub("detail", "1.1 현황표 · 1.2 구조·마감·용도"))) // 옹벽은 현황 칸 없음(제원은 관리대장에서, 10/21)
+      $("rd-report").innerHTML = r.past || seis ? "" : (r.wall ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, doneSub("detail", "1.1 현황표 · 1.2 구조·마감·용도"))) // 옹벽은 현황 칸 없음(제원은 관리대장에서, 10/21)
         + ((r.ai_left || []).length // 10/18 형 요청1 — 앞 칸을 다 [완료]해야 AI 초안이 열림
           ? `<div class="rd-btn rd-off rd-lock" title="앞 칸을 다 완료하면 열립니다"><span class="rd-ic">🤖</span><span class="rd-lb">AI 초안 🔒</span><span class="rd-sub">먼저 완료: ${r.ai_left.map(esc).join(" · ")}</span></div>`
           : bigBtn("rd-ai", "🤖", "AI 초안", r.has_ai, doneSub("ai", kind === "정밀" ? "22항목 — 결함·시험·상태평가 글" : "결과표·외관조사 서술·종합결론·등급")));
@@ -118,7 +127,8 @@
     const parts = r.participant_ids || [];
     $("rd-info").innerHTML = `<div class="sk-rep-grid">
         <label>계약<span class="sk-help"></span><select data-k="contract_id">${contractOpts}</select></label>
-        <label>종류 <span class="sk-help">계약서 회차 줄에서 자동 — 틀리면 직접</span><select data-k="kind">${["정기", "정밀"].map((k) => `<option${k === kind ? " selected" : ""}>${k}</option>`).join("")}</select></label>
+        ${seis ? '<label>종류 <span class="sk-help">새 회차로만 바꿀 수 있음</span><input value="내진성능평가" disabled /></label>'
+          : `<label>종류 <span class="sk-help">계약서 회차 줄에서 자동 — 틀리면 직접</span><select data-k="kind">${["정기", "정밀"].map((k) => `<option${k === kind ? " selected" : ""}>${k}</option>`).join("")}</select></label>`}
         <label>점검기간 시작 <span class="sk-help">${autoOk() ? `비우면 ${ymdDot(r.auto_period.start)}(자동)` : "비우면 만들 때 자동(규칙대로)"}</span><input type="date" data-k="period_start" value="${esc(r.period_start)}" /></label>
         <label>점검기간 끝 <span class="sk-help">${autoOk() ? `비우면 ${ymdDot(r.auto_period.end)}(자동)` : "민간 정기 = 현장 간 날"}</span><input type="date" data-k="period_end" value="${esc(r.period_end)}" /></label>
         <label>제출일 <span class="sk-help">표지·제출문 연월, 비우면 점검기간 끝</span><input type="date" data-k="report_date" value="${esc(r.report_date)}" /></label>

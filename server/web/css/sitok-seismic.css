@@ -1,0 +1,41 @@
+/* 내진성능평가 현장시험(sitok-seismic.html, 2026-10-21) — 철근탐사 카드 = 고르기 칸(.field-grid/.sk-f) + 두 줄(설계·조사·피복·실측불가·캡처) */
+.ss-sched { margin: 4px 0 10px; font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.ss-need { color: #a2620b; }
+.ss-qty { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 14px; margin-bottom: 10px; }
+.ss-qty-t { border-collapse: collapse; font-size: 12px; }
+.ss-qty-t th, .ss-qty-t td { border: 1px solid var(--line); padding: 3px 10px; text-align: center; white-space: nowrap; }
+.ss-qty-t th { background: var(--surface-2, #f3f5f9); }
+.ss-qty-t td.ok { color: #1f7a3f; font-weight: 700; }
+.ss-qty-t td.part { color: #a2620b; }
+.ss-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+
+.ss-cards { display: flex; flex-direction: column; gap: 12px; }
+.ss-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--surface); }
+.ss-card-h { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.ss-no { font-size: 15px; }
+.main .ss-card-h button.ss-del { margin: 0 0 0 auto; padding: 4px 8px; background: transparent; border: 1px solid var(--line); color: var(--muted); box-shadow: none; font-size: 14px; }
+.ss-pick { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px 10px; margin: 0 0 8px; }
+.ss-pick .ss-wide { grid-column: span 2; }
+.ss-pick select, .ss-pick input { width: 100%; margin: 0; }
+.ss-warn-link { font-size: 11px; color: #a2620b; font-weight: 700; }
+.ss-lines { display: flex; flex-direction: column; gap: 6px; }
+.ss-line { display: grid; grid-template-columns: 56px minmax(90px, 1fr) minmax(90px, 1fr) 90px auto auto auto auto; align-items: end; gap: 6px 10px;
+  padding: 6px 8px; border-radius: 8px; background: var(--surface-2, #f6f7fa); }
+.ss-line.bad { box-shadow: 0 0 0 1px #e0a39b inset; background: #fff6f4; }
+.ss-line.off input[data-f="measured"], .ss-line.off input[data-f="cover"] { opacity: .45; }
+.ss-lab { font-size: 13px; padding-bottom: 8px; }
+.ss-line .sk-f label { font-size: 11px; }
+.ss-line input { width: 100%; margin: 0; }
+.ss-unable { font-size: 12px; white-space: nowrap; padding-bottom: 8px; display: flex; align-items: center; gap: 4px; }
+.ss-cap { white-space: nowrap; padding-bottom: 6px; }
+.ss-thumb img { display: block; height: 38px; border: 1px solid var(--line); border-radius: 4px; }
+.ss-diff { font-size: 12px; color: #c0392b; font-weight: 700; padding-bottom: 8px; white-space: nowrap; }
+.ss-warn { margin-top: 6px; font-size: 12px; color: #a2620b; }
+
+@media (max-width: 760px) {
+  .ss-pick { grid-template-columns: repeat(2, 1fr); }
+  .ss-pick .ss-wide { grid-column: span 2; }
+  .ss-line { grid-template-columns: 1fr 1fr; }
+  .ss-lab { grid-column: span 2; padding-bottom: 0; }
+  .ss-cover { grid-column: span 1; }
+}

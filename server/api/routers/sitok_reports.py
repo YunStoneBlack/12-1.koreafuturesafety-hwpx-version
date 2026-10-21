@@ -125,7 +125,21 @@ def _out(r: SitokReport) -> dict:
             # 회차 칸 진행 표시(10/14 형 피드백 ⑦ — 3층 구조): ✓ = 칸마다 [✓ 조사 완료]·[✓ 작성 완료]를 누름(10/18 민재형, sitok_steps.py —
             # 전엔 결함 줄·저장한 값이 하나라도 있으면 ✓), steps = {칸: {at, by}}, field = 현장 조사 진행(결함 확인 수·전경 장수)
             **{f"has_{k}": bool(steps.get(r, k)) for k in steps.STEPS}, "steps": (r.survey or {}).get("steps") or {}, "field": _field_progress(r),
-            "wall": _is_wall(r), "ai_left": steps.left(r, "ai", _is_wall(r))}  # AI 초안 칸 잠금(10/18 형 요청1 — 앞 칸을 다 완료해야), 옹벽은 현황 칸 없음(10/21)
+            "wall": _is_wall(r), "ai_left": steps.left(r, "ai", _is_wall(r)),  # AI 초안 칸 잠금(10/18 형 요청1 — 앞 칸을 다 완료해야), 옹벽은 현황 칸 없음(10/21)
+            "seismic": _seismic_progress(r)}  # 내진성능평가 회차 칸 아래 글(철근탐사 줄 수·일람표 확인 필요, 10/21) — 아니면 None
+
+
+def _seismic_progress(r: SitokReport) -> dict | None:
+    if not seasons.is_seismic(r.half):
+        return None
+    from sqlalchemy.orm import object_session
+
+    from server.sitok import rebar_schedule as RS
+
+    db = object_session(r)
+    f = db.get(SitokFacility, r.facility_id) if db is not None else None
+    sv = RS.view(((f.ledger or {}) if f else {}).get("rebar_schedule"))
+    return {"rebar": len(((r.survey or {}).get("rebar") or {}).get("rows") or []), "schedule": len(sv["items"]), "schedule_need": sv["need"]}
 
 
 def _is_wall(r: SitokReport) -> bool:
