@@ -251,6 +251,18 @@ def locate(doc: Hwpx) -> dict[str, str]:
             out["conclusion"] = i
         elif "app4" not in out and head.startswith("부록4"):
             out["app4"] = i
+        elif "order_cover" not in out and head.startswith("과업지시서"):
+            out["order_cover"] = i
+        elif "order_body" not in out and head.startswith("Ⅰ.과업의목적"):
+            out["order_body"] = i
+        elif "plan" not in out and "과업수행계획서" in head and "과업의목적및개요" in t:
+            out["plan"] = i
+        elif "plan_map" not in out and head.startswith("마.과업대상시설물위치도"):
+            out["plan_map"] = i
+        elif "plan_body" not in out and head.startswith("과업수행방법"):
+            out["plan_body"] = i
+        elif "precheck" not in out and "사전검토보고서" in head and "1.과업명" in t:
+            out["precheck"] = i
         elif "appendix" not in out and head.startswith("부록") and "부록1" in t:
             out["appendix"] = i
         elif "app6" not in out and "부록6.기타부록참고자료" in t and "계약서" in t:
@@ -434,6 +446,20 @@ class Data:
     @property
     def many(self) -> list:
         return self.sites or [self]
+
+    @property
+    def start_month(self) -> str:
+        """서류 표지 연월(착수 월) — "2026. 11." """
+        s = self.period_start
+        return f"{s.year}. {s.month:02d}." if s else self.month
+
+    @property
+    def period_days(self) -> str:
+        """"2026. 11. 05 ~ 2026. 12. 20 (착수일로부터 46일간)" """
+        s, e = self.period_start, self.period_end
+        if not (s and e):
+            return "-"
+        return f"{s.year}. {s.month:02d}. {s.day:02d} ~ {e.year}. {e.month:02d}. {e.day:02d} (착수일로부터 {(e - s).days + 1}일간)"
 
     @property
     def grade_cell(self) -> str:
@@ -863,13 +889,216 @@ def fill_intro(doc: Hwpx, d: Data) -> None:
                             f"{d.name}에 대한 상태를 정밀히 파악하여 안전사고 예방 및 사후 조치에 만전을 기하고, 필요시 향후 유지관리 방안을 제시하여 시설물의 안전한 관리에 목적이 있다.")
         elif t.startswith("￭ 과업기간"):
             rb._set_para(p, f"￭ 과업기간 : {d.period}")
-    t = _tbl(root, 18, 9, "번호")
-    if t is not None:
-        _resize(t, len(d.many), 1, 1)
-        cells = rb._cells(t)
-        for i, s in enumerate(d.many, 1):
-            for c, v in enumerate([str(i), s.name, s.spec.get("form") or "-", f"{s.class_no}종", s.spec.get("length") or "-", s.spec.get("height") or "-", s.year_month, "정기점검", ""]):
-                _set(cells, (i, c), v)
+    _fill_target_table(_tbl(root, 18, 9, "번호"), d)
+
+
+def _fill_target_table(t, d: Data) -> None:
+    """과업대상 시설물 표(18×9: 번호·시설물명·형식별·종별·길이·높이·준공연도·점검종류·비고) — 개요 1.2·과업지시서 Ⅱ."""
+    if t is None:
+        return
+    _resize(t, len(d.many), 1, 1)
+    cells = rb._cells(t)
+    for i, s in enumerate(d.many, 1):
+        for c, v in enumerate([str(i), s.name, s.spec.get("form") or "-", f"{s.class_no}종", s.spec.get("length") or "-", s.spec.get("height") or "-", s.year_month, "정기점검", ""]):
+            _set(cells, (i, c), v)
+
+
+def _fill_status_table(t, d: Data) -> None:
+    """대상시설물 현황 표(18×8: 연번·시설명·위치·연장·높이·준공년도·구조형식·종별) — 과업수행계획서 라.·사전검토보고서 3."""
+    if t is None:
+        return
+    _resize(t, len(d.many), 1, 1)
+    cells = rb._cells(t)
+    for i, s in enumerate(d.many, 1):
+        done = f"{s.completion.year}년 {s.completion.month}월" if s.completion else "-"
+        for c, v in enumerate([str(i), s.name, s.address if s.address != "-" else "-", s.spec.get("length") or "-", s.spec.get("height") or "-", done,
+                               s.spec.get("form") or wall_ledger.form_text(s.spec, "") or "-", f"{s.class_no}종"]):
+            _set(cells, (i, c), v)
+
+
+def _short_owner(owner: str) -> str:
+    """과업지시서 표지 발주처 — "포천시청 산림공원과" → "포천시"(첫 낱말, 시청·군청·구청·도청의 청은 뗌)."""
+    first = (owner or "").split()[0] if (owner or "").split() else owner
+    return first[:-1] if re.search(r"(시|군|구|도)청$", first) else first
+
+
+def _purpose_text(d: Data) -> str:
+    where = d.address if d.address != "-" else ""
+    cls = "·".join(sorted({s.class_no for s in d.many}))
+    return (f"본 과업은 「시설물의 안전 및 유지관리에 관한 특별법」에 따른 정기점검 용역으로 {where + '에 위치한 ' if where else ''}제{cls}종 시설물로 지정된 "
+            f"{d.name}에 대한 상태를 정밀히 파악하여 안전사고 예방 및 사후 조치에 만전을 기하고, 필요시 향후 유지관리 방안을 제시하여 시설물의 안전한 관리에 목적이 있다.")
+
+
+def _set_cover_lines(tbl, d: Data, last: str) -> None:
+    """서류 표지 1×1 표(줄 셋: "2026년 상반기 산업단지 옹벽 " / "정기점검 용역" / 서류 이름) — 첫 줄 = 연도·반기·이름, 둘째 그대로, 셋째 = last."""
+    if tbl is None:
+        return
+    ps = [q for q in tbl.iter(f"{{{HP}}}p")]
+    if len(ps) >= 3:  # 이름이 길면(산불대응센터…) 한 줄에 안 들어가 연도·반기 / 이름 / 정기점검 용역 / 서류 이름 네 줄로
+        rb._set_para(ps[0], f"{d.year}년 {d.half}", in_table=True)
+        nm = copy.deepcopy(ps[0])
+        ps[0].addnext(nm)
+        rb._set_para(nm, d.name, in_table=True)
+        rb._set_para(ps[-1], last, in_table=True)
+
+
+def fill_docs(doc: Hwpx, loc: dict, d: Data) -> int:
+    """부록 서류 — 과업지시서(표지·Ⅰ 목적·Ⅱ 대상 표)·과업수행계획서(표지·과업명·기간·현황 표·위치도·조직도)·사전검토보고서(표지·과업명·현황 표). 채운 구역 수."""
+    n = 0
+    if "order_cover" in loc:
+        v = doc.view(loc["order_cover"])
+        for p in _tops(v.root):
+            tx = _ptext(p)
+            if "에 대한" in tx and "정기안전점검" in tx:
+                rb._set_para(p, f"({d.name}에 대한 {d.year}년 {d.half} 정기안전점검)")
+            elif re.fullmatch(r"\d{4}\.\s*\d{2}\.?", tx):
+                rb._set_para(p, d.start_month)
+            elif _sq(tx) == "포천시" and d.owner not in ("", "-"):
+                rb._set_para(p, _spaced(_short_owner(d.owner)))
+        n += 1
+    if "order_body" in loc:
+        v = doc.view(loc["order_body"])
+        tops = _tops(v.root)
+        i0 = next((i for i, p in enumerate(tops) if _ptext(p).startswith("본 과업은 「시설물의 안전")), None)
+        if i0 is not None:  # 견본은 글을 세 문단으로 끊어 둠 — 한 문단으로
+            j = i0 + 1
+            while j < len(tops) and _ptext(tops[j]) and not re.match(r"[ⅠⅡⅢⅣ]", _ptext(tops[j])) and not list(tops[j].iter(f"{{{HP}}}tbl")):
+                j += 1
+            rb._set_para(tops[i0], _purpose_text(d))
+            _del(v.root, [p for p in tops[i0 + 1:j] if _ptext(p)])
+        _fill_target_table(_tbl(v.root, 18, 9, "번호"), d)
+        n += 1
+    if "plan" in loc:
+        v = doc.view(loc["plan"])
+        _set_cover_lines(_tbl(v.root, 1, 1), d, "과업수행계획서")
+        for p in _tops(v.root):
+            tx = _ptext(p)
+            if re.fullmatch(r"\d{4}\.\s*\d{2}\.?", tx):
+                rb._set_para(p, d.start_month)
+            elif tx.startswith("가. 과업명"):
+                rb._set_para(p, f"가. 과업명 : {d.title}")
+            elif tx.startswith("◎") and "~" in tx:
+                rb._set_para(p, f"◎ {d.period_days}")
+        _fill_status_table(_tbl(v.root, 18, 8, "연 번") or _tbl(v.root, 18, 8, "연번"), d)
+        n += 1
+    if "plan_map" in loc:
+        _fill_map_pages(doc, loc, d)
+        n += 1
+    if "plan_body" in loc:
+        v = doc.view(loc["plan_body"])
+        for p in _tops(v.root):
+            tx = _ptext(p)
+            if tx.startswith("◎ 과업기간"):
+                rb._set_para(p, f"◎ 과업기간 : {d.period_days}")
+        org = _tbl(v.root, 7, 8)
+        if org is not None:  # 조직도 — (1,2) 책임기술자, (6,0)·(6,5) 참여기술자
+            cells = rb._cells(org)
+            names = [name for _, name, *_ in d.persons]
+            _set(cells, (1, 2), names[0] if names else "-")
+            _set(cells, (6, 0), names[1] if len(names) > 1 else "-")
+            _set(cells, (6, 5), names[2] if len(names) > 2 else (names[1] if len(names) > 1 else "-"))
+        n += 1
+    if "precheck" in loc:
+        v = doc.view(loc["precheck"])
+        _set_cover_lines(_tbl(v.root, 1, 1), d, "사전검토보고서")
+        for p in _tops(v.root):
+            tx = _ptext(p)
+            if re.fullmatch(r"\d{4}\.\s*\d{2}\.?", tx):
+                rb._set_para(p, d.start_month)
+            elif tx.startswith("1. 과업명"):
+                rb._set_para(p, f"1. 과업명 : {d.title}")
+        _fill_status_table(_tbl(v.root, 18, 8, "연 번") or _tbl(v.root, 18, 8, "연번"), d)
+        n += 1
+    return n
+
+
+def _fill_map_pages(doc: Hwpx, loc: dict, d: Data) -> None:
+    """과업수행계획서 마. 위치도 — 1×1 표(빈 칸)에 곳마다 위치도 그림(locmap), 둘째 곳부터 표 문단 복제(쪽 나눔). 그림 틀은 시설물편 전경 표의 pic."""
+    v = doc.view(loc["plan_map"])
+    tops = _tops(v.root)
+    tp = next((p for p in tops if any((x.get("rowCnt"), x.get("colCnt")) == ("1", "1") for x in p.iter(f"{{{HP}}}tbl"))), None)
+    if tp is None:
+        return
+    tpl = _pic_tpl(doc.roots[loc["chapter"]]) if "chapter" in loc else None
+    if tpl is None:
+        return
+    from server.sitok.merge import _renew_ids
+
+    hp = next((p for p in tops if _ptext(p).startswith("마.")), None)  # 제목 "마. 과업대상 시설물 위치도" — 곳마다 복제해 이름을 붙임(칸 안에 글을 넣으면 넘쳐 빈 쪽이 생김)
+    anchor = tp
+    for k, s in enumerate(d.many):
+        if k == 0:
+            para = tp
+            if hp is not None and len(d.many) > 1:
+                rb._set_para(hp, f"마. 과업대상 시설물 위치도 — {s.name}")
+        else:
+            if hp is not None:
+                nh = copy.deepcopy(hp)
+                nh.set("pageBreak", "1")
+                rb._set_para(nh, f"마. 과업대상 시설물 위치도 — {s.name}")
+                anchor.addnext(nh)
+                anchor = nh
+            para = copy.deepcopy(tp)
+            _renew_ids(para)
+            para.set("pageBreak", "0" if hp is not None else "1")
+            anchor.addnext(para)
+        anchor = para
+        tbl = next(x for x in para.iter(f"{{{HP}}}tbl") if (x.get("rowCnt"), x.get("colCnt")) == ("1", "1"))
+        tc = rb._cells(tbl)[(0, 0)]
+        sz = tc.find(f"{{{HP}}}cellSz")
+        if s.locmap and s.locmap.exists():
+            w, h = (int(sz.get("width")) - 900, int(sz.get("height")) - 2400) if sz is not None else (24000, 18000)
+            img = _fit(s.locmap, w, h)
+            rb._slot_put(tc, None, img, "", "", tpl, doc.add_image)
+            _size_pic(next(tc.iter(f"{{{HP}}}pic"), None), w, h, img, inline=True)  # 글자처럼(떠 있는 그림은 칸을 넘겨 빈 쪽이 생김)
+        else:
+            rb._set_lines(tc, [f"{s.name} — 위치도 없음(주소로 지도를 못 찾음)"])
+
+
+def _size_pic(pic, w: int, h: int, img_bytes: bytes, inline: bool = False) -> None:
+    """그림 개체 크기를 w×h(HWPUNIT)로 — 틀(전경 사진 pic)을 본뜬 그림은 틀 크기라 칸보다 작게 나옴(위치도 칸). inline = 글자처럼 취급."""
+    if pic is None:
+        return
+    if inline:
+        pos = pic.find(f"{{{HP}}}pos")
+        if pos is not None:
+            pos.set("treatAsChar", "1")
+            pos.set("vertOffset", "0")
+            pos.set("horzOffset", "0")
+    import io
+
+    from PIL import Image
+
+    try:
+        pw, ph = Image.open(io.BytesIO(img_bytes)).size
+    except Exception:  # noqa: BLE001
+        pw, ph = 2048, 1536
+    for tag in ("orgSz", "curSz", "sz"):
+        el = pic.find(f"{{{HP}}}{tag}")
+        if el is not None:
+            el.set("width", str(w))
+            el.set("height", str(h))
+    rot = pic.find(f"{{{HP}}}rotationInfo")
+    if rot is not None:
+        rot.set("centerX", str(w // 2))
+        rot.set("centerY", str(h // 2))
+    sca = pic.find(f"{{{HP}}}renderingInfo/{{{HC}}}scaMatrix")
+    if sca is not None:
+        sca.set("e1", "1")
+        sca.set("e5", "1")
+    rect = pic.find(f"{{{HP}}}imgRect")
+    if rect is not None:
+        for name, (x, y) in (("pt0", (0, 0)), ("pt1", (w, 0)), ("pt2", (w, h)), ("pt3", (0, h))):
+            pt = rect.find(f"{{{HC}}}{name}")
+            if pt is not None:
+                pt.set("x", str(x))
+                pt.set("y", str(y))
+    clip = pic.find(f"{{{HP}}}imgClip")
+    if clip is not None:
+        clip.set("left", "0")
+        clip.set("top", "0")
+        clip.set("right", str(pw * 75))
+        clip.set("bottom", str(ph * 75))
 
 
 def _fill_history(tbl, rows: list) -> None:
@@ -1320,11 +1549,8 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
         say(f"{key} 채우는 중…")
         fn(doc.view(loc[key]), d)
         changed += 1
-    if "app5" in loc:
-        keep_from(doc.view(loc["app5"]), "부록5")
-    if "app6" in loc:
-        keep_from(doc.view(loc["app6"]), "부록6")
-    doc.drop_except(set(loc.values()) | set(chapters))  # 과업지시서·과업수행계획서·사전검토보고서 본문(견본 17곳 것)
+    say("부록 서류(과업지시서·과업수행계획서·사전검토보고서) 채우는 중…")
+    changed += fill_docs(doc, loc, d)  # 10/21 형 — 합본에 든 서류를 다 채움(구역은 하나도 안 뺌)
     doc.renumber_pages([loc["summary"], loc["intro"]])
     say("한글 파일 저장 중…")
     doc.save(hwpx_out)
