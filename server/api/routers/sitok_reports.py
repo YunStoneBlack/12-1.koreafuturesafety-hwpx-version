@@ -139,7 +139,8 @@ def _seismic_progress(r: SitokReport) -> dict | None:
     db = object_session(r)
     f = db.get(SitokFacility, r.facility_id) if db is not None else None
     sv = RS.view(((f.ledger or {}) if f else {}).get("rebar_schedule"))
-    return {"rebar": len(((r.survey or {}).get("rebar") or {}).get("rows") or []), "schedule": len(sv["items"]), "schedule_need": sv["need"]}
+    files = {k: Path(str(v)).name for k, v in ((r.survey or {}).get("seismic_files") or {}).items() if v}
+    return {"rebar": len(((r.survey or {}).get("rebar") or {}).get("rows") or []), "schedule": len(sv["items"]), "schedule_need": sv["need"], "files": files}
 
 
 def _is_wall(r: SitokReport) -> bool:
@@ -305,7 +306,7 @@ def create_report(facility_id: int, body: ReportIn, user: User = Depends(get_cur
             raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "계약서에서 회차 종류(정기/정밀)를 못 읽었습니다 — 종류를 골라 주세요.")
         vals["kind"] = k
     r = _new_report(db, user.display_name or "", f, body.year, body.half, **vals)
-    if f.group_id:  # 묶인 동도 같은 반기 회차(사용자 10/12 — 한 번 묶이면 계속)
+    if f.group_id and not seasons.is_seismic(body.half):  # 묶인 동도 같은 반기 회차(사용자 10/12 — 한 번 묶이면 계속), 내진성능평가는 건물마다 따로(10/21)
         _group_reports(db, r, user.display_name or "")
     db.commit()
     return _out(r)
@@ -1013,6 +1014,8 @@ def _run_build(report_id: int) -> None:
     with SessionLocal() as db:
         r = db.get(SitokReport, report_id)
         f = db.get(SitokFacility, r.facility_id)
+        if seasons.is_seismic(r.half):
+            return _run_seismic_build(db, r, f)  # 내진성능평가(10/21) — 우리 1~2장 원본 + 외주 3~7장 끼워 넣기
         if (r.kind or "정기") == "정밀":
             return _run_precision_group_build(db, r) if f.group_id else _run_precision_build(db, r)
         from server.sitok import kinds as _kinds
@@ -1090,6 +1093,24 @@ def _run_wall_build(db: Session, r: SitokReport, f: SitokFacility) -> None:
             x.out_hwpx, x.out_pdf, x.status, x.made_at, x.message = str(hwpx), str(pdf), "done", now, msg
     except Exception as err:  # noqa: BLE001
         _fail([x for _, x in pairs] or [r], err)
+    db.commit()
+
+
+def _run_seismic_build(db: Session, r: SitokReport, f: SitokFacility) -> None:
+    """내진성능평가 보고서(server/sitok/seismic_build — 1차: 이름·날짜·참여기술자·결과표 가·1.1·1.2·2.2.2 철근배근 + 외주 3~7장 끼워 넣기)."""
+    from server.sitok import seismic_build
+
+    try:
+        def say(msg: str) -> None:
+            r.message = f"내진성능평가 보고서 — {msg}"
+            db.commit()
+
+        hwpx, pdf, warn, changed = seismic_build.build(db, r, f, _report_dir(f, r), say)
+        head = warn.pop(0) if warn and warn[0].endswith("쪽") else ""
+        r.out_hwpx, r.out_pdf, r.status, r.made_at = str(hwpx), str(pdf), "done", datetime.datetime.now()
+        r.message = _done_msg(f"{head}, {changed}곳 채움", "합본", {"": []}, warn)
+    except Exception as err:  # noqa: BLE001
+        _fail([r], err)
     db.commit()
 
 
@@ -1460,7 +1481,9 @@ def start_build(report_id: int, user: User = Depends(get_current_user), db: Sess
     block = _template_block(db, r)
     if block:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, block)
-    if (r.kind or "정기") == "정밀":  # 정밀(10/13 ⑤) — 본문 원본으로 본문 한글·PDF(부록은 다음)
+    if (r.kind or "정기") == "성능평가":  # 내진성능평가(10/21) — 원본 확인은 _template_block이 함
+        pass
+    elif (r.kind or "정기") == "정밀":  # 정밀(10/13 ⑤) — 본문 원본으로 본문 한글·PDF(부록은 다음)
         if not master.master_path("정밀본문").exists():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전점검 본문 원본이 없습니다 — 시특법 설정에서 올리세요.")
     elif not master.master_path().exists():
@@ -1500,7 +1523,7 @@ def _build_left(db: Session, r: SitokReport) -> list[str]:
     """보고서 만들기 전에 아직 완료 안 된 칸(10/18 형 요청1) — 한 동이면 ["면담·변경사항 조사 · 시설물 현황"],
     묶음이면 동마다 "제2장 교사동(서관) — …"(그 반기 회차가 없는 동도)."""
     f = db.get(SitokFacility, r.facility_id)
-    if not f.group_id:
+    if not f.group_id or seasons.is_seismic(r.half):  # 내진성능평가는 건물마다 따로(묶음이어도 이 회차만, 10/21)
         miss = steps.left(r, "build", _is_wall(r))
         return [" · ".join(miss)] if miss else []
     from server.api.routers.sitok_groups import members

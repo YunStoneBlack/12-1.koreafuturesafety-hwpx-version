@@ -65,7 +65,7 @@ def _field(db: Session, r: SitokReport) -> _Miss:
         other = sum(1 for _, _, ph, pph in rows if not ok(pph) and not ok(ph))
         if other:
             add("defects", f"이번 사진이 없는 결함(전회차 사진도 없음) {other}개")
-    if getattr(db.get(SitokFacility, r.facility_id), "survey_only", False):  # 결함조사만(0061) — 전경·상태양호·공중이용 등은 없음
+    if getattr(db.get(SitokFacility, r.facility_id), "survey_only", False) or r.half == "성능평가":  # 결함조사만(0061)·내진성능평가(10/21) — 전경·상태양호·공중이용 등은 없음
         return out
     if not r.overview:
         add("overview", "전경사진 0장 — 안 찍으면 지난 회차 사진이 그대로 들어갑니다")

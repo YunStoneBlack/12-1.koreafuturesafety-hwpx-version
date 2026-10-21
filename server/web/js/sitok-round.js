@@ -61,16 +61,16 @@
     $("rd-fac-link").textContent = r.facility_name;
     $("rd-fac-link").href = `sitok-facility.html?id=${r.facility_id}`;
     $("rd-crumb").textContent = title();
-    const dongs = !r.past && !one && (r.group_rounds || []).length > 1 ? r.group_rounds : null;
+    const dongs = !r.past && !one && kind !== "성능평가" && (r.group_rounds || []).length > 1 ? r.group_rounds : null; // 내진성능평가는 건물마다 따로(10/21)
     const seis = kind === "성능평가";
     $("rd-head").innerHTML = `<h1>${esc(dongs && g ? g.name : r.facility_name)} <span class="rd-round">${title()}</span>${seis ? '<span class="sk-kind pre">내진성능평가</span>'
       : `<button type="button" class="sk-kind sk-kind-btn ${kind === "정밀" ? "pre" : ""}" title="누르면 ${kind === "정밀" ? "정기" : "정밀"}로 바꿉니다">${kind}안전점검 ▾</button>`}</h1>
       <div class="rd-src">${seis ? "내진성능평가 — 현장 조사(결함)·구조 일람표·철근탐사는 지금, 보고서(우리 1~2장 + 외주 3~7장 합치기)는 준비 중" : r.past ? "이미 낸 보고서를 등록한 회차 — 다음 회차가 이 보고서의 데이터를 씁니다"
         : r.has_source ? `전회차 보고서: ${esc(r.source_note)}` : "전회차 보고서 없음 — 처음 세팅하는 시설물(전회차가 있으면 🏢 시설물 현황·📝 면담 창에 전회차 보고서 PDF)"}
         ${r.period_start ? ` · 점검기간 ${ymdDot(r.period_start)} ~ ${ymdDot(r.period_end)}` : ""}</div>
-      ${g && !r.past ? `<div class="sk-rep-group">📚 묶음 보고서 <b>${esc(g.name)}</b> — ${g.members.map((m, i) => `제${i + 1}장 ${esc(m.name)}`).join(" · ")}
+      ${g && !r.past && !seis ? `<div class="sk-rep-group">📚 묶음 보고서 <b>${esc(g.name)}</b> — ${g.members.map((m, i) => `제${i + 1}장 ${esc(m.name)}`).join(" · ")}
         <span class="sk-help">점검기간·제출일·기술자는 묶인 동 회차도 같이 바뀝니다. 현장 조사·현황·AI 초안은 동마다.</span></div>` : ""}
-      ${g && one && !r.past ? `<a class="rd-back" href="sitok-round.html?report=${r.id}">← ${esc(g.name)} 동 고르기</a>` : ""}${booksBar()}`;
+      ${g && one && !r.past && !seis ? `<a class="rd-back" href="sitok-round.html?report=${r.id}">← ${esc(g.name)} 동 고르기</a>` : ""}${booksBar()}`;
 
     const fms = $("rd-fms-panel");
     if (fms) fms.hidden = seis; // 내진성능평가는 FMS 정기·정밀 제출이 아님(10/21)
@@ -93,7 +93,10 @@
             + big(`sitok-rating.html?report=${r.id}`, "📊", "상태평가", r.has_rating, doneSub("rating", "부재 개수 → 상태평가 등급")) : "")
           + bigBtn("rd-survey", "📝", r.wall ? "면담·점검 이력 조사" : "면담·변경사항 조사", r.has_survey, doneSub("survey", r.wall ? "1.3.2 점검 이력 · 1.3.3 보수 이력" : "1.2.7 보수 이력 · 1.2.8 변경사항"));
       // 보고서
-      $("rd-report").innerHTML = r.past || seis ? "" : (r.wall ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, doneSub("detail", "1.1 현황표 · 1.2 구조·마감·용도"))) // 옹벽은 현황 칸 없음(제원은 관리대장에서, 10/21)
+      const vf = ((r.seismic || {}).files || {}).body; // 내진성능평가 외주 3~7장 한글(10/21) — 만들 때 우리 1~2장 끝에 한글이 끼워 넣음
+      $("rd-report").innerHTML = r.past ? "" : seis ? `<label class="rd-btn${vf ? " on" : ""}" title="외주가 준 3장 설계하중~7장 결론 한글(.hwp·.hwpx)"><span class="rd-ic">📎</span>
+          <span class="rd-lb">외주 3~7장 한글${vf ? ' <em class="rd-ok">✓</em>' : ""}</span><span class="rd-sub">${vf ? esc(vf) + " — 바꾸려면 다시 올리기" : "만들 때 우리 1~2장 뒤에 끼워 넣음(장·쪽 번호 이어짐)"}</span>
+          <input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" id="rd-vendor" /></label>` : (r.wall ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, doneSub("detail", "1.1 현황표 · 1.2 구조·마감·용도"))) // 옹벽은 현황 칸 없음(제원은 관리대장에서, 10/21)
         + ((r.ai_left || []).length // 10/18 형 요청1 — 앞 칸을 다 [완료]해야 AI 초안이 열림
           ? `<div class="rd-btn rd-off rd-lock" title="앞 칸을 다 완료하면 열립니다"><span class="rd-ic">🤖</span><span class="rd-lb">AI 초안 🔒</span><span class="rd-sub">먼저 완료: ${r.ai_left.map(esc).join(" · ")}</span></div>`
           : bigBtn("rd-ai", "🤖", "AI 초안", r.has_ai, doneSub("ai", kind === "정밀" ? "22항목 — 결함·시험·상태평가 글" : "결과표·외관조사 서술·종합결론·등급")));
@@ -143,6 +146,18 @@
   }
 
   function bind() {
+    const vin = $("rd-vendor");
+    if (vin) {
+      if (typeof enableFileDrop === "function") enableFileDrop(vin.closest("label"), vin);
+      vin.addEventListener("change", async () => { // 외주 3~7장 한글 올리기(10/21)
+        if (!vin.files[0]) return;
+        const sub = vin.closest("label").querySelector(".rd-sub");
+        sub.textContent = `${vin.files[0].name} 올리는 중…`;
+        const fd = new FormData();
+        fd.append("file", vin.files[0]);
+        try { await apiUpload(`/sitok/reports/${r.id}/seismic/files/body`, fd); load(); } catch (e) { err(e); sub.textContent = e.message; }
+      });
+    }
     $("rd-head").querySelector(".sk-kind-btn")?.addEventListener("click", async () => { // 종류 바꾸기(10/14 형 피드백)
       const to = (r.kind || "정기") === "정밀" ? "정기" : "정밀";
       if (!confirm(`${title()}를 ${to}안전점검으로 바꿀까요? 정밀이면 재료시험·상태평가 버튼이 생깁니다.`)) return;

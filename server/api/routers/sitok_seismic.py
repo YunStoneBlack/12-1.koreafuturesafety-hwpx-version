@@ -141,6 +141,31 @@ def get_capture(report_id: int, row_id: str, line: int, user: User = Depends(get
     return FileResponse(p, media_type="image/png")
 
 
+VENDOR_KEYS = {"body": ("외주 3~7장 한글", (".hwp", ".hwpx"))}  # 다음 단계: 결과표·체크리스트 한글, GEN 부록·내역서·지반조사보고서 PDF
+
+
+@router.post("/reports/{report_id}/seismic/files/{key}")
+def upload_vendor(report_id: int, key: str, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """외주 결과물 올리기 — body = 3~7장 한글(만들 때 우리 1~2장 끝에 한글이 끼워 넣음). 회차 폴더 외주/에 보관, survey.seismic_files."""
+    if key not in VENDOR_KEYS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "올릴 수 있는 것: " + ", ".join(v[0] for v in VENDOR_KEYS.values()))
+    label, exts = VENDOR_KEYS[key]
+    name = file.filename or "외주.hwp"
+    ext = Path(name).suffix.lower()
+    if ext not in exts:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{label}은(는) {'·'.join(exts)} 파일로 올려 주세요.")
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    dest = _report_dir(f, r) / "외주" / f"{Path(name).stem[:60]}{ext}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(file.file.read())
+    files = dict((r.survey or {}).get("seismic_files") or {})
+    files[key] = str(dest)
+    r.survey = {**(r.survey or {}), "seismic_files": files}
+    db.commit()
+    return {"ok": True, "files": {k: Path(str(v)).name for k, v in files.items() if v}}
+
+
 @router.get("/reports/{report_id}/seismic/rebar.xlsx")
 def rebar_xlsx(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)

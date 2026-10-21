@@ -43,7 +43,7 @@ def norm_row(raw: dict, n: int) -> dict | None:
 
     return {"id": raw.get("id") or uuid.uuid4().hex[:8], "no": n, "floor": floor, "kind": kind, "item_id": str(raw.get("item_id") or ""),
             "mark": str(raw.get("mark") or "").strip()[:30],
-            "position": raw.get("position") if raw.get("position") in ("단부", "중앙부") else ("" if kind == "벽체" else "중앙부"),
+            "position": "" if kind == "벽체" else (raw.get("position") if raw.get("position") in ("단부", "중앙부") else "중앙부"),  # 벽체는 위치 없음
             "side": (raw.get("side") if raw.get("side") in ("단변", "장변") else "단변") if kind == "기둥" else "",
             "design": pair("design"), "design_manual": bool(raw.get("design_manual")),
             "measured": pair("measured"), "cover": pair("cover", _int), "unable": [bool(x) for x in (list(raw.get("unable") or []) + [False, False])[:2]],

@@ -3,6 +3,8 @@
 
     _시스템\\hwp2pdf\\<번호>.hwpx   → 작업 프로그램이 바꿔서 <번호>.pdf(성공) / <번호>.err(실패 이유)
     _시스템\\hwp2pdf\\<번호>__x.hwp  → 한글 형식만 바꿔 <번호>__x.outx(= hwpx, 시특법 지난 보고서 올리기 2026-10-10)
+    _시스템\\hwp2pdf\\<번호>__m0.hwpx + _add\\<번호>__m0.hwpx → 한글이 뒤 파일을 앞 파일 끝에 끼워 넣어(파일 끼워 넣기, 쪽 나눔 뒤) <번호>__m0.outx
+      (10/21 내진성능평가 — 외주 3~7장을 우리 1~2장 뒤에: 장 번호·쪽 번호·머리말이 사람이 붙여 넣은 것처럼 이어짐. m0 = 구역 설정 안 가져옴, m1 = 가져옴)
 """
 from __future__ import annotations
 
@@ -18,15 +20,20 @@ WAIT_SECONDS = 150
 HWP_EXTS = (".hwp", ".hwpx")
 
 
-def convert_via_worker(data: bytes, ext: str, to: str = "pdf", wait: int = WAIT_SECONDS) -> bytes:
+def convert_via_worker(data: bytes, ext: str, to: str = "pdf", wait: int = WAIT_SECONDS, add: bytes | None = None, keep_section: int = 0) -> bytes:
     """API 쪽 — 대기열에 넣고 작업 프로그램이 PDF로(to="hwpx"면 한글 hwpx로) 바꿀 때까지 기다린다(보고서 PDF 작업이 앞에 있으면 그만큼 더).
     큰 파일(시특법 보고서 100쪽 넘음)은 wait를 늘려 백그라운드에서 부른다."""
     QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-    key = uuid.uuid4().hex + ("__x" if to == "hwpx" else "")
+    key = uuid.uuid4().hex + ("__x" if to == "hwpx" else f"__m{1 if keep_section else 0}" if to == "merge" else "")
+    add_path = None
+    if to == "merge":  # 끼워 넣을 파일은 하위 폴더(_add)에 먼저 — 대기열 폴더에 두면 일감으로 집힘
+        (QUEUE_DIR / "_add").mkdir(exist_ok=True)
+        add_path = QUEUE_DIR / "_add" / f"{key}.hwpx"
+        add_path.write_bytes(add or b"")
     tmp = QUEUE_DIR / f"{key}.part"
     tmp.write_bytes(data)
     src = tmp.rename(QUEUE_DIR / f"{key}{ext}")
-    pdf, err = QUEUE_DIR / (f"{key}.outx" if to == "hwpx" else f"{key}.pdf"), QUEUE_DIR / f"{key}.err"
+    pdf, err = QUEUE_DIR / (f"{key}.outx" if to in ("hwpx", "merge") else f"{key}.pdf"), QUEUE_DIR / f"{key}.err"
     try:
         deadline = time.time() + wait
         while time.time() < deadline:
@@ -38,8 +45,9 @@ def convert_via_worker(data: bytes, ext: str, to: str = "pdf", wait: int = WAIT_
             time.sleep(1)
         raise RuntimeError("한글 파일 변환이 오래 걸려 멈췄습니다 — 보고서 작업 프로그램이 켜져 있는지 확인하거나 PDF로 바꿔 올리세요.")
     finally:
-        for p in (src, pdf, err):
-            p.unlink(missing_ok=True)
+        for p in (src, pdf, err, add_path):
+            if p is not None:
+                p.unlink(missing_ok=True)
 
 
 def process_pending() -> bool:
@@ -48,12 +56,14 @@ def process_pending() -> bool:
         return False
     pending = sorted((p for p in QUEUE_DIR.iterdir() if p.suffix.lower() in HWP_EXTS), key=lambda p: p.stat().st_mtime)
     for src in pending:
-        to_hwpx = src.stem.endswith("__x")
+        merge = src.stem.endswith(("__m0", "__m1"))
+        to_hwpx = src.stem.endswith("__x") or merge
         pdf, err = src.with_suffix(".outx" if to_hwpx else ".pdf"), src.with_suffix(".err")
         if pdf.exists() or err.exists():
             continue
         try:
-            _to_pdf(src, pdf, "HWPX" if to_hwpx else "PDF")
+            add = QUEUE_DIR / "_add" / f"{src.stem}.hwpx" if merge else None
+            _to_pdf(src, pdf, "HWPX" if to_hwpx else "PDF", add=add, keep_section=1 if src.stem.endswith("__m1") else 0)
         except Exception as e:  # noqa: BLE001 — 이유를 남기고 다음으로
             err.write_text(str(e) or type(e).__name__, encoding="utf-8")
         return True
@@ -108,7 +118,7 @@ class _Guard:
         self.done.set()
 
 
-def _to_pdf(src: Path, dest: Path, fmt: str = "PDF") -> None:
+def _to_pdf(src: Path, dest: Path, fmt: str = "PDF", add: Path | None = None, keep_section: int = 0) -> None:
     from desktop.workers.ai_worker import with_com
     from core.hwp_cleanup import ensure_hwp_security_module_registered
 
@@ -129,6 +139,13 @@ def _to_pdf(src: Path, dest: Path, fmt: str = "PDF") -> None:
             hwp.hwp.SetMessageBoxMode(0x2FFFF1)  # 확인 창 자동 통과(안 보이는 창이라 응답 못 함)
             if not hwp.open(str(src)):
                 raise RuntimeError("한글에서 파일을 열지 못했습니다.")
+            if add is not None:  # 합치기(10/21) — 문서 끝에서 쪽 나눔 뒤 파일 끼워 넣기(글자·문단 모양·스타일은 끼우는 파일 것 유지)
+                if not add.exists():
+                    raise RuntimeError("끼워 넣을 파일이 없습니다.")
+                hwp.MoveDocEnd()
+                hwp.hwp.HAction.Run("BreakPage")
+                if not hwp.insert_file(str(add), keep_section=keep_section, keep_charshape=1, keep_parashape=1, keep_style=1):
+                    raise RuntimeError("파일 끼워 넣기를 하지 못했습니다.")
             # 임시 파일은 대기열 밖(_work)에 — 대기열 안에 .hwpx로 두면 다음 일감으로 다시 집힘(10/10)
             if not hwp.save_as(str(tmp), format=fmt):
                 raise RuntimeError(f"{fmt}로 저장하지 못했습니다.")

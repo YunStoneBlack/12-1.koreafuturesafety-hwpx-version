@@ -10,6 +10,8 @@ STEPS = {"field": "현장 조사", "tests": "재료시험", "rating": "상태평
 def needed(kind: str, upto: str, wall: bool = False) -> list[str]:
     """그 단계 전에 끝나야 할 칸(10/18 형 요청1 — "각 항목이 모두 체크 완료되었을 때 AI 초안 작성 버튼이 활성화, 그 이후 보고서 합본 버튼").
     ai = 현장 조사(정밀은 재료시험·상태평가)·면담·변경사항 조사·시설물 현황, build = 그 위 + AI 초안. 옹벽(wall)은 시설물 현황 칸이 없음(1.2.1 제원은 관리대장에서, 10/21)."""
+    if kind == "성능평가":  # 내진성능평가(10/21) — 면담·현황·AI 초안 칸이 없음, 현장 조사만 끝나면 만들기
+        return ["field"]
     out = ["field", *(["tests", "rating"] if kind == "정밀" else []), "survey", *([] if wall else ["detail"])]
     return out + (["ai"] if upto == "build" else [])
 
