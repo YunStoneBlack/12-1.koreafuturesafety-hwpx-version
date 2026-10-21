@@ -24,8 +24,16 @@ def _num(s: str) -> str:
 
 
 def kind_text_of(facility_class: str) -> str:
-    """시설물종류 글("…건축물옹벽"·"…도로옹벽"·"…부대시설이 아닌 옹벽") → 결과표 "종류" 칸(건축물옹벽 / 도로옹벽 / 기타옹벽)."""
+    """시설물종류 글("…건축물옹벽"·"…도로옹벽"·"…부대시설이 아닌 옹벽") → 결과표 "종류" 칸(건축물옹벽 / 도로옹벽 / 기타옹벽).
+    먼저 FMS 시설물분류 표(fms_classes — 관리대장 칸은 세분류, 보고서는 시설물종류, 사용자 10/21)에서 찾고 없으면 낱말로."""
+    from server.sitok import fms_classes
+
+    got = fms_classes.kind_of(facility_class)
+    if got:
+        return got
     c = _sq(facility_class)
+    if not c:
+        return ""
     if "건축물옹벽" in c:
         return "건축물옹벽"
     if "도로옹벽" in c:

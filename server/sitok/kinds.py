@@ -51,6 +51,11 @@ def civil_kind(facility) -> str:
     kind = (getattr(facility, "kind", "") or "").replace(" ", "")
     if kind.startswith("건축물"):
         return ""
+    from server.sitok import fms_classes
+
+    g = fms_classes.group_of(kind)  # FMS 시설물분류 표(시설물구분)
+    if g:
+        return "" if g == "건축물" else g
     return next((k for k in sorted(CIVIL_KINDS, key=len, reverse=True) if k in kind), "")
 
 

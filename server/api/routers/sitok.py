@@ -274,6 +274,14 @@ def _contract_out(c: SitokContract) -> dict:
             "created_at": c.created_at.strftime("%Y-%m-%d") if c.created_at else ""}
 
 
+def _wall_kind_text(f: SitokFacility) -> str:
+    """옹벽 "종류" 칸 — 저장값 > 관리대장 세분류 글로 FMS 표에서(건축물옹벽 등, 10/21 사용자) > 시설물 구분 글로."""
+    from server.sitok import wall_ledger
+
+    w = (f.ledger or {}).get("wall") or {}
+    return w.get("kind_text") or wall_ledger.kind_text_of(w.get("facility_class") or f.kind or "")
+
+
 def register_path(f: SitokFacility) -> Path:
     """건축물대장 PDF — 시설물 폴더에 하나(시설물 현황 AI·1.2.8 초안이 같이 씀). 10/14 시설물 정보·서류 칸에서 올림."""
     return _facility_dir(f) / "건축물대장.pdf"
@@ -286,6 +294,7 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
            "has_ledger_pdf": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()), "has_register": register_path(f).exists(),
            **{k: (f.ledger or {}).get(k) for k in LEDGER_KEYS},
            "is_wall": _kinds.is_wall(f), **{f"wall_{k}": ((f.ledger or {}).get("wall") or {}).get(k) or "" for k in WALL_KEYS},  # 옹벽 칸(10/21)
+           **({"wall_kind_text": _wall_kind_text(f)} if _kinds.is_wall(f) else {}),
            "latest": _contract_out(contracts[0]) if contracts else None, "contract_count": len(contracts)}
     from server.api.routers.sitok_groups import group_out
     out["group"] = group_out(db, f)  # 한 보고서로 묶인 동(10/12)
