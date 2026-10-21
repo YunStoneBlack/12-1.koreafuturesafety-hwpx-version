@@ -1619,14 +1619,21 @@ def _wall_ai_draft(db: Session, r: SitokReport, f: SitokFacility, rows: list, us
     return _ai_out(db, r)
 
 
+AI_JOBS: dict[int, dict] = {}  # 회차 → AI 초안 일 {state: running/done/failed, msg, started} — API가 다시 뜨면 비어 화면은 저장된 초안을 그림
+
+
 @router.post("/reports/{report_id}/ai/draft")
 def ai_draft_new(report_id: int, body: DraftIn | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """AI 초안 새로 — 결과는 draft에, 점검자가 고치기 전 final도 같은 값으로(화면에서 고쳐 저장하면 final만 바뀜).
-    body.grade = up/down이면 지금 등급에서 한 단계 올리거나 내린 등급으로 다시 씀(정기만, 10/19 형)."""
-    from core.models_web import SitokDefect
+    body.grade = up/down이면 지금 등급에서 한 단계 올리거나 내린 등급으로 다시 씀(정기만, 10/19 형).
+    10/21: 뒤에서 돌림 — 3종은 사진 판단·본문·18항목·요약문 결언까지 AI 여러 번이라 3분을 넘겨 그룹웨어 nginx(180초)가 504로 끊었음(서버는 계속 써서 저장됨).
+    바로 {job}을 돌려주고 화면은 GET /ai/draft/state를 물어 끝나면 GET /ai. 같은 회차가 쓰는 중이면 새로 시작하지 않음(여러 번 눌러 겹쳐 돌던 것)."""
     from server.sitok import ai_draft
 
     r = _require(db, user, report_id)
+    job = AI_JOBS.get(r.id)
+    if job and job.get("state") == "running":
+        return {"job": job}
     target = ""
     if body is not None and body.grade in ("up", "down"):
         fin0 = (r.ai or {}).get("final") or {}
@@ -1641,6 +1648,39 @@ def ai_draft_new(report_id: int, body: DraftIn | None = None, user: User = Depen
     miss = steps.left(r, "ai", _is_wall(r))
     if miss:  # 10/18 형 요청1 — 앞 칸을 다 [완료]해야 AI 초안(화면 칸도 잠김)
         raise HTTPException(status.HTTP_409_CONFLICT, f"AI 초안 전에 먼저 완료할 칸: {' · '.join(miss)}")
+    AI_JOBS[r.id] = {"state": "running", "msg": f"AI가 {target} 등급에 맞게 다시 쓰는 중" if target else "AI가 초안을 쓰는 중",
+                     "started": datetime.datetime.now().strftime("%H:%M:%S")}
+    threading.Thread(target=_ai_draft_job, args=(r.id, user.id, target), daemon=True).start()
+    return {"job": AI_JOBS[r.id]}
+
+
+@router.get("/reports/{report_id}/ai/draft/state")
+def ai_draft_state(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """AI 초안 일 상태 — {state: idle/running/done/failed, msg}."""
+    r = _require(db, user, report_id)
+    return AI_JOBS.get(r.id) or {"state": "idle", "msg": ""}
+
+
+def _ai_draft_job(report_id: int, user_id: int, target: str) -> None:
+    db = SessionLocal()
+    try:
+        r, user = db.get(SitokReport, report_id), db.get(User, user_id)
+        _ai_draft_work(db, r, user, target)
+        AI_JOBS[report_id] = {"state": "done", "msg": "다 썼습니다", "at": datetime.datetime.now().strftime("%H:%M:%S")}
+    except HTTPException as err:
+        AI_JOBS[report_id] = {"state": "failed", "msg": str(err.detail)}
+    except Exception as err:  # noqa: BLE001 — 이유를 화면에
+        traceback.print_exc()
+        AI_JOBS[report_id] = {"state": "failed", "msg": f"AI 초안을 만들지 못했습니다: {str(err).splitlines()[0][:200]}"}
+    finally:
+        db.close()
+
+
+def _ai_draft_work(db: Session, r: SitokReport, user: User, target: str) -> dict:
+    """AI 초안 본 일(뒤에서) — 정밀·옹벽·건축물 정기."""
+    from core.models_web import SitokDefect
+    from server.sitok import ai_draft
+
     if (r.kind or "정기") == "정밀":
         return _precision_ai_draft(db, r, user)
     f = db.get(SitokFacility, r.facility_id)

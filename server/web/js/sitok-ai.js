@@ -38,18 +38,41 @@ async function openSitokAi(reportId, title, onSaved) {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   const head = `<div class="mail-head"><b>🤖 AI 초안</b><span class="mail-sub">${esc(title)} — AI가 쓴 글을 고쳐 저장하면 보고서를 만들 때 들어갑니다</span></div>`;
 
-  async function makeDraft(body) {
-    busy = true;
-    box.innerHTML = `${head}<div class="mail-wait">${body && body.grade ? "요청한 등급에 맞게 다시 쓰는 중…(30~90초)" : "현장 조사 결함으로 초안을 쓰는 중…(30~90초)"}</div>`;
-    try {
-      const ai = await apiPost(`/sitok/reports/${reportId}/ai/draft`, body);
-      busy = false;
-      draw(ai);
-    } catch (e) {
-      busy = false;
-      box.innerHTML = `${head}<div class="mail-msg bad">${esc(e.message)}</div><div class="mail-foot"><button type="button" class="mail-cancel">닫기</button></div>`;
-      box.querySelector(".mail-cancel").addEventListener("click", close);
+  const fail = (m) => {
+    busy = false;
+    box.innerHTML = `${head}<div class="mail-msg bad">${esc(m)}</div><div class="mail-foot"><button type="button" class="mail-cancel">닫기</button></div>`;
+    box.querySelector(".mail-cancel").addEventListener("click", close);
+  };
+
+  // AI 초안은 서버가 뒤에서 씀(10/21 — 3종은 3분 넘게 걸려 그룹웨어가 504로 끊었음) — 4초마다 상태를 묻고 끝나면 저장된 초안을 그림.
+  // 창을 닫아도 뒤에서 계속 쓰고, 다시 열면 이어서 기다림.
+  async function waitJob(text) {
+    busy = false; // 닫기 허용
+    const t0 = Date.now();
+    box.innerHTML = `${head}<div class="mail-wait"><span class="ai-wait-t">${esc(text)}</span><br><small>보통 1~5분 — 창을 닫아도 뒤에서 계속 쓰고, 다시 열면 이어서 봅니다</small></div>
+      <div class="mail-foot"><button type="button" class="mail-cancel">닫기</button></div>`;
+    box.querySelector(".mail-cancel").addEventListener("click", close);
+    for (;;) {
+      await new Promise((res) => setTimeout(res, 4000));
+      if (!document.body.contains(overlay)) return;
+      let st;
+      try { st = await api(`/sitok/reports/${reportId}/ai/draft/state`); } catch (e) { st = { state: e.status === 404 ? "idle" : "running" }; } // 잠깐 끊김(서버 재시작 등)은 계속 기다림
+      const el = box.querySelector(".ai-wait-t");
+      if (st.state === "running") { if (el) el.textContent = `${text} — ${Math.round((Date.now() - t0) / 1000)}초`; continue; }
+      if (st.state === "failed") { fail(st.msg || "AI 초안을 만들지 못했습니다."); return; }
+      try { draw(await api(`/sitok/reports/${reportId}/ai`)); } catch (e) { fail(e.message); }
+      return;
     }
+  }
+
+  async function makeDraft(body) {
+    body = body && body.grade ? { grade: body.grade } : {}; // [AI 초안 만들기] 단추는 클릭 이벤트를 넘김
+    busy = true;
+    box.innerHTML = `${head}<div class="mail-wait">AI에게 보내는 중…</div>`;
+    try {
+      const res = await apiPost(`/sitok/reports/${reportId}/ai/draft`, body);
+      await waitJob(((res && res.job) || {}).msg || (body.grade ? "AI가 요청한 등급에 맞게 다시 쓰는 중" : "AI가 초안을 쓰는 중"));
+    } catch (e) { fail(e.message); }
   }
 
   // 정밀안전점검(10/13 ⑤-2) — 항목 22개: 기본 글이 먼저, [AI로 다시 쓰기]로 결함·시험·상태평가 값을 보고 다시 씀, 고쳐 저장하면 본문에 들어감
@@ -70,11 +93,10 @@ async function openSitokAi(reportId, title, onSaved) {
     box.querySelectorAll(".ai-useai").forEach((b) => b.addEventListener("click", () => { box.querySelector(`[data-k="${b.dataset.k}"]`).value = byKey[b.dataset.k].ai; }));
     box.querySelector(".mail-cancel").addEventListener("click", close);
     box.querySelector(".ai-redo").addEventListener("click", async () => {
-      if (!confirm("결함현황표·재료시험·상태평가 값을 AI에게 보내 22항목을 다시 씁니다(30~90초). 고친 글은 AI 글로 바뀝니다. 할까요?")) return;
+      if (!confirm("결함현황표·재료시험·상태평가 값을 AI에게 보내 22항목을 다시 씁니다(1~5분). 고친 글은 AI 글로 바뀝니다. 할까요?")) return;
       busy = true;
-      box.innerHTML = `${head}<div class="mail-wait">AI가 정밀안전점검 문장을 쓰는 중…(30~90초)</div>`;
-      try { const next = await apiPost(`/sitok/reports/${reportId}/ai/draft`); busy = false; drawPrecision(next); }
-      catch (e) { busy = false; box.innerHTML = `${head}<div class="mail-msg bad">${esc(e.message)}</div><div class="mail-foot"><button type="button" class="mail-cancel">닫기</button></div>`; box.querySelector(".mail-cancel").addEventListener("click", close); }
+      box.innerHTML = `${head}<div class="mail-wait">AI에게 보내는 중…</div>`;
+      try { await apiPost(`/sitok/reports/${reportId}/ai/draft`); await waitJob("AI가 정밀안전점검 문장을 쓰는 중"); } catch (e) { fail(e.message); }
     });
     const savePre = async () => { // [저장]·[✓ 작성 완료](먼저 저장) — 성공하면 true
       const precision = {};
@@ -202,7 +224,7 @@ async function openSitokAi(reportId, title, onSaved) {
     box.querySelector(".ai-redo").addEventListener("click", () => { if (confirm("AI가 처음부터 다시 씁니다. 고친 글은 사라집니다. 할까요?")) makeDraft(); });
     box.querySelectorAll(".ai-regrade-btn").forEach((b) => b.addEventListener("click", () => { // 등급 재산정 요청(10/19 형 "한 단계 상향·하향 요청")
       const up = b.dataset.g === "up";
-      if (!confirm(`등급을 한 단계 ${up ? "올려(좋게)" : "내려(낮게)"} AI가 등급 근거·결과표·종합결론${(f.items || []).length ? "·18항목 평가" : ""}를 다시 씁니다(30~90초, AI 1~2번). 고친 글은 사라집니다. 할까요?`)) return;
+      if (!confirm(`등급을 한 단계 ${up ? "올려(좋게)" : "내려(낮게)"} AI가 등급 근거·결과표·종합결론${(f.items || []).length ? "·18항목 평가" : ""}를 다시 씁니다(1~5분). 고친 글은 사라집니다. 할까요?`)) return;
       makeDraft({ grade: up ? "up" : "down" });
     }));
     box.querySelector(".ai-sum-redo").addEventListener("click", async (e) => { // 요약문 결언 — 동마다 확정 AI 초안 결론을 묶어(10/16)
@@ -264,5 +286,9 @@ async function openSitokAi(reportId, title, onSaved) {
     sitokStepFoot(box, reportId, "ai", save, onSaved); // [✓ 작성 완료](10/18 민재형)
   }
 
-  try { draw(await api(`/sitok/reports/${reportId}/ai`)); } catch (e) { box.innerHTML = `${head}<div class="mail-msg bad">${esc(e.message)}</div>`; }
+  try {
+    const st = await api(`/sitok/reports/${reportId}/ai/draft/state`).catch(() => ({}));
+    if (st.state === "running") await waitJob(st.msg || "AI가 초안을 쓰는 중"); // 열 때 이미 쓰는 중이면 이어서 기다림
+    else draw(await api(`/sitok/reports/${reportId}/ai`));
+  } catch (e) { box.innerHTML = `${head}<div class="mail-msg bad">${esc(e.message)}</div>`; }
 }
