@@ -125,7 +125,18 @@ def _out(r: SitokReport) -> dict:
             # 회차 칸 진행 표시(10/14 형 피드백 ⑦ — 3층 구조): ✓ = 칸마다 [✓ 조사 완료]·[✓ 작성 완료]를 누름(10/18 민재형, sitok_steps.py —
             # 전엔 결함 줄·저장한 값이 하나라도 있으면 ✓), steps = {칸: {at, by}}, field = 현장 조사 진행(결함 확인 수·전경 장수)
             **{f"has_{k}": bool(steps.get(r, k)) for k in steps.STEPS}, "steps": (r.survey or {}).get("steps") or {}, "field": _field_progress(r),
-            "ai_left": steps.left(r, "ai")}  # AI 초안 칸 잠금(10/18 형 요청1 — 앞 칸을 다 완료해야)
+            "wall": _is_wall(r), "ai_left": steps.left(r, "ai", _is_wall(r))}  # AI 초안 칸 잠금(10/18 형 요청1 — 앞 칸을 다 완료해야), 옹벽은 현황 칸 없음(10/21)
+
+
+def _is_wall(r: SitokReport) -> bool:
+    """회차의 시설물이 옹벽인지(server/sitok/kinds.is_wall) — 회차 화면 단계·만들기 분기."""
+    from sqlalchemy.orm import object_session
+
+    from server.sitok import kinds as _kinds
+
+    db = object_session(r)
+    f = db.get(SitokFacility, r.facility_id) if db is not None else None
+    return bool(f) and _kinds.is_wall(f)
 
 
 def _field_progress(r: SitokReport) -> dict:
@@ -1019,7 +1030,7 @@ def _run_build(report_id: int) -> None:
 
 
 def _run_wall_build(db: Session, r: SitokReport, f: SitokFacility) -> None:
-    """옹벽 한 곳 정기 보고서(server/sitok/wall_build) — 부분 파일(표지·요약문·서두·목차·개요·현장조사·시설물편·종합결론·부록)을 채워 PDF로 바꿔 합침."""
+    """옹벽 한 곳 정기 보고서(server/sitok/wall_build) — 옹벽 원본 한 파일(형이 합친 것, 10/21)을 채워 한글 한 파일 + PDF(관리대장·사진첩·계약서 끼움)."""
     from server.sitok import wall_build
 
     try:
@@ -1029,11 +1040,11 @@ def _run_wall_build(db: Session, r: SitokReport, f: SitokFacility) -> None:
             r.message = f"옹벽 보고서 — {msg}"
             db.commit()
 
-        pdf, warn, changed = wall_build.build(db, r, f, folder, say)
-        r.out_hwpx = str(folder / "부분")  # 부분 hwpx 폴더(한글 파일 하나가 아님)
+        hwpx, pdf, warn, changed = wall_build.build(db, r, f, folder, say)
+        r.out_hwpx = str(hwpx)
         r.out_pdf, r.status, r.made_at = str(pdf), "done", datetime.datetime.now()
         pages = pymupdf.open(pdf).page_count
-        r.message = _done_msg(f"{pages}쪽, 부분 {changed}개", "합본", {f.name: []}, warn)
+        r.message = _done_msg(f"{pages}쪽, {changed}곳 바꿈", "합본", {f.name: []}, warn)
     except Exception as err:  # noqa: BLE001
         _fail([r], err)
     db.commit()
@@ -1402,14 +1413,14 @@ def _build_left(db: Session, r: SitokReport) -> list[str]:
     묶음이면 동마다 "제2장 교사동(서관) — …"(그 반기 회차가 없는 동도)."""
     f = db.get(SitokFacility, r.facility_id)
     if not f.group_id:
-        miss = steps.left(r, "build")
+        miss = steps.left(r, "build", _is_wall(r))
         return [" · ".join(miss)] if miss else []
     from server.api.routers.sitok_groups import members
 
     out = []
     for i, m in enumerate(members(db, f.group_id) or [f], 1):
         x = r if m.id == f.id else db.query(SitokReport).filter(SitokReport.facility_id == m.id, SitokReport.year == r.year, SitokReport.half == r.half).first()
-        miss = steps.left(x, "build") if x is not None else ["이 반기 회차 없음"]
+        miss = steps.left(x, "build", _is_wall(x)) if x is not None else ["이 반기 회차 없음"]
         if miss:
             out.append(f"제{i}장 {m.name} — {' · '.join(miss)}")
     return out
@@ -1549,7 +1560,7 @@ def ai_draft_new(report_id: int, body: DraftIn | None = None, user: User = Depen
         if not 0 <= i < len(order):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"이미 {'가장 좋은' if body.grade == 'up' else '가장 낮은'} 등급입니다.")
         target = order[i]
-    miss = steps.left(r, "ai")
+    miss = steps.left(r, "ai", _is_wall(r))
     if miss:  # 10/18 형 요청1 — 앞 칸을 다 [완료]해야 AI 초안(화면 칸도 잠김)
         raise HTTPException(status.HTTP_409_CONFLICT, f"AI 초안 전에 먼저 완료할 칸: {' · '.join(miss)}")
     if (r.kind or "정기") == "정밀":

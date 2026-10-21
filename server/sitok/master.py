@@ -43,8 +43,9 @@ FILES = {  # 원본 종류 → 파일 이름. 정밀은 회사 관행대로 본�
     "정기": "정기안전점검_원본.hwpx",
     "정밀본문": "정밀안전점검_본문_원본.hwpx",
     "정밀부록": "정밀안전점검_부록_원본.hwpx",
+    "옹벽": "정기안전점검_옹벽_원본.hwpx",  # 옹벽 정기 한 파일(10/21 민재형이 부분 11개를 합쳐 줌 — 3종 시설물편, 2종은 wall_build가 뺌)
 }
-KIND_LABEL = {"정기": "정기안전점검 원본", "정밀본문": "정밀안전점검 본문 원본", "정밀부록": "정밀안전점검 부록 원본"}
+KIND_LABEL = {"정기": "정기안전점검 원본", "정밀본문": "정밀안전점검 본문 원본", "정밀부록": "정밀안전점검 부록 원본", "옹벽": "옹벽 정기안전점검 원본"}
 
 
 def master_dir() -> Path:
@@ -256,7 +257,26 @@ def check(hwpx: Path, kind: str = "정기") -> list[str]:
     with zipfile.ZipFile(hwpx) as z:
         roots = [etree.fromstring(z.read(n)) for n in rb._sections(z)]
     tops = [rb._top_text(p).strip() for r in roots for p in r if p.tag == f"{{{HP}}}p"]
-    return [name for name, ok in (CHECKS if kind == "정기" else PRECISION_CHECKS[kind]) if not ok(roots, tops)]
+    checks = CHECKS if kind == "정기" else WALL_CHECKS if kind == "옹벽" else PRECISION_CHECKS[kind]
+    return [name for name, ok in checks if not ok(roots, tops)]
+
+
+def _has_table(roots, rows: int, cols: int, head: str = "") -> bool:
+    for r in roots:
+        for t in r.iter(f"{{{HP}}}tbl"):
+            if (t.get("rowCnt"), t.get("colCnt")) == (str(rows), str(cols)) and rb._n(rb._cell_text(rb._cells(t).get((0, 0), t))).startswith(rb._n(head)):
+                return True
+    return False
+
+
+WALL_CHECKS = [  # 옹벽 원본(한 파일) — wall_build가 채우는 자리
+    ("정기점검 결과표(가. 일반현황)", lambda roots, tops: _has_table(roots, 20, 9, "가. 일반현황")),
+    ("1.2.1 시설물 현황표(시설물 번호)", lambda roots, tops: _has_table(roots, 12, 8, "시설물 번호")),
+    ("1.4.5 실시결과 요약표(부재명)", lambda roots, tops: _has_table(roots, 8, 4, "부재명")),
+    ("1.2 점검결과 총괄표(No)", lambda roots, tops: _has_table(roots, 21, 6, "No")),
+    ("목차(제Ⅱ편)", lambda roots, tops: any(t.replace(" ", "").startswith("제Ⅱ편") for t in tops)),
+    ("부록2 간지", lambda roots, tops: any("부록2" in "".join(x.text or "" for x in r.iter(rb.T)) for r in roots)),
+]
 
 
 def _fix_texts(root) -> int:

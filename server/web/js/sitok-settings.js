@@ -131,7 +131,8 @@
     const box = document.getElementById("ss-master");
     const all = data.master || {};
     const KINDS = [["정기", "정기안전점검 원본", "한 파일(본문 + 부록)"], ["정밀본문", "정밀안전점검 본문 원본", "결과표 + 시설물편 1~7장"],
-      ["정밀부록", "정밀안전점검 부록 원본", "관리대장·성과표·상태평가 결과 자료"]];
+      ["정밀부록", "정밀안전점검 부록 원본", "관리대장·성과표·상태평가 결과 자료"],
+      ["옹벽", "옹벽 정기안전점검 원본", "한 파일(3종 시설물편 포함 — 2종은 프로그램이 1.6 안전등급 평가·2.2 상태평가를 뺌)"]];
     box.innerHTML = KINDS.map(([k, label, note]) => {
       const m = all[k] || {};
       return `<div class="ss-master" data-kind="${k}"><b>${label}</b><span class="sk-help">${note}</span>

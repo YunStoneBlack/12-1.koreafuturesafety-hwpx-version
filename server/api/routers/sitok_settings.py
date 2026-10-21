@@ -151,7 +151,7 @@ def get_settings(user: User = Depends(get_current_user), db: Session = Depends(g
 
 def _master_kind(kind: str) -> str:
     if kind not in master.FILES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "원본 종류는 정기·정밀본문·정밀부록입니다.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "원본 종류는 정기·정밀본문·정밀부록·옹벽입니다.")
     return kind
 
 

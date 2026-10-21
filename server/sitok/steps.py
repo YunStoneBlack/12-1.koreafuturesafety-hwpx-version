@@ -7,16 +7,16 @@ from __future__ import annotations
 STEPS = {"field": "현장 조사", "tests": "재료시험", "rating": "상태평가", "survey": "면담·변경사항 조사", "detail": "시설물 현황", "ai": "AI 초안"}
 
 
-def needed(kind: str, upto: str) -> list[str]:
+def needed(kind: str, upto: str, wall: bool = False) -> list[str]:
     """그 단계 전에 끝나야 할 칸(10/18 형 요청1 — "각 항목이 모두 체크 완료되었을 때 AI 초안 작성 버튼이 활성화, 그 이후 보고서 합본 버튼").
-    ai = 현장 조사(정밀은 재료시험·상태평가)·면담·변경사항 조사·시설물 현황, build = 그 위 + AI 초안."""
-    out = ["field", *(["tests", "rating"] if kind == "정밀" else []), "survey", "detail"]
+    ai = 현장 조사(정밀은 재료시험·상태평가)·면담·변경사항 조사·시설물 현황, build = 그 위 + AI 초안. 옹벽(wall)은 시설물 현황 칸이 없음(1.2.1 제원은 관리대장에서, 10/21)."""
+    out = ["field", *(["tests", "rating"] if kind == "정밀" else []), "survey", *([] if wall else ["detail"])]
     return out + (["ai"] if upto == "build" else [])
 
 
-def left(r, upto: str) -> list[str]:
+def left(r, upto: str, wall: bool = False) -> list[str]:
     """아직 완료 안 된 칸 이름(needed 순서)."""
-    return [STEPS[k] for k in needed(r.kind or "정기", upto) if not get(r, k)]
+    return [STEPS[k] for k in needed(r.kind or "정기", upto, wall) if not get(r, k)]
 
 
 def get(r, step: str) -> dict | None:
