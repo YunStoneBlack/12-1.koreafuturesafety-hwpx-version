@@ -1743,12 +1743,8 @@ def survey_get(report_id: int, user: User = Depends(get_current_user), db: Sessi
     """면담·변경사항 창 — 1.2.7 지난 이력(전회차 보고서)·1.2.8 항목(회사 원본) + 이번에 넣은 값."""
     r = _require(db, user, report_id)
     prior = _prior(r)
-    if _is_wall(r):  # 옹벽(10/21 형 "보고서랑 맞추기") — 1.3.2 기존 점검 실시결과 요약(점검 이력)·1.3.3 보수·보강 이력, 1.2.8 변경사항은 없음
-        f = db.get(SitokFacility, r.facility_id)
-        spec = ((f.ledger or {}).get("wall") or {}) if f else {}
-        sv = r.survey or {}
-        return {"wall": True, "history": sv.get("history") or list(spec.get("history") or []), "repairs": sv.get("repairs") or [],
-                "repairs_old": [], "change_items": [], "changes": {}, "has_prior": prior is not None, "has_register": False, "period": f"{r.year}년 {r.half}"}
+    if _is_wall(r):  # 옹벽(10/21 형 "보고서랑 맞추기") — 1.3.1 자료수집·1.3.2 점검 이력·1.3.3 보수 이력·1.3.4 자료분석, 1.2.8 변경사항은 없음
+        return _wall_survey_out(db, r, user)
     m = master.master_path()
     prev = (r.survey or {}).get("prev") or {}
     base = {"repairs_old": rb.read_survey(prior)["repairs_old"] if prior else prev.get("repairs") or [],
@@ -1808,6 +1804,101 @@ def survey_changes_ai(report_id: int, file: UploadFile | None = File(None), user
     return {"changes": drafted, "events": events, "missing": missing}
 
 
+def _wall_prev_report(db: Session, r: SitokReport) -> SitokReport | None:
+    """같은 시설물의 직전 회차(그룹웨어에 있는 것) — 연도·반기 앞선 것 중 가장 최근."""
+    from server.sitok import seasons as _s
+
+    rows = db.query(SitokReport).filter(SitokReport.facility_id == r.facility_id, SitokReport.id != r.id).all()
+    key = lambda x: (x.year, 0 if _s.bucket(x.half) == "상반기" else 1)  # noqa: E731
+    before = [x for x in rows if key(x) < key(r)]
+    return max(before, key=key) if before else None
+
+
+def _wall_survey_out(db: Session, r: SitokReport, user: User) -> dict:
+    """옹벽 면담 창 값(민재형 ⑩ 우선순위): 1.3.1 = 저장 > 전회차 PDF > 전회차 회차 > 기본값 / 1.3.2 = 저장 > 전회차 회차 이력 + 전회차 줄(자동 누적) > 관리대장 /
+    1.3.3 = 저장 > 전회차 회차 / 1.3.4 = 저장(자료가 바뀌었으면 stale)."""
+    from core.models_web import Company
+    from server.api.routers.sitok_prev import prev_file
+    from server.sitok import wall_ai, wall_collect
+
+    f = db.get(SitokFacility, r.facility_id)
+    spec = ((f.ledger or {}).get("wall") or {}) if f else {}
+    sv = r.survey or {}
+    prev = _wall_prev_report(db, r)
+    psv = (prev.survey or {}) if prev is not None else {}
+    comp = db.get(Company, user.company_id)
+    company = getattr(comp, "name", "") or ""
+    # 1.3.2 점검 이력
+    src_h = "saved" if "history" in sv else ""
+    history = sv.get("history")
+    if history is None:
+        if prev is not None and (psv.get("history") is not None or psv.get("fms_history")):
+            fin = (prev.ai or {}).get("final") or {}
+            history = wall_collect.chain_history(psv.get("history") or [], prev, company, wall_ai.word(fin.get("grade") or "") or (f.safety_grade or ""), fin.get("findings") or [])
+            src_h = "prev"
+        else:
+            history = list(spec.get("history") or [])
+            src_h = "ledger" if history else ""
+    # 1.3.3 보수 이력
+    repairs = sv.get("repairs")
+    src_r = "saved" if repairs is not None else ""
+    if repairs is None:
+        repairs = list(psv.get("repairs") or []) if prev is not None else []
+        src_r = "prev" if repairs else ""
+    # 1.3.1 자료수집 현황
+    base = wall_collect.defaults(spec, history, repairs)
+    collect, src_c = None, ""
+    if sv.get("collect"):
+        collect, src_c = wall_collect.norm_collect(sv["collect"], base), "saved"
+    else:
+        pdf = prev_file(db, r)
+        got = wall_collect.read_prior_pdf(pdf) if pdf.exists() else None
+        if got:
+            collect, src_c = wall_collect.norm_collect(got, base), "pdf"
+        elif prev is not None and psv.get("collect"):
+            collect, src_c = wall_collect.norm_collect(psv["collect"], base), "prev"
+        else:
+            collect, src_c = base, "default"
+    # 1.3.4 자료분석
+    analysis = sv.get("analysis") or (psv.get("analysis") if prev is not None else None) or {}
+    h = wall_collect.analysis_hash(collect, history, repairs)
+    return {"wall": True, "history": history, "history_src": src_h, "repairs": repairs, "repairs_src": src_r, "collect": collect, "collect_src": src_c,
+            "collect_rows": wall_collect.ROWS, "analysis": {k: analysis.get(k, "") for k in ("build_result", "build_dir", "maint_result", "maint_dir", "hash")},
+            "analysis_stale": bool(analysis) and analysis.get("hash") != h, "analysis_ai": bool(analysis.get("ai")), "prev_round": f"{prev.year}년 {prev.half}" if prev else "",
+            "repairs_old": [], "change_items": [], "changes": {}, "has_prior": prev is not None, "has_register": False, "period": f"{r.year}년 {r.half}"}
+
+
+@router.post("/reports/{report_id}/survey/history/fms")
+def survey_history_fms(report_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """FMS 점검진단실적 엑셀 → 1.3.2 줄(전체분, 저장은 [저장]) — 옹벽."""
+    from server.sitok import wall_collect
+
+    r = _require(db, user, report_id)
+    try:
+        rows = wall_collect.fms_history(file.file.read())
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"엑셀을 읽지 못했습니다: {str(err)[:150]}") from err
+    if not rows:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "엑셀에 점검 줄이 없습니다.")
+    r.survey = {**(r.survey or {}), "fms_history": True}
+    db.commit()
+    return {"history": rows}
+
+
+@router.post("/reports/{report_id}/survey/analysis/ai")
+def survey_analysis_ai(report_id: int, body: dict, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """1.3.4 자료분석 결과 AI 초안(저장은 [저장]) — 화면의 1.3.1~1.3.3 값으로."""
+    from server.sitok import wall_collect
+
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    spec = ((f.ledger or {}).get("wall") or {}) if f else {}
+    history = body.get("history") or []
+    repairs = body.get("repairs") or []
+    collect = wall_collect.norm_collect(body.get("collect"), wall_collect.defaults(spec, history, repairs))
+    return {"analysis": wall_collect.analysis_ai(collect, history, repairs, user.company_id)}
+
+
 @router.put("/reports/{report_id}/survey")
 def survey_save(report_id: int, body: dict, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
@@ -1816,10 +1907,20 @@ def survey_save(report_id: int, body: dict, user: User = Depends(get_current_use
     changes = {str(k): {f: str((v or {}).get(f) or "").strip() for f in ("before", "after", "where", "note")}
                for k, v in (body.get("changes") or {}).items() if str((v or {}).get("after") or "").strip()}
     extra = {}
-    if _is_wall(r):  # 옹벽 1.3.2 점검 이력 줄 [{period, kind, org, grade, result, note}]
+    if _is_wall(r):  # 옹벽 1.3.1 자료수집·1.3.2 점검 이력 줄 [{period, kind, org, grade, result, note}]·1.3.4 자료분석(자료 해시와 같이)
+        from server.sitok import wall_collect
+
         hk = ("period", "kind", "org", "grade", "result", "note")
         hist = [{k: str(x.get(k) or "").strip() for k in hk} for x in body.get("history") or []]
         extra["history"] = [x for x in hist if x["period"] or x["result"]]
+        f = db.get(SitokFacility, r.facility_id)
+        spec = ((f.ledger or {}).get("wall") or {}) if f else {}
+        reps_w = [x for x in repairs if x["method"] or x["kind"] or x["where"]]
+        extra["collect"] = wall_collect.norm_collect(body.get("collect"), wall_collect.defaults(spec, extra["history"], reps_w))
+        an = body.get("analysis") or {}
+        if any(str(an.get(k) or "").strip() for k in ("build_result", "build_dir", "maint_result", "maint_dir")):
+            extra["analysis"] = {**{k: str(an.get(k) or "").strip() for k in ("build_result", "build_dir", "maint_result", "maint_dir")},
+                                 "ai": bool(an.get("ai")), "hash": str(an.get("hash") or "") or wall_collect.analysis_hash(extra["collect"], extra["history"], reps_w)}  # hash = 글을 쓸 때의 자료(AI 응답·저장값) — 뒤에 자료가 바뀌면 stale
     r.survey = {**(r.survey or {}), "repairs": [x for x in repairs if x["method"] or x["kind"] or x["where"]], "changes": changes, **extra}  # 시설물 현황(detail)은 그대로
     db.commit()
     return survey_get(report_id, user, db)

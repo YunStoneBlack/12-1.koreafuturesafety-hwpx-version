@@ -30,7 +30,7 @@ from lxml import etree
 
 from core.stored_path import to_full
 
-from server.sitok import wall_ai, wall_ledger, wall_manual
+from server.sitok import wall_ai, wall_collect, wall_ledger, wall_manual
 from server.sitok import report_build as rb
 from server.sitok.report_build import HP, T
 
@@ -516,6 +516,8 @@ class Data:
     ai: dict = field(default_factory=dict)
     history: list = field(default_factory=list)  # [{period, kind, org, grade, result, note}] — 면담 창(회차 survey.history) > 관리대장
     repairs: list = field(default_factory=list)  # 1.3.3 보수·보강 이력 [{period, where(시공사), method(내용), note}] — 면담 창
+    collect: dict = field(default_factory=dict)  # 1.3.1 자료수집 현황 {key: {status, note}} — 면담 창(wall_collect)
+    analysis: dict = field(default_factory=dict)  # 1.3.4 자료분석 결과 {build_result, build_dir, maint_result, maint_dir}
     cost: tuple = ((), 0)
     shots: list = field(default_factory=list)  # 사진첩 [(path, caption)]
     compare: list = field(default_factory=list)  # 전회차 비교 사진대장 [(prev, now, caption)]
@@ -703,6 +705,9 @@ def gather(db, r, f) -> Data:
     # 이력·공사비
     d.history = list((r.survey or {}).get("history") or spec.get("history") or [])
     d.repairs = list((r.survey or {}).get("repairs") or [])
+    d.collect = wall_collect.norm_collect((r.survey or {}).get("collect"), wall_collect.defaults(spec, d.history, d.repairs))
+    an = (r.survey or {}).get("analysis") or {}
+    d.analysis = an if any(an.get(k) for k in ("build_result", "maint_result")) else wall_collect.analysis_fallback(d.collect, d.history, d.repairs)
     try:
         methods = SD.method_map(fin.get("methods")) if fin else None
         d.cost = SD.cost_rows(db, r.id, prices(db, r.company_id), methods)
@@ -1603,12 +1608,19 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
     if ov is not None:
         _fill_photo_table(ov, d.overview[:6], tpl, doc.add_image, "")
     t71 = _tbl(root, 7, 4, "보존대상 목록")
-    if t71 is not None:
-        proj = d.spec.get("project") or "-"
-        replace_text(t71, "포천장자일반산업단지조성공사", proj)
+    if t71 is not None:  # 1.3.1 자료수집 현황 — 면담 창 값(보유현황·비고, wall_collect)
         cells = rb._cells(t71)
-        hist = [f"∙{h.get('period', '')} {h.get('kind', '')}".strip() for h in d.history[-2:]] or ["∙시설물관리대장 점검 이력 참조"]
-        _set(cells, (5, 3), "\n".join(hist))
+        for key, row in wall_collect.ROW_INDEX.items():
+            v = d.collect.get(key) or {}
+            _set(cells, (row, 2), v.get("status") or "-")
+            _set(cells, (row, 3), v.get("note") or "-")
+    t36 = _tbl(root, 3, 6, "구분")
+    if t36 is not None and d.analysis:  # 1.3.4 자료분석 결과 — AI/기본 글
+        cells = rb._cells(t36)
+        _set(cells, (1, 2), d.analysis.get("build_result") or "-")
+        _set(cells, (1, 3), d.analysis.get("build_dir") or "-")
+        _set(cells, (2, 2), d.analysis.get("maint_result") or "-")
+        _set(cells, (2, 3), d.analysis.get("maint_dir") or "-")
     th = _tbl(root, 17, 7, "번호")
     if th is not None:
         _fill_history(th, d.history)
@@ -1628,7 +1640,6 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
                 _set(cells, (i, 2), x.get("where") or "-")
                 _set(cells, (i, 3), (f"{x.get('kind')} — " if x.get("kind") and x.get("kind") != "보수공사" else "") + (x.get("method") or "-"))
                 _set(cells, (i, 5), x.get("note") or "")
-            replace_text(root, "보수∙보강 이력 미기재", "보수∙보강 이력 보유")
     # 1.4 글·사진 표
     tops = _tops(root)
     sec_keys = {"1.4.1": "found", "1.4.2": "front", "1.4.3": "etc", "1.4.4": "public"}
