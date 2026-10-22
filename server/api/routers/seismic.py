@@ -731,6 +731,71 @@ def make_summary(rid: int, mode: str, user: User = Depends(get_current_user), db
     return _field_out(db, f, r) | {"made": mode}
 
 
+EQ_STYLE = """[견본 말투 예 — 내용은 이번 건 자료로만]
+부재치수 조사 결과: 본 건물은 철근콘크리트 구조이며, 설계도면을 보유하고 있는 상태로, 확인된 도면과 실제 측정한 치수를 비교하였으며, 부재규격 현장조사 결과는 설계도서와 대부분 일치하나 지상5층 B1부재가 구조도면과 실측 수치와 상이하여 현장 실측 데이터를 내진성능 평가에 반영하였다.
+철근배근 조사 결과: 본 건물은 철근콘크리트 구조이며, 설계도서 및 구조도면을 보유하고 있어, 실제 철근배근 상태를 조사하여 구조도면과 비교하여 일치 여부를 확인하였음.
+강재 접합부 조사 / 강재 부식 조사: 본 건물은 철근콘크리트 구조로, 강재는 적용되지 않아 조사대상에서 제외하였다.
+콘크리트 강도 조사: 구조체의 코어채취에 의한 콘크리트 압축강도 조사결과, 15.7~17.3MPa(평균 16.6MPa)로 조사되었으며 … / 내진성능평가에는 현장조사 설계기준강도 값인 15.8MPa를 적용하였음.
+중량물: 지붕층 실외기 및 환기설비 이외에는 특기할만한 하중의 증가는 없는 것으로 조사되어 대체적으로 양호한 것으로 조사되었다.
+마감재: 마감재 조사 결과, 외부 치장벽돌, 외단열시스템 마감, 커튼월 등이 조사됨.
+조적 허리벽 및 채움벽: 허리벽 · 채움벽 조사 결과, 채움벽과 허리벽은 구조체와 밀실하게 연결되었으며, 마감 모르타르, 상단부 사춤상태 등은 양호한 것으로 조사됨."""
+
+
+def _eq_facts(db: Session, f: SitokFacility, r: SitokReport) -> dict:
+    """요약 장비조사·비구조 AI에 줄 이번 건 자료(입력한 것만)."""
+    from collections import Counter
+
+    from server.sitok import rebar_survey as RV
+    from server.sitok import seismic_field as SF
+    from server.sitok import seismic_fill as SFL
+
+    field = _field(r)
+    defaults = {k: d for k, _l, d in SF.TEXTS}
+    rebar = RV.report_rows(RV.normalize(_sv(r).get("rebar"))["rows"])
+    dec = SFL.core_decided(field["cores"])
+    texts = {k: v for k, v in field["texts"].items() if v and v != defaults.get(k) and not k.startswith(("eq_", "ns_"))}
+    return {"구조": f.structure or "", "도면": "보유" if SD.has_drawings(f) else "미보유",
+            "부재단면": {"조사 개소": len(field["members"]), "도면과 상이": SFL.member_diffs(field["members"]) if field["members"] else []},
+            "철근배근": {"조사 개소": len(rebar), "도면과 상이": [f"{x['floor']}층 {x.get('mark') or x['kind']}" for x in rebar if RV.mismatch(x)]},
+            "코어": {**SF.core_stats(field["cores"]), "결정 설계기준강도": dec[2] if dec else None, "도면 설계기준강도": field.get("core_design")},
+            "조적": {"조사 개소": len(field["masonry"]), "구분": dict(Counter(x["kind"] for x in field["masonry"])),
+                   "적용 상태": dict(Counter(x["applied"] for x in field["masonry"])), "경계면": dict(Counter(x["boundary"] for x in field["masonry"])),
+                   "노출": dict(Counter(x["expose"] for x in field["masonry"]))},
+            "사람이 쓴 글(2.3·2.4)": texts, "현장 사진 칸": sorted(field["photos"])}
+
+
+@router.post("/projects/{rid}/field/texts/ai")
+def ai_eq_texts(rid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """요약 (1) 현장 시험 및 분석 — 장비조사·비구조 조사 결과 칸을 이번 건 입력값으로 AI가 씀(약 30원, 10/22 형 "AI 작성 기능 추가"). 자료 없는 칸은 빈칸."""
+    import json
+
+    from server.sitok import seismic_field as SF
+    from server.sitok import vision
+
+    f, r = _require(db, user, rid)
+    keys = list(SF.SUMMARY_ROWS.values())
+    labels = {k: label for k, label, _ in SF.TEXTS if k in keys}
+    prompt = ("아래는 학교시설 내진성능평가 보고서 '(1) 현장 시험 및 분석' 요약 표의 칸과 이번 건 현장조사 입력 자료입니다. 칸마다 보고서 말투(…조사되었다, …반영하였다)로 "
+              "글머리 문장 1~3개를 써 주세요(여러 개면 줄을 바꿈). 자료에 없는 수치·부재·위치는 지어내지 말고, 그 칸의 자료가 없으면 빈 문자열로 두세요. "
+              "강재 접합부·부식 칸은 구조가 철근콘크리트조면 '본 건물은 철근콘크리트 구조로, 강재는 적용되지 않아 조사대상에서 제외하였다.'로 쓰세요.\n"
+              f"JSON만: {json.dumps({k: '' for k in keys}, ensure_ascii=False)}\n칸 이름: {json.dumps(labels, ensure_ascii=False)}\n\n{EQ_STYLE}\n\n[이번 건 자료]\n"
+              + json.dumps(_eq_facts(db, f, r), ensure_ascii=False, default=str))
+    try:
+        got = vision.ask_json(user.company_id, [], prompt, max_tokens=3000, effort="low") or {}
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 못 만들었습니다: {str(err).splitlines()[0][:120]}") from err
+    if not isinstance(got, dict):
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "AI 답을 읽지 못했습니다 — 다시 눌러 주세요.")
+    sf = dict(_sv(r).get("seismic_field") or {})
+    texts = dict(sf.get("texts") or {})
+    for k in keys:
+        texts[k] = str(got.get(k) or "").strip()[:600]
+    sf["texts"] = texts
+    _put(r, seismic_field=sf)
+    db.commit()
+    return _field_out(db, f, r) | {"made": "ai", "filled": sum(1 for k in keys if texts[k])}
+
+
 # ---------- 과업수행계획서 자동(10/22) · 스캔 건축물대장 AI 읽기(10/22) ----------
 @router.post("/projects/{rid}/docs/plan/auto")
 def auto_plan(rid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):

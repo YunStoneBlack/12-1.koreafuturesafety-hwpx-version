@@ -359,13 +359,15 @@ def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, 
                 _set(cells, (r, 3), f"{v}EA")
                 n += 1
         break
-    defaults = {k: d for k, _l, d in SF.TEXTS}
-    for t in _outer(root):  # 결함·중량물 분석(요약 표) — 사람이 고친 글만
+    for t in _outer(root):  # 장비조사·비구조 조사 결과(요약 표) — 분석 글 칸 그대로, 비었으면 빈칸(견본 글 안 남김, 10/22 형)
         cells = rb._cells(t)
-        first = _n(rb._cell_text(cells.get((1, 0), t)))
-        if first == "중량물" and field["texts"]["heavy"] != defaults["heavy"]:
-            _set(cells, (1, 1), field["texts"]["heavy"])
-            n += 1
+        if _n(rb._cell_text(cells.get((0, 0), t))) != "구분" or _n(rb._cell_text(cells.get((0, 1), t))) != "내용":
+            continue
+        for (r, c), x in list(cells.items()):
+            key = SF.SUMMARY_ROWS.get(_n(rb._cell_text(x))) if c == 0 else None
+            if key and (r, 1) in cells:
+                _set(cells, (r, 1), field["texts"].get(key) or "")
+                n += 1
     return n
 
 

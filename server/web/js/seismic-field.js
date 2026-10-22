@@ -296,7 +296,25 @@
 
   function drawTexts() {
     $("sf2-summary").value = F.summary || "";
-    $("sf2-texts").innerHTML = F.text_labels.map(([k, label]) => `<div class="sk-f"><label>${esc(label)}</label><textarea data-t="${k}" rows="2">${esc(F.texts[k] || "")}</textarea></div>`).join("");
+    const box = (k, label) => `<div class="sk-f"><label>${esc(label)}</label><textarea data-t="${k}" rows="2" placeholder="비우면 보고서도 빈칸">${esc(F.texts[k] || "")}</textarea></div>`;
+    const isSum = (k) => /^(eq|ns)_/.test(k); // 요약 (1) 현장 시험 및 분석 표 칸(10/22) — 처음엔 빈칸, 🤖 AI로 쓰기
+    $("sf2-texts").innerHTML = F.text_labels.filter(([k]) => !isSum(k)).map(([k, label]) => box(k, label)).join("")
+      + `<div class="sf2-sub-h">요약 (1) 현장 시험 및 분석 — 장비조사·비구조 조사 결과 <span class="sk-help">비우면 보고서도 빈칸, 줄마다 글머리 하나</span></div>
+      <div class="sf2-core-top"><button type="button" class="secondary" id="sf2-eq-ai">🤖 입력값으로 AI가 쓰기 <span class="sk-help">약 30원</span></button><span class="sk-help" id="sf2-eq-note"></span></div>`
+      + F.text_labels.filter(([k]) => isSum(k)).map(([k, label]) => box(k, label.replace(/^요약 /, ""))).join("");
+    $("sf2-eq-ai").addEventListener("click", async () => {
+      const filled = [...document.querySelectorAll("[data-t]")].filter((t) => isSum(t.dataset.t) && t.value.trim()).length;
+      if (filled && !confirm(`요약 표 칸 ${filled}개에 이미 글이 있습니다 — AI 글로 바꿀까요?`)) return;
+      const b = $("sf2-eq-ai");
+      b.disabled = true;
+      $("sf2-eq-note").textContent = "입력값으로 쓰는 중…(20~40초)";
+      try {
+        const res = await apiPost(`/seismic/projects/${id}/field/texts/ai`);
+        draw(res);
+        $("sf2-t-panel").open = true;
+        $("sf2-eq-note").textContent = `✓ ${res.filled}칸 썼습니다 — 고치고 [저장] (자료가 없는 칸은 빈칸)`;
+      } catch (e) { $("sf2-eq-note").textContent = e.message; b.disabled = false; }
+    });
   }
 
   // 위쪽 수량 표시 — 스크롤해도 위에 고정, 누르면 그 칸으로(10/22 민재형 "셀고정, 해당 조사항목 누르면 그 항목으로 즉시 이동"). 철근배근은 철근탐사 화면으로.
