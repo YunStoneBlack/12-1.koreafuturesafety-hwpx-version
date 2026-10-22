@@ -84,6 +84,7 @@ def calendar(start: datetime.date, end: datetime.date, user: User = Depends(get_
                 load[d.isoformat()] = load.get(d.isoformat(), 0) + n
     miss = V.missing(db, user.company_id, today)
     return {"visits": visits, "day_load": load, "day_cap": V.DAY_CAP, "missing": len(miss), "missing_units": len({n.unit.lead.id for n in miss}),
+            "missing_list": [_need_out(n) for n in miss[:30]],  # 어떤 시설물·반기인지(10/23 사용자 "어떤 건지 보여 주기")
             "facilities": [_unit_out(u) for u in {id(u): u for u in um.values()}.values()]}
 
 

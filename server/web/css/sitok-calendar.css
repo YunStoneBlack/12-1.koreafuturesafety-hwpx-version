@@ -20,6 +20,15 @@
 .sc-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; margin-bottom: 12px;
   border: 1px solid #f3d29a; background: #fff8eb; border-radius: 10px; font-size: 13.5px; }
 .main .sc-notice button { margin: 0; }
+/* 일정 없는 반기 — 어떤 건지(10/23): 시설물·종류·반기·기간, 누르면 그 날로 */
+.sc-miss-list { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.sc-miss-list:empty { display: none; }
+.main .sc-notice button.sc-miss { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; padding: 5px 10px; background: #fff; color: var(--ink);
+  border: 1px solid #f3d29a; border-radius: 8px; font-size: 12.5px; font-weight: 500; text-align: left; }
+.main .sc-notice button.sc-miss:hover { border-color: #e0a33a; background: #fffdf6; }
+.sc-miss .site-no { display: inline-block; padding: 1px 7px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 11.5px; font-weight: 700; }
+.sc-miss small { color: var(--muted); }
+.sc-add select.sc-pre { border-color: #e0a33a; box-shadow: 0 0 0 2px #fde9c4; }
 .dk-item.k-reg { border-left-color: #2563eb; } .dk-item.k-pre { border-left-color: #7c3aed; }
 .dk-item.s-missed { border-style: dashed; border-left-style: solid; border-color: var(--crit, #b42318); }
 .dk-item .site-no { display: inline-block; padding: 1px 7px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 11.5px; font-weight: 700; }
@@ -30,7 +39,10 @@
 .sc-members ol { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow: auto; }
 .sc-members li b { display: block; font-size: 12.5px; }
 .sc-members li small { display: block; color: var(--muted); }
-.sc-members .site-links { margin-top: 3px; }
+.sc-members .site-links { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px; }
+.sc-members .site-link .sl-full { display: none !important; } /* 주소는 위에 있으니 단추는 짧게 [📍 지도] [📋 복사] */
+.sc-members .site-link .sl-short { display: inline !important; }
+.main .sc-members .site-link { padding: 3px 9px; font-size: 12px; }
 .sc-act { gap: 6px; align-items: center; }
 .sc-act input[type="date"] { margin: 0; padding: 5px 8px; font-size: 12.5px; width: auto; }
 .sc-act { flex-wrap: wrap; justify-content: flex-end; }

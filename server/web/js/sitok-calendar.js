@@ -17,6 +17,7 @@
   const covers = (v, d) => v.date <= d && d <= endOf(v);
   let data = { visits: [], day_load: {}, day_cap: 4, facilities: [], missing: 0 };
   let selected = ymd(new Date());
+  let preFacility = null; // 일정 없는 반기 알림에서 누른 시설물 — [이 날 일정 넣기]에 골라 둠(10/23)
   const holidays = {};
   const holidayYears = {};
 
@@ -73,9 +74,25 @@
     const el = document.getElementById("sc-notice");
     el.hidden = !data.missing;
     if (!data.missing) return;
+    const list = data.missing_list || [];
+    const md = (s) => { const x = new Date(`${s}T00:00:00`); return `${x.getMonth() + 1}/${x.getDate()}`; };
     el.innerHTML = `<span>📅 <b>일정 없는 반기 ${data.missing}개</b>(시설물 ${data.missing_units}곳) — 계약기간 안인데 점검 날이 안 잡혀 있습니다</span>
-      <button type="button" class="btn-sm" id="sc-fill">자동으로 잡기</button>`;
+      <button type="button" class="btn-sm" id="sc-fill">자동으로 잡기</button>
+      <div class="sc-miss-list">${list.map((n, i) => `<button type="button" class="sc-miss" data-i="${i}" title="누르면 그 기간 첫날로 — [이 날 일정 넣기]에 이 시설물을 골라 둡니다">
+        <span class="site-no">${esc(n.facility.mgmt_no)}</span> <b>${esc(n.facility.name)}</b>${n.facility.buildings > 1 ? ` <small>(${n.facility.buildings}동)</small>` : ""}
+        <span class="sc-k ${n.kind === "정밀" ? "pre" : ""}">${esc(n.kind)}</span> <small>${n.year} ${esc(n.half)} · ${md(n.start)}~${md(n.end)}${n.why ? ` · ${esc(n.why)}` : ""}</small></button>`).join("")}
+        ${data.missing > list.length ? `<span class="mail-note">외 ${data.missing - list.length}개 — [자동으로 잡기]에서 전부</span>` : ""}</div>`; // 어떤 건지 바로(10/23)
     document.getElementById("sc-fill").addEventListener("click", openFill);
+    el.querySelectorAll(".sc-miss").forEach((b) => b.addEventListener("click", () => { // 그 기간 첫날로 + [이 날 일정 넣기]에 그 시설물
+      const n = list[Number(b.dataset.i)];
+      const today = ymd(new Date());
+      let day = n.start > today ? n.start : (n.end >= today ? addDay(today, 1) : n.start);
+      const off = (d) => [0, 6].includes(new Date(`${d}T00:00:00`).getDay()) || holidays[d] || d.endsWith("-01-01"); // 주말·공휴일이면 다음 평일(기간 안에서)
+      for (let k = 0; k < 10 && off(day) && addDay(day, 1) <= n.end; k++) day = addDay(day, 1);
+      preFacility = n.facility.id;
+      cal.gotoDate(day);
+      selectDay(day);
+    }));
   }
   async function openFill() {
     const overlay = document.createElement("div");
@@ -202,12 +219,17 @@
         ${data.facilities.slice().sort((a, b) => String(a.mgmt_no).localeCompare(String(b.mgmt_no), "ko", { numeric: true })).map((f) => `<option value="${f.id}">${esc(f.mgmt_no)} ${esc(f.name)}${f.region ? ` · ${esc(f.region)}` : ""}</option>`).join("")}</select>
         <button type="button" class="btn-sm sc-add-btn">넣기</button></div>`;
     wireCards(body);
+    if (preFacility) { // 알림에서 누른 시설물을 골라 두고 눈에 띄게(10/23)
+      const sel = body.querySelector(".sc-add-f");
+      sel.value = String(preFacility);
+      if (sel.value) { sel.classList.add("sc-pre"); sel.closest(".sc-add").scrollIntoView({ block: "nearest" }); }
+    }
     body.querySelector(".sc-add-btn").addEventListener("click", async () => {
       const fid = Number(body.querySelector(".sc-add-f").value);
       if (!fid) return;
       const f = data.facilities.find((x) => x.id === fid);
       if (loadOf(selected) + (f ? f.buildings : 1) > data.day_cap && !confirm(`그날 건물이 ${data.day_cap}개를 넘습니다. 그래도 넣을까요?`)) return;
-      try { await apiPost("/sitok/calendar/visits", { facility_id: fid, plan_date: selected }); reload(); } catch (err) { showError(errorEl, err); }
+      try { await apiPost("/sitok/calendar/visits", { facility_id: fid, plan_date: selected }); preFacility = null; reload(); } catch (err) { showError(errorEl, err); }
     });
   }
   function openVisit(v) { // 폰 — 작은 창
