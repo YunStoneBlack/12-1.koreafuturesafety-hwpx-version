@@ -28,26 +28,33 @@ PHOTO_SLOTS = [  # (키, 이름, 보고서 자리)
     ("parapet_1", "조적 허리벽 현황 1", "2.4.3"), ("parapet_2", "조적 허리벽 현황 2", "2.4.3"),
 ]
 PHOTO = {k: (label, where) for k, label, where in PHOTO_SLOTS}
-TEXTS = [  # (키, 이름, 견본 글)
-    ("crack", "2.3 (2) 주요부재별 균열 현황", "본 시설물의 주요 구조부재에 대한 균열 조사 결과, 대부분의 구조부재 각 부위에서 구조적 안전성에 영향을 미치는 균열은 조사되지 않았다."),
-    ("leak", "2.3 (3) 누수 및 백태 현황", "육안조사결과, 구조체의 내구성에 영향을 미치는 누수 및 백태는 조사되지 않았다."),
-    ("rebar", "2.3 (4) 철근의 노출 현황", "본 시설물의 주요 구조 부재에 대한 철근 노출은 조사되지 않았다."),
-    ("aging", "2.3 (5) 콘크리트 노후화 현황(박리·박락·층분리 등)", "육안조사결과, 구조체의 내구성에 영향을 미치는 박리, 박락, 층분리 등의 노후화는 조사되지 않았다."),
-    ("steel", "2.3 (6) 강재구조 노후화 현황", "강재 구조는 없는 것으로 조사되었다."),
-    ("heavy", "2.4.1 중량물 조사내용", "육안조사 결과, 지붕층 실외기 및 물탱크 이외에는 특기할만한 하중의 증가는 없는 것으로 조사되었다."),
-    ("finish", "2.4.2 건물외부 마감재", "몰탈위 치장벽돌 / 드라이비트 마감"),
-    # 요약 (1) 현장 시험 및 분석 표 칸(10/22 형 "조사 내용이 없는데 작성됨 — AI 작성 기능") — 처음엔 빈칸, 줄마다 글머리 하나
-    ("eq_member", "요약 장비조사 — 부재치수 조사 결과", ""),
-    ("eq_rebar", "요약 장비조사 — 철근배근 조사 결과", ""),
-    ("eq_steel_joint", "요약 장비조사 — 강재 접합부 조사", ""),
-    ("eq_steel_rust", "요약 장비조사 — 강재 부식 조사", ""),
-    ("eq_core", "요약 장비조사 — 콘크리트 강도 조사", ""),
-    ("ns_heavy", "요약 비구조 — 중량물", ""),
-    ("ns_finish", "요약 비구조 — 마감재", ""),
-    ("ns_masonry", "요약 비구조 — 조적 허리벽 및 채움벽", ""),
+TEXTS = [  # (키, 이름, 기본 글) — 조사결과 글: 한 글이 본문 조사결과와 요약 표에 같이(10/22 형 "결과값 연동 AI 작성"), 처음엔 빈칸(견본 글 안 남김)
+    ("eq_member", "부재규격 — 본문 2.2.1 (2) 조사결과 · 요약 장비조사 부재치수", ""),
+    ("eq_rebar", "철근배근 — 본문 2.2.2 (3) 철근 배근 조사 결과 · 요약 장비조사 철근배근", ""),
+    ("eq_core", "압축강도 — 본문 2.2.4 조사결과 · 요약 장비조사 콘크리트 강도", ""),
+    ("crack", "외관조사 균열 — 본문 2.3 (2) · 요약 결함조사", ""),
+    ("leak", "외관조사 누수·백태 — 본문 2.3 (3) · 요약 결함조사", ""),
+    ("rebar", "외관조사 철근 노출 — 본문 2.3 (4) · 요약 결함조사", ""),
+    ("aging", "외관조사 콘크리트 노후화(박리·박락·층분리) — 본문 2.3 (5) · 요약 결함조사", ""),
+    ("steel", "외관조사 강재구조 노후화 — 본문 2.3 (6) · 요약 결함조사", ""),
+    ("heavy", "중량물 — 본문 2.4.1 조사내용 · 요약 비구조 중량물", ""),
+    ("finish", "마감재 — 본문 2.4.2 조사내용 · 요약 비구조 마감재", ""),
+    ("ns_masonry", "조적조 — 요약 비구조 조적 허리벽 및 채움벽", ""),
+    ("eq_steel_joint", "강재 접합부 — 요약 장비조사", ""),
+    ("eq_steel_rust", "강재 부식 — 요약 장비조사", ""),
 ]
+OLD_DEFAULTS = {  # 예전 기본 글(견본) — 저장돼 있어도 빈칸으로(10/22)
+    "crack": "본 시설물의 주요 구조부재에 대한 균열 조사 결과, 대부분의 구조부재 각 부위에서 구조적 안전성에 영향을 미치는 균열은 조사되지 않았다.",
+    "leak": "육안조사결과, 구조체의 내구성에 영향을 미치는 누수 및 백태는 조사되지 않았다.",
+    "rebar": "본 시설물의 주요 구조 부재에 대한 철근 노출은 조사되지 않았다.",
+    "aging": "육안조사결과, 구조체의 내구성에 영향을 미치는 박리, 박락, 층분리 등의 노후화는 조사되지 않았다.",
+    "steel": "강재 구조는 없는 것으로 조사되었다.",
+    "heavy": "육안조사 결과, 지붕층 실외기 및 물탱크 이외에는 특기할만한 하중의 증가는 없는 것으로 조사되었다.",
+    "finish": "몰탈위 치장벽돌 / 드라이비트 마감",
+}
 SUMMARY_ROWS = {"부재치수조사결과": "eq_member", "철근배근조사결과": "eq_rebar", "강재접합부조사": "eq_steel_joint", "강재부식조사": "eq_steel_rust",
-                "콘크리트강도조사": "eq_core", "중량물": "ns_heavy", "마감재": "ns_finish", "조적허리벽및채움벽": "ns_masonry"}  # 요약 표 구분 칸 → 글 칸
+                "콘크리트강도조사": "eq_core", "중량물": "heavy", "마감재": "finish", "조적허리벽및채움벽": "ns_masonry"}  # 요약 표 구분 칸 → 글 칸
+VISUAL = ("crack", "leak", "rebar", "aging", "steel")  # 외관조사 — 요약 결함조사 분석 결과는 이 글들을 이어서
 
 
 def _s(v, n: int = 60) -> str:
@@ -154,6 +161,7 @@ def norm_mplan(plan) -> dict:
 def normalize(data: dict | None) -> dict:
     d = dict(data or {})
     texts = {k: _s((d.get("texts") or {}).get(k, default), 600) for k, _label, default in TEXTS}
+    texts = {k: "" if v == OLD_DEFAULTS.get(k) else v for k, v in texts.items()}  # 예전 견본 기본 글은 빈칸
     return {"members": [norm_member(x) for x in d.get("members") or [] if isinstance(x, dict)][:300],
             "cores": [norm_core(x) for x in d.get("cores") or [] if isinstance(x, dict)][:60],
             "masonry": [norm_masonry(x) for x in d.get("masonry") or [] if isinstance(x, dict)][:300],
@@ -212,7 +220,9 @@ def _selfcheck() -> None:
     assert masonry_apply("2면 모르타르", "양호") == "양호" and masonry_apply("1면 모르타르", "불량") == "불량"
     n = normalize({"members": [{"kind": "보", "design": "400*600", "floor": "3"}], "masonry": [{"expose": "2면 모르타르"}]})
     assert n["members"][0]["design"] == "400 x 600" and n["members"][0]["floor"] == 3 and n["masonry"][0]["applied"] == "양호"
-    assert n["texts"]["steel"].startswith("강재 구조는")
+    assert n["texts"]["steel"] == "" and n["texts"]["eq_member"] == ""  # 기본은 빈칸(10/22)
+    m = normalize({"texts": {"heavy": OLD_DEFAULTS["heavy"], "finish": "치장벽돌 마감"}})
+    assert m["texts"]["heavy"] == "" and m["texts"]["finish"] == "치장벽돌 마감"  # 예전 견본 글은 빈칸, 직접 쓴 글은 그대로
 
 
 if __name__ == "__main__":

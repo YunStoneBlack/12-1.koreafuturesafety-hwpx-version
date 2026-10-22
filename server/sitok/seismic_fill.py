@@ -15,6 +15,8 @@ import io
 import re
 from pathlib import Path
 
+from lxml import etree
+
 from server.sitok import report_build as rb
 from server.sitok.report_build import _n
 from server.sitok import seismic_docs as SD
@@ -376,9 +378,15 @@ def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, 
                 _set(cells, (r, 3), f"{v}EA")
                 n += 1
         break
-    for t in _outer(root):  # 장비조사·비구조 조사 결과(요약 표) — 분석 글 칸 그대로, 비었으면 빈칸(견본 글 안 남김, 10/22 형)
+    visual_done = False
+    for t in _outer(root):  # 요약 표 — 조사결과 글 그대로(본문과 같은 글), 비었으면 빈칸(견본 글 안 남김, 10/22 형 "결과값 연동")
         cells = rb._cells(t)
         if _n(rb._cell_text(cells.get((0, 0), t))) != "구분" or _n(rb._cell_text(cells.get((0, 1), t))) != "내용":
+            continue
+        if not visual_done and _n(rb._cell_text(cells.get((1, 0), t))) == "분석결과":  # 첫 "분석 결과" = 가. 결함조사 결과 — 외관조사 글들을 이어서
+            visual_done = True
+            _set(cells, (1, 1), "\n".join(x for k in SF.VISUAL for x in (field["texts"].get(k) or "").split("\n") if x.strip()))
+            n += 1
             continue
         for (r, c), x in list(cells.items()):
             key = SF.SUMMARY_ROWS.get(_n(rb._cell_text(x))) if c == 0 else None
@@ -386,6 +394,254 @@ def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, 
                 _set(cells, (r, 1), field["texts"].get(key) or "")
                 n += 1
     return n
+
+
+BODY_RESULTS = (("2.2.1부재단면", "(2)조사결과", "eq_member"), ("2.2.2철근배근", "(3)철근배근조사결과", "eq_rebar"),
+                ("2.2.4재료강도의결정", "조사결과", "eq_core"))  # 본문 조사결과 글머리 — 요약 장비조사와 같은 글(10/22)
+
+
+def _para_text(p, text: str) -> None:
+    ts = [x for x in p.iter(f"{{{HP}}}t") if next(x.iterancestors(f"{{{HP}}}p"), None) is p]
+    if not ts:
+        run = p.find(f"{{{HP}}}run")
+        if run is None:
+            return
+        ts = [etree.SubElement(run, f"{{{HP}}}t")]
+    ts[0].text = text
+    for x in ts[1:]:
+        x.text = ""
+    for el in list(p.iter(f"{{{HP}}}linesegarray")):
+        el.getparent().remove(el)
+
+
+def fill_body_results(root, field: dict) -> int:
+    """본문 조사결과 글머리(2.2.1 (2)·2.2.2 (3)·2.2.4 조사결과) = 조사결과 글 줄마다 하나(첫 글머리 모양), 비었으면 빈 줄 하나."""
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    n = 0
+    for sec, head, key in BODY_RESULTS:
+        s = max((i for i, p in enumerate(tops) if _n(_t(p)) == sec), default=None)
+        if s is None:
+            continue
+        h = next((i for i in range(s + 1, min(s + 200, len(tops))) if _n(_t(tops[i])) == head), None)
+        if h is None:
+            continue
+        bullets = []
+        for p in tops[h + 1:]:
+            if not _n(_t(p)) or _outer(p):
+                break
+            bullets.append(p)
+        if not bullets:
+            continue
+        lines = [x.strip() for x in (field["texts"].get(key) or "").split("\n") if x.strip()] or [""]
+        first = bullets[0]
+        tpl = copy.deepcopy(first)
+        for p in bullets[1:]:
+            p.getparent().remove(p)
+        _para_text(first, lines[0])
+        _blacken(first)
+        last = first
+        for line in lines[1:]:
+            q = copy.deepcopy(tpl)
+            rb._new_ids(q)
+            _para_text(q, line)
+            _blacken(q)
+            last.addnext(q)
+            last = q
+        n += 1
+    return n
+
+
+HH = "http://www.hancom.co.kr/hwpml/2011/head"
+GROUND_HANG = 3466  # 2.5 "   (3) " 폭(맑은 고딕 11pt, 빈칸 = 글자 절반) — PDF로 잰 "(1) 지" 시작 87.19pt − 여백 52.53pt(10/22)
+
+
+def _para_variant(doc, pid: str, left: int, intent: int, align: str | None = None) -> str:
+    """문단 모양 pid를 왼쪽 여백·첫 줄(내어쓰기)(+ 정렬)만 바꾼 새 모양 번호(header에 더함)."""
+    hdr = doc.header
+    pp = next((x for x in hdr.iter(f"{{{HH}}}paraPr") if x.get("id") == str(pid)), None)
+    if pp is None:
+        return pid
+    new = copy.deepcopy(pp)
+    nid = str(max(int(x.get("id")) for x in hdr.iter(f"{{{HH}}}paraPr")) + 1)
+    new.set("id", nid)
+    if align:
+        for al in new.iter(f"{{{HH}}}align"):
+            al.set("horizontal", align)
+    for mg in new.iter(f"{{{HH}}}margin"):
+        for el in mg:
+            if el.tag == f"{{{HC}}}left":
+                el.set("value", str(left))
+            elif el.tag == f"{{{HC}}}intent":
+                el.set("value", str(intent))
+    parent = pp.getparent()
+    parent.append(new)
+    if parent.get("itemCnt"):
+        parent.set("itemCnt", str(int(parent.get("itemCnt")) + 1))
+    return nid
+
+
+def fix_ground_indent(doc, root) -> int:
+    """2.5 (1)~(3) — 왼쪽 정렬(양쪽 정렬이 ")" 뒤 빈칸을 늘려 (2)·(3) 글 시작이 어긋남, 고정폭 빈칸은 약 19pt로 너무 넓음) + 내어쓰기(둘째 줄을 글 시작에 맞춤)
+    (10/22 형 "(2)본, (3)지 시작 시점 미세하게 다름, BH-1 줄 바뀔 때 지반조사결과 여기랑 시작 지점 맞추기")."""
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    s = max((i for i, p in enumerate(tops) if _n(_t(p)) == "2.5지반및기초"), default=None)
+    if s is None:
+        return 0
+    n, pid = 0, None
+    for p in tops[s + 1:s + 12]:
+        t = next((x for x in p.iter(f"{{{HP}}}t") if next(x.iterancestors(f"{{{HP}}}p"), None) is p), None)
+        m = re.match(r"^(\s*\(\d\)) (.*)$", (t.text or "") if t is not None else "", re.S)
+        if not m:
+            continue
+        # 한글은 문단 여백 값을 절반으로 씀(PDF로 두 번 잼: 첫 줄 = left/2, 둘째 줄부터 = (left + |intent|)/2) → 첫 줄은 여백, 둘째 줄은 글 시작(34.66pt)
+        pid = pid or _para_variant(doc, p.get("paraPrIDRef"), 0, -2 * GROUND_HANG, "LEFT")
+        p.set("paraPrIDRef", pid)
+        for el in list(p.iter(f"{{{HP}}}linesegarray")):
+            el.getparent().remove(el)
+        n += 1
+    return n
+
+
+def _tab_para_variant(doc, pid: str, pos: int) -> str:
+    """문단 모양 pid를 탭 하나(pos, 왼쪽)만 있는 탭 설정으로 바꾼 새 모양 번호(탭 설정·문단 모양을 header에 더함)."""
+    hdr = doc.header
+    tabs = next(hdr.iter(f"{{{HH}}}tabProperties"), None)
+    pp = next((x for x in hdr.iter(f"{{{HH}}}paraPr") if x.get("id") == str(pid)), None)
+    if tabs is None or pp is None:
+        return pid
+    tid = str(max(int(x.get("id")) for x in tabs.iter(f"{{{HH}}}tabPr")) + 1)
+    tp = etree.SubElement(tabs, f"{{{HH}}}tabPr", {"id": tid, "autoTabLeft": "0", "autoTabRight": "0"})
+    etree.SubElement(tp, f"{{{HH}}}tabItem", {"pos": str(pos), "type": "LEFT", "leader": "NONE"})
+    if tabs.get("itemCnt"):
+        tabs.set("itemCnt", str(int(tabs.get("itemCnt")) + 1))
+    new = copy.deepcopy(pp)
+    new.set("id", str(max(int(x.get("id")) for x in hdr.iter(f"{{{HH}}}paraPr")) + 1))
+    new.set("tabPrIDRef", tid)
+    parent = pp.getparent()
+    parent.append(new)
+    if parent.get("itemCnt"):
+        parent.set("itemCnt", str(int(parent.get("itemCnt")) + 1))
+    return new.get("id")
+
+
+def _own_ps(tc) -> list:
+    return [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]
+
+
+CONFIRM_TAB = 50000  # 확인서 오른쪽 칸(발주자) 탭 자리 — 한글은 탭 위치 값도 절반으로 씀(PDF로 잼, 25000이면 125pt) → 250pt = 칸 폭 479pt의 절반 남짓(견본)
+
+
+def _text_w(text: str, size: int = 1100) -> int:
+    """글 폭 어림(HWPUNIT) — 맑은 고딕, 빈칸은 글자 크기의 절반(글꼴 빈칸 안 씀 — 한글 기본, PDF로 잰 2.5 빈칸 548)."""
+    from PIL import ImageFont
+
+    global _MALGUN
+    try:
+        _MALGUN
+    except NameError:
+        _MALGUN = ImageFont.truetype("C:/Windows/Fonts/malgun.ttf", 1100)
+    k = size / 1100
+    return int(sum(size / 2 if ch == " " else _MALGUN.getlength(ch) * k for ch in text))
+
+
+def fix_confirm_layout(doc, root) -> int:
+    """확인서 아래 서명 칸 — 견본은 칸 안 두 단(수행자 | 발주자). 서버 한글이 한 단으로 그려 발주자가 아래로 흘러내림 → 두 단 설정을 지우고
+    줄마다 "수행자 쪽 글 ⇥ 발주자 쪽 글"(가운데 탭), "담당주무관 … (인 또는 서명)담당부서 책임자 …"는 두 줄로(10/22 형 "발주자 소속 담당주관 위치 틀어짐")."""
+    tc = next((x for x in root.iter(f"{{{HP}}}tc") if "적법한절차에따라" in _n(rb._cell_text(x)) and "발주자" in rb._cell_text(x)), None)
+    if tc is None:
+        return 0
+    ps = _own_ps(tc)
+    i0 = next((k for k, q in enumerate(ps) if q.find(f".//{{{HP}}}colPr") is not None), None)
+    j0 = next((k for k, q in enumerate(ps) if k > (i0 or 0) and k + 1 < len(ps) and "발주자" in _t(ps[k + 1])), None)
+    if i0 is None or j0 is None:
+        return 0
+    left = ps[i0:j0]
+    right = [q for q in ps[j0:]]
+    lines = []
+    for q in right:
+        lines += [x for x in re.split(r"(?<=\))\s*(?=담당부서)", _t(q).strip()) if x] if _t(q).strip() else []
+    if not lines:
+        return 0
+    while left and not _t(left[-1]).strip() and len(left) > len(lines):
+        left.pop()
+    pid = _tab_para_variant(doc, left[0].get("paraPrIDRef"), CONFIRM_TAB)
+    for run in list(left[0].findall(f"{{{HP}}}run")):  # 두 단 설정 칸 지움
+        if run.find(f".//{{{HP}}}colPr") is not None and run.find(f"{{{HP}}}t") is None:
+            left[0].remove(run)
+    for k, line in enumerate(lines):
+        if k < len(left):
+            q = left[k]
+        else:
+            q = copy.deepcopy(left[-1])
+            rb._new_ids(q)
+            for pic in list(q.iter(f"{{{HP}}}pic")):
+                pic.getparent().remove(pic)
+            _para_text(q, "")
+            left[-1].addnext(q)
+            left.append(q)
+        ts = [x for x in q.iter(f"{{{HP}}}t") if next(x.iterancestors(f"{{{HP}}}p"), None) is q]
+        if not ts:
+            run = q.find(f"{{{HP}}}run")
+            if run is None:
+                run = etree.SubElement(q, f"{{{HP}}}run", {"charPrIDRef": left[0].find(f"{{{HP}}}run").get("charPrIDRef")})
+            ts = [etree.SubElement(run, f"{{{HP}}}t")]
+        width = max(CONFIRM_TAB // 2 - _text_w(_t(q)), 500)  # 탭 폭(한글이 탭 자리로 다시 잼 — 어림값)
+        tab = etree.SubElement(ts[-1], f"{{{HP}}}tab", {"width": str(width), "leader": "0", "type": "1"})
+        tab.tail = line
+        q.set("paraPrIDRef", pid)
+        for el in list(q.iter(f"{{{HP}}}linesegarray")):
+            el.getparent().remove(el)
+    for q in right:
+        if q.getparent() is not None:
+            q.getparent().remove(q)
+    return 1
+
+
+def fix_checklist_stamp(root) -> int:
+    """체크리스트 표지 도장 — 견본은 표 앞 빈 문단에 붙어 아래로 내려가 "(서명)" 위에 놓임 → 쪽 끝에 걸리면 다음 쪽으로 넘어감(10/22 형 "도장 넘어감").
+    "(서명)" 칸 문단으로 옮겨 칸에 겹치게."""
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    n = 0
+    for k, p in enumerate(tops):
+        tbs = _outer(p)
+        if not tbs:
+            continue
+        cells = rb._cells(tbs[0])
+        if _n(rb._cell_text(cells.get((0, 0), tbs[0]))) != "책임자" or (0, 7) not in cells or "서명" not in rb._cell_text(cells[(0, 7)]):
+            continue
+        prev = next((tops[j] for j in range(k - 1, max(k - 3, -1), -1) if tops[j].find(f".//{{{HP}}}pic") is not None), None)
+        if prev is None:
+            continue
+        pic = next(prev.iter(f"{{{HP}}}pic"))
+        sz = pic.find(f"{{{HP}}}curSz")
+        tc = cells[(0, 7)]
+        h = int(sz.get("height"))
+        chh = int(tc.find(f"{{{HP}}}cellSz").get("height"))
+        q = _own_ps(tc)[0]
+        run = q.find(f"{{{HP}}}run")
+        if run is None:
+            continue
+        pic.getparent().remove(pic)
+        run.insert(0, pic)
+        pos = pic.find(f"{{{HP}}}pos")
+        pos.set("vertRelTo", "PARA")  # 세로만 칸 문단 기준(가로는 견본 그대로 — 단 기준 40876)
+        pos.set("flowWithText", "0")
+        pos.set("allowOverlap", "1")
+        pos.set("vertOffset", str((2 ** 32 + (chh - h) // 2) % 2 ** 32))  # 칸 가운데(칸보다 크면 위로 — 음수는 32비트로)
+        n += 1
+    return n
+
+
+def _blacken(el) -> None:
+    """붉은 견본 글(고칠 자리 표시)을 검정 글자 모양으로(10/22 형 2.4 붉은 글) — 테두리 도구(borders_for) 안에서만."""
+    b = getattr(rb._TL, "borders", None)
+    if b is None:
+        return
+    for r in el.iter(f"{{{HP}}}run"):
+        cid = r.get("charPrIDRef")
+        new = b._char_variant(cid, lambda d: re.sub(r'textColor="#FF0000"', 'textColor="#000000"', d, count=1))
+        if new and new != cid:
+            r.set("charPrIDRef", new)
 
 
 # ---------- 1장 ----------
@@ -694,14 +950,16 @@ def fill_texts(root, field: dict) -> int:
                 _set(cells, (1, 1), tx[order[k]])
                 k += 1
                 n += 1
-    for tb in _outer(root):
+    for tb in _outer(root):  # 2.4.1·2.4.2 — 조사결과 글(비면 빈칸), 붉은 견본 글자는 검정으로(10/22)
         whole = _n(_t(tb))
         cells = rb._cells(tb)
         if "건물외중량물" in whole and (3, 0) in cells:
-            _set(cells, (3, 0), f"· {tx['heavy']}")
+            _set(cells, (3, 0), "\n".join(f"· {x.strip()}" for x in tx["heavy"].split("\n") if x.strip()))
+            _blacken(cells[(3, 0)])
             n += 1
         elif "건물외부마감재" in whole and (2, 0) in cells:
             _set(cells, (2, 0), tx["finish"])
+            _blacken(cells[(2, 0)])
             n += 1
     return n
 
@@ -921,11 +1179,15 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
         warn.append(f"부재 단면 입력 {filled}/{member_total}칸 — 조사 수량은 칸 수 {member_total}개소로 적었습니다")
     n += fill_cores(doc, root, field, rdir, docs.get("core"), warn)
     n += fill_texts(root, field)
+    n += fill_body_results(root, field)  # 본문 조사결과 = 조사결과 글(요약 표와 같은 글, 10/22)
     n += fill_masonry(root, field, warn)
     n += fill_ground(doc, root, ground, rdir, warn)
+    n += fix_ground_indent(doc, root)  # 2.5 글머리 시작점·내어쓰기(10/22)
     n += fill_size_plans(doc, root, f, reg, rdir, warn, field)
     for p in (p for p in root if p.tag == f"{{{HP}}}p" and _n(_t(p)) == "2.2.3콘크리트압축강도"):  # 새 쪽에서(10/22 형 "2.2.3부터 다음 페이지로")
         p.set("pageBreak", "1")
+    for p in [p for p in root if p.tag == f"{{{HP}}}p" and _t(p).strip() == "`" and not _outer(p)]:  # 견본에 남은 군더더기 글자(2.2.4 끝)
+        _para_text(p, "")
     db = object_session(r)
     if db is not None:
         n += fill_defects(root, defect_rows(db, r.id), member_tpl)

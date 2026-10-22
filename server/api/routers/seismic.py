@@ -46,6 +46,7 @@ DOCS = [
     ("ground", "지반조사보고서", (".pdf",), "2.5 지반 및 기초(값·위치도·사진·결과 표) · 부록 3"),
     ("vendor", "외주 결과물 한글", (".hwp", ".hwpx"), "결과표 나~마·확인서·체크리스트·3~7장"),
     ("measure", "장비·측정 위치도", (".pdf", ".png", ".jpg", ".jpeg"), "부록 5 측정 및 시험성과표 끝(층별 조사 위치)"),
+    ("masonry_map", "조적벽 조사 위치도", (".pdf", ".png", ".jpg", ".jpeg"), "부록 5 끝 — 장비·측정 위치도 다음(10/22)"),
     ("midas", "마이다스 데이터 — 1. 안전성 검토", (".pdf",), "부록 7 '안전성 검토' 간지 뒤"),  # 키는 예전 한 칸 그대로(10/22 둘로 — 올린 파일 안 옮김)
     ("midas_linear", "마이다스 데이터 — 2. 선형해석", (".pdf",), "부록 7 '선형 해석' 간지 뒤"),
     ("estimate", "보강공사 내역서", (".pdf", ".xlsx", ".xls"), "부록 8"),
@@ -750,10 +751,8 @@ def _eq_facts(db: Session, f: SitokFacility, r: SitokReport) -> dict:
     from server.sitok import seismic_fill as SFL
 
     field = _field(r)
-    defaults = {k: d for k, _l, d in SF.TEXTS}
     rebar = RV.report_rows(RV.normalize(_sv(r).get("rebar"))["rows"])
     dec = SFL.core_decided(field["cores"])
-    texts = {k: v for k, v in field["texts"].items() if v and v != defaults.get(k) and not k.startswith(("eq_", "ns_"))}
     return {"구조": f.structure or "", "도면": "보유" if SD.has_drawings(f) else "미보유",
             "부재단면": {"조사 개소": len(field["members"]), "도면과 상이": SFL.member_diffs(field["members"]) if field["members"] else []},
             "철근배근": {"조사 개소": len(rebar), "도면과 상이": [f"{x['floor']}층 {x.get('mark') or x['kind']}" for x in rebar if RV.mismatch(x)]},
@@ -761,7 +760,8 @@ def _eq_facts(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "조적": {"조사 개소": len(field["masonry"]), "구분": dict(Counter(x["kind"] for x in field["masonry"])),
                    "적용 상태": dict(Counter(x["applied"] for x in field["masonry"])), "경계면": dict(Counter(x["boundary"] for x in field["masonry"])),
                    "노출": dict(Counter(x["expose"] for x in field["masonry"]))},
-            "사람이 쓴 글(2.3·2.4)": texts, "현장 사진 칸": sorted(field["photos"])}
+            "결함(외관조사)": [{"위치": x[1], "부재": x[2], "결함": x[3], "크기·개수": x[4]} for x in SFL.defect_rows(db, r.id)][:60],
+            "현장 사진 칸": sorted(field["photos"])}
 
 
 @router.post("/projects/{rid}/field/texts/ai")
@@ -773,11 +773,12 @@ def ai_eq_texts(rid: int, user: User = Depends(get_current_user), db: Session = 
     from server.sitok import vision
 
     f, r = _require(db, user, rid)
-    keys = list(SF.SUMMARY_ROWS.values())
-    labels = {k: label for k, label, _ in SF.TEXTS if k in keys}
-    prompt = ("아래는 학교시설 내진성능평가 보고서 '(1) 현장 시험 및 분석' 요약 표의 칸과 이번 건 현장조사 입력 자료입니다. 칸마다 보고서 말투(…조사되었다, …반영하였다)로 "
-              "글머리 문장 1~3개를 써 주세요(여러 개면 줄을 바꿈). 자료에 없는 수치·부재·위치는 지어내지 말고, 그 칸의 자료가 없으면 빈 문자열로 두세요. "
-              "강재 접합부·부식 칸은 구조가 철근콘크리트조면 '본 건물은 철근콘크리트 구조로, 강재는 적용되지 않아 조사대상에서 제외하였다.'로 쓰세요.\n"
+    keys = [k for k, _l, _d in SF.TEXTS]
+    labels = {k: label for k, label, _ in SF.TEXTS}
+    prompt = ("아래는 학교시설 내진성능평가 보고서의 조사결과 글 칸(각 글은 본문 조사결과와 요약 표에 같이 들어감)과 이번 건 현장조사 입력 자료입니다. "
+              "칸마다 보고서 말투(…조사되었다, …반영하였다)로 글머리 문장 1~3개를 써 주세요(여러 개면 줄을 바꿈). 자료에 없는 수치·부재·위치는 지어내지 말고, "
+              "그 칸의 자료가 없으면 빈 문자열로 두세요(예: 부재 단면 조사 개소 0이면 부재규격 빈칸, 결함 목록이 비면 외관조사 칸은 빈칸). "
+              "강재 칸(강재 접합부·부식·외관조사 강재)은 구조가 철근콘크리트조면 '본 건물은 철근콘크리트 구조로, 강재는 적용되지 않아 조사대상에서 제외하였다.'로 쓰세요.\n"
               f"JSON만: {json.dumps({k: '' for k in keys}, ensure_ascii=False)}\n칸 이름: {json.dumps(labels, ensure_ascii=False)}\n\n{EQ_STYLE}\n\n[이번 건 자료]\n"
               + json.dumps(_eq_facts(db, f, r), ensure_ascii=False, default=str))
     try:

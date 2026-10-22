@@ -297,14 +297,13 @@
   function drawTexts() {
     $("sf2-summary").value = F.summary || "";
     const box = (k, label) => `<div class="sk-f"><label>${esc(label)}</label><textarea data-t="${k}" rows="2" placeholder="비우면 보고서도 빈칸">${esc(F.texts[k] || "")}</textarea></div>`;
-    const isSum = (k) => /^(eq|ns)_/.test(k); // 요약 (1) 현장 시험 및 분석 표 칸(10/22) — 처음엔 빈칸, 🤖 AI로 쓰기
-    $("sf2-texts").innerHTML = F.text_labels.filter(([k]) => !isSum(k)).map(([k, label]) => box(k, label)).join("")
-      + `<div class="sf2-sub-h">요약 (1) 현장 시험 및 분석 — 장비조사·비구조 조사 결과 <span class="sk-help">비우면 보고서도 빈칸, 줄마다 글머리 하나</span></div>
-      <div class="sf2-core-top"><button type="button" class="secondary" id="sf2-eq-ai">🤖 입력값으로 AI가 쓰기 <span class="sk-help">약 30원</span></button><span class="sk-help" id="sf2-eq-note"></span></div>`
-      + F.text_labels.filter(([k]) => isSum(k)).map(([k, label]) => box(k, label.replace(/^요약 /, ""))).join("");
+    const isSum = () => true; // 조사결과 글 — 한 글이 본문 조사결과와 요약 표에 같이(10/22 형 "결과값 연동 AI 작성"), 처음엔 빈칸
+    $("sf2-texts").innerHTML = `<div class="sf2-sub-h">조사결과 글 <span class="sk-help">한 글이 본문 조사결과와 요약 표(장비조사·결함조사·비구조)에 같이 들어감 — 비우면 둘 다 빈칸, 줄마다 글머리 하나</span></div>
+      <div class="sf2-core-top"><button type="button" class="secondary" id="sf2-eq-ai">🤖 입력값으로 AI가 쓰기 <span class="sk-help">약 40원</span></button><span class="sk-help" id="sf2-eq-note"></span></div>`
+      + F.text_labels.map(([k, label]) => box(k, label)).join("");
     $("sf2-eq-ai").addEventListener("click", async () => {
       const filled = [...document.querySelectorAll("[data-t]")].filter((t) => isSum(t.dataset.t) && t.value.trim()).length;
-      if (filled && !confirm(`요약 표 칸 ${filled}개에 이미 글이 있습니다 — AI 글로 바꿀까요?`)) return;
+      if (filled && !confirm(`조사결과 글 ${filled}칸에 이미 글이 있습니다 — AI 글로 바꿀까요?`)) return;
       const b = $("sf2-eq-ai");
       b.disabled = true;
       $("sf2-eq-note").textContent = "입력값으로 쓰는 중…(20~40초)";

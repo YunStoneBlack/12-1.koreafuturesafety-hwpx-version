@@ -104,23 +104,19 @@ def fill_appendix(doc, d: dict, r, f, rdir: Path, warn: list) -> int:
             continue
         for slot, (_, pic) in zip(slots, rb._pic_slots(t)):
             rel = (photos.get(slot) or {}).get("rel")
-            if rel:
-                n += SFL._put(doc, pic, rdir / rel)
+            n += SFL._put_or_blank(doc, pic, (rdir / rel) if rel else None, rdir)  # 없으면 빈칸(10/22 형 "측정 데이터 안 넣었는데 들어감")
     members = field["members"]
-    if members:
-        tables = [t for t in SFL._outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"]
-        rows = [[str(i + 1), f"{SF.floor_label(m['floor'])}( {m['where']} )" if m["where"] else SF.floor_label(m["floor"]),
-                 f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", m["note"]] for i, m in enumerate(members)]
-        n += SFL.fill_chunks(root, tables, rows, 18, 1, flat=False)
-    if d.get("rebar"):
-        n += SB.fill_rebar(root, d, quiet)
-    if field["masonry"]:
-        rows = sorted(field["masonry"], key=lambda x: (x["floor"], x["kind"] != "채움벽", x["mid"]))
-        vals = [[SF.floor_label(x["floor"]).replace("지상", "지상 ").replace("지하", "지하 "), x["kind"], x["mid"], SFL._fmt(x["height"], 0) if x["height"] else "-",
-                 SFL._fmt(x["width"], 0) if x["width"] else "-", x["thick"], x["dir"], x["expose"].replace(" ", "\n", 1), f"{x['finish']}" if x["finish"] is not None else "-",
-                 x["boundary"], x["applied"]] for x in rows]
-        tables = [t for t in SFL._outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"]
-        n += SFL.fill_chunks(root, tables, vals, 60, 2, flat=True)
+    tables = [t for t in SFL._outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"]
+    rows = [[str(i + 1), f"{SF.floor_label(m['floor'])}( {m['where']} )" if m["where"] else SF.floor_label(m["floor"]),
+             f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", m["note"]] for i, m in enumerate(members)]
+    n += SFL.fill_chunks(root, tables, rows or [[""] * 6], 18, 1, flat=False)  # 없으면 빈 줄
+    n += SB.fill_rebar(root, d, quiet)  # 없으면 빈 줄(fill_rebar가)
+    rows = sorted(field["masonry"], key=lambda x: (x["floor"], x["kind"] != "채움벽", x["mid"]))
+    vals = [[SF.floor_label(x["floor"]).replace("지상", "지상 ").replace("지하", "지하 "), x["kind"], x["mid"], SFL._fmt(x["height"], 0) if x["height"] else "-",
+             SFL._fmt(x["width"], 0) if x["width"] else "-", x["thick"], x["dir"], x["expose"].replace(" ", "\n", 1), f"{x['finish']}" if x["finish"] is not None else "-",
+             x["boundary"], x["applied"]] for x in rows]
+    tables = [t for t in SFL._outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"]
+    n += SFL.fill_chunks(root, tables, vals or [[""] * 11], 60, 2, flat=True)
     n += SFL.fill_cores(doc, root, field, rdir, None, quiet)
     rebar_rows = RV.report_rows(RV.normalize((r.survey or {}).get("rebar"))["rows"])  # 결과 있는 줄만(10/22)
     n += fill_rebar_blocks(doc, root, rebar_rows, rdir, warn)
@@ -187,9 +183,9 @@ def assemble(db, main_pdf: Path, appx_hwpx: Path, dest: Path, r, f, rdir: Path, 
     alb = _album(db, r, cache / "부록4_사진첩.pdf")
     if alb is not None:
         adds[4] = [alb]
-    m = _doc_pdf(r, rdir, "measure", cache / "부록5_위치도.pdf")
-    if m is not None:
-        adds[5] = [m]
+    five = [x for x in (_doc_pdf(r, rdir, "measure", cache / "부록5_위치도.pdf"), _doc_pdf(r, rdir, "masonry_map", cache / "부록5_조적벽위치도.pdf")) if x is not None]
+    if five:  # 장비·측정 위치도 + 조적벽 조사 위치도(10/22 형 "파일 2개 들어가야 함")
+        adds[5] = five
     struct = [it["path"] for it in D.items(f, "struct", _facility_dir(f))]
     if struct:
         adds[9] = struct

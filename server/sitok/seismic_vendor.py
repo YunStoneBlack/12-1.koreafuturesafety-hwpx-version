@@ -101,8 +101,30 @@ def cut_chapters(src: Path, dest: Path) -> int:
         raise ValueError("외주 파일에서 제3장을 못 찾았습니다.")
     if i > 0:
         _drop_before(doc.root, tops, i, sec_only=True)  # 꼬리말·쪽 감추기는 우리 것이 이어지게(간지 앞 빈 쪽도 막음)
+    _fold_head(doc.root)
     doc.save(dest)
     return len(tops) - i
+
+
+def _fold_head(root) -> bool:
+    """첫 문단이 구역 설정·머리말 칸만 든 빈 줄이면 그 칸들을 다음 문단(3장 간지) 앞으로 옮기고 지움 — 끼워 넣을 때 쪽 나눔 뒤 빈 줄 + 한 쪽짜리 간지 표가
+    같은 쪽에 안 들어가 빈 쪽이 생김(10/22 형 "빈 페이지 발생")."""
+    tops = tops_of(root)
+    if len(tops) < 2:
+        return False
+    first, nxt = tops[0], tops[1]
+    own = "".join(t.text or "" for r in first.findall(f"{{{HP}}}run") for t in r.findall(f"{{{HP}}}t"))
+    body = [c for r in first.findall(f"{{{HP}}}run") for c in r if c.tag in (f"{{{HP}}}tbl", f"{{{HP}}}pic")]  # 머리말 안 표·그림은 셈 안 함
+    if own.strip() or body:
+        return False
+    runs = first.findall(f"{{{HP}}}run")
+    at = list(nxt).index(nxt.find(f"{{{HP}}}run")) if nxt.find(f"{{{HP}}}run") is not None else 0
+    for k, r in enumerate(runs):
+        for t in r.findall(f"{{{HP}}}t"):
+            r.remove(t)
+        nxt.insert(at + k, r)
+    root.remove(first)
+    return True
 
 
 # ---------- 서식이 같은지 ----------

@@ -401,7 +401,8 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
             chapters = folder / "외주_3~7장.hwpx"
             SV.cut_chapters(vx, chapters)
         elif info["chapter3"] is not None:
-            chapters = vx
+            chapters = folder / "외주_3~7장.hwpx"
+            SV.cut_chapters(vx, chapters)  # 3장 앞이 없어도 머리 빈 줄 정리(빈 쪽, 10/22)
             warn.append(NO_FRONT)
         else:
             warn.append("외주 한글에서 \"제3장\"을 못 찾아 끼워 넣지 않았습니다 — 파일을 확인해 주세요")
@@ -417,6 +418,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
         if f.seismic_only or (r.survey or {}).get("seismic_field") or (r.survey or {}).get("seismic_docs"):  # 별개 건(10/21) — 현장조사 입력·서류 값
             say("현장조사·서류 값 채우는 중…")
             changed += seismic_fill.fill_all(doc, root, r, f, folder, d, warn, front_taken=front_taken, vendor_text=vendor_text)
+        changed += seismic_fill.fix_confirm_layout(doc, root) + seismic_fill.fix_checklist_stamp(root)  # 확인서 두 칸·체크리스트 도장(10/22)
     ours = folder / f"{base}(1~2장).hwpx"
     doc.save(ours)
     hwpx = folder / f"{base}.hwpx"
