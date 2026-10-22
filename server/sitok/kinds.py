@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import re
+
 MEMBERS = ["내력벽", "조적벽", "기둥", "큰보", "작은보", "슬라브", "강재", "파라펫", "마감재", "-", "계단", "처마"]
 TYPES = ["균열", "미장균열", "마감균열", "조적균열", "이격", "철근노출", "박리", "박락", "층분리", "누수·백태", "파손", "재료분리", "-", "높이부족", "보수완료"]
 KINDS = {"member": "부재", "dtype": "결함유형"}
@@ -95,6 +97,24 @@ LEGACY = {"박락·층분리": "박락", "박락ㆍ층분리": "박락"}  # 시�
 def norm(dtype: str) -> str:
     t = (dtype or "").strip()
     return LEGACY.get(t, t)
+
+
+DEPTH_TAG = re.compile(r"\s*\(\s*D\s*=\s*([0-9]+(?:[.,][0-9]+)?)\s*(?:mm|㎜)?\s*\)", re.I)
+
+
+def split_depth(text: str) -> tuple[str, str]:
+    """결함유형 글의 깊이 표기 "(D=0.9mm)" → (결함유형, 깊이 mm) — 지난 보고서 표기(10/22 민재형 "결함유형에 파손(D=1.0mm)"). 없으면 (글, "")."""
+    t = text or ""
+    m = DEPTH_TAG.search(t)
+    if not m:
+        return t.strip(), ""
+    return (t[:m.start()] + t[m.end():]).strip(), m[1].replace(",", ".")
+
+
+def type_with_depth(dtype: str, depth: str) -> str:
+    """보고서 결함현황표·사진표 결함유형 칸 — 깊이가 있으면 "파손(D=0.9mm)"(10/22 민재형)."""
+    d = (depth or "").strip()
+    return f"{dtype}(D={d}mm)" if d and dtype else dtype
 
 
 def is_record(dtype: str) -> bool:

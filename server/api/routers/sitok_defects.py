@@ -368,7 +368,7 @@ def album_floors(db: Session, report_id: int) -> list[tuple[str, list[dict]]]:
             out.append((d.floor, []))
         rows = out[-1][1]
         rep = d.check == "repaired" or d.mark == "보수"
-        rows.append({"번호": str(d.seq), "구분": d.part, "부재": d.member, "결함유형": "보수완료" if rep else d.dtype,
+        rows.append({"번호": str(d.seq), "구분": d.part, "부재": d.member, "결함유형": "보수완료" if rep else kinds.type_with_depth(d.dtype, d.depth),  # 깊이 = "파손(D=0.9mm)"(10/22)
                      "개수": "-" if rep else d.count, "폭": "-" if rep else d.width, "길이": "-" if rep else d.length,
                      "물량": "-" if rep else d.qty, "면적률": "-" if rep else d.area_ratio, "결함원인": "-" if rep else d.cause,
                      "진행유무": "-" if rep else d.progress, "비고": d.mark, "사진번호": f"사진{len(rows) + 1}",
@@ -492,8 +492,9 @@ def _save_album(db: Session, r: SitokReport, album) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     for row in album.rows:
         v = row.values
-        d = SitokDefect(report_id=r.id, floor=row.floor, seq=row.seq, part=v["구분"], member=v["부재"], dtype=kinds.norm(v["결함유형"]),
-                        count=v["개수"], width=v["폭"], length=v["길이"], qty=v["물량"], area_ratio=v["면적률"], cause=v["결함원인"],
+        dt, dep = kinds.split_depth(v["결함유형"])  # 지난 보고서 "파손(D=0.9mm)" → 결함유형 + 깊이(10/22)
+        d = SitokDefect(report_id=r.id, floor=row.floor, seq=row.seq, part=v["구분"], member=v["부재"], dtype=kinds.norm(dt),
+                        count=v["개수"], width=v["폭"], length=v["길이"], depth=dep, qty=v["물량"], area_ratio=v["면적률"], cause=v["결함원인"],
                         progress=v["진행유무"], mark=v["비고"], prev=dict(v))
         if row.photo_png:
             p = folder / f"{row.floor}_{row.seq:02d}_전회차.jpg"
@@ -526,8 +527,9 @@ def _merge_album(db: Session, r: SitokReport, album) -> dict:
         if d is None:  # 새 PDF에만 있는 줄 — 번호가 신규 결함과 겹치면 그 층 끝 번호 다음으로
             seq = row.seq if key not in taken else max(s for f, s in taken if f == row.floor) + 1
             taken.add((row.floor, seq))
-            d = SitokDefect(report_id=r.id, floor=row.floor, seq=seq, part=v["구분"], member=v["부재"], dtype=kinds.norm(v["결함유형"]),
-                            count=v["개수"], width=v["폭"], length=v["길이"], qty=v["물량"], area_ratio=v["면적률"], cause=v["결함원인"],
+            dt, dep = kinds.split_depth(v["결함유형"])
+            d = SitokDefect(report_id=r.id, floor=row.floor, seq=seq, part=v["구분"], member=v["부재"], dtype=kinds.norm(dt),
+                            count=v["개수"], width=v["폭"], length=v["길이"], depth=dep, qty=v["물량"], area_ratio=v["면적률"], cause=v["결함원인"],
                             progress=v["진행유무"], mark=v["비고"], prev=dict(v))
             if row.photo_png:
                 p = folder / f"{row.floor}_{seq:02d}_전회차.jpg"
@@ -542,9 +544,12 @@ def _merge_album(db: Session, r: SitokReport, album) -> dict:
             for attr, k in PREV_FIELDS:
                 before, after = old.get(k) or "", v.get(k) or ""
                 if attr == "dtype":
-                    before, after = kinds.norm(before), kinds.norm(after)
+                    before, after = kinds.norm(kinds.split_depth(before)[0]), kinds.norm(kinds.split_depth(after)[0])
                 if (getattr(d, attr) or "") == before:
                     setattr(d, attr, after)
+        ob, nb = kinds.split_depth(old.get("결함유형") or "")[1], kinds.split_depth(v.get("결함유형") or "")[1]
+        if (d.depth or "") == ob:  # 깊이도 손대지 않은 것만 새 PDF 값으로(10/22)
+            d.depth = nb
         d.prev = dict(v)
         if row.photo_png:
             cur = Path(d.prev_photo) if d.prev_photo else None

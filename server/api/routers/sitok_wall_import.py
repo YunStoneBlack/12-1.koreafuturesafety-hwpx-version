@@ -251,6 +251,7 @@ def confirm(report_id: int, body: ConfirmIn, user: User = Depends(get_current_us
         prev = {"번호": str(seq[unit]), "구분": part, "부재": member, "결함유형": dtype, "개수": "", "폭": width, "길이": "", "물량": "", "면적률": "",
                 "결함원인": "", "진행유무": "", "비고": "기존", "설명": base["caption"]}
         d = SitokDefect(report_id=r.id, floor=unit, seq=seq[unit], part=part, member=member, dtype=dtype, width=width, mark="기존", prev=prev,
+                        depth=kinds.split_depth(str(base.get("caption") or ""))[1],  # 사진 설명 "파손(D=0.9mm)" → 깊이(10/22)
                         note=base["caption"])
         p = photo_dir / f"{unit}_{seq[unit]:02d}_전회차.jpg"
         shutil.copy2(src / base["file"], p)

@@ -43,7 +43,11 @@ def _cell(page, rect, text, size=6.5, bold=False, fill=None, max_lines=1):
     f = pymupdf.Font(fontfile=FONT_B if bold else FONT)
     lines = str(text).split("\n")
     if max_lines >= 2 and len(lines) == 1:
-        lines = _two_lines(f, lines[0], size, rect.width - 2)
+        t, k = lines[0], lines[0].find("(D=")
+        if k > 0 and f.text_length(t, fontsize=size) > rect.width - 2:  # 깊이 표기 "파손(D=0.9mm)"는 "(D=" 앞에서 줄바꿈(10/22 형 "칸 안 넘게 줄바꾸거나")
+            lines = [t[:k], t[k:]]
+        else:
+            lines = _two_lines(f, t, size, rect.width - 2)
     while size > 4 and (max(f.text_length(ln, fontsize=size) for ln in lines) > rect.width - 2 or size * 1.25 * len(lines) > rect.height - 1):
         size -= 0.3  # 넘치면 글자 줄임
     lh = size * 1.25
@@ -84,7 +88,7 @@ def status_pages(doc, floor: str, rows: list[dict]) -> None:
             x = M
             for k, (name, w) in enumerate(cols):
                 key = ["번호", "구분", "부재", "결함유형", "개수", "폭", "길이", "물량", "면적률", "결함원인", "진행유무", "비고", "사진번호"][k]
-                _cell(page, pymupdf.Rect(x, y, x + w, y + rh), (vals.get(key) or "-") if vals else "-", max_lines=2 if key == "결함원인" else 1)
+                _cell(page, pymupdf.Rect(x, y, x + w, y + rh), (vals.get(key) or "-") if vals else "-", max_lines=2 if key in ("결함원인", "결함유형") else 1)
                 x += w
             y += rh
 
@@ -113,7 +117,7 @@ def photo_pages(doc, floor: str, rows: list[dict]) -> None:
                 x += w
             x = x0
             for (name, w), key in zip(cols, ["사진번호", "결함유형", "개수", "폭", "길이", "물량"]):
-                _cell(page, pymupdf.Rect(x, yy + 18, x + w, yy + 34), vals.get(key) or "-", size=6)
+                _cell(page, pymupdf.Rect(x, yy + 18, x + w, yy + 34), vals.get(key) or "-", size=6, max_lines=2 if key == "결함유형" else 1)  # 깊이 붙은 결함유형은 두 줄(10/22)
                 x += w
 
 

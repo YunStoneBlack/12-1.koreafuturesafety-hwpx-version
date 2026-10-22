@@ -18,7 +18,7 @@
   const partOptions = (v) => parts().map((p) => `<option${p === v ? " selected" : ""}>${esc(p)}</option>`).join("");
   const partValue = (v) => (parts().includes(v) ? v : parts()[parts().length - 1]);
   const DEPTH_RE = /박리|박락|층분리/; // 깊이(mm) 칸 — 정밀 상태평가 기준(박리 0.5/1.0/2.5, 박락·층분리 15/20/25mm, 10/13)
-  const WALL_DEPTH_RE = /박리|박락|층분리|파손/; // 옹벽은 파손도(10/21 형 "박리 박락 파손 등은 깊이")
+  const WALL_DEPTH_RE = /박리|박락|층분리|파손|재료분리/; // 옹벽은 파손도(10/21 형 "박리 박락 파손 등은 깊이"), 재료분리도(10/22 민재형 견본 "재료분리(D=0.9mm)")
   const isWall = () => !!(data && data.fam === "wall");
   const depthOf = (dtype) => !!dtype && (isWall() ? WALL_DEPTH_RE : DEPTH_RE).test(dtype);
   const needDepth = (d) => depthOf(d.dtype) && !String(d.depth || "").trim() && d.check !== "repaired" && d.mark !== "보수"; // 깊이 빠진 박리·박락(10/22)
@@ -166,7 +166,7 @@
         <button type="button" class="secondary sf-reimport" title="다른 보고서·잘못된 결함표를 가져왔을 때 — 목록을 비우고 가져오기 화면으로(이번 회차 확인·사진 연결도 지워짐)">↺ 전회차 결함 다시 가져오기</button>` : ""}
       <div class="sf-reprev-msg" hidden></div>
       ${off ? `<div class="sf-offbar">⚠ 목록에 없는 이름 ${off}건(지난 보고서 이름) <button type="button" class="secondary btn-sm sf-remap">🤖 한꺼번에 정리</button></div>` : ""}
-      ${noDepth ? `<div class="sf-offbar">⚠ 깊이 없는 ${isWall() ? "박리·박락·파손" : "박리·박락"} ${noDepth}건 <button type="button" class="secondary btn-sm sf-depth-all">📏 한꺼번에 넣기</button></div>` : ""}`;
+      ${noDepth ? `<div class="sf-offbar">⚠ 깊이 없는 ${isWall() ? "박리·박락·파손·재료분리" : "박리·박락"} ${noDepth}건 <button type="button" class="secondary btn-sm sf-depth-all">📏 한꺼번에 넣기</button></div>` : ""}`;
     document.querySelector(".sf-cause-ai").addEventListener("click", suggestCauses);
     document.querySelector(".sf-remap")?.addEventListener("click", remapNames);
     document.querySelector(".sf-depth-all")?.addEventListener("click", depthAll);
