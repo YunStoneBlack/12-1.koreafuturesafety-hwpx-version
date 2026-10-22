@@ -186,6 +186,9 @@
   (`server/sitok/cycle.py`, API `sitok_cycle.py` — 1종 ~진단, 2종 ~정밀점검, 3종 정기만, 건축·토목 주기 다름, 전회차 기록이 없으면 2종 정밀점검·1종 + 진단 시기를 물어 시설물에 저장).
 - **95차(10/22)**: 내진성능평가 = 시특법과 별개 건(DB 0062 `seismic_only`) — 왼쪽 메뉴 내진성능평가(`seismic.html`) 계약서·건축물대장으로 만들기, 건 화면(`seismic-project.html` 서류 칸·지반 연동),
   현장조사 입력(`seismic-field.html`), 보고서 = 1~2장 채우기(`seismic_fill`) + 외주 3~7장 + 부록·합본(`seismic_appendix`). API `server/api/routers/seismic.py`.
+  96~97차: 요약문 종합의견 견본 문장·AI 초안(`field/summary/template|ai`), 2.3 결함 표(망도 없음)·1.2 층별 평면도·목차 쪽 번호(두 번 PDF),
+  과업수행계획서 자동(`server/sitok/seismic_plan.py` — 서류 칸 [📝 자동으로 만들기], 안 올리면 부록 2 자동), 스캔 건축물대장 AI 읽기(`seismic_docs.read_register_ai`),
+  시특법 서류 자동화의 성능평가 계약은 시특법 회차를 안 만듦. 그룹웨어 홈 보고서 자동화 카드에 [내진성능평가][결함조사], 두 카드 오른쪽 위 ⚙ 설정(98차).
 - **91차(10/21 밤)**: 옹벽 묶음 2장부터 꼬리말 고침(`wall_build._drop_before(sec_only=True)` — 구역 정의만 옮김), 보고서 구성 상자 기본 계약 = 반기와 가장 많이 겹치는 계약(`sitok_compose._overlap_days`, `attach_contract`는 contract_for), **정밀 묶음 분권**(`sitok_split._build_precision`), 양주덕산초 되돌리기 `server/scripts/restore_deoksan_test.py`.
 - **75~89차(10/21)**: 옹벽 형 수정사항(요약표 전회 칸·1.5 유지관리방안·1.6 개략공사비 AI, 발주처 과업지시서 DB 0060, 위치도 핀·후면첨부 도면, 1.2.4 틀 점선 X + "후면첨부",
   2.2 과업 예정 공정표 머리 = 과업기간 날짜, 전회차 사진 읽기 세 단계 — 부록2 간지 → 전경사진·주요 손상 및 현황사진 제목 쪽 → 설명 붙은 사진),
