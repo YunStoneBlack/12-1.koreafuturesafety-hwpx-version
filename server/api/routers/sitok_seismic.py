@@ -25,6 +25,7 @@ from server.api.deps import get_current_user, get_db
 from server.api.routers.sitok_reports import _report_dir, _require
 from server.sitok import rebar_schedule as RS
 from server.sitok import rebar_survey as RV
+from server.sitok import seismic_docs as SD
 
 router = APIRouter(prefix="/sitok", tags=["sitok-seismic"])
 
@@ -62,7 +63,8 @@ def _out(db: Session, r: SitokReport) -> dict:
             "schedule": {"count": len(sv["items"]), "need": sv["need"], "read_at": sv["read_at"],
                          "items": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"], "range": RS.floor_range(x["floors"]),
                                     "position": x.get("position") or "", "confirmed": x["confirmed"], "check_ok": x["check"]["ok"]} for x in sv["items"]]},
-            "lines": RV.LINES, "rows": rows, "counts": RV.counts(data["rows"], floors)}
+            "lines": RV.LINES, "kinds": list(RV.KINDS), "seeded": data["seeded"], "rows": rows,
+            "counts": RV.counts(data["rows"], SD.sample_floors(f))}  # 표본 층 × 4종(10/22)
 
 
 @router.get("/reports/{report_id}/seismic")
@@ -79,13 +81,30 @@ def save_rebar(report_id: int, body: RowsIn, user: User = Depends(get_current_us
     r = _require(db, user, report_id)
     f = db.get(SitokFacility, r.facility_id)
     sch = (f.ledger or {}).get("rebar_schedule")
-    old = {x["id"]: x for x in _rebar(r)["rows"]}
-    data = RV.normalize({"rows": body.rows})
+    cur = _rebar(r)
+    old = {x["id"]: x for x in cur["rows"]}
+    data = RV.normalize({"rows": body.rows, "seeded": cur["seeded"]})
     for row in data["rows"]:
         prev = old.get(row["id"])
         row["captures"] = prev["captures"] if prev else ["", ""]  # 캡처 파일 이름은 서버만 정함
         RV.fill_design(row, sch)
     _put(r, data)
+    db.commit()
+    return _out(db, r)
+
+
+class PlanIn(BaseModel):
+    plan: dict | None = None
+    default: bool = False
+
+
+@router.post("/reports/{report_id}/seismic/rebar/plan")
+def rebar_plan(report_id: int, body: PlanIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """칸 수대로 줄 맞추기(10/22 형 "표본층 종별마다 칸 생성, 수량 조정") — default(또는 plan 없음)면 표본 층 × 4종 × 3. 쓴 줄은 안 지움."""
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    plan = RV.default_plan(SD.sample_floors(f)) if body.default or not body.plan else body.plan
+    _put(r, {"rows": RV.apply_plan(_rebar(r)["rows"], plan), "seeded": True})
     db.commit()
     return _out(db, r)
 
@@ -192,7 +211,7 @@ def rebar_xlsx(report_id: int, user: User = Depends(get_current_user), db: Sessi
     data = _rebar(r)
     if not data["rows"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "철근탐사 줄이 없습니다.")
-    body = RV.xlsx(data["rows"], f"{f.name} 철근배근 상태조사")
+    body = RV.xlsx(RV.report_rows(data["rows"]), f"{f.name} 철근배근 상태조사")  # 결과 있는 줄만(빈 칸 뺌)
     from urllib.parse import quote
 
     name = quote(f"{f.name}_철근배근 상태조사.xlsx")

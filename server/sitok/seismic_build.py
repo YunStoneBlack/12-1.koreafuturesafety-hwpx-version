@@ -73,14 +73,15 @@ def gather(db, r, f) -> dict:
         joint = f"{c.joint_type} {c.joint_pct or ''}%".strip()
     elif sc.get("joint") and sc["joint"] not in ("단독계약", "단독", "독자수행"):
         joint = sc["joint"]
-    rows = RV.normalize((r.survey or {}).get("rebar"))["rows"]
+    all_rows = RV.normalize((r.survey or {}).get("rebar"))["rows"]
+    rows = RV.report_rows(all_rows)  # 결과 있는 줄만·번호 다시(미리 만든 빈 칸 뺌, 10/22)
     title = (c.title if c and c.title else "") or sc.get("title") or f"{f.name} 내진성능평가 용역"
     return {"name": f.name, "title": title.strip(),
             "client": (sc.get("client") or f.owner_name or "").strip() or "-", "address": f.address or "-",
             "period_start": r.period_start, "period_end": r.period_end, "month": rd, "persons": persons, "amount_k": amount_k or "-",
             "joint": joint, "bid": (c.bid_method if c else "") or sc.get("method") or "수의계약", "use": f.use_type or f.main_use or "-", "class_no": f.class_no or "-",
             "grade": f.safety_grade or "-", "completion": f.completion_date, "above": f.floors_above or 0, "below": f.floors_below or 0,
-            "area": f.total_area, "height": f.max_height, "structure": f.structure or "-", "rebar": rows}
+            "area": f.total_area, "height": f.max_height, "structure": f.structure or "-", "rebar": rows, "rebar_empty": len(all_rows) - len(rows)}
 
 
 def replace_globals(doc: Hwpx, d: dict) -> int:
@@ -218,6 +219,8 @@ def _rebar_tables(root) -> list:
 def fill_rebar(root, d: dict, warn: list) -> int:
     """2.2.2 철근배근 조사결과 — 견본 첫 표를 틀로 18개씩 표 하나(머리 줄 + 시험마다 두 줄), 남는 견본 표·제목·주석은 지움. 조사 수량 칸도."""
     rows = d["rebar"]
+    if d.get("rebar_empty"):
+        warn.append(f"철근탐사 빈 칸 {d['rebar_empty']}개(조사 결과 없음)는 보고서에서 뺐습니다 — 시험번호는 차례로 다시")
     tables = _rebar_tables(root)
     if not tables:
         warn.append("원본에서 철근배근 조사결과 표를 못 찾았습니다")

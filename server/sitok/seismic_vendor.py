@@ -341,7 +341,7 @@ def review(ven: Hwpx, ours: dict) -> list[str]:
         flat = _n(vtext)
         for k, label in (("기둥", "a.기둥"), ("보", "b.보"), ("벽체", "c.벽체")):
             m = re.search(rf"{label}(\d+)철근탐사기", flat)
-            mine = sum(1 for x in rebar if x["kind"] == k)
+            mine = sum(1 for x in rebar if x["kind"] == k or (k == "보" and x["kind"] == "보-기둥 접합부"))  # 접합부 = 보 단부 조사
             if m and int(m.group(1)) != mine:
                 out.append(f"체크리스트 철근상세 {k} {m.group(1)}개소 ≠ 우리 철근탐사 {mine}개소")
     return out

@@ -8,7 +8,9 @@
   const $ = (id) => document.getElementById(id);
   const errorEl = $("error");
   const URL_ = `/sitok/reports/${rid}/seismic`;
-  const KINDS = ["기둥", "보", "벽체"];
+  const JOINT = "보-기둥 접합부"; // 종별 항목만 따로, 조사는 보 단부(10/22 형)
+  let KINDS = ["보", "기둥", JOINT, "벽체"];
+  const hasResult = (r) => r.measured.some((x) => x) || r.unable.some((x) => x) || r.captures.some((x) => x);
   let d = null;
   let saving = null;
 
@@ -16,7 +18,9 @@
   const floorLabel = (n) => (d.floors.find((f) => f.n === n) || {}).label || (n == null ? "층?" : n < 0 ? `지하${-n}층` : `지상${n}층`);
 
   function choices(row) {
-    return d.schedule.items.filter((it) => it.kind === row.kind && (row.floor == null || !it.range || (it.range[0] <= row.floor && row.floor <= it.range[1])));
+    const sk = row.kind === JOINT ? "보" : row.kind; // 접합부 = 보 단부 칸
+    return d.schedule.items.filter((it) => it.kind === sk && !(row.kind === JOINT && /중앙/.test(it.position || ""))
+      && (row.floor == null || !it.range || (it.range[0] <= row.floor && row.floor <= it.range[1])));
   }
 
   function line(row, i) {
@@ -39,7 +43,7 @@
     const ch = choices(row);
     const sel = ch.find((c) => c.id === row.item_id);
     const opts = `<option value="">${ch.length ? "일람표 칸 고르기" : "맞는 일람표 칸 없음 — 부호 직접"}</option>` + ch.map((c) => `<option value="${c.id}"${c.id === row.item_id ? " selected" : ""}>${esc(c.marks.join(", "))}${c.position ? ` ${esc(c.position)}` : ""} (${esc(c.floors)})${c.confirmed ? "" : " ⚠미확인"}</option>`).join("");
-    return `<div class="ss-card" data-id="${row.id}">
+    return `<div class="ss-card${hasResult(row) ? "" : " empty"}" data-id="${row.id}">
       <div class="ss-card-h"><b class="ss-no">RC-${row.no}</b><span class="sk-help">${esc(floorLabel(row.floor))} · ${esc(row.kind)}${row.mark ? ` (${esc(row.mark)})` : ""}</span>
         <button type="button" class="link-btn ss-del" title="이 시험 지우기">🗑</button></div>
       <div class="field-grid ss-pick">
@@ -47,7 +51,7 @@
         <div class="sk-f"><label>부재</label><select data-f="kind">${KINDS.map((k) => `<option${k === row.kind ? " selected" : ""}>${k}</option>`).join("")}</select></div>
         <div class="sk-f ss-wide"><label>일람표 칸 ${sel && !sel.confirmed ? '<a class="ss-warn-link" href="sitok-schedule.html?facility=' + d.report.facility_id + '" title="부재 목록에서 확인">⚠ 확인 안 한 칸</a>' : ""}</label><select data-f="item_id">${opts}</select></div>
         <div class="sk-f"><label>부호</label><input data-f="mark" value="${esc(row.mark)}" placeholder="예: C1" /></div>
-        ${row.kind === "벽체" ? "" : `<div class="sk-f"><label>위치</label><select data-f="position">${["중앙부", "단부"].map((p) => `<option${p === row.position ? " selected" : ""}>${p}</option>`).join("")}</select></div>`}
+        ${row.kind === "벽체" ? "" : row.kind === JOINT ? '<div class="sk-f"><label>위치</label><div class="ss-fixed">보 단부로 조사</div></div>' : `<div class="sk-f"><label>위치</label><select data-f="position">${["중앙부", "단부"].map((p) => `<option${p === row.position ? " selected" : ""}>${p}</option>`).join("")}</select></div>`}
         ${row.kind === "기둥" ? `<div class="sk-f"><label>잰 변</label><select data-f="side">${["단변", "장변"].map((p) => `<option${p === row.side ? " selected" : ""}>${p}</option>`).join("")}</select></div>` : ""}
       </div>
       <div class="ss-lines">${line(row, 0)}${line(row, 1)}</div>
@@ -61,22 +65,43 @@
     $("ss-round-link").textContent = r.half === "성능평가" ? `${r.year}년 내진성능평가` : `${r.year}년 ${r.half}`;
     $("ss-round-link").href = `seismic-project.html?id=${rid}`;
     document.title = `현장시험 - ${r.facility_name}`;
-    $("ss-count").textContent = d.rows.length ? `${d.rows.length}개소` : "";
+    $("ss-count").textContent = d.rows.length ? `${d.counts.total}/${d.counts.slots_total}개소` : "";
     const s = d.schedule;
     $("ss-sched").innerHTML = s.count ? `📏 구조 일람표 ${s.count}칸${s.need ? ` — <b class="ss-need">확인 필요 ${s.need}칸</b>(기둥 단변·장변 점 개수 등)` : " — 모두 확인"}
         <a class="secondary-link" href="sitok-schedule.html?facility=${r.facility_id}">부재 목록 열기</a>`
       : `<div class="mail-msg bad">구조 일람표 부재 목록이 비었습니다 — <a href="sitok-schedule.html?facility=${r.facility_id}">부재 목록</a>에서 일람표를 읽으면 설계값이 자동으로 들어갑니다(없으면 설계 칸을 직접).</div>`;
     const q = d.counts;
-    $("ss-qty").innerHTML = q.table.length ? `<table class="ss-qty-t"><thead><tr><th>층</th>${KINDS.map((k) => `<th>${k}</th>`).join("")}</tr></thead><tbody>
-        ${q.table.map((t) => `<tr><td>${esc(t.label)}</td>${KINDS.map((k) => `<td class="${t[k] >= q.per ? "ok" : t[k] ? "part" : ""}">${t[k]}${t[k] >= q.per ? " ✓" : ` / ${q.per}`}</td>`).join("")}</tr>`).join("")}</tbody></table>
-        <span class="sk-help">과업지시서: 도면이 있으면 조사단위(층)마다 부재 종별로 ${q.per}개소 이상</span>` : "";
+    // 층 × 종별 칸 수 표 — 숫자를 고치면 카드가 늘고 줆(쓴 카드는 안 지움, 10/22 형 "표본층 종별마다 칸 생성, 수량 조정")
+    $("ss-qty").innerHTML = q.table.length ? `<table class="ss-qty-t"><thead><tr><th>층</th>${KINDS.map((k) => `<th>${k === JOINT ? "보-기둥<br>접합부" : k}</th>`).join("")}</tr></thead><tbody>
+        ${q.table.map((t) => `<tr><td>${esc(t.label)}</td>${KINDS.map((k) => { const dn = t.done[k] || 0, sl = t.slots[k] || 0;
+          return `<td class="${sl && dn >= sl ? "ok" : dn ? "part" : ""}"><span>${dn}/</span><input type="number" min="0" max="40" inputmode="numeric" data-q="${t.floor}|${k}" value="${sl}" title="${esc(t.label)} ${esc(k)} 칸 수" /></td>`; }).join("")}</tr>`).join("")}</tbody></table>
+        <div class="ss-qty-side"><span class="sk-help">결과/칸 — 매뉴얼 <표 3-1>: 조사단위(층)마다 보·기둥·보-기둥 접합부·벽체 ${q.per}개소 이상(접합부는 보 단부로 조사).
+        숫자를 고치면 카드가 늘고 줆, 결과 없는 카드는 보고서에서 빠짐.</span><button type="button" class="secondary" id="ss-q-reset">기본 칸 수로</button></div>` : "";
+    $("ss-qty").querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => {
+      const plan = Object.fromEntries(q.table.flatMap((t) => KINDS.map((k) => [`${t.floor}|${k}`, t.slots[k] || 0])));
+      plan[el.dataset.q] = Math.max(0, Math.min(40, Number(el.value) || 0));
+      planSave({ plan });
+    }));
+    $("ss-q-reset")?.addEventListener("click", () => { if (confirm("층마다 종별 3칸으로 맞출까요? 쓴 카드는 그대로 둡니다.")) planSave({ default: true }); });
     $("ss-xlsx").href = `${BASE}/api${URL_}/rebar.xlsx`;
     $("ss-xlsx").hidden = !d.rows.length;
   }
 
   function draw() {
     drawTop();
-    $("ss-rows").innerHTML = d.rows.length ? `<section class="panel"><div class="panel-body ss-cards">${d.rows.map(card).join("")}</div></section>`
+    let prev;
+    const byFloor = Object.fromEntries((d.counts.table || []).map((t) => [t.floor, t]));
+    const cards = d.rows.map((r) => {
+      let h = "";
+      if (r.floor !== prev) {
+        const t = byFloor[r.floor];
+        const dn = t ? KINDS.reduce((a, k) => a + (t.done[k] || 0), 0) : 0, sl = t ? KINDS.reduce((a, k) => a + (t.slots[k] || 0), 0) : 0;
+        h = `<h4 class="ss-floor">${esc(floorLabel(r.floor))}${t ? ` <span class="sk-help">${dn}/${sl}</span>` : ""}</h4>`;
+      }
+      prev = r.floor;
+      return h + card(r);
+    }).join("");
+    $("ss-rows").innerHTML = d.rows.length ? `<section class="panel"><div class="panel-body ss-cards">${cards}</div></section>`
       : '<section class="panel"><div class="panel-body empty-note">아직 시험이 없습니다 — 위 [＋ 시험 추가]</div></section>';
     bind();
   }
@@ -148,8 +173,15 @@
     save(rows).then(() => { const cards = document.querySelectorAll(".ss-card"); const c = cards[cards.length - 1]; if (c) { c.scrollIntoView({ block: "center" }); c.querySelector('[data-f="item_id"]')?.focus(); } });
   });
 
+  async function planSave(body) {
+    $("ss-saved").textContent = "칸 맞추는 중…";
+    try { d = await apiPost(`${URL_}/rebar/plan`, body); KINDS = d.kinds || KINDS; showErr(""); $("ss-saved").textContent = "저장됨"; } catch (e) { showErr(e.message); $("ss-saved").textContent = ""; return; }
+    draw();
+  }
+
   async function load() {
-    try { d = await api(URL_); showErr(""); } catch (e) { showErr(e.message); return; }
+    try { d = await api(URL_); KINDS = d.kinds || KINDS; showErr(""); } catch (e) { showErr(e.message); return; }
+    if (!d.seeded) { await planSave({ default: true }); return; } // 처음 열면 표본 층 × 4종 × 3 카드를 깔아 둠(쓴 카드는 그대로)
     draw();
   }
 

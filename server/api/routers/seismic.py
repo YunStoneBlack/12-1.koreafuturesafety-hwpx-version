@@ -557,9 +557,16 @@ def _field_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "floors": [{"n": n, "label": SF.floor_label(n)} for n in floors], "units": SD.survey_units(f),
             "sample_floors": SD.sample_floors(f), "member_kinds": list(SD.MEMBER_KINDS), "member_plan": SD.member_plan(f, fd["member_plan"]),
             "member_plan_default": SD.member_plan(f), "drawings": SD.has_drawings(f),
-            "min_counts": SD.min_counts(SD.survey_units(f), grade, SD.has_drawings(f)), "rebar": len(((_sv(r).get("rebar") or {}).get("rows")) or []),
+            "min_counts": SD.min_counts(SD.survey_units(f), grade, SD.has_drawings(f)), "rebar": _rebar_done(r),
             "schedule": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"], "size": x.get("size") or "",
                           "range": RS.floor_range(x["floors"])} for x in sch["items"] if x["kind"] in SF.MEMBER_KINDS]}  # 층 범위 — 그 층 칸만(철근탐사처럼, 10/22)
+
+
+def _rebar_done(r: SitokReport) -> int:
+    """철근탐사 결과 있는 줄 수(미리 만든 빈 칸은 안 셈, 10/22)."""
+    from server.sitok import rebar_survey as RV
+
+    return sum(1 for x in RV.normalize(_sv(r).get("rebar"))["rows"] if RV.has_result(x))
 
 
 @router.get("/projects/{rid}/field")

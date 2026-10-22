@@ -8,6 +8,16 @@
 .ss-qty-t td.ok { color: #1f7a3f; font-weight: 700; }
 .ss-qty-t td.part { color: #a2620b; }
 .ss-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+/* 층 × 종별 칸 수 표·층 머리·빈 카드(10/22 형 "표본층 종별마다 칸 생성, 수량 조정") */
+.ss-qty-t td span { color: var(--faint); margin-right: 2px; }
+.ss-qty-t td.ok span { color: #1f7a3f; font-weight: 700; }
+.ss-qty-t td.part span { color: #a2620b; font-weight: 700; }
+.ss-qty-t input { width: 44px; margin: 0; padding: 2px 4px; text-align: center; }
+.ss-qty-side { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: 360px; }
+.ss-floor { margin: 10px 0 -4px; font-size: 15px; }
+.ss-card.empty { border-style: dashed; }
+.ss-fixed { padding: 9px 0; font-size: 13px; color: var(--muted); white-space: nowrap; }
+@media (max-width: 760px) { .ss-qty-t th, .ss-qty-t td { padding: 3px 4px; } .ss-qty-t input { width: 34px; padding: 2px; } .ss-qty-t td span { margin-right: 0; } } /* 폰 — 4열 표가 넘치지 않게 */
 
 .ss-cards { display: flex; flex-direction: column; gap: 12px; }
 .ss-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--surface); }

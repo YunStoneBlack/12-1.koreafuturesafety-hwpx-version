@@ -74,7 +74,7 @@ def fill_rebar_blocks(doc, root, rows: list[dict], rdir: Path, warn: list) -> in
         for line, (rr, prc) in enumerate(((3, (1, 0)), (6, (4, 0)))):
             SFL._set(cells, (rr, 0), f"RC-{row.get('no') or k}")
             SFL._set(cells, (rr, 11), f"{SF.floor_label(row['floor'])} {head}".strip())
-            SFL._set(cells, (rr, 13), f"{row['kind']}{mark}")
+            SFL._set(cells, (rr, 13), f"{RV.kind_short(row)}{mark}")  # 접합부 = 보(보 단부로 조사)
             SFL._set(cells, (rr, 14), row["design"][line] or "-")
             SFL._set(cells, (rr, 15), "실측불가" if row["unable"][line] else (row["measured"][line] or "-"))
             SFL._set(cells, (rr, 16), RV.LINES[row["kind"]][line])
@@ -122,7 +122,7 @@ def fill_appendix(doc, d: dict, r, f, rdir: Path, warn: list) -> int:
         tables = [t for t in SFL._outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"]
         n += SFL.fill_chunks(root, tables, vals, 60, 2, flat=True)
     n += SFL.fill_cores(doc, root, field, rdir, None, quiet)
-    rebar_rows = RV.normalize((r.survey or {}).get("rebar"))["rows"]
+    rebar_rows = RV.report_rows(RV.normalize((r.survey or {}).get("rebar"))["rows"])  # 결과 있는 줄만(10/22)
     n += fill_rebar_blocks(doc, root, rebar_rows, rdir, warn)
     # 7 마이다스 안 작은 간지(안전성 검토·선형 해석)는 원본 틀 그대로 남김 — assemble이 간지마다 그 뒤에 서류 칸 PDF(10/22)
     return n

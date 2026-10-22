@@ -6,7 +6,9 @@
   못 잰 줄 = "실측불가"(피복 "-").
 설계값은 구조 일람표 부재 목록(server/sitok/rebar_schedule — 시설물 ledger.rebar_schedule)에서 층·부호·위치·변으로 자동(사람이 고치면 그대로).
 조사값·피복은 탐사기 캡처를 올리면 server/sitok/rebar_capture가 채움(간격 = 철근 사이 평균, 피복 = 평균 반올림).
-필요 수량(과업지시서 표 3-1): 도면이 있으면 조사단위(층)마다 부재 종별(기둥·보·벽체) 3개소 이상.
+필요 수량(매뉴얼 <표 3-1>): 조사단위(층)마다 부재 종별(보·기둥·보-기둥 접합부·벽체) 3개소 이상 — 표본 층 × 종별 칸을 미리 만들어 둠(apply_plan, 10/22).
+보-기둥 접합부는 종별 항목만 따로, 조사는 보 단부로(형 10/22 — 견본 "접합부 철근배근상태 조사는 보단부 조사로 갈음"): 일람표는 보 단부 칸, 줄은 하부근·늑근.
+결과(조사값·실측불가·캡처)가 없는 미리 만든 칸은 수량·보고서에서 뺌(report_rows — 번호 다시).
 """
 from __future__ import annotations
 
@@ -16,9 +18,16 @@ import uuid
 
 from server.sitok import rebar_schedule as RS
 
-LINES = {"기둥": ("주근", "대근"), "보": ("하부근", "늑근"), "벽체": ("수직근", "수평근")}
-COUNT_LINE = {"기둥": True, "보": True, "벽체": False}  # 첫 줄이 개수(EA)인지(벽체는 둘 다 간격)
+JOINT = "보-기둥 접합부"
+KINDS = ("보", "기둥", JOINT, "벽체")  # 철근배근 상태조사 종별(매뉴얼 <표 3-1> 비고) — 칸 차례도 이대로
+LINES = {"기둥": ("주근", "대근"), "보": ("하부근", "늑근"), JOINT: ("하부근", "늑근"), "벽체": ("수직근", "수평근")}
+COUNT_LINE = {"기둥": True, "보": True, JOINT: True, "벽체": False}  # 첫 줄이 개수(EA)인지(벽체는 둘 다 간격)
 NEED_PER = 3
+
+
+def sched_kind(kind: str) -> str:
+    """일람표에서 찾을 부재 — 접합부는 보(단부 칸)."""
+    return "보" if kind == JOINT else kind
 
 
 def _int(v):
@@ -43,7 +52,7 @@ def norm_row(raw: dict, n: int) -> dict | None:
 
     return {"id": raw.get("id") or uuid.uuid4().hex[:8], "no": n, "floor": floor, "kind": kind, "item_id": str(raw.get("item_id") or ""),
             "mark": str(raw.get("mark") or "").strip()[:30],
-            "position": "" if kind == "벽체" else (raw.get("position") if raw.get("position") in ("단부", "중앙부") else "중앙부"),  # 벽체는 위치 없음
+            "position": "" if kind == "벽체" else "단부" if kind == JOINT else (raw.get("position") if raw.get("position") in ("단부", "중앙부") else "중앙부"),  # 벽체는 위치 없음, 접합부는 보 단부
             "side": (raw.get("side") if raw.get("side") in ("단변", "장변") else "단변") if kind == "기둥" else "",
             "design": pair("design"), "design_manual": bool(raw.get("design_manual")),
             "measured": pair("measured"), "cover": pair("cover", _int), "unable": [bool(x) for x in (list(raw.get("unable") or []) + [False, False])[:2]],
@@ -57,7 +66,7 @@ def normalize(data: dict | None) -> dict:
         r = norm_row(raw, len(rows) + 1)
         if r:
             rows.append(r)
-    return {"rows": rows}
+    return {"rows": rows, "seeded": bool((data or {}).get("seeded"))}  # seeded = 표본 칸을 한 번 깔았음
 
 
 def items_by_id(schedule: dict | None) -> dict:
@@ -68,7 +77,7 @@ def choices(schedule: dict | None, floor: int | None, kind: str) -> list[dict]:
     """그 층·부재에 맞는 일람표 칸 [{id, label, position}] — 층 표기를 못 알아들은 칸·층을 안 고른 경우는 다 보임."""
     out = []
     for it in RS.view(schedule).get("items") or []:
-        if it["kind"] != kind:
+        if it["kind"] != sched_kind(kind) or (kind == JOINT and "중앙" in (it.get("position") or "")):  # 접합부 = 보 단부 칸
             continue
         rng = RS.floor_range(it["floors"])
         if floor is not None and rng and not (rng[0] <= floor <= rng[1]):
@@ -87,7 +96,7 @@ def fill_design(row: dict, schedule: dict | None) -> dict:
     if it is None:
         return row
     pos = row.get("position") or ""
-    if it["kind"] == "보" and it.get("position"):
+    if it["kind"] == "보" and it.get("position") and row["kind"] != JOINT:  # 접합부는 늘 단부
         pos = "단부" if "단부" in it["position"] else "중앙부" if "중앙" in it["position"] else pos
         row["position"] = pos
     rows = RS.design(it, pos, row.get("side") or "")["rows"]
@@ -130,13 +139,71 @@ def mismatch(row: dict) -> list[int]:
     return out
 
 
-def counts(rows: list[dict], floors: list[int]) -> dict:
-    """필요 수량 표 — 층마다 부재 종별 개수(3개소 이상), 합계."""
-    table = {f: {k: 0 for k in LINES} for f in floors}
+def has_result(row: dict) -> bool:
+    """조사 결과가 있는 줄(보고서·수량에 셈) — 조사값·실측불가·캡처 중 하나."""
+    return any(row["measured"]) or any(row["unable"]) or any(row["captures"])
+
+
+def touched(row: dict) -> bool:
+    """사람이 손댄 줄(칸 수를 줄여도 안 지움) — 일람표 칸·부호·결과·비고·설계 직접."""
+    return bool(row.get("item_id") or row.get("mark") or row.get("note") or row.get("design_manual") or has_result(row))
+
+
+def report_rows(rows: list[dict]) -> list[dict]:
+    """보고서·엑셀에 넣을 줄 — 결과 있는 줄만, 시험번호 1부터 다시."""
+    return [{**r, "no": i} for i, r in enumerate((x for x in rows if has_result(x)), 1)]
+
+
+def kind_short(row: dict) -> str:
+    """부재 칸에 쓸 이름 — 접합부는 보(보 단부로 조사)."""
+    return sched_kind(row["kind"])
+
+
+def default_plan(floors: list[int]) -> dict:
+    """표본 층 × 4종 × 3개소."""
+    return {f"{n}|{k}": NEED_PER for n in floors for k in KINDS}
+
+
+def apply_plan(rows: list[dict], plan: dict) -> list[dict]:
+    """칸 수 {"층|종별": n}대로 줄 맞추기 — 모자라면 빈 줄 더하고, 남으면 손 안 댄 줄만 뒤에서부터 지움.
+    층(아래 → 위)·종별 차례로 세우고 번호 다시. plan에 없는 층·종별 줄은 그대로."""
+    order = {k: i for i, k in enumerate(KINDS)}
+    groups: dict[tuple, list] = {}
     for r in rows:
-        if r["floor"] in table:
-            table[r["floor"]][r["kind"]] += 1
-    return {"per": NEED_PER, "table": [{"floor": f, "label": RS.floor_label(f), **table[f]} for f in floors], "total": len(rows)}
+        groups.setdefault((r["floor"], r["kind"]), []).append(r)
+    want = {}
+    for key, n in (plan or {}).items():
+        m = re.fullmatch(r"(-?\d+)\|(.+)", str(key))
+        if m and m.group(2) in LINES and int(m.group(1)):
+            want[(int(m.group(1)), m.group(2))] = max(0, min(_int(n) or 0, 40))
+    out = []
+    for key in sorted(set(groups) | set(want), key=lambda k: (k[0] is None, k[0] or 0, order.get(k[1], 9))):
+        g = list(groups.get(key, []))
+        if key in want:
+            i = len(g) - 1
+            while len(g) > want[key] and i >= 0:
+                if not touched(g[i]):
+                    g.pop(i)
+                i -= 1
+            while len(g) < want[key]:
+                g.append(norm_row({"kind": key[1], "floor": key[0]}, 0))
+        out.extend(g)
+    for i, r in enumerate(out, 1):
+        r["no"] = i
+    return out
+
+
+def counts(rows: list[dict], floors: list[int]) -> dict:
+    """수량 표 — 층마다 종별 {결과 있는 줄(done), 칸(slots)}, 합계(결과 있는 줄·칸)."""
+    fl = sorted(set(floors) | {r["floor"] for r in rows if r["floor"] is not None})
+    done = {f: {k: 0 for k in KINDS} for f in fl}
+    slots = {f: {k: 0 for k in KINDS} for f in fl}
+    for r in rows:
+        if r["floor"] in slots:
+            slots[r["floor"]][r["kind"]] += 1
+            done[r["floor"]][r["kind"]] += 1 if has_result(r) else 0
+    return {"per": NEED_PER, "kinds": list(KINDS), "table": [{"floor": f, "label": RS.floor_label(f), "done": done[f], "slots": slots[f]} for f in fl],
+            "total": sum(1 for r in rows if has_result(r)), "slots_total": len(rows)}
 
 
 def place(row: dict) -> str:
@@ -144,8 +211,8 @@ def place(row: dict) -> str:
 
 
 def member_text(row: dict) -> tuple[str, str]:
-    """부재명 두 줄 — "기둥 중앙부 단변" / "(C1)"."""
-    head = " ".join(x for x in (row["kind"], row["position"], row["side"]) if x)
+    """부재명 두 줄 — "기둥 중앙부 단변" / "(C1)". 접합부는 "보 단부(접합부)"."""
+    head = "보 단부(접합부)" if row["kind"] == JOINT else " ".join(x for x in (row["kind"], row["position"], row["side"]) if x)
     return head, f"({row['mark']})" if row["mark"] else ""
 
 
@@ -215,7 +282,19 @@ def _selfcheck() -> None:
     t = table_rows([r, b])
     assert t[0][:3] == [1, "지상1층( RC-1 )", "기둥 단부 단변"] and t[1][2] == "(C1)" and t[3][3] == "늑근"
     c = counts([r, b], [1, 2])
-    assert c["table"][0]["기둥"] == 1 and c["table"][1]["보"] == 1 and c["total"] == 2
+    assert c["table"][0]["done"]["기둥"] == 1 and c["table"][1]["done"]["보"] == 1 and c["total"] == 2
+    # 접합부 = 보 단부 칸만·늘 단부, 표본 칸·빈 칸 빼기(10/22)
+    sch["items"].append({"id": "g1e", "kind": "보", "marks": ["G1"], "floors": "2~5", "position": "단부", "bottom": "4-HD19", "stirrup": "HD10@150", "confirmed": True})
+    assert [x["id"] for x in choices(sch, 2, JOINT)] == ["g1e"]
+    j = fill_design(norm_row({"kind": JOINT, "floor": 2, "item_id": "g1e", "position": "중앙부"}, 3), sch)
+    assert j["position"] == "단부" and j["design"] == ["4EA", "@150"] and member_text(j)[0] == "보 단부(접합부)" and kind_short(j) == "보"
+    rows = apply_plan([r, b], default_plan([1, 2]))
+    assert len(rows) == 24 and [x["no"] for x in rows][:3] == [1, 2, 3] and rows[0]["kind"] == "보" and rows[0]["floor"] == 1
+    assert sum(1 for x in rows if x["floor"] == 1 and x["kind"] == "기둥") == 3 and any(x["id"] == r["id"] for x in rows)
+    rows = apply_plan(rows, {"1|기둥": 0, "2|보": 5})
+    assert sum(1 for x in rows if x["floor"] == 1 and x["kind"] == "기둥") == 1 and sum(1 for x in rows if x["floor"] == 2 and x["kind"] == "보") == 5
+    rep = report_rows(rows)
+    assert [x["no"] for x in rep] == [1, 2] and counts(rows, [1, 2])["total"] == 2 and counts(rows, [1, 2])["slots_total"] == len(rows)
     assert len(xlsx([r, b], "철근배근 상태조사")) > 4000
 
 
