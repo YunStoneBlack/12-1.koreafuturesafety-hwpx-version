@@ -8,7 +8,7 @@ async function sitokDrawLocmap(el, facilityId, name) {
   let st;
   try { st = await api(url); } catch (e) { el.innerHTML = `<div class="mail-msg bad">${esc(e.message)}</div>`; return; }
   el.hidden = false;
-  const SRC = { image: "올린 그림이 보고서에 들어갑니다(핀보다 우선)", pin: "저장한 핀 자리로 지도를 만듭니다", address: "아직 핀이 없어 주소 자리입니다 — 핀을 옹벽 자리로 끌어 [핀 자리 저장]", "": "주소로 자리를 못 찾았습니다 — 지도를 움직여 핀을 찍고 저장하세요" };
+  const SRC = { image: "올린 그림이 보고서에 들어갑니다(핀보다 우선)", pin: "저장한 핀 자리로 지도를 만듭니다", address: "아직 핀이 없어 주소 자리입니다 — 핀을 그 시설물 자리(옹벽·학교 안 그 동)로 끌어 [핀 자리 저장]", "": "주소로 자리를 못 찾았습니다 — 지도를 움직여 핀을 찍고 저장하세요" };
   el.innerHTML = `<div class="fi-card sk-locmap${st.src ? " has" : ""}">
     <div class="dt-dwg-h"><b>📍 위치도</b> <span class="sk-help">${esc(SRC[st.src] || "")}</span>
       <label class="secondary-link" title="밖에서 만든 위치도 그림(PPT 내보내기 등)">그림 올리기<input type="file" accept="image/*,application/pdf,.pdf" hidden data-kr-file="1" /></label></div>

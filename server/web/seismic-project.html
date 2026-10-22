@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 </head>
 <!-- 내진성능평가 건 화면(2026-10-21 사용자 — 별도 용역: 템플릿에 따라 입력할 서류들). ?id=회차(또는 ?facility=건물).
      서류 칸(계약서·건축물대장·과업지시서·과업수행계획서·구조 일람표·구조도면·성적서·지반조사보고서·외주 한글·마이다스·내역서) → 읽은 값은
@@ -48,6 +49,12 @@
   </div>
 </details>
 
+<!-- 📍 위치도(10/22 형 "주소로 찍고 깃발 조절 — 학교 내부 동을 선택해야 할 수도") — 시특법 위치도 카드(js/sitok-locmap.js) 그대로, 접지 않음(지도 크기) -->
+<section class="panel">
+  <div class="panel-head"><h2>📍 위치도</h2><span class="panel-count">요약 "시설물 위치도"·과업수행계획서 1.4 — 주소 자리에서 깃발을 학교 안 그 동으로 옮겨 [핀 자리 저장]</span></div>
+  <div class="panel-body"><div id="sp-locmap" hidden></div></div>
+</section>
+
 <details class="panel sk-fold" id="sp-ground-panel" hidden>
   <summary class="panel-head"><h2>🌏 지반조사 확인</h2><span class="panel-count" id="sp-g-sum">지반조사보고서에서 찾은 값·위치도·사진·결과 표 → 2.5 지반 및 기초</span><span class="sp-need-n" id="sp-g-need" hidden></span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body" id="sp-ground"></div>
@@ -75,6 +82,8 @@
 
 <script src="app.js"></script>
 <script src="shell.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="js/sitok-locmap.js"></script>
 <script src="js/sitok-steps.js"></script>
 <script src="js/seismic-project.js"></script>
 </body>

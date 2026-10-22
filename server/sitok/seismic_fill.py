@@ -187,7 +187,23 @@ def _put(doc, pic, path: Path | None, crop: bool = True) -> bool:
 
 
 # ---------- 사진 ----------
-def fill_photos(doc, root, field: dict, rdir: Path, warn: list) -> int:
+def map_image(f, field: dict, rdir: Path) -> Path | None:
+    """위치도 그림 — 현장 사진 칸에 올린 위치도 > 건 화면 📍 위치도(올린 그림 > 깃발 자리 지도 > 주소 지도, 10/22 형 "기존 방식처럼 주소로 찍고 깃발")."""
+    rel = ((field.get("photos") or {}).get("map") or {}).get("rel")
+    if rel and (rdir / rel).exists():
+        return rdir / rel
+    if f is None:
+        return None
+    from server.api.routers.sitok import _facility_dir
+    from server.sitok import locmap
+
+    try:
+        return locmap.facility_map(f, _facility_dir(f))
+    except Exception:  # noqa: BLE001 — 지도 서버가 안 되면 빈칸
+        return None
+
+
+def fill_photos(doc, root, field: dict, rdir: Path, warn: list, f=None) -> int:
     photos, n, miss = field["photos"], 0, []
     path = lambda slot: (rdir / photos[slot]["rel"]) if (photos.get(slot) or {}).get("rel") else None  # noqa: E731
     for key, slots in PHOTO_TABLES:
@@ -207,7 +223,8 @@ def fill_photos(doc, root, field: dict, rdir: Path, warn: list) -> int:
         ts = [t for t in (_outer(p) if p is not None else []) if rb._pic_slots(t)]
         if len(ts) >= 2:
             for slot, t, crop in (("map", ts[0], False), ("front", ts[-1], True)):
-                if _put_or_blank(doc, rb._pic_slots(t)[0][1], path(slot), rdir, crop=crop):
+                src = map_image(f, field, rdir) if slot == "map" else path(slot)
+                if _put_or_blank(doc, rb._pic_slots(t)[0][1], src, rdir, crop=crop):
                     n += 1
                 else:
                     miss.append(SF.PHOTO[slot][0])
@@ -893,7 +910,7 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     drawings = SD.has_drawings(f)
     grade = reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급")
     member_total = sum(SD.member_plan(f, field.get("member_plan")).values())  # 부재 단면 칸 수(형이 정한 수량)
-    n = fill_photos(doc, root, field, rdir, warn)
+    n = fill_photos(doc, root, field, rdir, warn, f)
     n += fill_summary(root, field, ground, drawings, grade, member_total, SD.min_counts(units, grade, drawings)["core"])
     n += fill_grade(root, reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급"), warn)
     if reg:

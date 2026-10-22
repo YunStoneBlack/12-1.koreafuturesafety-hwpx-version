@@ -64,11 +64,11 @@ def _fill(doc, root, d: dict, sc: dict, reg: dict, field: dict, r, f) -> None:
         elif t.get("rowCnt") == "3" and t.get("colCnt") == "1" and rb._pic_slots(t):  # 1.4 위치도
             SFL._set(cells, (0, 0), d["name"])
             SFL._set(cells, (2, 0), d.get("address") or "-")
-            rel = (field["photos"].get("map") or {}).get("rel")
-            if rel:
-                from server.api.routers.sitok_reports import _report_dir
+            from server.api.routers.sitok_reports import _report_dir
 
-                SFL._put(doc, rb._pic_slots(t)[0][1], _report_dir(f, r) / rel, crop=False)
+            img = SFL.map_image(f, field, _report_dir(f, r))  # 현장 사진 칸 위치도 > 📍 위치도(깃발·주소, 10/22)
+            if img is not None:
+                SFL._put(doc, rb._pic_slots(t)[0][1], img, crop=False)
         elif SFL._n(rb._cell_text(cells.get((0, 0), t))) == "과업내용" and t.get("colCnt") == "21":  # 3.1 일정표 머리
             SFL._set(cells, (0, 1), f"과업기간({days}일간)")
             step = max(round(days / 6), 1)

@@ -319,6 +319,7 @@
       }
       if (!id) throw new Error("내진성능평가 건을 찾을 수 없습니다.");
       draw(await api(`/seismic/projects/${id}`));
+      if (window.L && typeof sitokDrawLocmap === "function") sitokDrawLocmap($("sp-locmap"), P.facility_id, (P.building || {}).name || ""); // 📍 위치도 깃발(10/22)
       const done = $("sp-field-done"); // [✓ 조사 완료] — 완료·취소하면 건 화면(외관조사 ✓·보고서 만들기)도 다시
       done.dataset.report = id;
       sitokStepBar(done, async () => { try { draw(await api(`/seismic/projects/${id}`)); } catch (e) { err(e); } });
