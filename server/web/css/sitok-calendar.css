@@ -61,3 +61,9 @@
 .sc-contact .sc-c-act { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 6px; }
 .main .sc-contact .sc-c-act button { margin: 0; }
 @media (max-width: 760px) { .sc-contact { grid-template-columns: 1fr; } .sc-contact input { font-size: 16px; } }
+
+/* 폰도 산안법 달력처럼(10/23 사용자 "오늘 날짜 출장 일정만, 다른 날짜 누르면 그 날짜") — 달력 아래 고른 날 상세, 그달 날짜별 목록은 숨김(docs.css 폰 규칙을 이 달력에서만 뒤집음) */
+@media (max-width: 760px) {
+  .dk-list { display: none; }
+  .dk-day { display: block; scroll-margin-top: 64px; }
+}

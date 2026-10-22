@@ -1,7 +1,8 @@
 // 보고서 자동화 · 시특법 — 방문 달력(sitok-calendar.html, 2026-10-15 민재형 문서번호 일치화 문서 "보고서 달력관리").
 // 시설물 카드(묶인 동은 하나)마다 반기 하루씩 — 자동 배치 규칙은 server/sitok/visit_plan.py(같은 시·군 같은 날, 하루 건물 4개, 관급 착수일 1주일 안).
 // PC: 칸을 끌어 다른 날로(📌 사람이 정한 날 — 자동 배치가 안 건드림, 그날 4개 넘으면 물어봄), 날짜 누르면 오른쪽 그날 상세(날 바꾸기·지우기·이 날 일정 넣기).
-// 폰: 달력 아래 날짜별 목록, 누르면 작은 창. 위 알림 = 계약기간 안인데 일정이 없는 반기 N곳 → [자동으로 잡기](미리보기 → 잡기).
+// 폰: 산안법 달력처럼 달력 아래 고른 날(처음 오늘) 출장만, 날짜·막대를 누르면 그날로(10/23 사용자 — 예전엔 그달 날짜별 목록 + 작은 창).
+// 위 알림 = 계약기간 안인데 일정이 없는 반기 N곳 → [자동으로 잡기](미리보기 → 잡기).
 // 색: 정기 파랑·정밀 보라, ✓ = 그 반기 보고서 만듦(흐리게), 빨간 점선 = 지난 날인데 보고서 없음. API server/api/routers/sitok_calendar.py.
 
 (function () {
@@ -231,6 +232,7 @@
     selected = date;
     document.querySelectorAll("#sc-cal .fc-daygrid-day").forEach((cell) => cell.classList.toggle("dk-selected", cell.getAttribute("data-date") === selected));
     renderDay();
+    if (isPhone()) document.getElementById("sc-day").scrollIntoView({ behavior: "smooth", block: "start" }); // 폰은 달력 아래 그날 칸으로(산안법 달력처럼, 10/23)
   }
 
   async function moveVisit(v, date, revert) {
@@ -292,7 +294,7 @@
     eventsSet: () => { decorateCells(); renderList(cal.view); renderDay(); renderNotice(); },
     datesSet: () => decorateCells(),
     dateClick: (info) => selectDay(info.dateStr),
-    eventClick: (info) => { if (isPhone()) openVisit(info.event.extendedProps.v); else selectDay(ymd(info.event.start)); },
+    eventClick: (info) => selectDay(ymd(info.event.start)), // 폰도 그날 상세로(10/23 — 예전엔 작은 창)
     eventDrop: (info) => moveVisit(info.event.extendedProps.v, ymd(info.event.start), info.revert),
     eventResize: (info) => setEnd(info.event.extendedProps.v, addDay(ymd(info.event.end), -1), info.revert), // 막대 끝 끌기 = 끝 날
   });
