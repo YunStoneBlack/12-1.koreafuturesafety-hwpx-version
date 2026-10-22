@@ -105,6 +105,7 @@
       ${floors.map((n) => { const rs = kinds.flatMap((k) => (groups[gkey(n, k)] || []).map((r, j) => row(n, k, r, j))); const c = kinds.reduce((b, k) => b + cnt(gkey(n, k)), 0);
         return rs.length ? `<div class="sf2-mfloor"><h4>${esc(floorName(n))} <span class="sk-help" data-fc="${n}">${c}/${rs.length}</span></h4>${rs.join("")}</div>` : ""; }).join("")}`;
     const box = $("sf2-members");
+    box.querySelectorAll('select[data-k="item_id"]').forEach((sel) => searchSelect(sel, { placeholder: "일람표 칸 — 부호·치수로 검색" })); // 검색 고르기(app.js, 10/22)
     box.querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => { plan[el.dataset.q] = Math.max(0, Math.min(40, Number(el.value) || 0)); renderMembers(); }));
     box.querySelector("#sf2-q-reset").addEventListener("click", () => { plan = { ...F.member_plan_default }; renderMembers(); });
     box.querySelectorAll("[data-g][data-k]").forEach((el) => el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => {

@@ -143,6 +143,65 @@ function fileAccepts(input, file) {
   });
 }
 
+// 검색해서 고르기(10/22 — 내진성능평가 일람표 칸: 철근탐사·부재 단면) — 숨긴 <select> 위에 글 칸 + 목록. 누르면 전체(지금 칸 굵게), 치면 낱말마다
+// (빈칸·대소문자 무시) 다 들어간 칸만, 방향키·Enter·누르기로 고르면 select 값을 바꾸고 change(저장은 원래 select 그대로). Esc·바깥 = 원래 값.
+// 고를 칸이 없으면(첫 "고르기" 칸뿐) 그냥 select. select의 style(flex 등)은 감싼 칸으로 옮김. CSS = css/sitok.css .search-sel
+function searchSelect(sel, { placeholder = "" } = {}) {
+  const opts = [...sel.options].map((o) => ({ v: o.value, t: o.textContent }));
+  if (opts.length < 2) return null;
+  const h = (x) => String(x ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const norm = (x) => String(x || "").toLowerCase().replace(/\s+/g, "");
+  const cur = () => opts.find((o) => o.v && o.v === sel.value);
+  const box = document.createElement("div");
+  box.className = "search-sel";
+  box.style.cssText = sel.style.cssText;
+  box.innerHTML = `<input type="text" class="search-sel-in" autocomplete="off" spellcheck="false" placeholder="${h(placeholder || `${opts[0].t} — 검색`)}" title="${h(sel.title)}" />
+    <div class="search-sel-list" hidden></div>`;
+  sel.hidden = true;
+  sel.after(box);
+  const inp = box.querySelector("input"), list = box.querySelector(".search-sel-list");
+  inp.value = cur()?.t || "";
+  let shown = [], on = 0;
+  const paint = () => {
+    list.innerHTML = shown.length ? shown.map((o, k) => `<div data-k="${k}" class="${k === on ? "on" : ""}${o.v && o.v === sel.value ? " sel" : ""}">${o.v
+      ? h(o.t).replace("⚠미확인", "<em>⚠미확인</em>") : '<span class="none">— 선택 안 함 —</span>'}</div>`).join("") : '<div class="none">맞는 칸 없음</div>';
+    list.querySelector(".on")?.scrollIntoView({ block: "nearest" });
+  };
+  const open = (q) => {
+    const words = String(q || "").trim().split(/\s+/).map(norm).filter(Boolean);
+    shown = words.length ? opts.filter((o) => o.v && words.every((w) => norm(o.t).includes(w))) : opts;
+    on = words.length ? 0 : Math.max(0, shown.findIndex((o) => o.v && o.v === sel.value));
+    list.hidden = false;
+    paint();
+  };
+  const close = () => { list.hidden = true; inp.value = cur()?.t || ""; };
+  const pick = (o) => {
+    list.hidden = true;
+    if (!o) { close(); return; }
+    inp.value = o.v ? o.t : "";
+    if (o.v !== sel.value) { sel.value = o.v; sel.dispatchEvent(new Event("change")); }
+  };
+  inp.addEventListener("focus", () => { inp.select(); open(""); });
+  inp.addEventListener("input", () => open(inp.value));
+  inp.addEventListener("keydown", (e) => {
+    if (e.isComposing) return;
+    if (list.hidden && (e.key === "ArrowDown" || e.key === "Enter")) { e.preventDefault(); open(""); return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      on = (on + (e.key === "ArrowDown" ? 1 : -1) + shown.length) % Math.max(1, shown.length);
+      paint();
+    } else if (e.key === "Enter") { e.preventDefault(); pick(shown[on]); inp.blur(); }
+    else if (e.key === "Escape") { close(); inp.blur(); }
+  });
+  inp.addEventListener("blur", () => setTimeout(() => { if (!list.hidden) close(); }, 150));
+  list.addEventListener("mousedown", (e) => {
+    e.preventDefault(); // 글 칸 포커스를 잃기 전에 고름
+    const it = e.target.closest("[data-k]");
+    if (it) { pick(shown[Number(it.dataset.k)]); inp.blur(); }
+  });
+  return box;
+}
+
 // input은 칸 자체 또는 "지금 칸을 찾아 주는 함수"(창을 다시 그려 칸이 바뀌는 곳 — 착수계 창 전체)
 function enableFileDrop(zone, input) {
   if (!zone || !input || zone.dataset.dropOn) return;

@@ -28,19 +28,6 @@
 .ss-pick .ss-wide { grid-column: span 2; }
 .ss-pick select, .ss-pick input { width: 100%; margin: 0; }
 .ss-warn-link { font-size: 11px; color: #a2620b; font-weight: 700; }
-/* 일람표 칸 검색 고르기(10/22) — 숨긴 select 위 글 칸 + 목록 */
-.ss-combo { position: relative; }
-.ss-combo::after { content: ""; position: absolute; right: 15px; top: 50%; width: 6px; height: 6px; border-right: 1.6px solid var(--ink, #222); border-bottom: 1.6px solid var(--ink, #222);
-  transform: translateY(-70%) rotate(45deg); pointer-events: none; }
-.ss-pick .ss-combo input { padding-right: 34px; text-overflow: ellipsis; }
-.ss-combo-list { position: absolute; left: 0; top: calc(100% + 4px); min-width: 100%; width: max-content; max-width: min(460px, calc(100vw - 32px)); z-index: 40; max-height: 280px; overflow-y: auto; padding: 4px;
-  background: var(--surface, #fff); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 28px rgba(15, 23, 42, .16); }
-.ss-combo-list > div { padding: 8px 10px; border-radius: 6px; font-size: 14px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ss-combo-list > div.on { background: var(--blue-soft, #eaf2fd); }
-.ss-combo-list > div.sel { font-weight: 700; }
-.ss-combo-list > div.none { cursor: default; }
-.ss-combo-list em { font-style: normal; font-size: 12px; color: #a2620b; }
-.ss-combo-list .none { color: var(--muted); }
 .ss-lines { display: flex; flex-direction: column; gap: 6px; }
 .ss-line { display: grid; grid-template-columns: 56px minmax(90px, 1fr) minmax(90px, 1fr) 90px auto auto auto auto; align-items: end; gap: 6px 10px;
   padding: 6px 8px; border-radius: 8px; background: var(--surface-2, #f6f7fa); }
