@@ -26,15 +26,17 @@ async function setupProcessSlots(containerId, apiPrefix) {
       <h3>공정 ${slot}</h3>
       <label>진행공정명</label>
       <input id="${containerId}-name-${slot}" placeholder="예: 철근 콘크리트 타설" />
-      <div class="photo-slot">
+      <div class="photo-slot proc-photo">
         <div class="slot-controls">
           <div class="slot-label">AI 분석용 공정 사진 (선택 — 공정명만 있어도 작성됩니다, 보관 안 함)</div>
           <input type="file" accept="image/*" id="${containerId}-aiphoto-${slot}" />
         </div>
-        <button type="button" id="${containerId}-ai-${slot}" style="margin-top:0;">✨ AI로 작성</button>
       </div>
       <div id="${containerId}-items-${slot}"></div>
-      <button type="button" class="secondary" id="${containerId}-add-${slot}">+ 항목 추가</button>
+      <div class="proc-acts">
+        <button type="button" class="secondary" id="${containerId}-add-${slot}">+ 항목 추가</button>
+        <button type="button" id="${containerId}-ai-${slot}">✨ AI로 작성</button>
+      </div>
       <button type="button" class="autosave" id="${containerId}-save-${slot}">저장</button>
       <div id="${containerId}-status-${slot}" class="status"></div>
     `;

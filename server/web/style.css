@@ -272,6 +272,10 @@ main.main > section.panel { scroll-margin-top: 60px; }
 
 /* 자동 저장으로 바뀐 저장 버튼 — 저장 동작은 그대로 쓰고(report-autosave.js가 대신 누름) 화면에서만 숨긴다 */
 .main button.autosave { display: none; }
+/* 7·9번 공정 [+ 항목 추가] [✨ AI로 작성] 한 줄(10/22 — AI 단추가 사진 칸 옆에 있을 땐 폰 사진 이름이 길면 밀려 안 보였음) */
+.proc-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.main .proc-acts button { margin-top: 0; }
+.proc-photo .slot-controls { min-width: 0; } /* 긴 사진 이름은 말줄임(칸 밖으로 안 넘침) */
 /* 빈 슬롯 펼치기 버튼(report-nav.js collapseEmptySlots) */
 .main button.slot-add { margin-top: 2px; border-style: dashed; color: var(--blue); }
 
