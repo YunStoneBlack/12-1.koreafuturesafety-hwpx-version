@@ -954,3 +954,5 @@ button.sp-pick-it.on { border-color: var(--blue); }
 .sp-chk.sp-need input, .sp-chk.sp-need select { border-color: #E3B04B; background: var(--warn-soft); box-shadow: 0 0 0 1px #E3B04B; }
 .sp-need .ds-chips { padding: 8px; border: 1px solid #E3B04B; border-radius: 10px; background: var(--warn-soft); }
 .sp-need-n { flex: none; padding: 3px 10px; border-radius: 999px; border: 1px solid #E3B04B; background: var(--warn-soft); color: var(--warn); font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.sp-min-how { display: block; margin-top: 2px; font-style: normal; font-size: 11px; font-weight: 500; color: var(--faint); } /* 최소 수량 계산식(10/22 조사수량 산출기준) */
+@media (max-width: 760px) { .sp-min-it { flex-wrap: wrap; white-space: nowrap; } .sp-min-how { flex-basis: 100%; margin-top: 0; white-space: normal; } } /* 폰 — 계산식은 아래 줄 */

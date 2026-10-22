@@ -112,7 +112,7 @@
     const it = (label, n, min, href) => `<a class="sp-min-it${n >= min && n > 0 ? " ok" : ""}"${href ? ` href="${href}"` : ""}><b>${n}</b>/${min} ${esc(label)}</a>`;
     $("sf2-min").innerHTML = it("부재 단면", F.members.length, m.member) + it("철근배근", F.rebar, m.rebar, `sitok-seismic.html?report=${id}`)
       + it("코어", F.cores.length, m.core) + it("조적조", F.masonry.length, m.masonry)
-      + `<span class="sk-help">조사단위 ${F.units}개 — 과업지시서 <표 3-1> 최소 수량(지금/최소)</span>`;
+      + `<span class="sk-help">조사단위 ${F.units}개 — 매뉴얼 <표 3-1> 최소 수량(지금/최소) · 부재 ${esc((m.how || {}).member || "")} · 철근 ${esc((m.how || {}).rebar || "")}</span>`;
   }
 
   function draw(f) {

@@ -281,15 +281,20 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
 
 
 # ---------- 요약 (1) 현장 시험 및 분석 ----------
-def fill_summary(root, field: dict, ground: dict | None) -> int:
+def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, grade: str = "특등급") -> int:
     n = 0
     holes = (ground or {}).get("holes") or []
+    rule = {"부재규격": "부재 종별로 각각 3개소 이상 조사" if drawings else "부재 종별로 각각 9개소 이상 조사(구조도면 작성)",  # 매뉴얼 <표 3-1>(10/22)
+            "철근배근": "부재 종별로 각각 3개소 이상 조사" if drawings else "구조도면 작성에 충분한 수량으로 부재 종별로 각각 3개소 이상",
+            "지반조사(공통)": "특등급 구조물 2개소" if grade == "특등급" else "기타 내진등급 구조물 1개소"}
     for t in _outer(root):
         cells = rb._cells(t)
         if _n(rb._cell_text(cells.get((0, 1), t))) != "조사·시험항목":
             continue
-        for (r, c), x in cells.items():
+        for (r, c), x in list(cells.items()):
             label = _n(rb._cell_text(x)) if c == 1 else ""
+            if label in rule:
+                _set(cells, (r, 2), rule[label])
             v = {"부재규격": len(field["members"]), "콘크리트강도": len(field["cores"]), "지반조사(공통)": len(holes)}.get(label)
             if v:
                 _set(cells, (r, 3), f"{v}EA")
@@ -407,7 +412,7 @@ def _diff_sentence(labels: list[str]) -> str:
     return f"{', '.join(labels[:3])}{more} 부재가 구조도면과 실측 수치와 상이하여 현장 실측 데이터를 내진성능 평가에 반영하였다."
 
 
-def fill_members(root, field: dict, d: dict, rebar_rows: list, units: int, warn: list) -> int:
+def fill_members(root, field: dict, d: dict, rebar_rows: list, units: int, warn: list, drawings: bool = True) -> int:
     from server.sitok import rebar_survey as RV
 
     members = field["members"]
@@ -421,10 +426,14 @@ def fill_members(root, field: dict, d: dict, rebar_rows: list, units: int, warn:
     else:
         warn.append("부재 단면 줄이 없어 2.2.1 표는 견본 값 그대로입니다(현장조사 입력)")
     qty = [x for x in _outer(root) if (x.get("rowCnt"), x.get("colCnt")) == ("2", "4") and "금회조사수량" in _n(rb._cell_text(rb._cells(x).get((0, 3), x)))]
-    label = f"{d['name']} ({units}개층)"
+    label = f"{d['name']}\n({units}개층)"  # 조사단위 수(건물 칸 — 기본 지상 층수, 10/22)
+    rules = (("모든 조사단위에서 부재 종별로 각각 3개소 이상 조사", "모든 조사단위에서 부재 종별로 각각 9개소 이상 조사하여 구조도면 작성"),  # 부재단면·철근배근(매뉴얼 <표 3-1>)
+             ("모든 조사단위에서 부재 종별로 각각 3개소 이상 조사", "모든 조사단위에서 구조도면 작성에 충분한 수량으로서 부재 종별로 각각 3개소 이상"))
     for k, t in enumerate(qty[:2]):
         cells = rb._cells(t)
         _set(cells, (1, 0), label)
+        _set(cells, (1, 1), "보유" if drawings else "미보유")
+        _set(cells, (1, 2), rules[k][0 if drawings else 1])
         if k == 0 and members:
             _set(cells, (1, 3), f"금회 조사 수량 = {len(members)}개소")
     # 조사결과 문장 — 2.2.1 다음 첫 견본 문장 = 부재, 2.2.2 다음 = 철근
@@ -788,13 +797,15 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     docs = sv.get("seismic_docs") or {}
     ground = (docs.get("ground") or {}).get("parsed")
     reg = (f.ledger or {}).get("register") or {}
-    units = (f.floors_below or 0) + (f.floors_above or 0)
+    units = SD.survey_units(f)
+    drawings = SD.has_drawings(f)
+    grade = reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급")
     n = fill_photos(doc, root, field, rdir, warn)
-    n += fill_summary(root, field, ground)
+    n += fill_summary(root, field, ground, drawings, grade)
     n += fill_grade(root, reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급"), warn)
     if reg:
         n += fill_history(doc, root, f, reg)
-    n += fill_members(root, field, d, d.get("rebar") or [], units, warn)
+    n += fill_members(root, field, d, d.get("rebar") or [], units, warn, drawings)
     n += fill_cores(doc, root, field, rdir, docs.get("core"), warn)
     n += fill_texts(root, field)
     n += fill_masonry(root, field, warn)

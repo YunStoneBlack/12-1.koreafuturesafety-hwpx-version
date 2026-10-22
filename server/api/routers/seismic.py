@@ -138,7 +138,8 @@ def _apply_building(f: SitokFacility, b: dict) -> None:
     if "approval_date" in b:
         f.completion_date = _d(b["approval_date"])
     reg = dict((f.ledger or {}).get("register") or {})
-    for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "approval_date", "seismic_design", "grade", "floors", "changes", "length_x", "length_y"):
+    for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "approval_date", "seismic_design", "grade", "floors", "changes", "length_x", "length_y",
+              "survey_units", "drawings"):
         if k in b:
             reg[k] = b[k]
     f.ledger = {**(f.ledger or {}), "register": _jsonable(reg)}
@@ -187,14 +188,16 @@ def _project_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
                 "building_area": f.building_area, "approval_date": _iso(f.completion_date) or reg.get("approval_date", ""),
                 **{k: reg.get(k, "") for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "seismic_design", "grade", "length_x", "length_y")}}
     building["grade"] = building["grade"] or grade_of(building["use"])
-    units = (f.floors_below or 0) + (f.floors_above or 0)
+    units = SD.survey_units(f)
+    building["survey_units"] = units
+    building["drawings"] = reg.get("drawings") or ""  # 비우면 자동(drawings_auto)
     persons = db.query(TechPerson).filter(TechPerson.company_id == f.company_id, TechPerson.active.is_(True)).order_by(TechPerson.name).all()
     ground = (sv.get("seismic_docs") or {}).get("ground", {}).get("parsed")
     return {"id": r.id, "facility_id": f.id, "contract": sv.get("seismic_contract") or {}, "building": building,
             "floors": reg.get("floors") or [], "changes": reg.get("changes") or [], "docs": _doc_out(f, r, fdir, rdir),
             "ground": ground, "ground_slots": [[k, label] for k, label, _ in SD.GROUND_SLOTS],
             "ground_sentence": SD.ground_sentence((ground or {}).get("holes") or []),
-            "units": units, "min_counts": SD.min_counts(units, building["grade"]),
+            "units": units, "drawings_auto": SD.has_drawings(f), "min_counts": SD.min_counts(units, building["grade"], SD.has_drawings(f)),
             "field_counts": {k: len(_field(r)[k]) for k in ("members", "cores", "masonry", "photos")},
             "persons": [{"id": p.id, "name": p.name, "grade": p.grade or "", "position": p.position or ""} for p in persons],
             "report": report_out(r)}
@@ -551,8 +554,8 @@ def _field_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "photos": {k: {"at": v.get("at", ""), "name": v.get("name", "")} for k, v in fd["photos"].items()},
             "photo_slots": [[k, label, where] for k, label, where in SF.PHOTO_SLOTS], "core_stats": SF.core_stats(fd["cores"]),
             "has_core_report": bool(core_doc.get("rel") and (rdir / core_doc["rel"]).exists()),
-            "floors": [{"n": n, "label": SF.floor_label(n)} for n in floors], "units": below + above,
-            "min_counts": SD.min_counts(below + above, grade), "rebar": len(((_sv(r).get("rebar") or {}).get("rows")) or []),
+            "floors": [{"n": n, "label": SF.floor_label(n)} for n in floors], "units": SD.survey_units(f),
+            "min_counts": SD.min_counts(SD.survey_units(f), grade, SD.has_drawings(f)), "rebar": len(((_sv(r).get("rebar") or {}).get("rows")) or []),
             "schedule": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"], "size": x.get("size") or ""}
                          for x in sch["items"] if x["kind"] in ("기둥", "보")]}
 

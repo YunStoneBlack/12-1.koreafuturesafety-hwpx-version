@@ -174,12 +174,39 @@ def read_register_ai(pdf: Path, company_id: int) -> dict:
     return {k: v for k, v in out.items() if v not in (None, "") or k in ("floors", "changes", "below")}
 
 
-# ---------- 최소 조사 수량(과업지시서 <표 3-1>) ----------
-def min_counts(units: int, grade: str = "특등급", kinds: int = 2) -> dict:
-    """조사단위(층) 수 → {member, rebar, core, boring, masonry} 최소 개소 — 부재 규격·철근배근 = 단위 × 부재 종별 × 3, 코어 = max(단위, 6),
-    시추 = 특등급 2(기타 1), 조적 = 단위 × 2."""
+# ---------- 최소 조사 수량(매뉴얼 3.2.2 <표 3-1> — 10/22 형 "조사수량 산출기준") ----------
+MEMBER_KINDS = ("보", "기둥", "벽체")  # 부재 규격 종별
+REBAR_KINDS = ("보", "기둥", "보-기둥 접합부", "벽체")  # 철근배근 상태조사 종별(<표 3-1> 비고)
+
+
+def survey_units(f) -> int:
+    """조사단위 수 — 건물 칸 값(사람이 고침), 없으면 지상 층수(형 "단위는 층수" — 삼숭초 지하1·지상5 = 5, 견본 "교사동(5개층)"), 그것도 없으면 지하 + 지상."""
+    reg = (f.ledger or {}).get("register") or {}
+    try:
+        v = int(float(reg.get("survey_units") or 0))
+    except (TypeError, ValueError):
+        v = 0
+    return v if v > 0 else int(f.floors_above or 0) or int((f.floors_below or 0) + (f.floors_above or 0))
+
+
+def has_drawings(f) -> bool:
+    """도면 유무 — 건물 칸 값(보유·미보유), 비우면 구조도면·구조 일람표 칸에 파일이 있으면 보유."""
+    v = ((f.ledger or {}).get("register") or {}).get("drawings")
+    if v in ("보유", "미보유"):
+        return v == "보유"
+    return bool((f.drawings or {}).get("struct") or (f.drawings or {}).get("schedule"))
+
+
+def min_counts(units: int, grade: str = "특등급", drawings: bool = True) -> dict:
+    """조사단위 수 → {member, rebar, core, boring, masonry} 최소 개소 + how(계산식) — 부재 규격 = 3종 × 3개소(도면 없으면 9) × 단위,
+    철근배근 = 4종 × 3개소 × 단위(도면 없어도 3개소), 코어 = max(단위, 6), 시추 = 특등급 2(그 밖 1), 조적 = 단위 × 2."""
     u = max(int(units or 0), 0)
-    return {"member": u * kinds * 3, "rebar": u * kinds * 3, "core": max(u, 6), "boring": 2 if grade == "특등급" else 1, "masonry": u * 2}
+    per = 3 if drawings else 9
+    boring = 2 if grade == "특등급" else 1
+    return {"member": u * len(MEMBER_KINDS) * per, "rebar": u * len(REBAR_KINDS) * 3, "core": max(u, 6), "boring": boring, "masonry": u * 2,
+            "how": {"member": f"{len(MEMBER_KINDS)}종(보·기둥·벽체) × {per}개소{'' if drawings else '(도면 없음)'} × {u}단위",
+                    "rebar": f"{len(REBAR_KINDS)}종(보·기둥·보-기둥 접합부·벽체) × 3개소 × {u}단위", "core": f"max({u}단위, 6)",
+                    "boring": "특등급 2개소" if boring == 2 else "그 밖 등급 1개소", "masonry": f"{u}단위 × 2개소"}}
 
 
 # ---------- 지반조사보고서 ----------
@@ -318,7 +345,9 @@ def ground_sentence(holes: list[dict]) -> str:
 def _selfcheck() -> None:
     assert _addr("경기도양주시 삼숭로38번길112") == "경기도 양주시 삼숭로38번길 112", _addr("경기도양주시 삼숭로38번길112")
     assert _addr("경기도 양주시 삼숭로38번길 112") == "경기도 양주시 삼숭로38번길 112"
-    assert min_counts(6) == {"member": 36, "rebar": 36, "core": 6, "boring": 2, "masonry": 12}
+    m = min_counts(5)  # 형 10/22 삼숭초: 규격 3×3×5 = 45(도면 있음, 없으면 3×9×5 = 135), 철근 4×3×5 = 60, 코어 6
+    assert (m["member"], m["rebar"], m["core"], m["boring"], m["masonry"]) == (45, 60, 6, 2, 10), m
+    assert min_counts(5, drawings=False)["member"] == 135 and min_counts(8, "1등급")["core"] == 8 and min_counts(8, "1등급")["boring"] == 1
     assert _bh("BH—1 시추전경") == "BH-1" and _date("2005.10.28.") == datetime.date(2005, 10, 28)
     assert "S2 지반(기반암 깊이 1~20이하, 전단파속도 BH-1 : 305.9m/s)" in ground_sentence([{"bh": "BH-1", "cls": "S2", "depth": "1~20 이하", "vs": 305.9}])
 

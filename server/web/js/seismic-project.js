@@ -21,10 +21,10 @@
   function field(key, label, val, opt = {}) {
     const type = opt.type || "text";
     const v = val ?? "";
-    const empty = String(v).trim() === "";
+    const empty = !opt.optional && String(v).trim() === "";
     const tag = `<span class="sp-hand">${opt.manual ? "✍ 직접 입력" : "못 읽음 — 직접 입력"}</span>`;
     const input = opt.options
-      ? `<select data-k="${key}">${opt.options.map((o) => `<option${o === String(v) ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+      ? `<select data-k="${key}">${opt.options.map((o) => { const [ov, ol] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(ov)}"${ov === String(v) ? " selected" : ""}>${esc(ol)}</option>`; }).join("")}</select>`
       : `<input data-k="${key}" type="${type}"${opt.step ? ` step="${opt.step}"` : ""} value="${esc(type === "date" ? String(v).slice(0, 10) : v)}"${opt.ph ? ` placeholder="${esc(opt.ph)}"` : ""} />`;
     return `<div class="sk-f sp-chk${opt.manual ? " sp-manual" : ""}${empty ? " sp-need" : ""}${opt.wide ? " ds-wide" : ""}"><label>${esc(label)}${tag}${opt.help ? ` <span class="sk-help">${esc(opt.help)}</span>` : ""}</label>${input}</div>`;
   }
@@ -214,7 +214,9 @@
       + field("total_area", "연면적 (㎡)", b.total_area, { type: "number", step: "0.01" }) + field("building_area", "건축면적 (㎡)", b.building_area, { type: "number", step: "0.01" })
       + field("site_area", "대지면적 (㎡)", b.site_area, { type: "number", step: "0.01" }) + field("approval_date", "사용승인일", b.approval_date, { type: "date", help: "준공·경과년수" })
       + field("permit_date", "허가일", b.permit_date, { type: "date" }) + field("build_start", "착공일", b.build_start, { type: "date" })
-      + field("seismic_design", "내진설계 적용", b.seismic_design, { options: ["", "적용", "비적용"] }) + field("grade", "내진등급", b.grade, { options: ["특등급", "1등급", "2등급"], help: "학교 = 특등급" });
+      + field("seismic_design", "내진설계 적용", b.seismic_design, { options: ["", "적용", "비적용"] }) + field("grade", "내진등급", b.grade, { options: ["특등급", "1등급", "2등급"], help: "학교 = 특등급" })
+      + field("survey_units", "조사단위 수", b.survey_units, { type: "number", help: "층마다 1 — 기본 지상 층수, 익스팬션조인트·증축은 따로" })
+      + field("drawings", "도면 유무", b.drawings, { options: [["", `자동 (지금 ${P.drawings_auto ? "보유" : "미보유"})`], "보유", "미보유"], optional: true, help: "구조도면·일람표 칸에 파일이 있으면 보유" });
     floors = (P.floors || []).map((x) => ({ ...x }));
     changes = (P.changes || []).map((x) => ({ ...x }));
     rowsEditor($("sp-floors"), floors, [["kind", "구분", 0.6], ["floor", "층", 0.8], ["structure", "구조", 2], ["use", "용도", 1.6], ["area", "면적(㎡)", 1.1, "number"]], { kind: "주" });
@@ -230,7 +232,7 @@
 
   $("sp-b-save").addEventListener("click", async () => {
     const b = read($("sp-building"));
-    for (const k of ["below", "above", "height", "total_area", "building_area", "site_area", "length_x", "length_y"]) b[k] = b[k] === "" ? null : Number(b[k]);
+    for (const k of ["below", "above", "height", "total_area", "building_area", "site_area", "length_x", "length_y", "survey_units"]) b[k] = b[k] === "" ? null : Number(b[k]);
     const fl = floors.filter((x) => x.floor || x.area).map((x) => ({ ...x, area: x.area === "" || x.area == null ? null : Number(x.area) }));
     try { draw(await apiPatch(`/seismic/projects/${id}`, { building: b, floors: fl, changes: changes.filter((x) => x.date || x.text) })); flash($("sp-b-saved"), "✓ 저장했습니다"); } catch (e) { err(e); }
   });
@@ -238,10 +240,11 @@
   // ---------- 현장조사 ----------
   function drawField() {
     const m = P.min_counts, s = (P.report || {}).seismic || {}, f = (P.report || {}).field || {};
-    $("sp-units").textContent = `조사단위 ${P.units}개(지하·지상 층) — 과업지시서 <표 3-1> 최소 수량`;
-    $("sp-min").innerHTML = [["부재 규격", m.member], ["철근배근", m.rebar], ["콘크리트 코어", m.core], ["시추(지반)", m.boring], ["조적조", m.masonry]]
-      .map(([k, v]) => `<span class="sp-min-it"><b>${v}</b>${esc(k)}</span>`).join("")
-      + '<div class="sk-help">부재 규격·철근배근 = 단위 × 부재 종별(기둥·보) × 3, 코어 = max(단위, 6), 시추 = 특등급 2(그 밖 1). 증축·익스팬션조인트로 나뉜 부분은 따로 단위.</div>';
+    const how = m.how || {};
+    $("sp-units").textContent = `조사단위 ${P.units}개 · 도면 ${(P.building || {}).drawings || (P.drawings_auto ? "보유" : "미보유")} — 매뉴얼 <표 3-1> 최소 수량`;
+    $("sp-min").innerHTML = [["부재 규격", m.member, how.member], ["철근배근", m.rebar, how.rebar], ["콘크리트 코어", m.core, how.core], ["시추(지반)", m.boring, how.boring], ["조적조", m.masonry, how.masonry]]
+      .map(([k, v, h]) => `<span class="sp-min-it" title="${esc(h || "")}"><b>${v}</b>${esc(k)}${h ? `<em class="sp-min-how">${esc(h)}</em>` : ""}</span>`).join("")
+      + '<div class="sk-help">조사단위 수·도면 유무는 🏢 건물 정보에서 고침 — 층마다 1단위(작은 지하·옥탑은 합칠 수 있음), 익스팬션조인트·증축 부분은 따로.</div>';
     const big = (href, ic, label, sub, ok) => `<a class="rd-btn${ok ? " on" : ""}" href="${href}"><span class="rd-ic">${ic}</span><span class="rd-lb">${esc(label)}${ok ? ' <em class="rd-ok">✓</em>' : ""}</span><span class="rd-sub">${esc(sub)}</span></a>`;
     const fc = P.field_counts || {};
     $("sp-links").innerHTML = big(`seismic-field.html?id=${id}`, "🧱", "현장조사 입력", `부재 단면 ${fc.members || 0}/${m.member} · 코어 ${fc.cores || 0}/${m.core} · 조적 ${fc.masonry || 0}/${m.masonry} · 사진 ${fc.photos || 0}장`,
