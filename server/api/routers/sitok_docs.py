@@ -46,7 +46,7 @@ ROOT = DATA_DIR / "_시특법_계약"
 SECTORS = ("민간", "관급")
 TEXT = ("sector", "doc_no", "client", "client_rep", "client_biz_no", "client_address", "facility_name", "location", "spec", "title", "contract_no",
         "guarantee", "delay_rate", "client_manager", "client_phone", "client_email", "site_manager", "site_phone", "site_email", "memo")
-DATES = ("contract_date", "start_date", "end_date")
+DATES = ("contract_date", "start_date", "end_date", "actual_end_date")  # actual_end_date = 실제 준공일(0063, 비면 end_date)
 FILES = {"계약서.hwpx": "application/octet-stream", "계약서.pdf": "application/pdf", "날인본.pdf": "application/pdf",
          "시설물관리대장.pdf": "application/pdf", "사업자등록증.pdf": "application/pdf", "결과보고서_표지.pdf": "application/pdf",
          "대가내역서.pdf": "application/pdf", "대가내역서.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}  # 대가내역서(10/15 — FMS e-보고서)
@@ -241,6 +241,7 @@ class ContractIn(BaseModel):
     contract_date: str | None = None
     start_date: str | None = None
     end_date: str | None = None
+    actual_end_date: str | None = None  # 실제 준공일(관급 완수계 창, 10/22)
     amount: int | None = None
     rounds: list[dict] | None = None
     open_ended: bool | None = None
@@ -1476,7 +1477,7 @@ def _gov_made(c: SitokDocContract, kind: str) -> dict:
 
 def _values(c: SitokDocContract) -> build.Contract:
     return build.Contract(client=c.client, title=c.title, contract_no=c.contract_no, amount=c.amount, contract_date=c.contract_date,
-                          start_date=c.start_date, end_date=c.end_date)
+                          start_date=c.start_date, end_date=c.end_date, actual_end_date=c.actual_end_date)  # 완수계 발송일·실제준공 = 실제 준공일 > 준공일
 
 
 def _person_docs(db: Session, p: TechPerson) -> dict:
@@ -1526,7 +1527,7 @@ def gov_state(cid: int, user: User = Depends(get_current_user), db: Session = De
     _, cover = _cover_source(db, c)
     docs = lib.company_docs(db, user.company_id)
     return summary(db, c) | {
-        "defaults": {"doc_no_start": gov_docs.doc_no(v, c.start_date), "doc_no_done": gov_docs.doc_no(v, c.end_date),
+        "defaults": {"doc_no_start": gov_docs.doc_no(v, c.start_date), "doc_no_done": gov_docs.doc_no(v, c.actual_end_date or c.end_date),  # 끝 월일 = 실제 준공일 > 준공일(10/22)
                      "greeting": gov_docs.greeting(c.client), "contact_name": config.get_doc_contact_name(user.company_id)},
         "agent_id": c.agent_id, "participant_ids": c.participant_ids or [],
         "persons": [_person_state(db, p) for p in lib.persons(db, user.company_id) if p.active],
@@ -1575,7 +1576,7 @@ def make_gov(cid: int, kind: Literal["start", "done"], body: GovIn, user: User =
     label = GOV[kind]
     base = folder(c)
     xlsx, pdf = base / f"{label}.xlsx", base / f"{label}.pdf"
-    doc_no = body.doc_no.strip() or gov_docs.doc_no(v, c.start_date if kind == "start" else c.end_date)
+    doc_no = body.doc_no.strip() or gov_docs.doc_no(v, c.start_date if kind == "start" else (c.actual_end_date or c.end_date))
     greet = body.greeting.strip() or gov_docs.greeting(c.client)
     contact = body.contact.strip() or config.get_doc_contact_name(user.company_id)
     warnings: list[str] = []
@@ -1592,7 +1593,7 @@ def make_gov(cid: int, kind: Literal["start", "done"], body: GovIn, user: User =
         else:
             src, _ = _cover_source(db, c)
             docs = lib.company_docs(db, user.company_id)
-            on = c.end_date or datetime.date.today()  # 발송 = 완수일(갑지)
+            on = c.actual_end_date or c.end_date or datetime.date.today()  # 발송 = 완수일(갑지) — 실제 준공일 > 준공일
             for k, lab in build.COMPANY_DOCS:
                 if lib.doc_status(docs.get(k), on) == "expired":
                     warnings.append(f"⚠ {lab} 유효기간 지남({docs[k].valid_until}) — 새로 발급받아 서류 자동화 설정에서 바꾸세요.")

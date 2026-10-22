@@ -95,6 +95,7 @@ async function openSitokGov(contractId, kind, onDone) {
       ${lack.length ? `<div class="mail-msg warn">계약 칸이 비었습니다: ${lack.join("·")} — 계약 창에서 나라장터 계약서를 올리거나 직접 채우세요.</div>` : ""}
       <div class="cd-grid">
         <label class="cd-field"><span>문서번호 <em>KFSC연도_계약번호_${kind === "start" ? "착수일" : "완수일"}(월일)</em></span><input class="sd-docno" value="${esc(typed.docno ?? d[`doc_no_${kind}`])}" /></label>
+        ${kind === "done" ? `<label class="cd-field"><span>실제 준공일 <em>비우면 준공일${c.end_date ? ` ${esc(c.end_date)}` : ""} — 문서번호 끝 월일·발송일</em></span><input type="date" class="sd-actual" value="${esc(typed.actual ?? c.actual_end_date ?? "")}" /></label>` : ""}
         <label class="cd-field"><span>인사말</span><span class="cd-greet">1. 귀 <input class="cd-greeting" value="${esc(typed.greeting ?? d.greeting)}" /> 의 무궁한 발전을…</span></label>
         <label class="cd-field"><span>담당 <em>갑지 아래</em></span><input class="sd-contact" value="${esc(typed.contact ?? d.contact_name)}" /></label>
         <label class="cd-field sd-seal"><span>도장</span><span class="cd-greet"><input type="checkbox" class="sd-seal-in"${(typed.seal ?? true) ? " checked" : ""} /> 대표이사 도장${kind === "start" ? "·보안각서 기술자 서명" : ""} 넣기(빼면 인쇄 뒤 직접)</span></label>
@@ -121,6 +122,13 @@ async function openSitokGov(contractId, kind, onDone) {
     typed.greeting = q(".cd-greeting").value;
     typed.contact = q(".sd-contact").value;
     typed.seal = q(".sd-seal-in").checked;
+    if (q(".sd-actual")) typed.actual = q(".sd-actual").value;
+  }
+  // 실제 준공일(완수계, 10/22) — 바꾸면 문서번호 끝 월일·연도도(손으로 고친 문서번호는 그대로)
+  function docNoFor(day) {
+    const base = (st.defaults.doc_no_done || "").replace(/^KFSC\d{2}_/, "").replace(/_\d{4}$/, "");
+    if (!base || !day) return st.defaults.doc_no_done || "";
+    return `KFSC${day.slice(2, 4)}_${base}_${day.slice(5, 7)}${day.slice(8, 10)}`;
   }
   const say = (text, tone) => {
     const m = box.querySelector(".sd-g-msg");
@@ -132,6 +140,15 @@ async function openSitokGov(contractId, kind, onDone) {
   function wire() {
     box.querySelector(".sd-g-close").addEventListener("click", close);
     const sel = box.querySelector(".sd-agent");
+    const actual = box.querySelector(".sd-actual");
+    if (actual) {
+      actual.addEventListener("change", () => {
+        const docno = box.querySelector(".sd-docno");
+        const before = docNoFor(typed.actual ?? st.actual_end_date ?? st.end_date ?? "");
+        if (!docno.value.trim() || docno.value.trim() === before || docno.value.trim() === (st.defaults.doc_no_done || "")) docno.value = docNoFor(actual.value || st.end_date || "");
+        typed.actual = actual.value;
+      });
+    }
     if (sel) {
       sel.addEventListener("change", () => {
         remember();
@@ -215,7 +232,8 @@ async function openSitokGov(contractId, kind, onDone) {
       btn.textContent = "만드는 중… (엑셀 → PDF 30초쯤)";
       try {
         result = await apiPost(`${P}/${kind}`, { doc_no: typed.docno, greeting: typed.greeting, contact: typed.contact, seal: typed.seal,
-          agent_id: st.agent_id, participant_ids: st.participant_ids });
+          agent_id: st.agent_id, participant_ids: st.participant_ids, ...(kind === "done" ? { contract: { actual_end_date: typed.actual || "" } } : {}) });
+        if (kind === "done") st.actual_end_date = typed.actual || null;
         st.gov = result.gov;
         typed.docno = result.doc_no;
         busy = false;

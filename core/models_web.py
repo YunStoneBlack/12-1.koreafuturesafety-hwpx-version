@@ -753,6 +753,7 @@ class SitokDocContract(Base):
     contract_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     start_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     end_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    actual_end_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)  # 실제 준공일(0063 — 관급 완수계 문서번호 끝 월일·발송일, 비면 end_date)
     # 발주처 담당(산안법처럼) — 계약 담당·현장 담당 이름·연락처·이메일
     client_manager: Mapped[str] = mapped_column(Text, default="")
     client_phone: Mapped[str] = mapped_column(Text, default="")
