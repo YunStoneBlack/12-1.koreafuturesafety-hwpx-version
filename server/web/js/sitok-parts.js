@@ -21,6 +21,10 @@
   const shot = (label) => `<label class="ov-shot pt-shot">📷 ${label}<input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label>
     <label class="ov-shot secondary pt-shot">🖼 고르기<input type="file" accept="image/*" hidden data-kr-file="1" /></label>`;
 
+  window.addEventListener("kf-upload-done", (e) => { // 폰에 보관했던 사진이 나중에 올라가면(10/22)
+    if (String((e.detail || {}).path || "") === `${url}/photo` && e.detail.data) { data = e.detail.data; ts = Date.now(); draw(); }
+  });
+
   function draw() {
     const oth = document.querySelector('.sf-tab[data-tab="other"]'); // 옹벽은 기타시설(마감재·부착물) 없음(10/20) — 공중이용(펜스·점검로)만
     if (oth) oth.hidden = !!data.wall;
@@ -56,7 +60,7 @@
         fd.append("key", key);
         fd.append("slot", slot);
         fd.append("file", inp.files[0]);
-        try { data = await apiUpload(`${url}/photo`, fd); ts = Date.now(); say(msg, ""); draw(); } catch (e) { say(msg, e.message); el.classList.remove("busy"); }
+        try { data = await apiUploadSafe(`${url}/photo`, fd, { label: group === "public" ? "공중이용 사진" : "기타시설 사진" }); ts = Date.now(); say(msg, ""); draw(); } catch (e) { say(msg, e.message); el.classList.remove("busy"); }
       }));
       el.querySelector(".pt-del")?.addEventListener("click", async () => {
         if (!confirm("이 사진을 지울까요?")) return;

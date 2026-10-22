@@ -10,7 +10,12 @@
   const rid = Number(new URLSearchParams(location.search).get("report")) || null;
   const errorEl = document.getElementById("error");
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const err = (e) => showError(errorEl, e);
+  const err = (e) => { // 신호 끊김은 한글로 + 화면 아래 알림(10/22) — 폰에 보관한 사진(e.queued)은 카드 띠·아래 알림이 이미 보여 줌
+    if (e && e.queued) return;
+    const m = e instanceof TypeError ? new Error("📶 신호가 약해 저장하지 못했습니다 — 신호가 좋은 곳에서 다시 눌러 주세요.") : e;
+    showError(errorEl, m);
+    if (e instanceof TypeError) KfUploads.note(m.message);
+  };
   const KIND_LABEL = { member: "부재", dtype: "결함유형" };
   const AREA_RE = /누수|백태|박리|박락|층분리|재료분리|철근|부식|파손|유출|식생|퇴적|배부름|세굴|마감불량|철망/; // 뒤 7개 = 옹벽(폭·길이 m) — 서버 AREA_WORDS와 같이
   const unit = () => (data && data.unit_label) || "층"; // 건축물 "층" / 옹벽 "부위"
@@ -414,6 +419,9 @@
   function card(d) {
     const el = document.createElement("div");
     el.className = `sf-card c-${d.check || "none"}`;
+    el.dataset.id = d.id;
+    const pNow = KfUploads.peek(`defect:${d.id}:now`), pPrev = KfUploads.peek(`defect:${d.id}:prev`); // 폰에 보관 중인 사진(10/22 신호 약할 때)
+    const pend = (p) => `<em class="sf-pend${p.state === "failed" ? "" : " sending"}">${p.state === "failed" ? "📶 폰에 보관 — 신호 오면 자동으로 올림" : "⬆ 올리는 중…"}</em>`;
     const prev = d.prev ? `<div class="sf-prev">전회차: ${esc(d.prev["결함유형"] || "")} ${esc(sizeText(d.prev))} <em>${esc(d.prev["비고"] || "")}</em></div>` : "";
     const off = outOfList("member", d.member) || outOfList("dtype", d.dtype);
     const sizeOn = d.check === "grew" || d.check === "new" || (isWall() && d.check !== "repaired" && !isRecord(d.dtype)); // 크기 칸(진행·신규) — 박리·박락 깊이는 그 밖에도 따로(10/22)
@@ -425,10 +433,11 @@
         <button type="button" class="sf-trash" title="이 결함 지우기 — 같은 ${esc(unit())} 뒤 번호가 하나씩 당겨집니다">🗑</button></div>
       ${prev}
       <div class="sf-photos">
-        <figure>${d.has_prev_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/prev?v=${d.prev_v || 0}" alt="전회차" loading="lazy" />
+        <figure>${pPrev ? `<label class="sf-prev-up"><img src="${pPrev.url}" alt="전회차" />${pend(pPrev)}<input type="file" accept="image/*" hidden data-kr-file="1" /></label>`
+          : d.has_prev_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/prev?v=${d.prev_v || 0}" alt="전회차" loading="lazy" />
           <button type="button" class="sf-prev-del" title="전회차 사진 지우기">✕</button>`
           : '<label class="sf-prev-up" title="전회차 사진 올리기"><span class="sf-nophoto">전회차 사진 없음<b>＋ 사진 올리기</b></span><input type="file" accept="image/*" hidden data-kr-file="1" /></label>'}<figcaption>전회차</figcaption></figure>
-        <figure><label class="sf-shot">${d.has_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/now?t=${d.ts}" alt="이번" />` : '<span>📷 찍기</span>'}
+        <figure><label class="sf-shot">${pNow ? `<img src="${pNow.url}" alt="이번" />${pend(pNow)}` : d.has_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/now?t=${d.ts}" alt="이번" />` : '<span>📷 찍기</span>'}
           <input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label><figcaption>이번</figcaption></figure>
       </div>
       <div class="sf-acts">
@@ -488,7 +497,7 @@
       try {
         const fd = new FormData();
         fd.append("file", file.files[0]);
-        await apiUpload(`/sitok/defects/${d.id}/photo`, fd);
+        await apiUploadSafe(`/sitok/defects/${d.id}/photo`, fd, { key: `defect:${d.id}:now`, label: `${d.floor} ${d.seq}번 ${d.dtype} 이번 사진` }); // 신호 약하면 폰에 보관(10/22)
         if (!d.check) await autoCheck(d); // 10/14 형: 전회차가 있으면 사진 들어가면 바로 비교, 진행 추천이 아니면 자동 "그대로"
         refresh(false);
       } catch (e) { err(e); el.classList.remove("busy"); }
@@ -507,14 +516,14 @@
         try {
           const fd = new FormData();
           fd.append("file", prevFile.files[0]);
-          await apiUpload(`/sitok/defects/${d.id}/photo/prev`, fd);
+          await apiUploadSafe(`/sitok/defects/${d.id}/photo/prev`, fd, { key: `defect:${d.id}:prev`, label: `${d.floor} ${d.seq}번 ${d.dtype} 전회차 사진` });
           refresh(false);
         } catch (e) { err(e); el.classList.remove("busy"); }
       });
       enableFileDrop(el.querySelector(".sf-prev-up"), prevFile);
     }
     el.querySelectorAll(".sf-photos img").forEach((img) => img.addEventListener("click", (e) => {
-      if (img.closest(".sf-shot")) return; // 이번 사진 칸은 누르면 다시 찍기
+      if (img.closest(".sf-shot, .sf-prev-up")) return; // 이번 사진 칸(·보관 중 전회차)은 누르면 다시 찍기
       e.preventDefault();
       window.open(img.src, "_blank");
     }));
@@ -583,6 +592,7 @@
     document.body.appendChild(overlay);
     const q = (s) => overlay.querySelector(s);
     let ai = null; // AI 답(원인 근거는 원인을 안 고쳤을 때만 같이 저장)
+    const newKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; // 이 창 하나 = 결함 하나(10/22)
     setPick(q(".n-member"), "member", "");
     setPick(q(".n-dtype"), "dtype", "");
     bindPicker(q(".n-member"), "member", (m) => { if (partOf(m)) q(".n-part").value = partOf(m); });
@@ -669,16 +679,30 @@
       body.cause_note = ai && ai.cause_note && body.cause === ai.cause ? ai.cause_note : ""; // 원인을 고쳤으면 AI 근거는 안 맞음
       body.ai_guess = ai && ai.guess ? ai.guess : null; // AI 첫 분류 — 다르게 넣으면 회사 교정 기록(다음 사진 분석에 씀, 10/12)
       if (!body.floor || !body.dtype) { alert(`${unit()}과(와) 결함유형을 골라 주세요.`); return; }
+      body.client_key = newKey; // 신호가 약해 응답만 못 받고 [추가]를 다시 눌러도 두 번 안 생김(10/22)
       q(".n-ok").disabled = true;
-      try {
-        const d = await apiPost(`/sitok/reports/${rid}/defects`, body);
-        const f = photo.files[0];
-        if (f) { const fd = new FormData(); fd.append("file", f); await apiUpload(`/sitok/defects/${d.id}/photo`, fd); }
-        floor = body.floor;
-        started = true;
-        overlay.remove();
-        refresh();
-      } catch (e) { q(".n-ok").disabled = false; const m = q(".mail-msg"); m.hidden = false; m.className = "mail-msg bad"; m.textContent = e.message; }
+      let d;
+      try { d = await apiPost(`/sitok/reports/${rid}/defects`, body); } catch (e) {
+        q(".n-ok").disabled = false;
+        const m = q(".mail-msg");
+        m.hidden = false;
+        m.className = "mail-msg bad";
+        m.textContent = e instanceof TypeError ? "📶 신호가 약해 저장하지 못했습니다 — [추가]를 다시 눌러 주세요(같은 결함이 두 번 생기지 않습니다)." : e.message;
+        return;
+      }
+      floor = body.floor;
+      started = true;
+      overlay.remove();
+      await refresh();
+      const f = photo.files[0];
+      if (f) { // 결함은 저장됨 — 사진은 신호가 약하면 폰에 보관했다가 자동으로(카드에 "폰에 보관" 표시)
+        const fd = new FormData();
+        fd.append("file", f);
+        try {
+          await apiUploadSafe(`/sitok/defects/${d.id}/photo`, fd, { key: `defect:${d.id}:now`, label: `${body.floor} ${d.seq}번 ${body.dtype} 사진` });
+          refresh(false);
+        } catch (e) { err(e); }
+      }
     });
   }
 
@@ -832,6 +856,22 @@
     try { await apiPost(`/sitok/reports/${rid}/defects/carry`); refresh(); } catch (e) { err(e); }
   });
   document.getElementById("sf-add").addEventListener("click", newForm);
+  // 신호 약할 때 폰에 보관한 사진(10/22, app.js KfUploads) — 보관 상태가 바뀌면 그 카드만 다시(글 쓰는 중이면 그대로), 나중에 올라가면 목록 새로(이번 사진이면 전회차와 자동 비교)
+  function redrawCard(id) {
+    const old = document.querySelector(`.sf-card[data-id="${id}"]`);
+    const d = data && (data.defects || []).find((x) => x.id === id);
+    const a = document.activeElement;
+    if (!old || !d || (old.contains(a) && a.matches("input:not([type=file]), textarea, select"))) return;
+    old.replaceWith(card(d));
+  }
+  window.addEventListener("kf-uploads-change", (e) => { const m = /^defect:(\d+):/.exec((e.detail || {}).key || ""); if (m) redrawCard(Number(m[1])); });
+  window.addEventListener("kf-upload-done", async (e) => {
+    const m = /^defect:(\d+):(now|prev)$/.exec((e.detail || {}).key || "");
+    if (!m || !data) return;
+    await refresh(false);
+    const d = data.defects.find((x) => x.id === Number(m[1]));
+    if (d && m[2] === "now" && !d.check) { await autoCheck(d); refresh(false); }
+  });
   document.getElementById("sf-fresh").addEventListener("click", () => {
     started = true;
     try { sessionStorage.setItem(`sf-started-${rid}`, "1"); } catch (_) { /* */ }

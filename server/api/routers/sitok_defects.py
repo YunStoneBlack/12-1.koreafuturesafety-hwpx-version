@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import datetime
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -647,6 +648,10 @@ class DefectIn(BaseModel):
     check: str | None = None
     starred: bool | None = None
     ai_guess: dict | None = None  # [+ 신규] 사진 AI 첫 추천 {part, member, dtype, token} — 교정 기록(server/sitok/learn.py, 10/12)
+    client_key: str | None = None  # [+ 신규] 창마다 하나 — 신호가 약해 응답만 못 받고 [추가]를 다시 눌러도 두 번 안 생기게(10/22)
+
+
+NEW_KEYS: dict[str, tuple[int, float]] = {}  # 신규 결함 client_key → (결함 id, 시각) — 1시간 기억(API 메모리, 재시작하면 비움)
 
 
 def _require(db: Session, user: User, defect_id: int) -> tuple[SitokDefect, SitokReport]:
@@ -697,6 +702,14 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
     fam = kinds.family_of(f)
     if not (body.floor or "").strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{kinds.unit_label(fam)}을(를) 고르세요.")
+    key = (body.client_key or "").strip()[:80]
+    now = time.time()
+    for k in [k for k, (_, t) in NEW_KEYS.items() if now - t > 3600]:
+        NEW_KEYS.pop(k, None)
+    if key and key in NEW_KEYS:  # 같은 창의 [추가]를 다시 누름 — 처음 것이 이미 저장됐으면 그것을 돌려줌(10/22 신호 약할 때)
+        old = db.get(SitokDefect, NEW_KEYS[key][0])
+        if old is not None and old.report_id == r.id:
+            return _out(old)
     last = max((d.seq for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == body.floor.strip())), default=0)
     d = SitokDefect(report_id=r.id, seq=last + 1, check="new", mark="신규", progress="비진행성")  # 진행유무 기본(10/21 형 — 신규도 칸이 비지 않게, [진행]을 누르면 진행성)
     _apply(d, body.model_copy(update={"check": "new"}), user, None if fam == "wall" else base_areas(f), vocab_names(db, r.company_id, r.id, fam))
@@ -705,6 +718,8 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
     db.flush()
     learn.sync(db, d, r.company_id, user.display_name or "")  # AI 추천과 다르게 넣었으면 회사 교정 기록
     db.commit()
+    if key:
+        NEW_KEYS[key] = (d.id, now)
     return _out(d)
 
 

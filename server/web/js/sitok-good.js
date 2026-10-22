@@ -79,7 +79,7 @@
         fd.append("key", key);
         fd.append("file", file);
         if (title) fd.append("title", title);
-        try { data = await apiUpload(`${url}/good/photo`, fd); ts = Date.now(); say("gd-msg", ""); draw(); } catch (e) { say("gd-msg", e.message); el.classList.remove("busy"); }
+        try { data = await apiUploadSafe(`${url}/good/photo`, fd, { label: "상태양호 사진" }); ts = Date.now(); say("gd-msg", ""); draw(); } catch (e) { say("gd-msg", e.message); el.classList.remove("busy"); }
       };
       const add = g.querySelector(".gd-add");
       if (add) onFile(add, sendNew(add, ""));
@@ -147,7 +147,7 @@
         const fd = new FormData();
         fd.append("slot", slot);
         fd.append("file", file);
-        try { data = await apiUpload(`${url}/seismic/photo`, fd); ts = Date.now(); say("se-msg", ""); draw(); } catch (e) { say("se-msg", e.message); el.classList.remove("busy"); }
+        try { data = await apiUploadSafe(`${url}/seismic/photo`, fd, { label: "내진보강 사진" }); ts = Date.now(); say("se-msg", ""); draw(); } catch (e) { say("se-msg", e.message); el.classList.remove("busy"); }
       });
       el.querySelector(".pt-del")?.addEventListener("click", async () => {
         if (!confirm("이 사진을 지울까요?")) return;
@@ -168,6 +168,11 @@
     };
     box.querySelectorAll(".se-table select, .se-table input, #se-opinion").forEach((el) => el.addEventListener("change", save));
   }
+
+  window.addEventListener("kf-upload-done", (e) => { // 폰에 보관했던 사진이 나중에 올라가면(10/22)
+    const p = String((e.detail || {}).path || "");
+    if ((p === `${url}/good/photo` || p === `${url}/seismic/photo`) && e.detail.data) { data = e.detail.data; ts = Date.now(); draw(); }
+  });
 
   function draw() {
     if (data.fam === "wall") { // 옹벽(10/20): 1.4 현장조사 결과 절마다 사진 표

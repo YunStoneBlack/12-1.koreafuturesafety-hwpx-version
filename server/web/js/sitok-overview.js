@@ -50,7 +50,7 @@
           say("올리는 중…", true);
           const fd = new FormData();
           fd.append("file", now.files[0]);
-          try { data = await apiUpload(`${url}/${id}/photo`, fd); ts = Date.now(); say(""); draw(); } catch (e) { say(e.message); el.classList.remove("busy"); }
+          try { data = await apiUploadSafe(`${url}/${id}/photo`, fd, { label: "전경 사진" }); ts = Date.now(); say(""); draw(); } catch (e) { say(e.message); el.classList.remove("busy"); }
         });
         enableFileDrop(el.querySelector(".ov-now"), now);
       }
@@ -71,19 +71,25 @@
     });
   }
 
+  window.addEventListener("kf-upload-done", (e) => { // 폰에 보관했던 사진이 나중에 올라가면(10/22)
+    if (String((e.detail || {}).path || "").startsWith(url) && e.detail.data) { data = e.detail.data; ts = Date.now(); draw(); }
+  });
+
   async function patch(id, body) {
     try { data = await apiPatch(`${url}/${id}`, body); draw(); } catch (e) { say(e.message); }
   }
 
   async function upload(list) {
     const fl = [...list];
+    let weak = null; // 신호가 약해 한 장이 폰에 보관되면 나머지는 바로 보관(10/22)
     for (let i = 0; i < fl.length; i++) {
       say(`올리는 중… ${i + 1} / ${fl.length}`, true);
       const fd = new FormData();
       fd.append("file", fl[i]);
-      try { data = await apiUpload(url, fd); } catch (e) { say(e.message); return; }
+      try { data = await apiUploadSafe(url, fd, { label: "전경 사진", queueOnly: !!weak }); } catch (e) { if (!e.queued) { say(e.message); return; } weak = e; continue; }
       draw();
     }
+    if (weak) { say(weak.message); return; }
     say("");
     const last = document.querySelector(".ov-card:last-child .ov-title input");
     if (last && fl.length === 1) last.focus();

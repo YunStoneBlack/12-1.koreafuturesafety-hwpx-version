@@ -130,7 +130,7 @@
         const fd = new FormData();
         fd.append("slot", slot);
         fd.append("file", inp.files[0]);
-        try { data = await apiUpload(`${url}/load-photo`, fd); ts = Date.now(); draw(); } catch (e) { saved(e.message, true); el.classList.remove("busy"); }
+        try { data = await apiUploadSafe(`${url}/load-photo`, fd, { label: "정밀 하중 사진" }); ts = Date.now(); draw(); } catch (e) { saved(e.message, true); el.classList.remove("busy"); }
       }));
       el.querySelector(".pt-del")?.addEventListener("click", async () => {
         if (!confirm("이 사진을 지울까요?")) return;
@@ -176,7 +176,7 @@
         fd.append("key", key);
         fd.append("slot", slot);
         fd.append("file", inp.files[0]);
-        try { data = await apiUpload(`${url}/survey-photo`, fd); ts = Date.now(); draw(); } catch (e) { saved(e.message, true); el.classList.remove("busy"); }
+        try { data = await apiUploadSafe(`${url}/survey-photo`, fd, { label: "정밀 조사 사진" }); ts = Date.now(); draw(); } catch (e) { saved(e.message, true); el.classList.remove("busy"); }
       }));
       el.querySelector(".pt-del")?.addEventListener("click", async () => {
         if (!confirm("이 사진을 지울까요?")) return;
@@ -188,6 +188,11 @@
     const n = all.filter((p) => p.has).length;
     $("pr-survey-count").textContent = n ? `(${n}/${all.length})` : "";
   }
+
+  window.addEventListener("kf-upload-done", (e) => { // 폰에 보관했던 사진이 나중에 올라가면(10/22)
+    const p = String((e.detail || {}).path || "");
+    if ((p === `${url}/load-photo` || p === `${url}/survey-photo`) && e.detail.data) { data = e.detail.data; ts = Date.now(); draw(); }
+  });
 
   function draw() {
     drawDocs();
