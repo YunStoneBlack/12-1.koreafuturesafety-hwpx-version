@@ -42,7 +42,7 @@
   function card(row) {
     const ch = choices(row);
     const sel = ch.find((c) => c.id === row.item_id);
-    const opts = `<option value="">${ch.length ? "일람표 칸 고르기" : "맞는 일람표 칸 없음 — 부호 직접"}</option>` + ch.map((c) => `<option value="${c.id}"${c.id === row.item_id ? " selected" : ""}>${esc(c.marks.join(", "))}${c.position ? ` ${esc(c.position)}` : ""} (${esc(c.floors)})${c.confirmed ? "" : " ⚠미확인"}</option>`).join("");
+    const opts = `<option value="">${ch.length ? "일람표 칸 고르기" : "맞는 일람표 칸 없음 — 부호 직접"}</option>` + ch.map((c) => `<option value="${c.id}"${c.id === row.item_id ? " selected" : ""}>${esc(c.marks.join(", "))}${c.position ? ` ${esc(c.position)}` : ""}${c.floors ? ` (${esc(c.floors)})` : ""}${c.confirmed ? "" : " ⚠미확인"}</option>`).join("");
     return `<div class="ss-card${hasResult(row) ? "" : " empty"}" data-id="${row.id}">
       <div class="ss-card-h"><b class="ss-no">RC-${row.no}</b><span class="sk-help">${esc(floorLabel(row.floor))} · ${esc(row.kind)}${row.mark ? ` (${esc(row.mark)})` : ""}</span>
         <button type="button" class="link-btn ss-del" title="이 시험 지우기">🗑</button></div>
@@ -120,11 +120,65 @@
     }
   }
 
+  // 일람표 칸 검색 고르기(10/22 사용자 "검색가능하게") — 숨긴 <select> 위에 글 칸 + 목록. 낱말마다(빈칸 무시) 다 들어간 칸만, 고르면 select 값을 바꾸고 change(저장은 그대로)
+  const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "");
+  function searchSelect(sel) {
+    const opts = [...sel.options].map((o) => ({ v: o.value, t: o.textContent }));
+    if (opts.length < 2) return; // 맞는 칸 없음 — 그냥 select
+    const cur = () => opts.find((o) => o.v && o.v === sel.value);
+    const box = document.createElement("div");
+    box.className = "ss-combo";
+    box.innerHTML = `<input type="text" autocomplete="off" spellcheck="false" placeholder="${esc(opts[0].t)} — 부호·위치로 검색" /><div class="ss-combo-list" hidden></div>`;
+    sel.hidden = true;
+    sel.after(box);
+    const inp = box.querySelector("input"), list = box.querySelector(".ss-combo-list");
+    inp.value = cur()?.t || "";
+    let shown = [], on = 0;
+    const paint = () => {
+      list.innerHTML = shown.length ? shown.map((o, k) => `<div data-k="${k}" class="${k === on ? "on" : ""}${o.v && o.v === sel.value ? " sel" : ""}">${o.v
+        ? esc(o.t).replace("⚠미확인", "<em>⚠미확인</em>") : '<span class="none">— 선택 안 함 —</span>'}</div>`).join("") : '<div class="none">맞는 칸 없음</div>';
+      list.querySelector(".on")?.scrollIntoView({ block: "nearest" });
+    };
+    const open = (q) => {
+      const words = String(q || "").trim().split(/\s+/).map(norm).filter(Boolean);
+      shown = words.length ? opts.filter((o) => o.v && words.every((w) => norm(o.t).includes(w))) : opts;
+      on = words.length ? 0 : Math.max(0, shown.findIndex((o) => o.v && o.v === sel.value));
+      list.hidden = false;
+      paint();
+    };
+    const close = () => { list.hidden = true; inp.value = cur()?.t || ""; };
+    const pick = (o) => {
+      list.hidden = true;
+      if (!o) { close(); return; }
+      inp.value = o.v ? o.t : "";
+      if (o.v !== sel.value) { sel.value = o.v; sel.dispatchEvent(new Event("change")); }
+    };
+    inp.addEventListener("focus", () => { inp.select(); open(""); });
+    inp.addEventListener("input", () => open(inp.value));
+    inp.addEventListener("keydown", (e) => {
+      if (e.isComposing) return;
+      if (list.hidden && (e.key === "ArrowDown" || e.key === "Enter")) { e.preventDefault(); open(""); return; }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        on = (on + (e.key === "ArrowDown" ? 1 : -1) + shown.length) % Math.max(1, shown.length);
+        paint();
+      } else if (e.key === "Enter") { e.preventDefault(); pick(shown[on]); inp.blur(); }
+      else if (e.key === "Escape") { close(); inp.blur(); }
+    });
+    inp.addEventListener("blur", () => setTimeout(() => { if (!list.hidden) close(); }, 150));
+    list.addEventListener("mousedown", (e) => {
+      e.preventDefault(); // 글 칸 포커스를 잃기 전에 고름
+      const it = e.target.closest("[data-k]");
+      if (it) { pick(shown[Number(it.dataset.k)]); inp.blur(); }
+    });
+  }
+
   function rowsCopy() { return d.rows.map((r) => JSON.parse(JSON.stringify(r))); }
 
   function bind() {
     document.querySelectorAll(".ss-card").forEach((el) => {
       const id = el.dataset.id;
+      el.querySelectorAll('select[data-f="item_id"]').forEach(searchSelect);
       el.querySelectorAll("[data-f]").forEach((inp) => inp.addEventListener("change", () => {
         const rows = rowsCopy();
         const row = rows.find((x) => x.id === id);
@@ -170,7 +224,7 @@
     const rows = rowsCopy();
     const last = rows[rows.length - 1];
     rows.push({ kind: last ? last.kind : "기둥", floor: last ? last.floor : (d.floors[0] || {}).n ?? null, position: "중앙부", side: "단변" }); // 앞 시험과 같은 층·부재로
-    save(rows).then(() => { const cards = document.querySelectorAll(".ss-card"); const c = cards[cards.length - 1]; if (c) { c.scrollIntoView({ block: "center" }); c.querySelector('[data-f="item_id"]')?.focus(); } });
+    save(rows).then(() => { const cards = document.querySelectorAll(".ss-card"); const c = cards[cards.length - 1]; if (c) { c.scrollIntoView({ block: "center" }); (c.querySelector(".ss-combo input") || c.querySelector('[data-f="item_id"]'))?.focus(); } });
   });
 
   async function planSave(body) {
