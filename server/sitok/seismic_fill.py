@@ -358,7 +358,7 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
 
 
 # ---------- 요약 (1) 현장 시험 및 분석 ----------
-def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, grade: str = "특등급", member_total: int = 0, core_min: int = 6) -> int:
+def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, grade: str = "특등급", member_total: int = 0, core_min: int = 6, doc=None) -> int:
     n = 0
     holes = (ground or {}).get("holes") or []
     rule = {"부재규격": "부재 종별로 각각 3개소 이상 조사" if drawings else "부재 종별로 각각 9개소 이상 조사(구조도면 작성)",  # 매뉴얼 <표 3-1>(10/22)
@@ -385,13 +385,18 @@ def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, 
             continue
         if not visual_done and _n(rb._cell_text(cells.get((1, 0), t))) == "분석결과":  # 첫 "분석 결과" = 가. 결함조사 결과 — 외관조사 글들을 이어서
             visual_done = True
-            _set(cells, (1, 1), "\n".join(x for k in SF.VISUAL for x in (field["texts"].get(k) or "").split("\n") if x.strip()))
+            joined = "\n".join(x for k in SF.VISUAL for x in (field["texts"].get(k) or "").split("\n") if x.strip())
+            _set(cells, (1, 1), joined)
+            if not joined:
+                _no_bullet(doc, cells[(1, 1)])
             n += 1
             continue
         for (r, c), x in list(cells.items()):
             key = SF.SUMMARY_ROWS.get(_n(rb._cell_text(x))) if c == 0 else None
             if key and (r, 1) in cells:
                 _set(cells, (r, 1), field["texts"].get(key) or "")
+                if not field["texts"].get(key):
+                    _no_bullet(doc, cells[(r, 1)])
                 n += 1
     return n
 
@@ -414,7 +419,7 @@ def _para_text(p, text: str) -> None:
         el.getparent().remove(el)
 
 
-def fill_body_results(root, field: dict) -> int:
+def fill_body_results(root, field: dict, doc=None) -> int:
     """본문 조사결과 글머리(2.2.1 (2)·2.2.2 (3)·2.2.4 조사결과) = 조사결과 글 줄마다 하나(첫 글머리 모양), 비었으면 빈 줄 하나."""
     tops = [p for p in root if p.tag == f"{{{HP}}}p"]
     n = 0
@@ -439,6 +444,8 @@ def fill_body_results(root, field: dict) -> int:
             p.getparent().remove(p)
         _para_text(first, lines[0])
         _blacken(first)
+        if not lines[0]:
+            _no_bullet(doc, first)
         last = first
         for line in lines[1:]:
             q = copy.deepcopy(tpl)
@@ -630,6 +637,31 @@ def fix_checklist_stamp(root) -> int:
         pos.set("vertOffset", str((2 ** 32 + (chh - h) // 2) % 2 ** 32))  # 칸 가운데(칸보다 크면 위로 — 음수는 32비트로)
         n += 1
     return n
+
+
+def _no_bullet(doc, el) -> None:
+    """빈칸으로 둔 글머리 문단은 글머리 점("·")도 안 보이게 — 그 문단 모양에서 글머리만 없앤 모양으로(10/22)."""
+    if doc is None:
+        return
+    cache = doc.__dict__.setdefault("_nobullet", {})
+    hdr = doc.header
+    for q in ([el] if el.tag == f"{{{HP}}}p" else list(el.iter(f"{{{HP}}}p"))):
+        pid = q.get("paraPrIDRef")
+        if pid not in cache:
+            pp = next((x for x in hdr.iter(f"{{{HH}}}paraPr") if x.get("id") == str(pid)), None)
+            hd = pp.find(f"{{{HH}}}heading") if pp is not None else None
+            if hd is None or hd.get("type") == "NONE":
+                cache[pid] = pid
+            else:
+                new = copy.deepcopy(pp)
+                new.set("id", str(max(int(x.get("id")) for x in hdr.iter(f"{{{HH}}}paraPr")) + 1))
+                new.find(f"{{{HH}}}heading").attrib.update({"type": "NONE", "idRef": "0", "level": "0"})
+                parent = pp.getparent()
+                parent.append(new)
+                if parent.get("itemCnt"):
+                    parent.set("itemCnt", str(int(parent.get("itemCnt")) + 1))
+                cache[pid] = new.get("id")
+        q.set("paraPrIDRef", cache[pid])
 
 
 def _blacken(el) -> None:
@@ -928,7 +960,7 @@ def _core_pages(core_doc: dict | None, rdir: Path) -> list[Path]:
 
 
 # ---------- 2.3 · 2.4 글 ----------
-def fill_texts(root, field: dict) -> int:
+def fill_texts(root, field: dict, doc=None) -> int:
     tx = field["texts"]
     n = 0
     tops = [p for p in root if p.tag == f"{{{HP}}}p"]
@@ -948,6 +980,8 @@ def fill_texts(root, field: dict) -> int:
             cells = rb._cells(tb)
             if _n(rb._cell_text(cells.get((0, 0), tb))) == "구분" and _n(rb._cell_text(cells.get((1, 0), tb))) == "분석결과" and k < len(order):
                 _set(cells, (1, 1), tx[order[k]])
+                if not tx[order[k]]:
+                    _no_bullet(doc, cells[(1, 1)])
                 k += 1
                 n += 1
     for tb in _outer(root):  # 2.4.1·2.4.2 — 조사결과 글(비면 빈칸), 붉은 견본 글자는 검정으로(10/22)
@@ -1169,7 +1203,8 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     grade = reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급")
     member_total = sum(SD.member_plan(f, field.get("member_plan")).values())  # 부재 단면 칸 수(형이 정한 수량)
     n = fill_photos(doc, root, field, rdir, warn, f)
-    n += fill_summary(root, field, ground, drawings, grade, member_total, SD.min_counts(units, grade, drawings)["core"])
+    n += fill_summary(root, field, ground, drawings, grade, member_total, SD.min_counts(units, grade, drawings)["core"], doc)
+    n += fill_body_results(root, field, doc)  # 본문 조사결과 = 조사결과 글(요약 표와 같은 글, 10/22) — 부재 단면 견본 문장 처리보다 먼저(끊김 막음)
     n += fill_grade(root, reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급"), warn)
     if reg:
         n += fill_history(doc, root, f, reg)
@@ -1178,8 +1213,7 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     if filled and filled < member_total:
         warn.append(f"부재 단면 입력 {filled}/{member_total}칸 — 조사 수량은 칸 수 {member_total}개소로 적었습니다")
     n += fill_cores(doc, root, field, rdir, docs.get("core"), warn)
-    n += fill_texts(root, field)
-    n += fill_body_results(root, field)  # 본문 조사결과 = 조사결과 글(요약 표와 같은 글, 10/22)
+    n += fill_texts(root, field, doc)
     n += fill_masonry(root, field, warn)
     n += fill_ground(doc, root, ground, rdir, warn)
     n += fix_ground_indent(doc, root)  # 2.5 글머리 시작점·내어쓰기(10/22)
