@@ -77,6 +77,10 @@ def add_member(facility_id: int, body: AddIn, user: User = Depends(get_current_u
         f.group_id, f.group_order = g.id, 0
     other.group_id = f.group_id
     other.group_order = max((m.group_order for m in members(db, f.group_id)), default=0) + 1
+    db.flush()
+    from server.sitok import visit_plan
+
+    visit_plan.merge_unit_visits(db, user.company_id)  # 방문 달력 — 묶음마다 같은 반기 일정 하나로(10/23)
     db.commit()
     return get_group(facility_id, user, db)
 
@@ -99,6 +103,10 @@ def reorder(group_id: int, facility_ids: list[int] = Body(..., embed=True), user
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "묶음의 동을 모두 넣어 주세요.")
     for i, fid in enumerate(facility_ids):
         ms[fid].group_order = i
+    db.flush()
+    from server.sitok import visit_plan
+
+    visit_plan.merge_unit_visits(db, user.company_id)  # 대표 동이 바뀌면 방문 일정도 새 대표에(10/23)
     db.commit()
     return {"ok": True}
 

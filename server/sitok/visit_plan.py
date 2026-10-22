@@ -257,6 +257,30 @@ class DayLoad:
     regions: set = field(default_factory=set)
 
 
+def merge_unit_visits(db: Session, company_id: int) -> list[dict]:
+    """묶음마다 같은 반기 일정은 하나로(10/23 사용자 "묶음별 1개로 일정") — 묶기 전에 동마다 따로 잡힌 일정이 묶은 뒤에도 남아 달력에 같은 묶음이 여러 번
+    나오고 건물 수도 여러 번 셌음. 사람이 정한 날(📌)은 다 남기고, 자동은 사람이 정한 날이 있으면 지우고 자동만 있으면 가장 이른 날 하나만.
+    남는 일정은 묶음 대표(첫 동)에 붙임. 지운 일정 [{id, facility_id, year, half, date, source}]를 돌려줌(되살리기용 기록)."""
+    removed = []
+    for u in units(db, company_id, with_ended=True):
+        if len(u.members) < 2:
+            continue
+        by: dict[tuple, list[SitokVisit]] = {}
+        for v in db.query(SitokVisit).filter(SitokVisit.facility_id.in_(u.ids)).order_by(SitokVisit.plan_date, SitokVisit.id):
+            by.setdefault((v.year, v.half), []).append(v)
+        for xs in by.values():
+            keep = [v for v in xs if v.source == "manual"] or xs[:1]
+            for v in xs:
+                if v in keep:
+                    v.facility_id = u.lead.id
+                    continue
+                removed.append({"id": v.id, "facility_id": v.facility_id, "year": v.year, "half": v.half, "kind": v.kind, "date": v.plan_date.isoformat(),
+                                "end": v.plan_end.isoformat() if v.plan_end else None, "source": v.source, "memo": v.memo, "created_by": v.created_by, "unit": u.name})
+                db.delete(v)
+    db.flush()
+    return removed
+
+
 def visit_span(v: SitokVisit) -> tuple[datetime.date, datetime.date]:
     """방문 일정 (시작, 끝) — 끝 날이 없거나 앞이면 하루(0055, 10/19 민재형 "일정을 범위로")."""
     return v.plan_date, max(v.plan_end or v.plan_date, v.plan_date)

@@ -128,6 +128,8 @@
       <div class="dk-item-kind">${esc(v.kind)} · ${v.year} ${esc(v.half)}${v.pinned ? " · 📌 사람이 정함" : " · 자동"}</div>
       <b><span class="site-no">${esc(f.mgmt_no)}</span> <a href="${link}">${esc(f.name)}</a>${f.buildings > 1 ? ` <small>(${f.buildings}동)</small>` : ""}</b>
       <small>${esc([f.region, f.address].filter(Boolean).join(" · "))}</small>
+      ${(f.members || []).length > 1 ? `<details class="sc-members"><summary>📍 시설물 ${f.members.length}곳 위치</summary><ol>${f.members.map((m) => `<li data-addr="${esc(m.address)}">
+        <b>${esc(m.name)}</b><small>${esc(m.address || "주소 없음")}</small><span class="sc-m-map"></span></li>`).join("")}</ol></details>` : ""}
       <div class="dk-item-state${v.state === "done" || v.state === "field" ? " ok" : ""}">${STATE[v.state] || ""}</div>
       ${v.memo ? `<small>메모: ${esc(v.memo)}</small>` : ""}
       <div class="sc-links"></div><div class="sc-contact" hidden></div>
@@ -139,6 +141,10 @@
     root.querySelectorAll(".sc-item").forEach((card) => {
       const v = data.visits.find((x) => String(x.id) === card.dataset.id);
       wireContact(card, v);
+      card.querySelectorAll(".sc-members li[data-addr]").forEach((li) => { // 묶음 안 시설물마다 지도(10/23)
+        const b = li.dataset.addr ? siteLinkButtons("", li.dataset.addr) : null;
+        if (b) li.querySelector(".sc-m-map").appendChild(b);
+      });
       card.querySelector(".sc-move").addEventListener("change", (e) => { if (e.target.value) moveVisit(v, e.target.value); });
       card.querySelector(".sc-end").addEventListener("change", (e) => { if (e.target.value) setEnd(v, e.target.value); });
       card.querySelector(".sc-del").addEventListener("click", async () => {

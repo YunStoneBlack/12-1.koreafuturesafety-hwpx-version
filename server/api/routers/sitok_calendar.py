@@ -39,7 +39,7 @@ def _unit_out(u: V.Unit) -> dict:
     f = u.lead
     return {"id": f.id, "mgmt_no": f.mgmt_no, "name": u.name, "sector": f.sector or "민간", "badge_field": f.badge_field or "",
             "badge_kind": f.badge_kind or "", "region": u.region, "address": f.address, "buildings": u.buildings,
-            "contract_type": f.contract_type, "members": [{"id": m.id, "name": m.name} for m in u.members]}
+            "contract_type": f.contract_type, "members": [{"id": m.id, "name": m.name, "address": m.address or ""} for m in u.members]}  # 주소 = 카드 안 시설물 위치(10/23)
 
 
 def _state(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> tuple[str, int | None]:
