@@ -4,7 +4,7 @@
 - `POST /sitok/reports/{id}/defects/import` — 지난 보고서 PDF(외관조사 사진첩이 든 것)에서 전회차 결함·사진 가져오기(server/sitok/album_read.py).
 - `POST /sitok/reports/{id}/defects/reprev` — 전회차 PDF만 다시(10/20 민재형): 층·번호가 같은 결함의 전회차 값·사진만 바꾸고 이번 회차(확인·이번 사진·원인·신규)는 그대로.
 - `POST /sitok/reports/{id}/defects/carry` — 직전 회차 결함을 전회차로 가져오기(이 시스템으로 만든 회차가 있을 때).
-- `POST /sitok/reports/{id}/defects` — 새로 찾은 결함(신규). `PATCH/DELETE /sitok/defects/{id}`, `POST /sitok/defects/{id}/photo`,
+- `POST /sitok/reports/{id}/defects` — 새로 찾은 결함(신규). `PATCH/DELETE /sitok/defects/{id}`(지우면 같은 층 뒤 번호 당김, 10/22), `POST /sitok/defects/{id}/photo`,
   `GET /sitok/defects/{id}/photo/{now|prev}`, `POST/DELETE /sitok/defects/{id}/photo/prev` — 전회차 사진 하나씩 올리기·지우기(10/22).
 - `POST /sitok/reports/{id}/vocab` — 부재·결함유형 목록에 추가("이 보고서에만" / "회사 전체 목록에", 10/12).
 - `POST /sitok/reports/{id}/defects/remap/suggest`, `POST .../defects/remap` — 지난 보고서에서 온 목록 밖 이름(수직균열·벽체 등)을 조합별로 한꺼번에(AI 제안 → 점검자 확인).
@@ -812,12 +812,39 @@ def add_report_vocab(report_id: int, body: VocabAdd, user: User = Depends(get_cu
 
 @router.delete("/defects/{defect_id}")
 def delete_defect(defect_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    d, _ = _require(db, user, defect_id)
-    if d.photo:
-        Path(d.photo).unlink(missing_ok=True)
+    """결함 지우기 — 불러온 것·신규 모두(10/22 사용자 "인테리어 공사 등으로 보수가 많이 이루어졌을 때 불러온 항목을 지우면 한 칸씩 당겨지게").
+    보고서에서 아예 빠짐(보수완료로 남기려면 [보수 완료]). 같은 층 뒤 번호를 하나씩 당김(사진번호는 원래 층마다 차례)."""
+    d, r = _require(db, user, defect_id)
+    for path in (d.photo, d.prev_photo):
+        if path and _own_file(db, r, path):  # 직전 회차에서 이어 온 전회차 사진(그 회차 파일)은 안 지움
+            Path(path).unlink(missing_ok=True)
+    floor, gone = d.floor, d.seq
     db.delete(d)
+    db.flush()
+    moved = renumber(db, r, floor, gone)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "renumbered": moved}
+
+
+def renumber(db: Session, r: SitokReport, floor: str, gone: int) -> int:
+    """지운 번호(gone) 뒤 같은 층 결함 번호를 하나씩 당김(10/22). 사진 파일 이름(층_NN_금회·전회차.jpg — 올릴 때 번호로 지음)도 같이 바꿔
+    다음에 찍은 사진이 다른 결함 사진을 덮지 않게 — 앞 번호부터 차례로(바꿀 이름 자리는 지운 결함 것이거나 방금 옮긴 것이라 비어 있음)."""
+    rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == floor, SitokDefect.seq > gone).order_by(SitokDefect.seq).all()
+    for d in rows:
+        old, new = d.seq, d.seq - 1
+        pre = f"{floor}_{old:02d}_"
+        for attr in ("photo", "prev_photo"):
+            path = getattr(d, attr)
+            if not path or not _own_file(db, r, path):
+                continue
+            src = Path(path)
+            if src.name.startswith(pre) and src.exists():
+                dst = src.with_name(f"{floor}_{new:02d}_{src.name[len(pre):]}")
+                src.replace(dst)
+                setattr(d, attr, str(dst))
+        d.seq = new
+    db.flush()
+    return len(rows)
 
 
 @router.post("/defects/{defect_id}/photo")

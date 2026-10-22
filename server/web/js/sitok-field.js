@@ -376,7 +376,8 @@
         <b>${esc(d.member)} · ${esc(d.dtype)}</b><span class="sf-part">${esc(d.part)}</span>
         ${off ? '<span class="sf-off" title="목록에 없는 이름 — ✏️를 눌러 목록에서 고르세요">목록 밖</span>' : ""}
         <button type="button" class="sf-edit" title="구분·부재·결함유형 고치기">✏️</button>
-        <button type="button" class="sf-star${d.starred ? " on" : ""}" title="비교 사진대장에 꼭 넣기">★</button></div>
+        <button type="button" class="sf-star${d.starred ? " on" : ""}" title="비교 사진대장에 꼭 넣기">★</button>
+        <button type="button" class="sf-trash" title="이 결함 지우기 — 같은 ${esc(unit())} 뒤 번호가 하나씩 당겨집니다">🗑</button></div>
       ${prev}
       <div class="sf-photos">
         <figure>${d.has_prev_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/prev?v=${d.prev_v || 0}" alt="전회차" loading="lazy" />
@@ -401,7 +402,7 @@
         <span class="sf-prog${d.progress === "진행성" ? " on" : ""}">${esc(d.progress || "")}</span></div>
         ${d.cause_note ? `<div class="sf-cause-note">근거: ${esc(d.cause_note)}</div>` : ""}`}
       ${d.has_photo && d.check !== "repaired" ? `<div class="sf-ai"><button type="button" class="secondary btn-sm sf-ai-btn">🤖 ${d.has_prev_photo ? "전회차와 비교" : "폭 추천"}</button><span class="sf-ai-msg"></span></div>` : ""}
-      ${d.check ? `<div class="sf-by">${esc(d.checked_by)} 확인${d.check === "new" ? ' · <button type="button" class="sf-del">지우기</button>' : ""}</div>` : ""}`;
+      ${d.check ? `<div class="sf-by">${esc(d.checked_by)} 확인</div>` : ""}`;
     const save = async (body) => {
       try {
         const nd = await apiPatch(`/sitok/defects/${d.id}`, body);
@@ -427,8 +428,11 @@
     el.querySelectorAll(".sf-size input").forEach((inp) => inp.addEventListener("change", () => save({ [inp.dataset.k]: inp.value })));
     el.querySelector(".sf-star").addEventListener("click", () => save({ starred: !d.starred }));
     el.querySelector(".sf-edit").addEventListener("click", () => editKinds(d));
-    el.querySelector(".sf-del")?.addEventListener("click", async () => {
-      if (!confirm("이 신규 결함을 지울까요?")) return;
+    el.querySelector(".sf-trash").addEventListener("click", async () => { // 불러온 것·신규 모두 지우기 + 같은 층 뒤 번호 당김(10/22)
+      const what = `${d.seq}번 ${d.member || ""}·${d.dtype || ""}`;
+      const msg = `${what} 결함을 지울까요?\n\n지우면 보고서에서 아예 빠지고, 같은 ${unit()} 뒤 번호(사진번호)가 하나씩 당겨집니다.`
+        + (d.prev ? `\n보수돼서 보고서에 "보수완료"로 남기려면 지우지 말고 [보수 완료]를 누르세요.` : "");
+      if (!confirm(msg)) return;
       try { await api(`/sitok/defects/${d.id}`, { method: "DELETE" }); refresh(); } catch (e) { err(e); }
     });
     const file = el.querySelector(".sf-shot input");
