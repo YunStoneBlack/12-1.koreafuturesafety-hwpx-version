@@ -48,9 +48,10 @@ async function sitokStepUndo(reportId, step, st) {
 
 const sitokStepUnit = (st) => (st.unit.total > 1 ? `<span class="sf-done-unit">묶음 ${st.unit.total}동 중 ${st.unit.done}동 완료${st.field ? ` · 제출 현황 [현장점검] ${sitokStepDay(st.field.at)}` : ""}</span>` : "");
 
-// 화면 맨 아래 칸(현장 조사·재료시험·상태평가)
-function sitokStepBar(box) {
-  const rid = Number(new URLSearchParams(location.search).get("report")) || null;
+// 화면 맨 아래 칸(현장 조사·재료시험·상태평가) — 회차 번호는 data-report(내진성능평가 건 화면, 10/22) 또는 주소 ?report=, onChange = 완료·취소 뒤
+function sitokStepBar(box, onChange) {
+  const rid = Number(box.dataset.report) || Number(new URLSearchParams(location.search).get("report")) || null;
+  const changed = () => { if (typeof onChange === "function") onChange(); };
   const step = box.dataset.step;
   if (!rid || !step) return;
   const err = (e) => showError(document.getElementById("error"), e);
@@ -68,12 +69,12 @@ function sitokStepBar(box) {
       try {
         await new Promise((r) => setTimeout(r, 400)); // 방금 고친 칸 저장(바뀜 → 바로 저장)이 먼저 끝나게
         const next = await sitokStepFinish(rid, step);
-        if (next) st = next;
+        if (next) { st = next; changed(); }
         draw();
       } catch (x) { err(x); btn.disabled = false; }
     });
     box.querySelector(".sf-done-undo")?.addEventListener("click", async () => {
-      try { const next = await sitokStepUndo(rid, step, st); if (next) { st = next; draw(); } } catch (x) { err(x); }
+      try { const next = await sitokStepUndo(rid, step, st); if (next) { st = next; draw(); changed(); } } catch (x) { err(x); }
     });
   };
   api(`/sitok/reports/${rid}/steps/${step}`).then((d) => { st = d; draw(); }).catch(err);

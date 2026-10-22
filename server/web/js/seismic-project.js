@@ -266,7 +266,8 @@
       ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${id}/file/pdf?v=${v}" target="_blank" rel="noopener">${r.has_appendix ? "합본 PDF" : "PDF 보기"}</a>` : ""}
       ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${id}/file/hwpx?v=${v}">본문 한글</a>` : ""}
       ${r.has_appendix ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${id}/file/appendix?v=${v}">부록 한글</a>` : ""}
-      <button type="button" id="sp-build"${r.status === "running" ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : "보고서 만들기"}</button></div>`;
+      <button type="button" id="sp-build"${r.status === "running" || !r.has_field ? " disabled" : ""}>${r.has_pdf ? "다시 만들기" : "보고서 만들기"}</button></div>
+      ${r.has_field ? "" : '<div class="sp-need-done">먼저 위 📱 현장조사 칸 맨 아래 <b>[✓ 조사 완료]</b>를 누르세요 — 그 뒤에 보고서를 만들 수 있습니다.</div>'}`;
     $("sp-build").addEventListener("click", async () => {
       try { await apiPost(`/sitok/reports/${id}/build`); poll(); } catch (e) { err(e); }
     });
@@ -318,6 +319,9 @@
       }
       if (!id) throw new Error("내진성능평가 건을 찾을 수 없습니다.");
       draw(await api(`/seismic/projects/${id}`));
+      const done = $("sp-field-done"); // [✓ 조사 완료] — 완료·취소하면 건 화면(외관조사 ✓·보고서 만들기)도 다시
+      done.dataset.report = id;
+      sitokStepBar(done, async () => { try { draw(await api(`/seismic/projects/${id}`)); } catch (e) { err(e); } });
     } catch (e) { err(e); }
   }
 

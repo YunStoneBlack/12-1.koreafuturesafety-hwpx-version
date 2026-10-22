@@ -58,11 +58,13 @@
   <div class="panel-body">
     <div class="sp-min" id="sp-min"></div>
     <div class="rd-btns sp-links" id="sp-links"></div>
+    <!-- [✓ 조사 완료](10/22 — 예전엔 외관조사(결함) 화면에만) — js/sitok-steps.js, 회차 번호는 seismic-project.js가 data-report로 -->
+    <div class="sf-done" id="sp-field-done" data-step="field"></div>
   </div>
 </section>
 
 <section class="panel">
-  <div class="panel-head"><h2>📘 보고서</h2><span class="panel-count">우리 1~2장 + 외주 3~7장 — 현장 조사 [✓ 조사 완료] 뒤에 만들기</span></div>
+  <div class="panel-head"><h2>📘 보고서</h2><span class="panel-count">우리 1~2장 + 외주 3~7장 — 위 📱 현장조사 칸 맨 아래 [✓ 조사 완료] 뒤에 만들기</span></div>
   <div class="panel-body" id="sp-report"></div>
 </section>
 
@@ -73,6 +75,7 @@
 
 <script src="app.js"></script>
 <script src="shell.js"></script>
+<script src="js/sitok-steps.js"></script>
 <script src="js/seismic-project.js"></script>
 </body>
 </html>

@@ -972,3 +972,5 @@ button.sp-pick-it.on { border-color: var(--blue); }
 .sf2-mk { flex: none; width: 52px; font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; }
 .sf2-row.empty input, .sf2-row.empty select { background: var(--surface); }
 @media (max-width: 760px) { .sf2-mk { flex: 1 1 auto !important; width: auto; } } /* 폰 — 번호·부재 한 줄, 칸은 아래 */
+.sp-need-done { margin-top: 10px; padding: 10px 12px; border: 1px solid #E3B04B; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 13.5px; } /* 보고서 — 조사 완료 전(10/22) */
+#sp-field-done { margin-top: 14px; }
