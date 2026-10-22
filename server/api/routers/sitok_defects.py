@@ -6,6 +6,7 @@
 - `POST /sitok/reports/{id}/defects/carry` — 직전 회차 결함을 전회차로 가져오기(이 시스템으로 만든 회차가 있을 때).
 - `POST /sitok/reports/{id}/defects` — 새로 찾은 결함(신규). `PATCH/DELETE /sitok/defects/{id}`(지우면 같은 층 뒤 번호 당김, 10/22), `POST /sitok/defects/{id}/photo`,
   `GET /sitok/defects/{id}/photo/{now|prev}`, `POST/DELETE /sitok/defects/{id}/photo/prev` — 전회차 사진 하나씩 올리기·지우기(10/22).
+- `POST /sitok/reports/{id}/defects/depths` {items: [{id, depth}]} — 깊이 한꺼번에(10/22 — 불러온 박리·박락에 깊이가 없을 때, 빈칸은 건너뜀).
 - `POST /sitok/reports/{id}/vocab` — 부재·결함유형 목록에 추가("이 보고서에만" / "회사 전체 목록에", 10/12).
 - `POST /sitok/reports/{id}/defects/remap/suggest`, `POST .../defects/remap` — 지난 보고서에서 온 목록 밖 이름(수직균열·벽체 등)을 조합별로 한꺼번에(AI 제안 → 점검자 확인).
 현장 확인(check): same 그대로(비고 기존) · grew 진행(크기 다시, 기존) · repaired 보수 완료(비고 보수, 크기 "-") · new 신규.
@@ -799,6 +800,30 @@ class VocabAdd(BaseModel):
     kind: str  # member / dtype
     name: str
     scope: str = "report"  # report = 이 보고서에만 / company = 회사 전체 목록에
+
+
+class DepthItem(BaseModel):
+    id: int
+    depth: str = ""
+
+
+class DepthsIn(BaseModel):
+    items: list[DepthItem]
+
+
+@router.post("/reports/{report_id}/defects/depths")
+def set_depths(report_id: int, body: DepthsIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """깊이 한꺼번에 넣기(10/22 민재형·사용자 "불러온 데이터에 깊이가 안 적혔으면 목록 밖 이름 바꾸기처럼 한꺼번에") — 빈칸은 건너뜀, 숫자(mm)만."""
+    r = _require_report(db, user, report_id)
+    want = {it.id: it.depth.strip().replace(",", ".") for it in body.items if it.depth.strip()}  # 쉼표는 소수점으로(0,8 → 0.8)
+    rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.id.in_(list(want))).all() if want else []
+    for d in rows:
+        v = _num(want[d.id])
+        if v is None or v < 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{d.floor} {d.seq}번 깊이는 숫자(mm)로 넣어 주세요: {want[d.id]}")
+        d.depth = want[d.id]
+    db.commit()
+    return {"saved": len(rows)}
 
 
 @router.post("/reports/{report_id}/vocab")

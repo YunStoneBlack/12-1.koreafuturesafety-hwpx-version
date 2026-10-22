@@ -21,6 +21,7 @@
   const WALL_DEPTH_RE = /박리|박락|층분리|파손/; // 옹벽은 파손도(10/21 형 "박리 박락 파손 등은 깊이")
   const isWall = () => !!(data && data.fam === "wall");
   const depthOf = (dtype) => !!dtype && (isWall() ? WALL_DEPTH_RE : DEPTH_RE).test(dtype);
+  const needDepth = (d) => depthOf(d.dtype) && !String(d.depth || "").trim() && d.check !== "repaired" && d.mark !== "보수"; // 깊이 빠진 박리·박락(10/22)
   // 크기 칸 이름(10/21 형): 옹벽 면적 결함(식생·파손·백태 등) = 가로·세로(m) 점검자 입력, 균열 등 = 폭(mm, AI 추천)·길이(m), 개수 = 개소
   const sizeLabels = (dtype) => {
     const area = !!dtype && AREA_RE.test(dtype);
@@ -154,6 +155,7 @@
   function drawSummary() {
     const s = data.summary;
     const off = data.defects.filter((d) => outOfList("member", d.member) || outOfList("dtype", d.dtype) || !parts().includes(d.part)).length;
+    const noDepth = data.defects.filter(needDepth).length;
     document.getElementById("sf-sum").innerHTML = `<b>${esc(data.report.facility)}${data.survey_only ? "" : ` · ${data.report.year}년 ${esc(data.report.half)}`}</b>
       <span>확인 ${s.total - s.unchecked} / ${s.total}</span>
       <span class="ok">비진행 ${s.same}</span><span class="grew">진행 ${s.grew}</span><span class="rep">보수 ${s.repaired}</span><span class="new">신규 ${s.new}</span>
@@ -163,9 +165,11 @@
         <input type="file" class="sf-reprev-file" accept="application/pdf,.pdf" hidden data-kr-file="skip" />
         <button type="button" class="secondary sf-reimport" title="다른 보고서·잘못된 결함표를 가져왔을 때 — 목록을 비우고 가져오기 화면으로(이번 회차 확인·사진 연결도 지워짐)">↺ 전회차 결함 다시 가져오기</button>` : ""}
       <div class="sf-reprev-msg" hidden></div>
-      ${off ? `<div class="sf-offbar">⚠ 목록에 없는 이름 ${off}건(지난 보고서 이름) <button type="button" class="secondary btn-sm sf-remap">🤖 한꺼번에 정리</button></div>` : ""}`;
+      ${off ? `<div class="sf-offbar">⚠ 목록에 없는 이름 ${off}건(지난 보고서 이름) <button type="button" class="secondary btn-sm sf-remap">🤖 한꺼번에 정리</button></div>` : ""}
+      ${noDepth ? `<div class="sf-offbar">⚠ 깊이 없는 ${isWall() ? "박리·박락·파손" : "박리·박락"} ${noDepth}건 <button type="button" class="secondary btn-sm sf-depth-all">📏 한꺼번에 넣기</button></div>` : ""}`;
     document.querySelector(".sf-cause-ai").addEventListener("click", suggestCauses);
     document.querySelector(".sf-remap")?.addEventListener("click", remapNames);
+    document.querySelector(".sf-depth-all")?.addEventListener("click", depthAll);
     document.querySelector(".sf-reimport")?.addEventListener("click", async () => { // 10/16 민재형: 결함표·보고서를 잘못 가져왔을 때 — 비우고 다시
       const all = data.defects.length;
       const checked = data.defects.filter((d) => d.check).length;
@@ -217,6 +221,46 @@
       started = false;
       try { sessionStorage.removeItem(`sf-started-${rid}`); } catch (_) { /* */ }
       refresh();
+    });
+  }
+
+  function depthAll() { // 깊이 없는 박리·박락(옹벽은 파손도) — 결함마다 깊이가 달라 한 줄씩, [저장]으로 한꺼번에(10/22 민재형). 빈칸은 그대로
+    const rows = data.defects.filter(needDepth);
+    if (!rows.length) return;
+    const ov = document.createElement("div");
+    ov.className = "mail-overlay";
+    const pic = (d) => d.has_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/now?t=${d.ts}" alt="" loading="lazy" />`
+      : d.has_prev_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/prev?v=${d.prev_v || 0}" alt="" loading="lazy" />` : '<span class="sf-depth-nop">사진 없음</span>';
+    ov.innerHTML = `<div class="mail-box sf-new sf-depth-box" role="dialog" aria-modal="true"><div class="mail-head"><b>깊이 한꺼번에 넣기 — ${rows.length}건</b>
+      <span class="mail-sub">파인 깊이(mm)를 넣고 [저장] — 빈칸으로 둔 줄은 그대로입니다. 카드에서 하나씩 고칠 수도 있습니다(깊이는 정밀점검 상태평가에 씀).</span></div>
+      <div class="sf-depth-list">${rows.map((d) => `<div class="sf-depth-row">${pic(d)}
+        <div class="sf-depth-what"><b>${esc(d.floor)} ${d.seq}번</b> ${esc(d.member || "")} · ${esc(d.dtype || "")}
+          <small>${d.prev ? `전회차 ${esc(sizeText(d.prev)) || "-"}` : esc(sizeText(d))}</small></div>
+        <label><input inputmode="decimal" data-id="${d.id}" placeholder="깊이" /> mm</label></div>`).join("")}</div>
+      <div class="mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="mail-cancel">취소</button><button type="button" class="mail-primary d-ok">저장</button></div></div>`;
+    document.body.appendChild(ov);
+    const inputs = [...ov.querySelectorAll(".sf-depth-row input")];
+    inputs.forEach((inp, i) => inp.addEventListener("keydown", (e) => { // Enter = 다음 줄
+      if (e.key !== "Enter" || e.isComposing) return;
+      e.preventDefault();
+      (inputs[i + 1] || ov.querySelector(".d-ok")).focus();
+    }));
+    inputs[0]?.focus();
+    ov.querySelector(".mail-cancel").addEventListener("click", () => ov.remove());
+    ov.querySelector(".d-ok").addEventListener("click", async () => {
+      const items = inputs.filter((x) => x.value.trim()).map((x) => ({ id: Number(x.dataset.id), depth: x.value.trim().replace(",", ".") }));
+      const m = ov.querySelector(".mail-msg");
+      const bad = inputs.find((x) => x.value.trim() && !/^\d+(\.\d+)?$/.test(x.value.trim().replace(",", ".")));
+      if (bad) { m.hidden = false; m.className = "mail-msg bad"; m.textContent = "깊이는 숫자(mm)로 넣어 주세요."; bad.focus(); return; }
+      if (!items.length) { ov.remove(); return; }
+      ov.querySelector(".d-ok").disabled = true;
+      try {
+        const res = await apiPost(`/sitok/reports/${rid}/defects/depths`, { items });
+        ov.remove();
+        await refresh();
+        alert(`${res.saved}건 깊이를 넣었습니다.`);
+      } catch (x) { ov.querySelector(".d-ok").disabled = false; m.hidden = false; m.className = "mail-msg bad"; m.textContent = x.message; }
     });
   }
 
@@ -372,6 +416,7 @@
     el.className = `sf-card c-${d.check || "none"}`;
     const prev = d.prev ? `<div class="sf-prev">전회차: ${esc(d.prev["결함유형"] || "")} ${esc(sizeText(d.prev))} <em>${esc(d.prev["비고"] || "")}</em></div>` : "";
     const off = outOfList("member", d.member) || outOfList("dtype", d.dtype);
+    const sizeOn = d.check === "grew" || d.check === "new" || (isWall() && d.check !== "repaired" && !isRecord(d.dtype)); // 크기 칸(진행·신규) — 박리·박락 깊이는 그 밖에도 따로(10/22)
     el.innerHTML = `<div class="sf-card-head"><span class="sf-no">${d.seq}</span>
         <b>${esc(d.member)} · ${esc(d.dtype)}</b><span class="sf-part">${esc(d.part)}</span>
         ${off ? '<span class="sf-off" title="목록에 없는 이름 — ✏️를 눌러 목록에서 고르세요">목록 밖</span>' : ""}
@@ -391,7 +436,8 @@
         <button type="button" data-c="grew" class="${d.check === "grew" ? "on" : ""}">진행</button>
         <button type="button" data-c="repaired" class="${d.check === "repaired" ? "on" : ""}">보수 완료</button>
       </div>
-      <div class="sf-size"${d.check === "grew" || d.check === "new" || (isWall() && d.check !== "repaired" && !isRecord(d.dtype)) ? "" : " hidden"}>
+      ${!sizeOn && depthOf(d.dtype) && d.check !== "repaired" ? `<div class="sf-size sf-depth-only"><label>깊이(mm)<input inputmode="decimal" data-k="depth" value="${esc(d.depth)}" placeholder="파인 깊이" /></label></div>` : ""}
+      <div class="sf-size"${sizeOn ? "" : " hidden"}>
         <label>${sizeLabels(d.dtype)[0]}<input inputmode="decimal" data-k="count" value="${esc(d.count)}" /></label>
         <label>${sizeLabels(d.dtype)[1]}<input inputmode="decimal" data-k="width" value="${esc(d.width)}" /></label>
         <label>${sizeLabels(d.dtype)[2]}<input inputmode="decimal" data-k="length" value="${esc(d.length)}" /></label>
