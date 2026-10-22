@@ -18,6 +18,7 @@ from pathlib import Path
 from lxml import etree
 
 from server.sitok import report_build as rb
+from server.sitok.report_build import _n
 from server.sitok.wall_build import HC, HP, Hwpx
 
 HH = "http://www.hancom.co.kr/hwpml/2011/head"
@@ -27,10 +28,6 @@ RESULT_KEYS = ("가.일반현황", "라.내진성능")  # 결과표 두 표 — 
 
 def _text(el) -> str:
     return "".join(x.text or "" for x in el.iter(f"{{{HP}}}t"))
-
-
-def _n(s: str) -> str:
-    return re.sub(r"\s", "", s or "")
 
 
 def tops_of(root) -> list:

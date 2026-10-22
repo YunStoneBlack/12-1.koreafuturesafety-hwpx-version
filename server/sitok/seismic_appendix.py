@@ -8,12 +8,11 @@
 from __future__ import annotations
 
 import copy
-import io
-import re
 from pathlib import Path
 
 from server.sitok import rebar_survey as RV
 from server.sitok import report_build as rb
+from server.sitok.report_build import _n
 from server.sitok import seismic_field as SF
 from server.sitok import seismic_fill as SFL
 from server.sitok.wall_build import HP
@@ -23,10 +22,6 @@ APPX = [(1, "과업지시서"), (2, "과업수행계획서"), (3, "지반조사�
 DOC_OF = {1: "task", 2: "plan", 3: "ground", 7: "midas", 8: "estimate"}  # 서류 칸 키(4 = 사진첩 만들기, 5 = measure, 9 = 구조도면 여러 장)
 HEAD_PHOTOS = [("부재단면조사", ("member_1", "member_2")), ("철근배근상태조사", ("rebar_1", "rebar_2")),
                ("조적벽상태조사", ("infill_1", "parapet_1")), ("콘크리트강도조사", ("core_1", "core_2", "core_3", "core_4"))]
-
-
-def _n(s: str) -> str:
-    return re.sub(r"\s", "", s or "")
 
 
 def _blank(rdir: Path) -> Path:

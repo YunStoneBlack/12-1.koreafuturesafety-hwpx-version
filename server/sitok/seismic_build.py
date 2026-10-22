@@ -20,6 +20,7 @@ from pathlib import Path
 
 from server.sitok import rebar_survey as RV
 from server.sitok import report_build as rb
+from server.sitok.seismic_fill import _set
 from server.sitok.wall_build import HP, Hwpx, _tables
 
 SAMPLE_TITLES = ("삼숭초 교사동 내진성능평가 용역", "삼숭초 교사동 내진성능평가용역", "삼숭초교사동 내진성능평가용역")
@@ -97,12 +98,6 @@ def replace_globals(doc: Hwpx, d: dict) -> int:
     for old, new in zip(SAMPLE_MONTHS, (f"{m.year}년 {m.month:02d}월", f"{m.year}. {m.month:02d}.", f"{m.year}․{m.month:02d}", f"{m.year}∙{m.month:02d}")):
         n += doc.replace_all(old, new)
     return n
-
-
-def _set(cells: dict, rc: tuple, text) -> None:
-    tc = cells.get(rc)
-    if tc is not None:
-        rb._set_lines(tc, str(text if text is not None else "").split("\n"))
 
 
 def fill_persons(root, d: dict) -> int:

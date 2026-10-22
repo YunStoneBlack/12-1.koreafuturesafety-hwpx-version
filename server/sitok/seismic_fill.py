@@ -16,6 +16,7 @@ import re
 from pathlib import Path
 
 from server.sitok import report_build as rb
+from server.sitok.report_build import _n
 from server.sitok import seismic_docs as SD
 from server.sitok import seismic_field as SF
 from server.sitok.wall_build import HC, HP, _size_pic, _tables
@@ -34,10 +35,6 @@ GRADE_MARK = {"특등급": "특", "1등급": "I", "2등급": "II"}
 
 def _t(el) -> str:
     return "".join(x.text or "" for x in el.iter(f"{{{HP}}}t"))
-
-
-def _n(s: str) -> str:
-    return re.sub(r"\s", "", s or "")
 
 
 def _outer(root) -> list:
@@ -465,8 +462,7 @@ def fill_cores(doc, root, field: dict, rdir: Path, core_doc: dict | None, warn: 
     if not st["n"]:
         warn.append("코어 압축강도가 없어 2.2.4 강도결정 표는 견본 값 그대로입니다(현장조사 입력 — 성적서에서 읽기)")
     else:
-        m, s = st["mean"], st["std"]
-        m_v = [c["mpa"] for c in cores if c.get("mpa") is not None]
+        m_v = [c["mpa"] for c in cores if c.get("mpa") is not None]  # core_stats는 반올림 값 — 아래 계산은 반올림 전으로
         mm = sum(m_v) / len(m_v)
         ss = (sum((x - mm) ** 2 for x in m_v) / (len(m_v) - 1)) ** 0.5 if len(m_v) > 1 else 0.0
         decided = round(mm - 1.34 * ss if (ss / mm if mm else 0) <= 0.2 else 0.75 * (mm - ss), 1)  # 2.2.4 본문 규칙: s/m ≤ 0.2면 m−1.34s, 넘으면 0.75(m−s)

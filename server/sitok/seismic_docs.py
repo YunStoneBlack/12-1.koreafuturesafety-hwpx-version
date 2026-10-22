@@ -14,12 +14,10 @@ import datetime
 import re
 from pathlib import Path
 
+from server.sitok.report_build import _n
+
 GROUND_SLOTS = (("drill", "시추전경", ("시추전경",)), ("spt", "표준관입시험 전경", ("표준관입시험",)), ("setup", "시험기구 설치", ("시험기구설치",)),
                 ("pwave", "압축파 타격", ("압축파타격",)), ("before", "폐공 전 전경", ("폐공전",)), ("after", "폐공 후 전경", ("폐공후",)))
-
-
-def _n(s: str) -> str:
-    return re.sub(r"\s", "", s or "")
 
 
 def _date(s: str) -> datetime.date | None:
