@@ -946,3 +946,11 @@ button.sp-pick-it.on { border-color: var(--blue); }
   .sf2-row input, .sf2-row select { flex: 1 1 42% !important; }
   .sf2-photos { grid-template-columns: 1fr 1fr; }
 }
+
+/* 서류에서 자동으로 못 채운 빈 칸 — 노란 칸 + 표시(10/22 사용자 "자동으로 안 채워지는 것 표시 다르게, 눈에 띄게") */
+.sp-hand { display: none; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: var(--warn-soft); color: var(--warn); vertical-align: 1px; white-space: nowrap; }
+.sp-need .sp-hand, .sp-manual .sp-hand { display: inline-block; }
+.sp-manual:not(.sp-need) .sp-hand { background: var(--paper); color: var(--faint); font-weight: 600; }
+.sp-chk.sp-need input, .sp-chk.sp-need select { border-color: #E3B04B; background: var(--warn-soft); box-shadow: 0 0 0 1px #E3B04B; }
+.sp-need .ds-chips { padding: 8px; border: 1px solid #E3B04B; border-radius: 10px; background: var(--warn-soft); }
+.sp-need-n { flex: none; padding: 3px 10px; border-radius: 999px; border: 1px solid #E3B04B; background: var(--warn-soft); color: var(--warn); font-size: 12.5px; font-weight: 700; white-space: nowrap; }

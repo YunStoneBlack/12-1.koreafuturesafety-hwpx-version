@@ -19,7 +19,8 @@ from server.sitok.wall_build import HP
 
 APPX = [(1, "과업지시서"), (2, "과업수행계획서"), (3, "지반조사보고서"), (4, "외관조사및사진첩"), (5, "측정및시험성과표"), (6, "철근데이터"),
         (7, "마이다스데이터"), (8, "보강공사내역서"), (9, "구조도면")]
-DOC_OF = {1: "task", 2: "plan", 3: "ground", 7: "midas", 8: "estimate"}  # 서류 칸 키(4 = 사진첩 만들기, 5 = measure, 9 = 구조도면 여러 장)
+DOC_OF = {1: "task", 2: "plan", 3: "ground", 8: "estimate"}  # 서류 칸 키(4 = 사진첩 만들기, 5 = measure, 7 = MIDAS_SUB, 9 = 구조도면 여러 장)
+MIDAS_SUB = (("midas", "안전성검토", "1. 안전성 검토"), ("midas_linear", "선형해석", "2. 선형해석"))  # 7 안 작은 간지(원본 틀)마다 그 뒤에(10/22 형 "두 개 넣고 간지는 틀로")
 HEAD_PHOTOS = [("부재단면조사", ("member_1", "member_2")), ("철근배근상태조사", ("rebar_1", "rebar_2")),
                ("조적벽상태조사", ("infill_1", "parapet_1")), ("콘크리트강도조사", ("core_1", "core_2", "core_3", "core_4"))]
 
@@ -123,12 +124,7 @@ def fill_appendix(doc, d: dict, r, f, rdir: Path, warn: list) -> int:
     n += SFL.fill_cores(doc, root, field, rdir, None, quiet)
     rebar_rows = RV.normalize((r.survey or {}).get("rebar"))["rows"]
     n += fill_rebar_blocks(doc, root, rebar_rows, rdir, warn)
-    # 7 마이다스 안 작은 간지(안전성 검토·선형 해석)는 뺌 — 외주 PDF를 통째로 끼움
-    for p in [p for p in root if p.tag == f"{{{HP}}}p"]:
-        for t in SFL._outer(p):
-            if (t.get("rowCnt"), t.get("colCnt")) == ("1", "1") and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) in ("안전성검토", "선형해석"):
-                root.remove(p)
-                break
+    # 7 마이다스 안 작은 간지(안전성 검토·선형 해석)는 원본 틀 그대로 남김 — assemble이 간지마다 그 뒤에 서류 칸 PDF(10/22)
     return n
 
 
@@ -199,7 +195,7 @@ def assemble(db, main_pdf: Path, appx_hwpx: Path, dest: Path, r, f, rdir: Path, 
         adds[9] = struct
     names = dict(APPX)
     for n, title in APPX:
-        if n not in adds and n != 6:
+        if n not in adds and n not in (6, 7):
             label = {4: "외관조사 사진첩(현장 조사 결함)", 5: "장비·측정 위치도"}.get(n, title)
             warn.append(f"부록 {n} {label} 없음 — {'간지만' if n != 5 else '표만'}(서류 칸·현장 조사)")
     doc = pymupdf.open(appx_pdf)
@@ -210,6 +206,18 @@ def assemble(db, main_pdf: Path, appx_hwpx: Path, dest: Path, r, f, rdir: Path, 
             if n not in div and f"{n}.{title}" in flat and len(flat) < 160:
                 div[n] = i
     plan = []  # (끼울 위치, 파일들)
+    end7 = div.get(8, doc.page_count)
+    for key, title, label in MIDAS_SUB:  # 7 작은 간지 뒤
+        p = _doc_pdf(r, rdir, key, cache / f"부록7_{key}.pdf")
+        if p is None:
+            warn.append(f"부록 7 마이다스 데이터 {label} 없음 — 간지만(서류 칸)")
+            continue
+        at = next((i + 1 for i in range(div.get(7, 0) + 1, end7) if title in (flat := _n(doc[i].get_text())) and len(flat) < 160), None)
+        if at is None:
+            at = div[7] + 1 if 7 in div else None
+            warn.append(f"부록 PDF에서 7 '{label}' 작은 간지를 못 찾아 7 간지 뒤에 넣었습니다" if at else f"부록 PDF에서 7. 마이다스데이터 간지를 못 찾아 {label}을 못 넣었습니다")
+        if at:
+            plan.append((at, [p]))
     for n, paths in adds.items():
         if n not in div:
             warn.append(f"부록 PDF에서 {n}. {names[n]} 간지를 못 찾아 그 서류를 못 넣었습니다")

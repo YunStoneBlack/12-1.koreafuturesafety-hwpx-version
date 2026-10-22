@@ -16,14 +16,35 @@
   const err = (e) => showError(errorEl, e);
 
   // ---------- 칸 그리기 도우미 ----------
+  // 빈 칸 = 서류에서 자동으로 못 채운 칸 → 노란 칸 + 표시(10/22 사용자 "자동으로 안 채워지는 것 표시 다르게, 눈에 띄게").
+  // manual = 서류에 없어 늘 직접(건물 길이 X·Y) — 채워도 작은 표시는 남김
   function field(key, label, val, opt = {}) {
     const type = opt.type || "text";
     const v = val ?? "";
+    const empty = String(v).trim() === "";
+    const tag = `<span class="sp-hand">${opt.manual ? "✍ 직접 입력" : "못 읽음 — 직접 입력"}</span>`;
     const input = opt.options
       ? `<select data-k="${key}">${opt.options.map((o) => `<option${o === String(v) ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`
       : `<input data-k="${key}" type="${type}"${opt.step ? ` step="${opt.step}"` : ""} value="${esc(type === "date" ? String(v).slice(0, 10) : v)}"${opt.ph ? ` placeholder="${esc(opt.ph)}"` : ""} />`;
-    return `<div class="sk-f${opt.wide ? " ds-wide" : ""}"><label>${esc(label)}${opt.help ? ` <span class="sk-help">${esc(opt.help)}</span>` : ""}</label>${input}</div>`;
+    return `<div class="sk-f sp-chk${opt.manual ? " sp-manual" : ""}${empty ? " sp-need" : ""}${opt.wide ? " ds-wide" : ""}"><label>${esc(label)}${tag}${opt.help ? ` <span class="sk-help">${esc(opt.help)}</span>` : ""}</label>${input}</div>`;
   }
+  // 패널 제목 줄 "✍ 직접 넣을 칸 N개" — 접혀 있어도 보이게
+  function needCount() {
+    for (const [panel, pill] of [["sp-c-panel", "sp-c-need"], ["sp-b-panel", "sp-b-need"], ["sp-ground-panel", "sp-g-need"]]) {
+      const n = $(panel) ? $(panel).querySelectorAll(".sp-need").length : 0;
+      if (!$(pill)) continue;
+      $(pill).hidden = !n;
+      $(pill).textContent = `✍ 직접 넣을 칸 ${n}개`;
+    }
+  }
+  const onFill = (e) => {
+    const w = e.target.closest && e.target.closest(".sp-chk");
+    if (!w || !e.target.matches("input, select")) return;
+    w.classList.toggle("sp-need", !e.target.value.trim());
+    needCount();
+  };
+  document.addEventListener("input", onFill);
+  document.addEventListener("change", onFill);
   const read = (box) => Object.fromEntries([...box.querySelectorAll("[data-k]")].map((el) => [el.dataset.k, el.value.trim()]));
 
   // ---------- 서류 ----------
@@ -157,10 +178,14 @@
     const rep = P.report || {};
     const opts = (sel) => `<option value="">— 고르기 —</option>` + P.persons.map((p) => `<option value="${p.id}"${p.id === sel ? " selected" : ""}>${esc(p.name)}${p.grade ? ` (${esc(p.grade)})` : ""}</option>`).join("");
     const parts = rep.participant_ids || [];
-    $("sp-people").innerHTML = `<div class="sk-f"><label>사업책임기술자</label><select id="sp-chief">${opts(rep.chief_id)}</select></div>
-      <div class="sk-f ds-wide"><label>분야별 참여기술자 <span class="sk-help">눌러서 고르기</span></label><div class="ds-chips" id="sp-parts">
+    $("sp-people").innerHTML = `<div class="sk-f sp-chk sp-manual${rep.chief_id ? "" : " sp-need"}"><label>사업책임기술자<span class="sp-hand">✍ 직접 고르기</span></label><select id="sp-chief">${opts(rep.chief_id)}</select></div>
+      <div class="sk-f ds-wide sp-manual${parts.length ? "" : " sp-need"}" id="sp-parts-f"><label>분야별 참여기술자<span class="sp-hand">✍ 직접 고르기</span> <span class="sk-help">눌러서 고르기</span></label><div class="ds-chips" id="sp-parts">
       ${P.persons.map((p) => `<button type="button" class="ds-chip${parts.includes(p.id) ? " on" : ""}" data-p="${p.id}">${esc(p.name)}</button>`).join("")}</div></div>`;
-    $("sp-parts").querySelectorAll(".ds-chip").forEach((b) => b.addEventListener("click", () => b.classList.toggle("on")));
+    $("sp-parts").querySelectorAll(".ds-chip").forEach((b) => b.addEventListener("click", () => {
+      b.classList.toggle("on");
+      $("sp-parts-f").classList.toggle("sp-need", !$("sp-parts").querySelector(".on"));
+      needCount();
+    }));
   }
 
   function rowsEditor(box, rows, cols, blank) {
@@ -180,12 +205,12 @@
     const b = P.building || {};
     $("sp-b-sum").textContent = b.address ? [b.structure, `지하${b.below || 0}·지상${b.above || 0}층`, b.total_area ? `연면적 ${won(b.total_area)}㎡` : "", b.approval_date ? `사용승인 ${dot(b.approval_date)}` : "", b.grade].filter(Boolean).join(" · ")
       : "건축물대장에서 — 1.1 일반사항·1.2 건물규모·1.3 내진등급·1.4 구조변경 이력";
-    if (!openedOnce.b) { $("sp-b-panel").open = !(b.address && b.structure && b.above && b.total_area && b.approval_date); openedOnce.b = true; }
+    if (!openedOnce.b) { $("sp-b-panel").open = !(b.address && b.structure && b.above && b.total_area && b.approval_date && b.length_x && b.length_y); openedOnce.b = true; }
     $("sp-building").innerHTML = field("name", "건물 이름", b.name, { help: "보고서 이름·폴더 이름" }) + field("use", "주용도", b.use)
       + field("address", "주소(도로명)", b.address, { wide: true }) + field("lot_address", "대지위치(지번)", b.lot_address) + field("structure", "주구조", b.structure)
       + field("below", "지하 층수", b.below, { type: "number" }) + field("above", "지상 층수", b.above, { type: "number" })
       + field("height", "높이 (m)", b.height, { type: "number", step: "0.01" }) + field("roof", "지붕", b.roof)
-      + field("length_x", "건물 길이 장변 X (m)", b.length_x, { type: "number", step: "0.1", help: "1.2 건물규모" }) + field("length_y", "건물 길이 단변 Y (m)", b.length_y, { type: "number", step: "0.1" })
+      + field("length_x", "건물 길이 장변 X (m)", b.length_x, { type: "number", step: "0.1", help: "1.2 건물규모", manual: true }) + field("length_y", "건물 길이 단변 Y (m)", b.length_y, { type: "number", step: "0.1", manual: true })
       + field("total_area", "연면적 (㎡)", b.total_area, { type: "number", step: "0.01" }) + field("building_area", "건축면적 (㎡)", b.building_area, { type: "number", step: "0.01" })
       + field("site_area", "대지면적 (㎡)", b.site_area, { type: "number", step: "0.01" }) + field("approval_date", "사용승인일", b.approval_date, { type: "date", help: "준공·경과년수" })
       + field("permit_date", "허가일", b.permit_date, { type: "date" }) + field("build_start", "착공일", b.build_start, { type: "date" })
@@ -272,6 +297,7 @@
     drawBuilding();
     drawField();
     drawReport();
+    needCount();
     if ((p.report || {}).status === "running") poll();
   }
 
