@@ -84,6 +84,10 @@
 .cd-box button.cd-link-btn { margin: 0; padding: 2px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--blue);
   font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .mail-box.cd-pick { width: min(520px, 100%); }
+.cd-pick-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; } /* [＋ 새 현장 등록](10/23) */
+.cd-pick button.cd-new-site { flex: none; margin: 0; padding: 7px 12px; border: 1px dashed #9cc1f0; border-radius: 8px; background: var(--blue-soft, #EAF2FD);
+  color: var(--blue, #2563eb); font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.cd-pick button.cd-new-site:hover { border-style: solid; }
 .cd-pick-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
 .cd-pick button.cd-pick-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; margin: 0; padding: 9px 12px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }

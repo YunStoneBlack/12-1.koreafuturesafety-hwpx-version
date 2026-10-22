@@ -595,7 +595,8 @@ async function openLinkSite(contractId, onDone) {
     box.innerHTML = `<div class="mail-msg bad">${mailEsc(err.message)}</div>`;
     return;
   }
-  box.innerHTML = `<div class="mail-head"><b>🔗 현장 연결</b><span class="mail-sub">${mailEsc(cur.title || "용역 계약")} — 누르면 잇기·끊기(여러 곳 가능)</span></div>
+  box.innerHTML = `<div class="cd-pick-top"><div class="mail-head"><b>🔗 현장 연결</b><span class="mail-sub">${mailEsc(cur.title || "용역 계약")} — 누르면 잇기·끊기(여러 곳 가능)</span></div>
+      <button type="button" class="cd-new-site" title="맞는 현장이 없으면 — 산안법 새 현장 등록 화면(이 계약 값을 미리 채움), 등록하면 이 계약에 바로 연결">＋ 새 현장 등록</button></div>
     <input type="search" class="mail-input cd-pick-q" placeholder="현장명·주소로 찾기" autocomplete="off" />
     <div class="cd-pick-list"></div>
     <div class="mail-foot"><button type="button" class="cd-unlink" hidden>연결 모두 끊기</button><button type="button" class="cd-pick-close">닫기</button></div>`;
@@ -608,7 +609,7 @@ async function openLinkSite(contractId, onDone) {
       .sort((a, b) => (b.linked - a.linked)).slice(0, 60);
     listEl.innerHTML = shown.length ? shown.map((s) => `<button type="button" class="cd-pick-item${s.linked ? " on" : ""}" data-id="${s.id}" data-on="${s.linked ? 1 : 0}">
         <b>${s.linked ? "✓ " : ""}${mailEsc(s.label)}</b>${!q && !s.linked && s.score >= 0.5 ? '<span class="cd-pick-tag">이름 비슷함</span>' : ""}<span class="mail-note">${mailEsc(s.address)}</span></button>`).join("")
-      : '<div class="mail-note">맞는 현장이 없습니다 — 현장을 먼저 등록하세요(이미 다른 계약이 연결된 현장은 안 보임).</div>';
+      : '<div class="mail-note">맞는 현장이 없습니다 — 위 [＋ 새 현장 등록]으로 만들면 이 계약에 바로 연결됩니다(이미 다른 계약이 연결된 현장은 안 보임).</div>';
     listEl.querySelectorAll(".cd-pick-item").forEach((b) => b.addEventListener("click", () => link(Number(b.dataset.id), b.dataset.on !== "1")));
     box.querySelector(".cd-unlink").hidden = !list.some((s) => s.linked);
   };
@@ -624,6 +625,7 @@ async function openLinkSite(contractId, onDone) {
   };
   qEl.addEventListener("input", draw);
   box.querySelector(".cd-pick-close").addEventListener("click", close);
+  box.querySelector(".cd-new-site").addEventListener("click", () => { window.location.href = `dashboard.html?new=1&contract=${contractId}`; }); // 산안법 새 현장 등록 화면으로(10/23)
   box.querySelector(".cd-unlink").addEventListener("click", () => { if (confirm("이 계약의 현장 연결을 모두 끊을까요? (서류는 그대로)")) link(null, false); });
   draw();
 }

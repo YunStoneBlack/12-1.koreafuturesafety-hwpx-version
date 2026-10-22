@@ -372,6 +372,21 @@ function setNewSiteOpen(open) {
 document.getElementById("new-site-toggle").addEventListener("click", () => setNewSiteOpen(true));
 document.getElementById("new-site-close").addEventListener("click", () => setNewSiteOpen(false));
 document.getElementById("new-site-cancel").addEventListener("click", () => setNewSiteOpen(false));
+// 서류 자동화 [🔗 현장 연결] → [＋ 새 현장 등록](10/23 사용자): ?new=1&contract=ID — 폼을 열고 계약 값(현장명 = 관리번호)_계약명, 기술지도 계약기간)을 채움,
+// 등록하면 그 계약에 바로 연결(아래 submit)
+const fromContract = Number(new URLSearchParams(location.search).get("contract")) || null;
+if (new URLSearchParams(location.search).get("new") === "1") {
+  setNewSiteOpen(true);
+  if (fromContract) {
+    api(`/contracts/${fromContract}`).then((c) => {
+      const svc = /기술지도/.test(c.title || ""); // 계약명이 용역명(…재해예방기술지도)이면 현장명엔 관리번호만 — 공사명은 직접
+      fillSiteForm({ name: svc ? (c.short_no || c.management_no ? `${c.short_no || c.management_no})_` : "") : (c.label || c.title || ""),
+        contract_start: c.start_date || null, contract_end: c.end_date || null });
+      document.getElementById("extract-status").textContent = `서류 자동화 계약 「${c.label || c.title}」에서 왔습니다 — 등록하면 이 계약에 바로 연결됩니다.`
+        + (svc ? " 현장명은 관리번호 뒤에 공사명을 넣어 주세요." : "");
+    }).catch(() => {});
+  }
+}
 
 document.getElementById("extract-btn").addEventListener("click", async () => {
   errorEl.style.display = "none";
@@ -425,6 +440,13 @@ document.getElementById("site-form").addEventListener("submit", async (e) => {
         await apiPatch(`/sites/${created.id}/contacts`, contacts);
       } catch (err) {
         alert(`현장은 등록했지만 발주처·감리단·지도 방문 주소·첫 지도 회차·계약기간은 저장하지 못했습니다(${err.message}). 현장 화면의 [수정]에서 다시 넣어 주세요.`);
+      }
+    }
+    if (fromContract) { // 서류 자동화 계약에서 왔으면 그 계약에 바로 연결(10/23)
+      try {
+        await apiPost(`/contracts/${fromContract}/link`, { site_id: created.id, on: true });
+      } catch (err) {
+        alert(`현장은 등록했지만 계약에 연결하지 못했습니다(${err.message}). 서류 자동화 [🔗 현장 연결]에서 이어 주세요.`);
       }
     }
     // 등록하면 바로 그 현장 화면으로(다음 할 일이 거기서 보고서 작성이라). 새 현장은 착공전으로 등록되므로(2026-10-01 사용자)
