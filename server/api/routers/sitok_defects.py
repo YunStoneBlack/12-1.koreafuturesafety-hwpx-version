@@ -5,7 +5,7 @@
 - `POST /sitok/reports/{id}/defects/reprev` — 전회차 PDF만 다시(10/20 민재형): 층·번호가 같은 결함의 전회차 값·사진만 바꾸고 이번 회차(확인·이번 사진·원인·신규)는 그대로.
 - `POST /sitok/reports/{id}/defects/carry` — 직전 회차 결함을 전회차로 가져오기(이 시스템으로 만든 회차가 있을 때).
 - `POST /sitok/reports/{id}/defects` — 새로 찾은 결함(신규). `PATCH/DELETE /sitok/defects/{id}`, `POST /sitok/defects/{id}/photo`,
-  `GET /sitok/defects/{id}/photo/{now|prev}`.
+  `GET /sitok/defects/{id}/photo/{now|prev}`, `POST/DELETE /sitok/defects/{id}/photo/prev` — 전회차 사진 하나씩 올리기·지우기(10/22).
 - `POST /sitok/reports/{id}/vocab` — 부재·결함유형 목록에 추가("이 보고서에만" / "회사 전체 목록에", 10/12).
 - `POST /sitok/reports/{id}/defects/remap/suggest`, `POST .../defects/remap` — 지난 보고서에서 온 목록 밖 이름(수직균열·벽체 등)을 조합별로 한꺼번에(AI 제안 → 점검자 확인).
 현장 확인(check): same 그대로(비고 기존) · grew 진행(크기 다시, 기존) · repaired 보수 완료(비고 보수, 크기 "-") · new 신규.
@@ -829,6 +829,38 @@ def upload_photo(defect_id: int, file: UploadFile = File(...), user: User = Depe
     p.write_bytes(files.to_jpeg(file.file.read(), file.filename or ""))
     d.photo = str(p)
     d.checked_at = datetime.datetime.now()
+    db.commit()
+    return _out(d)
+
+
+def _own_file(db: Session, r: SitokReport, path: str) -> bool:
+    """이 회차 사진 폴더 안 파일인가 — 직전 회차에서 이어 온 전회차 사진(carry)은 그 회차 파일이라 지우지 않고 연결만 끊음."""
+    try:
+        return Path(path).resolve().parent == _photo_dir(db, r).resolve()
+    except OSError:
+        return False
+
+
+@router.post("/defects/{defect_id}/photo/prev")
+def upload_prev_photo(defect_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """전회차 사진 직접 올리기(10/22 사용자 — 지난 보고서에서 잘못 가져왔거나 못 가져왔을 때). 판정·이번 사진은 그대로."""
+    d, r = _require(db, user, defect_id)
+    folder = _photo_dir(db, r)
+    folder.mkdir(parents=True, exist_ok=True)
+    p = folder / f"{d.floor}_{d.seq:02d}_전회차.jpg"
+    p.write_bytes(files.to_jpeg(file.file.read(), file.filename or ""))
+    d.prev_photo = str(p)
+    db.commit()
+    return _out(d)
+
+
+@router.delete("/defects/{defect_id}/photo/prev")
+def delete_prev_photo(defect_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """전회차 사진 지우기(10/22 사용자 — 사진대장 "보수" 칸에 엉뚱한 자리가 들어온 것 같은 경우 방어)."""
+    d, r = _require(db, user, defect_id)
+    if d.prev_photo and _own_file(db, r, d.prev_photo):
+        Path(d.prev_photo).unlink(missing_ok=True)
+    d.prev_photo = ""
     db.commit()
     return _out(d)
 

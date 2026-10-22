@@ -379,7 +379,9 @@
         <button type="button" class="sf-star${d.starred ? " on" : ""}" title="비교 사진대장에 꼭 넣기">★</button></div>
       ${prev}
       <div class="sf-photos">
-        <figure>${d.has_prev_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/prev?v=${d.prev_v || 0}" alt="전회차" loading="lazy" />` : '<div class="sf-nophoto">전회차 사진 없음</div>'}<figcaption>전회차</figcaption></figure>
+        <figure>${d.has_prev_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/prev?v=${d.prev_v || 0}" alt="전회차" loading="lazy" />
+          <button type="button" class="sf-prev-del" title="전회차 사진 지우기">✕</button>`
+          : '<label class="sf-prev-up" title="전회차 사진 올리기"><span class="sf-nophoto">전회차 사진 없음<b>＋ 사진 올리기</b></span><input type="file" accept="image/*" hidden data-kr-file="1" /></label>'}<figcaption>전회차</figcaption></figure>
         <figure><label class="sf-shot">${d.has_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/now?t=${d.ts}" alt="이번" />` : '<span>📷 찍기</span>'}
           <input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label><figcaption>이번</figcaption></figure>
       </div>
@@ -442,6 +444,25 @@
       } catch (e) { err(e); el.classList.remove("busy"); }
     });
     enableFileDrop(el.querySelector(".sf-shot"), file);
+    // 전회차 사진 하나씩 지우기·올리기(10/22 — 지난 보고서에서 잘못 가져온 사진 방어)
+    el.querySelector(".sf-prev-del")?.addEventListener("click", async () => {
+      if (!confirm("이 결함의 전회차 사진을 지울까요?\n(지난 보고서에서 잘못 가져온 사진일 때 — 지운 뒤 다시 올릴 수 있습니다)")) return;
+      try { await api(`/sitok/defects/${d.id}/photo/prev`, { method: "DELETE" }); refresh(false); } catch (e) { err(e); }
+    });
+    const prevFile = el.querySelector(".sf-prev-up input");
+    if (prevFile) {
+      prevFile.addEventListener("change", async () => {
+        if (!prevFile.files[0]) return;
+        el.classList.add("busy");
+        try {
+          const fd = new FormData();
+          fd.append("file", prevFile.files[0]);
+          await apiUpload(`/sitok/defects/${d.id}/photo/prev`, fd);
+          refresh(false);
+        } catch (e) { err(e); el.classList.remove("busy"); }
+      });
+      enableFileDrop(el.querySelector(".sf-prev-up"), prevFile);
+    }
     el.querySelectorAll(".sf-photos img").forEach((img) => img.addEventListener("click", (e) => {
       if (img.closest(".sf-shot")) return; // 이번 사진 칸은 누르면 다시 찍기
       e.preventDefault();

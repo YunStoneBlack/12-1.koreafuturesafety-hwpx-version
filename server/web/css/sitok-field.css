@@ -45,7 +45,7 @@
 .sf-prev { font-size: 12.5px; color: var(--muted); margin: 6px 0 0 34px; }
 .sf-prev em { font-style: normal; color: var(--faint); }
 .sf-photos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-.sf-photos figure { margin: 0; }
+.sf-photos figure { margin: 0; position: relative; }
 .sf-photos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #fff; display: block; cursor: pointer; }
 .sf-photos figcaption { font-size: 11.5px; color: var(--muted); text-align: center; margin-top: 3px; }
 .sf-nophoto, .sf-shot span { width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; border: 1.5px dashed var(--line); display: flex; align-items: center; justify-content: center;
@@ -53,6 +53,14 @@
 .sf-shot { display: block; cursor: pointer; }
 .sf-shot span { color: var(--blue); font-weight: 600; font-size: 15px; border-color: var(--blue); background: var(--blue-soft); }
 .sf-shot.drop-over span { background: #dbe9fb; }
+/* 전회차 사진 지우기·올리기(10/22) */
+.main .sf-prev-del { position: absolute; top: 6px; right: 6px; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 2px solid #fff; border-radius: 50%;
+  background: rgba(20, 24, 31, .75); color: #fff; font-size: 12px; line-height: 1; box-shadow: 0 1px 4px rgba(0, 0, 0, .3); opacity: 1; }
+.main .sf-prev-del:hover { background: #d9534f; }
+.sf-prev-up { display: block; cursor: pointer; }
+.sf-prev-up .sf-nophoto { flex-direction: column; gap: 6px; }
+.sf-prev-up b { font-size: 13px; font-weight: 600; color: var(--blue); }
+.sf-prev-up:hover .sf-nophoto, .sf-prev-up.drop-over .sf-nophoto { border-color: var(--blue); background: var(--blue-soft); }
 .sf-acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
 .main .sf-acts button { margin: 0; padding: 10px 0; font-size: 14px; font-weight: 600; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; }
 .main .sf-acts button[data-c="same"].on { background: var(--green); border-color: var(--green); color: #fff; }
