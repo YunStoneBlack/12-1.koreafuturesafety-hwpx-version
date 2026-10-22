@@ -35,7 +35,8 @@
       <div class="sk-f ss-cover"><label>피복(mm)</label><input data-f="cover" data-i="${i}" type="number" inputmode="numeric" min="0" max="300" value="${row.cover[i] ?? ""}"${row.unable[i] ? " disabled" : ""} /></div>
       <label class="ss-unable"><input type="checkbox" data-f="unable" data-i="${i}"${row.unable[i] ? " checked" : ""} /> 실측불가</label>
       <label class="secondary-link ss-cap" title="탐사기 파형 그래프 화면 캡처 — 점 개수·간격·피복을 읽어 채움">📷 캡처<input type="file" accept="image/*" hidden data-kr-file="1" data-cap="${i}" /></label>
-      ${cap ? `<a class="ss-thumb" href="${BASE}/api${URL_}/rebar/${row.id}/capture/${i}" target="_blank" rel="noopener" title="올린 캡처"><img loading="lazy" src="${BASE}/api${URL_}/rebar/${row.id}/capture/${i}?v=${encodeURIComponent(cap)}" alt="" /></a>` : ""}
+      ${cap ? `<span class="ss-thumb-w"><a class="ss-thumb" href="${BASE}/api${URL_}/rebar/${row.id}/capture/${i}" target="_blank" rel="noopener" title="올린 캡처"><img loading="lazy" src="${BASE}/api${URL_}/rebar/${row.id}/capture/${i}?v=${encodeURIComponent(cap)}" alt="" /></a>
+        <button type="button" class="ss-cap-del" data-capdel="${i}" title="캡처 지우기">✕</button></span>` : ""}
       ${bad ? '<span class="ss-diff" title="설계와 다름 — 본문에 &quot;구조도면과 실측 상이&quot;로">≠ 설계</span>' : ""}</div>`;
   }
 
@@ -199,6 +200,12 @@
         if (!confirm("이 시험을 지울까요? 뒤 시험 번호가 하나씩 당겨집니다.")) return;
         save(rowsCopy().filter((x) => x.id !== id));
       });
+      el.querySelectorAll("[data-capdel]").forEach((btn) => btn.addEventListener("click", async () => {
+        // 캡처 지우기(10/22) — 읽어 넣은 조사값·피복은 그대로
+        if (!confirm("이 캡처를 지울까요? 캡처에서 읽어 넣은 조사값·피복은 그대로 둡니다(필요하면 직접 고치세요).")) return;
+        try { d = await api(`${URL_}/rebar/${id}/capture/${btn.dataset.capdel}`, { method: "DELETE" }); showErr(""); $("ss-saved").textContent = "캡처 지움"; draw(); }
+        catch (e) { showErr(e.message); }
+      }));
       el.querySelectorAll("input[data-cap]").forEach((inp) => {
         const lab = inp.closest(".ss-cap");
         if (typeof enableFileDrop === "function") enableFileDrop(lab, inp); // 캡처 끌어다 놓기

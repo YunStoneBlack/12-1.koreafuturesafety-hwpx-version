@@ -4,7 +4,7 @@
 - `GET   /sitok/reports/{id}/seismic` — 철근탐사 줄 + 일람표 칸(고르기용) + 층 + 필요 수량
 - `PATCH /sitok/reports/{id}/seismic/rebar` {rows} — 줄 저장(설계값은 일람표에서 자동, 사람이 고친 줄은 그대로)
 - `POST  /sitok/reports/{id}/seismic/rebar/{row}/capture/{line}` — 탐사기 화면 캡처 → 조사값·피복(server/sitok/rebar_capture, AI 약 10원)
-- `GET   /sitok/reports/{id}/seismic/rebar/{row}/capture/{line}` — 올린 캡처
+- `GET   /sitok/reports/{id}/seismic/rebar/{row}/capture/{line}` — 올린 캡처, `DELETE` — 캡처 지우기(10/22, 읽어 넣은 값은 그대로)
 - `GET   /sitok/reports/{id}/seismic/rebar.xlsx` — 철근배근 상태조사 표(본문 2.2.2 = 부록, 같은 표)
 화면 sitok-seismic.html(js/sitok-seismic.js). 값은 회차 survey["rebar"](재료시험 tests는 저장 때 모르는 칸을 지워서 따로).
 """
@@ -158,6 +158,29 @@ def get_capture(report_id: int, row_id: str, line: int, user: User = Depends(get
     if p is None or not Path(p).is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "캡처가 없습니다.")
     return FileResponse(p, media_type="image/png")
+
+
+@router.delete("/reports/{report_id}/seismic/rebar/{row_id}/capture/{line}")
+def delete_capture(report_id: int, row_id: str, line: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """캡처 지우기(10/22 사용자 "사진 넣고 넣은 거 삭제 가능하도록") — 파일과 그 줄 캡처 알림만, 읽어 넣은 조사값·피복은 그대로(직접 고치거나 다시 올리면 덮음)."""
+    if line not in (0, 1):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "줄은 0 또는 1입니다.")
+    r = _require(db, user, report_id)
+    data, i = _row(r, row_id)
+    row = data["rows"][i]
+    rel = row["captures"][line]
+    if rel:
+        base = _report_dir(db.get(SitokFacility, r.facility_id), r)
+        p = (base / rel).resolve()
+        if base.resolve() in p.parents:
+            p.unlink(missing_ok=True)
+    row["captures"][line] = ""
+    head = f"{RV.LINES[row['kind']][line]}: "
+    row["warn"] = [w for w in row.get("warn") or [] if not w.startswith(head)]
+    data["rows"][i] = row
+    _put(r, data)
+    db.commit()
+    return _out(db, r)
 
 
 VENDOR_KEYS = {"body": ("외주 결과물 한글", (".hwp", ".hwpx"))}  # 3~7장만 또는 견본 전체(seismic_vendor가 가려 씀) — 다음: GEN 부록·내역서·지반조사보고서 PDF
