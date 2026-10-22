@@ -102,23 +102,47 @@
       prev = r.floor;
       return h + card(r);
     }).join("");
-    $("ss-rows").innerHTML = d.rows.length ? `<section class="panel"><div class="panel-body ss-cards">${cards}</div></section>`
+    $("ss-rows").innerHTML = d.rows.length ? `<section class="panel ss-rows-panel"><div class="panel-body ss-cards">${cards}</div>
+        <div class="ss-foot"><span class="sp-saved" id="ss-saved2"></span><span class="sk-help">고치는 대로 자동 저장됩니다</span><button type="button" id="ss-save">저장</button></div></section>`
       : '<section class="panel"><div class="panel-body empty-note">아직 시험이 없습니다 — 위 [＋ 시험 추가]</div></section>';
     bind();
+    $("ss-save")?.addEventListener("click", saveAll);
   }
 
-  async function save(rows, keepFocus) {
+  // [저장](10/22 형 "기분상 저장 버튼 하나") — 자동 저장은 그대로. 쓰던 칸을 마저 저장(blur → change)하고, 그 저장이 끝난 뒤 전체를 한 번 더
+  async function saveAll() {
+    const btn = $("ss-save");
+    if (btn) btn.disabled = true;
+    document.activeElement?.blur?.();
+    await new Promise((r) => setTimeout(r, 0));
+    if (saving) await saving;
+    const ok = await save(rowsCopy());
+    const t = new Date();
+    if (ok && $("ss-saved2")) $("ss-saved2").textContent = `✓ 저장했습니다 ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+    if ($("ss-save")) $("ss-save").disabled = false;
+  }
+
+  async function save(rows, keepFocus) { // 저장 중인 것을 saving에 — [저장]이 끝나길 기다림
+    const run = saveNow(rows, keepFocus);
+    saving = run;
+    const ok = await run;
+    if (saving === run) saving = null;
+    return ok;
+  }
+
+  async function saveNow(rows, keepFocus) {
     $("ss-saved").textContent = "저장 중…";
     try {
       d = await apiPatch(`${URL_}/rebar`, { rows });
       showErr("");
       $("ss-saved").textContent = "저장됨";
-    } catch (e) { showErr(e.message); $("ss-saved").textContent = ""; return; }
+    } catch (e) { showErr(e.message); $("ss-saved").textContent = ""; return false; }
     draw();
     if (keepFocus) {
       const el = document.querySelector(`.ss-card[data-id="${keepFocus.id}"] [data-f="${keepFocus.f}"]${keepFocus.i != null ? `[data-i="${keepFocus.i}"]` : ""}`);
       if (el) el.focus();
     }
+    return true;
   }
 
   function rowsCopy() { return d.rows.map((r) => JSON.parse(JSON.stringify(r))); }

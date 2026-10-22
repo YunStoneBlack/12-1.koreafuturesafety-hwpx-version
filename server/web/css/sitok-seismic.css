@@ -20,6 +20,14 @@
 @media (max-width: 760px) { .ss-qty-t th, .ss-qty-t td { padding: 3px 4px; } .ss-qty-t input { width: 34px; padding: 2px; } .ss-qty-t td span { margin-right: 0; } } /* 폰 — 4열 표가 넘치지 않게 */
 
 .ss-cards { display: flex; flex-direction: column; gap: 12px; }
+/* [저장] 줄(10/22) — 카드 목록 아래, 내려 보는 동안 화면 아래에 따라옴(판 overflow를 풀어야 붙음 — 검색 목록도 안 잘림) */
+.panel.ss-rows-panel { overflow: visible; }
+.ss-foot { position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 10px 16px;
+  background: var(--surface); border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; box-shadow: 0 -4px 12px rgba(15, 23, 42, .05); }
+.ss-foot .sp-saved:empty { display: none; }
+.ss-foot .sp-saved:empty + .sk-help { margin-right: auto; }
+.main .ss-foot button { margin: 0; min-width: 96px; }
+@media (max-width: 760px) { .ss-foot { padding: 10px 12px; } .ss-foot .sk-help { display: none; } .ss-foot .sp-saved { white-space: nowrap; } }
 .ss-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--surface); }
 .ss-card-h { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .ss-no { font-size: 15px; }
