@@ -7,7 +7,7 @@
   const $ = (id) => document.getElementById(id);
   const id = Number(new URLSearchParams(location.search).get("id")) || 0;
   let F = null;
-  let members = [], cores = [], masonry = [];
+  let cores = [], masonry = [];
   const err = (e) => showError(errorEl, e);
   const flash = (el, text) => { el.textContent = text; setTimeout(() => { if (el.textContent === text) el.textContent = ""; }, 3500); };
   const opt = (list, v) => list.map(([val, label]) => `<option value="${esc(val)}"${String(val) === String(v ?? "") ? " selected" : ""}>${esc(label)}</option>`).join("");
@@ -36,16 +36,87 @@
 
   const floorChoices = () => F.floors.map((f) => [f.n, f.label]);
 
+  // 부재 단면 — 표본 층 × 종별 칸을 미리 깔고(위 수량 표에서 늘리고 줄임), 일람표 칸은 그 층·그 부재 것만(철근탐사처럼) — 10/22 형.
+  // 빈 칸은 저장 안 함(보고서엔 채운 줄만), 칸 수는 member_plan으로 저장.
+  let plan = {}, groups = {};
+  const gkey = (n, k) => `${n}|${k}`;
+  const filledM = (x) => !!(x.where || x.mark || x.design || x.measured || x.note);
+  const blankM = (n, k) => ({ floor: n, kind: k, where: "", item_id: "", mark: "", design: "", measured: "", note: "" });
+  const floorName = (n) => (F.floors.find((f) => f.n === n) || {}).label || (n < 0 ? `지하${-n}층` : `지상${n}층`);
+  const itemsFor = (r) => F.schedule.filter((x) => x.kind === r.kind && (!x.range || (x.range[0] <= r.floor && r.floor <= x.range[1])));
+  function memberFloors() {
+    const s = new Set([...F.sample_floors, ...Object.keys(plan).map((k) => Number(k.split("|")[0])), ...Object.keys(groups).map((k) => Number(k.split("|")[0]))]);
+    return [...s].filter((n) => n).sort((a, b) => a - b);
+  }
   function drawMembers() {
-    members = F.members.map((x) => ({ ...x }));
-    const items = (r) => [["", "— 일람표 칸 —"], ...F.schedule.filter((x) => x.kind === r.kind).map((x) => [x.id, `${x.marks.join(",")}${x.size ? ` ${x.size}` : ""}${x.floors ? ` (${x.floors})` : ""}`])];
-    rows($("sf2-members"), members, [["floor", "층", 1, "select", floorChoices], ["where", "위치(예: 3 : I 열)", 1.6], ["kind", "부재", 0.9, "select", [["기둥", "기둥"], ["보", "보"], ["벽체", "벽체"]]],
-      ["item_id", "일람표 칸", 1.8, "select", items], ["mark", "부호", 0.8], ["design", "도면치수", 1.1], ["measured", "실측치수(못 재면 □)", 1.3], ["note", "비고", 1.3]],
-    { floor: F.floors[0]?.n || 1, kind: "기둥" }, (r, k) => {
-      if (k === "item_id") { const it = F.schedule.find((x) => x.id === r.item_id); if (it) { r.mark = it.marks[0] || r.mark; r.design = (it.size || "").replace(/\s*[xX×*]\s*/, " x "); } return true; }
-      return k === "kind";
-    });
-    $("sf2-m-sum").textContent = `${F.members.length}개소 (최소 ${F.min_counts.member}) — 2.2.1 부재 단면 치수 조사 결과, 일람표 칸을 고르면 도면치수`;
+    plan = { ...F.member_plan };
+    groups = {};
+    for (const m of F.members) (groups[gkey(m.floor, m.kind)] ||= []).push({ ...m });
+    renderMembers();
+  }
+  function renderMembers() {
+    const floors = memberFloors(), kinds = F.member_kinds;
+    for (const n of floors) for (const k of kinds) { // 칸 수 맞추기 — 채운 줄은 안 지움
+      const key = gkey(n, k), g = (groups[key] ||= []);
+      const want = Math.max(plan[key] ?? 0, g.filter(filledM).length);
+      while (g.length < want) g.push(blankM(n, k));
+      while (g.length > want && !filledM(g[g.length - 1])) g.pop();
+    }
+    const cnt = (key) => (groups[key] || []).filter(filledM).length;
+    let no = 0;
+    const row = (n, k, r, j) => {
+      no += 1;
+      const key = gkey(n, k), ch = itemsFor(r);
+      const opts = [["", ch.length ? "— 일람표 칸 —" : "맞는 칸 없음 — 직접"], ...ch.map((x) => [x.id, `${x.marks.join(",")}${x.size ? ` ${x.size}` : ""}${x.floors ? ` (${x.floors})` : ""}`])];
+      const inp = (f, label, w) => `<input data-g="${key}" data-j="${j}" data-k="${f}" placeholder="${esc(label)}" title="${esc(label)}" style="flex:${w}" value="${esc(r[f] ?? "")}" />`;
+      return `<div class="sf2-row${filledM(r) ? "" : " empty"}"><span class="sf2-no">${no}</span><span class="sf2-mk">${esc(k)} ${j + 1}</span>
+        ${inp("where", "위치(예: 3 : I 열)", 1.5)}<select data-g="${key}" data-j="${j}" data-k="item_id" title="일람표 칸" style="flex:1.8">${opt(opts, r.item_id)}</select>
+        ${inp("mark", "부호", 0.7)}${inp("design", "도면치수", 1.1)}${inp("measured", "실측치수(못 재면 □)", 1.3)}${inp("note", "비고", 1.2)}</div>`;
+    };
+    $("sf2-members").innerHTML = `<div class="sf2-qty"><table class="sf2-qty-t"><thead><tr><th>층</th>${kinds.map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>
+        ${floors.map((n) => `<tr><td>${esc(floorName(n))}</td>${kinds.map((k) => { const key = gkey(n, k), c = cnt(key), want = (groups[key] || []).length;
+          return `<td class="${want && c >= want ? "ok" : c ? "part" : ""}"><span>${c}/</span><input type="number" min="0" max="40" inputmode="numeric" data-q="${key}" value="${want}" title="${esc(floorName(n))} ${esc(k)} 칸 수" /></td>`; }).join("")}</tr>`).join("")}
+        </tbody></table><div class="sf2-qty-side"><span class="sk-help">칸 수(입력/칸) — 표본 층 × 종별 ${F.drawings ? 3 : 9}개소가 기본, 숫자를 고치면 아래 칸이 늘고 줆</span>
+        <button type="button" class="secondary" id="sf2-q-reset">기본 칸 수로</button></div></div>
+      <div class="sf2-row sf2-row-h"><span class="sf2-no">#</span><span class="sf2-mk">부재</span><span style="flex:1.5">위치</span><span style="flex:1.8">일람표 칸(그 층·부재만)</span><span style="flex:0.7">부호</span><span style="flex:1.1">도면치수</span><span style="flex:1.3">실측치수</span><span style="flex:1.2">비고</span></div>
+      ${floors.map((n) => { const rs = kinds.flatMap((k) => (groups[gkey(n, k)] || []).map((r, j) => row(n, k, r, j))); const c = kinds.reduce((b, k) => b + cnt(gkey(n, k)), 0);
+        return rs.length ? `<div class="sf2-mfloor"><h4>${esc(floorName(n))} <span class="sk-help" data-fc="${n}">${c}/${rs.length}</span></h4>${rs.join("")}</div>` : ""; }).join("")}`;
+    const box = $("sf2-members");
+    box.querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => { plan[el.dataset.q] = Math.max(0, Math.min(40, Number(el.value) || 0)); renderMembers(); }));
+    box.querySelector("#sf2-q-reset").addEventListener("click", () => { plan = { ...F.member_plan_default }; renderMembers(); });
+    box.querySelectorAll("[data-g]").forEach((el) => el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => {
+      const r = groups[el.dataset.g][Number(el.dataset.j)];
+      r[el.dataset.k] = el.value;
+      if (el.dataset.k === "item_id") {
+        const it = F.schedule.find((x) => x.id === r.item_id);
+        if (it) { r.mark = it.marks[0] || r.mark; r.design = (it.size || "").replace(/\s*[xX×*]\s*/, " x "); }
+        renderMembers();
+      } else { el.closest(".sf2-row").classList.toggle("empty", !filledM(r)); memberCounts(); }
+    }));
+    memberCounts();
+  }
+  // 입력 수 — 위 요약·수량 표 "입력/"·층 머리(글 쓸 때마다, 다시 그리지 않고)
+  function memberCounts() {
+    const floors = memberFloors(), kinds = F.member_kinds;
+    const cnt = (key) => (groups[key] || []).filter(filledM).length;
+    let done = 0, total = 0;
+    for (const n of floors) {
+      let c = 0, t = 0;
+      for (const k of kinds) {
+        const key = gkey(n, k), g = groups[key] || [], ck = cnt(key);
+        c += ck; t += g.length;
+        const td = $("sf2-members").querySelector(`input[data-q="${key}"]`)?.closest("td");
+        if (td) { td.className = g.length && ck >= g.length ? "ok" : ck ? "part" : ""; td.querySelector("span").textContent = `${ck}/`; }
+      }
+      const h = $("sf2-members").querySelector(`[data-fc="${n}"]`);
+      if (h) h.textContent = `${c}/${t}`;
+      done += c; total += t;
+    }
+    $("sf2-m-sum").textContent = `${done}/${total}칸 입력 (최소 ${F.min_counts.member}) — 2.2.1 부재 단면 치수 조사 결과, 일람표 칸을 고르면 도면치수`;
+  }
+  function membersOut() {
+    const kinds = F.member_kinds;
+    return memberFloors().flatMap((n) => kinds.flatMap((k) => (groups[gkey(n, k)] || []).filter(filledM).map((x) => ({ ...x, floor: n, kind: k }))));
   }
 
   function drawCores() {
@@ -128,7 +199,7 @@
     try { draw(await apiPatch(`/seismic/projects/${id}/field`, body)); flash($(savedEl), "✓ 저장했습니다"); } catch (e) { err(e); }
   }
   const nz = (v) => (v === "" || v == null ? null : Number(v));
-  $("sf2-m-save").addEventListener("click", () => save("members", { members: members.filter((x) => x.where || x.mark || x.design || x.measured).map((x) => ({ ...x, floor: Number(x.floor) })) }, "sf2-m-saved"));
+  $("sf2-m-save").addEventListener("click", () => save("members", { members: membersOut(), member_plan: plan }, "sf2-m-saved"));
   $("sf2-c-save").addEventListener("click", () => save("cores", { cores: cores.filter((x) => x.name || x.mpa).map((x) => ({ ...x, mpa: nz(x.mpa) })), core_design: nz($("sf2-c-design").value) }, "sf2-c-saved"));
   $("sf2-w-save").addEventListener("click", () => save("masonry", { masonry: masonry.filter((x) => x.mid || x.height || x.width).map((x) => ({ ...x, floor: Number(x.floor), height: nz(x.height), width: nz(x.width), finish: nz(x.finish) })) }, "sf2-w-saved"));
   $("sf2-t-save").addEventListener("click", () => save("texts", { texts: Object.fromEntries([...document.querySelectorAll("[data-t]")].map((t) => [t.dataset.t, t.value.trim()])), summary: $("sf2-summary").value.trim() }, "sf2-t-saved"));

@@ -189,6 +189,22 @@ def survey_units(f) -> int:
     return v if v > 0 else int(f.floors_above or 0) or int((f.floors_below or 0) + (f.floors_above or 0))
 
 
+def sample_floors(f) -> list[int]:
+    """조사단위 층(표본 층) — 지상 1층부터 단위 수만큼, 단위가 지상 층수보다 많으면 지하 1층부터 더함(아래 → 위 차례)."""
+    below, above = int(f.floors_below or 0), int(f.floors_above or 0)
+    u = survey_units(f)
+    floors = list(range(1, above + 1))[:u]
+    if u > len(floors):
+        floors = [-b for b in range(min(below, u - len(floors)), 0, -1)] + floors
+    return floors or [1]
+
+
+def member_plan(f, saved: dict | None = None) -> dict:
+    """부재 단면 칸 수 {"층|부재": 개수} — 표본 층 × 종별(보·기둥·벽체) × 3(도면 없으면 9) 위에 저장한 값(조사단위를 늘리면 새 층은 기본 칸)."""
+    per = 3 if has_drawings(f) else 9
+    return {**{f"{n}|{k}": per for n in sample_floors(f) for k in MEMBER_KINDS}, **(saved or {})}
+
+
 def has_drawings(f) -> bool:
     """도면 유무 — 건물 칸 값(보유·미보유), 비우면 구조도면·구조 일람표 칸에 파일이 있으면 보유."""
     v = ((f.ledger or {}).get("register") or {}).get("drawings")

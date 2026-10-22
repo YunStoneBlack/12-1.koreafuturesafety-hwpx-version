@@ -956,3 +956,19 @@ button.sp-pick-it.on { border-color: var(--blue); }
 .sp-need-n { flex: none; padding: 3px 10px; border-radius: 999px; border: 1px solid #E3B04B; background: var(--warn-soft); color: var(--warn); font-size: 12.5px; font-weight: 700; white-space: nowrap; }
 .sp-min-how { display: block; margin-top: 2px; font-style: normal; font-size: 11px; font-weight: 500; color: var(--faint); } /* 최소 수량 계산식(10/22 조사수량 산출기준) */
 @media (max-width: 760px) { .sp-min-it { flex-wrap: wrap; white-space: nowrap; } .sp-min-how { flex-basis: 100%; margin-top: 0; white-space: normal; } } /* 폰 — 계산식은 아래 줄 */
+
+/* 부재 단면 — 표본 층 × 종별 칸 수 표·층 묶음(10/22 형 "표본층 종별마다 칸 생성, 수량 조정") */
+.sf2-qty { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 16px; margin-bottom: 14px; }
+.sf2-qty-t { border-collapse: collapse; font-size: 12.5px; }
+.sf2-qty-t th, .sf2-qty-t td { border: 1px solid var(--line); padding: 3px 8px; text-align: center; white-space: nowrap; }
+.sf2-qty-t th { background: var(--paper); }
+.sf2-qty-t td span { color: var(--faint); margin-right: 2px; }
+.sf2-qty-t td.ok span { color: var(--green); font-weight: 700; }
+.sf2-qty-t td.part span { color: var(--warn); font-weight: 700; }
+.sf2-qty-t input { width: 48px; margin: 0; padding: 3px 4px; text-align: center; }
+.sf2-qty-side { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: 320px; }
+.sf2-mfloor { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.sf2-mfloor h4 { margin: 6px 0 0; font-size: 14px; }
+.sf2-mk { flex: none; width: 52px; font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.sf2-row.empty input, .sf2-row.empty select { background: var(--surface); }
+@media (max-width: 760px) { .sf2-mk { flex: 1 1 auto !important; width: auto; } } /* 폰 — 번호·부재 한 줄, 칸은 아래 */

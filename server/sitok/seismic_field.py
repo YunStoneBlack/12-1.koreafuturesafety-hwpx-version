@@ -14,7 +14,7 @@ import math
 import re
 import uuid
 
-MEMBER_KINDS = ("기둥", "보", "벽체")
+MEMBER_KINDS = ("보", "기둥", "벽체")  # 부재 규격 종별(매뉴얼 <표 3-1> — 칸 차례도 이대로)
 MASONRY_KINDS = ("채움벽", "허리벽")
 EXPOSE = ("2면 모르타르", "1면 모르타르", "노출")
 PHOTO_SLOTS = [  # (키, 이름, 보고서 자리)
@@ -92,6 +92,17 @@ def norm_masonry(row: dict) -> dict:
             "manual": bool(row.get("manual"))}
 
 
+def norm_plan(plan) -> dict:
+    """부재 단면 칸 수 {"층|부재": 개수} — 표본 층 × 종별 칸(10/22 형 "수량 조정할 수 있도록"). 0~40."""
+    out = {}
+    for k, v in (plan or {}).items() if isinstance(plan, dict) else []:
+        m = re.fullmatch(r"(-?\d+)\|(.+)", str(k))
+        n = _int(v)
+        if m and m.group(2) in MEMBER_KINDS and n is not None and int(m.group(1)):
+            out[f"{int(m.group(1))}|{m.group(2)}"] = max(0, min(n, 40))
+    return dict(list(out.items())[:200])
+
+
 def normalize(data: dict | None) -> dict:
     d = dict(data or {})
     texts = {k: _s((d.get("texts") or {}).get(k, default), 600) for k, _label, default in TEXTS}
@@ -101,7 +112,8 @@ def normalize(data: dict | None) -> dict:
             "texts": texts, "photos": {k: v for k, v in (d.get("photos") or {}).items() if k in PHOTO and isinstance(v, dict)},
             "core_note": _s(d.get("core_note"), 200),
             "core_design": _num(d.get("core_design")),  # 설계기준강도(도면, MPa) — 2.2.4 85%·75% 비교
-            "summary": _s(d.get("summary"), 4000)}  # 요약문 책임기술자 종합의견(견본 문장 채우기·AI 초안 뒤 사람이 고침, 10/22)
+            "summary": _s(d.get("summary"), 4000),  # 요약문 책임기술자 종합의견(견본 문장 채우기·AI 초안 뒤 사람이 고침, 10/22)
+            "member_plan": norm_plan(d.get("member_plan"))}  # 부재 단면 칸 수(비면 표본 층 × 종별 × 3·9 기본)
 
 
 def core_stats(cores: list[dict]) -> dict:
