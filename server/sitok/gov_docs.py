@@ -232,7 +232,7 @@ def build_start(c: build.Contract, doc_no: str, greet: str, contact: str, seal: 
 
 
 def build_done(c: build.Contract, doc_no: str, greet: str, contact: str, seal: bool, cover_png: bytes | None, company_docs: dict[str, str], out: Path,
-               template: Path = DONE_TEMPLATE) -> list[str]:
+               template: Path = DONE_TEMPLATE, send_date: datetime.date | None = None) -> list[str]:
     """완수계 엑셀 → out(10/20 형 견본 14쪽 "기술지도 완수계처럼 추가 서류"): 산안법 완수계 양식(갑지·완수계·완수검사원·청구서·회사 서류 6장)에
     결과보고서 장(통장 사본 장을 본떠 — 연결한 시설물 보고서 표지)을 청구서 뒤에. 견본과 다른 곳만 손질 — 갑지 붙임 10줄, 완수계 감독관 확인 칸은
     오른쪽 위, 완수검사원 "감독관 경유"·청구서 감독관 칸 없음. 회사 서류 = 서류 자동화 설정(산안법과 같은 것). 발송일·실제준공 = 완수일."""
@@ -244,7 +244,7 @@ def build_done(c: build.Contract, doc_no: str, greet: str, contact: str, seal: b
     end = c.actual_end_date or c.end_date
     settle = c.settle_amount if c.settle_amount is not None else c.amount
     build._fill_cover(cover, c, build.Common(doc_no=doc_no, greeting=greet, contact_name=contact), greet)
-    cover["S11"], cover["S12"], cover["H35"] = end, settle, end or datetime.date.today()
+    cover["S11"], cover["S12"], cover["H35"] = end, settle, send_date or end or datetime.date.today()  # 발송일 = 창의 발송일 > 실제 준공일 > 준공일(10/22)
     for k in range(11):  # 붙임 C17~C27(양식 11줄 — 기술지도 결과보고서·완료증명서) → 견본 10줄
         cover[f"C{17 + k}"] = f"{k + 1}. {DONE_LIST[k]}" if k < len(DONE_LIST) else None
     for s in (ws[1], ws[2]):  # 완수계·완수검사원 "계약금액"·"정산금액" 줄

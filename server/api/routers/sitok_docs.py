@@ -1546,6 +1546,7 @@ class GovIn(BaseModel):
     seal: bool = True
     agent_id: int | None = None
     participant_ids: list[int] = []
+    send_date: str = ""  # 완수계 발송일(비우면 실제 준공일 > 준공일, 10/22 — 산안법처럼)
 
 
 def _doc_warnings(db: Session, chosen: list[TechPerson]) -> list[str]:
@@ -1576,7 +1577,8 @@ def make_gov(cid: int, kind: Literal["start", "done"], body: GovIn, user: User =
     label = GOV[kind]
     base = folder(c)
     xlsx, pdf = base / f"{label}.xlsx", base / f"{label}.pdf"
-    doc_no = body.doc_no.strip() or gov_docs.doc_no(v, c.start_date if kind == "start" else (c.actual_end_date or c.end_date))
+    send = _date(body.send_date) if kind == "done" and body.send_date else None
+    doc_no = body.doc_no.strip() or gov_docs.doc_no(v, c.start_date if kind == "start" else (send or c.actual_end_date or c.end_date))
     greet = body.greeting.strip() or gov_docs.greeting(c.client)
     contact = body.contact.strip() or config.get_doc_contact_name(user.company_id)
     warnings: list[str] = []
@@ -1593,14 +1595,14 @@ def make_gov(cid: int, kind: Literal["start", "done"], body: GovIn, user: User =
         else:
             src, _ = _cover_source(db, c)
             docs = lib.company_docs(db, user.company_id)
-            on = c.actual_end_date or c.end_date or datetime.date.today()  # 발송 = 완수일(갑지) — 실제 준공일 > 준공일
+            on = send or c.actual_end_date or c.end_date or datetime.date.today()  # 발송일(갑지) — 창의 발송일 > 실제 준공일 > 준공일
             for k, lab in build.COMPANY_DOCS:
                 if lib.doc_status(docs.get(k), on) == "expired":
                     warnings.append(f"⚠ {lab} 유효기간 지남({docs[k].valid_until}) — 새로 발급받아 서류 자동화 설정에서 바꾸세요.")
                 elif lib.doc_status(docs.get(k), on) == "nodate":
                     warnings.append(f"⚠ {lab} 발급일을 모릅니다 — 유효기간을 확인할 수 없으니 서류 자동화 설정에서 발급일을 적으세요.")
             warnings += gov_docs.build_done(v, doc_no, greet, contact, body.seal, gov_docs.cover_image(src) if src else None,
-                                            {k: d.file for k, d in docs.items() if d.file}, xlsx)
+                                            {k: d.file for k, d in docs.items() if d.file}, xlsx, send_date=send)
             for ext in ("xlsx", "pdf"):  # 예전 이름 파일(완료계)은 지움 — 받기는 새 것만
                 (base / f"{OLD_GOV['done']}.{ext}").unlink(missing_ok=True)
     except (FileNotFoundError, ValueError) as err:
