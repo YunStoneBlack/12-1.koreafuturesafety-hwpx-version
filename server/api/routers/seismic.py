@@ -557,8 +557,10 @@ def _field_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "floors": [{"n": n, "label": SF.floor_label(n)} for n in floors], "units": SD.survey_units(f),
             "sample_floors": SD.sample_floors(f), "member_kinds": list(SD.MEMBER_KINDS), "member_plan": SD.member_plan(f, fd["member_plan"]),
             "member_plan_default": SD.member_plan(f), "drawings": SD.has_drawings(f),
+            "masonry_types": fd["masonry_types"], "masonry_plan": SD.masonry_plan(f, fd["masonry_plan"]), "masonry_plan_default": SD.masonry_plan(f),
             "min_counts": SD.min_counts(SD.survey_units(f), grade, SD.has_drawings(f)), "rebar": _rebar_done(r),
-            "schedule": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"], "size": x.get("size") or "",
+            "schedule": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"],
+                          "size": x.get("size") or (f"THK={x['thickness']}" if x.get("thickness") else ""),  # 벽체 = 두께(견본 "THK=200")
                           "range": RS.floor_range(x["floors"])} for x in sch["items"] if x["kind"] in SF.MEMBER_KINDS]}  # 층 범위 — 그 층 칸만(철근탐사처럼, 10/22)
 
 
@@ -583,17 +585,19 @@ def save_field(rid: int, body: dict = Body(...), user: User = Depends(get_curren
 
     f, r = _require(db, user, rid)
     cur = _field(r)
-    for k in ("members", "cores", "masonry", "texts", "core_note", "core_design", "summary", "member_plan"):
+    for k in ("members", "cores", "masonry", "texts", "core_note", "core_design", "summary", "member_plan", "masonry_types", "masonry_plan"):
         if k in body:
             cur[k] = body[k]
-    cur = SF.normalize(cur)
+    cur = SF.apply_types(SF.normalize(cur))  # 조적 칸은 목록 값으로(10/22)
     items = {x["id"]: x for x in RS.view((f.ledger or {}).get("rebar_schedule"))["items"]}
     for m in cur["members"]:
         it = items.get(m["item_id"])
         if it is not None:
             m["kind"] = it["kind"] if it["kind"] in SF.MEMBER_KINDS else m["kind"]
             m["mark"] = m["mark"] or (it["marks"][0] if it["marks"] else "")
-            m["design"] = m["design"] or SF.size_text(it.get("size") or "")
+            m["design"] = m["design"] or SF.size_text(it.get("size") or (f"THK={it['thickness']}" if it.get("thickness") else ""))
+            if m["match"] == "일치":
+                m["measured"] = m["design"]
     _put(r, seismic_field={**(_sv(r).get("seismic_field") or {}), **cur})
     db.commit()
     return _field_out(db, f, r)

@@ -63,11 +63,17 @@ def size_text(v: str) -> str:
     return f"{m.group(1)} x {m.group(2)}" if m else s
 
 
+MATCH = ("일치", "불일치", "일부 일치")  # 실측치수 고르기(10/22 민재형) — 일치면 도면치수 그대로
+
+
 def norm_member(row: dict) -> dict:
     kind = row.get("kind") if row.get("kind") in MEMBER_KINDS else "기둥"
+    match = row.get("match") if row.get("match") in MATCH else ""
+    design = size_text(row.get("design"))
+    measured = design if match == "일치" and design else size_text(row.get("measured"))
     return {"id": _s(row.get("id"), 12) or uuid.uuid4().hex[:8], "floor": _int(row.get("floor")) or 1, "where": _s(row.get("where"), 30),
             "kind": kind, "mark": _s(row.get("mark"), 20), "item_id": _s(row.get("item_id"), 12),
-            "design": size_text(row.get("design")), "measured": size_text(row.get("measured")), "note": _s(row.get("note"), 40)}
+            "design": design, "measured": measured, "match": match, "note": _s(row.get("note"), 40)}
 
 
 def norm_core(row: dict) -> dict:
@@ -87,6 +93,7 @@ def norm_masonry(row: dict) -> dict:
     boundary = row.get("boundary") if row.get("boundary") in ("양호", "불량") else "양호"
     applied = row.get("applied") if row.get("applied") in ("양호", "보통", "불량") else masonry_apply(expose, boundary)
     return {"id": _s(row.get("id"), 12) or uuid.uuid4().hex[:8], "floor": _int(row.get("floor")) or 1, "kind": kind, "mid": _s(row.get("mid"), 12),
+            "type_id": _s(row.get("type_id"), 12),  # 조적 목록에서 고른 것(10/22 — 저장 때 그 값으로)
             "height": _int(row.get("height")), "width": _int(row.get("width")), "thick": _s(row.get("thick"), 8) or "1.0B",
             "dir": "Y" if row.get("dir") == "Y" else "X", "expose": expose, "finish": _int(row.get("finish")), "boundary": boundary, "applied": applied,
             "manual": bool(row.get("manual"))}
@@ -103,6 +110,36 @@ def norm_plan(plan) -> dict:
     return dict(list(out.items())[:200])
 
 
+def norm_mtype(row: dict) -> dict:
+    """조적 목록 한 줄(F-n 채움벽·P-n 허리벽) — 층별 칸에서 고르면 이 값(10/22 민재형 "같은 사이즈·방향·상태로 조적 리스트를 만들고 선택해서 자동 입력")."""
+    t = norm_masonry(row)
+    mid = t["mid"] = t["mid"].upper()  # p-1 → P-1
+    t["kind"] = "채움벽" if mid.startswith("F") else "허리벽" if mid.startswith("P") else t["kind"]
+    t.pop("floor", None)
+    t.pop("type_id", None)
+    return t
+
+
+def apply_types(field: dict) -> dict:
+    """층별 조적 칸 — 목록에서 고른 줄은 목록 값으로(목록을 고치면 다음 저장 때 칸도)."""
+    types = {t["id"]: t for t in field.get("masonry_types") or []}
+    for m in field.get("masonry") or []:
+        t = types.get(m.get("type_id") or "")
+        if t:
+            m.update({k: t[k] for k in ("kind", "mid", "height", "width", "thick", "dir", "expose", "finish", "boundary", "applied", "manual")})
+    return field
+
+
+def norm_mplan(plan) -> dict:
+    """층마다 조적 칸 수 {"층": 0~20}."""
+    out = {}
+    for k, v in (plan or {}).items() if isinstance(plan, dict) else []:
+        n, c = _int(k), _int(v)
+        if n and c is not None:
+            out[str(n)] = max(0, min(c, 20))
+    return out
+
+
 def normalize(data: dict | None) -> dict:
     d = dict(data or {})
     texts = {k: _s((d.get("texts") or {}).get(k, default), 600) for k, _label, default in TEXTS}
@@ -113,7 +150,9 @@ def normalize(data: dict | None) -> dict:
             "core_note": _s(d.get("core_note"), 200),
             "core_design": _num(d.get("core_design")),  # 설계기준강도(도면, MPa) — 2.2.4 85%·75% 비교
             "summary": _s(d.get("summary"), 4000),  # 요약문 책임기술자 종합의견(견본 문장 채우기·AI 초안 뒤 사람이 고침, 10/22)
-            "member_plan": norm_plan(d.get("member_plan"))}  # 부재 단면 칸 수(비면 표본 층 × 종별 × 3·9 기본)
+            "member_plan": norm_plan(d.get("member_plan")),  # 부재 단면 칸 수(비면 표본 층 × 종별 × 3·9 기본)
+            "masonry_types": [norm_mtype(x) for x in d.get("masonry_types") or [] if isinstance(x, dict)][:60],
+            "masonry_plan": norm_mplan(d.get("masonry_plan"))}
 
 
 def core_stats(cores: list[dict]) -> dict:

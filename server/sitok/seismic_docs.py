@@ -205,6 +205,11 @@ def member_plan(f, saved: dict | None = None) -> dict:
     return {**{f"{n}|{k}": per for n in sample_floors(f) for k in MEMBER_KINDS}, **(saved or {})}
 
 
+def masonry_plan(f, saved: dict | None = None) -> dict:
+    """층마다 조적 칸 수 {"층": 개수} — 표본 층 × 2개소(<표 3-1> 조사단위별 2개소 이상) 위에 저장 값."""
+    return {**{str(n): 2 for n in sample_floors(f)}, **(saved or {})}
+
+
 def has_drawings(f) -> bool:
     """도면 유무 — 건물 칸 값(보유·미보유), 비우면 구조도면·구조 일람표 칸에 파일이 있으면 보유."""
     v = ((f.ledger or {}).get("register") or {}).get("drawings")
