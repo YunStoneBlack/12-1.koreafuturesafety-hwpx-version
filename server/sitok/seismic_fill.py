@@ -59,6 +59,45 @@ def _fmt(v, nd: int = 1) -> str:
     return f"{v:,.{nd}f}" if isinstance(v, (int, float)) else str(v or "")
 
 
+COMPANY = "㈜한국미래안전"  # 표지 회사 글자(속표지와 같게)
+
+
+def fill_cover_names(root, d: dict) -> int:
+    """표지 아래 발주처·회사 — 로고 그림을 지우고 글자로 가운데(10/22 사용자 "글자로 바꾸기, 로고 삭제, 가운데 맞추기").
+    견본 = 2×1 표(위 칸 발주처 로고 그림 + 발주처 이름, 아래 칸 한국미래안전 로고 그림) → 두 칸 다 발주처 이름 글자 모양(검정)·가운데 문단.
+    replace_globals 앞에서 — 뒤에 하면 발주처 이름이 앞 칸 띄어쓰기의 붉은 글자 모양으로 합쳐짐."""
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    for p in tops[:40]:
+        for t in _outer(p):
+            if (t.get("rowCnt"), t.get("colCnt")) != ("2", "1") or next(t.iter(f"{{{HP}}}pic"), None) is None:
+                continue
+            cells = rb._cells(t)
+            if (0, 0) not in cells or (1, 0) not in cells:
+                continue
+            named = [r for r in cells[(0, 0)].iter(f"{{{HP}}}run") if _t(r).strip()]
+            char = named[0].get("charPrIDRef") if named else None
+            center = next(cells[(1, 0)].iter(f"{{{HP}}}p")).get("paraPrIDRef")
+            for rc, text in (((0, 0), d.get("client") or "-"), ((1, 0), COMPANY)):
+                tc = cells[rc]
+                for pic in list(tc.iter(f"{{{HP}}}pic")):
+                    pic.getparent().remove(pic)
+                first = next(tc.iter(f"{{{HP}}}p"))
+                runs = first.findall(f"{{{HP}}}run")
+                keep = named[0] if rc == (0, 0) and named and named[0].getparent() is first else (runs[0] if runs else None)
+                for r in runs:
+                    if r is not keep:
+                        first.remove(r)
+                if keep is not None and char:
+                    keep.set("charPrIDRef", char)
+                if center:
+                    first.set("paraPrIDRef", center)
+                rb._set_lines(tc, [text])
+            for pic in [x for x in p.iter(f"{{{HP}}}pic") if next(x.iterancestors(f"{{{HP}}}tbl"), None) is None]:  # 표 밖에 떠 있는 발주처 로고
+                pic.getparent().remove(pic)
+            return 1
+    return 0
+
+
 @contextlib.contextmanager
 def borders_for(doc):
     """내진성능평가 한글(Hwpx) 채우는 동안 테두리 도구(report_build.using_borders) — 줄 지울 때 끝줄 굵은 선 옮기기·줄 복사 때 맞닿는 선 얇게(10/22).
@@ -117,6 +156,25 @@ def replace_loose(doc, old: str, new: str) -> int:
     return n
 
 
+def blank_png(rdir: Path) -> Path:
+    """빈칸 그림(흰 바탕) — 입력이 없으면 견본 사진 대신(10/22 형 "없으면 공란이 정상")."""
+    from PIL import Image
+
+    p = rdir / "보고서그림" / "빈칸.png"
+    if not p.exists():
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (400, 300), "white").save(p)
+    return p
+
+
+def _put_or_blank(doc, pic, path: Path | None, rdir: Path, crop: bool = True) -> bool:
+    """그림을 넣고(True), 없으면 빈칸 그림(False)."""
+    if _put(doc, pic, path, crop=crop):
+        return True
+    _put(doc, pic, blank_png(rdir), crop=False)
+    return False
+
+
 def _put(doc, pic, path: Path | None, crop: bool = True) -> bool:
     img = next(pic.iter(f"{{{HC}}}img"), None)
     if img is None or path is None or not Path(path).exists():
@@ -137,7 +195,7 @@ def fill_photos(doc, root, field: dict, rdir: Path, warn: list) -> int:
         if t is None:
             continue
         for slot, (_, pic) in zip(slots, rb._pic_slots(t)):
-            if _put(doc, pic, path(slot)):
+            if _put_or_blank(doc, pic, path(slot), rdir):
                 n += 1
             else:
                 miss.append(SF.PHOTO[slot][0])
@@ -149,12 +207,12 @@ def fill_photos(doc, root, field: dict, rdir: Path, warn: list) -> int:
         ts = [t for t in (_outer(p) if p is not None else []) if rb._pic_slots(t)]
         if len(ts) >= 2:
             for slot, t, crop in (("map", ts[0], False), ("front", ts[-1], True)):
-                if _put(doc, rb._pic_slots(t)[0][1], path(slot), crop=crop):
+                if _put_or_blank(doc, rb._pic_slots(t)[0][1], path(slot), rdir, crop=crop):
                     n += 1
                 else:
                     miss.append(SF.PHOTO[slot][0])
     if miss:
-        warn.append(f"현장 사진 없음(견본 사진 그대로): {'·'.join(miss)} — 현장조사 입력 📷")
+        warn.append(f"현장 사진 없음(빈칸): {'·'.join(miss)} — 현장조사 입력 📷")
     return n
 
 
@@ -281,7 +339,7 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
 
 
 # ---------- 요약 (1) 현장 시험 및 분석 ----------
-def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, grade: str = "특등급") -> int:
+def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, grade: str = "특등급", member_total: int = 0, core_min: int = 6) -> int:
     n = 0
     holes = (ground or {}).get("holes") or []
     rule = {"부재규격": "부재 종별로 각각 3개소 이상 조사" if drawings else "부재 종별로 각각 9개소 이상 조사(구조도면 작성)",  # 매뉴얼 <표 3-1>(10/22)
@@ -295,7 +353,8 @@ def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, 
             label = _n(rb._cell_text(x)) if c == 1 else ""
             if label in rule:
                 _set(cells, (r, 2), rule[label])
-            v = {"부재규격": len(field["members"]), "콘크리트강도": len(field["cores"]), "지반조사(공통)": len(holes)}.get(label)
+            v = {"부재규격": member_total or len(field["members"]), "콘크리트강도": len(field["cores"]) or core_min,  # 조사개소 = 칸 수(형이 정한 수량, 10/22)
+                 "지반조사(공통)": len(holes) or (2 if grade == "특등급" else 1)}.get(label)
             if v:
                 _set(cells, (r, 3), f"{v}EA")
                 n += 1
@@ -412,7 +471,7 @@ def _diff_sentence(labels: list[str]) -> str:
     return f"{', '.join(labels[:3])}{more} 부재가 구조도면과 실측 수치와 상이하여 현장 실측 데이터를 내진성능 평가에 반영하였다."
 
 
-def fill_members(root, field: dict, d: dict, rebar_rows: list, units: int, warn: list, drawings: bool = True) -> int:
+def fill_members(root, field: dict, d: dict, rebar_rows: list, units: int, warn: list, drawings: bool = True, member_total: int = 0) -> int:
     from server.sitok import rebar_survey as RV
 
     members = field["members"]
@@ -423,8 +482,9 @@ def fill_members(root, field: dict, d: dict, rebar_rows: list, units: int, warn:
         rows = [[str(i + 1), f"{SF.floor_label(m['floor'])}( {m['where']} )" if m["where"] else SF.floor_label(m["floor"]),
                  f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", m["note"]] for i, m in enumerate(members)]
         n += fill_chunks(root, tables, rows, 18, 1, flat=False)
-    else:
-        warn.append("부재 단면 줄이 없어 2.2.1 표는 견본 값 그대로입니다(현장조사 입력)")
+    else:  # 입력 없으면 빈 줄 하나(10/22 형 "안 적었는데 값이 들어가 있음")
+        fill_chunks(root, tables, [[""] * 6], 18, 1, flat=False)
+        warn.append("부재 단면 줄이 없어 2.2.1 표는 빈칸입니다(현장조사 입력)")
     qty = [x for x in _outer(root) if (x.get("rowCnt"), x.get("colCnt")) == ("2", "4") and "금회조사수량" in _n(rb._cell_text(rb._cells(x).get((0, 3), x)))]
     label = f"{d['name']}\n({units}개층)"  # 조사단위 수(건물 칸 — 기본 지상 층수, 10/22)
     rules = (("모든 조사단위에서 부재 종별로 각각 3개소 이상 조사", "모든 조사단위에서 부재 종별로 각각 9개소 이상 조사하여 구조도면 작성"),  # 부재단면·철근배근(매뉴얼 <표 3-1>)
@@ -434,8 +494,8 @@ def fill_members(root, field: dict, d: dict, rebar_rows: list, units: int, warn:
         _set(cells, (1, 0), label)
         _set(cells, (1, 1), "보유" if drawings else "미보유")
         _set(cells, (1, 2), rules[k][0 if drawings else 1])
-        if k == 0 and members:
-            _set(cells, (1, 3), f"금회 조사 수량 = {len(members)}개소")
+        if k == 0:  # 조사 수량 = 칸 수(형이 정한 수량, 10/22 "변경한 수량과 안 맞음")
+            _set(cells, (1, 3), f"금회 조사 수량 = {member_total or len(members)}개소")
     # 조사결과 문장 — 2.2.1 다음 첫 견본 문장 = 부재, 2.2.2 다음 = 철근
     tops = [p for p in root if p.tag == f"{{{HP}}}p"]
     sec = ""
@@ -453,10 +513,10 @@ def fill_members(root, field: dict, d: dict, rebar_rows: list, units: int, warn:
             elif sec == "rebar" and rebar_rows:
                 labels = list(dict.fromkeys(f"{SF.floor_label(x['floor'])} {x.get('mark') or x['kind']}" for x in rebar_rows if RV.mismatch(x)))
             else:
-                continue
+                labels = None  # 입력 없음 — 견본 문장(지상5층 B1부재 …) 지움
             ts = list(p.iter(f"{{{HP}}}t"))
             if ts:
-                ts[0].text = _diff_sentence(labels)
+                ts[0].text = _diff_sentence(labels) if labels is not None else ""
                 for x in ts[1:]:
                     x.text = ""
                 n += 1
@@ -469,7 +529,8 @@ def fill_cores(doc, root, field: dict, rdir: Path, core_doc: dict | None, warn: 
     st = SF.core_stats(cores)
     n = 0
     if not st["n"]:
-        warn.append("코어 압축강도가 없어 2.2.4 강도결정 표는 견본 값 그대로입니다(현장조사 입력 — 성적서에서 읽기)")
+        warn.append("코어 압축강도가 없어 2.2.4 강도결정 표·글 숫자는 빈칸입니다(현장조사 입력 — 성적서에서 읽기)")
+        _blank_cores(doc, root)
     else:
         m_v = [c["mpa"] for c in cores if c.get("mpa") is not None]  # core_stats는 반올림 값 — 아래 계산은 반올림 전으로
         mm = sum(m_v) / len(m_v)
@@ -539,8 +600,35 @@ def fill_cores(doc, root, field: dict, rdir: Path, core_doc: dict | None, warn: 
                 elif p.getparent() is not None:
                     p.getparent().remove(p)
         else:
-            warn.append("압축강도 시험성적서가 없어 2.2.4 성적서 그림은 견본 그대로입니다(서류 칸)")
+            warn.append("압축강도 시험성적서가 없어 2.2.4 성적서 그림은 빈칸입니다(서류 칸)")
+            for k, (p, t) in enumerate(frames):
+                if k == 0:
+                    _put(doc, rb._pic_slots(t)[0][1], blank_png(rdir), crop=False)
+                elif p.getparent() is not None:
+                    p.getparent().remove(p)
     return n
+
+
+def _blank_cores(doc, root) -> None:
+    """코어 입력이 없을 때 — 2.2.4 강도결정 표 값 칸·안쪽 표를 비우고, 본문·주석의 견본 숫자는 "-"."""
+    t = next((t for t in _tables(root) if _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "압축강도(MPa)"
+              and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "구분"), None)
+    if t is not None:
+        cells = rb._cells(t)
+        last = int(t.get("rowCnt")) - 1
+        for (r, c) in list(cells):
+            if (c == 1 and 1 <= r < last) or c == 3:
+                _set(cells, (r, c), "")
+        nested = next((x for x in t.iter(f"{{{HP}}}tbl") if x is not t), None)
+        if nested is not None:
+            nc = rb._cells(nested)
+            for rc in ((2, 0), (2, 1), (2, 2), (2, 3), (3, 1), (3, 2)):
+                _set(nc, rc, "")
+    for old, new in ((SAMPLE_CORE, "-~-MPa(평균 -MPa)로 조사되었으며"), (SAMPLE_CORE_TITLE, "콘크리트 코어시험에 의한 강도결정(코어 -개소)"),
+                     ("6개소의 코어가 모두 양호", "-개소의 코어가 모두 양호"), ("현장채취값인 15.8MPa", "현장채취값인 -MPa"),
+                     ("설계 기준강도 15.8MPa로 측정되어", "설계 기준강도 -MPa로 측정되어"), ("현장조사 설계기준강도 값인 15.8MPa", "현장조사 설계기준강도 값인 -MPa"),
+                     ("설계기준강도인 15.8MPa를", "설계기준강도인 -MPa를")):
+        replace_loose(doc, old, new)
 
 
 def _core_pages(core_doc: dict | None, rdir: Path) -> list[Path]:
@@ -604,7 +692,8 @@ def fill_masonry(root, field: dict, warn: list) -> int:
     rows = field["masonry"]
     tables = [t for t in _outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"]
     if not rows:
-        warn.append("조적조 줄이 없어 2.4.3 조적벽 결과표는 견본 값 그대로입니다(현장조사 입력)")
+        fill_chunks(root, tables, [[""] * 11], 60, 2, flat=True)
+        warn.append("조적조 줄이 없어 2.4.3 조적벽 결과표는 빈칸입니다(현장조사 입력)")
         return 0
     rows = sorted(rows, key=lambda x: (x["floor"], x["kind"] != "채움벽", x["mid"]))
     vals = [[SF.floor_label(x["floor"]).replace("지상", "지상 ").replace("지하", "지하 "), x["kind"], x["mid"], _fmt(x["height"], 0) if x["height"] else "-",
@@ -767,8 +856,9 @@ def fill_ground(doc, root, ground: dict | None, rdir: Path, warn: list) -> int:
             name = (h.get("photos") or {}).get(slot)
             if name and _put(doc, pic, gdir / name, crop=True):
                 n += 1
-            else:
-                warn.append(f"{h['bh']} {label} 사진 없음(견본 사진 그대로) — 지반조사 확인")
+            else:  # 없으면 빈칸(10/22 형 "없으면 공란이 정상")
+                _put(doc, pic, blank_png(rdir), crop=False)
+                warn.append(f"{h['bh']} {label} 사진 없음(빈칸) — 지반조사 확인")
 
     def write_result(t, h):
         nonlocal n
@@ -800,17 +890,23 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     units = SD.survey_units(f)
     drawings = SD.has_drawings(f)
     grade = reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급")
+    member_total = sum(SD.member_plan(f, field.get("member_plan")).values())  # 부재 단면 칸 수(형이 정한 수량)
     n = fill_photos(doc, root, field, rdir, warn)
-    n += fill_summary(root, field, ground, drawings, grade)
+    n += fill_summary(root, field, ground, drawings, grade, member_total, SD.min_counts(units, grade, drawings)["core"])
     n += fill_grade(root, reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급"), warn)
     if reg:
         n += fill_history(doc, root, f, reg)
-    n += fill_members(root, field, d, d.get("rebar") or [], units, warn, drawings)
+    n += fill_members(root, field, d, d.get("rebar") or [], units, warn, drawings, member_total)
+    filled = len(field["members"])
+    if filled and filled < member_total:
+        warn.append(f"부재 단면 입력 {filled}/{member_total}칸 — 조사 수량은 칸 수 {member_total}개소로 적었습니다")
     n += fill_cores(doc, root, field, rdir, docs.get("core"), warn)
     n += fill_texts(root, field)
     n += fill_masonry(root, field, warn)
     n += fill_ground(doc, root, ground, rdir, warn)
-    n += fill_size_plans(doc, root, f, reg, rdir, warn)
+    n += fill_size_plans(doc, root, f, reg, rdir, warn, field)
+    for p in (p for p in root if p.tag == f"{{{HP}}}p" and _n(_t(p)) == "2.2.3콘크리트압축강도"):  # 새 쪽에서(10/22 형 "2.2.3부터 다음 페이지로")
+        p.set("pageBreak", "1")
     db = object_session(r)
     if db is not None:
         n += fill_defects(root, defect_rows(db, r.id), member_tpl)
@@ -906,10 +1002,13 @@ def fill_opinion(root, text: str, chief: str) -> int:
         if _n(rb._cell_text(cells.get((0, 0), t))) != "책임기술자종합의견":
             continue
         _set(cells, (2, 0), text)
-        old = rb._cell_text(cells.get((3, 0), t)) if (3, 0) in cells else ""
-        m = re.match(r"(\s*책\s*임\s*기\s*술\s*자\s*:\s*)(.*?)(\s*\(.*\)\s*)$", old)
-        if chief and m:
-            _set(cells, (3, 0), f"{m.group(1)}{' '.join(chief)}{m.group(3)}")
+        sig = next((q for q in cells[(3, 0)].iter(f"{{{HP}}}p") if _n(_t(q)).startswith("책임기술자")), None) if (3, 0) in cells else None
+        m = re.match(r"(\s*책\s*임\s*기\s*술\s*자\s*:\s*)(.*?)(\s*\(.*\)\s*)$", _t(sig)) if sig is not None else None
+        if chief and m:  # 서명 문단 글만 — 칸째 다시 쓰면 첫 빈 문단(붉은 작은 글자) 모양이 씌워짐(10/22 형 "검은색 글자로", "글씨 크기와 색 견본과 안 맞음")
+            ts = list(sig.iter(f"{{{HP}}}t"))
+            ts[0].text = f"{m.group(1)}{' '.join(chief)}{m.group(3)}"
+            for x in ts[1:]:
+                x.text = ""
         n += 1
     return n
 
@@ -982,42 +1081,51 @@ def plan_images(f, rdir: Path) -> list[tuple[str, Path]]:
     return out
 
 
-def fill_size_plans(doc, root, f, reg: dict, rdir: Path, warn: list) -> int:
+def _pic_turned(t) -> bool:
+    ri = rb._pic_slots(t)[0][1].find(f"{{{HP}}}rotationInfo") if rb._pic_slots(t) else None
+    return ri is not None and (ri.get("angle") or "0") not in ("0", "360")
+
+
+def fill_size_plans(doc, root, f, reg: dict, rdir: Path, warn: list, field: dict | None = None) -> int:
     n = 0
     lx, ly = reg.get("length_x"), reg.get("length_y")
     t = next((t for t in _outer(root) if (t.get("rowCnt"), t.get("colCnt")) == ("8", "4") and _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "층수"), None)
-    if t is not None and (lx or ly):
+    if t is not None:
         cells = rb._cells(t)
         _set(cells, (3, 3), f"장변방향 (X방향) {float(lx):g}m" if lx else "장변방향 (X방향) -")
         _set(cells, (4, 3), f"단변방향 (Y방향) {float(ly):g}m" if ly else "단변방향 (Y방향) -")
         n += 1
-    elif t is not None:
-        warn.append("1.2 건물 길이(장변·단변)가 없어 견본 값 그대로입니다(건 화면 🏢 건물 정보)")
+        if not (lx or ly):
+            warn.append("1.2 건물 길이(장변·단변)가 없어 \"-\"입니다(건 화면 🏢 건물 정보)")
+        if rb._pic_slots(t):  # 1.2 표 안 전경 사진 — 현장조사 입력 "시설물 전경", 없으면 빈칸(10/22 형 "전경 없는데 들어가 있음")
+            front = ((field or {}).get("photos") or {}).get("front") or {}
+            n += _put_or_blank(doc, rb._pic_slots(t)[0][1], (rdir / front["rel"]) if front.get("rel") else None, rdir)
     plans = plan_images(f, rdir)
     tables = [t for t in _outer(root) if (t.get("rowCnt"), t.get("colCnt")) == ("3", "4") and rb._pic_slots(t)
               and _n(rb._cell_text(rb._cells(t).get((2, 0), t))).endswith("평면도")]
-    if not plans:
-        if tables:
-            warn.append("1.2 층별 평면도가 없어 견본 그림 그대로입니다(건 화면 서류 칸 층별 평면도)")
-        return n
     if not tables:
         return n
+    if not plans:  # 없으면 첫 칸만 빈칸으로
+        warn.append("1.2 층별 평면도가 없어 빈칸입니다(건 화면 서류 칸 층별 평면도)")
+        plans = [("평면도", blank_png(rdir))]
     paras = [_top_p(t) for t in tables]
-    tpl = copy.deepcopy(paras[-1])
+    tpl = copy.deepcopy(paras[0])  # 첫 평면도 칸(회전 없는 가로 틀) — 견본 다섯째 칸은 그림 틀이 90° 돌아 있음(10/22 형 "평면도가 세로로 회전됨")
     used = []
     for k, (cap, img) in enumerate(plans):
-        if k < len(paras):
+        if k < len(paras) and not _pic_turned(next(x for x in _outer(paras[k]) if rb._pic_slots(x))):
             p = paras[k]
         else:
             p = copy.deepcopy(tpl)
             rb._new_ids(p)
-            used[-1].addnext(p)
+            (used[-1] if used else paras[0]).addnext(p)
+            if k < len(paras) and paras[k].getparent() is not None:
+                paras[k].getparent().remove(paras[k])
         used.append(p)
         tb = next(x for x in _outer(p) if rb._pic_slots(x))
         _set(rb._cells(tb), (2, 0), cap)
         n += _put(doc, rb._pic_slots(tb)[0][1], img, crop=False)
     for p in paras[len(plans):]:
-        if p.getparent() is not None:
+        if p.getparent() is not None and p not in used:
             p.getparent().remove(p)
     return n
 

@@ -81,7 +81,8 @@ def gather(db, r, f) -> dict:
             "period_start": r.period_start, "period_end": r.period_end, "month": rd, "persons": persons, "amount_k": amount_k or "-",
             "joint": joint, "bid": (c.bid_method if c else "") or sc.get("method") or "수의계약", "use": f.use_type or f.main_use or "-", "class_no": f.class_no or "-",
             "grade": f.safety_grade or "-", "completion": f.completion_date, "above": f.floors_above or 0, "below": f.floors_below or 0,
-            "area": f.total_area, "height": f.max_height, "structure": f.structure or "-", "rebar": rows, "rebar_empty": len(all_rows) - len(rows)}
+            "area": f.total_area, "height": f.max_height, "structure": f.structure or "-", "rebar": rows, "rebar_empty": len(all_rows) - len(rows),
+            "rebar_total": len(all_rows) if RV.normalize((r.survey or {}).get("rebar"))["seeded"] else _rebar_default(f)}  # 철근탐사 칸 수(형이 정한 수량)
 
 
 def replace_globals(doc: Hwpx, d: dict) -> int:
@@ -169,9 +170,15 @@ def fill_result_people(root, d: dict) -> int:
     return 0
 
 
+def _rebar_default(f) -> int:
+    from server.sitok import seismic_docs as SD
+
+    return sum(RV.default_plan(SD.sample_floors(f)).values())
+
+
 def fill_field_summary(root, d: dict) -> int:
-    """(1) 현장 시험 및 분석 — 조사·시험항목 표의 철근배근 조사개소(철근탐사 줄 수)."""
-    n = len(d["rebar"])
+    """(1) 현장 시험 및 분석 — 조사·시험항목 표의 철근배근 조사개소 = 철근탐사 칸 수(형이 정한 수량, 10/22)."""
+    n = d.get("rebar_total") or len(d["rebar"])
     if not n:
         return 0
     for t in _tables(root):
@@ -226,9 +233,8 @@ def fill_rebar(root, d: dict, warn: list) -> int:
         warn.append("원본에서 철근배근 조사결과 표를 못 찾았습니다")
         return 0
     if not rows:
-        warn.append("철근탐사 줄이 없어 2.2.2 철근배근 표는 견본 값 그대로입니다(🧪 현장시험)")
-        return 0
-    lines = RV.table_rows(rows)
+        warn.append("철근탐사 결과가 없어 2.2.2 철근배근 표는 빈칸입니다(🧪 현장시험)")
+    lines = RV.table_rows(rows) if rows else [[""] * 7, [""] * 7]  # 없으면 빈 시험 한 줄(두 줄)
     chunks = [lines[i:i + PER_TABLE * 2] for i in range(0, len(lines), PER_TABLE * 2)]
     paras = [next(t.iterancestors(f"{{{HP}}}p")) for t in tables]
     # 표마다 앞(제목 "【 철근배근 조사결과 】")·뒤(주석) 문단 묶음 — 첫 표 것을 틀로
@@ -277,7 +283,7 @@ def fill_rebar(root, d: dict, warn: list) -> int:
     # 조사 수량 — "금회 조사 수량 = N개소"(철근 표 앞의 수량 표: 두 번째 2×4)
     qty = [x for x in _tables(root) if (x.get("rowCnt"), x.get("colCnt")) == ("2", "4") and "금회조사수량" in rb._n(rb._cell_text(rb._cells(x).get((0, 3), x)))]
     if len(qty) >= 2:
-        _set(rb._cells(qty[1]), (1, 3), f"금회 조사 수량 = {len(rows)}개소")
+        _set(rb._cells(qty[1]), (1, 3), f"금회 조사 수량 = {d.get('rebar_total') or len(rows)}개소")  # 칸 수(10/22)
     return len(rows)
 
 
@@ -404,7 +410,8 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     from server.sitok import seismic_fill
 
     with seismic_fill.borders_for(doc):  # 표 줄 지우기·복사 때 끝줄 굵은 선·맞닿는 선(10/22)
-        changed = replace_globals(doc, d)
+        changed = seismic_fill.fill_cover_names(root, d)  # 표지 아래 발주처·회사 글자로(로고 지움, 10/22) — 이름 바꾸기 앞에서
+        changed += replace_globals(doc, d)
         changed += fill_persons(root, d) + fill_result_ga(root, d) + fill_result_people(root, d) + fill_chapter1(root, d) + fill_field_summary(root, d)
         changed += fill_rebar(root, d, warn)
         if f.seismic_only or (r.survey or {}).get("seismic_field") or (r.survey or {}).get("seismic_docs"):  # 별개 건(10/21) — 현장조사 입력·서류 값
