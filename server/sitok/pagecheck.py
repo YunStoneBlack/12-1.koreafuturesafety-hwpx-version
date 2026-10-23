@@ -529,9 +529,16 @@ def _body_end(hwpx: Path) -> float | None:
         return None
 
 
+def _same_head(t: str, head: str) -> bool:
+    """그 제목 줄인가 — 앞 12글자(빈칸 빼고)가 같고 목차 줄(끝이 쪽 번호 숫자)은 아님."""
+    return _key(t) == _key(head) and not re.search(r"\d\s*$", (t or "").strip())
+
+
 def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: float = 0.15) -> list[str]:
     """제목 + 글자처럼 취급한 표가 통째로 다음 쪽으로 넘어가 앞 쪽 아래가 크게(25% 넘게) 빈 곳(10/19 형 "표가 못생기게 통째로 넘어갔어 자연스럽게",
-    "현장마다 표 길이가 다를 건데 여러 상황에서 자연스럽게" — 부록 사전검토 3.1 표, 과업명이 두 줄이 되며 한 줄이 모자람):
+    "현장마다 표 길이가 다를 건데 여러 상황에서 자연스럽게" — 부록 사전검토 3.1 표, 과업명이 두 줄이 되며 한 줄이 모자람).
+    ② 제목은 앞 쪽 끝에 남고 표만 통째로 넘어간 곳도(10/23 형 "표가 또 통째로 밀림" — 의정부 1.4 기타 부대시설 상태조사 결과표: 원본이 새 쪽에서 시작하는 제목이라
+    제목만 있는 쪽 + 다음 쪽 표). 고치는 법은 같음:
     - 조금(squeeze_max, 15%까지) 모자라면 그 표를 모자란 만큼 줄여(줄 여유 → 줄 간격 한 단계) 앞 쪽에 통째로,
     - 더 모자라면 표를 쪽에서 나뉘게(rb._splittable — 제목 바로 아래에서 시작해 다음 쪽으로 이어지고 머리 줄은 되풀이).
     원본이 일부러 새 쪽에서 시작한 곳·간지는 뺌. 고친 곳 설명(비면 안 바꿈 — 부르는 쪽이 PDF를 한 번 더)."""
@@ -545,10 +552,33 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
         pages = [_body(pg) for pg in doc]
         draws = [sorted((d["rect"] for d in pg.get_drawings() if TOP < d["rect"].y0 < pages[i][2] - 2 and d["rect"].height < pg.rect.height * 0.9),
                         key=lambda r: r.y0) for i, pg in enumerate(doc)]
-    found = []  # (제목 글, 모자란 pt, 표 높이 pt, 그 제목이 PDF에서 몇 번째로 나온 것인지 0부터)
+    found = []  # (제목 글, 모자란 pt, 표 높이 pt, 그 제목이 PDF에서 몇 번째로 나온 것인지 0부터, ② = 표가 뒤따르는 제목만 셈)
+
+    def table_follows(j: int, idx: int) -> bool:  # j쪽 idx번째 줄(제목) 바로 아래 60pt 안에 표, 또는 쪽 끝 줄이고 다음 쪽이 표로 시작
+        if _divider(pages[j][0]) and len(pages[j][0]) > 2:  # 장 간지 소목차 줄(점선 장식이 작은 선 수백 개라 표로 보였음, 10/23 의정부 48쪽) — 제목 한 줄만 있는 쪽은 셈
+            return False
+        y1 = pages[j][0][idx][1]
+        if any(y1 - 2 <= r.y0 <= y1 + 60 for r in draws[j]):
+            return True
+        return idx == len(pages[j][0]) - 1 and j + 1 < len(pages) and bool(draws[j + 1]) and bool(pages[j + 1][0]) and draws[j + 1][0].y0 <= pages[j + 1][0][0][0] + 2
+
     for i in range(len(pages) - 1):
         lines, bottom, foot, _ = pages[i]
         nxt = pages[i + 1][0]
+        if lines and nxt and not _divider(nxt) and HEAD.match(lines[-1][2]) and (_key(lines[-1][2]) in starts or len(lines) <= 2):
+            r2 = draws[i + 1]
+            if r2 and r2[0].y0 <= nxt[0][0] + 2:  # ② 다음 쪽이 표로 시작(첫 줄이 표 안)
+                tb = r2[0].y1
+                for r in r2:
+                    if r.y0 > tb + 3:
+                        break
+                    tb = max(tb, r.y1)
+                need = tb - r2[0].y0 + 6
+                room = (body_end or foot - 20) - lines[-1][1] - 4
+                if room >= (foot - TOP) * 0.25:
+                    k = sum(1 for j in range(i) for idx, (_, _, t) in enumerate(pages[j][0]) if _same_head(t, lines[-1][2]) and table_follows(j, idx))
+                    found.append((lines[-1][2], need - room, need, k, True))
+                    continue
         if not lines or not nxt or _divider(lines) or _divider(nxt):
             continue
         head = nxt[0]
@@ -568,8 +598,8 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
         room = (body_end or foot - 20) - bottom
         if room < (foot - TOP) * 0.25:  # 앞 쪽이 별로 안 비었으면 그대로
             continue
-        k = sum(1 for j in range(i + 1) if any(_key(head[2]) == _key(t) for _, _, t in pages[j][0]))
-        found.append((head[2], need - room, need, k))
+        k = sum(1 for j in range(i + 1) if any(_same_head(t, head[2]) for _, _, t in pages[j][0]))
+        found.append((head[2], need - room, need, k, False))
     if not found:
         return []
     with zipfile.ZipFile(hwpx) as z:
@@ -579,23 +609,28 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
     keep = rb._KeepHeads(data["Contents/header.xml"]) if "Contents/header.xml" in data else None
     roots = {n: etree.fromstring(data[n]) for n in sections[sections_from:]}
     done = []
-    for head, short, need, nth in found:
+    def char_table(tops: list, i: int):  # 제목 바로 뒤 문단의 글자처럼 취급 표
+        for q in tops[i + 1:i + 3]:
+            tbl = next(q.iter(f"{{{rb.HP}}}tbl"), None)
+            pos = tbl.find(f"{{{rb.HP}}}pos") if tbl is not None else None
+            if pos is not None and pos.get("treatAsChar") == "1":
+                return tbl
+        return None
+
+    for head, short, need, nth, table_only in found:
         seen = 0
         target = None
         for root in roots.values():
             tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
             for i, p in enumerate(tops):
-                if _key(rb._top_text(p)) != _key(head):
+                if not _same_head(rb._top_text(p), head):
+                    continue
+                if table_only and char_table(tops, i) is None:  # ② 표가 뒤따르는 제목만 셈(PDF와 같게)
                     continue
                 if seen < nth:
                     seen += 1
                     continue
-                for q in tops[i + 1:i + 3]:  # 제목 바로 뒤 문단의 글자처럼 취급 표
-                    tbl = next(q.iter(f"{{{rb.HP}}}tbl"), None)
-                    pos = tbl.find(f"{{{rb.HP}}}pos") if tbl is not None else None
-                    if pos is not None and pos.get("treatAsChar") == "1":
-                        target = tbl
-                        break
+                target = char_table(tops, i)
                 break
             if target is not None:
                 break
