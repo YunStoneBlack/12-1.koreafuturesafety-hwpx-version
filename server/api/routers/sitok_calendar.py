@@ -9,6 +9,7 @@
   (10/20 민재형 "달력 전화번호는 현장 담당 번호로, 없으면 등록 버튼, 달력에서 고치면 계약 정보도 같이" — 시설물 칸 관리주체·담당자 전화는 안 씀)
 - `GET /sitok/calendar/missing` — 일정 없는 반기 목록(계약기간 안인데 날이 없음)
 - `POST /sitok/calendar/fill` {dry_run, facility_ids?} — 자동으로 잡기(미리보기 → 잡기). 이미 있는 날은 안 건드림.
+- `POST /sitok/calendar/route` {date, start?, end?, order?} — 그날 동선(10/23 — 산안법 동선 창과 같은 모양, 시설물 = 묶음 안 시설물 전부)
 """
 from __future__ import annotations
 
@@ -200,6 +201,76 @@ def _need_out(n: V.Need) -> dict:
 @router.get("/missing")
 def get_missing(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return {"missing": [_need_out(n) for n in V.missing(db, user.company_id)]}
+
+
+class RouteIn(BaseModel):
+    date: datetime.date
+    start: str | None = None  # 출발지 주소(비우면 회사 — 산안법 설정과 같은 칸)
+    end: str | None = None
+    order: list[int] | None = None  # 사람이 바꾼 순서(곳 id = 그 자리 첫 시설물 id)
+
+
+@router.post("/route")
+def route(body: RouteIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """그날 동선(10/23 사용자 "여러 개 시설물일 경우 동선 짜 주기(기술지도처럼)") — 그날 일정의 시설물(묶음은 묶음 안 시설물 전부), 출발지 → 시설물들 → 복귀지.
+    주소 좌표가 같은 시설물은 한 곳(옹벽 여러 개가 한 번지). 순서는 직선거리로 가장 짧게(17곳도 바로 — 도로 거리로 모든 순서를 묻으면 길찾기가 수백 번),
+    보여 주는 구간 거리는 그 순서의 도로 거리(카카오 길찾기, 산안법 동선과 같은 기억). 모양은 산안법 /calendar/route와 같음(js/route-plan.js)."""
+    from core import config
+    from server.api.geocode import km
+    from server.api.routers.route_plan import _best_order, _leg, _point
+
+    um = _unit_map(db, user.company_id)
+    rows = db.query(SitokVisit).filter(SitokVisit.company_id == user.company_id, SitokVisit.plan_date <= body.date,
+                                       func.coalesce(SitokVisit.plan_end, SitokVisit.plan_date) >= body.date).order_by(SitokVisit.plan_date, SitokVisit.id).all()
+    facs, seen = [], set()
+    for v in rows:
+        u = um.get(v.facility_id)
+        for m in (u.members if u else []):
+            if m.id not in seen:
+                seen.add(m.id)
+                facs.append(m)
+    if not facs:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "이 날 점검 일정이 없습니다.")
+    home = config.get_route_home_address(user.company_id)
+    start_addr, end_addr = (body.start or "").strip() or home, (body.end or "").strip() or home
+    start, end = _point(start_addr), _point(end_addr)
+    if start is None or end is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{'출발지' if start is None else '복귀지'} 주소를 지도에서 찾지 못했습니다 — 주소를 확인하세요.")
+    places: dict[int, dict] = {}  # 곳 id(첫 시설물) → {names, address, c}
+    by_c: dict[tuple, int] = {}
+    missing = []
+    for f in facs:
+        c = _point((f.address or "").strip()) if (f.address or "").strip() else None
+        if c is None:
+            missing.append(f)
+            continue
+        k = (round(c[0], 5), round(c[1], 5))
+        if k not in by_c:
+            by_c[k] = f.id
+            places[f.id] = {"names": [], "address": f.address, "c": c}
+        places[by_c[k]]["names"].append(f.name)
+    ids = list(places)
+
+    def legs_of(order: list[int], d) -> tuple[float, list[float]]:
+        pts = [start] + [places[i]["c"] for i in order] + [end]
+        legs = [d(a, b) for a, b in zip(pts, pts[1:])]
+        return sum(legs), legs
+
+    best = _best_order(ids, lambda o: legs_of(o, km))
+    order = [i for i in (body.order or []) if i in places]
+    if sorted(order) != sorted(ids):
+        order = best
+    total_km, legs = legs_of(order, _leg)
+    best_total = legs_of(best, _leg)[0] if order != best else total_km
+    name = lambda p: p["names"][0] + (f" 외 {len(p['names']) - 1}곳" if len(p["names"]) > 1 else "")  # noqa: E731
+    out = lambda i: {"site_id": i, "name": name(places[i]), "address": places[i]["address"], "lat": places[i]["c"][0], "lng": places[i]["c"][1],  # noqa: E731
+                     "names": places[i]["names"]}
+    return {"date": body.date.isoformat(), "home": home,
+            "start": {"address": start_addr, "lat": start[0], "lng": start[1], "is_home": start_addr == home},
+            "end": {"address": end_addr, "lat": end[0], "lng": end[1], "is_home": end_addr == home},
+            "stops": [out(i) for i in order], "missing": [{"site_id": f.id, "name": f.name, "address": f.address} for f in missing],
+            "legs": [round(x, 1) for x in legs], "total_km": round(total_km, 1), "best_order": best, "best_total_km": round(min(best_total, total_km), 1),
+            "is_best": order == best or total_km <= best_total + 0.05}
 
 
 class FillIn(BaseModel):

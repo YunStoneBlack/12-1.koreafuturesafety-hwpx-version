@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="css/site-info.css" />
 <link rel="stylesheet" href="css/docs.css" />
 <link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/route-plan.css" />
 <link rel="stylesheet" href="css/sitok-calendar.css" />
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
 </head>
@@ -44,6 +45,8 @@
 <script src="mail.js"></script>
 <script src="shell.js"></script>
 <script src="js/cal-wide.js"></script>
+<script>const apEsc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); // route-plan.js가 씀(산안법은 auto-plan.js)</script>
+<script src="js/route-plan.js"></script>
 <script src="js/sitok-calendar.js"></script>
 </body>
 </html>

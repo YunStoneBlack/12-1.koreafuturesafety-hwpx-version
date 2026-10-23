@@ -212,13 +212,16 @@
     const h = holidays[selected];
     const items = data.visits.filter((v) => covers(v, selected));
     const n = loadOf(selected);
+    const spots = new Set(items.flatMap((v) => (v.facility.members || [v.facility]).map((m) => String(m.address || v.facility.address || "").replace(/\s+/g, "")))).size; // 그날 서로 다른 주소 수(묶음은 안 시설물 전부, 같은 번지는 한 곳)
     body.innerHTML = `<h3 class="dk-day-title${h || dt.getDay() === 0 ? " red" : ""}">${dt.getMonth() + 1}월 ${dt.getDate()}일 (${WEEK[dt.getDay()]})${h ? ` · ${esc(h.name)}` : ""}
         ${n ? `<span class="sc-load${n > data.day_cap ? " over" : ""}">${n}</span>` : ""}</h3>
+      ${spots >= 2 ? `<div class="sc-day-tools"><button type="button" class="secondary btn-sm sc-route" title="출발지 → 그날 시설물들 → 복귀지, 가장 짧은 순서(산안법 동선 짜기와 같음)">🚗 동선 짜기 (${spots}곳)</button></div>` : ""}
       ${items.length ? items.map(visitCard).join("") : '<div class="empty-note">이 날은 점검 일정이 없습니다.</div>'}
       <div class="sc-add"><select class="sc-add-f" aria-label="시설물"><option value="">+ 이 날 일정 넣기 — 시설물 고르기</option>
         ${data.facilities.slice().sort((a, b) => String(a.mgmt_no).localeCompare(String(b.mgmt_no), "ko", { numeric: true })).map((f) => `<option value="${f.id}">${esc(f.mgmt_no)} ${esc(f.name)}${f.region ? ` · ${esc(f.region)}` : ""}</option>`).join("")}</select>
         <button type="button" class="btn-sm sc-add-btn">넣기</button></div>`;
     wireCards(body);
+    body.querySelector(".sc-route")?.addEventListener("click", () => openRoutePlan(selected, null, "시특법 점검", { url: "/sitok/calendar/route", body: {} })); // 동선(10/23)
     if (preFacility) { // 알림에서 누른 시설물을 골라 두고 눈에 띄게(10/23)
       const sel = body.querySelector(".sc-add-f");
       sel.value = String(preFacility);

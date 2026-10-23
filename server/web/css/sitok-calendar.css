@@ -33,6 +33,10 @@
 .dk-item.s-missed { border-style: dashed; border-left-style: solid; border-color: var(--crit, #b42318); }
 .dk-item .site-no { display: inline-block; padding: 1px 7px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 11.5px; font-weight: 700; }
 .sc-links .site-links { margin-top: 4px; }
+/* 그날 동선 짜기(10/23 — 산안법 동선 창 js/route-plan.js) */
+.sc-day-tools { display: flex; justify-content: flex-end; margin: -4px 0 8px; }
+.main .sc-day-tools button { margin: 0; }
+.rp-box .ap-note { font-size: 12.5px; color: var(--ink); background: var(--paper); border-radius: 8px; padding: 8px 10px; line-height: 1.5; }
 /* 묶음 안 시설물 위치(10/23 — 묶음별 일정 하나, 시설물마다 이름·주소·지도) */
 .sc-members { margin-top: 6px; font-size: 12.5px; }
 .sc-members summary { cursor: pointer; color: var(--blue); font-weight: 600; }

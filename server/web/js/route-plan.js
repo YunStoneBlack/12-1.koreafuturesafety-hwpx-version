@@ -12,7 +12,8 @@ const RP_NAVER_VIA = 5; // 네이버 지도 앱 경유지 최대(v1~v5) — 넘�
 const RP_TMAP_VIA = 2; // 티맵이 바깥 앱에서 받는 경유지 최대(SK 개발자 포럼) — 넘으면 구간 나누기
 const RP_TMAP_KEY = "ACDF74F09C347613"; // 티맵 공식 안내 페이지(tmap.co.kr route.jsp)가 기본으로 넣는 값
 
-async function openRoutePlan(date, staffId, staffName) {
+// opts = {url, body} — 시특법 방문 달력(10/23)은 /sitok/calendar/route(요원 대신 그날 일정의 시설물), 비우면 산안법 /calendar/route + staff_id
+async function openRoutePlan(date, staffId, staffName, opts = {}) {
   const overlay = document.createElement("div");
   overlay.className = "mail-overlay";
   overlay.innerHTML = '<div class="mail-box rp-box" role="dialog" aria-modal="true"><div class="mail-wait">동선을 계산하는 중…</div></div>';
@@ -28,7 +29,7 @@ async function openRoutePlan(date, staffId, staffName) {
 
   const load = async () => {
     try {
-      r = await apiPost("/calendar/route", { date, staff_id: staffId, start: state.start || null, end: state.end || null, order: state.order });
+      r = await apiPost(opts.url || "/calendar/route", { date, ...(opts.body || { staff_id: staffId }), start: state.start || null, end: state.end || null, order: state.order });
       state.order = r.stops.map((s) => s.site_id);
       draw();
     } catch (err) {
