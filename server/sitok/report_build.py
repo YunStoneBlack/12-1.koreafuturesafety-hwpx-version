@@ -709,12 +709,35 @@ def _priority_table(root, rows: list) -> bool:
     return True
 
 
+def _caption_above(root, tbl) -> bool:
+    """표 바로 아래 "<보수ㆍ보강 개략공사비 산정>" 제목 문단을 표 위로 — 원본은 표 아래라 표가 쪽 끝에 딱 맞으면 제목 한 줄만 다음 쪽에 덩그러니
+    (10/23 형 "페이지 넘어감", 양주덕산초 본관 57쪽). 앞 "<보수물량 및 우선순위>"처럼 표 위면 표가 나뉘어도 제목은 표 머리와 같이 감. 옮겼으면 True."""
+    top = tbl
+    while top.getparent() is not None and top.getparent() is not root:
+        top = top.getparent()
+    if top.getparent() is not root:
+        return False
+    nxt = top.getnext()
+    for _ in range(3):  # 사이 빈 문단은 건너뜀
+        if nxt is None or nxt.tag != f"{{{HP}}}p" or next(nxt.iter(f"{{{HP}}}tbl"), None) is not None:
+            return False
+        t = _top_text(nxt).strip()
+        if re.fullmatch(r"<\s*보수\s*[ㆍ·]?\s*보강\s*개략\s*공사비\s*산정\s*>", t):
+            top.addprevious(nxt)
+            return True
+        if t:
+            return False
+        nxt = nxt.getnext()
+    return False
+
+
 def _cost_table(root, rows: list, direct: int) -> bool:
     """개략공사비 산정 표 — 데이터 줄 rows[(구분, 결함 내용, 보수방안, 물량, 단위, 단가, 금액)]을 넣고(단위 칸이 없는 6칸 표면 단위는 물량에 붙임),
     직접공사비 합계·제경비(50%)·부대공(10%)·총공사비 줄의 금액 칸을 채움. 데이터 줄이 없으면 "-" 줄 그대로."""
     tbl = _find_table(root, ["구분", "결함및손상,열화내용", "보수ㆍ보강방안"])
     if tbl is None:
         return False
+    _caption_above(root, tbl)
     cells = _cells(tbl)
     ncol = int(tbl.get("colCnt"))
     trs = tbl.findall(f"{{{HP}}}tr")

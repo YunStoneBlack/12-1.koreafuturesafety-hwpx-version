@@ -919,6 +919,11 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
         traceback.print_exc()
     if pushed:
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        try:  # 고친 뒤 쪽 모양이 바뀌어 새로 생긴 "표 통째로 넘어감"도 한 번 더(10/23 형 사전검토 3.1 — 첫 PDF에선 다른 곳을 고쳤고 그 뒤 3.1이 새로 넘어갔음)
+            if pagecheck.pull_tables(hwpx, pdf):
+                pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
     try:  # 목차 쪽 번호 = 다 고친 PDF의 실제 쪽(10/19 형 — 원본 숫자·책갈피 그대로라 묶음 2·3장이 1장 쪽으로 나왔음), 바뀌면 한 번 더
         if pagecheck.fill_toc(hwpx, pdf):
             pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))

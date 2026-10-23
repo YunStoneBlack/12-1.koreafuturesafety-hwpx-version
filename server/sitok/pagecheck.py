@@ -410,15 +410,14 @@ def _row_spare(tbl, rb) -> tuple[dict, dict]:
     return cur, {r: max(0, h - est.get(r, 0) - 200) for r, h in cur.items()}
 
 
-def _squeeze_table(tbl, need: int, keep, rb, spare_only: bool = False) -> int:
-    """표 tbl을 need(HWPUNIT)만큼 낮춤 — ① 줄마다 글 어림보다 큰 여유 높이를 비율대로, ② 모자라면 표 안 문단 줄 간격을 한 단계(×0.85). 줄인 양.
-    spare_only = ①만(글 높이·줄 간격 그대로 — 표 통째로 넘어감 고칠 때, 10/23 사용자 "글자가 무리하게 우겨넣어질까 봐")."""
+def _squeeze_table(tbl, need: int, rb) -> int:
+    """표 tbl을 need(HWPUNIT)만큼 낮춤 — 줄마다 글 어림보다 큰 여유 높이(칸 안 빈 여백)만 비율대로, 글 높이·줄 간격은 그대로. 줄인 양.
+    (10/23 사용자 "표 안에 글자가 무리하게 우겨넣어질까 봐" — 전엔 모자라면 표 안 줄 간격을 ×0.85로 줄였음. 부르는 쪽이 여백 합이 need 이상일 때만 부름)"""
     from server.sitok.precision_build import _set_row_height
 
     cur, spare = _row_spare(tbl, rb)
     total = sum(spare.values())
     done = 0
-    box = int(tbl.get("rowCnt") or 1) == 1  # 칸 하나짜리 상자(요약문 결언) — 칸 높이만 줄이면 글이 그대로 밀어내고, 줄 간격만 줄이면 칸 높이가 남아 빈 쪽(10/19) → 둘 다
     if total > 0:
         k = min(1.0, need / total)
         for r, s in spare.items():
@@ -426,27 +425,6 @@ def _squeeze_table(tbl, need: int, keep, rb, spare_only: bool = False) -> int:
             if cut > 0:
                 _set_row_height(tbl, r, cur[r] - cut)
                 done += cut
-    if (done < need or box) and keep is not None and not spare_only:  # 글이 꽉 찬 표(1.3 분석표)·상자 — 줄 간격 한 단계
-        hh = "{http://www.hancom.co.kr/hwpml/2011/head}"
-
-        def tight(pp):
-            for ls in pp.iter(f"{hh}lineSpacing"):
-                if ls.get("type") == "PERCENT":
-                    ls.set("value", str(max(100, int(int(ls.get("value") or 160) * 0.85))))
-
-        for p in tbl.iter(f"{{{rb.HP}}}p"):
-            p.set("paraPrIDRef", keep.clone(p.get("paraPrIDRef"), "tight85", tight))
-        # 줄 높이가 정해져 있고 글이 그 안에 든 표(사전검토 3.1)는 줄 간격만으론 안 작아짐 — 줄 높이도 남은 만큼(줄마다 15%까지) 비율대로,
-        # 글이 더 필요하면 한글이 다시 늘림(칸 높이는 최소값)
-        left = need - done
-        rows = {r: h for r, h in cur.items() if h > 0}
-        whole = sum(rows.values())
-        if left > 0 and whole and not box:
-            for r, h in rows.items():
-                cut = int(min(h * 0.15, left * h / whole))
-                if cut > 0:
-                    _set_row_height(tbl, r, h - cut)
-        done = max(done, need)
     if done:  # 합친 칸(여러 줄) 높이 = 그 줄들 높이 합 — 줄만 줄이고 합친 칸이 옛 높이로 남으면 표가 다시 커짐
         heights = {}
         for (r, _), tc in rb._cells(tbl).items():
@@ -471,7 +449,6 @@ def squeeze_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]
         infos = z.infolist()
         data = {i.filename: z.read(i.filename) for i in infos}
         sections = rb._sections(z)
-    keep = rb._KeepHeads(data["Contents/header.xml"]) if "Contents/header.xml" in data else None
     roots = {n: etree.fromstring(data[n]) for n in sections[sections_from:]}
     done = []
     flat = lambda s: re.sub(r"\s", "", s or "")  # noqa: E731
@@ -510,14 +487,14 @@ def squeeze_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]
         if target is None:
             continue
         need = int(h * 100 * 1.2) + 800
-        if _squeeze_table(target, need, keep, rb):
-            done.append(f"'{first[:14]}…' 넘침 → 앞 표 {need} 줄임")
+        if sum(_row_spare(target, rb)[1].values()) < need:  # 칸 안 빈 여백으로 모자라면 글·줄 간격을 우겨넣지 않고 넘어간 그대로(10/23 사용자 — pull_tables와 같게)
+            continue
+        if _squeeze_table(target, need, rb):
+            done.append(f"'{first[:14]}…' 넘침 → 앞 표 칸 여백 {need} 줄임(글 그대로)")
     if not done:
         return []
     for n, root in roots.items():
         data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
-    if keep is not None:
-        data["Contents/header.xml"] = keep.header()
     _rewrite(hwpx, infos, data)
     return done
 
@@ -618,7 +595,6 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
         infos = z.infolist()
         data = {i.filename: z.read(i.filename) for i in infos}
         sections = rb._sections(z)
-    keep = rb._KeepHeads(data["Contents/header.xml"]) if "Contents/header.xml" in data else None
     roots = {n: etree.fromstring(data[n]) for n in sections[sections_from:]}
     done = []
     def char_table(tops: list, i: int):  # 제목 바로 뒤 문단의 글자처럼 취급 표
@@ -650,7 +626,7 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
             continue
         cut = int(max(short, 0.0) * 100 * 1.2) + 800
         if short <= need * squeeze_max and sum(_row_spare(target, rb)[1].values()) >= cut:  # 칸 안 빈 여백만으로 될 때만 줄임(글·줄 간격 그대로)
-            if _squeeze_table(target, cut, keep, rb, spare_only=True):
+            if _squeeze_table(target, cut, rb):
                 done.append(f"'{head[:14]}…' 표가 통째로 넘어감 → 칸 여백 {cut} 줄여 앞 쪽에(글 그대로)")
         else:  # 여백으로 모자라면 글을 우겨넣지 않고 나뉘게
             cells = rb._cells(target)
@@ -664,8 +640,6 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
         return []
     for n, root in roots.items():
         data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
-    if keep is not None:
-        data["Contents/header.xml"] = keep.header()
     _rewrite(hwpx, infos, data)
     return done
 
