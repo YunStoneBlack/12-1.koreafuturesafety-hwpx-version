@@ -102,7 +102,12 @@
           <input type="file" accept=".hwp,.hwpx" hidden data-kr-file="1" id="rd-vendor" /></label>` : (r.wall ? "" : bigBtn("rd-detail", "🏢", "시설물 현황", r.has_detail, doneSub("detail", "1.1 현황표 · 1.2 구조·마감·용도"))) // 옹벽은 현황 칸 없음(제원은 관리대장에서, 10/21)
         + ((r.ai_left || []).length // 10/18 형 요청1 — 앞 칸을 다 [완료]해야 AI 초안이 열림
           ? `<div class="rd-btn rd-off rd-lock" title="앞 칸을 다 완료하면 열립니다"><span class="rd-ic">🤖</span><span class="rd-lb">AI 초안 🔒</span><span class="rd-sub">먼저 완료: ${r.ai_left.map(esc).join(" · ")}</span></div>`
-          : bigBtn("rd-ai", "🤖", "AI 초안", r.has_ai, doneSub("ai", kind === "정밀" ? "22항목 — 결함·시험·상태평가 글" : "결과표·외관조사 서술·종합결론·등급")));
+          : bigBtn("rd-ai", "🤖", "AI 초안", r.has_ai, doneSub("ai", kind === "정밀" ? "22항목 — 결함·시험·상태평가 글" : "결과표·외관조사 서술·종합결론·등급")))
+        + `<label class="rd-btn${r.maps ? " on" : ""}" title="외관망도 PDF·그림(여러 개) — 보고서를 만들 때 합본 부록 '외관망도' 간지 뒤에 끼움(외관망도 기능을 만들기 전까지, 10/23)">
+            <span class="rd-ic">📐</span><span class="rd-lb">부록 외관망도${r.maps ? ` <em class="rd-ok">✓ ${r.maps}개</em>` : ""}</span>
+            <span class="rd-sub">${r.maps ? "더 올리려면 누르기 — 아래 목록에서 보기·지우기" : "PDF·그림 올리기 — 만들 때 부록 외관망도 간지 뒤에"}</span>
+            <input type="file" accept="application/pdf,image/*" multiple hidden data-kr-file="1" id="rd-maps" /></label>
+          ${r.maps ? '<div class="rd-maps-list" id="rd-maps-list"></div>' : ""}`;
     }
     const stateText = r.status === "running" ? `<span class="sk-rep-st run">⏳ ${esc(r.message)}</span>`
       : r.status === "failed" ? `<span class="sk-rep-st bad">✗ 실패: ${esc(r.message)}</span>`
@@ -149,6 +154,35 @@
   }
 
   function bind() {
+    const mapIn = $("rd-maps"); // 부록 외관망도(10/23, server/api/routers/sitok_maps.py)
+    if (mapIn) {
+      if (typeof enableFileDrop === "function") enableFileDrop(mapIn.closest("label"), mapIn);
+      mapIn.addEventListener("change", async () => {
+        const fl = [...mapIn.files];
+        if (!fl.length) return;
+        const sub = mapIn.closest("label").querySelector(".rd-sub");
+        try {
+          for (let i = 0; i < fl.length; i++) {
+            sub.textContent = `올리는 중… ${i + 1} / ${fl.length} — ${fl[i].name}`;
+            const fd = new FormData();
+            fd.append("file", fl[i]);
+            await apiUpload(`/sitok/reports/${r.id}/maps`, fd);
+          }
+          load();
+        } catch (e) { err(e); sub.textContent = e.message; }
+      });
+    }
+    const mapList = $("rd-maps-list");
+    if (mapList) {
+      api(`/sitok/reports/${r.id}/maps`).then((m) => {
+        mapList.innerHTML = m.files.map((x) => `<div class="rd-map"><a href="${BASE}/api/sitok/reports/${r.id}/maps/${x.idx}" target="_blank" rel="noopener">📄 ${esc(x.name)}</a>
+          <span class="sk-help">${x.pages}쪽</span><button type="button" class="link-btn rd-map-del" data-i="${x.idx}">지우기</button></div>`).join("");
+        mapList.querySelectorAll(".rd-map-del").forEach((b) => b.addEventListener("click", async () => {
+          if (!confirm("이 외관망도 파일을 지울까요?")) return;
+          try { await api(`/sitok/reports/${r.id}/maps/${b.dataset.i}`, { method: "DELETE" }); load(); } catch (e) { err(e); }
+        }));
+      }).catch(() => {});
+    }
     const vin = $("rd-vendor");
     if (vin) {
       if (typeof enableFileDrop === "function") enableFileDrop(vin.closest("label"), vin);

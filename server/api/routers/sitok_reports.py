@@ -122,6 +122,7 @@ def _out(r: SitokReport) -> dict:
             # 바꾼 뒤 처음 맡는 시설물 첫 회차를 한 번 만들면 여기 걸려 현장 조사·면담 버튼이 사라졌음(동안교회 — 사용자 10/12)
             "past": r.status == "done" and Path(r.out_hwpx or "").name.endswith("(낸 보고서).hwpx"),
             "base": bool((r.survey or {}).get("base")), "amount_k": r.amount_k or "",
+            "maps": len([x for x in ((r.survey or {}).get("appearance_maps") or []) if isinstance(x, dict)]),  # 부록 외관망도 파일 수(10/23, sitok_maps)
             # 회차 칸 진행 표시(10/14 형 피드백 ⑦ — 3층 구조): ✓ = 칸마다 [✓ 조사 완료]·[✓ 작성 완료]를 누름(10/18 민재형, sitok_steps.py —
             # 전엔 결함 줄·저장한 값이 하나라도 있으면 ✓), steps = {칸: {at, by}}, field = 현장 조사 진행(결함 확인 수·전경 장수)
             **{f"has_{k}": bool(steps.get(r, k)) for k in steps.STEPS}, "steps": (r.survey or {}).get("steps") or {}, "field": _field_progress(r),
@@ -833,6 +834,9 @@ def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: 
     doc.save(tmp, garbage=3, deflate=True)
     doc.close()
     tmp.replace(pdf)
+    from server.api.routers.sitok_maps import insert_maps
+    if insert_maps(db, [r], pdf):  # 부록 외관망도(10/23)
+        done.append("외관망도")
     return done
 
 
@@ -1049,6 +1053,9 @@ def _run_build(report_id: int) -> None:
             merged = _merge(pdf, [f.ledger_pdf], [c.contract_pdf] if c else [])
             if _insert_albums(db, [r], [f.name], pdf):
                 merged.append("외관조사 사진첩")
+            from server.api.routers.sitok_maps import insert_maps
+            if insert_maps(db, [r], pdf):  # 부록 외관망도(10/23 — 올린 PDF·그림을 외관망도 간지 뒤에)
+                merged.append("외관망도")
             from server.api.routers.sitok_defects import missing_photo_note
             if missing_photo_note(db, r.id):  # 이번 회차 사진 없는 결함 — 사진첩 칸은 비움(사용자 10/14)
                 warn.append(missing_photo_note(db, r.id))
@@ -1091,9 +1098,11 @@ def _run_wall_build(db: Session, r: SitokReport, f: SitokFacility) -> None:
         if len(pairs) > 1:
             name, title = wall_book_name(db, pairs, r)
         hwpx, pdf, warn, changed = wall_build.build_many(db, pairs, folder, say, name=name, title=title)
+        from server.api.routers.sitok_maps import insert_maps
+        maps = insert_maps(db, [x for _, x in pairs], pdf)  # 부록 외관망도(10/23) — 옹벽 틀엔 간지가 없어 "기타 부록 참고자료" 간지 뒤
         pages = pymupdf.open(pdf).page_count
         head = f"{len(pairs)}곳 묶음 {pages}쪽, {changed}곳 채움" if len(pairs) > 1 else f"{pages}쪽, {changed}곳 채움"
-        msg = _done_msg(head, "합본", {"": []}, warn)
+        msg = _done_msg(head, "합본", {"": ["외관망도"] if maps else []}, warn)
         now = datetime.datetime.now()
         for _, x in pairs:
             x.out_hwpx, x.out_pdf, x.status, x.made_at, x.message = str(hwpx), str(pdf), "done", now, msg
@@ -1360,6 +1369,9 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         merged = _merge(pdf, [m.ledger_pdf for m, _ in pairs], contracts)
         if _insert_albums(db, [y for _, y in pairs], [m.name for m, _ in pairs], pdf):
             merged.append("외관조사 사진첩")
+        from server.api.routers.sitok_maps import insert_maps
+        if insert_maps(db, [y for _, y in pairs], pdf):  # 부록 외관망도(10/23) — 동 차례로
+            merged.append("외관망도")
         from server.api.routers.sitok_defects import missing_photo_note
         warn += [f"{m.name}: {missing_photo_note(db, y.id)}" for m, y in pairs if missing_photo_note(db, y.id)]
         cover = _split_cover(pdf, gtitle, [y for _, y in pairs])  # 표지 + 책등은 제본용 따로(10/19 형)

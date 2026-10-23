@@ -52,6 +52,7 @@ from server.api.routers import (
     sitok_onboard,
     sitok_parts,
     sitok_prevphotos,
+    sitok_maps,
     sitok_drawings,
     sitok_docs,
     sitok_fms,
@@ -149,6 +150,7 @@ web_app.include_router(sitok_calendar.router, prefix="/api")  # 시특법 방문
 web_app.include_router(sitok_onboard.router, prefix="/api")  # 시특법 새 점검 대상 한 번에 등록(2026-10-12)
 web_app.include_router(sitok_parts.router, prefix="/api")  # 시특법 현장 화면 공중이용·기타시설 탭(2026-10-12)
 web_app.include_router(sitok_prevphotos.router, prefix="/api")  # 시특법 현장 화면 전회차 사진 보여 주기·그대로 넣기(2026-10-23)
+web_app.include_router(sitok_maps.router, prefix="/api")  # 시특법 부록 외관망도 첨부 → 합본(2026-10-23)
 web_app.include_router(sitok_drawings.router, prefix="/api")  # 시특법 시설물 도면(첨부·구조일반사항, 2026-10-12)
 web_app.include_router(sitok_tests.router, prefix="/api")  # 시특법 정밀 재료시험(2026-10-13)
 web_app.include_router(sitok_rating.router, prefix="/api")  # 시특법 정밀 상태평가(2026-10-13)

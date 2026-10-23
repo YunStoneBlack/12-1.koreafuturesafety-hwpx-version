@@ -205,6 +205,9 @@ def _build_one(db: Session, lead: SitokReport, k: int, sub: list) -> dict:
     merged = SR._merge(pdf, [m.ledger_pdf for m, _ in sub], contracts)
     if SR._insert_albums(db, [y for _, y in sub], [m.name for m, _ in sub], pdf):
         merged.append("외관조사 사진첩")
+    from server.api.routers.sitok_maps import insert_maps
+    if insert_maps(db, [y for _, y in sub], pdf):  # 부록 외관망도(10/23)
+        merged.append("외관망도")
     cover = None
     try:
         cover = layout_fix.split_cover_pdf(pdf, title)  # 표지 + 책등 따로(묶음과 같음, 회차 cover_pdf는 안 건드림)

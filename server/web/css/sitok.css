@@ -461,6 +461,12 @@ details.sk-old > .sk-rounds { margin-top: 8px; }
 .rd-btn.rd-off:hover { background: var(--surface); border-color: var(--line); }
 .rd-back { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 600; }
 #rd-report[hidden] + .rd-build { margin-top: 0; padding-top: 0; border-top: 0; }
+/* 부록 외관망도 파일 목록(10/23) — 칸 아래 한 줄씩 */
+.rd-maps-list { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 10px; font-size: 13px; }
+.rd-maps-list:empty { display: none; }
+.rd-map { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rd-map a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.main .rd-map button.rd-map-del { margin: 0 0 0 auto; padding: 3px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; color: var(--crit, #b42318); font-size: 12.5px; font-weight: 600; }
 .rd-build { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
 .rd-build .sk-rep-st > div { margin: 1px 0; }
 .rd-build .sk-rep-st .rd-note { color: var(--muted); }
