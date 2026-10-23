@@ -96,6 +96,8 @@
 
 /* 탭(결함 조사 / 전경사진) + 전경사진(2026-10-11) */
 .sf-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+/* 위 탭 묶음 스크롤 고정(10/23 사용자 "빨간 줄까지") — 하위 메뉴 줄(--tabs-h) 아래에 붙음, 보고서 목차 줄(.report-toc)과 같은 모양 */
+.sf-tabs { position: sticky; top: var(--tabs-h, 0px); z-index: 6; margin: 0 -40px 12px; padding: 8px 40px; background: rgba(244, 246, 251, 0.95); backdrop-filter: blur(6px); }
 .main button.sf-tab { margin: 0; padding: 9px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 14px; font-weight: 600; }
 .main button.sf-tab.on { background: var(--ink); border-color: var(--ink); color: #fff; }
 #sf-defects[hidden], #sf-overview[hidden] { display: none; }
@@ -231,7 +233,7 @@
 @media (max-width: 1100px) { .pt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .pt-grid, #pt-other .pt-grid { grid-template-columns: 1fr; } }
 @media (max-width: 760px) {  /* 탭 4개(10/12) — 폰은 2×2 */
-  .sf-tabs { display: grid; grid-template-columns: 1fr 1fr; }
+  .sf-tabs { display: grid; grid-template-columns: 1fr 1fr; margin: 0 -16px 12px; padding: 8px 16px; }
   .main button.sf-tab { padding: 9px 8px; font-size: 13.5px; white-space: nowrap; }
 }
 

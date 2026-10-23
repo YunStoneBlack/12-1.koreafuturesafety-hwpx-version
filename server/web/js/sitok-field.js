@@ -103,14 +103,19 @@
 
   const partOf = (m) => (data.part_of || {})[m] || "";
 
-  function editKinds(d) { // 카드 ✏️ — 구분·부재·결함유형 고치기(지난 보고서에서 온 목록 밖 이름도 여기서)
+  function editKinds(d) { // 카드 ✏️ — 구분·부재·결함유형 + 개수·폭·길이(박리·박락은 깊이)(10/23 사용자) 고치기(지난 보고서에서 온 목록 밖 이름도 여기서)
     const ov = document.createElement("div");
     ov.className = "mail-overlay";
+    const sized = d.check !== "repaired"; // 보수 완료는 크기 없음
     ov.innerHTML = `<div class="mail-box sf-new" role="dialog" aria-modal="true"><div class="mail-head"><b>${esc(d.floor)} ${d.seq}번 고치기</b>
-      <span class="mail-sub">구분·부재·결함유형 — 목록에 없으면 "➕ 새로 추가…"</span></div>
+      <span class="mail-sub">구분·부재·결함유형${sized ? "·크기" : ""} — 목록에 없으면 "➕ 새로 추가…"</span></div>
       <div class="sf-two"><label>구분<select class="e-part">${partOptions(partValue(d.part))}</select></label>
         <label>부재<select class="e-member"></select></label></div>
       <label>결함유형<select class="e-dtype"></select></label>
+      ${sized ? `<div class="sf-size e-size"><label>개수<input inputmode="decimal" class="e-count" value="${esc(d.count)}" /></label>
+        <label>폭<input inputmode="decimal" class="e-width" value="${esc(d.width)}" /></label>
+        <label>길이<input inputmode="decimal" class="e-length" value="${esc(d.length)}" /></label>
+        <label class="e-depth-box" hidden>깊이(mm)<input inputmode="decimal" class="e-depth" value="${esc(d.depth)}" placeholder="파인 깊이" /></label></div>` : '<div class="mail-note">보수 완료 — 크기 칸 없음</div>'}
       <div class="mail-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="mail-cancel">취소</button><button type="button" class="mail-primary e-ok">저장</button></div></div>`;
     document.body.appendChild(ov);
@@ -119,9 +124,22 @@
     setPick(q(".e-dtype"), "dtype", d.dtype);
     bindPicker(q(".e-member"), "member", (m) => { if (partOf(m)) q(".e-part").value = partOf(m); });
     bindPicker(q(".e-dtype"), "dtype");
+    const sizeBox = () => { // 결함유형에 맞는 칸 이름(옹벽 개소·가로·세로, 면적 결함 m)·깊이 칸
+      if (!sized) return;
+      const dt = q(".e-dtype").value || "";
+      q(".e-depth-box").hidden = !depthOf(dt);
+      const labs = [...ov.querySelectorAll(".e-size label")];
+      sizeLabels(dt).forEach((t, i) => { if (labs[i] && labs[i].firstChild) labs[i].firstChild.textContent = t; });
+    };
+    sizeBox();
+    q(".e-dtype").addEventListener("change", sizeBox);
     q(".mail-cancel").addEventListener("click", () => ov.remove());
     q(".e-ok").addEventListener("click", async () => {
       const body = { part: q(".e-part").value, member: q(".e-member").value, dtype: q(".e-dtype").value };
+      if (sized) {
+        Object.assign(body, { count: q(".e-count").value.trim(), width: q(".e-width").value.trim(), length: q(".e-length").value.trim() });
+        if (!q(".e-depth-box").hidden) body.depth = q(".e-depth").value.trim().replace(",", ".");
+      }
       if (!body.dtype) { alert("결함유형을 고르세요."); return; }
       try {
         Object.assign(d, await apiPatch(`/sitok/defects/${d.id}`, body));
