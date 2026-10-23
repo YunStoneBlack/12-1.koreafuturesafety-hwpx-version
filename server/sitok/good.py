@@ -68,7 +68,7 @@ def facts(sv: dict | None, fam: str = "") -> str:
 
 def apply_seismic(root, se: dict, base: Path, add_image, rb) -> int:
     """부록 "내진보강시설 육안 점검표"(6항목 ○/×·내용·조치사항) + "▪ 종합의견" 상자(사진 두 칸·의견 줄).
-    해당없음(또는 사진 없음) = 형 상반기 보고서 그대로 "×·해당없음", 사진·의견 "-"."""
+    해당없음(또는 사진 없음) = 형 상반기 보고서 그대로 "×·해당없음"·조치사항 "-", 사진 칸 "-", 의견 "해당없음"(10/23 형)."""
     HP = rb.HP
     n = 0
     tpl = next((p for p in root.iter(f"{{{HP}}}pic") if next(p.iterancestors(f"{{{HP}}}tc"), None) is not None), None)  # 표 안 그림(글자처럼)을 본뜸
@@ -80,8 +80,8 @@ def apply_seismic(root, se: dict, base: Path, add_image, rb) -> int:
         if any("내진보강부위" in t for t in texts.values()) and tbl.get("colCnt") == "4":
             rows = sorted({r for (r, c) in cells if c == 0 and texts[(r, 0)].startswith("∙")})
             for i, r in enumerate(rows[:len(SEISMIC_ITEMS)]):
-                got = {"mark": "×", "text": "해당없음", "action": ""} if na else se["rows"][i] if i < len(se["rows"]) else {"mark": "-", "text": "-", "action": ""}
-                for c, v in ((1, got["mark"] or "×"), (2, got["text"] or "-"), (3, got["action"])):
+                got = {"mark": "×", "text": "해당없음", "action": "-"} if na else se["rows"][i] if i < len(se["rows"]) else {"mark": "-", "text": "-", "action": ""}
+                for c, v in ((1, got["mark"] or "×"), (2, got["text"] or "-"), (3, got["action"] or ("-" if na else ""))):  # 해당없음이면 조치사항도 "-"(10/23 형)
                     if (r, c) in cells:
                         rb._set_lines(cells[(r, c)], [v])
             n += 1
@@ -90,7 +90,7 @@ def apply_seismic(root, se: dict, base: Path, add_image, rb) -> int:
                 if (1, c) in cells:
                     _photo_cell(cells[(1, c)], photos[i] if i < len(photos) else None, tpl, add_image, rb)
             if (2, 0) in cells:
-                rb._set_lines(cells[(2, 0)], ["-" if na else se["opinion"] or "-"])
+                rb._set_lines(cells[(2, 0)], ["해당없음" if na else se["opinion"] or "-"])  # 칸 앞에 "- "가 있어 "-"면 "- -"로 나왔음 → "- 해당없음"
             n += 1
     return n
 

@@ -112,6 +112,20 @@ def _chapters(root) -> list[tuple[int, int]]:
     return [(s, starts[k + 1] if k + 1 < len(starts) else stop) for k, s in enumerate(starts)]
 
 
+def _seismic_block(root) -> tuple[int, int] | None:
+    """부록 "내진보강시설 육안 점검표"(학교) 문단 [시작, 끝) — 제목 줄부터 다음 부록 간지 앞 빈 문단 전까지(점검 표·종합의견 상자). 없으면 None."""
+    tops = _tops(root)
+    s = next((i for i, p in enumerate(tops) if not _tables(p) and rb._top_text(p).replace(" ", "") == "내진보강시설육안점검표"), None)
+    if s is None:
+        return None
+    e = s + 1
+    while e < len(tops) and not any(rb._cell_text(c).replace(" ", "").startswith("부록") for t in _tables(tops[e]) for c in rb._cells(t).values()):
+        e += 1
+    while e > s + 1 and not rb._top_text(tops[e - 1]).strip() and not _tables(tops[e - 1]) and next(tops[e - 1].iter(f"{{{HP}}}pic"), None) is None:
+        e -= 1
+    return s, e
+
+
 def _renew_ids(el) -> None:
     """복사한 표·그림·도형에 새 id(같은 id가 둘이면 한글이 하나를 잃을 수 있음)."""
     for x in el.iter():
@@ -334,6 +348,23 @@ def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> l
                 _renew_ids(q)
                 bins.take(q, zs[k - 1], k)
                 app.addprevious(q)
+        # --- 부록 내진보강시설 육안 점검표(학교): 둘째 동부터 그 동 것을 첫 동 것 뒤에 새 쪽으로(10/23 형 "해당 없어도 표는 들어가야" —
+        # 부록은 첫 동 것만 써서 서관·급식실 점검표가 통째로 빠졌음)
+        blk = _seismic_block(body)
+        if blk:
+            last = _tops(body)[blk[1] - 1]
+            for k, oroots in enumerate(others, 2):
+                ob = _seismic_block(oroots[2])
+                if not ob:
+                    notes.append(f"{parts[k - 1]['name']}: 내진보강시설 육안 점검표를 찾지 못해 묶음에 못 넣었습니다")
+                    continue
+                copies = [copy.deepcopy(p) for p in _tops(oroots[2])[ob[0]:ob[1]]]
+                copies[0].set("pageBreak", "1")
+                for q in copies:
+                    _renew_ids(q)
+                    bins.take(q, zs[k - 1], k)
+                    last.addnext(q)
+                    last = q
         # --- 부록 대상 시설물 표에 둘째 동부터 줄(10/19 형)
         with rb.using_borders(bins.borders):
             layout_fix.target_rows(roots[2:], [o[2:] for o in others])

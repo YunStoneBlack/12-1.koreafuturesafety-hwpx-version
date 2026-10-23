@@ -2048,6 +2048,9 @@ def _slot_put(tc, cap_tc, image, text: str, caption: str, tpl, add_image) -> Non
         img = next(pic.iter(f"{{{CORE}}}img"), None) if pic is not None else None
         if img is not None:
             img.set("binaryItemIDRef", add_image(image))
+            img.set("effect", "REAL_PIC")  # 본뜬 그림이 회사 로고(흑백 효과)면 사진도 흑백으로 나왔음(10/23 형 "내진보강 점검표 사진이 흑백")
+            img.set("bright", "0")
+            img.set("contrast", "0")
     else:
         for pic in list(tc.iter(f"{{{HP}}}pic")):
             pic.getparent().remove(pic)
