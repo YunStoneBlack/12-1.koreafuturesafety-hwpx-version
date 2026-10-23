@@ -2278,9 +2278,11 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
 
     warn = []
     c = db.get(SitokContract, r.contract_id) if r.contract_id else None
-    mp = locmap.map_for(f.address, f.name, _facility_dir(f))
+    mp = locmap.facility_map(f, _facility_dir(f))  # 올린 그림 > 핀 > 주소(10/23 사용자 "다른 보고서 틀에도 시설별 위치도 기능 모두")
     if mp is None:
         warn.append("주소로 위치도 지도를 만들지 못해 빈 그림으로 넣었습니다")
+    elif note := locmap.address_note(f, _facility_dir(f)):
+        warn.append(note)
     if not ex.overview and prior is not None:  # 이번에 전경사진을 안 찍었으면 전회차 보고서 사진(표지·10쪽·11쪽)
         ex.overview = rb.read_overview(prior, _report_dir(f, r) / "전회차_전경")
         if ex.overview:

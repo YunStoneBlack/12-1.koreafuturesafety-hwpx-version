@@ -2005,8 +2005,10 @@ def _data_for(db, r, new: rb.Values, f, ex) -> Data:
     D.blank = ex.blank
     try:
         from server.sitok import locmap
-        mp = locmap.map_for(f.address, f.name, SR._facility_dir(f))
+        mp = locmap.facility_map(f, SR._facility_dir(f))  # 올린 그림 > 핀 > 주소(10/23)
         D.map_path = str(mp) if mp else ""
+        if mp and (note := locmap.address_note(f, SR._facility_dir(f))):
+            D.notes.append(note)
     except Exception:  # noqa: BLE001 — 지도를 못 받으면 흰 그림
         D.map_path = ""
     if not D.map_path:

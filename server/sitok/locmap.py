@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import io
 import math
+import re
 import urllib.request
 from pathlib import Path
 
@@ -102,8 +103,32 @@ def pin_of(f) -> tuple[float, float] | None:
 
 
 def facility_map(f, folder: Path) -> Path | None:
-    """보고서에 넣을 위치도 — 올린 그림 > 핀 좌표 지도 > 주소 지도."""
+    """보고서에 넣을 위치도 — 올린 그림 > 핀 좌표 지도 > 주소 지도(옹벽·내진, 10/23부터 건축물 정기·정밀도)."""
     up = folder / UPLOADED
     if up.exists():
         return up
     return map_for(f.address or "", f.name, folder, pin_of(f))
+
+
+def rough(address: str) -> str:
+    """주소가 끝(번지)까지 안 맞고 앞부분(동)까지만 맞았으면 맞은 주소, 아니면 "" — 그 동 한가운데로 그려 엉뚱한 자리(10/23 양주덕산초
+    "경기도 양주시 덕계동 420" → "덕계동"까지만 맞아 산 쪽에 핀). 못 찾거나 네트워크 오류도 ""(따로 안내)."""
+    from server.api import geocode
+
+    if not address:
+        return ""
+    try:
+        g = geocode.geocode(address)
+    except Exception:  # noqa: BLE001
+        return ""
+    toks = re.sub(r"\s+", " ", re.sub(r"\(.*?\)", " ", address)).strip().split()
+    return (g[3] or " ".join(toks[:g[2]])) if g and g[2] < len(toks) else ""
+
+
+def address_note(f, folder: Path) -> str:
+    """보고서 만들 때 안내 — 올린 그림·핀 없이 주소로 그렸는데 주소가 동까지만 맞았으면."""
+    if (folder / UPLOADED).exists() or pin_of(f):
+        return ""
+    got = rough(f.address or "")
+    return (f"위치도: 주소가 '{got}'까지만 맞아(입력 주소 '{f.address}') 그 한가운데로 그렸습니다 — 시설물 정보 › 서류·도면 › 📍 위치도에서 "
+            "핀을 그 건물로 옮겨 [핀 자리 저장]") if got else ""

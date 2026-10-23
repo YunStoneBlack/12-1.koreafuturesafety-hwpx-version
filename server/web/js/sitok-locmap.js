@@ -1,4 +1,4 @@
-// 옹벽 위치도 카드(2026-10-21 형 — 옹벽은 주소와 자리가 다름): 시설물 정보·서류 칸에서 지도(Leaflet + OpenStreetMap, 보고서 지도와 같은 타일)에 핀을 끌어
+// 위치도 카드(2026-10-21 형 옹벽 — 주소와 자리가 다름, 10/23 건축물도 — 학교 안 그 동·주소가 동까지만 맞는 곳): 시설물 정보·서류 칸에서 지도(Leaflet + OpenStreetMap, 보고서 지도와 같은 타일)에 핀을 끌어
 // 옹벽 자리로 옮겨 저장(ledger.wall.lat/lng) / 밖에서 만든 위치도 그림 올리기(있으면 우선). 보고서 1.2.2·서두·과업수행계획서 위치도가 같이 바뀜.
 // 서버 routers/sitok.py(/sitok/facilities/{id}/locmap…), 그림 만들기 server/sitok/locmap.py.
 
@@ -8,7 +8,8 @@ async function sitokDrawLocmap(el, facilityId, name) {
   let st;
   try { st = await api(url); } catch (e) { el.innerHTML = `<div class="mail-msg bad">${esc(e.message)}</div>`; return; }
   el.hidden = false;
-  const SRC = { image: "올린 그림이 보고서에 들어갑니다(핀보다 우선)", pin: "저장한 핀 자리로 지도를 만듭니다", address: "아직 핀이 없어 주소 자리입니다 — 핀을 그 시설물 자리(옹벽·학교 안 그 동)로 끌어 [핀 자리 저장]", "": "주소로 자리를 못 찾았습니다 — 지도를 움직여 핀을 찍고 저장하세요" };
+  if (st.src === "address" && st.rough) st.src = "rough"; // 주소가 동까지만 맞음(10/23 양주덕산초 — 산 쪽에 핀)
+  const SRC = { rough: `주소가 '${st.rough}'까지만 맞아 동 한가운데입니다 — 핀을 그 건물로 끌어 [핀 자리 저장]`, image: "올린 그림이 보고서에 들어갑니다(핀보다 우선)", pin: "저장한 핀 자리로 지도를 만듭니다", address: "아직 핀이 없어 주소 자리입니다 — 핀을 그 시설물 자리(옹벽·학교 안 그 동)로 끌어 [핀 자리 저장]", "": "주소로 자리를 못 찾았습니다 — 지도를 움직여 핀을 찍고 저장하세요" };
   el.innerHTML = `<div class="fi-card sk-locmap${st.src ? " has" : ""}">
     <div class="dt-dwg-h"><b>📍 위치도</b> <span class="sk-help">${esc(SRC[st.src] || "")}</span>
       <label class="secondary-link" title="밖에서 만든 위치도 그림(PPT 내보내기 등)">그림 올리기<input type="file" accept="image/*,application/pdf,.pdf" hidden data-kr-file="1" /></label></div>

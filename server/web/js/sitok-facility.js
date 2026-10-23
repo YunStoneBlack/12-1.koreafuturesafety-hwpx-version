@@ -331,7 +331,7 @@
         ? "올려 둠 ✓ — 바꾸려면 다시 올리기 · 시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 읽습니다" : "시설물 현황 [🤖 채우기]·면담 1.2.8 초안이 읽습니다(층별 용도·면적·변동사항) — 눌러서 고르거나 끌어다 놓기";
       document.getElementById("sk-register").classList.toggle("has", !!fac.has_register);
       sitokDrawDrawings(document.getElementById("sk-dwg"), `/sitok/facilities/${fac.id}/drawings`, undefined, !!fac.is_wall);
-      if (fac.is_wall) sitokDrawLocmap(document.getElementById("sk-locmap"), fac.id, fac.name); // 옹벽 위치도 핀·그림(10/21 형)
+      sitokDrawLocmap(document.getElementById("sk-locmap"), fac.id, fac.name); // 위치도 핀·그림 — 옹벽(10/21 형), 건축물도(10/23 사용자 "모든 보고서 틀에")
       drawOrderCard(); // 옹벽 발주처 과업지시서 — ① 서류·도면에도(계약 칸은 접혀 있어 못 찾음, 10/21 형 "첨부칸 미생성")
       document.getElementById("sk-register").closest(".sk-drop, .fi-card")?.toggleAttribute("hidden", !!fac.is_wall); // 옹벽은 건축물대장 없음(사용자 10/21)
     } else {

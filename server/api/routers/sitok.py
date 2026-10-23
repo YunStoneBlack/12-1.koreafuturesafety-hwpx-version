@@ -879,13 +879,14 @@ def _locmap_out(f: SitokFacility) -> dict:
     from server.sitok import locmap
 
     pin = locmap.pin_of(f)
-    addr = None
+    addr, rough = None, ""
     try:
         g = geocode.geocode(f.address or "") if f.address else None
         addr = [g[0], g[1]] if g else None
+        rough = locmap.rough(f.address or "") if g else ""
     except Exception:  # noqa: BLE001
         addr = None
-    return {"pin": [pin[0], pin[1]] if pin else None, "address": addr, "has_image": (_facility_dir(f) / locmap.UPLOADED).exists(),
+    return {"pin": [pin[0], pin[1]] if pin else None, "address": addr, "rough": rough, "has_image": (_facility_dir(f) / locmap.UPLOADED).exists(),
             "src": "image" if (_facility_dir(f) / locmap.UPLOADED).exists() else "pin" if pin else "address" if addr else ""}
 
 
