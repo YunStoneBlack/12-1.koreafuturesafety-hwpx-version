@@ -202,7 +202,7 @@ def _build_one(db: Session, lead: SitokReport, k: int, sub: list) -> dict:
         c = db.get(SitokContract, y.contract_id) if y.contract_id else None
         if c is not None and c.contract_pdf and c.contract_pdf not in contracts:
             contracts.append(c.contract_pdf)
-    merged = SR._merge(pdf, [m.ledger_pdf for m, _ in sub], contracts)
+    merged = SR._merge(pdf, [m.ledger_pdf for m, _ in sub], contracts, [(m.fms_no, m.name) for m, _ in sub], warn)
     if SR._insert_albums(db, [y for _, y in sub], [m.name for m, _ in sub], pdf):
         merged.append("외관조사 사진첩")
     from server.api.routers.sitok_maps import insert_maps

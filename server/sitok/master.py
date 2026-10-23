@@ -400,6 +400,25 @@ def _renum(p, old: int, new: int, in_table: bool = False) -> None:
 PRIVATE_TERMS = [("학교별 3부", "1부"), ("총괄 보고서(인쇄물) : 3부", "총괄 보고서(인쇄물) : 1부"), ("계약일로부터 3일 이내", "계약일로부터 7일 이내")]
 
 
+def _contract_page(root) -> bool:
+    """부록 "계 약 서" 간지를 새 쪽에서 — 회사 원본은 다른 간지(3-1·3-2·3-6…) 앞 빈 문단엔 쪽 나눔이 있는데 3-7 계약서 앞에만 없어 결론이 짧으면
+    간지가 결론 밑에 붙고, 계약서 PDF 끼우기(_merge — 간지 혼자인 쪽을 찾음)가 말없이 건너뜀(10/23 형 "계약서 부분 다른 페이지에 작성 및 계약서 추가").
+    간지 앞 빈 문단 중 첫 것에 쪽 나눔(이미 있으면 그대로). 바꿨으면 True."""
+    tops = _tops(root)
+    for i, p in enumerate(tops):
+        cells = "".join(rb._cell_text(c) for t in p.iter(f"{{{HP}}}tbl") for c in rb._cells(t).values()).replace(" ", "")
+        if not (cells.startswith("부록") and "계약서" in cells and len(cells) < 30):
+            continue
+        k = i
+        while k > 0 and not rb._top_text(tops[k - 1]).strip() and next(tops[k - 1].iter(f"{{{HP}}}tbl", f"{{{HP}}}pic"), None) is None:
+            k -= 1
+        if any(q.get("pageBreak") == "1" for q in tops[k:i + 1]):
+            return False
+        tops[k].set("pageBreak", "1")
+        return True
+    return False
+
+
 def _appendix_terms(root, school: bool, private: bool) -> None:
     """부록 과업지시서·과업수행계획서 문구(민재형 10/12): 민간 = 보고서 1부·착수계 7일 이내, 적용법규 "제3종시설물 안전등급 평가 매뉴얼"은 학교만."""
     if private:
@@ -439,6 +458,7 @@ def prepare(src: Path, kind: str, dest: Path, private: bool = True, legal: bool 
         roots = {n: etree.fromstring(zin.read(n)) for n in secs}
         for n in secs[2:]:
             _appendix_terms(roots[n], kind == "3종학교", private)
+            _contract_page(roots[n])
         body = roots[secs[2]]
         tops = _tops(body)
         stop = _appendix_start(tops)

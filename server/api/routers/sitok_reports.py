@@ -634,27 +634,70 @@ def _extras(db: Session, r: SitokReport) -> rb.Extras:
     return ex
 
 
-def _merge(pdf: Path, ledgers: list[str], contracts: list[str]) -> list[str]:
-    """부록 간지 뒤에 관리대장(동마다 차례로)·계약서(계약서마다) PDF를 끼운다(간지 쪽을 글자로 찾음). 끼운 것 이름들."""
+def _ledger_range(src: str, key: tuple[str, str] | None, seen: set) -> tuple[int, int] | None:
+    """관리대장 PDF에서 끼울 쪽 (처음, 끝) — 여러 건물을 모은 것("종합" 관리대장)이면 그 동 것만(시설물번호·이름으로), 못 맞추면 아직 안 넣은 건물들.
+    10/23 형 "관리대장 3개만 들어가야 하는데 5개(서관·다목적 2번)" — 본관 카드에 3동 종합 10쪽, 서관·다목적은 나눈 3쪽이라 겹쳤음.
+    seen = 이미 넣은 시설물번호(겹침 빼기). 넣을 게 없으면 None."""
+    from server.sitok import reader
+
+    starts = reader.ledger_starts(Path(src))
+    with pymupdf.open(src) as add:
+        n = len(add)
+        if len(starts) < 2:
+            no = re.findall(r"[A-Z]{2}\d{4}-\d{7}", "".join(add[starts[0] if starts else 0].get_text().split())[:300])
+            if no and no[0] in seen:
+                return None
+            seen.update(no[:1])
+            return 0, n - 1
+        bounds = [0] + starts[1:] + [n]
+        chunks = []
+        for k in range(len(starts)):
+            head = "".join(add[starts[k]].get_text().split())[:300]
+            no = re.findall(r"[A-Z]{2}\d{4}-\d{7}", head)
+            chunks.append((bounds[k], bounds[k + 1] - 1, no[0] if no else "", head))
+    if key:
+        fno, name = (key[0] or "").replace(" ", ""), (key[1] or "").replace(" ", "")
+        mine = [c for c in chunks if (fno and c[2] == fno) or (not fno and name and name in c[3])]
+        if mine:
+            seen.add(mine[0][2])
+            return mine[0][0], mine[0][1]
+    keep = [c for c in chunks if not c[2] or c[2] not in seen]
+    if not keep:
+        return None
+    seen.update(c[2] for c in keep if c[2])
+    return keep[0][0], keep[-1][1]  # 이어진 쪽만 끼울 수 있어 처음~끝(사이 겹침은 드묾)
+
+
+def _merge(pdf: Path, ledgers: list[str], contracts: list[str], keys: list | None = None, warn: list | None = None) -> list[str]:
+    """부록 간지 뒤에 관리대장(동마다 차례로)·계약서(계약서마다) PDF를 끼운다(간지 쪽을 글자로 찾음). 끼운 것 이름들.
+    keys = 관리대장마다 (시설물번호, 시설물명) — 종합 관리대장이면 그 동 것만(_ledger_range). 간지를 못 찾으면 warn에 안내(10/23 — 계약서가 말없이 빠졌음)."""
     doc = pymupdf.open(pdf)
     done = []
-    plan = [("시설물관리대장", ledgers, ("부록.1", "관리대장")), ("계약서", contracts, ("부록", "계 약 서"))]
-    for label, srcs, keys in reversed(plan):  # 뒤쪽부터 끼워야 앞쪽 쪽 번호가 안 밀림
-        srcs = [s for s in srcs if s and Path(s).exists()]
+    plan = [("시설물관리대장", list(zip(ledgers, keys or [None] * len(ledgers))), ("부록.1", "관리대장")),
+            ("계약서", [(c, None) for c in contracts], ("부록", "계 약 서"))]
+    for label, srcs, keys_ in reversed(plan):  # 뒤쪽부터 끼워야 앞쪽 쪽 번호가 안 밀림
+        srcs = [(s, k) for s, k in srcs if s and Path(s).exists()]
         if not srcs:
             continue
         page = next((i for i in range(len(doc) - 1, -1, -1)
-                     if all(k in doc[i].get_text() for k in keys) and len(doc[i].get_text().strip()) < 80), None)
+                     if all(k in doc[i].get_text() for k in keys_) and len(doc[i].get_text().strip()) < 80), None)
         if page is None:
+            if warn is not None:
+                warn.append(f"부록 '{label}' 간지 쪽을 못 찾아 {label} PDF를 못 끼웠습니다 — 손으로 확인하세요")
             continue
         at = page + 1
-        for src in srcs:
+        seen: set = set()
+        for src, key in srcs:
+            rng = _ledger_range(src, key, seen) if label == "시설물관리대장" else None
+            if label == "시설물관리대장" and rng is None:
+                continue
             with pymupdf.open(src) as add:
-                first = 0  # 올린 PDF가 지난 보고서에서 잘라낸 것이면 첫 장이 같은 간지 — 빼고 끼움(10/10 평택 견본)
-                while first < len(add) - 1 and all(k in add[first].get_text() for k in keys) and len(add[first].get_text().strip()) < 80:
+                first, last = rng or (0, len(add) - 1)
+                # 올린 PDF가 지난 보고서에서 잘라낸 것이면 첫 장이 같은 간지 — 빼고 끼움(10/10 평택 견본)
+                while first < last and all(k in add[first].get_text() for k in keys_) and len(add[first].get_text().strip()) < 80:
                     first += 1
-                doc.insert_pdf(add, from_page=first, start_at=at)
-                at += len(add) - first
+                doc.insert_pdf(add, from_page=first, to_page=last, start_at=at)
+                at += last - first + 1
         done.append(label)
     tmp = pdf.with_suffix(".merge.pdf")
     doc.save(tmp, garbage=3, deflate=True)
@@ -1055,7 +1098,7 @@ def _run_build(report_id: int) -> None:
             warn = _page_check(pdf, hwpx, drawn) + warn  # 관리대장·계약서 합치기 전(본문 쪽 번호 = 최종), 도면 쪽은 빼고
             if _add_summary(db, [(f, r)], new.title, hwpx, pdf, warn):  # 정기 요약문 — 목차 앞(10/16 민재형 견본)
                 pass
-            merged = _merge(pdf, [f.ledger_pdf], [c.contract_pdf] if c else [])
+            merged = _merge(pdf, [f.ledger_pdf], [c.contract_pdf] if c else [], [(f.fms_no, f.name)], warn)
             if _insert_albums(db, [r], [f.name], pdf):
                 merged.append("외관조사 사진첩")
             from server.api.routers.sitok_maps import insert_maps
@@ -1371,7 +1414,7 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
             c = db.get(SitokContract, y.contract_id) if y.contract_id else None
             if c is not None and c.contract_pdf and c.contract_pdf not in contracts:
                 contracts.append(c.contract_pdf)
-        merged = _merge(pdf, [m.ledger_pdf for m, _ in pairs], contracts)
+        merged = _merge(pdf, [m.ledger_pdf for m, _ in pairs], contracts, [(m.fms_no, m.name) for m, _ in pairs], warn)
         if _insert_albums(db, [y for _, y in pairs], [m.name for m, _ in pairs], pdf):
             merged.append("외관조사 사진첩")
         from server.api.routers.sitok_maps import insert_maps
