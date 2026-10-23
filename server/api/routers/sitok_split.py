@@ -206,7 +206,7 @@ def _build_one(db: Session, lead: SitokReport, k: int, sub: list) -> dict:
     if SR._insert_albums(db, [y for _, y in sub], [m.name for m, _ in sub], pdf):
         merged.append("외관조사 사진첩")
     from server.api.routers.sitok_maps import insert_maps
-    if insert_maps(db, [y for _, y in sub], pdf):  # 부록 외관망도(10/23)
+    if insert_maps(db, [y for _, y in sub], pdf, [m.name for m, _ in sub]):  # 부록 외관망도(10/23) — 동마다 간지
         merged.append("외관망도")
     cover = None
     try:

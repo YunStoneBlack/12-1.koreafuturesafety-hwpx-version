@@ -116,9 +116,13 @@ def get_map(report_id: int, idx: int, user: User = Depends(get_current_user), db
     return FileResponse(p, media_type="application/pdf" if p.suffix.lower() == ".pdf" else "image/jpeg", content_disposition_type="inline", filename=rows[idx].get("name") or p.name)
 
 
-def insert_maps(db: Session, reps: list[SitokReport], pdf: Path) -> bool:
-    """합본 PDF에 회차들(묶음이면 동 차례)의 외관망도를 끼움 — "외관망도/외관조사망도" 간지 뒤, 없으면 "기타 부록 참고자료" 간지 뒤, 없으면 맨 뒤. 끼웠으면 True."""
-    files = [p for x in reps for p in map_files(db, x)]
+def insert_maps(db: Session, reps: list[SitokReport], pdf: Path, names: list[str] | None = None) -> bool:
+    """합본 PDF에 회차들(묶음이면 동 차례)의 외관망도를 끼움 — "외관망도/외관조사망도" 간지 뒤, 없으면 "기타 부록 참고자료" 간지 뒤, 없으면 맨 뒤. 끼웠으면 True.
+    names(묶음 동 이름)를 주고 동이 둘 이상이면 동마다 "부록3-2-k. 동 이름" 간지 + 그 동 망도(사진첩 "부록2-k." 간지와 같은 모양, 10/23 형 "외관망도 간지 사진첩과 동일하게")."""
+    from server.sitok.precision_merge import _divider_page
+
+    per = [(k, x, map_files(db, x)) for k, x in enumerate(reps, 1)]
+    files = [p for _, _, fs in per for p in fs]
     if not files or not pdf.exists():
         return False
     norm = lambda t: re.sub(r"\s+", "", t or "")  # noqa: E731 — 간지는 "외 관 망 도"처럼 띄어 씀
@@ -127,7 +131,25 @@ def insert_maps(db: Session, reps: list[SitokReport], pdf: Path) -> bool:
     at = next((i + 1 for i in range(len(doc) - 1, -1, -1) if short(i) and any(k in norm(doc[i].get_text()) for k in ("외관망도", "외관조사망도"))), None)
     if at is None:  # 뒤에서부터 — 앞쪽 목차(▣ 부록 줄)가 아니라 실제 간지. 그 간지 뒤(기타 부록 첫 자료로)
         at = next((i + 1 for i in range(len(doc) - 1, -1, -1) if short(i) and "기타부록참고자료" in norm(doc[i].get_text())), len(doc))
+    num = re.search(r"부록\s*([\d\-]+)\s*\.", doc[at - 1].get_text()) if 0 < at <= len(doc) else None
     add = pymupdf.open()
+    for k, x, fs in per:
+        if not fs:
+            continue
+        if names and len(reps) > 1 and 0 < at <= len(doc):
+            _divider_page(add, doc[at - 1], f"부록{num[1]}-{k}. {names[k - 1]}" if num else f"{names[k - 1]} 외관망도")
+        _add_files(add, fs)
+    doc.insert_pdf(add, start_at=at)
+    add.close()
+    tmp = pdf.with_suffix(".maps.pdf")
+    doc.save(tmp, garbage=3, deflate=True)
+    doc.close()
+    tmp.replace(pdf)
+    return True
+
+
+def _add_files(add, files: list[Path]) -> None:
+    """올린 외관망도(PDF는 그대로, 그림은 A4 한 쪽에 비율대로 — 가로 그림이면 가로 쪽)를 add 끝에."""
     for p in files:
         if p.suffix.lower() == ".pdf":
             with pymupdf.open(p) as s:
@@ -138,10 +160,3 @@ def insert_maps(db: Session, reps: list[SitokReport], pdf: Path) -> bool:
         pw, ph = (A4[1], A4[0]) if w > h else A4
         page = add.new_page(width=pw, height=ph)
         page.insert_image(pymupdf.Rect(28, 28, pw - 28, ph - 28), filename=str(p), keep_proportion=True)
-    doc.insert_pdf(add, start_at=at)
-    add.close()
-    tmp = pdf.with_suffix(".maps.pdf")
-    doc.save(tmp, garbage=3, deflate=True)
-    doc.close()
-    tmp.replace(pdf)
-    return True

@@ -1418,7 +1418,7 @@ def _run_group_build(db: Session, r: SitokReport) -> None:
         if _insert_albums(db, [y for _, y in pairs], [m.name for m, _ in pairs], pdf):
             merged.append("외관조사 사진첩")
         from server.api.routers.sitok_maps import insert_maps
-        if insert_maps(db, [y for _, y in pairs], pdf):  # 부록 외관망도(10/23) — 동 차례로
+        if insert_maps(db, [y for _, y in pairs], pdf, [m.name for m, _ in pairs]):  # 부록 외관망도(10/23) — 동 차례로, 동마다 간지
             merged.append("외관망도")
         from server.api.routers.sitok_defects import missing_photo_note
         warn += [f"{m.name}: {missing_photo_note(db, y.id)}" for m, y in pairs if missing_photo_note(db, y.id)]
