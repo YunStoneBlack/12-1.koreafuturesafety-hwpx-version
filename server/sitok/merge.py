@@ -186,17 +186,11 @@ def _renum_chapter(paras: list, k: int) -> None:
                     _sub_pieces(tc, r"^(\s*)1\.(?=\d)", rf"\g<1>{k}.", first_only=True)
 
 
-def _is_result(tbl) -> bool:
-    texts = {k: rb._cell_text(v).replace(" ", "") for k, v in rb._cells(tbl).items()}
-    return texts.get((1, 0)) == "용역명" and texts.get((1, 4)) == "점검기간" and texts.get((2, 0)) == "관리주체명"
-
-
 def _replace_titles(root, titles: list[str], group_title: str) -> None:
-    """동 용역명 → 묶음 용역명(결과표 칸 안은 그대로 — 동마다 다름)."""
-    skip = {id(t) for tbl in root.iter(f"{{{HP}}}tbl") if _is_result(tbl) for t in tbl.iter(rb.T)}
+    """동 용역명 → 묶음 용역명 — 제출문·명단·결과표 용역명 칸까지 전부(10/23 형 "묶음이면 결과표 용역명도 모두 표지 제목과 같게, 분권은 각각" —
+    분권 권은 그 권 표지 제목이 group_title, 한 동 권은 동별 한글 그대로). 예전엔 결과표 칸을 id(t)로 건너뛰었는데 lxml이 그때그때 만드는 객체라
+    id가 다시 쓰여 아무 데나 건너뜀(제출문·서관 결과표만 동 이름으로 남았음)."""
     for t in root.iter(rb.T):
-        if id(t) in skip:
-            continue
         for pc in rb._pieces(t):
             s = pc.text
             for old in titles:
