@@ -154,3 +154,16 @@ def part_map(fam: str = "") -> dict:
     if fam == "wall":
         return {**{m: "주요시설" for m in WALL_MAJOR_MEMBERS}, **{m: "일반시설" for m in WALL_GENERAL_MEMBERS}, **{m: "부대시설" for m in WALL_MINOR_MEMBERS}}
     return {**{m: "구조체" for m in STRUCT_MEMBERS}, **{m: "비구조체" for m in NONSTRUCT_MEMBERS}}
+
+
+def _selfcheck() -> None:
+    """깊이 표기(10/22 민재형 "결함유형에 파손(D=1.0mm)") — 나누기·붙이기."""
+    assert split_depth("파손 (D=0.9mm)") == ("파손", "0.9") and split_depth("재료분리(D=0.9mm)") == ("재료분리", "0.9")
+    assert split_depth("박락(D=1,5㎜)") == ("박락", "1.5") and split_depth("파손(d = 12 mm) 사진") == ("파손 사진", "12") and split_depth("수직균열") == ("수직균열", "")
+    assert type_with_depth("파손", "0.9") == "파손(D=0.9mm)" and type_with_depth("균열", "") == "균열" and type_with_depth("", "3") == ""
+    assert norm("박락·층분리") == "박락" and is_repaired_type("보수 완료") and is_record("실외기 현황")
+    print("결함 이름 검사 통과")
+
+
+if __name__ == "__main__":
+    _selfcheck()

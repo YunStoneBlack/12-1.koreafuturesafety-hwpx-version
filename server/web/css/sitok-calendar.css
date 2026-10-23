@@ -56,11 +56,6 @@
 .sc-add { display: flex; gap: 6px; align-items: center; margin-top: 10px; }
 .sc-add select { flex: 1; margin: 0; font-size: 13px; }
 .main .sc-add button { margin: 0; }
-.main button.dk-ev.k-reg { background: #fff; border-color: #2563eb; }
-.main button.dk-ev.k-pre { background: #fff; border-color: #7c3aed; }
-.main button.dk-ev.k-reg.s-field { background: #D6E4FF; } .main button.dk-ev.k-pre.s-field { background: #E6DDFF; }
-.main button.dk-ev.k-reg.s-done { background: #2563eb; color: #fff; } .main button.dk-ev.k-pre.s-done { background: #7c3aed; color: #fff; }
-.main button.dk-ev.s-missed { border-style: dashed; border-color: var(--crit, #b42318); }
 .sc-fill-box { max-width: 640px; }
 .sc-fill-list { max-height: 55vh; overflow: auto; display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .sc-fill-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
@@ -69,7 +64,6 @@
 .sc-fill-note { flex-basis: 100%; color: var(--warn, #b45309); }
 .sc-k { font-size: 11.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: #EEF4FF; color: #2563eb; }
 .sc-k.pre { background: #F3EFFF; color: #7c3aed; }
-.sc-ov-box { max-width: 460px; }
 
 /* 방문 달력 크게(10/18 민재형) — PC는 날짜 칸을 높게(폰은 그대로 62px), 넓이는 js/cal-wide.js */
 @media (min-width: 761px) { .fc .fc-daygrid-day-frame { min-height: 118px; } }
@@ -85,8 +79,7 @@
 .main .sc-contact .sc-c-act button { margin: 0; }
 @media (max-width: 760px) { .sc-contact { grid-template-columns: 1fr; } .sc-contact input { font-size: 16px; } }
 
-/* 폰도 산안법 달력처럼(10/23 사용자 "오늘 날짜 출장 일정만, 다른 날짜 누르면 그 날짜") — 달력 아래 고른 날 상세, 그달 날짜별 목록은 숨김(docs.css 폰 규칙을 이 달력에서만 뒤집음) */
+/* 폰도 산안법 달력처럼(10/23 사용자 "오늘 날짜 출장 일정만, 다른 날짜 누르면 그 날짜") — 달력 아래 고른 날 상세(docs.css 폰 규칙 .dk-day 숨김을 이 달력에서만 뒤집음) */
 @media (max-width: 760px) {
-  .dk-list { display: none; }
   .dk-day { display: block; scroll-margin-top: 64px; }
 }

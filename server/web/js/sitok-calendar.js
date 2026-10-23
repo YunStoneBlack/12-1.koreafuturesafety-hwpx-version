@@ -136,7 +136,7 @@
     });
   }
 
-  // 그날 상세(PC 오른쪽) / 폰 작은 창 — 같은 카드
+  // 그날 상세 카드(PC 오른쪽 · 폰 달력 아래 — 10/23부터 둘 다 같은 칸)
   const STATE = { done: "✓ 그 반기 보고서 만듦", field: "✓ 현장점검 완료 — 보고서는 아직", missed: "⚠ 지난 날 — 현장점검 완료 안 됨", planned: "예정" }; // field = 현장 조사 [✓ 조사 완료]·제출 현황 [현장점검](10/18)
   function visitCard(v) {
     const f = v.facility;
@@ -166,7 +166,7 @@
       card.querySelector(".sc-end").addEventListener("change", (e) => { if (e.target.value) setEnd(v, e.target.value); });
       card.querySelector(".sc-del").addEventListener("click", async () => {
         if (!confirm(`${v.facility.mgmt_no} ${v.facility.name} ${v.date} 일정을 지울까요?${v.pinned ? "" : "\n(자동으로 잡은 날 — 지우면 다음 [자동으로 잡기] 때 다시 잡힐 수 있어요)"}`)) return;
-        try { await api(`/sitok/calendar/visits/${v.id}`, { method: "DELETE" }); document.querySelector(".mail-overlay.sc-ov")?.remove(); reload(); } catch (err) { showError(errorEl, err); }
+        try { await api(`/sitok/calendar/visits/${v.id}`, { method: "DELETE" }); reload(); } catch (err) { showError(errorEl, err); }
       });
     });
   }
@@ -200,7 +200,7 @@
       form.querySelector(".sc-c-save").addEventListener("click", async () => {
         const phone = form.querySelector(".sc-c-phone").value.trim();
         const manager = form.querySelector(".sc-c-name").value.trim();
-        try { await apiPatch(`/sitok/calendar/visits/${v.id}/site-contact`, { phone, manager }); document.querySelector(".mail-overlay.sc-ov")?.remove(); reload(); }
+        try { await apiPatch(`/sitok/calendar/visits/${v.id}/site-contact`, { phone, manager }); reload(); }
         catch (err) { alert(err.message); }
       });
     });
@@ -235,30 +235,6 @@
       try { await apiPost("/sitok/calendar/visits", { facility_id: fid, plan_date: selected }); preFacility = null; reload(); } catch (err) { showError(errorEl, err); }
     });
   }
-  function openVisit(v) { // 폰 — 작은 창
-    const overlay = document.createElement("div");
-    overlay.className = "mail-overlay sc-ov";
-    overlay.innerHTML = `<div class="mail-box sc-ov-box" role="dialog" aria-modal="true">${visitCard(v)}<div class="mail-foot"><button type="button" class="o-close">닫기</button></div></div>`;
-    // 본문 안에 붙임 — 입력칸·단추·전화/지도 단추가 PC 그날 칸과 같은 그룹웨어 스타일(.main …)을 받게(10/20 사용자 "투박해" — body에 붙여 기본 모양이었음)
-    (document.querySelector("main.main") || document.body).appendChild(overlay);
-    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) overlay.remove(); });
-    overlay.querySelector(".o-close").addEventListener("click", () => overlay.remove());
-    wireCards(overlay);
-  }
-  function renderList(view) {
-    const list = document.getElementById("sc-list");
-    const from = ymd(view.currentStart), to = ymd(view.currentEnd);
-    const byDay = {};
-    for (const v of data.visits) for (let d = v.date; d <= endOf(v); d = addDay(d, 1)) if (d >= from && d < to) (byDay[d] ||= []).push(v); // 여러 날 일정은 날마다
-    const days = Object.keys(byDay).sort();
-    list.innerHTML = days.length ? days.map((d) => {
-      const dt = new Date(`${d}T00:00:00`);
-      const h = holidays[d];
-      return `<div class="dk-lday${d === ymd(new Date()) ? " today" : ""}"><div class="dk-ldate${h || dt.getDay() === 0 ? " red" : ""}">${dt.getMonth() + 1}/${dt.getDate()} (${WEEK[dt.getDay()]})${h ? ` · ${esc(h.name)}` : ""}</div>
-        ${byDay[d].map((v) => `<button type="button" class="dk-ev sc-ev ${vClass(v).join(" ")}" data-id="${v.id}">${esc(vTitle(v))} · ${esc(v.kind)}</button>`).join("")}</div>`;
-    }).join("") : '<div class="empty-note">이 달엔 점검 일정이 없습니다.</div>';
-    list.querySelectorAll(".sc-ev").forEach((b) => b.addEventListener("click", () => openVisit(data.visits.find((x) => String(x.id) === b.dataset.id))));
-  }
   function selectDay(date) {
     selected = date;
     document.querySelectorAll("#sc-cal .fc-daygrid-day").forEach((cell) => cell.classList.toggle("dk-selected", cell.getAttribute("data-date") === selected));
@@ -272,7 +248,7 @@
     if (loadOf(date) + add > data.day_cap && !confirm(`${date} 그날 건물이 ${loadOf(date) + add}개가 됩니다(하루 ${data.day_cap}개). 그래도 옮길까요?`)) { if (revert) revert(); return; }
     try {
       await api(`/sitok/calendar/visits/${v.id}`, { method: "PATCH", body: JSON.stringify({ plan_date: date }) });
-      document.querySelector(".mail-overlay.sc-ov")?.remove();
+     
       selected = date;
       reload();
     } catch (err) {
@@ -286,7 +262,7 @@
     if (end < v.date) { alert("끝 날이 시작 날보다 앞입니다."); if (revert) revert(); else renderDay(); return; }
     try {
       await api(`/sitok/calendar/visits/${v.id}`, { method: "PATCH", body: JSON.stringify({ plan_end: end }) });
-      document.querySelector(".mail-overlay.sc-ov")?.remove();
+     
       reload();
     } catch (err) {
       if (revert) revert();
@@ -322,7 +298,7 @@
       const v = info.event.extendedProps.v;
       info.el.title = `${v.facility.mgmt_no} ${v.facility.name} · ${v.kind} · ${v.year} ${v.half}${v.facility.region ? ` · ${v.facility.region}` : ""}${v.pinned ? " · 📌" : ""}`;
     },
-    eventsSet: () => { decorateCells(); renderList(cal.view); renderDay(); renderNotice(); },
+    eventsSet: () => { decorateCells(); renderDay(); renderNotice(); },
     datesSet: () => decorateCells(),
     dateClick: (info) => selectDay(info.dateStr),
     eventClick: (info) => selectDay(ymd(info.event.start)), // 폰도 그날 상세로(10/23 — 예전엔 작은 창)
