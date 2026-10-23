@@ -189,6 +189,12 @@
   96~97차: 요약문 종합의견 견본 문장·AI 초안(`field/summary/template|ai`), 2.3 결함 표(망도 없음)·1.2 층별 평면도·목차 쪽 번호(두 번 PDF),
   과업수행계획서 자동(`server/sitok/seismic_plan.py` — 서류 칸 [📝 자동으로 만들기], 안 올리면 부록 2 자동), 스캔 건축물대장 AI 읽기(`seismic_docs.read_register_ai`),
   시특법 서류 자동화의 성능평가 계약은 시특법 회차를 안 만듦. 그룹웨어 홈 보고서 자동화 카드에 [내진성능평가][결함조사], 두 카드 오른쪽 위 ⚙ 설정(98차).
+- **99~121차(10/22~23)**: 내진성능평가 형 검토 반영(입력 없으면 빈칸·조사결과 글 AI·위치도·확인서), 관급 완수계 실제 준공일·발송일(DB 0063), 현장 조사 —
+  결함 🗑 지우기 + 같은 층 번호·사진 파일 이름 당기기(`sitok_defects.renumber`), ✏️ 크기 고치기, 깊이 한꺼번에·결함유형 "(D=…mm)"(`kinds.split_depth`·`type_with_depth`),
+  전회차 사진 ✕/＋, **신호 약한 곳 사진 폰 보관·자동 재전송**(`app.js KfUploads`·`apiUploadSafe`, 신규 결함 `client_key`), 위 탭 고정, **전회차 사진 그대로 넣기**(`sitok_prevphotos.py`·`js/sitok-prevphotos.js`),
+  **부록 외관망도 첨부 → 합본**(`sitok_maps.py`, 회차 화면 [📐 부록 외관망도]), 일람표 칸 검색 고르기(`app.js searchSelect`), 철근탐사 캡처 ✕·[저장],
+  시특법 방문 달력 — 폰도 고른 날 상세·묶음별 일정 하나(`visit_plan.merge_unit_visits`)·시설물 위치·일정 없는 반기 목록·동선 짜기(`/sitok/calendar/route` + `js/route-plan.js`),
+  서류 자동화 [🔗 현장 연결] → [＋ 새 현장 등록](`dashboard.html?new=1&contract=`), 산안법 7·9번 [AI로 작성] 자리.
 - **91차(10/21 밤)**: 옹벽 묶음 2장부터 꼬리말 고침(`wall_build._drop_before(sec_only=True)` — 구역 정의만 옮김), 보고서 구성 상자 기본 계약 = 반기와 가장 많이 겹치는 계약(`sitok_compose._overlap_days`, `attach_contract`는 contract_for), **정밀 묶음 분권**(`sitok_split._build_precision`), 양주덕산초 되돌리기 `server/scripts/restore_deoksan_test.py`.
 - **75~89차(10/21)**: 옹벽 형 수정사항(요약표 전회 칸·1.5 유지관리방안·1.6 개략공사비 AI, 발주처 과업지시서 DB 0060, 위치도 핀·후면첨부 도면, 1.2.4 틀 점선 X + "후면첨부",
   2.2 과업 예정 공정표 머리 = 과업기간 날짜, 전회차 사진 읽기 세 단계 — 부록2 간지 → 전경사진·주요 손상 및 현황사진 제목 쪽 → 설명 붙은 사진),
