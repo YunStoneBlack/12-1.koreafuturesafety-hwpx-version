@@ -2,7 +2,8 @@
 // 1) 보고서 화면 사진 칸 미리보기(<img class="thumb" src="…?thumb=1">)를 누르면 — 모든 사진 칸(3 전경·점검, 4 이전지적·이행완료, 8 지적사항,
 //    10 TBM·계측, 11 제공자료…)이 같은 모양이라 문서 전체에서 한 번에 잡는다(클릭 위임). 같은 번호 칸(같은 <section class="panel">)끼리 넘김.
 //    보기용 크기(서버 ?view=1, 긴 쪽 1400px — 보고서 PDF에 넣는 크기)로 빠르게, [원본 보기]만 원본(폰 원본은 5~10MB라 데이터로 느림).
-// 2) openPhotoViewer(items, start) — 다른 곳에서도(K2B 제출 화면 구역별 여러 장 openK2bShots, 10/7). items = [{src, orig, caption}]
+// 2) openPhotoViewer(items, start) — 다른 곳에서도(K2B 제출 화면 구역별 여러 장 openK2bShots, 10/7). items = [{src, orig, caption, actions?}]
+//    actions = [{label, run(item, close)}] — 위 줄 단추(시특법 현장 조사 ↻ 돌리기·📷 다시 찍기, 10/23). run이 새 주소(글)를 돌려주면 그 사진을 다시 읽음.
 // 사진을 누르면 원래 크기로 확대(다시 누르면 맞춤), ←→·폰 밀기, 닫기: ✕·바깥·ESC. 화면 규칙은 css/photo-viewer.css.
 
 (function () {
@@ -32,7 +33,7 @@
     overlay = document.createElement("div");
     overlay.className = "pv-overlay";
     overlay.innerHTML = `
-      <div class="pv-top"><span class="pv-cap"></span><span class="pv-count"></span>
+      <div class="pv-top"><span class="pv-cap"></span><span class="pv-count"></span><span class="pv-acts"></span>
         <a class="pv-orig" target="_blank" rel="noopener">원본 보기</a><button type="button" class="pv-close" aria-label="닫기">✕</button></div>
       <div class="pv-stage"><img class="pv-img" alt="" /><div class="pv-msg"></div></div>
       <button type="button" class="pv-nav pv-prev" aria-label="이전 사진">‹</button><button type="button" class="pv-nav pv-next" aria-label="다음 사진">›</button>`;
@@ -73,6 +74,29 @@
     overlay.querySelector(".pv-cap").textContent = it.caption || "";
     overlay.querySelector(".pv-count").textContent = list.length > 1 ? `${idx + 1} / ${list.length}` : "";
     overlay.querySelectorAll(".pv-nav").forEach((b) => { b.hidden = list.length < 2; });
+    const acts = overlay.querySelector(".pv-acts");
+    acts.innerHTML = "";
+    for (const a of it.actions || []) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "pv-act";
+      b.textContent = a.label;
+      b.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        b.disabled = true;
+        try {
+          const src = await a.run(it, close);
+          if (typeof src === "string" && overlay && list[idx] === it) {
+            it.src = it.orig = src;
+            show();
+          }
+        } catch (err) {
+          if (overlay) overlay.querySelector(".pv-msg").textContent = err.message || String(err);
+        }
+        b.disabled = false;
+      });
+      acts.appendChild(b);
+    }
   }
 
   function go(step) {

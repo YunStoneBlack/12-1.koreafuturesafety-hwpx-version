@@ -47,7 +47,7 @@
 .sf-prev.sf-now { margin-top: 2px; color: var(--blue); font-weight: 600; } /* ✏️로 고친 이번 크기(10/23) */
 .sf-photos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 .sf-photos figure { margin: 0; position: relative; }
-.sf-photos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #fff; display: block; cursor: pointer; }
+.sf-photos img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border-radius: 8px; border: 1px solid var(--line); background: #EEF0F3; display: block; cursor: zoom-in; } /* 세로 사진도 다 보이게(10/23 형) */
 .sf-photos figcaption { font-size: 11.5px; color: var(--muted); text-align: center; margin-top: 3px; }
 .sf-nophoto, .sf-shot span { width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; border: 1.5px dashed var(--line); display: flex; align-items: center; justify-content: center;
   font-size: 13px; color: var(--faint); background: var(--paper); }
@@ -105,7 +105,7 @@
 .pv-grid { flex-basis: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-top: 4px; }
 .pv-grid[hidden] { display: none; }
 .pv-grid figure { margin: 0; }
-.pv-grid img, .pv-none { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: #fff; display: block; cursor: pointer; }
+.pv-grid img, .pv-none { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border-radius: 6px; border: 1px solid var(--line); background: #EEF0F3; display: block; cursor: zoom-in; }
 .pv-none { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12.5px; cursor: default; }
 .pv-grid figcaption { font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
 .pv-grid figcaption em { font-style: normal; color: #b45309; }
@@ -129,7 +129,7 @@
 .ov-card.busy { opacity: .5; pointer-events: none; }
 .ov-no { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; color: var(--muted); }
 .ov-no span { font-weight: 500; color: var(--faint); }
-.ov-card img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; display: block; }
+.ov-card img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border-radius: 8px; border: 1px solid var(--line); background: #EEF0F3; cursor: zoom-in; display: block; }
 .ov-title { display: flex; gap: 6px; }
 .ov-title input { flex: 1; min-width: 0; padding: 8px; font-size: 14px; }
 .ov-plate { flex: none; display: flex; align-items: center; justify-content: center; width: 40px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 17px; background: var(--paper); }
@@ -240,7 +240,7 @@
 .pt-name { display: flex; justify-content: space-between; gap: 6px; font-size: 14px; font-weight: 700; }
 .pt-name span { font-size: 12px; font-weight: 600; color: var(--muted); }
 .pt-hint { flex: 1; font-size: 11.5px; color: var(--faint); line-height: 1.4; } /* 남는 높이 차지 — 같은 줄 카드끼리 사진 칸·버튼 줄 맞춤(10/16) */
-.pt-card img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; display: block; }
+.pt-card img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border-radius: 8px; border: 1px solid var(--line); background: #EEF0F3; cursor: zoom-in; display: block; }
 .pt-blank { aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px; border: 1.5px dashed var(--line); border-radius: 8px; color: var(--faint); font-size: 13px; }
 .pt-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .main .pt-acts label.ov-shot { display: inline-flex; margin: 0; padding: 7px 12px; font-size: 13px; }
@@ -308,7 +308,7 @@
 /* 전회차 칸(옹벽 가져오기, 10/21) — 전경·공중이용·상태양호 */
 .ov-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ov-pair figure { margin: 0; }
-.ov-pair img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; }
+.ov-pair img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border-radius: 8px; background: #EEF0F3; }
 .ov-pair figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .ov-now, .main .ov-pair label.ov-now { display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; margin: 0; border: 2px dashed var(--blue); border-radius: 8px; background: var(--blue-soft, #EEF4FF); color: var(--blue); font-weight: 700; cursor: pointer; }
 .ov-now.drop-over { background: #DCE8FF; }
