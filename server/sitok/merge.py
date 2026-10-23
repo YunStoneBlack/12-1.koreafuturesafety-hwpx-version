@@ -41,6 +41,18 @@ def _head(p) -> str:
 
 
 TITLES = ("정기안전점검 결과표", "실시결과 요약표", "위치도 및 전경사진")
+RESULT_RE = re.compile(r"정기안전점검\s*(\([^)]*\))?\s*결과표$")  # 83차(10/21)부터 양식대로 "…정기안전점검(하반기) 결과표"(form_fix.result_title)
+
+
+def _title_kind(x: str) -> int | None:
+    """동별 묶음 제목 종류 — 0 결과표(반기 괄호 있어도), 1 실시결과 요약표, 2 위치도 및 전경사진, 아니면 None.
+    (10/23 양주덕산초 묶음 만들기 StopIteration — 괄호 든 결과표 제목을 "정기안전점검 결과표"로 끝나는지로만 찾았음)"""
+    if RESULT_RE.search(x):
+        return 0
+    for k in (1, 2):
+        if x.endswith(TITLES[k]):
+            return k
+    return None
 
 
 def _overview_end(tops: list, s: int) -> int:
@@ -48,7 +60,7 @@ def _overview_end(tops: list, s: int) -> int:
     last = s
     for i in range(s + 1, len(tops)):
         x = rb._top_text(tops[i]).strip()
-        if x.endswith(TITLES):
+        if _title_kind(x) is not None:
             break
         h = _head(tops[i])
         if "위치도" in h or "전경사진" in h:
@@ -62,9 +74,9 @@ def _front_blocks(root) -> dict[str, tuple[int, int]]:
     """첫 구역 동별 묶음 위치 {"result"|"summary"|"overview": (시작, 끝)} — 제목 문단부터 다음 묶음 제목 앞까지."""
     tops = _tops(root)
     t = [rb._top_text(p).strip() for p in tops]
-    rs = next(i for i, x in enumerate(t) if x.endswith(TITLES[0]))
-    ss = next(i for i, x in enumerate(t) if i > rs and x.endswith(TITLES[1]))
-    os_ = next(i for i, x in enumerate(t) if i > ss and x.endswith(TITLES[2]))
+    rs = next(i for i, x in enumerate(t) if _title_kind(x) == 0)
+    ss = next(i for i, x in enumerate(t) if i > rs and _title_kind(x) == 1)
+    os_ = next(i for i, x in enumerate(t) if i > ss and _title_kind(x) == 2)
     return {"result": (rs, ss), "summary": (ss, os_), "overview": (os_, _overview_end(tops, os_))}
 
 
@@ -365,7 +377,9 @@ def merge(parts: list[dict], dest: Path, group_name: str, group_title: str) -> l
 
 def _prefix_title(p, kind: str, k: int, name: str) -> None:
     """동별 묶음 제목 — "1.○○ 정기안전점검 결과표" / "1.○○ 정기안전점검 실시결과 요약표" / "1.○○의 위치도 및 전경사진"(견본 모양)."""
-    text = {"result": f"{k}.{name} 정기안전점검 결과표", "summary": f"{k}.{name} 정기안전점검 실시결과 요약표",
+    m = RESULT_RE.search(rb._top_text(p).strip())
+    half = m[1] if m and m[1] else ""  # 양식 제목 "(하반기)" 그대로(83차)
+    text = {"result": f"{k}.{name} 정기안전점검{half} 결과표", "summary": f"{k}.{name} 정기안전점검 실시결과 요약표",
             "overview": f"{k}.{name}의 위치도 및 전경사진"}[kind]
     rb._set_para(p, text)
 
@@ -379,17 +393,17 @@ def split(src: Path, k: int, dest: Path) -> None:
         front = roots[0]
         tops = _tops(front)
         t = [rb._top_text(p).strip() for p in tops]
-        for suffix in TITLES:
-            starts = [i for i, x in enumerate(t) if x.endswith(suffix)]
+        for kind in range(len(TITLES)):
+            starts = [i for i, x in enumerate(t) if _title_kind(x) == kind]
             if len(starts) < 2:
                 continue
             spans = []
             for s in starts:
-                if suffix == TITLES[2]:
+                if kind == 2:
                     e = _overview_end(tops, s)
                 else:
                     e = s + 1
-                    while e < len(t) and not t[e].endswith(TITLES):
+                    while e < len(t) and _title_kind(t[e]) is None:
                         e += 1
                 spans.append((s, e))
             for j, (s, e) in enumerate(spans, 1):
