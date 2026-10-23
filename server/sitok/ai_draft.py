@@ -137,7 +137,7 @@ PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법)
 - 사실은 위 집계에 있는 것만. 없는 결함·숫자를 지어내지 말 것. 결함이 0개인 항목은 "조사 결과 특이사항이 없었다/양호" 취지로 짧게.
 - 진행된 결함(진행)·새로 찾은 결함(신규)·보수 완료가 있으면 그 사실을 반영(전회차 대비 변화).
 - 균열폭 0.3mm 미만은 표면처리, 0.3mm 이상은 주입 보수가 일반적. 면적 결함(누수·박리 등)은 마감재 재시공·단면복구 등.
-- 원인은 결함마다 적힌 원인·근거(사진에서 본 것)를 살려 구체적으로 — "건조수축균열·노후화" 같은 한 낱말로 뭉뚱그리지 말 것.
+- 원인은 결함마다 적힌 원인·근거를 살려 구체적으로 — "건조수축균열·노후화" 같은 한 낱말로 뭉뚱그리지 말 것.
 - 구조체라도 미장균열·마감균열·조적균열은 마감층 결함이라 구조 결함이 아님(집계의 "상태평가 대상"에서 빠짐) — 구조안전성 판단·등급·18항목의 구조부재 항목은
   상태평가 대상 결함으로, 마감층 결함은 18항목의 마감재·칸막이벽 항목에서.
 - {leak_rule} — 마감재 누수흔적·배관 누수를 "구조체 누수"로 쓰지 말 것.
@@ -231,7 +231,7 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
                            grade_rule=rule, leak_rule=manual3.LEAK_RULE, grade_pick="양호|보통|미흡|불량 중 하나" if two else "A~E 중 하나")
     from server.sitok import vision
 
-    text = vision.ask(company_id, [], prompt, max_tokens=32000)  # 3종 18항목·1.4·보수공법까지 쓰면 답이 김
+    text = vision.ask(company_id, [], prompt, max_tokens=32000, writing=True)  # 3종 18항목·1.4·보수공법까지 쓰면 답이 김
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
         raise ValueError("AI 답에서 JSON을 찾지 못했습니다.")
@@ -309,7 +309,7 @@ def summary_conclusion(title: str, year: int, half: str, rows: list[dict], templ
     lines = "\n".join(f"- {x['name']} | 금회 등급 {x['grade'] or '-'} | 종합결론: {' / '.join(x.get('conclusion') or [])[:700]} | 주요결과: {' / '.join(x.get('findings') or [])[:500]}"
                       for x in rows)
     note = "2종 — 양호·보통·미흡·불량(낱말 그대로, \"등급\"을 붙이지 않음)" if is_type2(template) else "3종 — A~E 글자에 \"등급\"(예: B등급)"
-    text = vision.ask(company_id, [], SUMMARY_PROMPT.format(title=title, year=year, half=half, n=len(rows), rows=lines, grade_note=note), max_tokens=4000)
+    text = vision.ask(company_id, [], SUMMARY_PROMPT.format(title=title, year=year, half=half, n=len(rows), rows=lines, grade_note=note), max_tokens=4000, writing=True)
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
         raise ValueError("AI 답에서 JSON을 찾지 못했습니다.")

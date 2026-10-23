@@ -105,7 +105,7 @@ def draft(company_id: int, mat: dict, defaults: dict) -> dict:
 
     prompt = PROMPT.format(**mat, defaults="\n".join(f"{k}: {defaults.get(k, '')}" for k in KEYS),
                            keys="{" + ", ".join(f'"{k}": "…"' for k in KEYS) + "}")
-    raw = vision.ask_json(company_id, [], prompt, max_tokens=8000)
+    raw = vision.ask_json(company_id, [], prompt, max_tokens=8000, writing=True)
     out = {}
     for k in KEYS:
         v = raw.get(k) if isinstance(raw, dict) else None

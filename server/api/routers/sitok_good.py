@@ -223,7 +223,7 @@ def seismic_photo(report_id: int, slot: int, user: User = Depends(get_current_us
 
 
 SEISMIC_PROMPT = """학교 건물의 정기안전점검 중 "내진보강시설 육안 점검표"를 쓰려 합니다. 붙인 사진 {n}장은 이 건물의 내진보강 부위(철골 가새·증설 벽·보강 기초 등)입니다.
-사진에서 보이는 것만으로 아래 6항목을 판단해 JSON 객체 하나로만 답하세요(설명 없이). 보이지 않는 것은 지어내지 말고 "×"·"이상 없음" 또는 "확인 불가(사진 없음)".
+사진에서 보이는 것만으로 아래 6항목을 판단해 JSON 객체 하나로만 답하세요(설명 없이). 보이지 않는 것은 지어내지 말고 "×"·"이상 없음" 또는 "확인 불가".
 {{"rows": [{{"mark": "○(해당 문제가 있음) 또는 ×(없음)", "text": "내용(위치, 상태) 20자 안팎", "action": "조치사항 15자 안팎(없으면 빈 글)"}} — 아래 6항목 순서대로],
  "opinion": "종합의견 한두 문장(보고서 문어체)"}}
 항목:
@@ -242,7 +242,7 @@ def seismic_ai(report_id: int, user: User = Depends(get_current_user), db: Sessi
     if not imgs:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "내진보강 사진을 먼저 찍으세요(해당없음이면 [해당없음]).")
     try:
-        got = vision.ask_json(r.company_id, imgs, SEISMIC_PROMPT.format(n=len(imgs), items="\n".join(f"{i}. {t}" for i, t in enumerate(G.SEISMIC_ITEMS, 1))))
+        got = vision.ask_json(r.company_id, imgs, SEISMIC_PROMPT.format(n=len(imgs), items="\n".join(f"{i}. {t}" for i, t in enumerate(G.SEISMIC_ITEMS, 1))), writing=True)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI가 점검표를 쓰지 못했습니다: {str(err).splitlines()[0][:150]}") from err
     rows = [{"mark": "○" if str(x.get("mark") or "").startswith("○") else "×", "text": str(x.get("text") or "").strip(), "action": str(x.get("action") or "").strip()}

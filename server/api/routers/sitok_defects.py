@@ -953,11 +953,11 @@ GENERIC_CAUSES = {"건조수축균열", "건조수축", "온도균열", "시공�
                   "외력·충격", "외력", "충격", "부등침하", "과하중", "누수", "재료분리", "-"}
 CAUSE_RULE = """원인은 구체적으로 — 같은 누수·균열이라도 사진에서 보이는 위치·모양·흔적에 따라 원인이 다릅니다. "노후화"·"건조수축균열"처럼 뻔한 한 낱말로 뭉뚱그리지 말 것.
 - cause: 결함현황표 원인 칸(좁음) — 20자 안팎(예: "창호 상부 실링 노후로 빗물 유입", "상부 배관 이음부 누수", "개구부 모서리 응력집중", "옥상 방수층 들뜸으로 슬라브 누수")
-- cause_note: 그 원인으로 본 근거 한 줄(사진에서 본 위치·모양·흔적, 60자 안팎 — 보고서 1.3 본문·종합결론에 씀)"""
+- cause_note: 그 원인으로 본 근거 한 줄(위치·모양·흔적, 60자 안팎 — 보고서 1.3 본문·종합결론에 씀. "사진에서"·"사진상" 같은 말 없이 점검자가 직접 본 문장)"""
 CAUSE_PROMPT = """시설물 정기안전점검 외관조사 결함 {n}개입니다. 사진은 아래 목록의 "사진 N" 순서대로 붙어 있습니다.
 결함마다 원인을 쓰세요.
 {rule}
-사진이 없는 결함은 결함 정보만으로 조심스럽게(근거에 "사진 없음 — 추정"이라고).
+사진이 없는 결함은 결함 정보만으로 조심스럽게(근거 끝에 "추정"이라고).
 JSON 배열 하나로만 답하세요(설명 없이): [{{"id": 번호, "cause": "원인", "cause_note": "근거"}}]
 
 [결함 — id | 층 | 구분 | 부재 | 결함유형 | 폭 | 길이 | 진행 | 지금 원인 | 사진]
@@ -994,7 +994,7 @@ def suggest_causes(report_id: int, user: User = Depends(get_current_user), db: S
                 imgs.append(Path(p).read_bytes())
             lines.append(f"{d.id} | {d.floor} | {d.part} | {d.member} | {d.dtype} | {d.width} | {d.length} | {d.progress} | {d.cause or '(없음)'} | "
                          + (f"사진 {len(imgs)}" if p else "사진 없음"))
-        got = vision.ask_json(user.company_id, imgs, CAUSE_PROMPT.format(n=len(chunk), rule=CAUSE_RULE, rows="\n".join(lines)), max_tokens=4000)
+        got = vision.ask_json(user.company_id, imgs, CAUSE_PROMPT.format(n=len(chunk), rule=CAUSE_RULE, rows="\n".join(lines)), max_tokens=4000, writing=True)
         return [g for g in got if isinstance(g, dict)] if isinstance(got, list) else []
 
     try:
@@ -1187,7 +1187,7 @@ def analyze_new(report_id: int, file: UploadFile = File(...), floor: str = "", u
     unit = kinds.unit_label(fam)
     jpg = files.to_jpeg(file.file.read(), file.filename or "")
     try:
-        raw = vision.ask_json(user.company_id, [jpg], _analyze_prompt(f"{unit}: {floor}" if floor else f"{unit} 미상", allowed, fam))
+        raw = vision.ask_json(user.company_id, [jpg], _analyze_prompt(f"{unit}: {floor}" if floor else f"{unit} 미상", allowed, fam), writing=True)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"사진을 분석하지 못했습니다: {str(err).splitlines()[0][:150]}") from err
     a = _analysis(raw, allowed, fam)
@@ -1222,12 +1222,12 @@ def analyze_again(defect_id: int, user: User = Depends(get_current_user), db: Se
     prev = ", ".join(f"{k} {v}" for k, v in (d.prev or {}).items() if k in ("결함유형", "개수", "폭", "길이") and v) or "없음"
     try:
         if imgs:
-            raw = vision.ask_json(user.company_id, imgs + [Path(d.photo).read_bytes()], GREW.format(prev=prev))
+            raw = vision.ask_json(user.company_id, imgs + [Path(d.photo).read_bytes()], GREW.format(prev=prev), writing=True)
             w = _text(raw.get("width"))
             return {"grew": bool(raw.get("grew")), "width": w if w in WIDTH_BANDS else "", "note": _text(raw.get("note"))}
         fam = _fam(db, r)
         allowed = vocab_names(db, r.company_id, r.id, fam)
-        a = _analysis(vision.ask_json(user.company_id, [Path(d.photo).read_bytes()], _analyze_prompt(f"{kinds.unit_label(fam)}: {d.floor}", allowed, fam)), allowed, fam)
+        a = _analysis(vision.ask_json(user.company_id, [Path(d.photo).read_bytes()], _analyze_prompt(f"{kinds.unit_label(fam)}: {d.floor}", allowed, fam), writing=True), allowed, fam)
         return {"grew": None, "width": a["width"], "note": a["note"]}
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"사진을 분석하지 못했습니다: {str(err).splitlines()[0][:150]}") from err

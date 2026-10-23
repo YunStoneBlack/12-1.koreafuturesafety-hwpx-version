@@ -10,6 +10,8 @@ import re
 
 from PIL import Image, ImageOps
 
+from core.report_style import WRITING_STYLE, clean_text  # 보고서 글 말투(산안법 core/vision_analyzer도 같이 씀)
+
 
 def _jpeg(data: bytes, side: int = 1200) -> str:
     img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
@@ -22,8 +24,10 @@ def _jpeg(data: bytes, side: int = 1200) -> str:
 MIN_TOKENS = 16000  # 생각(thinking)이 켜진 모델(sonnet 5 등)은 생각 토큰도 max_tokens에 들어가서, 작으면 생각만 하다 끊겨 답이 빔(10/14 일람표 11줄에서 4000 전부 thinking)
 
 
-def ask(company_id: int, images: list[bytes], prompt: str, max_tokens: int = 8000, side: int = 1200, effort: str | None = None) -> str:
+def ask(company_id: int, images: list[bytes], prompt: str, max_tokens: int = 8000, side: int = 1200, effort: str | None = None,
+        writing: bool = False) -> str:
     """그림들 + 질문 → 답 글 전부. side = 긴 변(px) — 일람표처럼 작은 글씨는 1568(10/14). effort = low·medium·high(생각 깊이, 비우면 모델 기본).
+    writing = 보고서에 들어갈 글(AI 초안·원인·점검표·종합의견 …) — 말투 규칙(WRITING_STYLE)을 system으로 주고 답에서 제3자 표현을 지움(clean_text).
     답이 비고 max_tokens로 끊겼으면(생각만 하다 끝) 상한을 두 배로 한 번 더."""
     from anthropic import Anthropic
 
@@ -35,20 +39,23 @@ def ask(company_id: int, images: list[bytes], prompt: str, max_tokens: int = 800
     content.append({"type": "text", "text": prompt})
     client = Anthropic(api_key=get_api_key(company_id))
     extra = {"output_config": {"effort": effort}} if effort else {}
+    if writing:
+        extra["system"] = WRITING_STYLE
     limit = max(max_tokens, MIN_TOKENS)
     for attempt in range(2):
         with client.messages.stream(model=get_model_name(), max_tokens=limit, messages=[{"role": "user", "content": content}], **extra) as stream:
             resp = stream.get_final_message()
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
         if text or resp.stop_reason != "max_tokens":
-            return text
+            return clean_text(text) if writing else text
         limit *= 2
     return ""
 
 
-def ask_json(company_id: int, images: list[bytes], prompt: str, max_tokens: int = 8000, side: int = 1200, effort: str | None = None):
-    """답에서 JSON(객체 또는 배열) 하나를 꺼냄. 배열이 중간에 끊겼으면 완성된 항목까지."""
-    text = ask(company_id, images, prompt, max_tokens, side, effort)
+def ask_json(company_id: int, images: list[bytes], prompt: str, max_tokens: int = 8000, side: int = 1200, effort: str | None = None,
+             writing: bool = False):
+    """답에서 JSON(객체 또는 배열) 하나를 꺼냄. 배열이 중간에 끊겼으면 완성된 항목까지. writing = ask와 같음(보고서 글 말투)."""
+    text = ask(company_id, images, prompt, max_tokens, side, effort, writing)
     m = re.search(r"[\[{].*[\]}]", text, re.S)
     if m:
         try:

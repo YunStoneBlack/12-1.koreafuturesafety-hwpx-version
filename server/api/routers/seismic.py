@@ -721,7 +721,7 @@ def make_summary(rid: int, mode: str, user: User = Depends(get_current_user), db
                   "이번 건 자료에 맞게 다듬어 주세요. 자료에 없는 수치·부재 이름은 지어내지 말고, 결함이 있으면 주된 결함 종류와 의견을 한 문장 넣으세요. "
                   "문단마다 줄을 바꾸고, 머리말 없이 글만 주세요.\n\n[초안]\n" + text + "\n\n[자료]\n" + json.dumps(facts, ensure_ascii=False, default=str))
         try:
-            got = vision.ask(user.company_id, [], prompt, max_tokens=3000, effort="low").strip()
+            got = vision.ask(user.company_id, [], prompt, max_tokens=3000, effort="low", writing=True).strip()
         except Exception as err:  # noqa: BLE001
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 못 만들었습니다: {str(err).splitlines()[0][:120]}") from err
         text = got or text
@@ -782,7 +782,7 @@ def ai_eq_texts(rid: int, user: User = Depends(get_current_user), db: Session = 
               f"JSON만: {json.dumps({k: '' for k in keys}, ensure_ascii=False)}\n칸 이름: {json.dumps(labels, ensure_ascii=False)}\n\n{EQ_STYLE}\n\n[이번 건 자료]\n"
               + json.dumps(_eq_facts(db, f, r), ensure_ascii=False, default=str))
     try:
-        got = vision.ask_json(user.company_id, [], prompt, max_tokens=3000, effort="low") or {}
+        got = vision.ask_json(user.company_id, [], prompt, max_tokens=3000, effort="low", writing=True) or {}
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 못 만들었습니다: {str(err).splitlines()[0][:120]}") from err
     if not isinstance(got, dict):

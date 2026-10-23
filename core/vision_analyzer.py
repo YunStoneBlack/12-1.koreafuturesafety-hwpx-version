@@ -17,6 +17,7 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from core.config import get_api_key, get_model_name
+from core.report_style import clean_text
 
 _SUPPORTED_MEDIA_TYPES = {
     ".jpg": "image/jpeg",
@@ -37,6 +38,8 @@ FINDING_PROMPT = """당신은 건설재해예방 기술지도를 보조하는 �
   판단이 곤란하다는 취지로 제목/내용을 작성하고, 향후 촬영 시 개선할 점(근접 촬영,
   각도 조정 등)을 안내하세요.
 - 사진과 설명이 충분하면 실제 위반사항과 구체적인 개선대책을 작성하세요.
+- 제목·내용은 지도자가 현장에서 직접 확인한 문장으로 쓰세요 — "사진상", "사진으로 보아", "사진에서 보이는", "~로 보인다"
+  같은 제3자가 사진을 보고 판단한 듯한 표현은 쓰지 마세요.
 - law_citation은 관련 있다고 판단되는 산업안전보건 관련 법령·규칙 조항명을 간단히
   적되, 확신이 없으면 빈 문자열로 두세요("산업안전보건기준에 관한 규칙 제OO조(...)" 형식 권장).
 - likelihood(가능성)와 severity(중대성)는 아래 기준으로 1~3 중 하나를 고르세요.
@@ -299,8 +302,8 @@ def analyze_finding(
     raw_response = _call_claude(image_b64, media_type, prompt, model=model, company_id=company_id)
     data = _parse_json_object(raw_response)
     return {
-        "title": (data.get("title") or "")[:30],
-        "content": (data.get("content") or "")[:110],
+        "title": clean_text(data.get("title") or "")[:30],  # 제3자 표현("사진상 …") 빼기(10/23 형)
+        "content": clean_text(data.get("content") or "")[:110],
         "law_citation": data.get("law_citation") or "",
         "likelihood": _clamp_1_3(data.get("likelihood")),
         "severity": _clamp_1_3(data.get("severity")),
@@ -383,7 +386,7 @@ def analyze_process_hazards(
     for raw_item in raw_items:
         if not isinstance(raw_item, dict):
             continue
-        hazard = str(raw_item.get("hazard") or "").strip()
+        hazard = clean_text(str(raw_item.get("hazard") or "")).strip()
         if not hazard:
             continue
         dedup_key = re.sub(r"\s+", "", hazard)
@@ -394,7 +397,7 @@ def analyze_process_hazards(
         if not isinstance(raw_preventions, list):
             single = raw_item.get("prevention")
             raw_preventions = [single] if single else []
-        preventions = [str(p).strip()[:80] for p in raw_preventions if str(p or "").strip()]
+        preventions = [clean_text(str(p)).strip()[:80] for p in raw_preventions if str(p or "").strip()]
 
         risk = raw_item.get("risk") or ""
         if risk not in ("상", "중", "하"):

@@ -136,7 +136,7 @@ def rows(parts: dict | None, judged: dict) -> list[dict]:
 
 
 PROMPT = """당신은 시설물 정기안전점검(시설물안전법) 책임기술자입니다. 아래 사진은 이번 회차 현장에서 찍은 "공중이 이용하는 부위"와 "기타시설" 사진입니다.
-사진에 보이는 것만으로 항목마다 상태를 판단하세요(보이지 않는 것을 지어내지 말 것 — 사진으로 판단이 어려우면 그렇게 적기).
+사진에 보이는 것만으로 항목마다 상태를 판단하세요(보이지 않는 것을 지어내지 말 것 — 판단이 어려우면 "확인 곤란").
 
 [시설물] {facility}
 [사진 차례]
@@ -170,7 +170,7 @@ def evaluate(company_id: int, facility: str, photos: list[tuple[str, str, str, P
     oth = "\n".join(f"- {name}({k}): {OTHER_CRITERIA[k]}" for k, name in OTHER)
     prompt = PROMPT.format(facility=facility, order="\n".join(order), public=pub, definition=OTHER_DEFINITION, other=oth,
                            defects=defects_text or "(없음)")
-    text = vision.ask(company_id, imgs, prompt, max_tokens=4000)
+    text = vision.ask(company_id, imgs, prompt, max_tokens=4000, writing=True)
     m = re.search(r"\{.*\}", text or "", re.S)
     if not m:
         raise ValueError("AI 답에서 JSON을 찾지 못했습니다.")

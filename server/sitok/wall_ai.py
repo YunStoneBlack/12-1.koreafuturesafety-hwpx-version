@@ -201,7 +201,7 @@ def draft(facility: str, period: str, defects: list, prev_captions: list[str], f
                                                  f"{c['qty']}{c['unit']} | {c['max_width'] if c['max_width'] is not None else '-'} | {', '.join(c['causes']) or '-'} | "
                                                  f"{c['default']}" for i, c in enumerate(combos, 1))) if combos else "")
     try:
-        raw = vision.ask_json(company_id, [], prompt, max_tokens=8000 if eval_items else 6000)
+        raw = vision.ask_json(company_id, [], prompt, max_tokens=8000 if eval_items else 6000, writing=True)
     except Exception:  # noqa: BLE001
         raw = None
     out = _norm(raw, defects, eval_items, form) if raw else fallback(defects, prev_grade, public, eval_items, form)

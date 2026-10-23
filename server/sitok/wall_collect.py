@@ -264,7 +264,7 @@ def analysis_ai(collect: dict, history: list, repairs: list, company_id: int) ->
     r_txt = "\n".join(f"- {x.get('period')} {x.get('where')} : {x.get('method')}" for x in repairs) or "(없음)"
     fb = analysis_fallback(collect, history, repairs)
     try:
-        raw = vision.ask_json(company_id, [], PROMPT.format(collect=c_txt, history=h_txt, repairs=r_txt), max_tokens=1500)
+        raw = vision.ask_json(company_id, [], PROMPT.format(collect=c_txt, history=h_txt, repairs=r_txt), max_tokens=1500, writing=True)
     except Exception:  # noqa: BLE001
         raw = None
     if not isinstance(raw, dict):
