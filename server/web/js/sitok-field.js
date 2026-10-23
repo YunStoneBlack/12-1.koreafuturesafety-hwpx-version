@@ -443,13 +443,16 @@
     const prev = d.prev ? `<div class="sf-prev">전회차: ${esc(d.prev["결함유형"] || "")} ${esc(sizeText(d.prev))} <em>${esc(d.prev["비고"] || "")}</em></div>` : "";
     const off = outOfList("member", d.member) || outOfList("dtype", d.dtype);
     const sizeOn = d.check === "grew" || d.check === "new" || (isWall() && d.check !== "repaired" && !isRecord(d.dtype)); // 크기 칸(진행·신규) — 박리·박락 깊이는 그 밖에도 따로(10/22)
+    const nowSize = [sizeText(d), d.depth ? `깊이 ${d.depth}mm` : ""].filter(Boolean).join(" · ");
+    const nowLine = d.prev && !sizeOn && d.check !== "repaired" && nowSize && sizeText(d) !== sizeText(d.prev) // ✏️로 고친 이번 크기가 전회차와 다르면 카드에(10/23 민재형 "안 된다" — 비진행 카드엔 크기가 안 보였음)
+      ? `<div class="sf-prev sf-now">이번: ${esc(nowSize)} <em>— ✏️로 고친 크기(보고서에 이 값)</em></div>` : "";
     el.innerHTML = `<div class="sf-card-head"><span class="sf-no">${d.seq}</span>
         <b>${esc(d.member)} · ${esc(d.dtype)}</b><span class="sf-part">${esc(d.part)}</span>
         ${off ? '<span class="sf-off" title="목록에 없는 이름 — ✏️를 눌러 목록에서 고르세요">목록 밖</span>' : ""}
         <button type="button" class="sf-edit" title="구분·부재·결함유형 고치기">✏️</button>
         <button type="button" class="sf-star${d.starred ? " on" : ""}" title="비교 사진대장에 꼭 넣기">★</button>
         <button type="button" class="sf-trash" title="이 결함 지우기 — 같은 ${esc(unit())} 뒤 번호가 하나씩 당겨집니다">🗑</button></div>
-      ${prev}
+      ${prev}${nowLine}
       <div class="sf-photos">
         <figure>${pPrev ? `<label class="sf-prev-up"><img src="${pPrev.url}" alt="전회차" />${pend(pPrev)}<input type="file" accept="image/*" hidden data-kr-file="1" /></label>`
           : d.has_prev_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/prev?v=${d.prev_v || 0}" alt="전회차" loading="lazy" />

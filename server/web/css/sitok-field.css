@@ -44,6 +44,7 @@
 .main .sf-star.on { color: #E0A33A; border-color: #E0A33A; }
 .sf-prev { font-size: 12.5px; color: var(--muted); margin: 6px 0 0 34px; }
 .sf-prev em { font-style: normal; color: var(--faint); }
+.sf-prev.sf-now { margin-top: 2px; color: var(--blue); font-weight: 600; } /* ✏️로 고친 이번 크기(10/23) */
 .sf-photos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 .sf-photos figure { margin: 0; position: relative; }
 .sf-photos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #fff; display: block; cursor: pointer; }
