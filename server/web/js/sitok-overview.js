@@ -1,5 +1,5 @@
 // 시특법 현장 화면 [🏢 전경사진] 탭(sitok-field.html, 2026-10-11) — 장수 제한 없이 찍고 제목(🎤 음성·입력·지난 제목·🏷 실명판 AI)·순서.
-// 보고서 10쪽 위치도 아래 = 첫 장, 11쪽 = 6장씩. 서버 server/api/routers/sitok_overview.py.
+// 보고서 10쪽 위치도 아래·표지 = 첫 장(★ 대표 — [★ 대표로]로 맨 앞에, 10/23 형), 11쪽 = 6장씩. 서버 server/api/routers/sitok_overview.py.
 
 (function () {
   const rid = Number(new URLSearchParams(location.search).get("report")) || null;
@@ -19,7 +19,7 @@
       return;
     }
     box.innerHTML = data.photos.map((p, i) => `<div class="ov-card${p.ai ? " ai" : ""}${p.has_prev ? " has-prev" : ""}" data-id="${p.id}">
-      <div class="ov-no">${i + 1}${i === 0 ? " · 10쪽에도" : ""}<span>전경 ${Math.floor(i / 6) + 1}번째 쪽</span></div>
+      <div class="ov-no">${i + 1}${i === 0 ? ' <b class="ov-main">★ 대표 · 표지·위치도</b>' : ""}<span>전경 ${Math.floor(i / 6) + 1}번째 쪽</span></div>
       ${p.has_prev ? `<div class="ov-pair"><figure><img src="${BASE}/api${url}/${p.id}/photo?which=prev&t=${ts}" alt="" loading="lazy" /><figcaption>전회차</figcaption></figure>
         <figure>${p.has_now ? `<img src="${BASE}/api${url}/${p.id}/photo?t=${ts}" alt="" />` : '<label class="ov-now"><span>📷 이번 찍기</span><input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label>'}
         <figcaption>이번${p.has_now ? ' <button type="button" class="link-btn ov-del-now">지우기</button>' : " — 안 찍으면 전회차 사진이 들어감"}</figcaption></figure></div>`
@@ -27,13 +27,14 @@
       <div class="ov-title"><input list="ov-titles" value="${esc(p.title)}" placeholder="제목(예: ${data.wall ? "시점측 전경" : "옥상 전경사진"}) — 🎤 음성 가능" />
         <label class="ov-plate" title="실명판을 찍으면 AI가 실 이름을 읽어 제목으로"${data.wall ? " hidden" : ""}>🏷<input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label></div>
       ${p.ai ? '<div class="ov-ai">🤖 AI 추천 제목 — 맞으면 그대로, 아니면 고치세요</div>' : ""}
-      <div class="ov-acts"><button type="button" data-m="-1"${i ? "" : " disabled"}>◀ 앞으로</button><button type="button" data-m="1"${i < data.photos.length - 1 ? "" : " disabled"}>뒤로 ▶</button>
+      <div class="ov-acts">${i ? '<button type="button" class="ov-first" title="이 사진을 맨 앞(표지·위치도 아래)으로">★ 대표로</button>' : ""}<button type="button" data-m="-1"${i ? "" : " disabled"}>◀</button><button type="button" data-m="1"${i < data.photos.length - 1 ? "" : " disabled"}>▶</button>
         <button type="button" class="ov-del">지우기</button></div></div>`).join("");
     box.querySelectorAll(".ov-card").forEach((el) => {
       const id = el.dataset.id;
       const input = el.querySelector(".ov-title input");
       input.addEventListener("change", () => patch(id, { title: input.value }));
       el.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => patch(id, { move: Number(b.dataset.m) })));
+      el.querySelector(".ov-first")?.addEventListener("click", () => patch(id, { first: true }));
       el.querySelector(".ov-del").addEventListener("click", async () => {
         if (!confirm("이 전경사진을 지울까요?")) return;
         try { data = await api(`${url}/${id}`, { method: "DELETE" }); draw(); } catch (e) { say(e.message); }

@@ -137,6 +137,8 @@
 .ov-acts { display: flex; gap: 6px; }
 .main .ov-acts button { margin: 0; padding: 6px 10px; font-size: 12.5px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 7px; }
 .main .ov-acts .ov-del { margin-left: auto; color: var(--crit); }
+.ov-main { color: #B7791F; }
+.main .ov-acts .ov-first { color: #B7791F; border-color: #E0C48A; }
 @media (max-width: 1100px) { .ov-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .ov-list { grid-template-columns: 1fr; } }
 .ov-btns label.ov-shot { display: inline-flex; margin: 0; align-self: stretch; }

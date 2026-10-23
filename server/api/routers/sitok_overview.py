@@ -80,7 +80,7 @@ def _out(db: Session, r: SitokReport) -> dict:
     if wall:
         titles += [t for t in WALL_TITLES if t not in titles]
     base = _dir(db, r)
-    return {"photos": [{"id": p["id"], "title": p.get("title") or "", "ai": bool(p.get("ai")), "has_now": bool(p.get("file") and (base / p["file"]).exists()),
+    return {"photos": [{"id": p["id"], "title": p.get("title") or "", "ai": bool(p.get("ai")), "main": bool(p.get("main")), "has_now": bool(p.get("file") and (base / p["file"]).exists()),
                         "has_prev": bool(p.get("prev_file") and (base / p["prev_file"]).exists())} for p in (r.overview or [])],
             "titles": titles, "wall": wall}
 
@@ -120,6 +120,7 @@ def add_photo(report_id: int, file: UploadFile = File(...), user: User = Depends
 class PhotoIn(BaseModel):
     title: str | None = None
     move: int = 0
+    first: bool = False  # ★ 대표 — 맨 앞으로(표지·위치도 아래·상태평가가 첫 장을 씀, 10/23 형 "점검자가 고른 전경사진이 메인으로")
 
 
 @router.patch("/reports/{report_id}/overview/{pid}")
@@ -134,6 +135,11 @@ def patch_photo(report_id: int, pid: str, body: PhotoIn, user: User = Depends(ge
     j = i + (1 if body.move > 0 else -1 if body.move < 0 else 0)
     if 0 <= j < len(rows) and j != i:
         rows[i], rows[j] = rows[j], rows[i]
+    if body.first and i:
+        rows.insert(0, rows.pop(i))
+    if body.first or (body.move and 0 in (i, j)):  # 첫 장을 사람이 정함 — 보고서 만들 때 "대표 안 골랐음" 안내 안 띄움
+        for k, row in enumerate(rows):
+            row["main"] = k == 0
     r.overview = rows
     db.commit()
     return _out(db, r)

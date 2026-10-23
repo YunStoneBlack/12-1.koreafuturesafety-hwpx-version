@@ -2286,6 +2286,9 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
         if ex.overview:
             warn.append(f"전경사진을 안 찍어 전회차 보고서 사진 {len(ex.overview)}장을 넣었습니다")
     ov = ex.overview
+    own = r.overview or []
+    if len(own) >= 2 and not any(p.get("main") for p in own):  # 10/23 형 — 첫 장(옥상전경)이 표지·위치도 아래로 나갔음
+        warn.append(f"대표 전경사진을 안 골라 첫 장({own[0].get('title') or '제목 없음'})을 표지·위치도 아래에 넣었습니다 — 전경사진 탭 [★ 대표로]로 고르세요")
     floors = " / ".join(x for x in (f"B{f.floors_below}F" if f.floors_below else "", f"{f.floors_above}F" if f.floors_above else "") if x)
     history, repairs = [], []
     if prior is not None and pv is not None:  # 1.2.6 = 전회차 회차 + 그 보고서의 가장 최근 이력(견본들처럼 2개), 1.2.7 = 전회차 이력
