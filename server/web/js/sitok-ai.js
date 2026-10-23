@@ -185,6 +185,10 @@ async function openSitokAi(reportId, title, onSaved) {
             <span class="ai-name">${esc(it.name)}</span>
             <select class="ai-has"><option value="0"${it.has ? "" : " selected"}>없다</option><option value="1"${it.has ? " selected" : ""}>있다</option></select>
             <input class="ai-state" value="${esc(it.state)}" placeholder="상태(유형·크기·추정원인)" /><input class="ai-where" value="${esc(it.where)}" placeholder="위치·사진" /></div>`).join("")}</div>` : ""}
+        ${ai.template === "3종학교" ? `<h4>1.7 외부 치장벽돌 안전점검 <span class="sk-help">${f.brick_src === "defects" ? "현장조사 치장벽돌 결함으로 AI가 씀"
+            : f.brick_src === "photos" ? "치장벽돌 결함이 없어 상태양호 탭 [외부 치장벽돌] 사진으로 AI가 씀"
+            : "치장벽돌 결함·상태양호 사진이 없어 비었음 — 상태양호 탭 [외부 치장벽돌]에 찍고 초안을 다시 만들거나 직접 쓰세요(비우면 보고서 칸 \"-\")"}</span></h4>
+          <label>특이사항<textarea data-k="brick" rows="3">${esc(f.brick)}</textarea></label><input type="hidden" data-k="brick_src" value="${esc(f.brick_src || "")}" />` : ""}
         ${(f.methods || []).length ? `<h4>보수공법 <span class="sk-help">9쪽 조치 필요사항·보수 우선순위·개략공사비에 같이 들어감 — 단가표 공법이면 단가로 계산, 아니면 1식 금액</span></h4>
           <div class="ai-met">${f.methods.map((m, i) => `<div class="ai-met-row${known(m.method) ? " known" : ""}" data-i="${i}"><span class="ai-name"><small>${esc(m.part)}</small>${esc(m.member)} ${esc(m.dtype)}${m.wide ? " (0.3mm 이상)" : ""}
               <em>${m.count}개소 · ${m.qty}${esc(m.unit)}</em></span>

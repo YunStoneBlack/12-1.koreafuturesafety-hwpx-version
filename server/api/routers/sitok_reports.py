@@ -1849,6 +1849,12 @@ def _ai_draft_work(db: Session, r: SitokReport, user: User, target: str) -> dict
                               combos=method_combos(db, r.id), price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)],
                               parts_facts=facts, template=f.template, target=target)
         data["parts"] = P.rows(r.parts, judged)
+        if f.template == "3종학교":  # 1.7 외부 치장벽돌 특이사항 — 치장벽돌 결함, 없으면 상태양호 치장벽돌 사진(10/23 사용자)
+            try:
+                data["brick"], data["brick_src"] = ai_draft.brick_note(user.company_id, facility, defects, G.brick_photos(r.survey, _report_dir(f, r)))
+            except Exception:  # noqa: BLE001 — 못 쓰면 비워 두고(창에서 직접) 나머지 초안은 그대로
+                traceback.print_exc()
+                data["brick"], data["brick_src"] = "", ""
         if G.norm(r.survey)["steel_na"]:
             data["sections"]["steel"] = G.STEEL_NA_TEXT
         if target:
@@ -1916,7 +1922,8 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
         r.ai = {**(r.ai or {}), "final": final}
         db.commit()
         return _precision_ai_out(db, r)
-    keys = ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason", "items", "eval_opinion", "facility", "methods", "parts")
+    keys = ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason", "items", "eval_opinion", "facility", "methods", "parts",
+            "brick", "brick_src")
     from server.sitok import kinds as _kinds
     wall = _kinds.is_wall(db.get(SitokFacility, r.facility_id))
     if wall:  # 옹벽(10/20): 실시결과 요약표 줄·종합의견도, 종합결론은 {survey, repair, urgent}; 10/21 1.5 유지관리방안·전회 칸 출처
@@ -2324,6 +2331,8 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
                "floors": floors or "-", "area": f"{f.total_area:,.2f}㎡" if f.total_area else "-", "structure": f.structure or "-",
                "grade": class_label(f)[:1], "use": f.use_type or f.main_use or "시설물",
                "history": history, "repairs": repairs, "result": result, "school": f.template == "3종학교", "legal": f.legal,
+               "fms": f.fms_no or "-", "floors_txt": (f"지상{f.floors_above}층" if f.floors_above else "-") + (f", 지하{f.floors_below}층" if f.floors_below else ""),
+               "brick": str((ex.ai or {}).get("brick") or "").strip(),  # 1.7 치장벽돌 특이사항(AI 초안·창에서 고친 것, 10/23)
                "target": {"owner": f.owner_name or (pv.owner if pv else "") or "-", "name": f.name, "use": f.use_type or f.main_use or "-",
                           "year": str(f.completion_date.year) if f.completion_date else "-", "area": f"{f.total_area:,.2f}" if f.total_area else "-",
                           "floors": (f"-{f.floors_below}/{f.floors_above}" if f.floors_below else str(f.floors_above or "-")),
@@ -2348,6 +2357,8 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
             warn.append("[🤖 AI 초안]을 안 만들어 결과표·1.3·1.4·종합결론은 전회차 보고서 글 그대로입니다")
         else:
             warn.append("[🤖 AI 초안]을 안 만들어 결과표·1.3·1.4·종합결론이 원본(다른 시설물) 글입니다 — 꼭 만드세요")
-    if f.template == "3종학교":
-        warn.append("1.7 치장벽돌 안전점검 표는 원본 값 그대로 — 손으로 확인하세요")
+    if f.template == "3종학교":  # 1.7 — 건축물 개요는 시설물 값, 특이사항은 AI 초안(치장벽돌 결함·상태양호 사진), 실수·상태등급은 원본 "-"(10/23)
+        if not ex.base["brick"]:
+            warn.append("1.7 치장벽돌 특이사항이 비어 \"-\"로 넣었습니다 — 치장벽돌이 있으면 상태양호 탭 [외부 치장벽돌]에 찍고 AI 초안을 다시(또는 AI 창에서 직접)")
+        warn.append("1.7 치장벽돌 점검 현황 표의 실수·상태등급 칸은 원본 값 그대로 — 치장벽돌이 있으면 손으로 확인하세요")
     return warn

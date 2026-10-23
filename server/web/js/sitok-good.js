@@ -35,7 +35,7 @@
     $("gd-count").textContent = n ? `(${n})` : "";
     $("gd-list").innerHTML = data.cats.map((c) => {
       const na = c.key === "steel" && data.steel_na;
-      const head = `<h3 class="sf-h">${esc(c.name)} <span class="sk-help">결함 ${c.defects}개${c.defects ? "" : " — 상태양호 사진을 찍어 두세요"}</span>
+      const head = `<h3 class="sf-h">${esc(c.name)} <span class="sk-help">결함 ${c.defects}개${c.defects ? "" : " — 상태양호 사진을 찍어 두세요"}${c.hint ? ` · ${esc(c.hint)}` : ""}</span>
         ${c.key === "steel" ? `<button type="button" class="gd-na${na ? " on" : ""}">${na ? "해당없음 풀기" : "해당없음"}</button>` : ""}</h3>`;
       if (na) return `<div class="pt-group" data-key="${c.key}">${head}<div class="pt-card none gd-na-card"><div class="pt-name">해당없음<span>철근콘크리트 구조</span></div>
         <div class="pt-hint">보고서 1.3 강재구조 글: "${esc(data.steel_text)}" · 사진 칸 "해당없음"</div></div></div>`;
@@ -63,7 +63,7 @@
         <input class="gd-title" value="${esc(p.title)}" placeholder="사진 설명(보고서 사진 아래 글)" />
         <div class="pt-acts"><button type="button" class="pt-del">지우기</button></div></div>`).join("");
       const add = room ? `<div class="pt-card gd-add"><div class="pt-name">새 사진 ${nowP.length + 1}<span>${data.per}장까지</span></div>
-        <div class="pt-blank">${prevP.length ? "전회차에 없던 자리" : "결함 사진 다음 빈 칸에 들어갑니다"}</div><div class="pt-acts">${shot("찍기")}</div></div>` : "";
+        <div class="pt-blank">${prevP.length ? "전회차에 없던 자리" : c.key === "brick" ? "외벽 치장벽돌 마감이 보이게" : "결함 사진 다음 빈 칸에 들어갑니다"}</div><div class="pt-acts">${shot("찍기")}</div></div>` : "";
       return `<div class="pt-group" data-key="${c.key}">${head}<div class="pt-grid">${pairCards}${cards}${add}</div></div>`;
     }).join("");
     $("gd-list").querySelectorAll(".pt-group").forEach((g) => {

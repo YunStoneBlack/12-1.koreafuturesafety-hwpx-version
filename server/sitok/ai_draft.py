@@ -8,6 +8,7 @@ draft(...) — 결함을 1.3 항목(균열·누수·박리박락·강재·비구
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 
 from server.sitok import kinds, manual3
@@ -283,6 +284,37 @@ def draft(facility: str, period: str, defects: list, old_text: str, company_id: 
     else:
         data.pop("methods", None)
     return data
+
+
+BRICK_DEFECTS = """학교 건물 정기안전점검 보고서 "1.7 제3종시설물 외부 치장벽돌 안전점검" 표의 특이사항 칸을 쓰세요.
+[시설물] {facility}
+[이번 회차 현장조사 치장벽돌 결함 — 층 번호 | 구분 | 부재 | 결함유형 | 개수 | 폭 | 길이 | 원인 | 진행]
+{rows}
+규칙: 위 결함만 근거로(없는 결함·숫자를 지어내지 말 것) 치장벽돌 마감 상태와 결함(위치·유형·크기·원인)·필요한 조치를 2~3문장, 150자 안팎.
+보고서 문어체("~조사되었다", "~필요할 것으로 판단된다"). 머리말 없이 글만."""
+
+BRICK_PHOTOS = """학교 건물 정기안전점검 보고서 "1.7 제3종시설물 외부 치장벽돌 안전점검" 표의 특이사항 칸을 쓰세요.
+[시설물] {facility}
+붙인 사진 {n}장은 이번 회차에 찍은 이 건물 외벽 치장벽돌의 상태양호 사진입니다(현장조사에서 치장벽돌 결함은 없었음).
+규칙: 치장벽돌 마감 상태(줄눈 탈락·들뜸·배부름·균열·백화 여부)를 1~2문장, 100자 안팎으로 — 결함이 없으니 "전반적으로 양호한 상태로 조사되었다" 취지.
+보이지 않는 결함을 지어내지 말 것. 보고서 문어체. 머리말 없이 글만."""
+
+
+def brick_note(company_id: int, facility: str, defects: list, photos: list) -> tuple[str, str]:
+    """1.7 외부 치장벽돌 특이사항(3종학교, 10/23 사용자 "치장벽돌 결함조사에 결함이 있으면 AI 작성에 반영, 상태양호 칸 치장벽돌이면
+    상태양호 사진으로 분석") → (글, 근거 "defects"|"photos"|""). 둘 다 없으면 AI를 부르지 않고 ("", "")."""
+    from server.sitok import good as G
+    from server.sitok import vision
+
+    mine = [d for d in defects if G.is_brick(d)]
+    if mine:
+        rows = "\n".join(f"{d.get('floor')} {d.get('seq')}번 | {d.get('part')} | {d.get('member')} | {d.get('dtype')} | {d.get('count')} | {d.get('width')} | "
+                         f"{d.get('length')} | {d.get('cause') or '-'} | {'보수 완료' if d.get('check') == 'repaired' else d.get('progress') or '-'}" for d in mine)
+        return vision.ask(company_id, [], BRICK_DEFECTS.format(facility=facility, rows=rows), max_tokens=2000, effort="low", writing=True).strip(), "defects"
+    if photos:
+        imgs = [Path(x).read_bytes() for x in photos[:2]]
+        return vision.ask(company_id, imgs, BRICK_PHOTOS.format(facility=facility, n=len(imgs)), max_tokens=2000, effort="low", writing=True).strip(), "photos"
+    return "", ""
 
 
 SUMMARY_PROMPT = """당신은 한국의 시설물 정기안전점검(시설물안전법) 보고서를 쓰는 책임기술자입니다. 보고서 앞 "요약문 3.6 결언"의 본문을 쓰세요.

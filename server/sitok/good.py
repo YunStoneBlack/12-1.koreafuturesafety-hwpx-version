@@ -14,10 +14,26 @@ CATS = [("crack", "콘크리트 구조체 균열"), ("leak", "누수 및 백화"
 # 옹벽(10/20) — 보고서 1.4 현장조사 결과 3절(지반 및 기초부 / 옹벽 전면부 / 기타)마다 사진 표 2×2 → 결함 사진이 모자란 칸에 상태양호 사진
 WALL_CATS = [("found", "지반 및 기초부"), ("front", "옹벽 전면부"), ("etc", "기타(배수시설·사면·점검로)")]
 PER = 4  # 항목마다 상태양호 사진(1.3 대표사진 칸 4개)
+# 3종학교만(10/23 사용자) — 1.7 외부 치장벽돌 안전점검 특이사항: 치장벽돌 결함이 있으면 그 결함으로, 없으면 이 상태양호 사진을 AI가 보고 씀(1.3 사진표에는 안 들어감)
+SCHOOL_CATS = [("brick", "외부 치장벽돌")]
+BRICK_WORDS = ("치장", "벽돌")  # 결함 구분·부재·결함유형·비고에 이 낱말 = 치장벽돌 결함
 
 
-def cats_for(fam: str = "") -> list:
-    return WALL_CATS if fam == "wall" else CATS
+def cats_for(fam: str = "", school: bool = False) -> list:
+    """상태양호 항목 — 옹벽 3절, 건축물 1.3 5항목(+ 3종학교면 외부 치장벽돌)."""
+    return WALL_CATS if fam == "wall" else CATS + (SCHOOL_CATS if school else [])
+
+
+def is_brick(d: dict) -> bool:
+    """치장벽돌 결함인가(구분·부재·결함유형·비고 글로)."""
+    return any(w in str(d.get(k) or "") for k in ("part", "member", "dtype", "note") for w in BRICK_WORDS)
+
+
+def brick_photos(sv: dict | None, base: Path) -> list[Path]:
+    """외부 치장벽돌 상태양호 사진(이번 것, 없으면 전회차 가져온 것) — 있는 파일만."""
+    rows = norm(sv)["good"].get("brick") or []
+    pick = [x for x in rows if not x.get("prev")] or [x for x in rows if x.get("prev")]
+    return [base / x["file"] for x in pick if (base / x["file"]).exists()]
 STEEL_NA_TEXT = "해당 시설물은 철근콘크리트 구조로 강재에 대한 조사는 해당사항이 없다."
 SEISMIC_ITEMS = ["내진보강 부위 및 시설의 해체 또는 손상 여부", "내진보강을 위해 증설, 신설된 부재의 상태",
                  "기존 골조와 내진보강을 위해 증설된 부분의 결합부위의 이격 또는 균열", "철골 가새와 철근콘크리트의 접합부위의 이격 또는 균열 여부",
@@ -29,7 +45,7 @@ def norm(sv: dict | None, fam: str = "") -> dict:
     sv = sv or {}
     good = {k: [{"file": str(x.get("file") or ""), "title": str(x.get("title") or "").strip(), "prev": bool(x.get("prev"))}
                 for x in (sv.get("good") or {}).get(k) or [] if isinstance(x, dict) and x.get("file")][:PER * 2]  # prev = 전회차 가져온 사진(옹벽 10/21), 이번 PER + 전회차 PER
-            for k, _ in cats_for(fam)}
+            for k, _ in cats_for(fam, school=True)}  # 치장벽돌 칸은 늘 담아 둠(학교가 아니면 화면에 안 보일 뿐)
     se = sv.get("seismic") or {}
     rows = [{"mark": r.get("mark") if r.get("mark") in ("○", "×") else "", "text": str(r.get("text") or "").strip(), "action": str(r.get("action") or "").strip()}
             for r in (se.get("rows") or []) if isinstance(r, dict)][:len(SEISMIC_ITEMS)]

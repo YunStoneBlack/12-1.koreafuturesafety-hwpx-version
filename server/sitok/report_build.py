@@ -1259,7 +1259,37 @@ def _base_reset(root, is_front: bool, sec: int, base: dict, blank: str, add_imag
     n += _set_repairs(root, base.get("repairs") or [])  # 1.2.7 — 전회차 보고서 이력(이번 면담 줄은 뒤에 _apply_survey가)
     if base.get("target"):  # 부록 대상 시설물 표
         n += _set_target_table(root, base["target"], base.get("school", False))
+    if base.get("school") and not is_front:
+        n += _brick_table(root, base)
     return n  # 1.3 사진 표는 build 끝의 _photo_tables(빈칸 규칙)가
+
+
+def _brick_table(root, base: dict) -> int:
+    """1.7 제3종시설물 외부 치장벽돌 안전점검(3종학교) — 회사 원본(광숭초) 값이 남지 않게(10/23 형 "무슨 근거로 작성된 건지 — 전회차인지 AI인지"):
+    건축물 개요 표 = 이 시설물(건물명 한 줄·연면적·층수·건축년도·시설물번호), 점검 현황 표 특이사항 = AI 초안(치장벽돌 결함, 없으면 상태양호 치장벽돌 사진 —
+    ai_draft.brick_note) 없으면 "-", 원본 각주 "본 건축물은 드라이비트 마감으로 치장벽돌이 없는 것으로 조사되었다"는 뺌(근거 없음 — 특이사항과도 어긋났음)."""
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    start = next((i for i, p in enumerate(tops) if re.match(r"^\s*1\.\d+\s.*치장벽돌", _top_text(p))), None)
+    if start is None:
+        return 0
+    end = next((i for i in range(start + 1, len(tops)) if re.match(r"^\s*1\.\d+\s", _top_text(tops[i]))), len(tops))
+    vals = {"건물명": base.get("name"), "연면적": base.get("area"), "층수": base.get("floors_txt"), "건축년도": base.get("year"),
+            "시설물번호(FMS)": base.get("fms"), "특이사항": base.get("brick") or "-"}
+    n = 0
+    for p in tops[start:end]:
+        for tbl in p.iter(f"{{{HP}}}tbl"):
+            cells = _cells(tbl)
+            for (r, c), tc in list(cells.items()):
+                key = re.sub(r"\s", "", _cell_text(tc))
+                nxt = cells.get((r, c + _span(tc, "colSpan")))
+                if key in vals and vals[key] and nxt is not None:
+                    _set_lines(nxt, [vals[key]])
+                    n += 1
+    for p in tops[start:end]:
+        if next(p.iter(f"{{{HP}}}tbl"), None) is None and "치장벽돌이 없는 것으로" in _top_text(p):
+            p.getparent().remove(p)
+            n += 1
+    return n
 
 
 # ---------- 회사 원본으로 만들 때 전회차 보고서에서 가져오는 것(2026-10-12 — 판 다시 잡기 ③) ----------
