@@ -400,16 +400,22 @@ def orphans(pdf: Path, hwpx: Path) -> list[tuple[int, str, float, int]]:
     return out
 
 
-def _squeeze_table(tbl, need: int, keep, rb) -> int:
-    """표 tbl을 need(HWPUNIT)만큼 낮춤 — ① 줄마다 글 어림보다 큰 여유 높이를 비율대로, ② 모자라면 표 안 문단 줄 간격을 한 단계(×0.85). 줄인 양."""
-    from server.sitok.precision_build import _set_row_height
-
+def _row_spare(tbl, rb) -> tuple[dict, dict]:
+    """줄마다 (지금 높이, 여유 = 지금 높이 − 글 어림 − 200(약 2mm 여유는 남김)) — 여유만 줄이면 글은 그대로."""
     cur = {}
     for (r, _), tc in rb._cells(tbl).items():
         if rb._span(tc, "rowSpan") == 1:
             cur[r] = max(cur.get(r, 0), int(tc.find(f"{{{rb.HP}}}cellSz").get("height") or 0))
     est = rb._table_row_heights(tbl, text_only=True)
-    spare = {r: max(0, h - est.get(r, 0) - 200) for r, h in cur.items()}
+    return cur, {r: max(0, h - est.get(r, 0) - 200) for r, h in cur.items()}
+
+
+def _squeeze_table(tbl, need: int, keep, rb, spare_only: bool = False) -> int:
+    """표 tbl을 need(HWPUNIT)만큼 낮춤 — ① 줄마다 글 어림보다 큰 여유 높이를 비율대로, ② 모자라면 표 안 문단 줄 간격을 한 단계(×0.85). 줄인 양.
+    spare_only = ①만(글 높이·줄 간격 그대로 — 표 통째로 넘어감 고칠 때, 10/23 사용자 "글자가 무리하게 우겨넣어질까 봐")."""
+    from server.sitok.precision_build import _set_row_height
+
+    cur, spare = _row_spare(tbl, rb)
     total = sum(spare.values())
     done = 0
     box = int(tbl.get("rowCnt") or 1) == 1  # 칸 하나짜리 상자(요약문 결언) — 칸 높이만 줄이면 글이 그대로 밀어내고, 줄 간격만 줄이면 칸 높이가 남아 빈 쪽(10/19) → 둘 다
@@ -420,7 +426,7 @@ def _squeeze_table(tbl, need: int, keep, rb) -> int:
             if cut > 0:
                 _set_row_height(tbl, r, cur[r] - cut)
                 done += cut
-    if (done < need or box) and keep is not None:  # 글이 꽉 찬 표(1.3 분석표)·상자 — 줄 간격 한 단계
+    if (done < need or box) and keep is not None and not spare_only:  # 글이 꽉 찬 표(1.3 분석표)·상자 — 줄 간격 한 단계
         hh = "{http://www.hancom.co.kr/hwpml/2011/head}"
 
         def tight(pp):
@@ -550,9 +556,15 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
     body_end = _body_end(hwpx)
     with pymupdf.open(pdf) as doc:
         pages = [_body(pg) for pg in doc]
-        draws = [sorted((d["rect"] for d in pg.get_drawings() if TOP < d["rect"].y0 < pages[i][2] - 2 and d["rect"].height < pg.rect.height * 0.9),
-                        key=lambda r: r.y0) for i, pg in enumerate(doc)]
+        raw = [[d["rect"] for d in pg.get_drawings() if TOP < d["rect"].y0 < pages[i][2] - 2] for i, pg in enumerate(doc)]
+        page_h = [pg.rect.height for pg in doc]
+        draws = [sorted((r for r in raw[i] if r.height < pg.rect.height * 0.9), key=lambda r: r.y0) for i, pg in enumerate(doc)]
     found = []  # (제목 글, 모자란 pt, 표 높이 pt, 그 제목이 PDF에서 몇 번째로 나온 것인지 0부터, ② = 표가 뒤따르는 제목만 셈)
+
+    def _short(need: float, room: float, j: int, top: float) -> float:  # 모자란 pt — j쪽 표(위 끝 top)가 쪽 밖까지 넘쳤으면(세로선이 쪽 높이 90%를 넘어 위 draws에서
+        # 빠져 머리 줄만 잼, 잘린 만큼은 PDF로 모름: 10/23 시험 칸 9개 늘린 1.4 표 → 800만 줄이고 그대로) 표 높이만큼 모자란 걸로 → 줄이지 않고 나뉘게
+        over = any(abs(r.y0 - top) <= 3 and r.y1 > page_h[j] - 2 for r in raw[j])
+        return max(need - room, need) if over else need - room
 
     def table_follows(j: int, idx: int) -> bool:  # j쪽 idx번째 줄(제목) 바로 아래 60pt 안에 표, 또는 쪽 끝 줄이고 다음 쪽이 표로 시작
         if _divider(pages[j][0]) and len(pages[j][0]) > 2:  # 장 간지 소목차 줄(점선 장식이 작은 선 수백 개라 표로 보였음, 10/23 의정부 48쪽) — 제목 한 줄만 있는 쪽은 셈
@@ -577,7 +589,7 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
                 room = (body_end or foot - 20) - lines[-1][1] - 4
                 if room >= (foot - TOP) * 0.25:
                     k = sum(1 for j in range(i) for idx, (_, _, t) in enumerate(pages[j][0]) if _same_head(t, lines[-1][2]) and table_follows(j, idx))
-                    found.append((lines[-1][2], need - room, need, k, True))
+                    found.append((lines[-1][2], _short(need, room, i + 1, r2[0].y0), need, k, True))
                     continue
         if not lines or not nxt or _divider(lines) or _divider(nxt):
             continue
@@ -599,7 +611,7 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
         if room < (foot - TOP) * 0.25:  # 앞 쪽이 별로 안 비었으면 그대로
             continue
         k = sum(1 for j in range(i + 1) if any(_same_head(t, head[2]) for _, _, t in pages[j][0]))
-        found.append((head[2], need - room, need, k, False))
+        found.append((head[2], _short(need, room, i + 1, rects[0].y0), need, k, False))
     if not found:
         return []
     with zipfile.ZipFile(hwpx) as z:
@@ -636,11 +648,11 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
                 break
         if target is None:
             continue
-        if short <= need * squeeze_max:
-            cut = int(max(short, 0.0) * 100 * 1.2) + 800
-            if _squeeze_table(target, cut, keep, rb):
-                done.append(f"'{head[:14]}…' 표가 통째로 넘어감 → {cut} 줄여 앞 쪽에")
-        else:
+        cut = int(max(short, 0.0) * 100 * 1.2) + 800
+        if short <= need * squeeze_max and sum(_row_spare(target, rb)[1].values()) >= cut:  # 칸 안 빈 여백만으로 될 때만 줄임(글·줄 간격 그대로)
+            if _squeeze_table(target, cut, keep, rb, spare_only=True):
+                done.append(f"'{head[:14]}…' 표가 통째로 넘어감 → 칸 여백 {cut} 줄여 앞 쪽에(글 그대로)")
+        else:  # 여백으로 모자라면 글을 우겨넣지 않고 나뉘게
             cells = rb._cells(target)
             head_rows = max([rb._span(tc, "rowSpan") for (r, _), tc in cells.items() if r == 0] or [1])  # 2단 머리(구분·…·실시범위/정기·정밀)면 2
             rb._splittable(target, head_rows)

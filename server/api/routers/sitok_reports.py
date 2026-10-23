@@ -870,10 +870,10 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
             pushed += pagecheck.squeeze_overflow(hwpx, pdf)
         except Exception:  # noqa: BLE001
             traceback.print_exc()
-        try:  # 제목+표가 통째로 다음 쪽 → 조금 모자라면 줄여 앞 쪽에, 많으면 나뉘게(10/19 형 "현장마다 표 길이가 달라도 자연스럽게")
-            pushed += pagecheck.pull_tables(hwpx, pdf)
-        except Exception:  # noqa: BLE001
-            traceback.print_exc()
+    try:  # 제목+표가 통째로 다음 쪽(또는 새 쪽 제목만 남고 표만) → 조금 모자라면 줄여 앞 쪽에, 많으면 나뉘게(10/19 형, 정밀도 10/23 사용자 "응")
+        pushed += pagecheck.pull_tables(hwpx, pdf)
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
     if pushed:
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
     try:  # 목차 쪽 번호 = 다 고친 PDF의 실제 쪽(10/19 형 — 원본 숫자·책갈피 그대로라 묶음 2·3장이 1장 쪽으로 나왔음), 바뀌면 한 번 더
@@ -884,7 +884,7 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
 
 
 def _convert_appendix(appx: Path, apdf: Path) -> None:
-    """정밀 부록 한글 → PDF — 마지막 구역(과업수행계획서·사전검토보고서)은 빈 자리 메우기 후 한 번 더(표 한 줄만 다음 쪽 등, 10/15)."""
+    """정밀 부록 한글 → PDF — 마지막 구역(과업수행계획서·사전검토보고서)은 빈 자리 메우기 후 한 번 더(표 한 줄만 다음 쪽 등, 10/15), 표 통째로 넘어감도(10/23)."""
     from server.sitok import pagecheck
 
     apdf.write_bytes(hwp_queue.convert_via_worker(appx.read_bytes(), ".hwpx", wait=PDF_WAIT))
@@ -892,6 +892,11 @@ def _convert_appendix(appx: Path, apdf: Path) -> None:
         if pagecheck.fill_gaps(appx, apdf, sections_from=-1):
             apdf.write_bytes(hwp_queue.convert_via_worker(appx.read_bytes(), ".hwpx", wait=PDF_WAIT))
     except Exception:  # noqa: BLE001 — 못 하면 그대로
+        traceback.print_exc()
+    try:  # 표 통째로 넘어감(10/23 — 정기 부록 "나. 과업내용"처럼, 정밀 부록은 따로 한 파일이라 여기서)
+        if pagecheck.pull_tables(appx, apdf, sections_from=0):
+            apdf.write_bytes(hwp_queue.convert_via_worker(appx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+    except Exception:  # noqa: BLE001
         traceback.print_exc()
 
 
