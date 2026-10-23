@@ -21,6 +21,9 @@
   const shot = (label) => `<label class="ov-shot pt-shot">📷 ${label}<input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label>
     <label class="ov-shot secondary pt-shot">🖼 고르기<input type="file" accept="image/*" hidden data-kr-file="1" /></label>`;
 
+  window.addEventListener("sitok-prev-copied", (e) => { // 전회차 사진을 이번 회차에 넣으면 다시 불러 그림(10/23, js/sitok-prevphotos.js)
+    if (["public", "other"].includes((e.detail || {}).tab)) api(url).then((d) => { data = d; ts = Date.now(); draw(); }).catch(() => {});
+  });
   window.addEventListener("kf-upload-done", (e) => { // 폰에 보관했던 사진이 나중에 올라가면(10/22)
     if (String((e.detail || {}).path || "") === `${url}/photo` && e.detail.data) { data = e.detail.data; ts = Date.now(); draw(); }
   });

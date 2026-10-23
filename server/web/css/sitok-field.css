@@ -96,6 +96,20 @@
 
 /* 탭(결함 조사 / 전경사진) + 전경사진(2026-10-11) */
 .sf-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+/* 전회차 사진 보여 주기·그대로 넣기(10/23, js/sitok-prevphotos.js) — 상태양호·내진보강·공중이용·기타시설 위 */
+.pv-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid #cfe0f7; border-radius: 10px;
+  background: var(--blue-soft, #EAF2FD); font-size: 13.5px; }
+.main .pv-bar button { margin: 0; }
+.pv-msg { font-size: 12.5px; color: var(--green, #1a7f4b); }
+.pv-msg:empty { display: none; }
+.pv-grid { flex-basis: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-top: 4px; }
+.pv-grid[hidden] { display: none; }
+.pv-grid figure { margin: 0; }
+.pv-grid img, .pv-none { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: #fff; display: block; cursor: pointer; }
+.pv-none { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12.5px; cursor: default; }
+.pv-grid figcaption { font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
+.pv-grid figcaption em { font-style: normal; color: #b45309; }
+.pv-grid figure.pv-fill img { outline: 2px solid #f3c27a; outline-offset: -2px; }
 /* 위 탭 묶음 스크롤 고정(10/23 사용자 "빨간 줄까지") — 하위 메뉴 줄(--tabs-h) 아래에 붙음, 보고서 목차 줄(.report-toc)과 같은 모양 */
 .sf-tabs { position: sticky; top: var(--tabs-h, 0px); z-index: 6; margin: 0 -40px 12px; padding: 8px 40px; background: rgba(244, 246, 251, 0.95); backdrop-filter: blur(6px); }
 .main button.sf-tab { margin: 0; padding: 9px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 14px; font-weight: 600; }

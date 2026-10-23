@@ -169,6 +169,9 @@
     box.querySelectorAll(".se-table select, .se-table input, #se-opinion").forEach((el) => el.addEventListener("change", save));
   }
 
+  window.addEventListener("sitok-prev-copied", (e) => { // 전회차 사진을 이번 회차에 넣으면 다시 불러 그림(10/23, js/sitok-prevphotos.js)
+    if (["good", "seismic"].includes((e.detail || {}).tab)) api(`${url}/good`).then((d) => { data = d; ts = Date.now(); draw(); }).catch(() => {});
+  });
   window.addEventListener("kf-upload-done", (e) => { // 폰에 보관했던 사진이 나중에 올라가면(10/22)
     const p = String((e.detail || {}).path || "");
     if ((p === `${url}/good/photo` || p === `${url}/seismic/photo`) && e.detail.data) { data = e.detail.data; ts = Date.now(); draw(); }
