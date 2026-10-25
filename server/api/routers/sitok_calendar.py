@@ -6,6 +6,7 @@
   일정은 범위(시작~끝, 10/19 민재형 "일정을 범위 설정 가능하도록, 디폴트 10.30~10.30") — 끝이 비면 하루, 하루 건물 수는 날마다 나눠 셈(visit_plan.day_share).
 - `DELETE /sitok/calendar/visits/{id}`
 - `PATCH /sitok/calendar/visits/{id}/site-contact` {manager?, phone} — 카드의 현장 담당 연락처 = 서류 자동화 계약 정보 "현장 담당"을 바로 고침
+- `PATCH /sitok/calendar/facilities/{id}/map-address` {address} — 시설물 지도용 주소(카드 📍 지도·복사·동선만, 빈 글 = 관리대장 주소, 10/25 민재형) — 관리대장·보고서 주소는 그대로
   (10/20 민재형 "달력 전화번호는 현장 담당 번호로, 없으면 등록 버튼, 달력에서 고치면 계약 정보도 같이" — 시설물 칸 관리주체·담당자 전화는 안 씀)
 - `GET /sitok/calendar/missing` — 일정 없는 반기 목록(계약기간 안인데 날이 없음)
 - `POST /sitok/calendar/fill` {dry_run, facility_ids?} — 자동으로 잡기(미리보기 → 잡기). 이미 있는 날은 안 건드림.
@@ -36,11 +37,17 @@ def _unit_map(db: Session, company_id: int) -> dict[int, V.Unit]:
     return out
 
 
+def map_address(f: SitokFacility) -> str:
+    """달력 지도·복사·동선에 쓰는 주소 — 고친 지도용 주소(ledger.map_address, 10/25 민재형), 없으면 관리대장 주소. 보고서는 늘 f.address."""
+    return str((f.ledger or {}).get("map_address") or "").strip() or (f.address or "")
+
+
 def _unit_out(u: V.Unit) -> dict:
     f = u.lead
     return {"id": f.id, "mgmt_no": f.mgmt_no, "name": u.name, "sector": f.sector or "민간", "badge_field": f.badge_field or "",
-            "badge_kind": f.badge_kind or "", "region": u.region, "address": f.address, "buildings": u.buildings,
-            "contract_type": f.contract_type, "members": [{"id": m.id, "name": m.name, "address": m.address or ""} for m in u.members]}  # 주소 = 카드 안 시설물 위치(10/23)
+            "badge_kind": f.badge_kind or "", "region": u.region, "address": map_address(f), "ledger_address": f.address or "", "buildings": u.buildings,
+            "contract_type": f.contract_type,
+            "members": [{"id": m.id, "name": m.name, "address": map_address(m), "ledger_address": m.address or ""} for m in u.members]}  # 주소 = 카드 안 시설물 위치(10/23)
 
 
 def _state(db: Session, v: SitokVisit, u: V.Unit, today: datetime.date) -> tuple[str, int | None]:
@@ -186,6 +193,27 @@ def site_contact(vid: int, body: SiteContactIn, user: User = Depends(get_current
     return _site_out(c)
 
 
+class MapAddressIn(BaseModel):
+    address: str = ""
+
+
+@router.patch("/facilities/{fid}/map-address")
+def set_map_address(fid: int, body: MapAddressIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """시설물 지도용 주소 고치기(빈 글 = 관리대장 주소로 되돌림) — 달력 지도·복사·동선만, 관리대장·보고서 주소(f.address)는 그대로(10/25 민재형)."""
+    f = db.get(SitokFacility, fid)
+    if f is None or f.company_id != user.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
+    addr = " ".join((body.address or "").split())[:200]
+    led = dict(f.ledger or {})
+    if addr and addr != (f.address or "").strip():
+        led["map_address"] = addr
+    else:
+        led.pop("map_address", None)
+    f.ledger = led
+    db.commit()
+    return {"id": f.id, "address": map_address(f), "ledger_address": f.address or ""}
+
+
 @router.delete("/visits/{vid}")
 def delete_visit(vid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     v = _require(db, user, vid)
@@ -240,14 +268,14 @@ def route(body: RouteIn, user: User = Depends(get_current_user), db: Session = D
     by_c: dict[tuple, int] = {}
     missing = []
     for f in facs:
-        c = _point((f.address or "").strip()) if (f.address or "").strip() else None
+        c = _point(map_address(f).strip()) if map_address(f).strip() else None  # 지도용 주소(고쳤으면 그 주소, 10/25)
         if c is None:
             missing.append(f)
             continue
         k = (round(c[0], 5), round(c[1], 5))
         if k not in by_c:
             by_c[k] = f.id
-            places[f.id] = {"names": [], "address": f.address, "c": c}
+            places[f.id] = {"names": [], "address": map_address(f), "c": c}
         places[by_c[k]]["names"].append(f.name)
     ids = list(places)
 
@@ -268,7 +296,7 @@ def route(body: RouteIn, user: User = Depends(get_current_user), db: Session = D
     return {"date": body.date.isoformat(), "home": home,
             "start": {"address": start_addr, "lat": start[0], "lng": start[1], "is_home": start_addr == home},
             "end": {"address": end_addr, "lat": end[0], "lng": end[1], "is_home": end_addr == home},
-            "stops": [out(i) for i in order], "missing": [{"site_id": f.id, "name": f.name, "address": f.address} for f in missing],
+            "stops": [out(i) for i in order], "missing": [{"site_id": f.id, "name": f.name, "address": map_address(f)} for f in missing],
             "legs": [round(x, 1) for x in legs], "total_km": round(total_km, 1), "best_order": best, "best_total_km": round(min(best_total, total_km), 1),
             "is_best": order == best or total_km <= best_total + 0.05}
 

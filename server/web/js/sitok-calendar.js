@@ -145,11 +145,11 @@
       <div class="dk-item-kind">${esc(v.kind)} · ${v.year} ${esc(v.half)}${v.pinned ? " · 📌 사람이 정함" : " · 자동"}</div>
       <b><span class="site-no">${esc(f.mgmt_no)}</span> <a href="${link}">${esc(f.name)}</a>${f.buildings > 1 ? ` <small>(${f.buildings}동)</small>` : ""}</b>
       <small>${esc([f.region, f.address].filter(Boolean).join(" · "))}</small>
-      ${(f.members || []).length > 1 ? `<details class="sc-members"><summary>📍 시설물 ${f.members.length}곳 위치</summary><ol>${f.members.map((m) => `<li data-addr="${esc(m.address)}">
-        <b>${esc(m.name)}</b><small>${esc(m.address || "주소 없음")}</small><span class="sc-m-map"></span></li>`).join("")}</ol></details>` : ""}
+      ${(f.members || []).length > 1 ? `<details class="sc-members"><summary>📍 시설물 ${f.members.length}곳 위치</summary><ol>${f.members.map((m) => `<li data-addr="${esc(m.address)}" data-fid="${m.id}">
+        <b>${esc(m.name)}</b><small>${esc(m.address || "주소 없음")}</small>${ledgerNote(m)}<span class="sc-m-map"></span><div class="sc-addr" hidden></div></li>`).join("")}</ol></details>` : ""}
       <div class="dk-item-state${v.state === "done" || v.state === "field" ? " ok" : ""}">${STATE[v.state] || ""}</div>
       ${v.memo ? `<small>메모: ${esc(v.memo)}</small>` : ""}
-      <div class="sc-links"></div><div class="sc-contact" hidden></div>
+      <div class="sc-links"></div><div class="sc-contact" hidden></div>${(f.members || []).length > 1 ? "" : `${ledgerNote(f)}<div class="sc-addr" hidden></div>`}
       <div class="dk-item-act sc-act"><span class="sc-range"><input type="date" class="sc-move" value="${v.date}" aria-label="시작 날" /><span class="sc-tilde">~</span>
         <input type="date" class="sc-end" value="${endOf(v)}" min="${v.date}" aria-label="끝 날" /></span><button type="button" class="secondary sc-del">지우기</button></div>
     </div>`;
@@ -158,16 +158,51 @@
     root.querySelectorAll(".sc-item").forEach((card) => {
       const v = data.visits.find((x) => String(x.id) === card.dataset.id);
       wireContact(card, v);
-      card.querySelectorAll(".sc-members li[data-addr]").forEach((li) => { // 묶음 안 시설물마다 지도(10/23)
-        const b = li.dataset.addr ? siteLinkButtons("", li.dataset.addr) : null;
-        if (b) li.querySelector(".sc-m-map").appendChild(b);
+      card.querySelectorAll(".sc-members li[data-addr]").forEach((li) => { // 묶음 안 시설물마다 지도(10/23) + ✏️ 지도용 주소(10/25)
+        const m = v.facility.members.find((x) => String(x.id) === li.dataset.fid);
+        const b = (li.dataset.addr ? siteLinkButtons("", li.dataset.addr) : null) || Object.assign(document.createElement("div"), { className: "site-links" });
+        li.querySelector(".sc-m-map").appendChild(b);
+        if (m) addrEditButton(b, li.querySelector(".sc-addr"), m);
       });
+      if ((v.facility.members || []).length <= 1) addrEditButton(card.querySelector(".sc-links .site-links"), card.querySelector(":scope > .sc-addr"), v.facility); // 한 곳짜리 — 카드 지도 옆
       card.querySelector(".sc-move").addEventListener("change", (e) => { if (e.target.value) moveVisit(v, e.target.value); });
       card.querySelector(".sc-end").addEventListener("change", (e) => { if (e.target.value) setEnd(v, e.target.value); });
       card.querySelector(".sc-del").addEventListener("click", async () => {
         if (!confirm(`${v.facility.mgmt_no} ${v.facility.name} ${v.date} 일정을 지울까요?${v.pinned ? "" : "\n(자동으로 잡은 날 — 지우면 다음 [자동으로 잡기] 때 다시 잡힐 수 있어요)"}`)) return;
         try { await api(`/sitok/calendar/visits/${v.id}`, { method: "DELETE" }); reload(); } catch (err) { showError(errorEl, err); }
       });
+    });
+  }
+  // 지도용 주소(10/25 민재형 "연락처 수정처럼 위치 수정도 — 보고서에는 관리대장 주소가 맞으니 지도 바로가기에서만") — 고치면 이 달력의 📍 지도·복사·동선만 그 주소,
+  // 관리대장·보고서·위치도 주소는 그대로(서버 PATCH /sitok/calendar/facilities/{id}/map-address, 시설물 ledger.map_address). 비우면 관리대장 주소로.
+  function ledgerNote(m) {
+    return m.ledger_address && m.address !== m.ledger_address ? `<small class="sc-led">✏️ 지도용 주소 — 관리대장·보고서: ${esc(m.ledger_address)}</small>` : "";
+  }
+  function addrEditButton(links, form, m) {
+    if (!links || !form) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "site-link sc-edit";
+    btn.title = "지도용 주소 고치기 — 이 달력의 지도·복사·동선만, 관리대장·보고서 주소는 그대로";
+    btn.innerHTML = '<span class="sl-ico">✏️</span>';
+    links.appendChild(btn);
+    btn.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      form.hidden = !form.hidden;
+      if (form.hidden) return;
+      form.innerHTML = `<div class="sc-c-head">지도용 주소 <small>— 지도 바로가기·복사·동선만, 관리대장·보고서 주소(${esc(m.ledger_address || "없음")})는 그대로</small></div>
+        <input type="text" class="sc-a-in" placeholder="찾아갈 주소(예: 도로명 주소·지번)" value="${esc(m.address)}" />
+        <div class="sc-c-act">${m.address !== m.ledger_address ? '<button type="button" class="secondary sc-a-reset">관리대장 주소로</button>' : ""}
+          <button type="button" class="secondary sc-a-cancel">취소</button><button type="button" class="btn-sm sc-a-save">저장</button></div>`;
+      const inp = form.querySelector(".sc-a-in");
+      inp.focus();
+      const save = async (address) => {
+        try { await apiPatch(`/sitok/calendar/facilities/${m.id}/map-address`, { address }); reload(); } catch (err) { alert(err.message); }
+      };
+      form.querySelector(".sc-a-cancel").addEventListener("click", () => { form.hidden = true; });
+      form.querySelector(".sc-a-save").addEventListener("click", () => save(inp.value.trim()));
+      form.querySelector(".sc-a-reset")?.addEventListener("click", () => save(""));
+      inp.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); save(inp.value.trim()); } });
     });
   }
   // 전화 = 서류 자동화 계약 정보의 "현장 담당" 연락처(10/20 민재형 — 시설물 칸 관리주체·담당자 전화는 안 씀).
