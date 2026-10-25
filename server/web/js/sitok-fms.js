@@ -1,6 +1,6 @@
 // 시특법 회차 화면 "📤 FMS 제출" 칸(2026-10-15 — 시특법 7단계). 서버 server/api/routers/sitok_fms.py, 작업 프로그램 server/worker/fms_worker.py.
 // 흐름(형 PPT): 계약 등록 → 승인요청 → 관리주체 승인 → 실적보고·e-보고서 → 승인요청 → 관리주체 승인. 관리주체 계정이 있으면 승인까지 자동(민재형 10/15).
-// [연습] = 채워 보기만(저장 안 함, FMS 대표자 읽기). 실제 단계는 확인 창 뒤 대기열 → 3초마다 상태. "승인요청 전에 멈추기"(처음 몇 번 — 형이 FMS에서 보고 직접 승인요청).
+// [연습] = 채워 보기만(저장 안 함, FMS 대표자 읽기). 계약 번호가 생긴 뒤엔 [실적 연습] — 실적 화면 채워 찍기·e-보고서 폴더 확인(10/25). 실제 단계는 확인 창 뒤 대기열 → 3초마다 상태. "승인요청 전에 멈추기"(처음 몇 번 — 형이 FMS에서 보고 직접 승인요청).
 (function () {
   const rid = new URLSearchParams(location.search).get("report");
   const box = document.getElementById("rd-fms");
@@ -55,7 +55,7 @@
     let repHtml = "";
     if (rep.differs) repHtml = `<li class="fms-warn">대표자: FMS는 <b>${esc(rep.fms)}</b>, 우리 계약은 <b>${esc(rep.ours)}</b> <button type="button" class="secondary fms-mini fms-rep">FMS 값으로 바꾸기</button></li>`;
     else if (!rep.fms) items.push("대표자: [연습]을 한 번 하면 FMS 대표자와 비교합니다");
-    const pe = (info.jobs.find((j) => j.stage === "practice" && j.status === "done") || {}).result || {};
+    const pe = (info.jobs.find((j) => j.stage === "practice" && j.status === "done" && (j.result || {}).target !== "result") || {}).result || {};
     for (const d of pe.engineer_diffs || []) items.push(`기술자 ${d}`);
     if (!items.length && !repHtml) return "";
     return `<div class="fms-checks"><b>확인할 것</b><ul>${repHtml}${items.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>`;
@@ -82,6 +82,18 @@
       <table class="fms-tbl"><thead><tr><th>e-보고서 폴더</th><th>파일 <small>(눌러서 미리보기 · ⬇ 내려받기)</small></th><th>쪽</th></tr></thead><tbody>${files || '<tr><td colspan="3">보고서를 만들면 나눕니다</td></tr>'}</tbody></table></details>`;
   }
 
+  // 실적 연습 결과 한 줄 — 시설물마다 채운 등급 ✓/✗, e-보고서 폴더(10/25)
+  function practiceSum(j) {
+    const r = j.result || {};
+    if (r.target !== "result" || !r.editable) return "";
+    const facs = Object.entries(r.facilities || {}).map(([n, v]) => `<span class="${v.ok ? "fms-ok" : "fms-bad"}">${v.ok ? "✓" : "✗"} ${esc(n)}${v.grade ? ` ${esc(v.grade)}등급` : ""}</span>`).join(" ");
+    const eb = r.eboard || {};
+    const ebTxt = !eb.found ? '<span class="fms-bad">e-보고서 용역 못 찾음</span>'
+      : eb.missing && eb.missing.length ? `<span class="fms-bad">e-보고서 폴더 없음: ${eb.missing.map(esc).join(", ")}</span>`
+      : `<span class="fms-ok">✓ e-보고서 폴더 ${(eb.folders || []).length}개</span>`;
+    return `<div class="fms-job-sum">${facs} ${ebTxt}</div>`;
+  }
+
   function jobs() {
     if (!info.jobs.length) return "";
     return `<div class="fms-jobs"><b>작업 기록</b>${info.jobs.map((j) => `<div class="fms-job ${j.status}">
@@ -89,6 +101,7 @@
           ${j.status === "queued" ? `<button type="button" class="secondary fms-mini fms-cancel" data-j="${j.id}">${sched(j) ? "예약 취소" : "취소"}</button>` : ""}
           ${j.project_no ? `<small>FMS ${esc(j.project_no)}</small>` : ""}</div>
         ${j.message ? `<div class="fms-job-m">${esc(String(j.message).split(/\s*={3,}/)[0].split("\n")[0])}</div>` : ""}
+        ${practiceSum(j)}
         ${running(j) && j.log.length ? `<div class="fms-job-log">${j.log.slice(-3).map(esc).join("<br>")}</div>` : ""}
         ${j.shots ? `<div class="fms-shots">${Array.from({ length: j.shots }, (_, k) => `<a href="${BASE}/api/sitok/fms-jobs/${j.id}/shot?n=${k + 1}" target="_blank" rel="noopener">화면 ${k + 1}</a>`).join("")}</div>` : ""}
         ${!running(j) && j.log.length ? `<details class="fms-log"><summary>기록 ${j.log.length}줄</summary><div>${j.log.map(esc).join("<br>")}</div></details>` : ""}</div>`).join("")}</div>`;
@@ -98,7 +111,9 @@
     const busy = info.jobs.some(running), hasNo = !!(info.state || {}).project_no;
     box.innerHTML = `${stateLine()}${accounts()}${checks()}${preview()}
       <div class="fms-acts">
-        <button type="button" class="secondary fms-go" data-stage="practice"${busy ? " disabled" : ""} title="새 계약 일반현황만 채워 찍고, 시설물·기술자를 FMS와 대조 — FMS에 아무것도 저장 안 함">🔍 연습(채워 보기)</button>
+        <button type="button" class="secondary fms-go" data-stage="practice"${busy ? " disabled" : ""} title="${hasNo
+          ? "계약 승인 뒤 실적보고 화면에 기간·시설물 실적 값을 채워 찍고, e-보고서 창은 폴더까지만 확인 — FMS에 아무것도 저장 안 함"
+          : "새 계약 일반현황만 채워 찍고, 시설물·기술자를 FMS와 대조 — FMS에 아무것도 저장 안 함"}">🔍 ${hasNo ? "실적 연습" : "연습"}(채워 보기)</button>
         <button type="button" class="fms-go" data-stage="contract"${busy ? " disabled" : ""}>📤 FMS 계약 등록</button>
         <button type="button" class="fms-go" data-stage="result"${busy || !hasNo ? " disabled" : ""} title="${hasNo ? "" : "먼저 계약 등록"}">📤 FMS 실적 보고</button>
         <button type="button" class="secondary fms-sched-btn" title="계약 등록·실적 보고를 정한 날짜·시각에 — 실적보고는 점검기간 마지막 날부터 30일 안">⏰ 예약 등록</button>
@@ -166,7 +181,7 @@
       try {
         await apiPost(`/sitok/reports/${rid}/fms`, { stage, stop_before_request: stop });
         await load();
-        msg(stage === "practice" ? "연습을 시작했습니다 — 1분쯤 걸립니다." : "FMS 작업을 시작했습니다 — 아래 기록에서 진행을 봅니다.", "ok");
+        msg(stage === "practice" ? `${(info.state || {}).project_no ? "실적 연습" : "연습"}을 시작했습니다 — 1~2분 걸립니다.` : "FMS 작업을 시작했습니다 — 아래 기록에서 진행을 봅니다.", "ok");
       } catch (err) { msg(esc(err.message), "bad"); }
     }));
     const rep = box.querySelector(".fms-rep");

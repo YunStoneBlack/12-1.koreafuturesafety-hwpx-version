@@ -65,8 +65,14 @@ def _require(db: Session, user: User, rid: int) -> SitokReport:
     return r
 
 
+def _result_practice(j: FmsSubmission) -> bool:
+    """계약 번호가 생긴 뒤의 연습(실적 화면 채워 보기, 10/25)."""
+    return j.stage == "practice" and (j.options or {}).get("target") == "result"
+
+
 def _job_out(j: FmsSubmission) -> dict:
-    return {"id": j.id, "stage": j.stage, "stage_label": STAGE_LABEL.get(j.stage, j.stage), "status": j.status, "message": j.message,
+    label = "실적 연습(채워 보기)" if _result_practice(j) else STAGE_LABEL.get(j.stage, j.stage)
+    return {"id": j.id, "stage": j.stage, "stage_label": label, "status": j.status, "message": j.message,
             "project_no": j.project_no, "result": j.result or {}, "log": (j.log or "").splitlines()[-40:], "shots": len(j.shots or []),
             "created_by": j.created_by, "created_at": j.created_at.strftime("%m-%d %H:%M") if j.created_at else "",
             "run_at": j.run_at.strftime("%Y-%m-%d %H:%M") if j.run_at else "", "retry": bool((j.options or {}).get("retry")),
@@ -139,7 +145,7 @@ def fms_info(rid: int, request: Request, user: User = Depends(get_current_user),
         plan.insert(0, {"folder": "계약서 및 대가내역서", "name": "대가내역서", "pages": 1, "doc_contract": doc.id})
     facs = [db.get(SitokFacility, x.facility_id) for x in reps]
     jobs = _jobs(db, reps)
-    last_practice = next((j for j in jobs if j.stage == "practice" and j.status == "done"), None)
+    last_practice = next((j for j in jobs if j.stage == "practice" and j.status == "done" and not _result_practice(j)), None)  # FMS 대표자는 계약 연습에서
     c = db.get(SitokContract, r.contract_id) if r.contract_id else None
     rep = {"ours": c.rep_name if c else "", "fms": (last_practice.result or {}).get("fms_rep", "") if last_practice else ""}
     rep["differs"] = bool(rep["ours"] and rep["fms"] and rep["ours"].replace(" ", "") != rep["fms"].replace(" ", ""))
@@ -202,8 +208,11 @@ def fms_submit(rid: int, body: SubmitIn, user: User = Depends(get_current_user),
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"실적보고는 점검기간 마지막 날({r.period_end:%Y-%m-%d})부터 됩니다 — 그날 이후로 예약하세요.")
     if body.stage == "result" and not (r.out_pdf and Path(r.out_pdf).exists()):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "보고서(합본 PDF)를 먼저 만드세요 — e-보고서 파일이 거기서 나옵니다.")
+    opts = {"stop_before_request": bool(body.stop_before_request)}
+    if body.stage == "practice" and state.get("project_no"):
+        opts["target"] = "result"  # 계약 등록 뒤 연습 = 실적 화면 채워 보기(10/25 민재형 "실적보고도 연습이 생기는지?")
     j = FmsSubmission(company_id=user.company_id, report_ids=ids, stage=body.stage, status="queued", run_at=run_at,
-                      options={"stop_before_request": bool(body.stop_before_request)}, project_no=state.get("project_no", ""),
+                      options=opts, project_no=state.get("project_no", ""),
                       created_by=user.display_name or "")
     db.add(j)
     db.commit()

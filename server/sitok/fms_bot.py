@@ -2,6 +2,8 @@
 
 단계(stage):
 - practice: 새 계약 일반현황만 채워 찍고 시설물·기술자를 FMS 목록과 대조. 쓰기로 보이는 요청은 브라우저에서 끊음(_guard) — 서버에 아무것도 안 감.
+- practice_result(10/25): 계약 번호가 생긴 뒤의 연습 — 실적 수정 화면(계약 승인 뒤 열림)에 일반현황·시설물 실적 값을 채워 찍기만(goSave 안 누름),
+  e-보고서 창은 용역 고르기 → 폴더 이름 확인까지(파일은 고르는 순간 올라갈 수 있어 안 고름). 같은 _guard.
 - contract: 점검진단계약 등록(일반현황 저장 → 대상시설물 → 책임(참여)기술자) → 승인요청 → (관리주체 계정이 있으면) 관리주체 승인.
 - result: 점검진단실적(수시보고) 일반현황 실제 기간 → 대상시설물 실적(주요결과·보수보강(안)·안전등급…) → e-보고서 파일 올리기 → 승인요청 → 관리주체 승인.
 실제 단계도 알림창 글에 오류 말(입력하지·선택하지·일치하지 않…)이 있으면 그 자리에서 멈추고 화면을 남긴다(FmsError). 이미 만든 계약 번호(project_no)가 있으면
@@ -51,6 +53,7 @@ class Job:
 
     def shot(self, pg, name: str) -> None:
         try:
+            name = re.sub(r'[\\/:*?"<>|]', "_", name)  # "급식실/다목적관" — 파일 이름에 못 쓰는 글자(10/25, 안 바꾸면 폴더로 갈라짐)
             p = self.dir / f"{len(self.shots) + 1:02d}_{name}.png"
             pg.screenshot(path=str(p), full_page=True)
             self.shots.append(str(p))
@@ -372,6 +375,84 @@ def practice(payload: dict, user_id: str, pw: str, shots: Path) -> dict:
     return report
 
 
+def practice_result(payload: dict, user_id: str, pw: str, shots: Path, project_no: str) -> dict:
+    """실적 연습(10/25 민재형 "계약 등록하면 실적보고도 연습이 생기는지?") — 저장 안 함.
+    → {target, editable, filled, facilities: {이름: {ok, grade, error}}, eboard: {found, folders, missing, facilities}, error, shots, log}."""
+    from playwright.sync_api import sync_playwright
+
+    job = Job(shots, real=False)
+    report: dict = {"target": "result", "blocked": job.blocked, "alerts": job.alerts, "facilities": {}, "eboard": {}}
+    c = payload["contract"]
+    with sync_playwright() as p:
+        b = p.chromium.launch()
+        try:
+            ctx, pg = _company_page(b, job, user_id, pw)
+            pg.goto(f"{BASE}/maint/any11002_select.do?project_no={project_no}", wait_until="domcontentloaded")
+            pg.wait_for_timeout(1500)
+            report["editable"] = bool(pg.evaluate("typeof window.goEdit === 'function'"))
+            if not report["editable"]:  # 계약 승인 전이거나 실적을 이미 승인요청함
+                job.shot(pg, "실적_수정없음(연습)")
+            else:
+                pg.evaluate("goEdit()")
+                pg.wait_for_load_state("domcontentloaded")
+                fr = _frame(pg, "any12001_edit")
+                pg.wait_for_timeout(2000)
+                _fill_result_general(fr, c)
+                report["filled"] = fr.evaluate("""() => Object.fromEntries(['start_ymd','end_ymd','const_amt0','design_amt0']
+                    .map(n => { const e = document.getElementsByName(n)[0]; return [n, e ? e.value : null]; }))""")
+                job.shot(pg, "실적_일반현황(연습)")
+                for f in payload["facilities"]:
+                    report["facilities"][f["name"]] = _practice_facility(pg, job, f)
+                report["eboard"] = _practice_eboard(ctx, pg, job, payload)
+        except Exception as e:  # noqa: BLE001 — 멈춘 자리까지 찍은 화면·기록은 남김
+            report["error"] = next((ln.strip() for ln in str(e).splitlines() if ln.strip() and not ln.strip().startswith("=")), type(e).__name__)[:160]
+            job.say(f"멈춤: {report['error']}")
+        finally:
+            b.close()  # 저장 안 하고 닫음
+    report["shots"], report["log"] = job.shots, job.log
+    return report
+
+
+def _practice_facility(pg, job: Job, f: dict) -> dict:
+    """실적 연습 — 실적 시설물 목록에서 하나 열어 값 채워 찍기(저장 안 함, 다음 시설물은 목록을 다시 열어서)."""
+    pg.evaluate("goTabpage('2')")
+    pg.wait_for_timeout(2500)
+    fr2 = _frame(pg, "any13001")
+    if not fr2.evaluate("typeof window.goEdit === 'function'"):
+        return {"ok": False, "error": "실적 시설물 목록을 못 열었습니다"}
+    fr2.evaluate(f"goEdit('{f['fms_no']}')")
+    pg.wait_for_timeout(2500)
+    fr2 = _frame(pg, "any13001")
+    if not fr2.evaluate("!!document.getElementsByName('dign_content')[0]"):
+        job.shot(pg, f"실적_시설물없음_{f['name']}(연습)")
+        return {"ok": False, "error": f"FMS 실적 목록에 {f['fms_no']}가 없습니다"}
+    grade = f.get("overall_grade") or ""
+    ok = _fill_result_facility(fr2, f)
+    job.shot(pg, f"실적_시설물_{f['name']}(연습)")
+    return {"ok": ok, "grade": grade, **({} if ok else {"error": f"안전등급 \"{grade}\"을 FMS 선택지에서 못 골랐습니다"})}
+
+
+def _practice_eboard(ctx, pg, job: Job, payload: dict) -> dict:
+    """실적 연습 — e-보고서 창: 용역 고르기 → 폴더 이름·시설물 체크 칸 수 확인까지(파일은 안 고름)."""
+    with ctx.expect_page(timeout=20000) as pop:
+        pg.evaluate("goTabpage('6')")
+    e = pop.value
+    job.watch(e)
+    e.wait_for_load_state("domcontentloaded")
+    e.wait_for_timeout(4000)
+    inx = _eboard_row(e, payload)
+    if not inx:
+        job.shot(e, "e보고서_용역없음(연습)")
+        return {"found": False}
+    e.evaluate(f"goSelect('{inx}', 'Y')")
+    e.wait_for_timeout(4000)
+    names = e.evaluate("""() => [...document.querySelectorAll("[id^='divTree_'][id$='_span']")].map(x => (x.textContent || '').trim())""")
+    have = {re.sub(r"\s", "", x) for x in names}
+    facs = e.evaluate("() => document.querySelectorAll('input[type=checkbox][name^=facil_no]').length")
+    job.shot(e, "e보고서_폴더(연습)")
+    return {"found": True, "folders": names, "missing": [f for f in FOLDERS if re.sub(r"\s", "", f) not in have], "facilities": facs}
+
+
 # ---------- 실제 제출 ----------
 
 def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
@@ -533,6 +614,36 @@ def owner_approve(b, job: Job, owner_id: str, owner_pw: str, project_nm: str, ki
         ctx.close()
 
 
+def _fill_result_general(fr, c: dict) -> None:
+    """실적 일반현황 — 실제 점검기간·금액(진짜 제출·연습 같이)."""
+    for k in ("start_ymd", "end_ymd"):
+        _set(fr, k, c[k])
+    _set(fr, "const_amt0", c["const_amt"])
+    _set(fr, "design_amt0", c["design_amt"])
+
+
+def _fill_result_facility(fr2, f: dict) -> bool:
+    """실적 시설물 한 곳 값 — 주요결과·보수보강(안)·중대결함·공중이용·안전등급·내진(진짜 제출·연습 같이). 등급을 못 고르면 False."""
+    _set(fr2, "dign_content", f["dign_content"])
+    _set(fr2, "amend_content", f["amend_content"])
+    _check(fr2, "serious_defect_yn", f["serious_defect_yn"] == "Y")
+    _check(fr2, "public_defect_yn", f["public_defect_yn"] == "Y")
+    _check(fr2, "amend_req_yn", False)  # 형 PPT 13장 — 체크 안 함(체크하면 요약보고서 상태평가/보수보강안까지 필수)
+    ok = fr2.evaluate("""(g) => { const s = document.getElementsByName('overall_grade')[0]; if (!s) return false;
+        const o = [...s.options].find(o => o.value === g || o.text.trim().startsWith(g) || o.text.includes('(' + g + ')')); if (!o) return false;
+        s.value = o.value; s.dispatchEvent(new Event('change', {bubbles: true})); return true; }""", f.get("overall_grade") or "")
+    _set(fr2, "quake_target_yn", f.get("quake_target_yn") or "N")
+    return bool(ok)
+
+
+def _eboard_row(e, payload: dict) -> str:
+    """e-보고서 창 용역 줄 번호 — 용역명 앞 20자가 든 줄(하나뿐이면 그 줄), 없으면 ""."""
+    nm = re.sub(r"\s", "", payload["contract"]["project_nm"])
+    return e.evaluate("""(nm) => { const rows = [...document.querySelectorAll("tr[id^='targetRow']")];
+        const r = rows.find(t => t.innerText.replace(/\\s/g, '').includes(nm.slice(0, 20))) || (rows.length === 1 ? rows[0] : null);
+        return r ? r.id.replace('targetRow', '') : ''; }""", nm)
+
+
 def _result_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> None:
     """실적(수시보고) — 일반현황 실제 기간 저장 → 시설물마다 실적 값 저장."""
     pg.goto(f"{BASE}/maint/any11002_select.do?project_no={project_no}", wait_until="domcontentloaded")
@@ -544,11 +655,7 @@ def _result_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> None:
     pg.wait_for_load_state("domcontentloaded")
     fr = _frame(pg, "any12001_edit")
     pg.wait_for_timeout(2000)
-    c = payload["contract"]
-    for k in ("start_ymd", "end_ymd"):
-        _set(fr, k, c[k])
-    _set(fr, "const_amt0", c["const_amt"])
-    _set(fr, "design_amt0", c["design_amt"])
+    _fill_result_general(fr, payload["contract"])
     job.shot(pg, "실적_일반현황")
     _act(job, fr, "goSave()", "실적 일반현황 저장", wait_ms=4000)
     pg.evaluate("goTabpage('2')")
@@ -558,18 +665,8 @@ def _result_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> None:
         fr2.evaluate(f"goEdit('{f['fms_no']}')")
         pg.wait_for_timeout(2500)
         fr2 = _frame(pg, "any13001")
-        _set(fr2, "dign_content", f["dign_content"])
-        _set(fr2, "amend_content", f["amend_content"])
-        _check(fr2, "serious_defect_yn", f["serious_defect_yn"] == "Y")
-        _check(fr2, "public_defect_yn", f["public_defect_yn"] == "Y")
-        _check(fr2, "amend_req_yn", False)  # 형 PPT 13장 — 체크 안 함(체크하면 요약보고서 상태평가/보수보강안까지 필수)
-        grade = f.get("overall_grade") or ""
-        ok = fr2.evaluate("""(g) => { const s = document.getElementsByName('overall_grade')[0]; if (!s) return false;
-            const o = [...s.options].find(o => o.value === g || o.text.trim().startsWith(g) || o.text.includes('(' + g + ')')); if (!o) return false;
-            s.value = o.value; s.dispatchEvent(new Event('change', {bubbles: true})); return true; }""", grade)
-        if not ok:
-            raise FmsError(f"{f['name']} 안전등급 \"{grade}\"을 FMS 선택지에서 못 골랐습니다.")
-        _set(fr2, "quake_target_yn", f.get("quake_target_yn") or "N")
+        if not _fill_result_facility(fr2, f):
+            raise FmsError(f"{f['name']} 안전등급 \"{f.get('overall_grade') or ''}\"을 FMS 선택지에서 못 골랐습니다.")
         job.shot(pg, f"실적_시설물_{f['name']}")
         _act(job, fr2, "goSave()", f"실적 {f['name']} 저장", wait_ms=4000)
 
@@ -587,10 +684,7 @@ def _eboard(ctx, pg, job: Job, payload: dict, files: list[dict], project_no: str
     job.watch(e)
     e.wait_for_load_state("domcontentloaded")
     e.wait_for_timeout(4000)
-    nm = re.sub(r"\s", "", payload["contract"]["project_nm"])
-    inx = e.evaluate("""(nm) => { const rows = [...document.querySelectorAll("tr[id^='targetRow']")];
-        const r = rows.find(t => t.innerText.replace(/\\s/g, '').includes(nm.slice(0, 20))) || (rows.length === 1 ? rows[0] : null);
-        return r ? r.id.replace('targetRow', '') : ''; }""", nm)
+    inx = _eboard_row(e, payload)
     if not inx:
         job.shot(e, "e보고서_용역없음")
         raise FmsError("e-보고서 창에 이 용역이 없습니다(실적 일반현황 저장 확인).")

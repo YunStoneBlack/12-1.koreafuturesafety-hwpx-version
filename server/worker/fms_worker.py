@@ -34,6 +34,24 @@ def _claim(db) -> int | None:
     return job.id
 
 
+def _result_practice_verdict(res: dict) -> tuple[str, str]:
+    """실적 연습 결과 → (status, 글)."""
+    if res.get("error"):
+        return "failed", f"실적 연습 중 멈춤: {res['error']} — FMS에 아무것도 저장하지 않았습니다."
+    if not res.get("editable"):
+        return "failed", "실적보고 화면을 아직 열 수 없습니다 — 계약이 관리주체 승인 전이거나 실적을 이미 승인요청했습니다. 승인된 뒤 다시 연습하세요."
+    msg = "실적 연습 끝 — FMS에 아무것도 저장하지 않았습니다."
+    bad = [f"{n}({v.get('error')})" for n, v in (res.get("facilities") or {}).items() if not v.get("ok")]
+    eb = res.get("eboard") or {}
+    if bad:
+        msg += f" 못 채운 시설물: {', '.join(bad)}."
+    if not eb.get("found"):
+        msg += " e-보고서 창에서 이 용역을 못 찾았습니다."
+    elif eb.get("missing"):
+        msg += f" e-보고서 폴더 없음: {', '.join(eb['missing'])}."
+    return ("failed" if bad or not eb.get("found") or eb.get("missing") else "done"), msg
+
+
 def _process(job_id: int) -> None:
     from server.api.routers.sitok_fms import company_cred, owner_cred
     from server.sitok import fms, fms_bot
@@ -53,7 +71,13 @@ def _process(job_id: int) -> None:
             facs = [db.get(SitokFacility, r.facility_id) for r in reps]
             owner = next((oc for f in facs if (oc := owner_cred(f))), None)
             opts = job.options or {}
-            if job.stage == "practice":
+            if job.stage == "practice" and opts.get("target") == "result":  # 계약 번호가 생긴 뒤의 연습 = 실적 화면 채워 보기(10/25)
+                res = fms_bot.practice_result(payload, *cred, base / "shots", job.project_no or (reps[0].fms or {}).get("project_no", ""))
+                job.status, job.message = _result_practice_verdict(res)
+                job.result = {k: res.get(k) for k in ("target", "editable", "filled", "facilities", "eboard", "error")}
+                job.log = "\n".join(res.get("log") or [])
+                job.shots = [to_stored(s) for s in res.get("shots") or []]
+            elif job.stage == "practice":
                 res = fms_bot.practice(payload, *cred, base / "shots")
                 ok = True
                 msg = "연습 끝 — FMS에 아무것도 저장하지 않았습니다."

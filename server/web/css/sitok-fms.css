@@ -68,3 +68,6 @@
 .fms-due { color: var(--ink); }
 .fms-due.near { color: var(--crit, #c62828); font-weight: 700; }
 .main .fms-job-h button.fms-cancel { margin: 0 0 0 6px; }
+/* 실적 연습 결과 한 줄(10/25) */
+.fms-job-sum { font-size: 12.5px; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.fms-ok { color: #047857; font-weight: 600; }

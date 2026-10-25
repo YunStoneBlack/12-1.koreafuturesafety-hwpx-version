@@ -72,6 +72,22 @@ def _opinions(roots) -> list[str]:
     return out
 
 
+def _has_defect(text: str) -> bool:
+    """결과표 중대한 결함·공중이용 부위 칸 글 → 결함 있음? "없음"·"해당 없음"·"전반적으로 양호한 상태"(옹벽, 10/25)·빈칸·"-"는 없음."""
+    t = re.sub(r"[\s⦁ㆍ·•\-]", "", text or "")
+    return bool(t) and not re.search(r"없음|없습니다|양호|해당없", t)
+
+
+def _row_last(cells: dict, *names: str, starts: bool = False) -> str:
+    """이름칸이 있는 줄의 맨 오른쪽 칸 글 — 결과표 "중대한 결함등 | 중대한 결함 | 없음"처럼 이름칸이 두 겹이어도 값을 읽음
+    (10/25 — 전엔 첫 이름칸 바로 오른쪽 "중대한 결함"을 값으로 읽어 중대결함이 늘 '있음'으로 체크됐음)."""
+    k = rb._label(cells, *names, starts=starts)
+    if not k:
+        return ""
+    last = max(c for (r, c) in cells if r == k[0])
+    return rb._cell_text(cells[(k[0], last)]) if last != k[1] else ""
+
+
 def result_fields(hwpx: Path, nth: int = 0) -> dict:
     """만든 보고서 결과표(묶음이면 nth번째 동) → 실적보고 값. {project_nm, period, findings[], repairs[], grade, serious, public, opinion}."""
     roots = _roots(hwpx)
@@ -82,8 +98,8 @@ def result_fields(hwpx: Path, nth: int = 0) -> dict:
     val = lambda *n, starts=False: rb._value(cells, *n, starts=starts)  # noqa: E731
     findings = [x for tc in rb._label_rows(cells, "점검주요결과", starts=True) for x in _bullets(rb._cell_text(tc))]
     repairs = _bullets(val("주요보수·보강", "주요보수보강", "주요보수", starts=True))
-    serious_t, public_t = val("중대한결함", starts=True), val("공중이이용하는부위", starts=True)
-    grade = re.sub(r"\s", "", val("안전등급", starts=True))
+    serious_t, public_t = _row_last(cells, "중대한결함", starts=True), _row_last(cells, "공중이이용하는부위", starts=True)
+    grade = re.sub(r"\s", "", val("안전등급", starts=True) or val("등급"))  # 옹벽 결과표는 "등  급"(10/25)
     m = re.search(r"[A-E]|양호|보통|미흡|불량|우수", grade)  # 3종 글자, 2종 낱말(10/16 — 2종은 양호·보통·미흡·불량)
     ops = _opinions(roots)
     no_repair = not repairs or all(re.search(r"대상\s*없음|주의관찰", r) for r in repairs)
@@ -93,8 +109,8 @@ def result_fields(hwpx: Path, nth: int = 0) -> dict:
         "findings": findings,
         "repairs": [] if no_repair else repairs,
         "grade": m[0] if m else "",
-        "serious": bool(serious_t) and "없음" not in serious_t,
-        "public": bool(public_t) and "없음" not in public_t,
+        "serious": _has_defect(serious_t),
+        "public": _has_defect(public_t),
         "serious_text": serious_t,
         "public_text": public_t,
         "opinion": ops[min(nth, len(ops) - 1)] if ops else "",
