@@ -8,8 +8,10 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const won = (n) => Number(n || 0).toLocaleString();
   let info = null, poll = null, stop = true, editing = "";
-  const running = (j) => j.status === "queued" || j.status === "running";
-  const ST = { queued: "대기", running: "진행 중", done: "완료", failed: "멈춤" };
+  const sched = (j) => j.status === "queued" && j.run_at && new Date(j.run_at.replace(" ", "T")) > new Date(); // 예약(10/25) — 시각 전이면 기다리는 중
+  const running = (j) => (j.status === "queued" && !sched(j)) || j.status === "running";
+  const ST = { queued: "대기", running: "진행 중", done: "완료", failed: "멈춤", cancelled: "취소" };
+  const mmdd = (iso) => { const d = new Date(`${iso}T00:00:00`); return `${d.getMonth() + 1}/${d.getDate()}`; };
 
   async function load(quiet) {
     try {
@@ -23,7 +25,9 @@
 
   function stateLine() {
     const s = info.state || {}, one = (k) => s[k] ? `${ST[s[k].status] || s[k].status} · ${esc(s[k].step || "")} <small>${esc(s[k].at || "")}</small>` : "아직";
-    return `<div class="fms-state"><span><b>FMS 계약 번호</b> ${esc(s.project_no || "없음")}</span><span><b>계약</b> ${one("contract")}</span><span><b>실적</b> ${one("result")}</span></div>`;
+    const dl = info.deadline, done = s.result && s.result.status === "done";
+    const due = dl && !done ? `<span class="fms-due${dl.days_left <= 7 ? " near" : ""}"><b>실적보고 기한</b> ${mmdd(dl.start)}~${mmdd(dl.end)} ${dl.days_left >= 0 ? `(D-${dl.days_left})` : `(${-dl.days_left}일 지남 — 과태료)`}</span>` : "";
+    return `<div class="fms-state"><span><b>FMS 계약 번호</b> ${esc(s.project_no || "없음")}</span><span><b>계약</b> ${one("contract")}</span><span><b>실적</b> ${one("result")}</span>${due}</div>`;
   }
 
   function accounts() {
@@ -81,7 +85,8 @@
   function jobs() {
     if (!info.jobs.length) return "";
     return `<div class="fms-jobs"><b>작업 기록</b>${info.jobs.map((j) => `<div class="fms-job ${j.status}">
-        <div class="fms-job-h"><span class="fms-tag ${j.status}">${ST[j.status] || j.status}</span> <b>${esc(j.stage_label)}</b> <small>${esc(j.created_at)} ${esc(j.created_by)}${j.finished_at ? ` → ${esc(j.finished_at)}` : ""}</small>
+        <div class="fms-job-h"><span class="fms-tag ${sched(j) ? "sched" : j.status}">${sched(j) ? `⏰ 예약 ${esc(j.run_at.slice(5))}` : ST[j.status] || j.status}</span> <b>${esc(j.stage_label)}</b>${j.retry ? " <small>(다시 시도)</small>" : ""} <small>${esc(j.created_at)} ${esc(j.created_by)}${j.finished_at ? ` → ${esc(j.finished_at)}` : ""}</small>
+          ${j.status === "queued" ? `<button type="button" class="secondary fms-mini fms-cancel" data-j="${j.id}">${sched(j) ? "예약 취소" : "취소"}</button>` : ""}
           ${j.project_no ? `<small>FMS ${esc(j.project_no)}</small>` : ""}</div>
         ${j.message ? `<div class="fms-job-m">${esc(String(j.message).split(/\s*={3,}/)[0].split("\n")[0])}</div>` : ""}
         ${running(j) && j.log.length ? `<div class="fms-job-log">${j.log.slice(-3).map(esc).join("<br>")}</div>` : ""}
@@ -96,8 +101,10 @@
         <button type="button" class="secondary fms-go" data-stage="practice"${busy ? " disabled" : ""} title="새 계약 일반현황만 채워 찍고, 시설물·기술자를 FMS와 대조 — FMS에 아무것도 저장 안 함">🔍 연습(채워 보기)</button>
         <button type="button" class="fms-go" data-stage="contract"${busy ? " disabled" : ""}>📤 FMS 계약 등록</button>
         <button type="button" class="fms-go" data-stage="result"${busy || !hasNo ? " disabled" : ""} title="${hasNo ? "" : "먼저 계약 등록"}">📤 FMS 실적 보고</button>
+        <button type="button" class="secondary fms-sched-btn" title="계약 등록·실적 보고를 정한 날짜·시각에 — 실적보고는 점검기간 마지막 날부터 30일 안">⏰ 예약 등록</button>
         <label class="fms-stop"><input type="checkbox" class="fms-stop-chk"${stop ? " checked" : ""} /> 승인요청 전에 멈추기 <small>(처음 몇 번 — FMS에서 확인 후 직접 승인요청)</small></label>
       </div>
+      <div class="fms-sched" hidden></div>
       <div class="fms-note">FMS 회사 계정으로 로그인하면 같은 계정으로 FMS를 쓰던 사람은 로그아웃됩니다. 작업은 1~5분 걸립니다(이 화면을 닫아도 계속).</div>
       ${jobs()}<div class="mail-msg fms-msg" hidden></div>`;
     wire();
@@ -105,8 +112,50 @@
 
   const msg = (t, tone) => { const el = box.querySelector(".fms-msg"); el.innerHTML = t; el.className = `mail-msg fms-msg ${tone || ""}`; el.hidden = !t; };
 
+  // 예약 등록(10/25 사용자·민재형) — 계약 등록은 계약일 이후 아무 때, 실적보고는 점검기간 마지막 날부터 30일 안(과태료). 기본 = 아침 7시(같은 FMS 계정 쓰던 사람 로그아웃 — 근무 시간 밖)
+  function schedForm() {
+    const el = box.querySelector(".fms-sched");
+    const pad = (n) => String(n).padStart(2, "0");
+    const local = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T07:00`;
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+    const dl = info.deadline;
+    const resultDay = dl && new Date(`${dl.start}T00:00:00`) > tomorrow ? new Date(`${dl.start}T00:00:00`) : tomorrow;
+    const hasNo = !!(info.state || {}).project_no;
+    el.innerHTML = `<div class="fms-sched-h"><b>⏰ 예약 등록</b> <small>— 정한 시각에 작업 프로그램이 FMS에 올립니다(서버 PC가 켜져 있어야). 실패하면 다음 날 아침 7시에 한 번 더.</small></div>
+      <div class="fms-sched-row"><select class="fs-stage"><option value="contract"${hasNo ? "" : " selected"}>계약 등록</option><option value="result"${hasNo ? " selected" : ""}>실적 보고</option></select>
+        <input type="datetime-local" class="fs-at" /><button type="button" class="fs-ok">예약</button><button type="button" class="secondary fs-cancel">닫기</button></div>
+      <div class="sk-help fs-hint"></div>`;
+    const stageEl = el.querySelector(".fs-stage"), at = el.querySelector(".fs-at"), hint = el.querySelector(".fs-hint");
+    const fill = () => {
+      const r = stageEl.value === "result";
+      at.value = local(r ? resultDay : tomorrow);
+      at.min = r && dl ? `${dl.start}T00:00` : "";
+      hint.textContent = r ? (dl ? `실적보고는 점검기간 마지막 날 ${dl.start}부터 ${dl.end}까지(30일 안 — 넘으면 과태료).${hasNo ? "" : " 계약 등록이 먼저 끝나야 합니다 — 계약 등록도 그보다 앞선 시각으로 예약하세요."}` : "")
+        : "계약 등록은 계약일 이후 아무 때나 됩니다.";
+    };
+    stageEl.addEventListener("change", fill);
+    fill();
+    el.querySelector(".fs-cancel").addEventListener("click", () => { el.hidden = true; });
+    el.querySelector(".fs-ok").addEventListener("click", async () => {
+      const stage = stageEl.value;
+      if (!at.value) { msg("날짜·시각을 고르세요.", "bad"); return; }
+      const what = stage === "contract" ? "점검진단계약" : "실적보고와 e-보고서 파일";
+      if (!confirm(`${at.value.replace("T", " ")}에 ${what}을(를) FMS에 실제로 저장하도록 예약합니다. ${stop ? "승인요청 전에 멈춥니다." : "승인요청하고, 관리주체 계정이 있으면 승인까지 합니다."}\n예약할까요?`)) return;
+      try {
+        await apiPost(`/sitok/reports/${rid}/fms`, { stage, stop_before_request: stop, run_at: at.value });
+        el.hidden = true; await load(); msg(`⏰ ${at.value.replace("T", " ")}에 ${stage === "contract" ? "계약 등록" : "실적 보고"}을(를) 예약했습니다 — 아래 작업 기록에서 취소할 수 있습니다.`, "ok");
+      } catch (err) { msg(esc(err.message), "bad"); }
+    });
+    el.hidden = false;
+  }
+
   function wire() {
     box.querySelector(".fms-stop-chk").addEventListener("change", (e) => { stop = e.target.checked; });
+    box.querySelector(".fms-sched-btn")?.addEventListener("click", () => { const el = box.querySelector(".fms-sched"); if (el.hidden) schedForm(); else el.hidden = true; });
+    box.querySelectorAll(".fms-cancel").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("이 예약(대기) 작업을 취소할까요?")) return;
+      try { await api(`/sitok/fms-jobs/${b.dataset.j}`, { method: "DELETE" }); await load(); msg("예약을 취소했습니다.", "ok"); } catch (err) { msg(esc(err.message), "bad"); }
+    }));
     box.querySelectorAll(".fms-go").forEach((b) => b.addEventListener("click", async () => {
       const stage = b.dataset.stage;
       if (stage !== "practice") {

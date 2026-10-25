@@ -21,8 +21,11 @@ ROOT = DATA_DIR / "_시스템" / "fms"
 
 
 def _claim(db) -> int | None:
-    job = (db.query(FmsSubmission).filter(FmsSubmission.status == "queued")
-           .order_by(FmsSubmission.id).with_for_update(skip_locked=True).first())
+    from sqlalchemy import or_
+
+    now = datetime.datetime.now()
+    job = (db.query(FmsSubmission).filter(FmsSubmission.status == "queued", or_(FmsSubmission.run_at.is_(None), FmsSubmission.run_at <= now))  # 예약은 그 시각부터(10/25)
+           .order_by(FmsSubmission.run_at.nullsfirst(), FmsSubmission.id).with_for_update(skip_locked=True).first())
     if job is None:
         return None
     job.status = "running"
@@ -70,6 +73,8 @@ def _process(job_id: int) -> None:
                 job.shots = [to_stored(s) for s in res.get("shots") or []]
             else:
                 files = None
+                if job.stage == "result" and not (job.project_no or (reps[0].fms or {}).get("project_no")):
+                    raise RuntimeError("FMS 계약 번호가 없습니다 — 계약 등록이 아직 안 끝났습니다(예약이면 계약 등록 뒤로 다시 예약)")
                 if job.stage == "result":
                     r0 = reps[0]
                     made = fms.write_split(Path(r0.out_pdf), base / "files", r0.kind or "정기")
@@ -96,6 +101,12 @@ def _process(job_id: int) -> None:
             job.message = f"작업 오류: {first[:160]}"  # 첫 줄만(10/15 — Playwright "==== logs ====" 덩어리는 아래 기록에)
             job.log = (job.log or "") + "\n" + traceback.format_exc()[-1500:]
         job.finished_at = datetime.datetime.now()
+        opts = job.options or {}
+        if job.status == "failed" and job.run_at and job.stage != "practice" and not opts.get("retry"):  # 예약 작업이 실패하면 다음 날 아침 7시에 한 번 더(10/25)
+            nxt = datetime.datetime.combine(datetime.date.today() + datetime.timedelta(days=1), datetime.time(7, 0))
+            db.add(FmsSubmission(company_id=job.company_id, report_ids=job.report_ids, stage=job.stage, status="queued", run_at=nxt,
+                                 options={**opts, "retry": 1, "retry_of": job.id}, project_no=job.project_no, created_by=job.created_by))
+            job.message = (job.message or "") + f" — {nxt:%m/%d %H:%M}에 한 번 더 합니다"
         db.commit()
 
 

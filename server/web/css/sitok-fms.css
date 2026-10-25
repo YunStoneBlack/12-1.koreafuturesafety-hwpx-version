@@ -56,3 +56,15 @@
 .main .fms-owner select.fo-pick { display: inline-block; width: auto; margin: 4px 0 0 8px; padding: 4px 6px; font-size: 12.5px; max-width: 100%; }
 .fms-owner b small { font-weight: 400; color: var(--muted); }
 .main .fms-cred button.fms-eye { margin: 0 4px 0 -2px; padding: 4px 8px; font-size: 14px; line-height: 1; }
+/* 예약 등록(10/25) */
+.fms-sched { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.fms-sched[hidden] { display: none; }
+.fms-sched-h small { color: var(--muted); }
+.fms-sched-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 4px; }
+.main .fms-sched-row select, .main .fms-sched-row input { width: auto; margin: 0; }
+.main .fms-sched-row button { margin: 0; }
+.fms-tag.sched { background: #EEF4FF; color: var(--blue, #2f6fe4); }
+.fms-tag.cancelled { background: var(--paper); color: var(--muted); }
+.fms-due { color: var(--ink); }
+.fms-due.near { color: var(--crit, #c62828); font-weight: 700; }
+.main .fms-job-h button.fms-cancel { margin: 0 0 0 6px; }

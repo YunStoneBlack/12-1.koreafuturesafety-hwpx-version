@@ -69,7 +69,16 @@ def _job_out(j: FmsSubmission) -> dict:
     return {"id": j.id, "stage": j.stage, "stage_label": STAGE_LABEL.get(j.stage, j.stage), "status": j.status, "message": j.message,
             "project_no": j.project_no, "result": j.result or {}, "log": (j.log or "").splitlines()[-40:], "shots": len(j.shots or []),
             "created_by": j.created_by, "created_at": j.created_at.strftime("%m-%d %H:%M") if j.created_at else "",
+            "run_at": j.run_at.strftime("%Y-%m-%d %H:%M") if j.run_at else "", "retry": bool((j.options or {}).get("retry")),
             "finished_at": j.finished_at.strftime("%H:%M") if j.finished_at else ""}
+
+
+def _deadline(r: SitokReport) -> dict | None:
+    """실적보고 기한 — 점검기간 마지막 날부터 30일 안(넘으면 과태료, 10/25 사용자). {start, end, days_left}."""
+    if not r.period_end:
+        return None
+    end = r.period_end + datetime.timedelta(days=30)
+    return {"start": r.period_end.isoformat(), "end": end.isoformat(), "days_left": (end - datetime.date.today()).days}
 
 
 def _jobs(db: Session, reps: list[SitokReport]) -> list[FmsSubmission]:
@@ -149,7 +158,7 @@ def fms_info(rid: int, request: Request, user: User = Depends(get_current_user),
                          "owner_id": f.fms_owner_id, "facility_id": f.id} for x, f in zip(reps, facs)],
             "owner": {"id": next((f.fms_owner_id for f in facs if f.id in ids), ""), "all": len(ids) == len(facs), "mixed": len(owner_ids) > 1,
                       "choices": choices},  # 발주처 계정 한 줄(같이 내는 동 공통 — 작업 프로그램은 계정 있는 첫 동 것을 씀)
-            "payload": payload, "files": plan, "notes": notes, "rep": rep, "state": state,
+            "payload": payload, "files": plan, "notes": notes, "rep": rep, "state": state, "deadline": _deadline(r),
             "accounts": {"company": has_company, "company_id": (_setting(db, user.company_id, "fms_id").value if has_company else ""),
                          "is_admin": is_groupware_admin(request)},
             "jobs": [_job_out(j) for j in jobs]}
@@ -158,6 +167,7 @@ def fms_info(rid: int, request: Request, user: User = Depends(get_current_user),
 class SubmitIn(BaseModel):
     stage: str
     stop_before_request: bool = True
+    run_at: str | None = None  # 예약 "2026-11-20T07:00"(10/25) — 비면 바로
 
 
 @router.post("/reports/{rid}/fms")
@@ -169,18 +179,46 @@ def fms_submit(rid: int, body: SubmitIn, user: User = Depends(get_current_user),
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 FMS 계정이 없습니다 — 이 칸의 [회사 FMS 계정]에서 넣어 주세요(관리자).")
     reps = together(db, r)
     ids = [x.id for x in reps]
-    busy = [j for j in _jobs(db, reps) if j.status in ("queued", "running")]
-    if busy:
+    run_at = None
+    if body.run_at:
+        try:
+            run_at = datetime.datetime.fromisoformat(body.run_at)
+        except ValueError as err:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "예약 날짜·시각이 맞지 않습니다.") from err
+        if body.stage == "practice":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "연습은 예약하지 않습니다 — 바로 하세요.")
+    when = run_at or datetime.datetime.now()
+    jobs = _jobs(db, reps)
+    if any(j.status == "running" for j in jobs) and run_at is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "이 회차는 지금 FMS 작업 중입니다 — 끝날 때까지 기다리세요.")
+    if any(j.status == "queued" and j.stage == body.stage for j in jobs):
+        raise HTTPException(status.HTTP_409_CONFLICT, "같은 단계가 이미 대기(예약) 중입니다 — 그 예약을 취소한 뒤 다시 하세요.")
     state = r.fms or {}
-    if body.stage == "result" and not state.get("project_no"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "FMS 계약 번호가 없습니다 — 먼저 [FMS 계약 등록]을 하세요.")
+    if body.stage == "result":
+        planned = any(j.status in ("queued", "running") and j.stage == "contract" and (j.run_at or j.created_at) <= when for j in jobs)
+        if not state.get("project_no") and not planned:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "FMS 계약 번호가 없습니다 — 먼저 [FMS 계약 등록]을 하거나 그보다 앞서 예약하세요.")
+        if r.period_end and when.date() < r.period_end:  # FMS 실적보고는 점검기간 마지막 날부터(10/25 사용자)
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"실적보고는 점검기간 마지막 날({r.period_end:%Y-%m-%d})부터 됩니다 — 그날 이후로 예약하세요.")
     if body.stage == "result" and not (r.out_pdf and Path(r.out_pdf).exists()):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "보고서(합본 PDF)를 먼저 만드세요 — e-보고서 파일이 거기서 나옵니다.")
-    j = FmsSubmission(company_id=user.company_id, report_ids=ids, stage=body.stage, status="queued",
+    j = FmsSubmission(company_id=user.company_id, report_ids=ids, stage=body.stage, status="queued", run_at=run_at,
                       options={"stop_before_request": bool(body.stop_before_request)}, project_no=state.get("project_no", ""),
                       created_by=user.display_name or "")
     db.add(j)
+    db.commit()
+    return _job_out(j)
+
+
+@router.delete("/fms-jobs/{jid}")
+def fms_job_cancel(jid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """대기(예약) 중인 FMS 작업 취소(10/25) — 시작한 작업은 못 멈춤."""
+    j = db.get(FmsSubmission, jid)
+    if j is None or j.company_id != user.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "작업이 없습니다.")
+    if j.status != "queued":
+        raise HTTPException(status.HTTP_409_CONFLICT, "이미 시작했거나 끝난 작업은 취소할 수 없습니다.")
+    j.status, j.message, j.finished_at = "cancelled", f"예약 취소 — {user.display_name or ''}", datetime.datetime.now()
     db.commit()
     return _job_out(j)
 

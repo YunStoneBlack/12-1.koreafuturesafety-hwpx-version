@@ -248,6 +248,7 @@ class FmsSubmission(Base):
     shots: Mapped[list | None] = mapped_column(JSON, default=None)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)
+    run_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)  # 예약 시각(0064, 10/25) — 비면 바로
     started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
 
