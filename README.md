@@ -199,6 +199,11 @@
   학교 내진보강 점검표 동마다·외관망도 동 간지(`sitok_maps.insert_maps(names)`)·공사비 제목 표 위·★ 대표 전경(`sitok_overview` first)·사진 크게 보기+↻ 돌리기(`sitok_rotate.py`·`js/sitok-photos.js`)·
   AI 말투(`core/report_style.py`, `vision.ask(writing=True)`)·1.7 치장벽돌 표(3종학교 — 시설물 값 + `ai_draft.brick_note`, 상태양호 [외부 치장벽돌]), 위치도 핀 건축물 정기·정밀에도 + 주소 검색
   (`locmap.facility_map`·`rough`, `GET /sitok/locmap/search`), 내진 확인서 발주자 칸, 폰 검색 고르기(목록 창 검색칸 — `app.js searchSelect`), 규격조사·철근탐사 층만 보기(`app.js floorChips`).
+- **131~141차(10/25~26)**: 철근탐사 바로가기·고정·색, 방문 달력 지도용 주소, 반기 하나 계약(`seasons.title_half`), 회차 계약 자동 맞추기(`sitok.refit_contracts`), FMS — e보고서 나누기·미리보기,
+  발주처 계정 한 줄·비밀번호 👁, **예약 등록(DB 0064)**, **실적 연습**(`fms_bot.practice_result`), 결과표 중대결함·옹벽 등급 읽기 고침(`fms._row_last`·`_has_defect`).
+  **보고서 메일(DB 0065 `mail_job`)** — 시특법 회차 [📧 보고서 보내기](합본 내려받기 링크 `/report/share/{토큰}` 로그인 없이·30일·바로/예약·제출 현황 전송 표시,
+  `server/api/mail_jobs.py`·`routers/sitok_mail.py`·`routers/share.py`, 그룹웨어 nginx 예외), 산안법 고객사 전송 예약(전송 창 첫 화면 [⏰ 예약 보내기]·목록/제출 현황 "⏰ 예약"),
+  작업 프로그램 `server/worker/mail_worker.py`.
 - **91차(10/21 밤)**: 옹벽 묶음 2장부터 꼬리말 고침(`wall_build._drop_before(sec_only=True)` — 구역 정의만 옮김), 보고서 구성 상자 기본 계약 = 반기와 가장 많이 겹치는 계약(`sitok_compose._overlap_days`, `attach_contract`는 contract_for), **정밀 묶음 분권**(`sitok_split._build_precision`), 양주덕산초 되돌리기 `server/scripts/restore_deoksan_test.py`.
 - **75~89차(10/21)**: 옹벽 형 수정사항(요약표 전회 칸·1.5 유지관리방안·1.6 개략공사비 AI, 발주처 과업지시서 DB 0060, 위치도 핀·후면첨부 도면, 1.2.4 틀 점선 X + "후면첨부",
   2.2 과업 예정 공정표 머리 = 과업기간 날짜, 전회차 사진 읽기 세 단계 — 부록2 간지 → 전경사진·주요 손상 및 현황사진 제목 쪽 → 설명 붙은 사진),
