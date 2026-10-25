@@ -197,7 +197,7 @@ def payload(db, reports: list) -> dict:
 APPX = [
     (r"시설물관리대장", ("보고서 부록", "시설물관리대장 사본")),
     (r"외관조사사진첩", ("보고서 부록", "외관조사 사진첩")),
-    (r"외관조사망도", ("보고서 부록", "외관조사망도")),
+    (r"외관(조사)?망도", ("보고서 부록", "외관조사망도")),  # 정기 간지는 "외 관 망 도"(10/25)
     (r"측정.*성과표|시험.*성과표|장비측정위치도", ("보고서 부록", "측정, 시험 성과표")),
     (r"상태평가결과", ("보고서 부록", "상태평가 결과 자료")),
     (r"사용장비", ("보고서 부록", "사용장비 및 기기의 사진")),
@@ -214,13 +214,24 @@ def _lines(page) -> list[str]:
     return [x.strip() for x in page.get_text().splitlines() if x.strip()]
 
 
-def _divider(lines: list[str]) -> str | None:
-    """부록 간지 쪽이면 제목("1. 시설물관리대장 사본"·"7-2. 과 업 지 시 서")."""
+def _divider(lines: list[str]) -> tuple[int, str, str] | None:
+    """부록 간지 쪽이면 (단계, 제목, 모양) — 단계 1 = 큰 간지(파일 하나), 2 = 작은 간지(아는 항목이면 따로, 아니면 큰 간지 파일에 붙음).
+    정밀(10/15 숭의) "1. 시설물관리대장 사본"·"7-2. 과 업 지 시 서", 정기(10/25) "부록.1" + 다음 줄 "시설물관리대장 사본"·"부록3-4. 과 업 지 시 서",
+    옹벽 "부록3.과업지시서". 모양 = 처음 나온 큰 간지 모양으로 고정할 때 씀(끼운 옛 관리대장 속 "부록.5 시설물대장 사본" 같은 쪽에 속지 않게)."""
     if not lines or len("".join(lines)) > 80:
         return None
-    m = re.match(r"^(\d+(?:-\d+)?)\.\s*([^\d\s].*)$", lines[0])  # "4.3 정밀…"처럼 번호 뒤가 숫자면 본문 제목
+    m = re.match(r"^부록\s*\.\s*(\d+)$", lines[0])
+    if m and len(lines) > 1:
+        return 1, lines[1], "dot"
+    m = re.match(r"^부록\s*\d+-\d+(?:-\d+)?\.\s*(\S.*)$", lines[0])
+    if m:
+        return 2, m[1], "sub"
+    m = re.match(r"^부록\s*\d+\.\s*(\S.*)$", lines[0])
+    if m:
+        return 1, m[1], "num"
+    m = re.match(r"^(\d+)(-\d+)?\.\s*([^\d\s].*)$", lines[0])  # 정밀 — "4.3 정밀…"처럼 번호 뒤가 숫자면 본문 제목
     if m and not re.search(r"\d+\.\s*\S", " ".join(lines[1:3])):
-        return m[2]
+        return (2 if m[2] else 1), m[3], "plain"
     return None
 
 
@@ -240,21 +251,33 @@ def split_plan(pdf: Path) -> list[dict]:
                 return
         plan.append({"folder": folder, "name": name, "pages": [(a, b)]})
 
-    # 결과표 — "…안전점검 결과표"·"…안전진단 결과표"로 시작하는 쪽부터 다음 제목(요약표·결과표·요약문·위치도·목차) 앞까지
-    starts = [i for i in range(appx) if pages[i] and re.search(r"(점검|진단)\s*결과표$", pages[i][0])]
+    # 결과표 — "…안전점검 결과표"·"…안전진단 결과표"로 시작하는 쪽부터 다음 제목(요약표·결과표·요약문·위치도·목차) 앞까지.
+    # 정기 양식 제목은 "…정기안전점검(하반기)" / "결과표" 두 줄(83차) — 첫 두 줄을 합쳐서도 봄(10/25)
+    head = lambda ls: " ".join(ls[:2])  # noqa: E731
+    res = r"(점검|진단)(\([^)]*\))?\s*결과표$"
+    starts = [i for i in range(appx) if pages[i] and (re.search(res, pages[i][0]) or re.search(res, head(pages[i])))]
     for k, s in enumerate(starts):
         e = s
-        while e + 1 < appx and e + 1 not in starts and not (pages[e + 1] and re.search(r"요약표|실시결과|현황표|결과표$|요\s*약\s*문|위치도|목\s*차", pages[e + 1][0])):
+        while e + 1 < appx and e + 1 not in starts and not (pages[e + 1] and re.search(r"요약표|실시결과|현황표|결과표$|요\s*약\s*문|위치도|목\s*차", head(pages[e + 1]))):
             e += 1
         add("결과표", "결과표", s, e)
     add("보고서", "본보고서", 0, appx - 1)
-    # 부록 — 간지마다(간지 쪽 포함) 다음 간지 앞까지
-    divs = [(i, t) for i in range(appx, n) if (t := _divider(pages[i]))]
-    for k, (i, title) in enumerate(divs):
+    # 부록 — 간지마다(간지 쪽 포함) 다음 간지 앞까지. 큰 간지 = 파일, 작은 간지(부록3-4 등)는 아는 항목이면 따로 아니면 큰 간지 파일에
+    # (사진첩 안 동 간지 "부록2-1. 본관"은 사진첩에 남음). 큰 간지 모양은 처음 나온 것으로 고정.
+    divs = [(i, dv) for i in range(appx, n) if (dv := _divider(pages[i]))]
+    first = next((dv[2] for _, dv in divs if dv[0] == 1), None)
+    divs = [(i, dv) for i, dv in divs if dv[0] == 2 or dv[2] == first]
+    other = ("보고서 부록", "기타 부록 참고자료")
+    parent = other
+    for k, (i, (level, title, _)) in enumerate(divs):
         e = (divs[k + 1][0] - 1) if k + 1 < len(divs) else n - 1
         key = re.sub(r"[\s,·ㆍ.]", "", title)
-        folder, name = next((v for pat, v in APPX if re.search(pat, key)), ("보고서 부록", "기타 부록 참고자료"))
-        add(folder, name, i, e)
+        hit = next((v for pat, v in APPX if re.search(pat, key)), None)
+        if level == 1:
+            parent = hit or other
+            add(*parent, i, e)
+        else:
+            add(*(hit or parent), i, e)
     order = {f: j for j, f in enumerate(FOLDERS)}
     plan.sort(key=lambda x: order.get(x["folder"], 9))
     return plan
