@@ -1027,3 +1027,11 @@ button.sp-pick-it.on { border-color: var(--blue); }
 .search-sel-list > div.none { cursor: default; }
 .search-sel-list em { font-style: normal; font-size: 12px; color: #a2620b; }
 .search-sel-list .none { color: var(--muted); }
+/* 폰(10/25): 칸 = 목록 열기 단추, 🔍 = 검색어 치기 */
+.search-sel.touch > input.search-sel-in { padding-right: 70px; cursor: pointer; caret-color: transparent; }
+.search-sel.touch.typing > input.search-sel-in { caret-color: auto; cursor: text; }
+.search-sel.touch > button.search-sel-find { position: absolute; right: 30px; top: 50%; transform: translateY(-50%); margin: 0; padding: 0; width: 36px; height: 36px;
+  border: none; border-radius: 8px; background: transparent; font-size: 17px; line-height: 1; cursor: pointer; }
+.search-sel.touch.typing > button.search-sel-find { background: var(--blue-soft, #eaf2fd); }
+.search-sel.touch .search-sel-list { max-height: 320px; }
+.search-sel.touch .search-sel-list > div { padding: 11px 12px; font-size: 15px; } /* 손가락으로 누르기 쉽게 */
