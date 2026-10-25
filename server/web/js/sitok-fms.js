@@ -29,7 +29,7 @@
   function accounts() {
     const a = info.accounts;
     const comp = editing === "company"
-      ? `<span class="fms-cred"><input class="fc-id" placeholder="FMS 아이디" value="${esc(a.company_id)}" /><input class="fc-pw" type="password" placeholder="비밀번호" autocomplete="new-password" />
+      ? `<span class="fms-cred"><input class="fc-id" placeholder="FMS 아이디" value="${esc(a.company_id)}" /><input class="fc-pw" type="password" placeholder="비밀번호" autocomplete="new-password" /><button type="button" class="secondary fms-mini fms-eye" aria-label="비밀번호 보기" title="비밀번호 보기">👁</button>
          <button type="button" class="fc-save">저장</button><button type="button" class="secondary fc-cancel">취소</button></span>`
       : `${a.company ? `✓ ${esc(a.company_id)}` : '<span class="fms-bad">없음</span>'} ${a.is_admin ? `<button type="button" class="secondary fms-mini fc-edit">${a.company ? "바꾸기" : "넣기"}</button>` : (a.company ? "" : "<small>— 그룹웨어 관리자가 넣습니다</small>")}`;
     // 발주처(관리주체) 계정 — 같이 내는 묶음(또는 회차)마다 한 줄, 저장하면 그 동 전부(10/25 민재형 "묶음이면 발주처 아이디는 무조건 1개"),
@@ -38,7 +38,7 @@
     const label = `발주처(관리주체) 계정${n > 1 ? ` <small>— 묶음 ${n}동 공통</small>` : ""}`;
     const pick = (o.choices || []).length ? `<select class="fo-pick"><option value="">같은 카드 다른 보고서 계정 쓰기…</option>${o.choices.map((c) => `<option value="${c.facility_id}">${esc(c.facility)} — ${esc(c.owner_id)}</option>`).join("")}</select>` : "";
     const owners = editing === "owner"
-      ? `<div class="fms-owner"><b>${label}</b> <span class="fms-cred"><input class="fo-id" placeholder="관리주체 FMS 아이디" value="${esc(o.id || "")}" /><input class="fo-pw" type="password" placeholder="비밀번호" autocomplete="new-password" />
+      ? `<div class="fms-owner"><b>${label}</b> <span class="fms-cred"><input class="fo-id" placeholder="관리주체 FMS 아이디" value="${esc(o.id || "")}" /><input class="fo-pw" type="password" placeholder="비밀번호" autocomplete="new-password" /><button type="button" class="secondary fms-mini fms-eye" aria-label="비밀번호 보기" title="비밀번호 보기">👁</button>
           <button type="button" class="fo-save">저장</button><button type="button" class="secondary fc-cancel">취소</button></span>${pick}</div>`
       : `<div class="fms-owner"><b>${label}</b> ${o.id ? `✓ ${esc(o.id)}${o.mixed ? ' <span class="fms-warn">동마다 다른 아이디가 있음 — 다시 넣으면 하나로</span>' : ""}` : '<span class="fms-warn">없음 — 승인요청까지만</span>'}
           <button type="button" class="secondary fms-mini fo-edit">${o.id ? "바꾸기" : "넣기"}</button>${pick}</div>`;
@@ -127,6 +127,14 @@
     const ce = box.querySelector(".fc-edit");
     if (ce) ce.addEventListener("click", () => { editing = "company"; draw(); });
     box.querySelectorAll(".fo-edit").forEach((b) => b.addEventListener("click", () => { editing = "owner"; draw(); }));
+    box.querySelectorAll(".fms-eye").forEach((b) => b.addEventListener("click", () => { // 👁 비밀번호 보기·숨기기(10/25 민재형 "점점점으로만 되어 있어 등록 시 불편")
+      const inp = b.previousElementSibling;
+      const show = inp.type === "password";
+      inp.type = show ? "text" : "password";
+      b.textContent = show ? "🙈" : "👁";
+      b.title = b.ariaLabel = show ? "비밀번호 숨기기" : "비밀번호 보기";
+      inp.focus();
+    }));
     box.querySelector(".fo-pick")?.addEventListener("change", async (e) => { // 같은 카드 다른 보고서 계정 그대로(비밀번호는 서버 안에서만)
       if (!e.target.value) return;
       try {

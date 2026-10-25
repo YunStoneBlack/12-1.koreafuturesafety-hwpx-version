@@ -55,3 +55,4 @@
 }
 .main .fms-owner select.fo-pick { display: inline-block; width: auto; margin: 4px 0 0 8px; padding: 4px 6px; font-size: 12.5px; max-width: 100%; }
 .fms-owner b small { font-weight: 400; color: var(--muted); }
+.main .fms-cred button.fms-eye { margin: 0 4px 0 -2px; padding: 4px 8px; font-size: 14px; line-height: 1; }
