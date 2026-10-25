@@ -331,8 +331,8 @@ def update_report(report_id: int, body: ReportIn, user: User = Depends(get_curre
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "내진성능평가 회차와 정기·정밀 회차는 서로 바꿀 수 없습니다 — 새 회차를 만드세요.")
     for k, v in data.items():
         setattr(r, k, v)
-    shared = {k: v for k, v in data.items() if k in SHARED}
-    if shared and db.get(SitokFacility, r.facility_id).group_id:  # 점검기간·제출일·기술자는 묶인 동도 같이
+    shared = {k: v for k, v in data.items() if k in SHARED or k == "contract_id"}  # 계약도 묶음은 한 계약(10/25 — 17곳을 하나씩 바꾸던 것)
+    if shared and db.get(SitokFacility, r.facility_id).group_id:  # 점검기간·제출일·기술자·계약은 묶인 동도 같이
         for _, x in _group_reports(db, r, user.display_name or ""):
             for k, v in shared.items():
                 setattr(x, k, v)
@@ -1559,6 +1559,9 @@ def start_build(report_id: int, user: User = Depends(get_current_user), db: Sess
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "정밀안전점검 본문 원본이 없습니다 — 시특법 설정에서 올리세요.")
     elif not master.master_path().exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 원본 템플릿이 없습니다 — 시특법 설정에서 올리세요.")
+    from server.api.routers.sitok import refit_contracts
+    f0 = db.get(SitokFacility, r.facility_id)
+    refit_contracts(db, [x for _, x in _group_reports(db, r)] if f0.group_id else [r])  # 붙은 계약이 그 반기를 안 덮으면 덮는 계약으로(10/25)
     why = _fill_period(db, r)  # 비었으면 기본값으로(10/20 형 규칙)
     if why:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"점검기간(시작·끝)을 먼저 정하세요 — 회차 화면 맨 아래 ⚙ 회차 정보에서. ({why})")

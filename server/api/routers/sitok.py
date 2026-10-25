@@ -449,6 +449,23 @@ def contract_for(db: Session, f: SitokFacility, year: int, half: str) -> SitokCo
     return None
 
 
+def refit_contracts(db: Session, reports) -> list[dict]:
+    """회차에 붙은 계약이 그 반기를 안 덮으면 덮는 계약(contract_for — 그 동 → 묶음, 늦게 시작한 것)으로 바꿈 — 덮는 계약이 없으면 그대로.
+    바꾼 것 [{report_id, old, new}](부르는 쪽이 commit)."""
+    out = []
+    for r in reports:
+        if not r.contract_id:
+            continue
+        cur = db.get(SitokContract, r.contract_id)
+        if cur is not None and covers(cur, r.year, r.half):
+            continue
+        best = contract_for(db, db.get(SitokFacility, r.facility_id), r.year, r.half)
+        if best is not None and best.id != r.contract_id:
+            out.append({"report_id": r.id, "old": r.contract_id, "new": best.id})
+            r.contract_id = best.id
+    return out
+
+
 def attach_contract(db: Session, c: SitokContract) -> int:
     """계약을 추가·고친 뒤 — 이 동(묶인 동 포함) 회차 중 계약 없이 만든 것을 이 계약이 덮으면 붙임. 이미 계약이 있는 회차는 그대로. 붙인 수.
     붙이는 건 그 반기에 맞는 계약(contract_for — 늦게 시작한 것): 계약 둘을 잇달아 넣을 때 상반기 계약(~7/11)이 하반기 회차를 먼저 가져가지 않게(10/21 관급-30)."""
@@ -461,6 +478,8 @@ def attach_contract(db: Session, c: SitokContract) -> int:
             best = contract_for(db, db.get(SitokFacility, r.facility_id), r.year, r.half)
             r.contract_id = (best or c).id
             n += 1
+    # 계약이 붙어 있어도 그 반기를 안 덮는 회차(상반기 계약 ↔ 하반기 회차) — 덮는 계약으로(10/25 관급-30)
+    n += len(refit_contracts(db, db.query(SitokReport).filter(SitokReport.facility_id.in_(_family(db, f)), SitokReport.contract_id.isnot(None)).all()))
     return n
 
 
