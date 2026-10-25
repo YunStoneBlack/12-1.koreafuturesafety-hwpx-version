@@ -13,6 +13,7 @@ import datetime
 import secrets
 from pathlib import Path
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.models_web import MailJob, ReportMail, SitokReport
@@ -136,6 +137,26 @@ def _send_sanan(db: Session, job: MailJob) -> list[str]:
     db.add(ReportMail(report_id=report.id, sent_at=datetime.datetime.now(), to_addr=job.to_addr, cc_addr=job.cc_addr,
                       sent_by=job.created_by or ""))
     return refused
+
+
+def sanan_schedules(db: Session, report_ids: list[int]) -> dict[int, dict]:
+    """산안법 보고서마다 예약 메일 표시(목록·제출 현황 "⏰ 10/27 09:00 예약" / "⚠ 예약 못 보냄", 10/26) —
+    대기 중이면 가장 이른 예약, 없으면 마지막 전송 뒤에 못 보낸 예약. {report_id: {status: queued|failed, run_at, message}}."""
+    if not report_ids:
+        return {}
+    last_sent = dict(db.query(ReportMail.report_id, func.max(ReportMail.sent_at))
+                     .filter(ReportMail.report_id.in_(report_ids)).group_by(ReportMail.report_id))
+    out: dict[int, dict] = {}
+    rows = (db.query(MailJob).filter(MailJob.kind == "sanan", MailJob.report_id.in_(report_ids), MailJob.run_at.isnot(None),
+                                     MailJob.status.in_(("queued", "sending", "failed"))).order_by(MailJob.id))
+    for j in rows:
+        cur = out.get(j.report_id)
+        if j.status in ("queued", "sending"):
+            if cur is None or cur["status"] == "failed" or j.run_at < cur["at"]:
+                out[j.report_id] = {"status": "queued", "at": j.run_at, "message": ""}
+        elif (cur is None or cur["status"] == "failed") and j.run_at > (last_sent.get(j.report_id) or datetime.datetime.min):
+            out[j.report_id] = {"status": "failed", "at": j.run_at, "message": j.message}
+    return {k: {"status": v["status"], "run_at": v["at"].strftime("%Y-%m-%d %H:%M"), "message": v["message"]} for k, v in out.items()}
 
 
 def deliver(db: Session, job: MailJob) -> None:

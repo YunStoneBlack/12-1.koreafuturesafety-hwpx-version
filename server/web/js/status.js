@@ -117,15 +117,24 @@ function reportActions(r) {
   return open;
 }
 
+// 고객사 전송 예약(10/26) — "⏰ 10/27 09:00 예약" / "⚠ 예약 못 보냄"
+function schedLine(r) {
+  const s = r.mail_schedule;
+  if (!s) return "";
+  return s.status === "failed"
+    ? `<em class="st-sched bad" title="${h(s.message || "")}">⚠ 예약 못 보냄</em>`
+    : `<em class="st-sched">⏰ ${md(s.run_at.slice(0, 10))} ${s.run_at.slice(11, 16)} 예약</em>`;
+}
+
 function submittedCell(r) {
-  if (!r.submitted_at) return '<span class="st-none">—</span>';
+  if (!r.submitted_at) return r.mail_schedule ? schedLine(r) : '<span class="st-none">—</span>';
   const when = md(r.submitted_at.slice(0, 10));
   const main = r.submitted_via === "mail"
     ? `📧 ${when} 전송<span>${r.to_count}곳${r.submitted_by ? ` · ${h(r.submitted_by)}` : ""}</span>`
     : `✋ ${when} 직접 제출<span>${r.submitted_by ? `${h(r.submitted_by)} 표시` : ""}</span>`;
   const undo = r.has_mark ? `<button type="button" class="st-unmark" data-id="${r.id}">되돌리기</button>` : "";
   const mod = r.modified_after ? '<em class="st-mod">⚠ 제출 뒤 수정됨</em>' : "";
-  return `<div class="st-sent">${main}</div>${mod}${undo}`;
+  return `<div class="st-sent">${main}</div>${mod}${schedLine(r)}${undo}`;
 }
 
 // K2B 칸 — 웹 [K2B 제출] 성공(누르면 저장된 K2B 화면) / K2B 직접 제출함 표시 / 전송은 했는데 안 됨(⚠)

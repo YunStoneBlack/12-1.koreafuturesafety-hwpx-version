@@ -381,7 +381,7 @@ async function loadReports() {
       row.addEventListener("click", openReport);
       row.addEventListener("auxclick", (e) => { if (e.button === 1) openReport(e); });
       const isFinal = report.status === "final";
-      const hasStatus = !!(report.last_mail_at || report.k2b); // 전송·K2B 표시 둘째 줄(rp-status)이 있는지
+      const hasStatus = !!(report.last_mail_at || report.k2b || report.mail_schedule); // 전송·예약·K2B 표시 둘째 줄(rp-status)이 있는지
       row.innerHTML =
         `<span class="title"><a href="report.html?id=${report.id}">${report.visit_no}회차</a>` +
         `<span class="meta" style="margin-left:10px;">${report.guidance_date || "지도일 미입력"} · 공정률 ${report.progress_rate ?? 0}%</span>` +
@@ -393,6 +393,10 @@ async function loadReports() {
           const n = report.last_mail_to.split(",").filter((a) => a.trim()).length;
           return `<span class="mail-sent" title="${report.last_mail_to.replace(/"/g, "&quot;")}">✓ ${report.last_mail_at.slice(5).replace("-", "/")} 전송${n > 1 ? `(${n}곳)` : ""}</span>`;
         })() : "") +
+        // 고객사 전송 예약(10/26) — 대기 중 "⏰ 10/27 09:00 예약", 못 보냈으면 "⚠ 예약 못 보냄"(이유는 마우스 올림 — 전송 창에도)
+        (report.mail_schedule ? (report.mail_schedule.status === "failed"
+          ? `<span class="mail-sched bad" title="${(report.mail_schedule.message || "").replace(/"/g, "&quot;")}">⚠ 예약 못 보냄</span>`
+          : `<span class="mail-sched">⏰ ${report.mail_schedule.run_at.slice(5).replace("-", "/")} 예약</span>`) : "") +
         // 마지막 K2B 제출(js/k2b-submit.js) — 성공은 누르면 저장된 K2B 화면, 실패는 이유(마우스 올림)
         (report.k2b ? (() => {
           const k = report.k2b;

@@ -37,6 +37,7 @@ MAX_RECIPIENTS = 10
 class MailSendIn(BaseModel):
     to: list[str] | str  # str은 예전 화면(한 곳) 호환
     run_at: str | None = None  # 예약(10/25) — 비면 바로
+    cancel_scheduled: bool = False  # 예약이 걸린 보고서를 지금 보낼 때 — 보내고 나면 그 예약 취소(10/26)
 
 
 def split_addrs(value: str) -> list[str]:
@@ -178,6 +179,10 @@ def send_mail(
         db.add(job)
         db.commit()
         return {"ok": True, "scheduled": mail_jobs.job_out(job), "to": to_addrs, "cc": cc_addr, "jobs": _jobs(db, report_id)}
+    queued = db.query(MailJob).filter(MailJob.kind == "sanan", MailJob.report_id == report.id, MailJob.status == "queued").all()
+    if queued and not body.cancel_scheduled:  # 예약 시각에 한 번 더 가지 않게(10/26) — 화면은 "예약을 취소하고 지금 보낼까요?"를 먼저 물음
+        first = min(j.run_at for j in queued)
+        raise HTTPException(status.HTTP_409_CONFLICT, f"이 보고서는 {first:%m/%d %H:%M}에 보내도록 예약돼 있습니다 — 전송 창을 다시 열어 예약을 취소하고 보내세요.")
     try:
         refused = mailer.send_pdf(
             to_addrs, cc_addr,
@@ -192,5 +197,7 @@ def send_mail(
         report_id=report.id, sent_at=datetime.datetime.now(), to_addr=", ".join(to_addrs), cc_addr=cc_addr,
         sent_by=user.display_name or "",
     ))
+    for j in queued:
+        j.status, j.message = "cancelled", f"바로 보내서 예약 취소 — {user.display_name or ''}"
     db.commit()
     return {"ok": True, "to": to_addrs, "cc": cc_addr, "refused": refused, "history": _history(db, report_id)}

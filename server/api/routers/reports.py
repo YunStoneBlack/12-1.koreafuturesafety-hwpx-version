@@ -36,6 +36,9 @@ def list_reports(site_id: int, user: User = Depends(get_current_user), db: Sessi
     )
     # 마지막 K2B 제출(보고서마다 가장 최근 것) — 보고서 줄의 "✓ K2B …" / "✗ K2B 실패" / "K2B 제출 중…"
     last_k2b = {j.report_id: j for j in db.query(K2bSubmission).filter(K2bSubmission.report_id.in_(ids)).order_by(K2bSubmission.id)}
+    from server.api.mail_jobs import sanan_schedules
+
+    scheds = sanan_schedules(db, ids)  # "⏰ 10/27 09:00 예약" / "⚠ 예약 못 보냄"(10/26)
     out = []
     for r in reports:
         item = ReportOut.model_validate(r)
@@ -48,6 +51,7 @@ def list_reports(site_id: int, user: User = Depends(get_current_user), db: Sessi
         if r.id in last_mail:
             item.last_mail_at = last_mail[r.id].sent_at.strftime("%Y-%m-%d %H:%M")
             item.last_mail_to = last_mail[r.id].to_addr
+        item.mail_schedule = scheds.get(r.id)
         out.append(item)
     return out
 

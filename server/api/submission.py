@@ -100,5 +100,8 @@ def report_states(db: Session, reports) -> dict[int, dict]:
         k2b_jobs[j.report_id] = j
     k2b_marks = ({m.report_id: m for m in db.query(ReportK2bMark).filter(ReportK2bMark.report_id.in_(ids))}
                  if _table_ready(db, "report_k2b_mark") else {})
-    return {r.id: report_state(r, outdated[r.id], last_mail.get(r.id), marks.get(r.id), edited.get(r.id),
-                               k2b_jobs.get(r.id), k2b_marks.get(r.id)) for r in reports}
+    from server.api.mail_jobs import sanan_schedules
+
+    scheds = sanan_schedules(db, ids)  # 고객사 전송 예약 표시(10/26) — 제출 판정에는 안 씀(보낸 뒤에야 전송)
+    return {r.id: {**report_state(r, outdated[r.id], last_mail.get(r.id), marks.get(r.id), edited.get(r.id),
+                                  k2b_jobs.get(r.id), k2b_marks.get(r.id)), "mail_schedule": scheds.get(r.id)} for r in reports}
