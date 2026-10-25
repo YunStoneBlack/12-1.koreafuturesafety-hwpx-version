@@ -3,6 +3,8 @@
 //   모두 한 통으로(서로 보임) → [전송]. 처음엔 이 현장에서 지난번에 보낸 받는 사람들대로 골라 둔다(서버 last_recipients).
 // 2단계 창: "최종 확인하셨나요? 보낸 메일은 되돌릴 수 없습니다" → [최종 제출] → 회사 네이버 메일로 PDF 첨부 발송(참조: 회사 메일)
 // PDF가 없거나 "수정 전 버전"·만드는 중이면 보내지 않고 "PDF를 다시 만든 뒤 보내세요"만 알린다(서버도 한 번 더 막음).
+// 예약(2026-10-25 민재형): 2단계 창 "⏰ 예약해서 보내기" + 날짜·시각 → 작업 프로그램이 그 시각에 PDF를 다시 확인하고 보냄.
+//   1단계 창 위에 예약된 메일([예약 취소])·못 보낸 예약을 보여 줌(서버 GET의 jobs, 취소 DELETE /mail-jobs/{id}).
 
 function mailEsc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -49,6 +51,13 @@ async function openMailModal(reportId, titleText, onSent) {
 
   const last = info.history[0];
   const maxTo = info.max_recipients || 10;
+  const jobs = info.jobs || [];
+  const jobNote = () => [
+    ...jobs.filter((j) => j.status === "queued").map((j) => `<div class="mail-msg ok mail-job">⏰ ${mailEsc(j.run_at)}에 보내도록 예약됨 — ${mailEsc(j.to)}${j.created_by ? ` (${mailEsc(j.created_by)})` : ""}
+        <button type="button" class="mail-jcancel" data-j="${j.id}">예약 취소</button></div>`),
+    ...jobs.filter((j) => j.status === "failed" && (!last || j.created_at > last.sent_at)).slice(0, 1)
+      .map((j) => `<div class="mail-msg bad">⚠ 예약 메일을 못 보냈습니다(${mailEsc(j.run_at)}) — ${mailEsc(j.message)}</div>`),
+  ].join("");
   const sameAddr = (a, b) => a.toLowerCase() === b.toLowerCase();
   // 체크 항목 — 현장책임자 + 발주처·감리단(현장 정보, 2026-09-30). 각각 [고치기]로 그 자리에서 고치면 현장 정보에도 저장.
   const ROLES = [["manager", "현장책임자"], ["owner", "발주처"], ["supervisor", "감리단"]];
@@ -78,6 +87,11 @@ async function openMailModal(reportId, titleText, onSent) {
     return out;
   };
   const sendLabel = (n) => `최종 제출${n > 1 ? ` (${n}곳)` : ""}`;
+  const tomorrow9 = () => {
+    const t = new Date(); t.setDate(t.getDate() + 1);
+    const p2 = (v) => String(v).padStart(2, "0");
+    return `${t.getFullYear()}-${p2(t.getMonth() + 1)}-${p2(t.getDate())}T09:00`;
+  };
 
   // 현장 연락처 저장(PATCH /sites/{id}/contacts) → 창 정보에 반영. 현장책임자가 바뀌면 표지가 바뀌어 PDF를 다시 만들어야 보낼 수 있다.
   const saveContacts = async (body) => {
@@ -101,6 +115,7 @@ async function openMailModal(reportId, titleText, onSent) {
       <div class="mail-head"><b>고객사에 보고서 보내기</b><span class="mail-sub">${mailEsc(titleText)}</span></div>
       ${info.configured ? "" : '<div class="mail-msg bad">⚠ 메일 보내기 설정이 아직 안 됐습니다(회사 네이버 메일 연결 필요). 관리자에게 알려 주세요.</div>'}
       ${last ? `<div class="mail-msg warn">이미 보낸 보고서입니다 — ${mailEsc(last.sent_at)} ${mailEsc(last.to)}${last.by ? ` (${mailEsc(last.by)})` : ""}</div>` : ""}
+      ${jobNote()}
       <div class="mail-label">받는 사람 <span class="mail-note">모두에게 한 통으로 보냅니다(서로 보임)</span></div>
       ${lastTo.length ? '<div class="mail-note">이 현장에서 지난번에 보낸 받는 사람대로 골라 두었습니다.</div>' : ""}
       <div class="mail-roles"></div>
@@ -115,6 +130,16 @@ async function openMailModal(reportId, titleText, onSent) {
       <div class="mail-msg bad mail-err" hidden></div>
       <div class="mail-foot"><button type="button" class="mail-cancel">취소</button>
         <button type="button" class="mail-primary mail-next" ${info.configured ? "" : "disabled"}>전송</button></div>`;
+    box.querySelectorAll(".mail-jcancel").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("이 예약 메일을 취소할까요?")) return;
+      try {
+        await api(`/mail-jobs/${b.dataset.j}`, { method: "DELETE" });
+        const j = jobs.find((x) => String(x.id) === b.dataset.j);
+        if (j) j.status = "cancelled";
+        showStep1();
+        if (onSent) onSent();
+      } catch (err) { showErr(err.message); }
+    }));
     const rolesEl = box.querySelector(".mail-roles");
     const extrasEl = box.querySelector(".mail-extras");
     const addBtn = box.querySelector(".mail-add");
@@ -270,21 +295,40 @@ async function openMailModal(reportId, titleText, onSent) {
         <div><span>참조</span><div>${mailEsc(cc || "없음")}</div></div>
         <div><span>첨부</span><div>📄 ${mailEsc(info.filename)}</div></div>
       </div>
+      <label class="mail-opt mail-sched-opt"><input type="checkbox" class="mail-sched-chk" /><span><b>⏰ 예약해서 보내기</b>
+        <span class="mail-addr">정한 시각에 PDF를 다시 확인하고 보냅니다(그사이 고쳐서 PDF가 "수정 전 버전"이면 안 보냄)</span></span></label>
+      <input type="datetime-local" class="mail-input mail-at" value="${tomorrow9()}" hidden />
       <div class="mail-msg bad" hidden></div>
       <div class="mail-foot"><button type="button" class="mail-cancel">다시 확인할게요</button>
         <button type="button" class="mail-primary mail-send">${sendLabel(to.length)}</button></div>`;
     const errBox = box.querySelector(".mail-msg.bad");
     box.querySelector(".mail-cancel").addEventListener("click", showStep1);
     const sendBtn = box.querySelector(".mail-send");
+    const schedChk = box.querySelector(".mail-sched-chk");
+    const atEl = box.querySelector(".mail-at");
+    schedChk.addEventListener("change", () => {
+      atEl.hidden = !schedChk.checked;
+      sendBtn.textContent = schedChk.checked ? `⏰ 예약${to.length > 1 ? ` (${to.length}곳)` : ""}` : sendLabel(to.length);
+    });
     sendBtn.addEventListener("click", async () => {
+      const runAt = schedChk.checked ? atEl.value : null;
+      if (schedChk.checked && !runAt) { errBox.hidden = false; errBox.textContent = "보낼 날짜·시각을 고르세요."; return; }
       sending = true;
       sendBtn.disabled = true;
       box.querySelector(".mail-cancel").disabled = true;
       sendBtn.textContent = "보내는 중…";
       errBox.hidden = true;
       try {
-        const out = await apiPost(`/reports/${reportId}/mail`, { to });
+        const out = await apiPost(`/reports/${reportId}/mail`, { to, run_at: runAt });
         sending = false;
+        if (out.scheduled) {
+          box.innerHTML = `<div class="mail-head"><b>⏰ 예약했습니다</b></div>
+            <div class="mail-msg ok">${mailEsc(out.scheduled.run_at)}에 ${to.map(mailEsc).join(", ")}로 보고서 PDF를 보냅니다. 이 창(📧 고객사 전송)을 다시 열면 취소할 수 있습니다.</div>
+            <div class="mail-foot"><button type="button" class="mail-primary mail-cancel">닫기</button></div>`;
+          box.querySelector(".mail-cancel").addEventListener("click", close);
+          if (onSent) onSent();
+          return;
+        }
         // 일부 주소만 메일 서버가 거부하면 나머지에겐 이미 간 것 — 거부된 주소만 따로 알린다
         const refused = out.refused || [];
         const sentTo = to.filter((a) => !refused.some((r) => sameAddr(r, a)));
@@ -298,7 +342,7 @@ async function openMailModal(reportId, titleText, onSent) {
         sending = false;
         sendBtn.disabled = false;
         box.querySelector(".mail-cancel").disabled = false;
-        sendBtn.textContent = sendLabel(to.length);
+        sendBtn.textContent = schedChk.checked ? `⏰ 예약${to.length > 1 ? ` (${to.length}곳)` : ""}` : sendLabel(to.length);
         errBox.hidden = false;
         errBox.textContent = err.message || "보내지 못했습니다. 다시 시도하세요.";
       }

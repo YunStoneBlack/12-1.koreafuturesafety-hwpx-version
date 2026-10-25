@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="css/mail.css" />
 <link rel="stylesheet" href="css/sitok.css" />
 <link rel="stylesheet" href="css/sitok-fms.css" />
+<link rel="stylesheet" href="css/sitok-mail.css" />
 </head>
 <!-- 시특법 회차 화면(2026-10-14 형 피드백 ⑦ 3층 구조) — ?report= 회차 하나. 위 = 현장 점검(현장 조사 → 재료시험·상태평가(정밀) → 면담·변경사항),
      가운데 = 보고서(시설물 현황·AI 초안·보고서 만들기·파일), 아래 = 접힌 회차 정보(계약·종류·점검기간·제출일·기술자·묶음 금액·삭제).
@@ -49,6 +50,12 @@
   </div>
 </details>
 
+<!-- 📧 보고서 보내기(10/25 민재형) — 합본 PDF 내려받기 링크를 메일로(바로·예약), js/sitok-mail.js, 서버 server/api/routers/sitok_mail.py -->
+<details class="panel sk-fold" id="rd-mail-panel">
+  <summary class="panel-head"><h2>📧 보고서 보내기</h2><span class="panel-count">발주처에 합본 PDF 내려받기 링크를 메일로 — 바로 또는 예약, 보내면 제출 현황 "전송" 표시</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body" id="rd-mail"><div class="mail-wait">불러오는 중…</div></div>
+</details>
+
 <details class="panel sk-fold" id="rd-fms-panel">
   <summary class="panel-head"><h2>📤 FMS 제출</h2><span class="panel-count">시설물통합정보관리시스템 — 계약 등록 → 승인 → 실적보고·e-보고서 → 승인</span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body" id="rd-fms"><div class="mail-wait">불러오는 중…</div></div>
@@ -73,5 +80,6 @@
 <script src="js/sitok-detail.js"></script>
 <script src="js/sitok-round.js"></script>
 <script src="js/sitok-fms.js"></script>
+<script src="js/sitok-mail.js"></script>
 </body>
 </html>

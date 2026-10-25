@@ -57,6 +57,8 @@ from server.api.routers import (
     sitok_drawings,
     sitok_docs,
     sitok_fms,
+    sitok_mail,
+    share,
     sitok_tests,
     sitok_rating,
     sitok_precision,
@@ -159,6 +161,9 @@ web_app.include_router(sitok_rating.router, prefix="/api")  # 시특법 정밀 �
 web_app.include_router(sitok_precision.router, prefix="/api")  # 시특법 정밀 자료수집·하중상태·등급(2026-10-13)
 web_app.include_router(sitok_docs.router, prefix="/api")  # 서류 자동화 · 시특법 계약(민간 계약서·관급 착수/완수계, 2026-10-12)
 web_app.include_router(sitok_fms.router, prefix="/api")  # 시특법 FMS 제출(계약 등록·실적 보고·관리주체 승인, 2026-10-15)
+web_app.include_router(sitok_mail.router, prefix="/api")  # 시특법 [📧 보고서 보내기](내려받기 링크·예약) + 메일 예약 취소(산안법 같이, 2026-10-25)
+# 메일로 보낸 보고서 내려받기 — /api 밖, 로그인 없이(그룹웨어 nginx가 /report/share/만 로그인 확인을 건너뜀, 2026-10-25)
+web_app.include_router(share.router)
 web_app.include_router(route_plan.router, prefix="/api")
 web_app.include_router(contract_library.router, prefix="/api")  # 착수계·완수계 자료실(설정 탭)
 web_app.include_router(contracts.router, prefix="/api")  # 서류 자동화 — 용역 계약·착수계·완수계

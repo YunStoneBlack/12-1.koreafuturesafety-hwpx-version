@@ -253,6 +253,35 @@ class FmsSubmission(Base):
     finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
 
 
+class MailJob(Base):
+    """웹판 전용 — 보고서 메일(2026-10-25 alembic 0065, 사용자·민재형 "시특법에 메일 기능 + 산안법에도 예약").
+    kind = sitok(sitok_report.id — 합본이 커서 내려받기 링크: token·expires_at, 받는 사람은 로그인 없이 /report/share/{token}, 보내면 제출 현황 "전송" 표시)
+         | sanan(report.id — 고객사 전송 예약, PDF 첨부, 보내면 report_mail 기록도).
+    run_at = 예약 시각(비면 바로 보낸 것), status = queued | sending | done | failed | cancelled. 예약은 작업 프로그램(server/worker/mail_worker.py)이 보냄."""
+
+    __tablename__ = "mail_job"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    kind: Mapped[str] = mapped_column(Text, default="sitok")
+    report_id: Mapped[int] = mapped_column(Integer)
+    to_addr: Mapped[str] = mapped_column(Text, default="")  # ", "로 이어 씀
+    cc_addr: Mapped[str] = mapped_column(Text, default="")
+    subject: Mapped[str] = mapped_column(Text, default="")
+    note: Mapped[str] = mapped_column(Text, default="")  # 본문에 덧붙일 말
+    run_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    status: Mapped[str] = mapped_column(Text, default="queued")
+    message: Mapped[str] = mapped_column(Text, default="")
+    tries: Mapped[int] = mapped_column(Integer, default=0)
+    token: Mapped[str | None] = mapped_column(Text, default=None, unique=True)  # 내려받기 링크(시특법)
+    expires_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    downloads: Mapped[int] = mapped_column(Integer, default=0)
+    last_download_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=datetime.datetime.now)
+    sent_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+
+
 class VisitPlan(Base):
     """웹판 전용 — 방문 달력의 "방문 예정"(2026-09-30). 날짜·현장·요원·메모. 그 현장·그 날짜 보고서가 생기면 달력에선 "다녀온 방문"으로
     바뀌어 보이고(행은 그대로 둠), 날짜가 지났는데 보고서가 없으면 "지난 예정"(server/api/routers/calendar.py). 현장이 지워지면 같이

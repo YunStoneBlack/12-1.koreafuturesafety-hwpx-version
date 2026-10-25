@@ -86,3 +86,9 @@
 .mail-save-as button:hover, .mail-choose button:hover { border-color: var(--blue); color: var(--blue); }
 .mail-choose { padding: 6px 8px; border-radius: 8px; background: var(--warn-soft); color: var(--ink); }
 .mail-edit-acts .mail-primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+/* 예약(10/25) — 2단계 창 "⏰ 예약해서 보내기", 1단계 창 위 예약된 메일 + [예약 취소] */
+.mail-sched-opt { margin: 0; }
+.mail-input[hidden] { display: none; }
+.mail-job { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mail-box button.mail-jcancel { margin-left: auto; padding: 3px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--ink); cursor: pointer; }

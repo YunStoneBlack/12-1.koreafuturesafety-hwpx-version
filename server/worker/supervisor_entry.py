@@ -46,9 +46,23 @@ def _fms_loop() -> None:
             time.sleep(5)
 
 
+def _mail_loop() -> None:
+    """예약 메일(server/worker/mail_worker.py, 2026-10-25 — 시특법 보고서 링크·산안법 고객사 전송) — 별도 스레드. 죽으면 5초 뒤 다시."""
+    from server.worker import mail_worker
+
+    while True:
+        try:
+            mail_worker.run_forever()
+        except Exception:  # noqa: BLE001
+            print("[supervisor] mail_worker가 예기치 않게 종료됨, 5초 후 재시작:")
+            traceback.print_exc()
+            time.sleep(5)
+
+
 if __name__ == "__main__":
     threading.Thread(target=_k2b_loop, name="k2b_worker", daemon=True).start()
     threading.Thread(target=_fms_loop, name="fms_worker", daemon=True).start()
+    threading.Thread(target=_mail_loop, name="mail_worker", daemon=True).start()
     while True:
         try:
             run_forever()

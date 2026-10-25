@@ -5,6 +5,8 @@
 - 보낸 기록 `to_addr`에는 받는 사람들을 ", "로 이어 저장한다(표 모양은 그대로).
 - POST /reports/{id}/mail {to: [주소…]} — 받는 사람 여러 곳(감리 현장은 발주처·감리단 등)을 한 통으로(서로 보임, 사용자 결정 2026-09-29). 최신 PDF만 보낸다(수정 전 버전·만드는 중이면 409 "PDF를 다시 만든 뒤 보내세요").
   보낸 기록(ReportMail)을 남긴다. 이 요청은 보고서 수정이 아니므로 edit_tracking에서 제외(PDF가 "수정 전 버전"이 되지 않게).
+- 예약(2026-10-25): POST에 run_at("2026-11-20T09:00")이 있으면 mail_job(kind=sanan)으로 — 작업 프로그램이 그 시각에 PDF를 다시 확인하고 보냄
+  (server/api/mail_jobs.py). GET의 jobs = 예약·실패·취소 기록, 취소는 DELETE /mail-jobs/{id}(sitok_mail.py).
 """
 
 from __future__ import annotations
@@ -17,9 +19,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.models_db import Report
-from core.models_web import ReportJob, ReportMail, User
+from core.models_web import MailJob, ReportJob, ReportMail, User
 from server import settings as app_settings
-from server.api import mailer, repo
+from server.api import mail_jobs, mailer, repo
 from server.api.repo import mail_table_ready
 from server.api.deps import get_current_user, get_db
 from server.api.routers.report_manage import download_name
@@ -34,6 +36,7 @@ MAX_RECIPIENTS = 10
 
 class MailSendIn(BaseModel):
     to: list[str] | str  # str은 예전 화면(한 곳) 호환
+    run_at: str | None = None  # 예약(10/25) — 비면 바로
 
 
 def split_addrs(value: str) -> list[str]:
@@ -59,6 +62,13 @@ def _history(db: Session, report_id: int) -> list[dict]:
         {"sent_at": r.sent_at.strftime("%Y-%m-%d %H:%M"), "to": r.to_addr, "cc": r.cc_addr, "by": r.sent_by}
         for r in rows
     ]
+
+
+def _jobs(db: Session, report_id: int) -> list[dict]:
+    """예약(대기)·못 보낸·취소한 예약 메일(보낸 것은 history에)."""
+    rows = (db.query(MailJob).filter(MailJob.kind == "sanan", MailJob.report_id == report_id, MailJob.status != "done")
+            .order_by(MailJob.id.desc()).limit(10))
+    return [mail_jobs.job_out(j) for j in rows]
 
 
 def _pdf_problem(db: Session, report) -> str:
@@ -124,6 +134,7 @@ def mail_info(report_id: int, user: User = Depends(get_current_user), db: Sessio
         "size_bytes": Path(report.pdf_path).stat().st_size if has_pdf else 0,
         "problem": _pdf_problem(db, report),
         "history": _history(db, report_id),
+        "jobs": _jobs(db, report_id),
         # 지난번 받는 사람 — 현장책임자·발주처·감리단에서 바뀌어 빠진 옛 주소는 빼고 채운다
         "last_recipients": [a for a in _site_last_recipients(db, report.site_id) if a.lower() not in retired],
         "role_checked": role_checked,
@@ -157,6 +168,16 @@ def send_mail(
 
     site_name = report.site.name if report.site else ""
     cc_addr = mailer.cc_for(to_addrs)
+    from server.api.routers.sitok_mail import run_at_of
+
+    run_at = run_at_of(body.run_at)
+    if run_at is not None:  # 예약 — 그 시각에 PDF를 다시 확인하고 보냄(10/25)
+        job = MailJob(company_id=user.company_id, kind="sanan", report_id=report.id, to_addr=", ".join(to_addrs), cc_addr=cc_addr,
+                      subject=mailer.mail_subject(site_name, report.visit_no), run_at=run_at, status="queued",
+                      created_by=user.display_name or "")
+        db.add(job)
+        db.commit()
+        return {"ok": True, "scheduled": mail_jobs.job_out(job), "to": to_addrs, "cc": cc_addr, "jobs": _jobs(db, report_id)}
     try:
         refused = mailer.send_pdf(
             to_addrs, cc_addr,
