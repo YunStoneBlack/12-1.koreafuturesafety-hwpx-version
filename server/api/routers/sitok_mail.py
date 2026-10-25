@@ -24,7 +24,6 @@ from server.api import mail_jobs, mailer
 from server.api.deps import get_current_user, get_db
 
 router = APIRouter(tags=["sitok-mail"])
-MAX_RECIPIENTS = 10
 
 
 def _require(db: Session, user: User, rid: int) -> SitokReport:
@@ -81,7 +80,7 @@ def _out(db: Session, user: User, r: SitokReport) -> dict:
         "filename": pdf.name if pdf else "", "size_bytes": pdf.stat().st_size if pdf else 0,
         "problem": mail_jobs.sitok_problem(r), "share_days": mail_jobs.SHARE_DAYS,
         "roles": _roles(db, user.company_id, ids), "last_recipients": _last_to(db, ids),
-        "max_recipients": MAX_RECIPIENTS,
+        "max_recipients": mail_jobs.MAX_RECIPIENTS,
         "jobs": [mail_jobs.job_out(j) for j in _jobs_q(db, unit).order_by(MailJob.id.desc()).limit(30)],
     }
 
@@ -98,38 +97,13 @@ class SendIn(BaseModel):
     run_at: str | None = None
 
 
-def clean_to(values: list[str]) -> list[str]:
-    to: list[str] = []
-    for a in values:
-        a = (a or "").strip()
-        if not a:
-            continue
-        if not mailer.valid_email(a):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 사람 메일 주소를 확인하세요: {a}")
-        if a.lower() not in (x.lower() for x in to):
-            to.append(a)
-    if not to:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "받는 사람을 한 곳 이상 넣으세요.")
-    if len(to) > MAX_RECIPIENTS:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 사람은 {MAX_RECIPIENTS}곳까지 넣을 수 있습니다.")
-    return to
-
-
-def run_at_of(value: str | None) -> datetime.datetime | None:
-    try:
-        return mail_jobs.parse_run_at(value)
-    except ValueError as e:
-        msg = str(e)
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, msg if "예약" in msg else "예약 날짜·시각이 맞지 않습니다.") from e
-
-
 @router.post("/sitok/reports/{rid}/mail")
 def send(rid: int, body: SendIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, rid)
     if not mailer.is_configured():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "메일 보내기 설정이 아직 안 됐습니다(회사 네이버 메일 연결 필요).")
-    to = clean_to(body.to)
-    run_at = run_at_of(body.run_at)
+    to = mail_jobs.recipients(body.to)
+    run_at = mail_jobs.run_at_of(body.run_at)
     if run_at is None:
         problem = mail_jobs.sitok_problem(r)
         if problem:

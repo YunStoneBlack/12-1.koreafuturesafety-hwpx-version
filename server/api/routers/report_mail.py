@@ -31,17 +31,10 @@ from server.api.routers.reports import pdf_outdated_map
 router = APIRouter(prefix="/reports/{report_id}/mail", tags=["report-mail"])
 
 
-MAX_RECIPIENTS = 10
-
-
 class MailSendIn(BaseModel):
     to: list[str] | str  # str은 예전 화면(한 곳) 호환
     run_at: str | None = None  # 예약(10/25) — 비면 바로
     cancel_scheduled: bool = False  # 예약이 걸린 보고서를 지금 보낼 때 — 보내고 나면 그 예약 취소(10/26)
-
-
-def split_addrs(value: str) -> list[str]:
-    return [a.strip() for a in (value or "").split(",") if a.strip()]
 
 
 def _site_last_recipients(db: Session, site_id: int) -> list[str]:
@@ -52,7 +45,7 @@ def _site_last_recipients(db: Session, site_id: int) -> list[str]:
         db.query(ReportMail).join(Report, Report.id == ReportMail.report_id)
         .filter(Report.site_id == site_id).order_by(ReportMail.sent_at.desc()).first()
     )
-    return split_addrs(last.to_addr) if last else []
+    return mail_jobs.split_addrs(last.to_addr) if last else []
 
 
 def _history(db: Session, report_id: int) -> list[dict]:
@@ -139,7 +132,7 @@ def mail_info(report_id: int, user: User = Depends(get_current_user), db: Sessio
         # 지난번 받는 사람 — 현장책임자·발주처·감리단에서 바뀌어 빠진 옛 주소는 빼고 채운다
         "last_recipients": [a for a in _site_last_recipients(db, report.site_id) if a.lower() not in retired],
         "role_checked": role_checked,
-        "max_recipients": MAX_RECIPIENTS,
+        "max_recipients": mail_jobs.MAX_RECIPIENTS,
     }
 
 
@@ -150,28 +143,14 @@ def send_mail(
     report = _require_report(db, user, report_id)
     if not mailer.is_configured() or not mail_table_ready(db):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "메일 보내기 설정이 아직 안 됐습니다(회사 네이버 메일 연결 필요).")
-    to_addrs: list[str] = []
-    for addr in ([body.to] if isinstance(body.to, str) else body.to):
-        addr = addr.strip()
-        if not addr:
-            continue
-        if not mailer.valid_email(addr):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 사람 메일 주소를 확인하세요: {addr}")
-        if addr.lower() not in (a.lower() for a in to_addrs):  # 같은 주소 두 번은 하나로
-            to_addrs.append(addr)
-    if not to_addrs:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "받는 사람을 한 곳 이상 넣으세요.")
-    if len(to_addrs) > MAX_RECIPIENTS:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 사람은 {MAX_RECIPIENTS}곳까지 넣을 수 있습니다.")
+    to_addrs = mail_jobs.recipients([body.to] if isinstance(body.to, str) else body.to)
     problem = _pdf_problem(db, report)
     if problem:
         raise HTTPException(status.HTTP_409_CONFLICT, problem)
 
     site_name = report.site.name if report.site else ""
     cc_addr = mailer.cc_for(to_addrs)
-    from server.api.routers.sitok_mail import run_at_of
-
-    run_at = run_at_of(body.run_at)
+    run_at = mail_jobs.run_at_of(body.run_at)
     if run_at is not None:  # 예약 — 그 시각에 PDF를 다시 확인하고 보냄(10/25)
         job = MailJob(company_id=user.company_id, kind="sanan", report_id=report.id, to_addr=", ".join(to_addrs), cc_addr=cc_addr,
                       subject=mailer.mail_subject(site_name, report.visit_no), run_at=run_at, status="queued",

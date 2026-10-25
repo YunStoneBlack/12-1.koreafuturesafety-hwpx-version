@@ -7,9 +7,8 @@
   const box = document.getElementById("rd-mail");
   if (!rid || !box) return;
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const RE = /^[^@\s,;<>]+@[^@\s,;<>]+\.[A-Za-z]{2,}$/;
+  const RE = MAIL_RE, size = mailSizeText; // mail.js(이 화면에 같이 불러옴)와 같은 주소 검사·크기 표시
   const same = (a, b) => a.toLowerCase() === b.toLowerCase();
-  const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`);
   let info = null, state = null, flash = null;
 
   async function load() {

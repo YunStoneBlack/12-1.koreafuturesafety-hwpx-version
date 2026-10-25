@@ -13,6 +13,7 @@ import datetime
 import secrets
 from pathlib import Path
 
+from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,7 @@ from server.api import mailer
 SHARE_DAYS = 30
 RETRY_MINUTES = 30
 MAX_TRIES = 2  # 처음 + 한 번 더
+MAX_RECIPIENTS = 10  # 받는 사람 한도(시특법·산안법 같이)
 
 
 class Skip(Exception):
@@ -197,11 +199,33 @@ def job_out(j: MailJob) -> dict:
     }
 
 
-def parse_run_at(value: str | None) -> datetime.datetime | None:
-    """예약 시각 "2026-11-20T09:00" — 비면 None(바로). 지난 시각이면 ValueError."""
+# ---------- 화면에서 받은 값(시특법 sitok_mail·산안법 report_mail 같이) — 틀리면 400 ----------
+def recipients(values: list[str]) -> list[str]:
+    """받는 사람 주소들 — 빈칸 빼고, 같은 주소(대소문자 무시)는 하나로, 모양 틀림·0곳·한도 넘음은 400."""
+    to: list[str] = []
+    for a in values:
+        a = (a or "").strip()
+        if not a:
+            continue
+        if not mailer.valid_email(a):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 사람 메일 주소를 확인하세요: {a}")
+        if a.lower() not in (x.lower() for x in to):
+            to.append(a)
+    if not to:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "받는 사람을 한 곳 이상 넣으세요.")
+    if len(to) > MAX_RECIPIENTS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 사람은 {MAX_RECIPIENTS}곳까지 넣을 수 있습니다.")
+    return to
+
+
+def run_at_of(value: str | None) -> datetime.datetime | None:
+    """예약 시각 "2026-11-20T09:00" — 비면 None(바로). 모양이 틀리거나 지난 시각이면 400."""
     if not value:
         return None
-    at = datetime.datetime.fromisoformat(value)
+    try:
+        at = datetime.datetime.fromisoformat(value)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "예약 날짜·시각이 맞지 않습니다.") from e
     if at <= datetime.datetime.now():
-        raise ValueError("예약 시각이 이미 지났습니다 — 앞으로의 날짜·시각을 고르거나 [지금 보내기]를 쓰세요.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "예약 시각이 이미 지났습니다 — 앞으로의 날짜·시각을 고르거나 바로 보내기를 쓰세요.")
     return at
