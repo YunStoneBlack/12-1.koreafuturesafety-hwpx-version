@@ -129,6 +129,9 @@ AWS는 **전달만** 하고 hwpx 생성·PDF 변환(한글)·사진/DB 저장은
   로그인돼 있으면 `X-Gw-User/Name/Role` + `X-Relay-Secret`을 붙여 이 PC로 넘긴다. 안 돼 있으면 화면은 그룹웨어 `/login`, API는 401.
   그룹웨어 `/internal/` 은 외부에서 404. 설정 원본 `server/deploy/nginx_report_locations.conf`(`__RELAY_SECRET__`는 적용 시
   `server/.env.server`의 `GROUPWARE_RELAY_SECRET` 값으로 치환 — 서버 설정 파일은 root만 읽기 가능).
+- **예외 — `/report/share/`(2026-10-25 적용)**: 메일로 보낸 보고서 내려받기 링크(받는 사람 = 발주처, 그룹웨어 계정 없음)는 로그인 확인 없이 넘김
+  (`location ^~ /report/share/` — GET만, `X-Gw-*`·`X-Relay-Secret` 지움, buffering 끔). 보고서 서버는 `server/api/routers/share.py` 두 주소만 받고 나머지는 401.
+  실측: 경로 꼼수(`../api`, `%2e%2e`)는 `/report/`로 풀려 로그인 화면, POST 403. 적용 전 백업 = 서버 `~/nginx_backup/groupware.conf.20261025_share`.
 - 보고서 서버: `GROUPWARE_RELAY_SECRET`이 있으면 그룹웨어 모드(`server/api/deps.py`) — 비밀값이 맞는 요청의 헤더로 사용자를 알아보고
   처음 온 직원은 자동 등록(`user.email = "gw:<그룹웨어 아이디>"`, 회사 `GROUPWARE_COMPANY_ID`=1 한국미래안전), 자체 로그인은 403.
   사무실 LAN 직접 접속·헤더 위조는 401(실측).
