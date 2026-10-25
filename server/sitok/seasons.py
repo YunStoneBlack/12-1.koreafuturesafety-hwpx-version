@@ -53,7 +53,21 @@ def is_seismic_title(title: str | None) -> bool:
     return "성능평가" in (title or "").replace(" ", "")
 
 
+def title_half(title: str | None) -> tuple[int, str] | None:
+    """계약건명에 반기 하나만 적혔으면 (연도, 상반기|하반기) — "2026년 하반기 산업단지 옹벽 안전점검 용역" → (2026, "하반기").
+    상·하반기 둘 다(또는 연도 없이) 적혔으면 None(10/25 — 하반기 계약 완수일이 다음 해 1월이라 다음 해 상반기까지 덮던 것)."""
+    import re
+
+    t = title or ""
+    found = re.findall(r"(20\d{2})\s*년(?:도)?\s*(상반기|하반기)", t)
+    if len(found) != 1 or ("상반기" in t and "하반기" in t):
+        return None
+    return int(found[0][0]), found[0][1]
+
+
 def _selfcheck() -> None:
+    assert title_half("2026년 하반기 산업단지 옹벽 안전점검 용역") == (2026, "하반기") and title_half("2026년도 상반기 점검") == (2026, "상반기")
+    assert title_half("2026년 상·하반기 정기안전점검") is None and title_half("시설물 2026~2027년 정기·정밀안전점검") is None
     assert order("해빙기") < order("우기") < order("하반기") < order("동절기") and bucket("우기") == "상반기" and bucket("동절기") == "하반기"
     assert in_bucket("하반기") == ["하반기", "동절기"] and date_range(2026, "해빙기") == (datetime.date(2026, 2, 1), datetime.date(2026, 3, 31))
     assert bucket(SEISMIC) == SEISMIC and SEISMIC not in in_bucket("상반기") and is_seismic_title("삼숭초 교사동 내진 성능평가 용역") and not is_seismic_title("내진보강공사")

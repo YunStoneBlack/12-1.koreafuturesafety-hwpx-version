@@ -423,6 +423,9 @@ def covers(c: SitokContract, year: int, half: str) -> bool:
         return False
     if c.halves in ("상반기", "하반기") and c.halves != seasons.bucket(half):
         return False
+    th = seasons.title_half(c.title)  # 연간이어도 건명이 "2026년 하반기 …"면 그 반기만 — 완수일이 다음 해 1월이어도 다음 해 상반기는 "계약 없음"(10/25 민재형)
+    if th and c.halves not in ("상반기", "하반기") and not seasons.is_seismic(half) and th != (year, seasons.bucket(half)):
+        return False
     if c.start_date is None:
         return False
     a, b = half_range(year, half)

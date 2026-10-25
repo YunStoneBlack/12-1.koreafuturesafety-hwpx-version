@@ -182,13 +182,24 @@ def needs_for(db: Session, u: Unit, today: datetime.date) -> list[Need]:
     ids = u.ids
     docs = [d for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == u.lead.company_id).order_by(SitokDocContract.id)
             if set(int(x) for x in (d.facility_ids or ([d.facility_id] if d.facility_id else []))) & set(ids)]  # 시설물 여럿 계약(0052)도
+    def only(c, tag: str = "") -> set[int] | None:  # 반기 하나짜리 계약이면 그 반기 칸만(다음 해로 넘어간 완수일이 다음 해 반기를 만들지 않게, 10/25 민재형)
+        th = SZ.title_half(c.title)
+        if tag in ("상반기", "하반기") and th and th[1] == tag:
+            return {h_index(*th)}
+        if tag in ("상반기", "하반기") and c.start_date:  # 표시만 있으면 시작 해부터 그 반기 칸들
+            return {i for i in range(d_index(c.start_date), d_index(c.end_date or c.start_date) + 1) if h_of(i)[1] == tag}
+        return {h_index(*th)} if th else None
+
     for c in docs:
         if c.sector == "관급":
             if c.start_date is None:
                 continue
             end = c.end_date or c.start_date
             k = kind_of_title(c.title)
+            keep = only(c, c.half_tag or "")
             for i in range(d_index(c.start_date), d_index(end) + 1):
+                if keep is not None and i not in keep:
+                    continue
                 if i == d_index(c.start_date):
                     add(*h_of(i), k, c.start_date, min(c.start_date + DAY * GOV_WEEK, end), 3, "관급 착수일 1주일 안", fb_end=end)
                 else:
@@ -202,8 +213,10 @@ def needs_for(db: Session, u: Unit, today: datetime.date) -> list[Need]:
             for i in range(d_index(c.start_date), last_i + 1):
                 add(*h_of(i), k, c.start_date, None, 2)
         elif not rounds and c.start_date:
+            keep = only(c, c.half_tag or "")
             for i in range(d_index(c.start_date), d_index(c.end_date or c.start_date) + 1):
-                add(*h_of(i), kind_of_title(c.title), c.start_date, c.end_date, 2)
+                if keep is None or i in keep:
+                    add(*h_of(i), kind_of_title(c.title), c.start_date, c.end_date, 2)
     for c in db.query(SitokContract).filter(SitokContract.facility_id.in_(ids)).order_by(SitokContract.id):
         if c.start_date is None:
             continue
@@ -213,8 +226,11 @@ def needs_for(db: Session, u: Unit, today: datetime.date) -> list[Need]:
                 add(int(r["year"]), r["half"], r.get("kind") or "정기", c.start_date, c.end_date, 1)
             continue
         end_i = d_index(c.end_date) if c.end_date else last_i
+        keep = only(c) if c.halves not in ("상반기", "하반기") else None  # 연간이어도 건명이 "2026년 하반기 …"면 그 반기만
         for i in range(d_index(c.start_date), end_i + 1):
             if c.halves in ("상반기", "하반기") and h_of(i)[1] != c.halves:
+                continue
+            if keep is not None and i not in keep:
                 continue
             if c.sector == "관급" and i == d_index(c.start_date):
                 add(*h_of(i), kind_of_title(c.title), c.start_date, min(c.start_date + DAY * GOV_WEEK, c.end_date or c.start_date + DAY * GOV_WEEK), 1,
