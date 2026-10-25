@@ -195,6 +195,10 @@
   **부록 외관망도 첨부 → 합본**(`sitok_maps.py`, 회차 화면 [📐 부록 외관망도]), 일람표 칸 검색 고르기(`app.js searchSelect`), 철근탐사 캡처 ✕·[저장],
   시특법 방문 달력 — 폰도 고른 날 상세·묶음별 일정 하나(`visit_plan.merge_unit_visits`)·시설물 위치·일정 없는 반기 목록·동선 짜기(`/sitok/calendar/route` + `js/route-plan.js`),
   서류 자동화 [🔗 현장 연결] → [＋ 새 현장 등록](`dashboard.html?new=1&contract=`), 산안법 7·9번 [AI로 작성] 자리.
+- **122~130차(10/23~25)**: 표 통째로 밀림 고침(정밀에도·칸 빈 여백만·한 쪽보다 긴 표는 나뉘게 — `pagecheck.pull_tables`), 형 양주덕산초 묶음 검토 반영 — 용역명·계약서 간지·종합 관리대장 그 동만·
+  학교 내진보강 점검표 동마다·외관망도 동 간지(`sitok_maps.insert_maps(names)`)·공사비 제목 표 위·★ 대표 전경(`sitok_overview` first)·사진 크게 보기+↻ 돌리기(`sitok_rotate.py`·`js/sitok-photos.js`)·
+  AI 말투(`core/report_style.py`, `vision.ask(writing=True)`)·1.7 치장벽돌 표(3종학교 — 시설물 값 + `ai_draft.brick_note`, 상태양호 [외부 치장벽돌]), 위치도 핀 건축물 정기·정밀에도 + 주소 검색
+  (`locmap.facility_map`·`rough`, `GET /sitok/locmap/search`), 내진 확인서 발주자 칸, 폰 검색 고르기(목록 창 검색칸 — `app.js searchSelect`), 규격조사·철근탐사 층만 보기(`app.js floorChips`).
 - **91차(10/21 밤)**: 옹벽 묶음 2장부터 꼬리말 고침(`wall_build._drop_before(sec_only=True)` — 구역 정의만 옮김), 보고서 구성 상자 기본 계약 = 반기와 가장 많이 겹치는 계약(`sitok_compose._overlap_days`, `attach_contract`는 contract_for), **정밀 묶음 분권**(`sitok_split._build_precision`), 양주덕산초 되돌리기 `server/scripts/restore_deoksan_test.py`.
 - **75~89차(10/21)**: 옹벽 형 수정사항(요약표 전회 칸·1.5 유지관리방안·1.6 개략공사비 AI, 발주처 과업지시서 DB 0060, 위치도 핀·후면첨부 도면, 1.2.4 틀 점선 X + "후면첨부",
   2.2 과업 예정 공정표 머리 = 과업기간 날짜, 전회차 사진 읽기 세 단계 — 부록2 간지 → 전경사진·주요 손상 및 현황사진 제목 쪽 → 설명 붙은 사진),
