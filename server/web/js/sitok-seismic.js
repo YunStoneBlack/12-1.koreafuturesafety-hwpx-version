@@ -97,9 +97,7 @@
     let prev;
     const byFloor = Object.fromEntries(table.map((t) => [t.floor, t]));
     const sum = (t, key) => KINDS.reduce((a, k) => a + (t[key][k] || 0), 0);
-    const chips = table.length > 1 ? `<div class="sf2-fchips"><button type="button" class="${sFloor ? "" : "on"}" data-mf="">전체 보기</button>${table.map((t) => {
-      const dn = sum(t, "done"), sl = sum(t, "slots");
-      return `<button type="button" class="${String(t.floor) === sFloor ? "on" : ""}${sl && dn >= sl ? " done" : ""}" data-mf="${t.floor}">${esc(t.label)} <small>${dn}/${sl}</small></button>`; }).join("")}</div>` : "";
+    const chips = table.length > 1 ? floorChips(table.map((t) => ({ n: t.floor, label: t.label, done: sum(t, "done"), total: sum(t, "slots") })), sFloor) : ""; // 층만 보기(app.js)
     const cards = d.rows.filter((r) => !sFloor || String(r.floor) === sFloor).map((r) => {
       let h = "";
       if (r.floor !== prev) {

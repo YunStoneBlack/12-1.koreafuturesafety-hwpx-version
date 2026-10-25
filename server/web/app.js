@@ -300,6 +300,14 @@ function fileAccepts(input, file) {
   });
 }
 
+// 층만 보기 단추 줄(10/25 민재형 — 내진 현장조사 부재 단면·철근탐사가 폰에서 길어) — [전체 보기] [지상1층 2/9] …, 다 채운 층은 done(초록 숫자).
+// list = [{n, label, done, total}](total 0인 층은 뺌), cur = 고른 층(문자열, ""= 전체). 단추마다 data-mf, 숫자 칸 data-fcc(그 자리에서 숫자만 고칠 때). CSS = css/sitok.css .sf2-fchips
+function floorChips(list, cur) {
+  const h = (x) => String(x ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  return `<div class="sf2-fchips"><button type="button" class="${cur ? "" : "on"}" data-mf="">전체 보기</button>${list.filter((x) => x.total).map((x) =>
+    `<button type="button" class="${String(x.n) === cur ? "on" : ""}${x.done >= x.total ? " done" : ""}" data-mf="${x.n}">${h(x.label)} <small data-fcc="${x.n}">${x.done}/${x.total}</small></button>`).join("")}</div>`;
+}
+
 // 검색해서 고르기(10/22 — 내진성능평가 일람표 칸: 철근탐사·부재 단면) — 숨긴 <select> 위에 글 칸 + 목록. 누르면 전체(지금 칸 굵게), 치면 낱말마다
 // (빈칸·대소문자 무시) 다 들어간 칸만, 방향키·Enter·누르기로 고르면 select 값을 바꾸고 change(저장은 원래 select 그대로). Esc·바깥 = 원래 값.
 // 고를 칸이 없으면(첫 "고르기" 칸뿐) 그냥 select. select의 style(flex 등)은 감싼 칸으로 옮김. CSS = css/sitok.css .search-sel

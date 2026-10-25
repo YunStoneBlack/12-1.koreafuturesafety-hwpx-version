@@ -79,10 +79,6 @@
 
   let mFloor = ""; // 부재 단면 보이는 층(""= 전체) — 폰에서 길어 층만 골라 보기(10/25 민재형)
   try { mFloor = sessionStorage.getItem(`sf2-mf-${id}`) || ""; } catch (_) { /* */ }
-  function floorChips(floors, count, cur) { // [전체 보기] [지상1층 2/9] … — count(n) = [채운, 전체]
-    return `<div class="sf2-fchips"><button type="button" class="${cur ? "" : "on"}" data-mf="">전체 보기</button>${floors.map((n) => { const [c, t] = count(n);
-      return t ? `<button type="button" class="${String(n) === cur ? "on" : ""}${t && c >= t ? " done" : ""}" data-mf="${n}">${esc(floorName(n))} <small data-fcc="${n}">${c}/${t}</small></button>` : ""; }).join("")}</div>`;
-  }
   function renderMembers() {
     const floors = memberFloors(), kinds = F.member_kinds;
     if (mFloor && !floors.some((n) => String(n) === mFloor)) mFloor = "";
@@ -109,7 +105,8 @@
         </tbody></table><div class="sf2-qty-side"><span class="sk-help">칸 수(입력/칸) — 표본 층 × 종별 ${F.drawings ? 3 : 9}개소가 기본, 숫자를 고치면 아래 칸이 늘고 줆</span>
         <button type="button" class="secondary" id="sf2-q-reset">기본 칸 수로</button></div></div>
       <div class="sf2-row sf2-row-h"><span class="sf2-no">#</span><span class="sf2-mk">부재</span><span style="flex:1.2">위치</span><span style="flex:1.5">일람표 칸(그 층·부재만)</span><span style="flex:0.7">부호</span><span style="flex:1">도면치수</span><span class="sf2-meas-h">실측치수(일치·불일치, 못 재면 □)</span><span style="flex:0.9">비고</span></div>
-      ${floorChips(floors, (n) => [kinds.reduce((b, k) => b + cnt(gkey(n, k)), 0), kinds.reduce((b, k) => b + (groups[gkey(n, k)] || []).length, 0)], mFloor)}
+      ${floorChips(floors.map((n) => ({ n, label: floorName(n), done: kinds.reduce((b, k) => b + cnt(gkey(n, k)), 0),
+        total: kinds.reduce((b, k) => b + (groups[gkey(n, k)] || []).length, 0) })), mFloor)}
       ${floors.map((n) => { const rs = kinds.flatMap((k) => (groups[gkey(n, k)] || []).map((r, j) => row(n, k, r, j))); const c = kinds.reduce((b, k) => b + cnt(gkey(n, k)), 0);
         return rs.length && (!mFloor || String(n) === mFloor) ? `<div class="sf2-mfloor"><h4>${esc(floorName(n))} <span class="sk-help" data-fc="${n}">${c}/${rs.length}</span></h4>${rs.join("")}</div>` : ""; }).join("")}`;  // 번호는 전체 차례 그대로(다른 층도 세고 안 그림)
     const box = $("sf2-members");
