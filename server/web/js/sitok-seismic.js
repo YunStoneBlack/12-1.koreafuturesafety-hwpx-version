@@ -46,7 +46,7 @@
     const ch = choices(row);
     const sel = ch.find((c) => c.id === row.item_id);
     const opts = `<option value="">${ch.length ? "일람표 칸 고르기" : "맞는 일람표 칸 없음 — 부호 직접"}</option>` + ch.map((c) => `<option value="${c.id}"${c.id === row.item_id ? " selected" : ""}>${esc(c.marks.join(", "))}${c.position ? ` ${esc(c.position)}` : ""}${c.floors ? ` (${esc(c.floors)})` : ""}${c.confirmed ? "" : " ⚠미확인"}</option>`).join("");
-    return `<div class="ss-card${hasResult(row) ? "" : " empty"}" data-id="${row.id}">
+    return `<div class="ss-card${hasResult(row) ? " filled" : " empty"}" data-id="${row.id}" data-floor="${row.floor ?? ""}" data-kind="${esc(row.kind)}">
       <div class="ss-card-h"><b class="ss-no">RC-${row.no}</b><span class="sk-help">${esc(floorLabel(row.floor))} · ${esc(row.kind)}${row.mark ? ` (${esc(row.mark)})` : ""}</span>
         <button type="button" class="link-btn ss-del" title="이 시험 지우기">🗑</button></div>
       <div class="field-grid ss-pick">
@@ -98,6 +98,10 @@
     const byFloor = Object.fromEntries(table.map((t) => [t.floor, t]));
     const sum = (t, key) => KINDS.reduce((a, k) => a + (t[key][k] || 0), 0);
     const chips = table.length > 1 ? floorChips(table.map((t) => ({ n: t.floor, label: t.label, done: sum(t, "done"), total: sum(t, "slots") })), sFloor) : ""; // 층만 보기(app.js)
+    const cur = byFloor[sFloor === "" ? NaN : Number(sFloor)];
+    const kinds = `<div class="ss-kchips"><span class="sk-help">${cur ? esc(cur.label) : "보는 층"}</span>${KINDS.map((k) => `<button type="button" data-kj="${esc(k)}">${k === JOINT ? "보-기둥 접합부" : esc(k)}${cur
+      ? ` <small class="${(cur.slots[k] || 0) && (cur.done[k] || 0) >= (cur.slots[k] || 0) ? "ok" : ""}">${cur.done[k] || 0}/${cur.slots[k] || 0}</small>` : ""}</button>`).join("")}</div>`;
+    const nav = `<div class="ss-nav">${chips}${kinds}</div>`; // 위에 고정 — 층·부재 바로가기(10/25 민재형)
     const cards = d.rows.filter((r) => !sFloor || String(r.floor) === sFloor).map((r) => {
       let h = "";
       if (r.floor !== prev) {
@@ -108,7 +112,7 @@
       prev = r.floor;
       return h + card(r);
     }).join("");
-    $("ss-rows").innerHTML = d.rows.length ? `<section class="panel ss-rows-panel"><div class="panel-body ss-cards">${chips}${cards || '<div class="empty-note">이 층에는 시험 카드가 없습니다.</div>'}</div>
+    $("ss-rows").innerHTML = d.rows.length ? `<section class="panel ss-rows-panel"><div class="panel-body ss-cards">${nav}${cards || '<div class="empty-note">이 층에는 시험 카드가 없습니다.</div>'}</div>
         <div class="ss-foot"><span class="sp-saved" id="ss-saved2"></span><span class="sk-help">고치는 대로 자동 저장됩니다</span><button type="button" id="ss-save">저장</button></div></section>`
       : '<section class="panel"><div class="panel-body empty-note">아직 시험이 없습니다 — 위 [＋ 시험 추가]</div></section>';
     bind();
@@ -117,8 +121,29 @@
       sFloor = b.dataset.mf === sFloor && b.classList.contains("sf2-fname") ? "" : b.dataset.mf;
       try { sessionStorage.setItem(`ss-mf-${rid}`, sFloor); } catch (_) { /* */ }
       draw();
-      document.querySelector("#ss-rows .sf2-fchips")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      document.querySelector("#ss-rows .ss-cards")?.scrollIntoView({ block: "start", behavior: "smooth" });
     }));
+    document.querySelectorAll("#ss-rows [data-kj]").forEach((b) => b.addEventListener("click", () => jumpKind(b.dataset.kj)));
+    const row = document.querySelector("#ss-rows .ss-nav .sf2-fchips"), on = row?.querySelector("button.on"); // 폰 — 한 줄로 밀리는 층 줄에서 고른 층이 보이게
+    if (row && on && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, on.offsetLeft - row.offsetLeft - (row.clientWidth - on.offsetWidth) / 2);
+  }
+
+  // 부재 바로가기 — 층만 보는 중이면 그 층, 전체 보기면 지금 화면 맨 위에 보이는 카드의 층에서 그 부재 첫 카드로(10/25 민재형)
+  function jumpKind(kind) {
+    const cards = [...document.querySelectorAll("#ss-rows .ss-card")];
+    if (!cards.length) return;
+    let floor = sFloor;
+    if (floor === "") {
+      const navBottom = document.querySelector("#ss-rows .ss-nav")?.getBoundingClientRect().bottom || 0;
+      const seen = cards.find((c) => c.getBoundingClientRect().bottom > navBottom + 4) || cards[0];
+      floor = seen.dataset.floor;
+    }
+    const target = cards.find((c) => c.dataset.floor === floor && c.dataset.kind === kind);
+    if (!target) { showErr(`이 층에는 ${kind} 카드가 없습니다 — 위 칸 수 표에서 칸을 늘리세요.`); setTimeout(() => showErr(""), 2500); return; }
+    const navBottom = document.querySelector("#ss-rows .ss-nav")?.getBoundingClientRect().bottom || 0; // 고정 줄 높이가 폰에선 여러 줄 — 그만큼 아래로
+    window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - navBottom - 8, behavior: "smooth" });
+    target.classList.add("ss-flash");
+    setTimeout(() => target.classList.remove("ss-flash"), 1200);
   }
 
   // [저장](10/22 형 "기분상 저장 버튼 하나") — 자동 저장은 그대로. 쓰던 칸을 마저 저장(blur → change)하고, 그 저장이 끝난 뒤 전체를 한 번 더

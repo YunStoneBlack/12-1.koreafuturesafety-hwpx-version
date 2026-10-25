@@ -12,6 +12,8 @@
 .ss-qty-t td span { color: var(--faint); margin-right: 2px; }
 .ss-qty-t td.ok span { color: #1f7a3f; font-weight: 700; }
 .ss-qty-t td.part span { color: #a2620b; font-weight: 700; }
+.ss-qty-t td.ok { background: #EAF7EE; } /* 다 채운 칸 — 입력된 칸 색(10/25) */
+.ss-qty-t td.part { background: #FFF6E5; }
 .ss-qty-t input { width: 44px; margin: 0; padding: 2px 4px; text-align: center; }
 .ss-qty-side { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: 360px; }
 .ss-floor { margin: 10px 0 -4px; font-size: 15px; }
@@ -28,7 +30,25 @@
 .ss-foot .sp-saved:empty + .sk-help { margin-right: auto; }
 .main .ss-foot button { margin: 0; min-width: 96px; }
 @media (max-width: 760px) { .ss-foot { padding: 10px 12px; } .ss-foot .sk-help { display: none; } .ss-foot .sp-saved { white-space: nowrap; } }
-.ss-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--surface); }
+.ss-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--surface); scroll-margin-top: calc(var(--tabs-h, 0px) + 130px); }
+/* 입력된 카드(조사값·실측불가·캡처 중 하나라도) — 초록(10/25 민재형 "자료 입력이 된 칸 색깔 바꿔주기") */
+.ss-card.filled { border-color: #8FCDA3; background: #F2FAF4; }
+.ss-card.filled .ss-no::after { content: " ✓"; color: #1f7a3f; }
+.ss-card.ss-flash { box-shadow: 0 0 0 3px var(--blue, #2f6fe4); transition: box-shadow .3s; }
+/* 위 단추 줄 고정 — 층(app.js floorChips) + 보·기둥·보-기둥 접합부·벽체 바로가기(10/25 민재형 "바로가기 버튼 하고 셀고정") */
+.ss-nav { position: sticky; top: var(--tabs-h, 0px); z-index: 9; margin: -6px -4px 0; padding: 8px 4px 8px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.ss-nav .sf2-fchips { margin: 0 0 6px; }
+.ss-kchips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ss-kchips > .sk-help { margin-right: 2px; }
+.main .ss-kchips button { margin: 0; padding: 6px 11px; font-size: 13px; border-radius: 8px; background: var(--paper, #f4f6fb); color: var(--ink); border: 1px solid var(--line); }
+.main .ss-kchips button small { margin-left: 2px; font-size: 11.5px; color: var(--faint); }
+.main .ss-kchips button small.ok { color: #1f7a3f; font-weight: 700; }
+@media (max-width: 760px) { /* 폰 — 고정 줄이 화면을 덜 가리게 층·부재 줄을 한 줄씩(옆으로 밀기) */
+  .main .ss-kchips button { padding: 6px 8px; font-size: 12.5px; } .ss-kchips > .sk-help { display: none; }
+  .ss-nav .sf2-fchips, .ss-nav .ss-kchips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .ss-nav .sf2-fchips button, .ss-nav .ss-kchips button { flex: none; white-space: nowrap; }
+  .ss-nav .sf2-fchips::-webkit-scrollbar, .ss-nav .ss-kchips::-webkit-scrollbar { display: none; }
+}
 .ss-card-h { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .ss-no { font-size: 15px; }
 .main .ss-card-h button.ss-del { margin: 0 0 0 auto; padding: 4px 8px; background: transparent; border: 1px solid var(--line); color: var(--muted); box-shadow: none; font-size: 14px; }
