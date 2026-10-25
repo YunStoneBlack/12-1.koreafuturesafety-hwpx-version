@@ -396,6 +396,15 @@ details.sk-fold:not([open]) > summary.panel-head { border-bottom: 0; }
 /* 옹벽 위치도 카드(10/21) — Leaflet 지도에서 핀 끌기 */
 #sk-locmap { margin-top: 10px; }
 .sk-locmap-map { height: 340px; margin-top: 10px; border-radius: 8px; border: 1px solid var(--line); z-index: 0; }
+/* 주소 검색(10/25 민재형) — 지도 위 검색칸 + 결과(누르면 핀이 그 자리로) */
+.sk-locmap-search { display: flex; gap: 6px; margin-top: 10px; }
+.sk-locmap-search input { flex: 1; min-width: 0; margin: 0; font-size: 16px; } /* 16px — 아이폰이 눌러도 확대 안 함 */
+.main .sk-locmap-search button { margin: 0; flex: none; }
+.sk-locmap-hits { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 220px; overflow-y: auto; }
+.main .sk-locmap-hits button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; margin: 0; padding: 7px 10px; text-align: left; background: var(--surface);
+  color: var(--ink); border: 1px solid var(--line); border-radius: 8px; font-size: 13.5px; }
+.main .sk-locmap-hits button span { font-size: 12px; color: var(--muted); }
+.main .sk-locmap-hits button.on { border-color: var(--blue); background: var(--blue-soft, #eaf2fd); }
 .sk-locmap-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; }
 .main .sk-locmap-foot button { margin: 0; }
 .main .sk-locmap-foot .link-btn { margin: 0; padding: 0; width: auto; background: none; border: 0; color: var(--crit); font-size: 12.5px; font-weight: 600; text-decoration: underline; }

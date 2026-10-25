@@ -13,6 +13,8 @@ async function sitokDrawLocmap(el, facilityId, name) {
   el.innerHTML = `<div class="fi-card sk-locmap${st.src ? " has" : ""}">
     <div class="dt-dwg-h"><b>📍 위치도</b> <span class="sk-help">${esc(SRC[st.src] || "")}</span>
       <label class="secondary-link" title="밖에서 만든 위치도 그림(PPT 내보내기 등)">그림 올리기<input type="file" accept="image/*,application/pdf,.pdf" hidden data-kr-file="1" /></label></div>
+    <form class="sk-locmap-search"><input type="search" enterkeyhint="search" placeholder="주소·건물 이름으로 찾기(예: 양주덕산초등학교, 평화로 1418-6)" />
+      <button type="submit" class="secondary btn-sm">🔍 찾기</button></form><div class="sk-locmap-hits" hidden></div>
     <div class="sk-locmap-map"></div>
     <div class="sk-locmap-foot">
       <button type="button" class="secondary btn-sm sk-pin-save">핀 자리 저장</button>
@@ -33,6 +35,29 @@ async function sitokDrawLocmap(el, facilityId, name) {
   setTimeout(() => map.invalidateSize(), 300);
   el.closest("details")?.addEventListener("toggle", () => setTimeout(() => map.invalidateSize(), 50));
   const redraw = () => sitokDrawLocmap(el, facilityId, name);
+  // 주소 검색(10/25 민재형) — 결과를 누르면 핀이 그 자리로(저장은 [핀 자리 저장])
+  const hits = el.querySelector(".sk-locmap-hits");
+  const moveTo = (it) => {
+    marker.setLatLng([it.lat, it.lng]);
+    map.setView([it.lat, it.lng], 18);
+    hits.querySelectorAll("button").forEach((b) => b.classList.toggle("on", Number(b.dataset.i) === it.i));
+    msg.textContent = `'${it.name}' 자리로 옮겼습니다 — 학교 안 그 동이면 핀을 조금 더 끌어 맞춘 뒤 [핀 자리 저장]`;
+  };
+  el.querySelector(".sk-locmap-search").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = e.target.querySelector("input").value.trim();
+    e.target.querySelector("input").blur(); // 폰 — 키보드 내리고 결과
+    if (q.length < 2) { msg.textContent = "두 글자 이상 넣어 찾으세요."; return; }
+    hits.hidden = false;
+    hits.innerHTML = '<span class="sk-help">찾는 중…</span>';
+    try {
+      const items = ((await api(`/sitok/locmap/search?q=${encodeURIComponent(q)}`)).items || []).map((x, i) => ({ ...x, i }));
+      hits.innerHTML = items.length ? items.map((x) => `<button type="button" data-i="${x.i}"><b>${esc(x.name)}</b><span>${esc(x.address)}</span></button>`).join("")
+        : '<span class="sk-help">찾은 곳이 없습니다 — 도로명 주소나 학교·건물 이름으로 다시</span>';
+      hits.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => moveTo(items[Number(b.dataset.i)])));
+      if (items.length) moveTo(items[0]);
+    } catch (err) { hits.innerHTML = `<span class="sk-help">${esc(err.message)}</span>`; }
+  });
   el.querySelector(".sk-pin-save").addEventListener("click", async () => {
     const p = marker.getLatLng();
     try { await api(url, { method: "PUT", body: JSON.stringify({ lat: p.lat, lng: p.lng }) }); redraw(); } catch (e) { msg.textContent = e.message; }

@@ -890,6 +890,29 @@ def _locmap_out(f: SitokFacility) -> dict:
             "src": "image" if (_facility_dir(f) / locmap.UPLOADED).exists() else "pin" if pin else "address" if addr else ""}
 
 
+@router.get("/locmap/search")
+def locmap_search(q: str = "", user: User = Depends(get_current_user)):
+    """위치도 핀 옮기기용 주소·이름 검색(카카오 로컬 — 키워드 먼저, 주소 다음) → [{name, address, lat, lng}] 10개까지."""
+    from server.api import geocode
+
+    q = " ".join((q or "").split())[:80]
+    if len(q) < 2:
+        return {"items": []}
+    out, seen = [], set()
+    try:
+        for url, kind in ((geocode._URL_KEYWORD, "place"), (geocode._URL_ADDR, "addr")):
+            for d in geocode._search(url, q)[:8]:
+                lat, lng = round(float(d["y"]), 6), round(float(d["x"]), 6)
+                if (lat, lng) in seen:
+                    continue
+                seen.add((lat, lng))
+                road = (d.get("road_address") or {}).get("address_name") if isinstance(d.get("road_address"), dict) else d.get("road_address_name")
+                out.append({"name": d.get("place_name") or d.get("address_name") or q, "address": road or d.get("address_name") or "", "lat": lat, "lng": lng})
+    except Exception as err:  # noqa: BLE001 — 키 없음·카카오 안 됨
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"주소 검색이 안 됩니다: {str(err)[:80]}") from err
+    return {"items": out[:10]}
+
+
 @router.get("/facilities/{facility_id}/locmap")
 def locmap_get(facility_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return _locmap_out(_require_facility(db, user, facility_id))
