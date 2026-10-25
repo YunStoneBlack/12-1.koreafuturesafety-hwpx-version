@@ -235,8 +235,10 @@ def _divider(lines: list[str]) -> tuple[int, str, str] | None:
     return None
 
 
-def split_plan(pdf: Path) -> list[dict]:
-    """합본 PDF → [{folder, name, pages:[(시작, 끝) 0부터]}]. 결과표는 동마다 결과표 쪽만 모아 한 파일."""
+def split_plan(pdf: Path, kind: str = "정기") -> list[dict]:
+    """합본 PDF → [{folder, name, pages:[(시작, 끝) 0부터]}]. 결과표는 동마다 결과표 쪽만 모아 한 파일.
+    kind = 회차 종류 — 정밀만 외관조사망도를 따로(형 PPT 정밀 목록), 정기는 기타 부록에 간지째(10/25 민재형)."""
+    appx_rules = APPX if kind == "정밀" else [x for x in APPX if "망도" not in x[0]]
     d = pymupdf.open(str(pdf))
     pages = [_lines(p) for p in d]
     n = len(pages)
@@ -272,7 +274,7 @@ def split_plan(pdf: Path) -> list[dict]:
     for k, (i, (level, title, _)) in enumerate(divs):
         e = (divs[k + 1][0] - 1) if k + 1 < len(divs) else n - 1
         key = re.sub(r"[\s,·ㆍ.]", "", title)
-        hit = next((v for pat, v in APPX if re.search(pat, key)), None)
+        hit = next((v for pat, v in appx_rules if re.search(pat, key)), None)
         if level == 1:
             parent = hit or other
             add(*parent, i, e)
@@ -283,12 +285,24 @@ def split_plan(pdf: Path) -> list[dict]:
     return plan
 
 
-def write_split(pdf: Path, out_dir: Path) -> list[dict]:
+def split_file(pdf: Path, folder: str, name: str, kind: str = "정기") -> bytes | None:
+    """split_plan의 파일 하나만 PDF로(화면 미리보기·내려받기, 10/25 민재형). 없으면 None."""
+    x = next((x for x in split_plan(pdf, kind) if x["folder"] == folder and x["name"] == name), None)
+    if x is None:
+        return None
+    src = pymupdf.open(str(pdf))
+    doc = pymupdf.open()
+    for a, b in x["pages"]:
+        doc.insert_pdf(src, from_page=a, to_page=b)
+    return doc.tobytes(garbage=3, deflate=True)
+
+
+def write_split(pdf: Path, out_dir: Path, kind: str = "정기") -> list[dict]:
     """split_plan대로 PDF 파일을 만든다(50MB 넘으면 "이름 1·2…"로 나눔) → [{folder, name, file, pages, size}]."""
     out_dir.mkdir(parents=True, exist_ok=True)
     src = pymupdf.open(str(pdf))
     made = []
-    for x in split_plan(pdf):
+    for x in split_plan(pdf, kind):
         doc = pymupdf.open()
         for a, b in x["pages"]:
             doc.insert_pdf(src, from_page=a, to_page=b)

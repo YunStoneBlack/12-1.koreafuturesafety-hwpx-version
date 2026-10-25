@@ -72,7 +72,7 @@ def _process(job_id: int) -> None:
                 files = None
                 if job.stage == "result":
                     r0 = reps[0]
-                    made = fms.write_split(Path(r0.out_pdf), base / "files")
+                    made = fms.write_split(Path(r0.out_pdf), base / "files", r0.kind or "정기")
                     extra, notes = fms.contract_files(db, reps)
                     files = extra + [{"folder": m["folder"], "name": m["name"], "file": m["file"]} for m in made]
                 out = fms_bot.submit(job.stage, payload, cred, owner, base / "shots", project_no=job.project_no or (reps[0].fms or {}).get("project_no", ""),

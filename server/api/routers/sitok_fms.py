@@ -78,6 +78,31 @@ def _jobs(db: Session, reps: list[SitokReport]) -> list[FmsSubmission]:
     return [j for j in rows if ids & set(j.report_ids or [])][:10]
 
 
+@router.get("/reports/{rid}/fms/file")
+def fms_file(rid: int, folder: str, name: str, dl: int = 0, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """e-보고서로 나눌 파일 하나 — 누르면 미리보기(창에서 PDF), dl=1이면 내려받기(10/25 민재형). 대가내역서는 서류 자동화 계약의 대가내역서.pdf."""
+    from urllib.parse import quote
+
+    from fastapi.responses import Response
+
+    from server.sitok import fms
+
+    r = _require(db, user, rid)
+    disp = lambda: ("attachment" if dl else "inline") + f"; filename*=UTF-8''{quote(name + '.pdf')}"  # noqa: E731
+    if folder == "계약서 및 대가내역서" and name == "대가내역서":
+        files, notes = fms.contract_files(db, together(db, r))
+        if not files:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, (notes or ["대가내역서가 없습니다."])[0])
+        return Response(Path(files[0]["file"]).read_bytes(), media_type="application/pdf", headers={"Content-Disposition": disp()})
+    pdf = Path(r.out_pdf) if r.out_pdf else None
+    if pdf is None or not pdf.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서(합본 PDF)를 아직 만들지 않았습니다.")
+    data = fms.split_file(pdf, folder, name, r.kind or "정기")
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "그 파일이 없습니다 — 보고서를 다시 만들었으면 화면을 새로 고치세요.")
+    return Response(data, media_type="application/pdf", headers={"Content-Disposition": disp()})
+
+
 @router.get("/reports/{rid}/fms")
 def fms_info(rid: int, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     from server.sitok import fms
@@ -90,7 +115,7 @@ def fms_info(rid: int, request: Request, user: User = Depends(get_current_user),
     plan, pdf = [], Path(r.out_pdf) if r.out_pdf else None
     if pdf and pdf.exists():
         try:
-            plan = [{"folder": x["folder"], "name": x["name"], "pages": sum(b - a + 1 for a, b in x["pages"])} for x in fms.split_plan(pdf)]
+            plan = [{"folder": x["folder"], "name": x["name"], "pages": sum(b - a + 1 for a, b in x["pages"])} for x in fms.split_plan(pdf, r.kind or "정기")]
         except Exception as e:  # noqa: BLE001
             notes.append(f"합본 PDF를 나누지 못했습니다: {str(e)[:80]}")
     else:

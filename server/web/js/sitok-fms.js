@@ -62,13 +62,15 @@
     const engs = p.engineers.map((e) => `<tr><td>${e.rep_yn === "Y" ? "책임" : "참여"}</td><td>${esc(e.name)}</td><td>${esc(e.start)} ~ ${esc(e.end)}</td><td class="r">${e.days}</td><td>${esc(e.parti_field)}</td></tr>`).join("");
     const res = p.facilities.map((f) => `<div class="fms-res"><b>${esc(f.name)}</b> <small>안전등급 ${esc(f.overall_grade || "-")} · 중대결함 ${f.serious_defect_yn ? "있음" : "없음"}</small>
         <div class="fms-two"><pre>${esc(f.dign_content || "(보고서를 만들면 결과표에서 채움)")}</pre><pre>${esc(f.amend_content || "-")}</pre></div></div>`).join("");
-    const files = info.files.map((x) => `<tr><td>${esc(x.folder)}</td><td>${esc(x.name)}.pdf</td><td class="r">${x.pages}</td></tr>`).join("");
+    const furl = (x, dl) => `${BASE}/api/sitok/reports/${rid}/fms/file?folder=${encodeURIComponent(x.folder)}&name=${encodeURIComponent(x.name)}${dl ? "&dl=1" : ""}`;
+    const files = info.files.map((x) => `<tr><td>${esc(x.folder)}</td><td><a href="${furl(x)}" target="_blank" rel="noopener" title="눌러서 미리보기">${esc(x.name)}.pdf</a>
+      <a class="fms-dl" href="${furl(x, true)}" title="내려받기">⬇</a></td><td class="r">${x.pages}</td></tr>`).join(""); // 눌러 미리보기·⬇ 내려받기(10/25 민재형)
     return `<details class="fms-prev"><summary>넣을 값 보기 — 계약·시설물·기술자·실적·e-보고서 파일</summary>
       <table class="fms-tbl"><tbody>${gen.map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join("")}</tbody></table>
       <table class="fms-tbl"><thead><tr><th>시설물</th><th>FMS 번호</th><th>분야</th><th>금액(천원)</th><th>안전등급</th></tr></thead><tbody>${facs}</tbody></table>
       <table class="fms-tbl"><thead><tr><th>구분</th><th>기술자</th><th>참여기간</th><th>일수</th><th>직무분야(FMS 기준으로 맞춤)</th></tr></thead><tbody>${engs}</tbody></table>
       <div class="fms-sub">실적 — 주요 점검진단결과 · 주요 보수보강(안) (보고서 결과표에서 그대로)</div>${res}
-      <table class="fms-tbl"><thead><tr><th>e-보고서 폴더</th><th>파일</th><th>쪽</th></tr></thead><tbody>${files || '<tr><td colspan="3">보고서를 만들면 나눕니다</td></tr>'}</tbody></table></details>`;
+      <table class="fms-tbl"><thead><tr><th>e-보고서 폴더</th><th>파일 <small>(눌러서 미리보기 · ⬇ 내려받기)</small></th><th>쪽</th></tr></thead><tbody>${files || '<tr><td colspan="3">보고서를 만들면 나눕니다</td></tr>'}</tbody></table></details>`;
   }
 
   function jobs() {

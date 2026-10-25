@@ -18,6 +18,9 @@
 .fms-tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
 .fms-tbl th, .fms-tbl td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
 .fms-tbl th { background: var(--paper); font-weight: 600; white-space: nowrap; }
+.fms-tbl a { color: var(--blue, #2f6fe4); text-decoration: underline; text-underline-offset: 2px; }
+.fms-tbl a.fms-dl { margin-left: 8px; text-decoration: none; font-size: 13px; }
+.fms-tbl th small { font-weight: 400; color: var(--muted); }
 .fms-tbl td.r { text-align: right; font-variant-numeric: tabular-nums; }
 .fms-sub { margin: 10px 0 4px; font-weight: 600; font-size: 12.5px; }
 .fms-res { margin-bottom: 8px; }
