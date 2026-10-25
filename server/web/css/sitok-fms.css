@@ -53,3 +53,5 @@
   .fms-cred { width: 100%; }
   .fms-tbl { display: block; overflow-x: auto; }
 }
+.main .fms-owner select.fo-pick { display: inline-block; width: auto; margin: 4px 0 0 8px; padding: 4px 6px; font-size: 12.5px; max-width: 100%; }
+.fms-owner b small { font-weight: 400; color: var(--muted); }

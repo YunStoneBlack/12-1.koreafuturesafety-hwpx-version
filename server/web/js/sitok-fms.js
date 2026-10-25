@@ -32,11 +32,16 @@
       ? `<span class="fms-cred"><input class="fc-id" placeholder="FMS 아이디" value="${esc(a.company_id)}" /><input class="fc-pw" type="password" placeholder="비밀번호" autocomplete="new-password" />
          <button type="button" class="fc-save">저장</button><button type="button" class="secondary fc-cancel">취소</button></span>`
       : `${a.company ? `✓ ${esc(a.company_id)}` : '<span class="fms-bad">없음</span>'} ${a.is_admin ? `<button type="button" class="secondary fms-mini fc-edit">${a.company ? "바꾸기" : "넣기"}</button>` : (a.company ? "" : "<small>— 그룹웨어 관리자가 넣습니다</small>")}`;
-    const owners = info.reports.map((r) => editing === `owner${r.facility_id}`
-      ? `<div class="fms-owner"><b>${esc(r.facility)}</b> <span class="fms-cred"><input class="fo-id" placeholder="관리주체 FMS 아이디" value="${esc(r.owner_id)}" /><input class="fo-pw" type="password" placeholder="비밀번호" autocomplete="new-password" />
-          <button type="button" class="fo-save" data-f="${r.facility_id}">저장</button><button type="button" class="secondary fc-cancel">취소</button></span></div>`
-      : `<div class="fms-owner"><b>${esc(r.facility)}</b> <small>${esc(r.fms_no || "FMS 번호 없음")}</small> 관리주체 계정 ${r.owner_account ? `✓ ${esc(r.owner_id)}` : '<span class="fms-warn">없음 — 승인요청까지만</span>'}
-          <button type="button" class="secondary fms-mini fo-edit" data-f="${r.facility_id}">${r.owner_account ? "바꾸기" : "넣기"}</button></div>`).join("");
+    // 발주처(관리주체) 계정 — 같이 내는 묶음(또는 회차)마다 한 줄, 저장하면 그 동 전부(10/25 민재형 "묶음이면 발주처 아이디는 무조건 1개"),
+    // 같은 카드 다른 보고서(보고서 1·2)에 넣은 계정은 골라 쓰기(사용자 "아이디가 같을 때가 있어서 선택할 수 있게")
+    const o = info.owner || {}, n = info.reports.length;
+    const label = `발주처(관리주체) 계정${n > 1 ? ` <small>— 묶음 ${n}동 공통</small>` : ""}`;
+    const pick = (o.choices || []).length ? `<select class="fo-pick"><option value="">같은 카드 다른 보고서 계정 쓰기…</option>${o.choices.map((c) => `<option value="${c.facility_id}">${esc(c.facility)} — ${esc(c.owner_id)}</option>`).join("")}</select>` : "";
+    const owners = editing === "owner"
+      ? `<div class="fms-owner"><b>${label}</b> <span class="fms-cred"><input class="fo-id" placeholder="관리주체 FMS 아이디" value="${esc(o.id || "")}" /><input class="fo-pw" type="password" placeholder="비밀번호" autocomplete="new-password" />
+          <button type="button" class="fo-save">저장</button><button type="button" class="secondary fc-cancel">취소</button></span>${pick}</div>`
+      : `<div class="fms-owner"><b>${label}</b> ${o.id ? `✓ ${esc(o.id)}${o.mixed ? ' <span class="fms-warn">동마다 다른 아이디가 있음 — 다시 넣으면 하나로</span>' : ""}` : '<span class="fms-warn">없음 — 승인요청까지만</span>'}
+          <button type="button" class="secondary fms-mini fo-edit">${o.id ? "바꾸기" : "넣기"}</button>${pick}</div>`;
     return `<div class="fms-acc"><div><b>회사 FMS 계정</b> ${comp}</div>${owners}</div>`;
   }
 
@@ -121,7 +126,14 @@
     });
     const ce = box.querySelector(".fc-edit");
     if (ce) ce.addEventListener("click", () => { editing = "company"; draw(); });
-    box.querySelectorAll(".fo-edit").forEach((b) => b.addEventListener("click", () => { editing = `owner${b.dataset.f}`; draw(); }));
+    box.querySelectorAll(".fo-edit").forEach((b) => b.addEventListener("click", () => { editing = "owner"; draw(); }));
+    box.querySelector(".fo-pick")?.addEventListener("change", async (e) => { // 같은 카드 다른 보고서 계정 그대로(비밀번호는 서버 안에서만)
+      if (!e.target.value) return;
+      try {
+        const out = await api(`/sitok/reports/${rid}/fms/owner`, { method: "PUT", body: JSON.stringify({ from_facility_id: Number(e.target.value) }) });
+        editing = ""; await load(); msg(`✓ 발주처 계정 ${esc(out.owner_id)}을(를) ${out.facilities}동에 넣었습니다 — 이제 승인까지 자동입니다.`, "ok");
+      } catch (err) { msg(esc(err.message), "bad"); }
+    });
     box.querySelectorAll(".fc-cancel").forEach((b) => b.addEventListener("click", () => { editing = ""; draw(); }));
     const cs = box.querySelector(".fc-save");
     if (cs) cs.addEventListener("click", async () => {
@@ -133,8 +145,8 @@
     const os = box.querySelector(".fo-save");
     if (os) os.addEventListener("click", async () => {
       try {
-        await api(`/sitok/facilities/${os.dataset.f}/fms-owner`, { method: "PUT", body: JSON.stringify({ user_id: box.querySelector(".fo-id").value, password: box.querySelector(".fo-pw").value }) });
-        editing = ""; await load(); msg("✓ 관리주체 FMS 계정을 저장했습니다(비밀번호는 암호화) — 이제 승인까지 자동입니다.", "ok");
+        const out = await api(`/sitok/reports/${rid}/fms/owner`, { method: "PUT", body: JSON.stringify({ user_id: box.querySelector(".fo-id").value, password: box.querySelector(".fo-pw").value }) });
+        editing = ""; await load(); msg(out.owner_id ? `✓ 발주처 FMS 계정을 저장했습니다(비밀번호는 암호화${out.facilities > 1 ? ` — ${out.facilities}동 공통` : ""}) — 이제 승인까지 자동입니다.` : "발주처 계정을 지웠습니다.", "ok");
       } catch (err) { msg(esc(err.message), "bad"); }
     });
   }

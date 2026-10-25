@@ -136,8 +136,19 @@ def fms_info(rid: int, request: Request, user: User = Depends(get_current_user),
     rep["differs"] = bool(rep["ours"] and rep["fms"] and rep["ours"].replace(" ", "") != rep["fms"].replace(" ", ""))
     has_company = bool(_setting(db, user.company_id, "fms_id") and (_setting(db, user.company_id, "fms_id").value or ""))
     state = r.fms or {}
-    return {"reports": [{"id": x.id, "facility": f.name, "fms_no": f.fms_no, "owner_account": bool(f.fms_owner_id and f.fms_owner_pw),
+    ids = {f.id for f in facs if f.fms_owner_id and f.fms_owner_pw}
+    from server.api.routers.sitok import card_facilities
+    seen, choices = set(), []
+    for x in card_facilities(db, facs[0]):  # 같은 카드의 다른 보고서(보고서 1·2 따로 내는 시설물)에 넣어 둔 계정 — 골라 쓰기(아이디만 보냄)
+        if x.id in {f.id for f in facs} or not (x.fms_owner_id and x.fms_owner_pw) or x.fms_owner_id in seen:
+            continue
+        seen.add(x.fms_owner_id)
+        choices.append({"facility_id": x.id, "facility": x.name, "owner_id": x.fms_owner_id})
+    owner_ids = sorted({f.fms_owner_id for f in facs if f.fms_owner_id and f.fms_owner_pw})
+    return {"reports": [{"id": x.id, "facility": f.name, "fms_no": f.fms_no, "owner_account": f.id in ids,
                          "owner_id": f.fms_owner_id, "facility_id": f.id} for x, f in zip(reps, facs)],
+            "owner": {"id": next((f.fms_owner_id for f in facs if f.id in ids), ""), "all": len(ids) == len(facs), "mixed": len(owner_ids) > 1,
+                      "choices": choices},  # 발주처 계정 한 줄(같이 내는 동 공통 — 작업 프로그램은 계정 있는 첫 동 것을 씀)
             "payload": payload, "files": plan, "notes": notes, "rep": rep, "state": state,
             "accounts": {"company": has_company, "company_id": (_setting(db, user.company_id, "fms_id").value if has_company else ""),
                          "is_admin": is_groupware_admin(request)},
@@ -238,6 +249,37 @@ def save_owner_account(fid: int, body: CredIn, user: User = Depends(get_current_
         f.fms_owner_id = uid
     db.commit()
     return {"ok": True, "owner_id": f.fms_owner_id, "has_pw": bool(f.fms_owner_pw)}
+
+
+class OwnerIn(BaseModel):
+    user_id: str = ""
+    password: str = ""
+    from_facility_id: int | None = None  # 같은 카드 다른 보고서 계정 그대로 쓰기(비밀번호는 서버 안에서만 복사)
+
+
+@router.put("/reports/{rid}/fms/owner")
+def save_owner(rid: int, body: OwnerIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """발주처(관리주체) FMS 계정 — 같이 내는 동(묶음이면 전부, 아니면 이 회차 시설물)에 같은 계정을 저장(10/25). 아이디를 비우면 지움."""
+    from server.api.routers.sitok import card_facilities
+
+    r = _require(db, user, rid)
+    facs = [db.get(SitokFacility, x.facility_id) for x in together(db, r)]
+    if body.from_facility_id:
+        src = db.get(SitokFacility, body.from_facility_id)
+        if src is None or src.company_id != user.company_id or src.id not in {x.id for x in card_facilities(db, facs[0])} or not (src.fms_owner_id and src.fms_owner_pw):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "그 시설물에 쓸 계정이 없습니다.")
+        uid, pw = src.fms_owner_id, src.fms_owner_pw
+    else:
+        uid = body.user_id.strip()
+        pw = k2b_secret.encrypt(body.password) if body.password else ""
+        if uid and not pw:  # 비밀번호를 안 넣으면 — 이미 같은 아이디로 저장된 동의 비밀번호를 씀
+            pw = next((f.fms_owner_pw for f in facs if f.fms_owner_id == uid and f.fms_owner_pw), "")
+            if not pw:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "비밀번호를 넣어 주세요.")
+    for f in facs:
+        f.fms_owner_id, f.fms_owner_pw = (uid, pw) if uid else ("", "")
+    db.commit()
+    return {"ok": True, "owner_id": uid, "facilities": len(facs)}
 
 
 @router.post("/reports/{rid}/fms/rep")

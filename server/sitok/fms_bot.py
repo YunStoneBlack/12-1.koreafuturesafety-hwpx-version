@@ -216,8 +216,12 @@ def _wait_select(w, ms: int = 10000) -> bool:
         return False
 
 
-def lookup_facilities(ctx, owner_code: str, fms_nos: list[str]) -> dict:
-    """시설물 찾기 팝업(관리주체 기준) → {fms_no: {name, use, class, completed} | {missing}}."""
+_MARK = """(keys) => { let n = 0; document.querySelectorAll('[onclick^="goSelect"]').forEach((b) => {
+  const s = b.getAttribute('onclick') || ''; if (keys.some((k) => k && s.includes("'" + k + "'"))) { const tr = b.closest('tr') || b; tr.style.background = '#FFF3B0'; n++; } }); return n; }"""  # 우리 줄 노랗게(찍기 전)
+
+
+def lookup_facilities(ctx, owner_code: str, fms_nos: list[str], job=None) -> dict:
+    """시설물 찾기 팝업(관리주체 기준) → {fms_no: {name, use, class, completed} | {missing}}. job을 주면(연습) 우리 시설물 줄을 노랗게 하고 화면을 찍음(10/25)."""
     w = ctx.new_page()
     sels = []
     for _ in range(3):  # 가끔 빈 표로 뜸 — 다시
@@ -226,6 +230,12 @@ def lookup_facilities(ctx, owner_code: str, fms_nos: list[str]) -> dict:
         sels = w.evaluate("() => [...document.querySelectorAll('[onclick^=\"goSelect\"]')].map(b => b.getAttribute('onclick'))")
         if sels:
             break
+    if job is not None:
+        try:
+            w.evaluate(_MARK, fms_nos)
+        except Exception:  # noqa: BLE001
+            pass
+        job.shot(w, "점검진단대상시설물_찾기(연습)")
     w.close()
     found = {}
     for s in sels:
@@ -235,7 +245,7 @@ def lookup_facilities(ctx, owner_code: str, fms_nos: list[str]) -> dict:
     return {no: found.get(no, {"missing": True}) for no in fms_nos} | {"_all": list(found)}
 
 
-def lookup_engineers(ctx, names: list[str], project_no: str = "", corp_cd: str = "E02210") -> dict:
+def lookup_engineers(ctx, names: list[str], project_no: str = "", corp_cd: str = "E02210", job=None) -> dict:
     """기술자 찾기 팝업 → {이름: {birth, grade(1 특급·2 고급…), grade_label, field(건축·토목·안전관리)}}.
     팝업은 우리 회사 계약 번호(project_no)가 있어야 회사 기술자 목록이 나옴(빈 검색·이름 검색만으론 빈 표 — 2026-10-15)."""
     rows: dict = {}
@@ -250,6 +260,12 @@ def lookup_engineers(ctx, names: list[str], project_no: str = "", corp_cd: str =
             a = re.findall(r"'([^']*)'", sel)
             if len(a) >= 6:
                 rows[a[1]] = {"birth": a[2], "grade": a[4], "grade_label": GRADE_NAME.get(a[4], a[4]), "field": a[5]}
+        if job is not None and rows:  # 연습 — 우리 기술자 줄 노랗게 찍기(10/25)
+            try:
+                w.evaluate(_MARK, names)
+            except Exception:  # noqa: BLE001
+                pass
+            job.shot(w, "책임기술자_찾기(연습)")
         w.close()
         if rows:
             break
@@ -349,8 +365,8 @@ def practice(payload: dict, user_id: str, pw: str, shots: Path) -> dict:
             .map(n => { const e = document.getElementsByName(n)[0] || document.getElementById(n); return [n, e ? (e.tagName === 'SELECT' ? e.options[e.selectedIndex].text.trim() : e.value) : null]; }))""")
         job.shot(pg, "계약_일반현황(연습)")
         code = report["owner"].get("code") or report["filled"].get("mng_main_cd") or ""
-        report["facilities"] = lookup_facilities(ctx, code, [f["fms_no"] for f in payload["facilities"]]) if code else {}
-        report["engineers"] = lookup_engineers(ctx, [e["name"] for e in payload["engineers"]], our_project)
+        report["facilities"] = lookup_facilities(ctx, code, [f["fms_no"] for f in payload["facilities"]], job=job) if code else {}
+        report["engineers"] = lookup_engineers(ctx, [e["name"] for e in payload["engineers"]], our_project, job=job)
         b.close()  # 저장 안 하고 닫음(새 계약은 서버에 안 생김)
     report["shots"], report["log"] = job.shots, job.log
     return report
