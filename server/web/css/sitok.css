@@ -1027,11 +1027,12 @@ button.sp-pick-it.on { border-color: var(--blue); }
 .search-sel-list > div.none { cursor: default; }
 .search-sel-list em { font-style: normal; font-size: 12px; color: #a2620b; }
 .search-sel-list .none { color: var(--muted); }
-/* 폰(10/25): 칸 = 목록 열기 단추, 🔍 = 검색어 치기 */
+/* 폰(10/25): 칸 = 목록 열기 단추, 🔍·목록 창 맨 위 검색칸 = 검색어 치기(진짜 칸 — 아이폰도 늘 키보드) */
 .search-sel.touch > input.search-sel-in { padding-right: 70px; cursor: pointer; caret-color: transparent; }
-.search-sel.touch.typing > input.search-sel-in { caret-color: auto; cursor: text; }
 .search-sel.touch > button.search-sel-find { position: absolute; right: 30px; top: 50%; transform: translateY(-50%); margin: 0; padding: 0; width: 36px; height: 36px;
   border: none; border-radius: 8px; background: transparent; font-size: 17px; line-height: 1; cursor: pointer; }
-.search-sel.touch.typing > button.search-sel-find { background: var(--blue-soft, #eaf2fd); }
-.search-sel.touch .search-sel-list { max-height: 320px; }
+.search-sel-pop { position: absolute; left: 0; top: calc(100% + 4px); min-width: 100%; width: max-content; max-width: min(460px, calc(100vw - 32px)); z-index: 40;
+  padding: 6px; background: var(--surface, #fff); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 28px rgba(15, 23, 42, .16); box-sizing: border-box; }
+.search-sel-pop > input.search-sel-q { width: 100%; margin: 0 0 4px; box-sizing: border-box; font-size: 16px; } /* 16px — 아이폰이 칸을 눌러도 화면을 확대하지 않음 */
+.search-sel-pop > .search-sel-list { position: static; max-height: 300px; min-width: 0; width: auto; max-width: none; padding: 0; border: 0; box-shadow: none; }
 .search-sel.touch .search-sel-list > div { padding: 11px 12px; font-size: 15px; } /* 손가락으로 누르기 쉽게 */

@@ -303,8 +303,9 @@ function fileAccepts(input, file) {
 // 검색해서 고르기(10/22 — 내진성능평가 일람표 칸: 철근탐사·부재 단면) — 숨긴 <select> 위에 글 칸 + 목록. 누르면 전체(지금 칸 굵게), 치면 낱말마다
 // (빈칸·대소문자 무시) 다 들어간 칸만, 방향키·Enter·누르기로 고르면 select 값을 바꾸고 change(저장은 원래 select 그대로). Esc·바깥 = 원래 값.
 // 고를 칸이 없으면(첫 "고르기" 칸뿐) 그냥 select. select의 style(flex 등)은 감싼 칸으로 옮김. CSS = css/sitok.css .search-sel
-// 폰(터치 화면, 10/25 사용자 "검색창 키보드와 선택 리스트가 간섭으로 불편"): 칸을 누르면 목록만(키보드 안 뜸 — readonly), [🔍]를 누르면 키보드로 검색,
-// 키보드 [검색]·[완료]를 누르면 키보드가 내려가고 걸러진 목록만 남음 → 눌러서 고름. 바깥을 누르면 닫힘. PC는 예전처럼 바로 쳐서 검색.
+// 폰(터치 화면, 10/25 사용자 "검색창 키보드와 선택 리스트가 간섭으로 불편"): 칸을 누르면 목록만(키보드 안 뜸 — readonly), 목록 창 맨 위 검색칸·[🔍]를 누르면
+// 키보드로 검색, 키보드 [검색]·[완료]면 키보드가 내려가고 걸러진 목록만 → 눌러서 고름. 검색어는 남아 다시 🔍·검색칸으로 이어서(민재형 "다시 눌러도 키보드").
+// 검색칸은 늘 쓸 수 있는 진짜 칸 — 칸의 readonly를 풀고 코드로 focus하던 처음 방식은 아이폰에서 두 번째부터 키보드가 안 떴음. 바깥을 누르면 닫힘. PC는 예전처럼 바로 쳐서 검색.
 function searchSelect(sel, { placeholder = "" } = {}) {
   const opts = [...sel.options].map((o) => ({ v: o.value, t: o.textContent }));
   if (opts.length < 2) return null;
@@ -315,13 +316,19 @@ function searchSelect(sel, { placeholder = "" } = {}) {
   const box = document.createElement("div");
   box.className = `search-sel${touch ? " touch" : ""}`;
   box.style.cssText = sel.style.cssText;
-  box.innerHTML = `<input type="text" class="search-sel-in" autocomplete="off" spellcheck="false" enterkeyhint="search"${touch ? ' readonly inputmode="none"' : ""}
-      placeholder="${h(placeholder || `${opts[0].t} — 검색`)}" title="${h(sel.title)}" />
-    ${touch ? '<button type="button" class="search-sel-find" aria-label="검색" title="검색어로 찾기">🔍</button>' : ""}
-    <div class="search-sel-list" hidden></div>`;
+  const ph = h(placeholder || `${opts[0].t} — 검색`);
+  box.innerHTML = touch
+    ? `<input type="text" class="search-sel-in" readonly inputmode="none" placeholder="${ph}" title="${h(sel.title)}" />
+      <button type="button" class="search-sel-find" aria-label="검색" title="검색어로 찾기">🔍</button>
+      <div class="search-sel-pop" hidden><input type="search" class="search-sel-q" autocomplete="off" spellcheck="false" enterkeyhint="search" placeholder="🔍 검색어 — 눌러서 치기" />
+        <div class="search-sel-list"></div></div>`
+    : `<input type="text" class="search-sel-in" autocomplete="off" spellcheck="false" placeholder="${ph}" title="${h(sel.title)}" />
+      <div class="search-sel-list" hidden></div>`;
   sel.hidden = true;
   sel.after(box);
-  const inp = box.querySelector("input"), list = box.querySelector(".search-sel-list");
+  const inp = box.querySelector(".search-sel-in"), list = box.querySelector(".search-sel-list");
+  const pop = touch ? box.querySelector(".search-sel-pop") : list; // 열고 닫는 칸(폰 = 검색칸 + 목록)
+  const q = touch ? box.querySelector(".search-sel-q") : inp; // 검색어 치는 칸(PC = 글 칸 자체)
   inp.value = cur()?.t || "";
   let shown = [], on = 0;
   const paint = () => {
@@ -329,63 +336,66 @@ function searchSelect(sel, { placeholder = "" } = {}) {
       ? h(o.t).replace("⚠미확인", "<em>⚠미확인</em>") : '<span class="none">— 선택 안 함 —</span>'}</div>`).join("") : '<div class="none">맞는 칸 없음</div>';
     list.querySelector(".on")?.scrollIntoView({ block: "nearest" });
   };
-  const open = (q) => {
-    const words = String(q || "").trim().split(/\s+/).map(norm).filter(Boolean);
+  const open = (text) => {
+    const words = String(text || "").trim().split(/\s+/).map(norm).filter(Boolean);
     shown = words.length ? opts.filter((o) => o.v && words.every((w) => norm(o.t).includes(w))) : opts;
     on = words.length ? 0 : Math.max(0, shown.findIndex((o) => o.v && o.v === sel.value));
-    list.hidden = false;
+    pop.hidden = false;
     paint();
   };
-  const close = () => { list.hidden = true; inp.value = cur()?.t || ""; typing(false); };
+  const close = () => {
+    pop.hidden = true;
+    inp.value = cur()?.t || "";
+    if (touch) { q.value = ""; q.blur(); }
+  };
   box._close = close;
-  function typing(on) { // 폰: 🔍로 검색 중일 때만 키보드(그 밖엔 readonly — 눌러도 목록만)
-    if (!touch) return;
-    inp.readOnly = !on;
-    inp.setAttribute("inputmode", on ? "search" : "none");
-    box.classList.toggle("typing", on);
-  }
+  box._open = () => !pop.hidden;
   const pick = (o) => {
-    list.hidden = true;
     if (!o) { close(); return; }
-    inp.value = o.v ? o.t : "";
     if (o.v !== sel.value) { sel.value = o.v; sel.dispatchEvent(new Event("change")); }
+    close();
   };
   if (touch) {
-    inp.addEventListener("click", () => { if (inp.readOnly) { if (list.hidden) { open(""); list.scrollIntoView({ block: "nearest" }); } else close(); } });
+    // 칸 = 목록 열기(키보드 안 뜸), 🔍·검색칸 = 키보드(늘 쓸 수 있는 진짜 칸이라 몇 번이고 뜸), 키보드 [검색]·[완료] = 키보드만 내리고 걸러진 목록 그대로
+    inp.addEventListener("click", () => { if (pop.hidden) { open(""); pop.scrollIntoView({ block: "nearest" }); } else close(); });
     box.querySelector(".search-sel-find").addEventListener("click", () => {
-      typing(true);
-      inp.value = "";
-      open("");
-      inp.focus();
+      if (pop.hidden) open(q.value);
+      q.focus(); // 아이폰 — 누른 그 순간(같은 처리 안)에 부르면 키보드가 뜸, 안 떠도 검색칸이 바로 위에 보여 눌러 칠 수 있음
+      const n = q.value.length;
+      try { q.setSelectionRange(n, n); } catch (_) { /* search 칸이 막는 브라우저 */ }
     });
-    inp.addEventListener("blur", () => { if (!inp.readOnly) typing(false); }); // 키보드 [완료] — 걸러진 목록은 그대로
+    q.addEventListener("input", () => open(q.value));
+    q.addEventListener("keydown", (e) => {
+      if (e.isComposing) return;
+      if (e.key === "Enter") { e.preventDefault(); q.blur(); open(q.value); } // 검색어는 남김(다시 🔍·검색칸 누르면 이어서 고침)
+      else if (e.key === "Escape") close();
+    });
   } else {
     inp.addEventListener("focus", () => { inp.select(); open(""); });
+    inp.addEventListener("input", () => open(inp.value));
+    inp.addEventListener("keydown", (e) => {
+      if (e.isComposing) return;
+      if (pop.hidden && (e.key === "ArrowDown" || e.key === "Enter")) { e.preventDefault(); open(""); return; }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        on = (on + (e.key === "ArrowDown" ? 1 : -1) + shown.length) % Math.max(1, shown.length);
+        paint();
+      } else if (e.key === "Enter") { e.preventDefault(); pick(shown[on]); inp.blur(); }
+      else if (e.key === "Escape") { close(); inp.blur(); }
+    });
+    inp.addEventListener("blur", () => setTimeout(() => { if (!pop.hidden) close(); }, 150));
   }
-  inp.addEventListener("input", () => open(inp.value));
-  inp.addEventListener("keydown", (e) => {
-    if (e.isComposing) return;
-    if (touch && e.key === "Enter") { e.preventDefault(); typing(false); inp.blur(); open(inp.value); return; } // 키보드 [검색] — 키보드 내리고 목록만
-    if (list.hidden && (e.key === "ArrowDown" || e.key === "Enter")) { e.preventDefault(); open(""); return; }
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      on = (on + (e.key === "ArrowDown" ? 1 : -1) + shown.length) % Math.max(1, shown.length);
-      paint();
-    } else if (e.key === "Enter") { e.preventDefault(); pick(shown[on]); inp.blur(); }
-    else if (e.key === "Escape") { close(); inp.blur(); }
-  });
-  if (!touch) inp.addEventListener("blur", () => setTimeout(() => { if (!list.hidden) close(); }, 150));
   list.addEventListener("mousedown", (e) => {
     e.preventDefault(); // 글 칸 포커스를 잃기 전에 고름
     const it = e.target.closest("[data-k]");
-    if (it) { pick(shown[Number(it.dataset.k)]); typing(false); inp.blur(); }
+    if (it) { pick(shown[Number(it.dataset.k)]); inp.blur(); }
   });
   return box;
 }
 // 폰: 검색 고르기 목록 바깥을 누르면 닫힘(PC는 글 칸 blur로 닫힘)
 document.addEventListener("pointerdown", (e) => {
   document.querySelectorAll(".search-sel.touch").forEach((box) => {
-    if (!box.contains(e.target) && !box.querySelector(".search-sel-list").hidden) box._close?.();
+    if (!box.contains(e.target) && box._open?.()) box._close?.();
   });
 }, true);
 
