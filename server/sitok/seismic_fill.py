@@ -535,7 +535,8 @@ def _own_ps(tc) -> list:
     return [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]
 
 
-CONFIRM_TAB = 50000  # 확인서 오른쪽 칸(발주자) 탭 자리 — 한글은 탭 위치 값도 절반으로 씀(PDF로 잼, 25000이면 125pt) → 250pt = 칸 폭 479pt의 절반 남짓(견본)
+CONFIRM_TAB = 44000  # 확인서 오른쪽 칸(발주자) 탭 자리 — 한글은 탭 위치 값도 절반으로 씀(PDF로 잼, 25000이면 125pt) → 220pt
+# (견본은 250pt = 칸 폭 479pt의 절반 남짓, 10/25 사용자 "살짝 왼쪽으로" — 담당부서 책임자에 이름·도장이 들어가면 "(인 또는 서명)"이 접혔음)
 
 
 def _text_w(text: str, size: int = 1100) -> int:
@@ -553,7 +554,8 @@ def _text_w(text: str, size: int = 1100) -> int:
 
 def fix_confirm_layout(doc, root) -> int:
     """확인서 아래 서명 칸 — 견본은 칸 안 두 단(수행자 | 발주자). 서버 한글이 한 단으로 그려 발주자가 아래로 흘러내림 → 두 단 설정을 지우고
-    줄마다 "수행자 쪽 글 ⇥ 발주자 쪽 글"(가운데 탭), "담당주무관 … (인 또는 서명)담당부서 책임자 …"는 두 줄로(10/22 형 "발주자 소속 담당주관 위치 틀어짐")."""
+    줄마다 "수행자 쪽 글 ⇥ 발주자 쪽 글"(가운데 탭), "담당주무관 … (인 또는 서명)담당부서 책임자 …"는 두 줄로(10/22 형 "발주자 소속 담당주관 위치 틀어짐"),
+    그 사이 한 줄 띄움(10/25 — 담당부서 책임자는 수행자 "성명" 다음 줄)."""
     tc = next((x for x in root.iter(f"{{{HP}}}tc") if "적법한절차에따라" in _n(rb._cell_text(x)) and "발주자" in rb._cell_text(x)), None)
     if tc is None:
         return 0
@@ -569,6 +571,9 @@ def fix_confirm_layout(doc, root) -> int:
         lines += [x for x in re.split(r"(?<=\))\s*(?=담당부서)", _t(q).strip()) if x] if _t(q).strip() else []
     if not lines:
         return 0
+    k = next((i for i, x in enumerate(lines) if x.startswith("담당부서") and i and lines[i - 1].startswith("담당주무관")), None)
+    if k is not None:  # 담당주무관·담당부서 책임자 사이 한 줄(왼쪽 "소속 / 빈 줄 / 성명"처럼 — 도장·서명이 안 겹치게, 10/25 사용자 미리보기 ②)
+        lines.insert(k, "")
     while left and not _t(left[-1]).strip() and len(left) > len(lines):
         left.pop()
     pid = _tab_para_variant(doc, left[0].get("paraPrIDRef"), CONFIRM_TAB)
@@ -583,9 +588,14 @@ def fix_confirm_layout(doc, root) -> int:
             rb._new_ids(q)
             for pic in list(q.iter(f"{{{HP}}}pic")):
                 pic.getparent().remove(pic)
+            for t in q.iter(f"{{{HP}}}t"):  # 앞 줄에 붙인 탭·발주자 글도 지움(안 지우면 글이 두 번)
+                for x in list(t):
+                    t.remove(x)
             _para_text(q, "")
             left[-1].addnext(q)
             left.append(q)
+        if not line:  # 띄운 줄 — 발주자 쪽 글 없음(탭도 안 붙임)
+            continue
         ts = [x for x in q.iter(f"{{{HP}}}t") if next(x.iterancestors(f"{{{HP}}}p"), None) is q]
         if not ts:
             run = q.find(f"{{{HP}}}run")
