@@ -13,6 +13,8 @@
   const hasResult = (r) => r.measured.some((x) => x) || r.unable.some((x) => x) || r.captures.some((x) => x);
   let d = null;
   let saving = null;
+  let sFloor = ""; // 보이는 층(""= 전체) — 폰에서 길어 층만 골라 보기(10/25 민재형·사용자 "철탐 규격 동일 적용")
+  try { sFloor = sessionStorage.getItem(`ss-mf-${rid}`) || ""; } catch (_) { /* */ }
 
   const showErr = (m) => { errorEl.textContent = m || ""; errorEl.style.display = m ? "block" : "none"; };
   const floorLabel = (n) => (d.floors.find((f) => f.n === n) || {}).label || (n == null ? "층?" : n < 0 ? `지하${-n}층` : `지상${n}층`);
@@ -74,7 +76,7 @@
     const q = d.counts;
     // 층 × 종별 칸 수 표 — 숫자를 고치면 카드가 늘고 줆(쓴 카드는 안 지움, 10/22 형 "표본층 종별마다 칸 생성, 수량 조정")
     $("ss-qty").innerHTML = q.table.length ? `<table class="ss-qty-t"><thead><tr><th>층</th>${KINDS.map((k) => `<th>${k === JOINT ? "보-기둥<br>접합부" : k}</th>`).join("")}</tr></thead><tbody>
-        ${q.table.map((t) => `<tr><td>${esc(t.label)}</td>${KINDS.map((k) => { const dn = t.done[k] || 0, sl = t.slots[k] || 0;
+        ${q.table.map((t) => `<tr><td><button type="button" class="sf2-fname${String(t.floor) === sFloor ? " on" : ""}" data-mf="${t.floor}" title="이 층만 보기">${esc(t.label)}</button></td>${KINDS.map((k) => { const dn = t.done[k] || 0, sl = t.slots[k] || 0;
           return `<td class="${sl && dn >= sl ? "ok" : dn ? "part" : ""}"><span>${dn}/</span><input type="number" min="0" max="40" inputmode="numeric" data-q="${t.floor}|${k}" value="${sl}" title="${esc(t.label)} ${esc(k)} 칸 수" /></td>`; }).join("")}</tr>`).join("")}</tbody></table>
         <div class="ss-qty-side"><span class="sk-help">결과/칸 — 매뉴얼 <표 3-1>: 조사단위(층)마다 보·기둥·보-기둥 접합부·벽체 ${q.per}개소 이상(접합부는 보 단부로 조사).
         숫자를 고치면 카드가 늘고 줆, 결과 없는 카드는 보고서에서 빠짐.</span><button type="button" class="secondary" id="ss-q-reset">기본 칸 수로</button></div>` : "";
@@ -89,10 +91,16 @@
   }
 
   function draw() {
+    const table = d.counts.table || [];
+    if (sFloor && !table.some((t) => String(t.floor) === sFloor)) sFloor = "";
     drawTop();
     let prev;
-    const byFloor = Object.fromEntries((d.counts.table || []).map((t) => [t.floor, t]));
-    const cards = d.rows.map((r) => {
+    const byFloor = Object.fromEntries(table.map((t) => [t.floor, t]));
+    const sum = (t, key) => KINDS.reduce((a, k) => a + (t[key][k] || 0), 0);
+    const chips = table.length > 1 ? `<div class="sf2-fchips"><button type="button" class="${sFloor ? "" : "on"}" data-mf="">전체 보기</button>${table.map((t) => {
+      const dn = sum(t, "done"), sl = sum(t, "slots");
+      return `<button type="button" class="${String(t.floor) === sFloor ? "on" : ""}${sl && dn >= sl ? " done" : ""}" data-mf="${t.floor}">${esc(t.label)} <small>${dn}/${sl}</small></button>`; }).join("")}</div>` : "";
+    const cards = d.rows.filter((r) => !sFloor || String(r.floor) === sFloor).map((r) => {
       let h = "";
       if (r.floor !== prev) {
         const t = byFloor[r.floor];
@@ -102,11 +110,17 @@
       prev = r.floor;
       return h + card(r);
     }).join("");
-    $("ss-rows").innerHTML = d.rows.length ? `<section class="panel ss-rows-panel"><div class="panel-body ss-cards">${cards}</div>
+    $("ss-rows").innerHTML = d.rows.length ? `<section class="panel ss-rows-panel"><div class="panel-body ss-cards">${chips}${cards || '<div class="empty-note">이 층에는 시험 카드가 없습니다.</div>'}</div>
         <div class="ss-foot"><span class="sp-saved" id="ss-saved2"></span><span class="sk-help">고치는 대로 자동 저장됩니다</span><button type="button" id="ss-save">저장</button></div></section>`
       : '<section class="panel"><div class="panel-body empty-note">아직 시험이 없습니다 — 위 [＋ 시험 추가]</div></section>';
     bind();
     $("ss-save")?.addEventListener("click", saveAll);
+    document.querySelectorAll("#ss-rows [data-mf], #ss-qty [data-mf]").forEach((b) => b.addEventListener("click", () => { // 층 단추·칸 수 표 층 이름 → 그 층만(표 층 이름을 다시 누르면 전체)
+      sFloor = b.dataset.mf === sFloor && b.classList.contains("sf2-fname") ? "" : b.dataset.mf;
+      try { sessionStorage.setItem(`ss-mf-${rid}`, sFloor); } catch (_) { /* */ }
+      draw();
+      document.querySelector("#ss-rows .sf2-fchips")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }));
   }
 
   // [저장](10/22 형 "기분상 저장 버튼 하나") — 자동 저장은 그대로. 쓰던 칸을 마저 저장(blur → change)하고, 그 저장이 끝난 뒤 전체를 한 번 더
@@ -200,8 +214,9 @@
 
   $("ss-add").addEventListener("click", () => {
     const rows = rowsCopy();
-    const last = rows[rows.length - 1];
-    rows.push({ kind: last ? last.kind : "기둥", floor: last ? last.floor : (d.floors[0] || {}).n ?? null, position: "중앙부", side: "단변" }); // 앞 시험과 같은 층·부재로
+    const mine = sFloor ? rows.filter((x) => String(x.floor) === sFloor) : rows; // 층만 보는 중이면 그 층에(안 보이는 층에 생기지 않게)
+    const last = mine[mine.length - 1];
+    rows.push({ kind: last ? last.kind : "기둥", floor: sFloor ? Number(sFloor) : last ? last.floor : (d.floors[0] || {}).n ?? null, position: "중앙부", side: "단변" }); // 앞 시험과 같은 층·부재로
     save(rows).then(() => { const cards = document.querySelectorAll(".ss-card"); const c = cards[cards.length - 1]; if (c) { c.scrollIntoView({ block: "center" }); (c.querySelector(".search-sel input") || c.querySelector('[data-f="item_id"]'))?.focus(); } });
   });
 

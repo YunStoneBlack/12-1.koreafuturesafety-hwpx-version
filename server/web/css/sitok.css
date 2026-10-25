@@ -975,6 +975,15 @@ button.sp-pick-it.on { border-color: var(--blue); }
 .sf2-qty-t input { width: 48px; margin: 0; padding: 3px 4px; text-align: center; }
 .sf2-qty-side { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: 320px; }
 .sf2-mfloor { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+/* 층만 보기(10/25 민재형 — 폰에서 길어 올렸다 내렸다) — [전체 보기] [지상1층 2/9] … · 칸 수 표 층 이름도 누르면 그 층만 */
+.sf2-fchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 2px; scroll-margin-top: 64px; }
+.main .sf2-fchips button { margin: 0; padding: 7px 12px; font-size: 13.5px; border-radius: 999px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+.main .sf2-fchips button small { margin-left: 2px; font-size: 11.5px; color: var(--faint); }
+.main .sf2-fchips button.done small { color: var(--green); font-weight: 700; }
+.main .sf2-fchips button.on { background: var(--ink, #1f2937); color: #fff; border-color: var(--ink, #1f2937); }
+.main .sf2-fchips button.on small { color: #d1d5db; }
+.main .sf2-qty-t button.sf2-fname, .main .ss-qty-t button.sf2-fname { margin: 0; padding: 2px 4px; background: none; border: 0; color: var(--blue); font-size: inherit; text-decoration: underline dotted; cursor: pointer; }
+.main .sf2-qty-t button.sf2-fname.on, .main .ss-qty-t button.sf2-fname.on { color: var(--ink); font-weight: 700; text-decoration: none; }
 .sf2-mfloor h4 { margin: 6px 0 0; font-size: 14px; }
 .sf2-mk { flex: none; width: 52px; font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; }
 .sf2-row.empty input, .sf2-row.empty select { background: var(--surface); }

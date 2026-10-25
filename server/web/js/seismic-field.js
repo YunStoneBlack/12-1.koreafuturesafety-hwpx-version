@@ -77,8 +77,15 @@
     return `<span class="sf2-meas">${sel}${kind === "벽체" ? box(0, "THK") : `${box(0, "가로")}<i>x</i>${box(1, "세로")}`}</span>`;
   }
 
+  let mFloor = ""; // 부재 단면 보이는 층(""= 전체) — 폰에서 길어 층만 골라 보기(10/25 민재형)
+  try { mFloor = sessionStorage.getItem(`sf2-mf-${id}`) || ""; } catch (_) { /* */ }
+  function floorChips(floors, count, cur) { // [전체 보기] [지상1층 2/9] … — count(n) = [채운, 전체]
+    return `<div class="sf2-fchips"><button type="button" class="${cur ? "" : "on"}" data-mf="">전체 보기</button>${floors.map((n) => { const [c, t] = count(n);
+      return t ? `<button type="button" class="${String(n) === cur ? "on" : ""}${t && c >= t ? " done" : ""}" data-mf="${n}">${esc(floorName(n))} <small data-fcc="${n}">${c}/${t}</small></button>` : ""; }).join("")}</div>`;
+  }
   function renderMembers() {
     const floors = memberFloors(), kinds = F.member_kinds;
+    if (mFloor && !floors.some((n) => String(n) === mFloor)) mFloor = "";
     for (const n of floors) for (const k of kinds) { // 칸 수 맞추기 — 채운 줄은 안 지움
       const key = gkey(n, k), g = (groups[key] ||= []);
       const want = Math.max(plan[key] ?? 0, g.filter(filledM).length);
@@ -97,14 +104,21 @@
         ${inp("mark", "부호", 0.7)}${inp("design", "도면치수", 1)}${measuredCell(key, j, r, k)}${inp("note", "비고", 0.9)}</div>`;
     };
     $("sf2-members").innerHTML = `<div class="sf2-qty"><table class="sf2-qty-t"><thead><tr><th>층</th>${kinds.map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>
-        ${floors.map((n) => `<tr><td>${esc(floorName(n))}</td>${kinds.map((k) => { const key = gkey(n, k), c = cnt(key), want = (groups[key] || []).length;
+        ${floors.map((n) => `<tr><td><button type="button" class="sf2-fname${String(n) === mFloor ? " on" : ""}" data-mf="${n}" title="이 층만 보기">${esc(floorName(n))}</button></td>${kinds.map((k) => { const key = gkey(n, k), c = cnt(key), want = (groups[key] || []).length;
           return `<td class="${want && c >= want ? "ok" : c ? "part" : ""}"><span>${c}/</span><input type="number" min="0" max="40" inputmode="numeric" data-q="${key}" value="${want}" title="${esc(floorName(n))} ${esc(k)} 칸 수" /></td>`; }).join("")}</tr>`).join("")}
         </tbody></table><div class="sf2-qty-side"><span class="sk-help">칸 수(입력/칸) — 표본 층 × 종별 ${F.drawings ? 3 : 9}개소가 기본, 숫자를 고치면 아래 칸이 늘고 줆</span>
         <button type="button" class="secondary" id="sf2-q-reset">기본 칸 수로</button></div></div>
       <div class="sf2-row sf2-row-h"><span class="sf2-no">#</span><span class="sf2-mk">부재</span><span style="flex:1.2">위치</span><span style="flex:1.5">일람표 칸(그 층·부재만)</span><span style="flex:0.7">부호</span><span style="flex:1">도면치수</span><span class="sf2-meas-h">실측치수(일치·불일치, 못 재면 □)</span><span style="flex:0.9">비고</span></div>
+      ${floorChips(floors, (n) => [kinds.reduce((b, k) => b + cnt(gkey(n, k)), 0), kinds.reduce((b, k) => b + (groups[gkey(n, k)] || []).length, 0)], mFloor)}
       ${floors.map((n) => { const rs = kinds.flatMap((k) => (groups[gkey(n, k)] || []).map((r, j) => row(n, k, r, j))); const c = kinds.reduce((b, k) => b + cnt(gkey(n, k)), 0);
-        return rs.length ? `<div class="sf2-mfloor"><h4>${esc(floorName(n))} <span class="sk-help" data-fc="${n}">${c}/${rs.length}</span></h4>${rs.join("")}</div>` : ""; }).join("")}`;
+        return rs.length && (!mFloor || String(n) === mFloor) ? `<div class="sf2-mfloor"><h4>${esc(floorName(n))} <span class="sk-help" data-fc="${n}">${c}/${rs.length}</span></h4>${rs.join("")}</div>` : ""; }).join("")}`;  // 번호는 전체 차례 그대로(다른 층도 세고 안 그림)
     const box = $("sf2-members");
+    box.querySelectorAll("[data-mf]").forEach((b) => b.addEventListener("click", () => { // 층 단추·칸 수 표 층 이름 → 그 층만, [전체 보기] → 전부
+      mFloor = b.dataset.mf === mFloor && b.classList.contains("sf2-fname") ? "" : b.dataset.mf;
+      try { sessionStorage.setItem(`sf2-mf-${id}`, mFloor); } catch (_) { /* */ }
+      renderMembers();
+      $("sf2-members").querySelector(".sf2-fchips")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }));
     box.querySelectorAll('select[data-k="item_id"]').forEach((sel) => searchSelect(sel, { placeholder: "일람표 칸 — 부호·치수로 검색" })); // 검색 고르기(app.js, 10/22)
     box.querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => { plan[el.dataset.q] = Math.max(0, Math.min(40, Number(el.value) || 0)); renderMembers(); }));
     box.querySelector("#sf2-q-reset").addEventListener("click", () => { plan = { ...F.member_plan_default }; renderMembers(); });
@@ -155,6 +169,8 @@
       }
       const h = $("sf2-members").querySelector(`[data-fc="${n}"]`);
       if (h) h.textContent = `${c}/${t}`;
+      const chip = $("sf2-members").querySelector(`[data-fcc="${n}"]`);
+      if (chip) chip.textContent = `${c}/${t}`;
       done += c; total += t;
     }
     $("sf2-m-sum").textContent = `${done}/${total}칸 입력 (최소 ${F.min_counts.member}) — 2.2.1 부재 단면 치수 조사 결과, 일람표 칸을 고르면 도면치수`;
