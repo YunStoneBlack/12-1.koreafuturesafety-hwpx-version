@@ -1060,3 +1060,24 @@ button.sp-pick-it.on { border-color: var(--blue); }
 .main .sp-u-all input.sp-u-in { font-size: 14px; padding: 3px 4px; }
 .sp-min-it.own { box-shadow: inset 0 0 0 1.5px var(--blue); }
 .main .sp-min-it .sp-u-back { margin: 0 0 0 4px; padding: 1px 7px; font-size: 11px; font-weight: 700; border-radius: 999px; border: 1px solid var(--blue); background: var(--surface); color: var(--blue); }
+/* 고르기 창(app.js pickSheet, 10/26 내진 칸 수 표) — PC 가운데, 폰 아래에서 */
+.pick-sheet-bg { position: fixed; inset: 0; z-index: 1200; background: rgba(15, 17, 32, .45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.pick-sheet { width: 100%; max-width: 420px; background: var(--surface); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 10px 40px rgba(0, 0, 0, .25); }
+.pick-sheet-title { font-size: 16px; font-weight: 800; color: var(--ink); }
+.pick-sheet-sub { font-size: 13px; color: var(--muted); margin-bottom: 4px; word-break: keep-all; }
+.pick-sheet button { font: inherit; margin: 0; cursor: pointer; text-align: left; border-radius: 12px; }
+.pick-sheet .pick-opt { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.pick-sheet .pick-opt b { font-size: 15px; }
+.pick-sheet .pick-opt span { font-size: 12px; font-weight: 500; color: var(--muted); }
+.pick-sheet .pick-opt:hover:not([disabled]) { border-color: var(--blue); }
+.pick-sheet .pick-opt[disabled] { opacity: .5; cursor: not-allowed; }
+.pick-sheet .pick-cancel { border: none; background: transparent; color: var(--muted); text-align: center; font-weight: 600; padding: 10px; }
+@media (max-width: 600px) { .pick-sheet-bg { align-items: flex-end; padding: 0; } .pick-sheet { max-width: none; border-radius: 16px 16px 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); } }
+/* 부재 단면 줄 부재 고르기(10/26) — 바꾸면 같은 층 빈 칸과 자리 바꿈 */
+.sf2-mk select.sf2-mkind { width: auto; margin: 0; padding: 2px 4px; font-size: 12px; font-weight: 700; min-height: 0; height: auto; }
+.sf2-mk i { font-style: normal; margin-left: 3px; }
+.sf2-mnote { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--warn-soft, #fff4e5); color: var(--warn, #b45309); font-size: 12.5px; font-weight: 600; }
+.sf2-mnote:empty { display: none; }
+.sf2-row.sf2-flash { animation: sf2-flash 1.4s ease-out; }
+@keyframes sf2-flash { from { background: #dbeafe; } to { background: transparent; } }
+@media (min-width: 761px) { #sf2-members .sf2-mk { width: 84px; } } /* 부재 고르기 칸 들어갈 폭 */

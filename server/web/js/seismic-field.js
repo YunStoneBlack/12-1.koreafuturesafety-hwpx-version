@@ -95,7 +95,8 @@
       const key = gkey(n, k), ch = itemsFor(r);
       const opts = [["", ch.length ? "— 일람표 칸 —" : "맞는 칸 없음 — 직접"], ...ch.map((x) => [x.id, `${x.marks.join(",")}${x.size ? ` ${x.size}` : ""}${x.floors ? ` (${x.floors})` : ""}`])];
       const inp = (f, label, w) => `<input data-g="${key}" data-j="${j}" data-k="${f}" placeholder="${esc(label)}" title="${esc(label)}" style="flex:${w}" value="${esc(r[f] ?? "")}" />`;
-      return `<div class="sf2-row${filledM(r) ? "" : " empty"}"><span class="sf2-no">${no}</span><span class="sf2-mk">${esc(k)} ${j + 1}</span>
+      const kindSel = `<select class="sf2-mkind" data-g="${key}" data-j="${j}" data-mk="1" title="부재 — 바꾸면 같은 층 빈 칸과 자리를 바꿈(칸 수 그대로)">${opt(kinds.map((x) => [x, x]), k)}</select>`;
+      return `<div class="sf2-row${filledM(r) ? "" : " empty"}"><span class="sf2-no">${no}</span><span class="sf2-mk">${kindSel}<i>${j + 1}</i></span>
         ${inp("where", "위치(예: 3 : I 열)", 1.2)}<select data-g="${key}" data-j="${j}" data-k="item_id" title="일람표 칸" style="flex:1.5">${opt(opts, r.item_id)}</select>
         ${inp("mark", "부호", 0.7)}${inp("design", "도면치수", 1)}${measuredCell(key, j, r, k)}${inp("note", "비고", 0.9)}</div>`;
     };
@@ -104,6 +105,7 @@
           return `<td class="${want && c >= want ? "ok" : c ? "part" : ""}"><span>${c}/</span><input type="number" min="0" max="40" inputmode="numeric" data-q="${key}" value="${want}" title="${esc(floorName(n))} ${esc(k)} 칸 수" /></td>`; }).join("")}</tr>`).join("")}
         </tbody></table><div class="sf2-qty-side"><span class="sk-help">칸 수(입력/칸) — 표본 층 × 종별 ${F.drawings ? 3 : 9}개소가 기본, 숫자를 고치면 아래 칸이 늘고 줆</span>
         <button type="button" class="secondary" id="sf2-q-reset">기본 칸 수로</button></div></div>
+      <div class="sf2-mnote" id="sf2-mnote"></div>
       <div class="sf2-row sf2-row-h"><span class="sf2-no">#</span><span class="sf2-mk">부재</span><span style="flex:1.2">위치</span><span style="flex:1.5">일람표 칸(그 층·부재만)</span><span style="flex:0.7">부호</span><span style="flex:1">도면치수</span><span class="sf2-meas-h">실측치수(일치·불일치, 못 재면 □)</span><span style="flex:0.9">비고</span></div>
       ${floorChips(floors.map((n) => ({ n, label: floorName(n), done: kinds.reduce((b, k) => b + cnt(gkey(n, k)), 0),
         total: kinds.reduce((b, k) => b + (groups[gkey(n, k)] || []).length, 0) })), mFloor)}
@@ -117,7 +119,8 @@
       $("sf2-members").querySelector(".sf2-fchips")?.scrollIntoView({ block: "start", behavior: "smooth" });
     }));
     box.querySelectorAll('select[data-k="item_id"]').forEach((sel) => searchSelect(sel, { placeholder: "일람표 칸 — 부호·치수로 검색" })); // 검색 고르기(app.js, 10/22)
-    box.querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => { plan[el.dataset.q] = Math.max(0, Math.min(40, Number(el.value) || 0)); renderMembers(); }));
+    box.querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => qtyChange(el.dataset.q, Math.max(0, Math.min(40, Number(el.value) || 0)))));
+    box.querySelectorAll("select[data-mk]").forEach((el) => el.addEventListener("change", () => moveKind(el.dataset.g, Number(el.dataset.j), el.value)));
     box.querySelector("#sf2-q-reset").addEventListener("click", () => { plan = { ...F.member_plan_default }; renderMembers(); });
     box.querySelectorAll("[data-g][data-k]").forEach((el) => el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => {
       const r = groups[el.dataset.g][Number(el.dataset.j)];
@@ -151,6 +154,64 @@
     }));
     memberCounts();
   }
+  // 부재 바꾸기(10/26 민재형 "철근탐사처럼 고르면 전체수량 변동없이 위치만") — 같은 층 그 부재의 첫 빈 칸과 자리를 맞바꿈, 칸 수 표는 그대로.
+  // 그 부재 빈 칸이 없으면 안내(이미 쓴 칸을 다른 부재로 바꾸지 않게).
+  const mnote = (t) => { const el = $("sf2-mnote"); if (el) el.textContent = t || ""; };
+  const dataM = (x) => !!(x.item_id || x.mark || x.design || x.measured || x.note); // 조사 내용이 있는 칸 — 위치만 적은 칸(예: 모든 칸 "장비 위치도 참조.")은 빈 칸으로 봄
+  const kindChanged = (r, k2) => {
+    const out = { ...r, kind: k2, item_id: "", mark: "", design: "" }; // 일람표 칸·부호·도면치수는 부재마다 — 위치·비고는 그대로
+    if (r.match === "일치" || r.kind === "벽체" || k2 === "벽체") { out.measured = ""; out.match = ""; } // 일치(= 도면치수)·벽체 THK는 다시
+    return out;
+  };
+  function flashRow(key, j) {
+    const el = $("sf2-members").querySelector(`select[data-mk][data-g="${key}"][data-j="${j}"]`)?.closest(".sf2-row");
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.add("sf2-flash");
+    setTimeout(() => el.classList.remove("sf2-flash"), 1500);
+  }
+  function moveKind(key, j, k2) {
+    const [ns, k] = key.split("|"), n = Number(ns), key2 = gkey(n, k2);
+    const g = groups[key], g2 = (groups[key2] ||= []), r = g[j];
+    const e = g2.findIndex((x) => !dataM(x));
+    if (e < 0) { renderMembers(); mnote(`${floorName(n)} ${k2} 칸이 다 찼습니다 — 위 칸 수 표에서 ${k2} 칸을 늘린 뒤 바꾸세요`); return; }
+    if (dataM(r)) { const t = g2[e]; g2[e] = kindChanged(r, k2); g[j] = { ...blankM(n, k), where: t.where || "" }; } // 맞바꿈 — 위치 글도 서로
+    renderMembers(); // 빈 줄이면 바꿀 것 없이 그 부재 빈 칸으로 데려다 줌
+    mnote(dataM(r) ? `${floorName(n)} ${k} ${j + 1} → ${k2} ${e + 1} 자리로 옮겼습니다(칸 수 그대로) — [저장]` : "");
+    flashRow(key2, e);
+  }
+  // 칸 수 표 — 늘리면 빈 칸 더함, 줄이면 고르기 창: 다른 부재로 옮기기(층 합계 그대로 — 쓴 칸이면 내용도 같이) 또는 그냥 줄이기(빈 칸만)
+  // (10/26 민재형 "최소수량 아래로도 — 벽체 1 빼면 기둥 1 올라가기, 전체 9개는 유지")
+  async function qtyChange(key, v) {
+    const [ns, k] = key.split("|"), n = Number(ns), g = (groups[key] ||= []), cur = g.length;
+    if (v >= cur) { plan[key] = v; renderMembers(); return; }
+    const d = cur - v, empty = g.filter((x) => !dataM(x)).length, used = Math.max(0, d - empty);
+    const sum = F.member_kinds.reduce((a, x) => a + (groups[gkey(n, x)] || []).length, 0);
+    const pick = await pickSheet({
+      title: `${floorName(n)} ${k} ${cur} → ${v}칸`,
+      sub: used ? `${k} 칸 ${used}개는 쓴 내용이 있습니다 — 다른 부재로 옮기면 내용도 같이 옮겨집니다(일람표 칸·도면치수는 다시)` : "줄인 칸을 다른 부재로 옮기면 층 합계가 그대로입니다",
+      options: [...F.member_kinds.filter((x) => x !== k).map((x) => { const m = (groups[gkey(n, x)] || []).length; return { v: x, label: `${withRo(x)} 옮기기`, note: `${x} ${m} → ${m + d}칸 · 층 합계 ${sum}칸 그대로` }; }),
+        { v: "", label: "그냥 줄이기", note: used ? `쓴 칸이 있어 못 줄입니다` : `층 합계 ${sum} → ${sum - d}칸`, disabled: used > 0 }],
+    });
+    if (pick == null) { renderMembers(); return; }
+    const out = [];
+    for (let i = g.length - 1; i >= 0 && out.length < d; i -= 1) if (!dataM(g[i])) out.push(...g.splice(i, 1)); // 빈 칸부터(뒤에서)
+    for (let i = g.length - 1; i >= 0 && out.length < d && pick; i -= 1) out.unshift(...g.splice(i, 1)); // 모자라면 쓴 칸도(뒤에서)
+    plan[key] = g.length;
+    if (pick) {
+      const g2 = (groups[gkey(n, pick)] ||= []);
+      for (const r of out) {
+        if (!dataM(r)) { g2.push({ ...blankM(n, pick), where: r.where || "" }); continue; } // 빈 칸(위치만) — 그 부재 칸 +1
+        const e = g2.findIndex((x) => !dataM(x)); // 쓴 칸 — 그 부재 첫 빈 칸 자리에, 밀린 빈 칸은 끝으로(칸 +1)
+        if (e < 0) g2.push(kindChanged(r, pick));
+        else { const t = g2[e]; g2[e] = kindChanged(r, pick); g2.push(t); }
+      }
+      plan[gkey(n, pick)] = g2.length;
+    }
+    renderMembers();
+    mnote(pick ? `${floorName(n)} ${k} ${d}칸을 ${withRo(pick)} 옮겼습니다(층 합계 그대로) — [저장]` : "");
+  }
+
   // 입력 수 — 위 요약·수량 표 "입력/"·층 머리(글 쓸 때마다, 다시 그리지 않고)
   function memberCounts() {
     const floors = memberFloors(), kinds = F.member_kinds;

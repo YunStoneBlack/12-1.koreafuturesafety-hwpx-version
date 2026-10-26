@@ -80,11 +80,7 @@
           return `<td class="${sl && dn >= sl ? "ok" : dn ? "part" : ""}"><span>${dn}/</span><input type="number" min="0" max="40" inputmode="numeric" data-q="${t.floor}|${k}" value="${sl}" title="${esc(t.label)} ${esc(k)} 칸 수" /></td>`; }).join("")}</tr>`).join("")}</tbody></table>
         <div class="ss-qty-side"><span class="sk-help">결과/칸 — 매뉴얼 <표 3-1>: 조사단위(층)마다 보·기둥·보-기둥 접합부·벽체 ${q.per}개소 이상(접합부는 보 단부로 조사).
         숫자를 고치면 카드가 늘고 줆, 결과 없는 카드는 보고서에서 빠짐.</span><button type="button" class="secondary" id="ss-q-reset">기본 칸 수로</button></div>` : "";
-    $("ss-qty").querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => {
-      const plan = Object.fromEntries(q.table.flatMap((t) => KINDS.map((k) => [`${t.floor}|${k}`, t.slots[k] || 0])));
-      plan[el.dataset.q] = Math.max(0, Math.min(40, Number(el.value) || 0));
-      planSave({ plan });
-    }));
+    $("ss-qty").querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => qtyChange(el.dataset.q, Math.max(0, Math.min(40, Number(el.value) || 0)))));
     $("ss-q-reset")?.addEventListener("click", () => { if (confirm("층마다 종별 3칸으로 맞출까요? 쓴 카드는 그대로 둡니다.")) planSave({ default: true }); });
     $("ss-xlsx").href = `${BASE}/api${URL_}/rebar.xlsx`;
     $("ss-xlsx").hidden = !d.rows.length;
@@ -126,6 +122,65 @@
     document.querySelectorAll("#ss-rows [data-kj]").forEach((b) => b.addEventListener("click", () => jumpKind(b.dataset.kj)));
     const row = document.querySelector("#ss-rows .ss-nav .sf2-fchips"), on = row?.querySelector("button.on"); // 폰 — 한 줄로 밀리는 층 줄에서 고른 층이 보이게
     if (row && on && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, on.offsetLeft - row.offsetLeft - (row.clientWidth - on.offsetWidth) / 2);
+  }
+
+  // 층·부재 바꾸기(10/26 민재형 "전체수량변경은 수량목록에서만, 보를 기둥으로 바꾸면 위치만 바꾸고 전체 수량은 그대로") —
+  // 바꾼 카드와 같은 층·그 부재의 첫 빈 카드가 자리를 맞바꿈(1~3 보·4~6 기둥에서 2번을 기둥으로 → 2번 내용은 4번 자리, 4번 빈 카드는 2번 자리 보), 칸 수 표 그대로.
+  // 그 부재 빈 카드가 없으면 안내(이미 쓴 카드를 다른 부재로 바꾸지 않게). 빈 카드를 바꾸면 그 부재 빈 카드로 데려다 줌.
+  const blankCard = (r) => !(r.item_id || r.mark || r.note || r.design_manual || hasResult(r) || r.cover.some((x) => x != null));
+  const asKind = (r, k) => { // 부재가 바뀐 카드 — 일람표 칸·부호·설계는 다시, 조사값은 벽체가 끼면 다시(줄 뜻이 다름: 벽체 = 수직·수평 간격)
+    const out = { ...r, kind: k, item_id: "", mark: "", design: ["", ""], design_manual: false };
+    if (r.kind === "벽체" || k === "벽체") out.measured = ["", ""];
+    return out;
+  };
+  function flashCard(id) {
+    const target = document.querySelector(`#ss-rows .ss-card[data-id="${id}"]`);
+    if (!target) return;
+    const navBottom = document.querySelector("#ss-rows .ss-nav")?.getBoundingClientRect().bottom || 0;
+    window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - navBottom - 8, behavior: "smooth" });
+    target.classList.add("ss-flash");
+    setTimeout(() => target.classList.remove("ss-flash"), 1500);
+  }
+  function moveCard(rows, row, f, val) {
+    const nf = f === "floor" ? (val === "" ? null : Number(val)) : row.floor, nk = f === "kind" ? val : row.kind;
+    const i = rows.indexOf(row), j = rows.findIndex((x) => x !== row && x.floor === nf && x.kind === nk && blankCard(x));
+    if (j < 0) { draw(); showErr(`${floorLabel(nf)} ${nk} 칸이 다 찼습니다(빈 카드 없음) — 위 칸 수 표에서 ${nk} 칸을 늘린 뒤 바꾸세요.`); return; }
+    showErr("");
+    if (sFloor && String(nf) !== sFloor) { sFloor = String(nf); try { sessionStorage.setItem(`ss-mf-${rid}`, sFloor); } catch (_) { /* */ } } // 다른 층으로 — 그 층을 보여 줌
+    if (blankCard(row)) { draw(); flashCard(rows[j].id); return; }
+    const other = rows[j];
+    const moved = f === "floor" ? { ...row, floor: nf, item_id: "", design_manual: false } : asKind(row, nk); // 층이 바뀌면 그 층 일람표 칸을 다시
+    rows[i] = { ...other, floor: row.floor, kind: row.kind }; // 빈 카드는 바꾼 카드의 원래 층·부재로(서버가 위치·변 기본값)
+    rows[j] = moved;
+    save(rows).then((ok) => { if (ok) flashCard(moved.id); });
+  }
+
+  // 칸 수 표 — 늘리면 빈 카드 더함, 줄이면 고르기 창: 다른 부재로 옮기기(층 합계 그대로 — 쓴 카드면 내용도 같이) 또는 그냥 줄이기(빈 카드만)
+  async function qtyChange(key, v) {
+    const q = d.counts, [fs, k] = key.split("|"), fl = Number(fs);
+    const plan = Object.fromEntries(q.table.flatMap((t) => KINDS.map((x) => [`${t.floor}|${x}`, t.slots[x] || 0])));
+    const cur = plan[key] || 0;
+    if (v >= cur) { plan[key] = v; planSave({ plan }); return; }
+    const mine = d.rows.filter((r) => r.floor === fl && r.kind === k);
+    const dn = cur - v, empty = mine.filter(blankCard).length, used = Math.max(0, dn - empty);
+    const sum = KINDS.reduce((a, x) => a + (plan[`${fl}|${x}`] || 0), 0);
+    const name = (x) => (x === JOINT ? "보-기둥 접합부" : x);
+    const pick = await pickSheet({
+      title: `${floorLabel(fl)} ${name(k)} ${cur} → ${v}칸`,
+      sub: used ? `${name(k)} 카드 ${used}장은 쓴 내용이 있습니다 — 다른 부재로 옮기면 내용도 같이 옮겨집니다(일람표 칸·설계는 다시)` : "줄인 칸을 다른 부재로 옮기면 층 합계가 그대로입니다",
+      options: [...KINDS.filter((x) => x !== k).map((x) => { const m = plan[`${fl}|${x}`] || 0; return { v: x, label: `${withRo(name(x))} 옮기기`, note: `${name(x)} ${m} → ${m + dn}칸 · 층 합계 ${sum}칸 그대로` }; }),
+        { v: "", label: "그냥 줄이기", note: used ? "쓴 카드가 있어 못 줄입니다" : `층 합계 ${sum} → ${sum - dn}칸`, disabled: used > 0 }],
+    });
+    if (pick == null) { draw(); return; }
+    if (!pick) { plan[key] = v; planSave({ plan }); return; }
+    const rows = rowsCopy(), ids = new Set();
+    const pool = rows.filter((r) => r.floor === fl && r.kind === k);
+    for (const r of [...pool].reverse()) if (ids.size < dn && blankCard(r)) ids.add(r.id); // 빈 카드부터(뒤에서)
+    for (const r of [...pool].reverse()) if (ids.size < dn) ids.add(r.id); // 모자라면 쓴 카드도(뒤에서)
+    const next = rows.map((r) => (ids.has(r.id) ? (blankCard(r) ? { ...r, kind: pick } : asKind(r, pick)) : r));
+    plan[key] = v;
+    plan[`${fl}|${pick}`] = (plan[`${fl}|${pick}`] || 0) + dn;
+    if (await save(next)) planSave({ plan }); // 부재를 바꿔 저장한 뒤 칸 수대로 차례 맞춤(층·부재 순)
   }
 
   // 부재 바로가기 — 층만 보는 중이면 그 층, 전체 보기면 지금 화면 맨 위에 보이는 카드의 층에서 그 부재 첫 카드로(10/25 민재형)
@@ -192,9 +247,8 @@
         const rows = rowsCopy();
         const row = rows.find((x) => x.id === id);
         const f = inp.dataset.f, i = inp.dataset.i != null ? Number(inp.dataset.i) : null;
-        if (f === "floor") { row.floor = inp.value === "" ? null : Number(inp.value); row.item_id = ""; row.design_manual = false; }
-        else if (f === "kind") { row.kind = inp.value; row.item_id = ""; row.mark = ""; row.design = ["", ""]; row.measured = ["", ""]; row.design_manual = false; }
-        else if (f === "item_id") { row.item_id = inp.value; row.design_manual = false; row.mark = ""; }
+        if (f === "floor" || f === "kind") { moveCard(rows, row, f, inp.value); return; } // 칸 수 그대로 — 같은 층·부재 빈 카드와 자리 바꿈(10/26)
+        if (f === "item_id") { row.item_id = inp.value; row.design_manual = false; row.mark = ""; }
         else if (f === "position" || f === "side") { row[f] = inp.value; }
         else if (f === "mark") row.mark = inp.value.trim();
         else if (f === "design") { row.design[i] = inp.value.trim(); row.design_manual = true; }

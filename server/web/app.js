@@ -611,6 +611,36 @@ function sitePaceBox(pace) {
 //   아이폰: tmap://search?name=… (티맵이 없으면 안 열림 → 잠시 뒤 화면이 그대로면 앱스토어 설치를 묻는다)
 // PC(마우스)는 티맵이 없으니 묻지 않고 네이버 지도 웹을 새 창으로.
 const TMAP_APPSTORE = "https://apps.apple.com/kr/app/id431589174";
+// "(으)로" — 받침이 있으면 "으로"(ㄹ 받침은 "로"): 기둥으로·보로·벽체로·접합부로
+function withRo(word) {
+  const c = String(word || "").charCodeAt(String(word || "").length - 1) - 0xac00;
+  const jong = c >= 0 && c < 11172 ? c % 28 : 0;
+  return `${word}${jong === 0 || jong === 8 ? "로" : "으로"}`;
+}
+
+// 고르기 창(10/26 내진 칸 수 표) — pickSheet({title, sub, options: [{v, label, note, disabled}]}) → 고른 v, 취소·바깥·Esc = null. PC 가운데, 폰 아래에서.
+function pickSheet({ title = "", sub = "", options = [] } = {}) {
+  return new Promise((resolve) => {
+    document.querySelector(".pick-sheet-bg")?.remove();
+    const bg = document.createElement("div");
+    bg.className = "pick-sheet-bg";
+    bg.innerHTML = `<div class="pick-sheet" role="dialog" aria-modal="true"><div class="pick-sheet-title"></div><div class="pick-sheet-sub"></div>
+      ${options.map((o, i) => `<button type="button" class="pick-opt" data-i="${i}"${o.disabled ? " disabled" : ""}><b></b><span></span></button>`).join("")}
+      <button type="button" class="pick-cancel">취소</button></div>`;
+    bg.querySelector(".pick-sheet-title").textContent = title;
+    bg.querySelector(".pick-sheet-sub").textContent = sub;
+    bg.querySelectorAll(".pick-opt").forEach((b) => { const o = options[b.dataset.i]; b.querySelector("b").textContent = o.label; b.querySelector("span").textContent = o.note || ""; });
+    const key = (e) => { if (e.key === "Escape") done(null); };
+    const done = (v) => { bg.remove(); document.removeEventListener("keydown", key); resolve(v); };
+    bg.addEventListener("click", (e) => { if (e.target === bg) done(null); });
+    bg.querySelector(".pick-cancel").addEventListener("click", () => done(null));
+    bg.querySelectorAll(".pick-opt").forEach((b) => b.addEventListener("click", () => done(options[b.dataset.i].v)));
+    document.addEventListener("keydown", key);
+    document.body.appendChild(bg);
+    bg.querySelector(".pick-opt:not([disabled])")?.focus();
+  });
+}
+
 function naverMapUrl(address) {
   return `https://map.naver.com/p/search/${encodeURIComponent(address)}`;
 }
