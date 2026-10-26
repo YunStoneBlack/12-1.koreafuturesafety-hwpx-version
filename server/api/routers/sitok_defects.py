@@ -427,12 +427,29 @@ def import_pdf(report_id: int, file: UploadFile = File(...), user: User = Depend
     return {**out, "importing": IMPORTS[r.id]} if state == "running" else out
 
 
-def start_import(db: Session, r: SitokReport, data: bytes, company_id: int) -> str:
+@router.post("/reports/{report_id}/defects/import-current")
+def import_current(report_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """외부 결함 사진첩 → 이번 결함(10/26 민재형 — 내진성능평가는 1회차라 전회차가 없음, "성능평가 중간에 시작한 사람들이 조사 밖에서 한 거
+    있으면 그거 가져올 수 있게"). 읽기는 전회차 가져오기와 같음(우리 사진첩 양식 바로, 다른 양식 AI 1~3분), 넣을 때만 이번 결함·이번 사진으로."""
+    r = _require_report(db, user, report_id)
+    _require_empty(db, r)
+    data = file.file.read()
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "결함 사진첩 PDF(층별 결함 현황표·결함사진표가 든 것)를 올려 주세요.")
+    try:
+        state = start_import(db, r, data, user.company_id, current=True)
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    out = list_defects(report_id, user, db)
+    return {**out, "importing": IMPORTS[r.id]} if state == "running" else out
+
+
+def start_import(db: Session, r: SitokReport, data: bytes, company_id: int, current: bool = False) -> str:
     """지난 보고서 PDF → 이 회차 전회차 결함. 우리 사진첩이면 바로("done"), 타회사 양식이면 AI가 결함현황표·사진대장을 읽음(1~3분이라
     백그라운드 — "running"). 결함표를 못 찾으면 ValueError. 현장 조사 화면·새 등록(10/12 — 이전 회차가 타회사 PDF)이 같이 씀."""
     album = album_read.read(data)
     if album.rows:
-        _save_album(db, r, album)
+        _save_album(db, r, album, current=current)
         return "done"
     import pymupdf
 
@@ -442,8 +459,8 @@ def start_import(db: Session, r: SitokReport, data: bytes, company_id: int) -> s
         raise ValueError("PDF에서 결함현황표를 찾지 못했습니다 — 외관조사 결과(결함 표)가 든 보고서 PDF인지 확인하세요.")
     if IMPORTS.get(r.id, {}).get("state") == "running":
         raise ValueError("이미 읽는 중입니다.")
-    IMPORTS[r.id] = {"state": "running", "msg": "타회사 양식 — AI가 결함현황표·사진대장을 읽는 중(1~3분)"}
-    threading.Thread(target=_import_foreign, args=(r.id, data, company_id), daemon=True).start()
+    IMPORTS[r.id] = {"state": "running", "msg": f"{'다른' if current else '타회사'} 양식 — AI가 결함현황표·사진대장을 읽는 중(1~3분)"}
+    threading.Thread(target=_import_foreign, args=(r.id, data, company_id), kwargs={"current": current}, daemon=True).start()
     return "running"
 
 
@@ -465,7 +482,7 @@ def _importing(rid: int) -> dict | None:
     return st
 
 
-def _import_foreign(report_id: int, data: bytes, company_id: int, merge: bool = False) -> None:
+def _import_foreign(report_id: int, data: bytes, company_id: int, merge: bool = False, current: bool = False) -> None:
     from core.db import SessionLocal
     from server.sitok import foreign_read
 
@@ -480,30 +497,47 @@ def _import_foreign(report_id: int, data: bytes, company_id: int, merge: bool = 
             return
         if db.query(SitokDefect).filter(SitokDefect.report_id == report_id).first():
             raise ValueError("그 사이 결함이 들어와 있어 넣지 않았습니다")
-        _save_album(db, r, album)
-        IMPORTS.pop(report_id, None)
+        _save_album(db, r, album, current=current)
+        if current:  # 외부 사진첩(이번 결함) — 결함 화면에 한 번 알림
+            IMPORTS[report_id] = {"state": "note", "msg": f"외부 사진첩에서 결함 {len(album.rows)}개를 넣었습니다 — 층·부재·결함유형·사진을 확인하세요"}
+        else:
+            IMPORTS.pop(report_id, None)
     except Exception as err:  # noqa: BLE001 — 이유를 화면에
         traceback.print_exc()
         why = str(err).splitlines()[0][:150]
-        IMPORTS[report_id] = {"state": "note", "msg": f"전회차 PDF를 읽지 못했습니다(바뀐 것 없음): {why}"} if merge else \
-            {"state": "failed", "msg": f"타회사 PDF를 읽지 못했습니다: {why}"}
+        if merge:
+            IMPORTS[report_id] = {"state": "note", "msg": f"전회차 PDF를 읽지 못했습니다(바뀐 것 없음): {why}"}
+        elif current:
+            IMPORTS[report_id] = {"state": "note", "msg": f"외부 사진첩을 읽지 못했습니다(바뀐 것 없음): {why}"}
+        else:
+            IMPORTS[report_id] = {"state": "failed", "msg": f"타회사 PDF를 읽지 못했습니다: {why}"}
     finally:
         db.close()
 
 
-def _save_album(db: Session, r: SitokReport, album) -> None:
+def _save_album(db: Session, r: SitokReport, album, current: bool = False) -> None:
+    """읽은 사진첩 결함 → 이 회차 결함. 기본 = 전회차(prev 값·전회차 사진), current = 이번 결함(10/26 내진 외부 사진첩 — 새로 찾은 결함처럼
+    check "new"·이번 사진, 비고는 사진첩 값이 기존·신규·보수면 그대로 아니면 "신규", 진행유무가 비면 비진행성)."""
     folder = _photo_dir(db, r)
     folder.mkdir(parents=True, exist_ok=True)
+    now = datetime.datetime.now()
     for row in album.rows:
         v = row.values
         dt, dep = kinds.split_depth(v["결함유형"])  # 지난 보고서 "파손(D=0.9mm)" → 결함유형 + 깊이(10/22)
         d = SitokDefect(report_id=r.id, floor=row.floor, seq=row.seq, part=v["구분"], member=v["부재"], dtype=kinds.norm(dt),
                         count=v["개수"], width=v["폭"], length=v["길이"], depth=dep, qty=v["물량"], area_ratio=v["면적률"], cause=v["결함원인"],
-                        progress=v["진행유무"], mark=v["비고"], prev=dict(v))
+                        progress=v["진행유무"], mark=v["비고"], prev=None if current else dict(v))
+        if current:
+            d.check, d.checked_at = "new", now
+            d.mark = v["비고"] if v["비고"] in ("기존", "신규", "보수") else "신규"
+            d.progress = v["진행유무"] or "비진행성"
         if row.photo_png:
-            p = folder / f"{row.floor}_{row.seq:02d}_전회차.jpg"
+            p = folder / f"{row.floor}_{row.seq:02d}_{'금회' if current else '전회차'}.jpg"
             p.write_bytes(row.photo_png)
-            d.prev_photo = str(p)
+            if current:
+                d.photo = str(p)
+            else:
+                d.prev_photo = str(p)
         db.add(d)
     db.commit()
 
