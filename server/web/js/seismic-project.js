@@ -56,13 +56,22 @@
     const extra = d.key === "schedule" ? `<a class="secondary-link" href="sitok-schedule.html?facility=${P.facility_id}&seis=1">📋 부재 목록</a>`
       : d.key === "plan" ? '<button type="button" class="secondary sp-act" data-act="plan/auto" title="견본 과업수행계획서에 용역명·기간·건물·위치도·일정·기술자를 채움">📝 자동으로 만들기</button>'
         : d.key === "register" && has ? '<button type="button" class="secondary sp-act" data-act="register/ai" data-cost="1" title="글자 없는 스캔본일 때 — AI가 읽어 건물 정보에 넣음">🤖 AI로 읽기 <span class="sk-help">약 30원</span></button>' : "";
+    // 층별 평면도 — 보고서 1.2 이름(도면 제목에서 읽은 것, 틀리면 고쳐 쓰기 — 10/27 사용자 "네이밍이 다르면 고칠 수 있게")
+    const fps = d.key === "floorplan" && has ? P.floorplans || [] : [];
+    const manyFiles = new Set(fps.map((x) => x.item)).size > 1;
+    const fp = fps.length ? `<div class="sp-fp"><div class="sp-fp-h">보고서 1.2 평면도 이름 <span class="sk-help">보고서 차례대로 · 틀리면 고쳐 쓰기, 비우면 도면에서 읽은 이름</span></div>
+      <div class="sp-fp-grid">${fps.map((x, n) => `<div class="sp-fp-it${x.name ? " own" : ""}">
+        <a href="${url(x.item)}#page=${x.page}" target="_blank" rel="noopener" title="도면 크게 보기"><img src="${BASE}/api/seismic/projects/${id}/floorplans/${encodeURIComponent(x.item)}/${x.page}/thumb" alt="" loading="lazy" /></a>
+        <div class="sk-f"><label>${n + 1}. ${manyFiles ? `${esc(x.file)} ` : ""}${x.page}쪽</label>
+          <input data-fp-item="${esc(x.item)}" data-fp-page="${x.page}" value="${esc(x.name)}" placeholder="${esc(x.auto)}" maxlength="40" /></div>
+        <div class="sp-fp-cap">보고서: ${esc(x.cap)}</div></div>`).join("")}</div></div>` : "";
     const el = document.createElement("div");
     el.className = `sp-doc${has ? " on" : ""}`;
     el.innerHTML = `<div class="sp-doc-main">
         <div class="sp-doc-t"><b>${esc(d.label)}</b>${has ? '<span class="sp-ok">✓</span>' : '<span class="sp-no">아직</span>'}</div>
         <div class="sp-doc-fills">${esc(d.fills)}</div>
         ${has ? `<div class="sp-doc-files">${files}</div>` : ""}
-        <div class="sp-doc-note"${d.note ? "" : " hidden"}>${esc(d.note)}</div>
+        <div class="sp-doc-note"${d.note ? "" : " hidden"}>${esc(d.note)}</div>${fp}
       </div>
       <div class="sp-doc-btns">${extra}
         <label class="secondary sp-up">${has ? (d.multi ? "＋ 더하기" : "바꾸기") : "올리기"}<input type="file" hidden data-kr-file="1" accept="${d.exts.join(",")}" /></label>
@@ -97,6 +106,16 @@
         if (n && res.msg) { n.hidden = false; n.textContent = res.msg; }
       } catch (e) { note.textContent = e.message; note.classList.add("bad"); b.disabled = false; }
     }));
+    el.querySelectorAll("[data-fp-item]").forEach((inp) => {
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") inp.blur(); });
+      inp.addEventListener("change", async () => {
+        try {
+          draw(await apiPatch(`/seismic/projects/${id}/floorplans`, { item: inp.dataset.fpItem, page: Number(inp.dataset.fpPage), name: inp.value.trim() }));
+          const n = [...document.querySelectorAll(".sp-doc")].find((x) => x.dataset.key === d.key)?.querySelector(".sp-doc-note");
+          if (n) { n.hidden = false; n.classList.remove("bad"); n.textContent = "평면도 이름 저장 — 다음 [다시 만들기]부터 보고서에"; }
+        } catch (e) { err(e); }
+      });
+    });
     el.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
       if (!confirm(`${d.label}을(를) 지울까요?`)) return;
       try { draw(await api(`/seismic/projects/${id}/docs/${d.key}${b.dataset.del ? `?item=${encodeURIComponent(b.dataset.del)}` : ""}`, { method: "DELETE" })); } catch (e) { err(e); }

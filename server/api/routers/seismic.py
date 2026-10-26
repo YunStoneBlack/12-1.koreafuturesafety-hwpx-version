@@ -22,7 +22,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -41,7 +41,7 @@ DOCS = [
     ("plan", "과업수행계획서", (".hwp", ".hwpx", ".pdf"), "부록 2"),
     ("schedule", "구조 일람표", (".pdf", ".png", ".jpg", ".jpeg"), "철근탐사 설계값(📏 부재 목록)"),
     ("struct", "구조도면", (".pdf", ".png", ".jpg", ".jpeg"), "부록 9"),
-    ("floorplan", "층별 평면도", (".pdf", ".png", ".jpg", ".jpeg"), "1.2 건물규모 평면도 — 파일 이름에 층(예: 지상1층.png), PDF는 쪽마다 지상 1층부터"),
+    ("floorplan", "층별 평면도", (".pdf", ".png", ".jpg", ".jpeg"), "1.2 건물규모 평면도 — 도면에 적힌 제목(○○평면도)으로 이름·층 차례, 틀리면 아래 칸에서 고치기"),
     ("core", "압축강도 시험성적서", (".pdf", ".png", ".jpg", ".jpeg"), "2.2.3 콘크리트 압축강도 · 부록 5"),
     ("ground", "지반조사보고서", (".pdf",), "2.5 지반 및 기초(값·위치도·사진·결과 표) · 부록 3"),
     ("vendor", "외주 결과물 한글", (".hwp", ".hwpx"), "결과표 나~마·확인서·체크리스트·3~7장"),
@@ -203,7 +203,17 @@ def _project_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "drawings_auto": SD.has_drawings(f), "min_counts": SD.min_counts(item_units, building["grade"], SD.has_drawings(f)),
             "field_counts": {k: len(_field(r)[k]) for k in ("members", "cores", "masonry", "photos")},
             "persons": [{"id": p.id, "name": p.name, "grade": p.grade or "", "position": p.position or ""} for p in persons],
-            "report": report_out(r)}
+            "floorplans": _floorplans_out(f), "report": report_out(r)}
+
+
+def _floorplans_out(f: SitokFacility) -> list[dict]:
+    """1.2 평면도 쪽마다 이름(읽은 것·고친 것) — 보고서 차례대로(10/27 이름 고치기 칸)."""
+    from server.sitok import seismic_fill as SF
+
+    try:
+        return [{k: x[k] for k in ("item", "page", "file", "auto", "name", "cap")} for x in SF.plan_pages(f)]
+    except Exception:  # noqa: BLE001 — 깨진 PDF여도 건 화면은 열리게
+        return []
 
 
 def _list_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
@@ -513,6 +523,49 @@ def doc_file(rid: int, key: str, item: str = "", user: User = Depends(get_curren
         raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
     name = f"{f.name}_{DOC[key][0]}{Path(p).suffix}"
     return FileResponse(p, filename=None, headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}"})
+
+
+class FloorplanIn(BaseModel):
+    item: str
+    page: int = 1
+    name: str = ""  # "" = 자동(읽은 이름)으로
+
+
+@router.patch("/projects/{rid}/floorplans")
+def rename_floorplan(rid: int, body: FloorplanIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """1.2 평면도 이름 고치기(10/27 사용자 "네이밍이 다르면 고칠 수 있게") — 도면 칸 항목 titles{쪽: 이름}, 보고서는 고친 이름·그 층 차례로."""
+    from server.sitok import seismic_fill as SF
+
+    f, r = _require(db, user, rid)
+    d = dict(f.drawings or {})
+    lst = [dict(it) for it in d.get("floorplan") or []]
+    it = next((x for x in lst if x["id"] == body.item), None)
+    if it is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "평면도 파일이 없습니다.")
+    titles = dict(it.get("titles") or {})
+    name = SF.plan_name(body.name)[:40]
+    if name:
+        titles[str(body.page)] = name
+    else:
+        titles.pop(str(body.page), None)
+    it["titles"] = titles
+    d["floorplan"] = lst
+    f.drawings = d
+    db.commit()
+    return _project_out(db, f, r)
+
+
+@router.get("/projects/{rid}/floorplans/{item}/{page}/thumb")
+def floorplan_thumb(rid: int, item: str, page: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.sitok import drawings as D
+    from server.sitok import seismic_fill as SF
+
+    f, r = _require(db, user, rid)
+    fdir, _ = _dirs(f, r)
+    p = next((x["path"] for x in D.items(f, "floorplan", fdir) if x["id"] == item), None)
+    if p is None or page < 1 or page > D.pages_of(Path(p)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "평면도 쪽이 없습니다.")
+    return Response(SF.plan_thumb(Path(p), page), media_type="image/png", headers={"Cache-Control": "private, max-age=600"})
 
 
 class GroundIn(BaseModel):

@@ -873,6 +873,17 @@ div.sf-miss-it { cursor: default; }
 .main button.sp-x:hover { color: var(--crit); background: transparent; }
 .sp-doc-note { font-size: 12.5px; color: var(--blue); margin-top: 4px; }
 .sp-doc-note.bad { color: var(--crit); }
+/* 층별 평면도 이름(보고서 1.2) — 쪽마다 카드: 작은 그림 + 칸 이름 위 입력(10/27) */
+.sp-fp { margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f6f7fa); }
+.sp-fp-h { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+.sp-fp-h .sk-help { font-weight: 400; margin-left: 6px; }
+.sp-fp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.sp-fp-it { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); min-width: 0; }
+.sp-fp-it img { display: block; width: 100%; aspect-ratio: 1.414; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 4px; }
+.sp-fp-it .sk-f label { font-size: 11.5px; }
+.sp-fp-it input { width: 100%; margin: 0; }
+.sp-fp-it.own input { border-color: var(--blue); }
+.sp-fp-cap { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-doc-btns { display: flex; gap: 6px; align-items: center; flex: none; }
 .main label.sp-up { margin: 0; cursor: pointer; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .main label.sp-up:hover { border-color: var(--blue); background: var(--blue-soft); }
@@ -919,6 +930,7 @@ button.sp-pick-it.on { border-color: var(--blue); }
   .sp-grid { grid-template-columns: 1fr 1fr; }
   .sp-doc { flex-direction: column; align-items: stretch; gap: 8px; }
   .sp-doc-btns { justify-content: flex-end; }
+  .sp-fp-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
   .sp-g-photos { grid-template-columns: 1fr 1fr; }
   .sp-pick-grid { grid-template-columns: 1fr 1fr; }
   .sp-row { flex-wrap: wrap; }

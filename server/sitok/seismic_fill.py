@@ -1479,35 +1479,78 @@ def _plan_order(name: str) -> float:
     return 1000
 
 
-def plan_images(f, rdir: Path) -> list[tuple[str, Path]]:
-    """서류 칸 층별 평면도 → [(제목, 그림)] — 이름은 도면에 적힌 제목(10/26 형 "도면상 네이밍으로" — 호원초 첫 쪽이 지붕인데 "지상 1층"이었음),
-    없으면 파일 이름에 "층"이 있으면 그 이름, 그것도 없으면 차례대로 지상 1층부터. 제목을 읽은 것은 층 차례(지하 → 지상 → 옥탑 → 지붕)로."""
+def plan_name(text: str) -> str:
+    """사람이 고친 평면도 이름 — 앞뒤 빈칸·끝 "평면도" 뺌, "3층" → "지상 3층"."""
+    name = re.sub(r"\s*평면도\s*$", "", (text or "").strip())
+    return re.sub(r"^(\d+)\s*층$", r"지상 \1층", name)
+
+
+def plan_pages(f) -> list[dict]:
+    """서류 칸 층별 평면도 쪽마다 — [{item, page(1부터), path, auto(읽은 이름), name(고친 이름, 없으면 ""), cap(보고서 제목)}] 보고서 차례대로.
+    이름 = 고친 이름(10/27 사용자 "네이밍이 다르면 고칠 수 있게" — 건 화면 서류 칸에서, 도면 칸 항목 titles{쪽: 이름}) → 도면에 적힌 제목(10/26 —
+    호원초 첫 쪽이 지붕인데 "지상 1층"이었음) → 파일 이름에 "층"이 있으면 그 이름 → 차례대로 지상 1층부터. 층을 아는 것은 층 차례(지하 → 지상 → 옥탑 → 지붕)로."""
     import pymupdf
 
     from server.api.routers.sitok import _facility_dir
     from server.sitok import drawings as D
 
-    out: list[tuple[float, int, str, Path]] = []
-    cache = rdir / "보고서그림"
-    cache.mkdir(parents=True, exist_ok=True)
+    out = []
     k = 0
     for it in D.items(f, "floorplan", _facility_dir(f)):  # 서류 칸 "층별 평면도"(키 floorplan — "plan"은 과업수행계획서)
         p = Path(it["path"])
         stem = Path(it.get("name") or p.name).stem
+        titles = it.get("titles") or {}
         if p.suffix.lower() == ".pdf":
             with pymupdf.open(p) as doc:
-                for pg in doc:
-                    k += 1
-                    img = cache / f"평면도_{k}.png"
-                    pg.get_pixmap(dpi=130).save(img)
-                    title = plan_title(pg.get_text())
-                    cap = f"{title} 평면도" if title else f"{stem} 평면도" if "층" in stem and doc.page_count == 1 else f"지상 {k}층 평면도"
-                    out.append((_plan_order(title) if title else 2000 + k, k, cap, img))
+                pages = [(i + 1, plan_title(pg.get_text()), doc.page_count) for i, pg in enumerate(doc)]
         else:
+            pages = [(1, None, 1)]
+        for page, title, n in pages:
             k += 1
-            cap = f"{stem} 평면도" if "층" in stem else f"지상 {k}층 평면도"
-            out.append((_plan_order(stem) if "층" in stem else 2000 + k, k, cap, p))
-    return [(cap, img) for _, _, cap, img in sorted(out)]
+            from_file = stem if "층" in stem and n == 1 else None
+            auto = title or from_file or f"지상 {k}층"
+            name = plan_name(titles.get(str(page)) or "")
+            known = name or title or from_file
+            out.append({"item": it["id"], "page": page, "path": p, "file": it.get("name") or p.name, "k": k, "auto": auto, "name": name,
+                        "cap": f"{name or auto} 평면도", "_order": (_plan_order(known) if known else 2000 + k, k)})
+    out.sort(key=lambda x: x["_order"])
+    for x in out:
+        x.pop("_order")
+    return out
+
+
+def plan_images(f, rdir: Path) -> list[tuple[str, Path]]:
+    """보고서 1.2 평면도 → [(제목, 그림)] — 쪽·이름·차례는 plan_pages, PDF 쪽은 130dpi 그림(보고서그림/평면도_N.png)."""
+    import pymupdf
+
+    cache = rdir / "보고서그림"
+    cache.mkdir(parents=True, exist_ok=True)
+    out = []
+    for x in plan_pages(f):
+        if x["path"].suffix.lower() == ".pdf":
+            img = cache / f"평면도_{x['k']}.png"
+            with pymupdf.open(x["path"]) as doc:
+                doc[x["page"] - 1].get_pixmap(dpi=130).save(img)
+            out.append((x["cap"], img))
+        else:
+            out.append((x["cap"], x["path"]))
+    return out
+
+
+def plan_thumb(path: Path, page: int, width: int = 360) -> bytes:
+    """평면도 쪽 작은 그림(PNG) — 건 화면 이름 고치기 칸."""
+    import pymupdf
+    from PIL import Image
+
+    if path.suffix.lower() == ".pdf":
+        with pymupdf.open(path) as doc:
+            pg = doc[page - 1]
+            return pg.get_pixmap(matrix=pymupdf.Matrix(width / pg.rect.width, width / pg.rect.width)).tobytes("png")
+    im = Image.open(path)
+    im.thumbnail((width, width * 2))
+    buf = io.BytesIO()
+    im.convert("RGB").save(buf, "PNG")
+    return buf.getvalue()
 
 
 def _put_full(doc, pic, path: Path) -> bool:
