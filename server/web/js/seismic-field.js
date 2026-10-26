@@ -210,7 +210,7 @@
     renderMasonry();
   }
   function renderMasonry() {
-    const floors = [...new Set([...F.sample_floors, ...Object.keys(mplan).map(Number), ...Object.keys(mgroups).map(Number)])].filter((n) => n).sort((a, b) => a - b);
+    const floors = [...new Set([...(F.masonry_floors || F.sample_floors), ...Object.keys(mplan).map(Number), ...Object.keys(mgroups).map(Number)])].filter((n) => n).sort((a, b) => a - b); // 조적 조사단위 층(10/26)
     for (const n of floors) {
       const g = (mgroups[n] ||= []);
       const want = Math.max(mplan[n] ?? 0, g.filter(mFilled).length);

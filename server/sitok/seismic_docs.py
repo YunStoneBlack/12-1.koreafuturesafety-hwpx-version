@@ -190,10 +190,27 @@ def survey_units(f) -> int:
     return v if v > 0 else int(f.floors_above or 0) or int((f.floors_below or 0) + (f.floors_above or 0))
 
 
-def sample_floors(f) -> list[int]:
-    """조사단위 층(표본 층) — 지상 1층부터 단위 수만큼, 단위가 지상 층수보다 많으면 지하 1층부터 더함(아래 → 위 차례)."""
-    below, above = int(f.floors_below or 0), int(f.floors_above or 0)
+UNIT_ITEMS = ("member", "rebar", "core", "masonry")  # 항목별 조사단위(부재 규격·철근배근·코어·조적 — 시추는 등급으로)
+
+
+def item_units(f) -> dict:
+    """항목별 조사단위 {member, rebar, core, masonry} — 건물 칸 unit_items(그 항목만 고친 값, 10/26 민재형 "거의 안 쓰지만 변수 대비"), 없으면 전체 조사단위."""
     u = survey_units(f)
+    by = ((f.ledger or {}).get("register") or {}).get("unit_items") or {}
+    out = {}
+    for k in UNIT_ITEMS:
+        try:
+            v = int(float(by.get(k) or 0)) if isinstance(by, dict) else 0
+        except (TypeError, ValueError):
+            v = 0
+        out[k] = v if v > 0 else u
+    return out
+
+
+def sample_floors(f, item: str | None = None) -> list[int]:
+    """조사단위 층(표본 층) — 지상 1층부터 단위 수만큼, 단위가 지상 층수보다 많으면 지하 1층부터 더함(아래 → 위 차례). item = 그 항목 단위로."""
+    below, above = int(f.floors_below or 0), int(f.floors_above or 0)
+    u = item_units(f)[item] if item else survey_units(f)
     floors = list(range(1, above + 1))[:u]
     if u > len(floors):
         floors = [-b for b in range(min(below, u - len(floors)), 0, -1)] + floors
@@ -203,12 +220,20 @@ def sample_floors(f) -> list[int]:
 def member_plan(f, saved: dict | None = None) -> dict:
     """부재 단면 칸 수 {"층|부재": 개수} — 표본 층 × 종별(보·기둥·벽체) × 3(도면 없으면 9) 위에 저장한 값(조사단위를 늘리면 새 층은 기본 칸)."""
     per = 3 if has_drawings(f) else 9
-    return {**{f"{n}|{k}": per for n in sample_floors(f) for k in MEMBER_KINDS}, **(saved or {})}
+    floors = sample_floors(f, "member")
+    keep = {k: v for k, v in (saved or {}).items() if _plan_floor(k) in floors}  # 단위를 줄여 빠진 층은 버림(쓴 줄은 화면·보고서에 그대로)
+    return {**{f"{n}|{k}": per for n in floors for k in MEMBER_KINDS}, **keep}
+
+
+def _plan_floor(key) -> int | None:
+    m = re.match(r"(-?\d+)", str(key))
+    return int(m.group(1)) if m else None
 
 
 def masonry_plan(f, saved: dict | None = None) -> dict:
     """층마다 조적 칸 수 {"층": 개수} — 표본 층 × 2개소(<표 3-1> 조사단위별 2개소 이상) 위에 저장 값."""
-    return {**{str(n): 2 for n in sample_floors(f)}, **(saved or {})}
+    floors = sample_floors(f, "masonry")
+    return {**{str(n): 2 for n in floors}, **{k: v for k, v in (saved or {}).items() if _plan_floor(k) in floors}}
 
 
 def has_drawings(f) -> bool:
@@ -219,16 +244,18 @@ def has_drawings(f) -> bool:
     return bool((f.drawings or {}).get("struct") or (f.drawings or {}).get("schedule"))
 
 
-def min_counts(units: int, grade: str = "특등급", drawings: bool = True) -> dict:
-    """조사단위 수 → {member, rebar, core, boring, masonry} 최소 개소 + how(계산식) — 부재 규격 = 3종 × 3개소(도면 없으면 9) × 단위,
-    철근배근 = 4종 × 3개소 × 단위(도면 없어도 3개소), 코어 = max(단위, 6), 시추 = 특등급 2(그 밖 1), 조적 = 단위 × 2."""
-    u = max(int(units or 0), 0)
+def min_counts(units, grade: str = "특등급", drawings: bool = True) -> dict:
+    """조사단위 수(하나 또는 항목별 {member, rebar, core, masonry} — item_units) → {member, rebar, core, boring, masonry} 최소 개소 + how(계산식) + units —
+    부재 규격 = 3종 × 3개소(도면 없으면 9) × 단위, 철근배근 = 4종 × 3개소 × 단위(도면 없어도 3개소), 코어 = max(단위, 6), 시추 = 특등급 2(그 밖 1), 조적 = 단위 × 2."""
+    by = units if isinstance(units, dict) else {k: units for k in UNIT_ITEMS}
+    u = {k: max(int(by.get(k) or 0), 0) for k in UNIT_ITEMS}
     per = 3 if drawings else 9
     boring = 2 if grade == "특등급" else 1
-    return {"member": u * len(MEMBER_KINDS) * per, "rebar": u * len(REBAR_KINDS) * 3, "core": max(u, 6), "boring": boring, "masonry": u * 2,
-            "how": {"member": f"{len(MEMBER_KINDS)}종(보·기둥·벽체) × {per}개소{'' if drawings else '(도면 없음)'} × {u}단위",
-                    "rebar": f"{len(REBAR_KINDS)}종(보·기둥·보-기둥 접합부·벽체) × 3개소 × {u}단위", "core": f"max({u}단위, 6)",
-                    "boring": "특등급 2개소" if boring == 2 else "그 밖 등급 1개소", "masonry": f"{u}단위 × 2개소"}}
+    return {"member": u["member"] * len(MEMBER_KINDS) * per, "rebar": u["rebar"] * len(REBAR_KINDS) * 3, "core": max(u["core"], 6), "boring": boring,
+            "masonry": u["masonry"] * 2, "units": u,
+            "how": {"member": f"{len(MEMBER_KINDS)}종(보·기둥·벽체) × {per}개소{'' if drawings else '(도면 없음)'} × {u['member']}단위",
+                    "rebar": f"{len(REBAR_KINDS)}종(보·기둥·보-기둥 접합부·벽체) × 3개소 × {u['rebar']}단위", "core": f"max({u['core']}단위, 6)",
+                    "boring": "특등급 2개소" if boring == 2 else "그 밖 등급 1개소", "masonry": f"{u['masonry']}단위 × 2개소"}}
 
 
 # ---------- 지반조사보고서 ----------
@@ -370,6 +397,9 @@ def _selfcheck() -> None:
     m = min_counts(5)  # 형 10/22 삼숭초: 규격 3×3×5 = 45(도면 있음, 없으면 3×9×5 = 135), 철근 4×3×5 = 60, 코어 6
     assert (m["member"], m["rebar"], m["core"], m["boring"], m["masonry"]) == (45, 60, 6, 2, 10), m
     assert min_counts(5, drawings=False)["member"] == 135 and min_counts(8, "1등급")["core"] == 8 and min_counts(8, "1등급")["boring"] == 1
+    m = min_counts({"member": 6, "rebar": 5, "core": 7, "masonry": 5})  # 항목별 단위(10/26 호원초 — 지하 포함 6 등)
+    assert (m["member"], m["rebar"], m["core"], m["masonry"]) == (54, 60, 7, 10) and m["how"]["member"].endswith("× 6단위"), m
+    assert min_counts(5) == {**min_counts({k: 5 for k in UNIT_ITEMS})}
     assert _bh("BH—1 시추전경") == "BH-1" and _date("2005.10.28.") == datetime.date(2005, 10, 28)
     assert "S2 지반(기반암 깊이 1~20이하, 전단파속도 BH-1 : 305.9m/s)" in ground_sentence([{"bh": "BH-1", "cls": "S2", "depth": "1~20 이하", "vs": 305.9}])
 

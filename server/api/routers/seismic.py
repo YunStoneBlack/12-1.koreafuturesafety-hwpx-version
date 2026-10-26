@@ -191,6 +191,7 @@ def _project_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
     building["grade"] = building["grade"] or grade_of(building["use"])
     units = SD.survey_units(f)
     building["survey_units"] = units
+    item_units = SD.item_units(f)  # 항목별 조사단위(안 고친 항목 = 전체, 10/26)
     building["drawings"] = reg.get("drawings") or ""  # 비우면 자동(drawings_auto)
     persons = db.query(TechPerson).filter(TechPerson.company_id == f.company_id, TechPerson.active.is_(True)).order_by(TechPerson.name).all()
     ground = (sv.get("seismic_docs") or {}).get("ground", {}).get("parsed")
@@ -198,7 +199,8 @@ def _project_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "floors": reg.get("floors") or [], "changes": reg.get("changes") or [], "docs": _doc_out(f, r, fdir, rdir),
             "ground": ground, "ground_slots": [[k, label] for k, label, _ in SD.GROUND_SLOTS],
             "ground_sentence": SD.ground_sentence((ground or {}).get("holes") or []),
-            "units": units, "drawings_auto": SD.has_drawings(f), "min_counts": SD.min_counts(units, building["grade"], SD.has_drawings(f)),
+            "units": units, "item_units": item_units, "unit_own": sorted(k for k, v in item_units.items() if v != units),
+            "drawings_auto": SD.has_drawings(f), "min_counts": SD.min_counts(item_units, building["grade"], SD.has_drawings(f)),
             "field_counts": {k: len(_field(r)[k]) for k in ("members", "cores", "masonry", "photos")},
             "persons": [{"id": p.id, "name": p.name, "grade": p.grade or "", "position": p.position or ""} for p in persons],
             "report": report_out(r)}
@@ -339,12 +341,60 @@ def update_project(rid: int, body: ProjectIn, user: User = Depends(get_current_u
     if b:
         if "name" in b and not str(b["name"] or "").strip():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "건물 이름은 비울 수 없습니다.")
+        before = SD.sample_floors(f, "rebar")
         _apply_building(f, b)
         _rename(db, f, r, fdir)
+        _resync_rebar(r, f, before)
     if body.chief_id is not None:
         r.chief_id = body.chief_id or None
     if body.participant_ids is not None:
         r.participant_ids = [int(x) for x in body.participant_ids if x]
+    db.commit()
+    return _project_out(db, f, r)
+
+
+def _resync_rebar(r: SitokReport, f: SitokFacility, before: list[int]) -> None:
+    """조사단위가 바뀌어 철근배근 표본 층이 달라지면 철근탐사 카드도 — 새 층 4종 × 3칸, 빠진 층은 손 안 댄 카드만 지움(10/26).
+    부재 단면·조적은 칸 수 계획이 표본 층을 따라감(member_plan·masonry_plan)."""
+    from server.sitok import rebar_survey as RV
+
+    cur = RV.normalize(_sv(r).get("rebar"))
+    if not cur["seeded"]:
+        return  # 철근탐사 화면을 처음 열 때 지금 단위로 깔림
+    rows = RV.resync_floors(cur["rows"], before, SD.sample_floors(f, "rebar"))
+    if rows is not None:
+        r.survey = {**(r.survey or {}), "rebar": {**cur, "rows": rows}}
+
+
+class UnitsIn(BaseModel):
+    all: int | None = None  # 전체 조사단위(건물 정보 "조사단위 수"와 같은 값)
+    item: str | None = None  # member·rebar·core·masonry — 그 항목만
+    n: int | None = None  # 그 항목 단위(비우거나 0이면 전체를 따름)
+
+
+@router.post("/projects/{rid}/units")
+def set_units(rid: int, body: UnitsIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """조사단위 — 전체(all) 또는 항목 하나(item, n)(10/26 민재형 "개별적으로 가능하게 하고 전체단위수도 — 발주처 요구로 지하 포함 6 등").
+    항목 값이 전체와 같아지면 따로 둔 값을 지움. 철근탐사 카드는 표본 층을 따라 늘고 줆(쓴 카드는 안 지움)."""
+    f, r = _require(db, user, rid)
+    before = SD.sample_floors(f, "rebar")
+    reg = dict((f.ledger or {}).get("register") or {})
+    own = {k: v for k, v in (reg.get("unit_items") or {}).items() if k in SD.UNIT_ITEMS} if isinstance(reg.get("unit_items"), dict) else {}
+    if body.all is not None:
+        if not 1 <= body.all <= 40:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "조사단위는 1~40입니다.")
+        reg["survey_units"] = body.all
+    if body.item is not None:
+        if body.item not in SD.UNIT_ITEMS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "없는 조사 항목입니다.")
+        if body.n and not 1 <= body.n <= 40:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "조사단위는 1~40입니다.")
+        own[body.item] = body.n or None
+    f.ledger = {**(f.ledger or {}), "register": _jsonable(reg)}  # 전체를 먼저 바꾼 뒤 항목 값 정리
+    total = SD.survey_units(f)
+    reg["unit_items"] = {k: int(v) for k, v in own.items() if v and int(v) != total}
+    f.ledger = {**(f.ledger or {}), "register": _jsonable(reg)}
+    _resync_rebar(r, f, before)
     db.commit()
     return _project_out(db, f, r)
 
@@ -555,11 +605,12 @@ def _field_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "photos": {k: {"at": v.get("at", ""), "name": v.get("name", "")} for k, v in fd["photos"].items()},
             "photo_slots": [[k, label, where] for k, label, where in SF.PHOTO_SLOTS], "core_stats": SF.core_stats(fd["cores"]),
             "has_core_report": bool(core_doc.get("rel") and (rdir / core_doc["rel"]).exists()),
-            "floors": [{"n": n, "label": SF.floor_label(n)} for n in floors], "units": SD.survey_units(f),
-            "sample_floors": SD.sample_floors(f), "member_kinds": list(SD.MEMBER_KINDS), "member_plan": SD.member_plan(f, fd["member_plan"]),
+            "floors": [{"n": n, "label": SF.floor_label(n)} for n in floors], "units": SD.survey_units(f), "item_units": SD.item_units(f),
+            "sample_floors": SD.sample_floors(f, "member"), "masonry_floors": SD.sample_floors(f, "masonry"),  # 항목별 조사단위 층(10/26)
+            "member_kinds": list(SD.MEMBER_KINDS), "member_plan": SD.member_plan(f, fd["member_plan"]),
             "member_plan_default": SD.member_plan(f), "drawings": SD.has_drawings(f),
             "masonry_types": fd["masonry_types"], "masonry_plan": SD.masonry_plan(f, fd["masonry_plan"]), "masonry_plan_default": SD.masonry_plan(f),
-            "min_counts": SD.min_counts(SD.survey_units(f), grade, SD.has_drawings(f)), "rebar": _rebar_done(r),
+            "min_counts": SD.min_counts(SD.item_units(f), grade, SD.has_drawings(f)), "rebar": _rebar_done(r),
             "schedule": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"],
                           "size": x.get("size") or (f"THK={x['thickness']}" if x.get("thickness") else ""),  # 벽체 = 두께(견본 "THK=200")
                           "range": RS.floor_range(x["floors"])} for x in sch["items"] if x["kind"] in SF.MEMBER_KINDS]}  # 층 범위 — 그 층 칸만(철근탐사처럼, 10/22)

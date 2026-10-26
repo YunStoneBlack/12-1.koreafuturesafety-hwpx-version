@@ -242,9 +242,31 @@
     const m = P.min_counts, s = (P.report || {}).seismic || {}, f = (P.report || {}).field || {};
     const how = m.how || {};
     $("sp-units").textContent = `조사단위 ${P.units}개 · 도면 ${(P.building || {}).drawings || (P.drawings_auto ? "보유" : "미보유")} — 매뉴얼 <표 3-1> 최소 수량`;
-    $("sp-min").innerHTML = [["부재 규격", m.member, how.member], ["철근배근", m.rebar, how.rebar], ["콘크리트 코어", m.core, how.core], ["시추(지반)", m.boring, how.boring], ["조적조", m.masonry, how.masonry]]
-      .map(([k, v, h]) => `<span class="sp-min-it" title="${esc(h || "")}"><b>${v}</b>${esc(k)}${h ? `<em class="sp-min-how">${esc(h)}</em>` : ""}</span>`).join("")
-      + '<div class="sk-help">조사단위 수·도면 유무는 🏢 건물 정보에서 고침 — 층마다 1단위(작은 지하·옥탑은 합칠 수 있음), 익스팬션조인트·증축 부분은 따로.</div>';
+    // 조사단위 — 전체 칸 + 항목 칩의 "× N단위" 숫자를 바로 고침(10/26 민재형 "개별적으로 가능하게 하고 전체단위수도 — 발주처 요구로 지하 포함 6 등")
+    const iu = P.item_units || {}, own = P.unit_own || [];
+    const unitIn = (key, u) => `<input type="number" class="sp-u-in" min="1" max="40" inputmode="numeric" data-u="${key}" value="${u}" title="${key === "all" ? "전체 조사단위" : "이 항목만 조사단위"}" />`;
+    const howHtml = (key, h) => { const u = iu[key]; return key && u ? esc(h).replace(`${u}단위`, `${unitIn(key, u)}단위`) : esc(h); }; // 계산식 속 단위 숫자 자리에 칸
+    $("sp-min").innerHTML = `<label class="sp-u-all">전체 조사단위 ${unitIn("all", P.units)}개</label>`
+      + [["부재 규격", m.member, how.member, "member"], ["철근배근", m.rebar, how.rebar, "rebar"], ["콘크리트 코어", m.core, how.core, "core"], ["시추(지반)", m.boring, how.boring, ""], ["조적조", m.masonry, how.masonry, "masonry"]]
+        .map(([k, v, h, key]) => `<span class="sp-min-it${own.includes(key) ? " own" : ""}" title="${esc(h || "")}"><b>${v}</b>${esc(k)}${own.includes(key) ? `<button type="button" class="sp-u-back" data-ub="${key}" title="이 항목도 전체 조사단위(${P.units})로">개별 ↺</button>` : ""}${h ? `<em class="sp-min-how">${howHtml(key, h)}</em>` : ""}</span>`).join("")
+      + '<div class="sk-help">조사단위 — 층마다 1단위(작은 지하·옥탑은 합칠 수 있음), 익스팬션조인트·증축 부분은 따로. 항목 칸의 단위 숫자를 고치면 그 항목만(발주처 요구 등), 도면 유무는 🏢 건물 정보에서.</div>';
+    const setUnits = async (body) => {
+      try {
+        P = await apiPost(`/seismic/projects/${id}/units`, body);
+        drawField();
+        const bu = $("sp-building").querySelector('[data-k="survey_units"]'); // 건물 정보 칸도 같은 값(그 칸의 다른 고친 값은 그대로)
+        if (bu) bu.value = P.units;
+      } catch (e) { err(e); drawField(); }
+    };
+    $("sp-min").querySelectorAll("[data-u]").forEach((el) => el.addEventListener("change", () => {
+      const n = Math.round(Number(el.value));
+      if (!el.isConnected) return; // 다시 그려 떼어진 칸에서 오는 change는 무시
+      const now = el.dataset.u === "all" ? P.units : (P.item_units || {})[el.dataset.u];
+      if (!(n >= 1 && n <= 40)) { el.value = now; return; }
+      if (n === now) return; // 같은 값(다시 그릴 때 한 번 더 오는 change)은 안 보냄
+      setUnits(el.dataset.u === "all" ? { all: n } : { item: el.dataset.u, n });
+    }));
+    $("sp-min").querySelectorAll("[data-ub]").forEach((b) => b.addEventListener("click", () => setUnits({ item: b.dataset.ub, n: null })));
     const big = (href, ic, label, sub, ok) => `<a class="rd-btn${ok ? " on" : ""}" href="${href}"><span class="rd-ic">${ic}</span><span class="rd-lb">${esc(label)}${ok ? ' <em class="rd-ok">✓</em>' : ""}</span><span class="rd-sub">${esc(sub)}</span></a>`;
     const fc = P.field_counts || {};
     $("sp-links").innerHTML = big(`seismic-field.html?id=${id}`, "🧱", "현장조사 입력", `부재 단면 ${fc.members || 0}/${m.member} · 코어 ${fc.cores || 0}/${m.core} · 조적 ${fc.masonry || 0}/${m.masonry} · 사진 ${fc.photos || 0}장`,

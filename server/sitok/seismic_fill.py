@@ -789,7 +789,7 @@ def _diff_sentence(labels: list[str]) -> str:
     return f"{', '.join(labels[:3])}{more} 부재가 구조도면과 실측 수치와 상이하여 현장 실측 데이터를 내진성능 평가에 반영하였다."
 
 
-def fill_members(root, field: dict, d: dict, rebar_rows: list, units: int, warn: list, drawings: bool = True, member_total: int = 0) -> int:
+def fill_members(root, field: dict, d: dict, rebar_rows: list, units, warn: list, drawings: bool = True, member_total: int = 0) -> int:
     from server.sitok import rebar_survey as RV
 
     members = field["members"]
@@ -804,12 +804,12 @@ def fill_members(root, field: dict, d: dict, rebar_rows: list, units: int, warn:
         fill_chunks(root, tables, [[""] * 6], 18, 1, flat=False)
         warn.append("부재 단면 줄이 없어 2.2.1 표는 빈칸입니다(현장조사 입력)")
     qty = [x for x in _outer(root) if (x.get("rowCnt"), x.get("colCnt")) == ("2", "4") and "금회조사수량" in _n(rb._cell_text(rb._cells(x).get((0, 3), x)))]
-    label = f"{d['name']}\n({units}개층)"  # 조사단위 수(건물 칸 — 기본 지상 층수, 10/22)
+    by = units if isinstance(units, dict) else {"member": units, "rebar": units}  # 항목별 조사단위(10/26) — 부재 단면 표 = member, 철근배근 표 = rebar
     rules = (("모든 조사단위에서 부재 종별로 각각 3개소 이상 조사", "모든 조사단위에서 부재 종별로 각각 9개소 이상 조사하여 구조도면 작성"),  # 부재단면·철근배근(매뉴얼 <표 3-1>)
              ("모든 조사단위에서 부재 종별로 각각 3개소 이상 조사", "모든 조사단위에서 구조도면 작성에 충분한 수량으로서 부재 종별로 각각 3개소 이상"))
     for k, t in enumerate(qty[:2]):
         cells = rb._cells(t)
-        _set(cells, (1, 0), label)
+        _set(cells, (1, 0), f"{d['name']}\n({by['member' if k == 0 else 'rebar']}개층)")  # 조사단위 수(건물 칸 — 기본 지상 층수, 10/22)
         _set(cells, (1, 1), "보유" if drawings else "미보유")
         _set(cells, (1, 2), rules[k][0 if drawings else 1])
         if k == 0:  # 조사 수량 = 칸 수(형이 정한 수량, 10/22 "변경한 수량과 안 맞음")
@@ -1209,7 +1209,7 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     docs = sv.get("seismic_docs") or {}
     ground = (docs.get("ground") or {}).get("parsed")
     reg = (f.ledger or {}).get("register") or {}
-    units = SD.survey_units(f)
+    units = SD.item_units(f)  # 항목별 조사단위(안 고쳤으면 모두 전체 단위, 10/26)
     drawings = SD.has_drawings(f)
     grade = reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급")
     member_total = sum(SD.member_plan(f, field.get("member_plan")).values())  # 부재 단면 칸 수(형이 정한 수량)

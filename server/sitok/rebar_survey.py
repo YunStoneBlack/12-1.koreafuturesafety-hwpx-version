@@ -193,6 +193,17 @@ def apply_plan(rows: list[dict], plan: dict) -> list[dict]:
     return out
 
 
+def resync_floors(rows: list[dict], old: list[int], new: list[int]) -> list[dict] | None:
+    """조사단위를 바꿔 표본 층이 달라지면(10/26) — 새 층은 4종 × 3칸(그 층 줄이 이미 있으면 그대로), 빠진 층은 손 안 댄 줄만 지움(쓴 줄은 둠). 그대로면 None."""
+    add, drop = [n for n in new if n not in old], [n for n in old if n not in new]
+    if not add and not drop:
+        return None
+    have = {r["floor"] for r in rows}
+    plan = {f"{n}|{k}": NEED_PER for n in add if n not in have for k in KINDS}
+    plan.update({f"{n}|{k}": 0 for n in drop for k in KINDS})
+    return apply_plan(rows, plan)
+
+
 def counts(rows: list[dict], floors: list[int]) -> dict:
     """수량 표 — 층마다 종별 {결과 있는 줄(done), 칸(slots)}, 합계(결과 있는 줄·칸)."""
     fl = sorted(set(floors) | {r["floor"] for r in rows if r["floor"] is not None})

@@ -175,7 +175,7 @@ def fill_result_people(root, d: dict) -> int:
 def _rebar_default(f) -> int:
     from server.sitok import seismic_docs as SD
 
-    return sum(RV.default_plan(SD.sample_floors(f)).values())
+    return sum(RV.default_plan(SD.sample_floors(f, "rebar")).values())
 
 
 def fill_field_summary(root, d: dict) -> int:

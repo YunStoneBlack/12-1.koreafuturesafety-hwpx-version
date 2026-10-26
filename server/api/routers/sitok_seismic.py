@@ -64,7 +64,7 @@ def _out(db: Session, r: SitokReport) -> dict:
                          "items": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"], "range": RS.floor_range(x["floors"]),
                                     "position": x.get("position") or "", "confirmed": x["confirmed"], "check_ok": x["check"]["ok"]} for x in sv["items"]]},
             "lines": RV.LINES, "kinds": list(RV.KINDS), "seeded": data["seeded"], "rows": rows,
-            "counts": RV.counts(data["rows"], SD.sample_floors(f))}  # 표본 층 × 4종(10/22)
+            "counts": RV.counts(data["rows"], SD.sample_floors(f, "rebar"))}  # 표본 층 × 4종(10/22, 철근배근 조사단위)
 
 
 @router.get("/reports/{report_id}/seismic")
@@ -103,7 +103,7 @@ def rebar_plan(report_id: int, body: PlanIn, user: User = Depends(get_current_us
     """칸 수대로 줄 맞추기(10/22 형 "표본층 종별마다 칸 생성, 수량 조정") — default(또는 plan 없음)면 표본 층 × 4종 × 3. 쓴 줄은 안 지움."""
     r = _require(db, user, report_id)
     f = db.get(SitokFacility, r.facility_id)
-    plan = RV.default_plan(SD.sample_floors(f)) if body.default or not body.plan else body.plan
+    plan = RV.default_plan(SD.sample_floors(f, "rebar")) if body.default or not body.plan else body.plan
     _put(r, {"rows": RV.apply_plan(_rebar(r)["rows"], plan), "seeded": True})
     db.commit()
     return _out(db, r)
