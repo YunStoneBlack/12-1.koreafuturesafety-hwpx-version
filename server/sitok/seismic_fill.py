@@ -305,10 +305,15 @@ def even_rows(tbl, header: int) -> None:
             x.set("charPrIDRef", base)
 
 
-def split_pages(t) -> None:
+def split_pages(t, header: int = 1) -> None:
     """한 쪽을 넘기는 표를 줄 단위로 쪽에서 나뉘게(pageBreak TABLE — CELL은 칸 안 글이 끊기고 NONE은 안 나뉨). 글자처럼 취급이면 한글이 표를 통째로
-    다음 쪽으로 밀어 나뉘지 않으니(10/26 호원초 조적벽 결과표 — 제목만 남고 표는 다음 쪽) 끄고 단 가운데(민재형도 한 표로 합칠 때 끔)."""
+    다음 쪽으로 밀어 나뉘지 않으니(10/26 호원초 조적벽 결과표 — 제목만 남고 표는 다음 쪽) 끄고 단 가운데(민재형도 한 표로 합칠 때 끔).
+    머리 줄(header줄) 칸은 제목 칸(header="1") — repeatHeader만으로는 다음 쪽에 머리 줄이 안 나옴(민재형 파일은 제목 칸)."""
     t.set("pageBreak", "TABLE")
+    t.set("repeatHeader", "1")
+    for tc in t.iter(f"{{{HP}}}tc"):
+        if next(tc.iterancestors(f"{{{HP}}}tbl")) is t and int(tc.find(f"{{{HP}}}cellAddr").get("rowAddr")) < header:
+            tc.set("header", "1")
     pos = t.find(f"{{{HP}}}pos")
     if pos is not None and pos.get("treatAsChar") == "1":
         for k, v in (("treatAsChar", "0"), ("flowWithText", "1"), ("allowOverlap", "0"), ("vertRelTo", "PARA"), ("vertOffset", "0"),
@@ -373,7 +378,7 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
         t = _outer(p)[idx]
         (_resize_flat if flat else _resize_tail)(t, header, len(chunk))
         if one and len(chunk) > per:  # 쪽을 넘기는 한 표 — 줄 단위로 나뉘게
-            split_pages(t)
+            split_pages(t, header)
             cap = p.getprevious()  # 표 제목("【 부재 단면 치수 조사 결과 】")부터 새 쪽 — 앞 쪽 끝에 머리 줄만 걸리지 않게(짧은 표는 이어서)
             if cap is not None and next(cap.iter(f"{{{HP}}}tbl"), None) is None and _t(cap).strip()[:1] in ("【", "["):
                 _drop_empty_before(cap)  # 앞 빈 줄이 앞 쪽 끝에서 넘치면 쪽 나눔과 겹쳐 빈 쪽

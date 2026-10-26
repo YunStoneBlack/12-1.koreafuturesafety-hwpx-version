@@ -279,7 +279,7 @@ def fill_rebar(root, d: dict, warn: list) -> int:
         if want > 18:  # 한 쪽(견본 18개)을 넘기면 줄 단위로 나뉘게(글자처럼 취급도 끔)
             from server.sitok.seismic_fill import split_pages
 
-            split_pages(t)
+            split_pages(t, 1)
         cells = rb._cells(t)
         for j, line in enumerate(chunk):
             r = 1 + j
