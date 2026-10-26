@@ -245,6 +245,8 @@ def precheck_other(root) -> int:
                 continue
             _spanel(a).set("rowSpan", "2")
             _sz(a).set("height", str(int(_sz(a).get("height") or 0) + int(_sz(b).get("height") or 0)))
+            if b.get("borderFillIDRef"):  # 합친 칸 밑 = 아래 칸 밑(표 끝줄 굵은 선 — 10/26 사용자 "굵은선은 왜 빠져있지", 위 칸은 가운데 줄용 가는 선이었음)
+                a.set("borderFillIDRef", b.get("borderFillIDRef"))
             b.getparent().remove(b)
         n += 1
     return n
