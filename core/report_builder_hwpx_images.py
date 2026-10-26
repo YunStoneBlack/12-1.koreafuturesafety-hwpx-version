@@ -310,6 +310,11 @@ def _locate_field_cell(doc, field_name: str):
     for table in doc.tables.all:
         if table.element is not tbl_node:
             continue
+        if hwpx_fast_fields.active():  # 같은 (행, 열)을 표 지도 한 번으로(10/26 — 칸 하나 볼 때마다 지도를 새로 그리던 것)
+            pos = hwpx_fast_fields.cell_position(table, tc_node)
+            if pos is not None:
+                return table, pos[0], pos[1]
+            continue
         for r in range(table.row_count):
             for c in range(table.column_count):
                 try:
