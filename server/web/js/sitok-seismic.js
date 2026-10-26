@@ -13,6 +13,9 @@
   const hasResult = (r) => r.measured.some((x) => x) || r.unable.some((x) => x) || r.captures.some((x) => x);
   let d = null;
   let saving = null;
+  // 📷 캡처 = 윈도우 캡처 도구(10/26 민재형 "캡처 누르면 실제 캡처가 켜질 수 있는지") — 윈도우 PC만(폰·맥은 파일 고르기 그대로), 📁로 파일도
+  const SNIP = /Windows/.test(navigator.userAgent) && window.matchMedia("(pointer: fine)").matches;
+  let pendingCap = null; // 캡처 기다리는 칸 {id, i, lab, at, before, blurred}
   let sFloor = ""; // 보이는 층(""= 전체) — 폰에서 길어 층만 골라 보기(10/25 민재형·사용자 "철탐 규격 동일 적용")
   try { sFloor = sessionStorage.getItem(`ss-mf-${rid}`) || ""; } catch (_) { /* */ }
 
@@ -36,7 +39,7 @@
       <div class="sk-f"><label>조사결과</label><input data-f="measured" data-i="${i}" value="${esc(row.measured[i])}" placeholder="${isCount ? "예: 5EA" : "예: @243"}"${row.unable[i] ? " disabled" : ""} /></div>
       <div class="sk-f ss-cover"><label>피복(mm)</label><input data-f="cover" data-i="${i}" type="number" inputmode="numeric" min="0" max="300" value="${row.cover[i] ?? ""}"${row.unable[i] ? " disabled" : ""} /></div>
       <label class="ss-unable"><input type="checkbox" data-f="unable" data-i="${i}"${row.unable[i] ? " checked" : ""} /> 실측불가</label>
-      <label class="secondary-link ss-cap" title="탐사기 파형 그래프 화면 캡처 — 점 개수·간격·피복을 읽어 채움">📷 캡처<input type="file" accept="image/*" hidden data-kr-file="1" data-cap="${i}" /></label>
+      <span class="ss-cap-w"><label class="secondary-link ss-cap" title="${SNIP ? "누르면 윈도우 캡처 도구 — 탐사기 파형 화면을 끌어서 잡으면 이 칸에 붙고 점 개수·간격·피복을 읽어 채움(안 붙으면 Ctrl+V)" : "탐사기 파형 그래프 화면 캡처 — 점 개수·간격·피복을 읽어 채움"}">📷 캡처<input type="file" accept="image/*" hidden data-kr-file="1" data-cap="${i}" /></label>${SNIP ? '<span class="secondary-link ss-cap-file" role="button" tabindex="0" title="캡처 파일 고르기">📁</span>' : ""}</span>
       ${cap ? `<span class="ss-thumb-w"><a class="ss-thumb" href="${BASE}/api${URL_}/rebar/${row.id}/capture/${i}" target="_blank" rel="noopener" title="올린 캡처"><img loading="lazy" src="${BASE}/api${URL_}/rebar/${row.id}/capture/${i}?v=${encodeURIComponent(cap)}" alt="" /></a>
         <button type="button" class="ss-cap-del" data-capdel="${i}" title="캡처 지우기">✕</button></span>` : ""}
       ${bad ? '<span class="ss-diff" title="설계와 다름 — 본문에 &quot;구조도면과 실측 상이&quot;로">≠ 설계</span>' : ""}</div>`;
@@ -277,24 +280,83 @@
       }));
       el.querySelectorAll("input[data-cap]").forEach((inp) => {
         const lab = inp.closest(".ss-cap");
+        const i = Number(inp.dataset.cap);
         if (typeof enableFileDrop === "function") enableFileDrop(lab, inp); // 캡처 끌어다 놓기
-        inp.addEventListener("change", async () => {
-          if (!inp.files[0]) return;
-          const i = Number(inp.dataset.cap);
-          lab.firstChild.textContent = "📷 읽는 중…";
-          const fd = new FormData();
-          fd.append("file", inp.files[0]);
-          try {
-            d = await apiUpload(`${URL_}/rebar/${id}/capture/${i}`, fd);
-            const g = d.read || {};
-            $("ss-saved").textContent = `RC 캡처 읽음 — ${g.count ? `철근 ${g.count}개 ` : ""}${g.spacing ? `간격 @${g.spacing} ` : ""}${g.cover != null ? `피복 ${g.cover}` : ""}`;
-            showErr("");
-            draw();
-          } catch (e) { showErr(e.message); lab.firstChild.textContent = "📷 캡처"; }
-        });
+        if (SNIP) {
+          lab.addEventListener("click", (ev) => { if (ev.target === inp) return; ev.preventDefault(); startSnip(id, i, lab); });
+          lab.parentElement.querySelector(".ss-cap-file")?.addEventListener("click", () => inp.click());
+        }
+        inp.addEventListener("change", () => { if (inp.files[0]) uploadCap(id, i, lab, inp.files[0]); });
       });
     });
   }
+
+  async function uploadCap(id, i, lab, file) {
+    lab.firstChild.textContent = "📷 읽는 중…";
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      d = await apiUpload(`${URL_}/rebar/${id}/capture/${i}`, fd);
+      const g = d.read || {};
+      $("ss-saved").textContent = `RC 캡처 읽음 — ${g.count ? `철근 ${g.count}개 ` : ""}${g.spacing ? `간격 @${g.spacing} ` : ""}${g.cover != null ? `피복 ${g.cover}` : ""}`;
+      showErr("");
+      draw();
+    } catch (e) { showErr(e.message); lab.firstChild.textContent = "📷 캡처"; }
+  }
+
+  // ---- 윈도우 캡처 도구(ms-screenclip:) — 잡은 그림은 클립보드로 와서, 창으로 돌아오면 읽어 붙임(권한이 없거나 안 되면 Ctrl+V) ----
+  async function clipImage() {
+    for (const it of await navigator.clipboard.read()) {
+      const t = it.types.find((x) => x.startsWith("image/"));
+      if (t) return it.getType(t);
+    }
+    return null;
+  }
+  async function clipSig() { // 누르기 전 클립보드 그림(이미 허락했을 때만 — 옛 캡처를 잘못 붙이지 않게)
+    try {
+      if (!navigator.clipboard?.read || (await navigator.permissions.query({ name: "clipboard-read" })).state !== "granted") return null;
+      const b = await clipImage();
+      return b ? `${b.type}:${b.size}` : "";
+    } catch (_) { return null; }
+  }
+  async function startSnip(id, i, lab) {
+    const before = await clipSig();
+    pendingCap = { id, i, lab, at: Date.now(), before, blurred: false };
+    lab.firstChild.textContent = "📷 캡처 중…";
+    $("ss-saved").textContent = "탐사기 화면을 끌어서 잡으세요 — 잡으면 이 칸에 붙습니다(안 붙으면 Ctrl+V)";
+    const a = document.createElement("a");
+    a.href = "ms-screenclip:";
+    a.click();
+  }
+  window.addEventListener("blur", () => { if (pendingCap) pendingCap.blurred = true; });
+  window.addEventListener("focus", async () => {
+    const p = pendingCap;
+    if (!p || !p.blurred || Date.now() - p.at > 180000 || !navigator.clipboard?.read) return;
+    p.blurred = false;
+    for (let k = 0; k < 6; k++) { // 캡처 도구가 클립보드에 넣는 데 잠깐 걸림
+      try {
+        const b = await clipImage();
+        if (b && `${b.type}:${b.size}` !== p.before && pendingCap === p) {
+          pendingCap = null;
+          uploadCap(p.id, p.i, p.lab, new File([b], "capture.png", { type: b.type }));
+          return;
+        }
+      } catch (_) { break; } // 클립보드 읽기 허락 안 함 — Ctrl+V로
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    if (pendingCap === p) {
+      p.lab.firstChild.textContent = "📷 캡처";
+      $("ss-saved").textContent = "캡처가 안 들어왔습니다 — 잡았으면 Ctrl+V, 아니면 📷 캡처를 다시";
+    }
+  });
+  document.addEventListener("paste", (ev) => {
+    const p = pendingCap;
+    const f = p && [...(ev.clipboardData?.files || [])].find((x) => x.type.startsWith("image/"));
+    if (!f || Date.now() - p.at > 600000) return;
+    ev.preventDefault();
+    pendingCap = null;
+    uploadCap(p.id, p.i, p.lab, f);
+  });
 
   async function planSave(body) {
     $("ss-saved").textContent = "칸 맞추는 중…";

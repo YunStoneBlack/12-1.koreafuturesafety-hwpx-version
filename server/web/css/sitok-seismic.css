@@ -66,6 +66,9 @@
 .ss-line input { width: 100%; margin: 0; }
 .ss-unable { font-size: 12px; white-space: nowrap; padding-bottom: 8px; display: flex; align-items: center; gap: 4px; }
 .ss-cap { white-space: nowrap; padding-bottom: 6px; }
+.ss-cap-w { display: flex; align-items: center; gap: 4px; padding-bottom: 6px; } /* 📷 캡처 + 📁 파일(윈도우 PC, 10/26) */
+.ss-cap-w .ss-cap { padding-bottom: 0; }
+.ss-cap-file { cursor: pointer; padding-left: 10px; padding-right: 10px; }
 .ss-thumb img { display: block; height: 38px; min-width: 40px; border: 1px solid var(--line); border-radius: 4px; }
 .ss-thumb-w { position: relative; display: inline-block; align-self: center; justify-self: start; } /* 캡처 지우기 ✕(10/22) */
 .main .ss-cap-del { position: absolute; top: -8px; right: -8px; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; min-width: 0; min-height: 0;
