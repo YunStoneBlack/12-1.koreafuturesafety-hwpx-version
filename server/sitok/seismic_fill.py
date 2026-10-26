@@ -733,7 +733,8 @@ def fill_history(doc, root, f, reg: dict) -> int:
             _set(cells, (1, 0), f.name.split()[-1] if f.name else "본관")
             for j, x in enumerate(floors):
                 fl = str(x.get("floor", ""))
-                fl = f"지하{fl[1:]}층" if re.fullmatch(r"지\d+", fl) else fl
+                m = re.fullmatch(r"지(\d+)층?", fl)  # 대장 표기 "지1"·"지1층" → 지하1층
+                fl = f"지하{m.group(1)}층" if m else fl
                 _set(cells, (1 + j, 1), fl)
                 _set(cells, (1 + j, 2), _fmt(x.get("area"), 2))
                 _set(cells, (1 + j, 3), use)
