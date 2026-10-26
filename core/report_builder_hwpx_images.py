@@ -283,11 +283,17 @@ def _parse_cell_addr(addr: str) -> tuple[int, int]:
 def _locate_field_cell(doc, field_name: str):
     """`field_name` 누름틀 필드가 들어있는 (table, row, col)을 찾는다 — 필드가 없거나
     표 안에 없으면 None."""
-    field = next((f for f in doc.fields.all if f.name == field_name), None)
-    if field is None:
-        return None
+    from core import hwpx_fast_fields
 
-    node = field.element
+    if hwpx_fast_fields.active():  # 같은 첫 칸을 빠르게(10/26 — 앞에서부터 보다 처음 맞으면 멈춤)
+        node = hwpx_fast_fields.first_field_begin(doc, field_name)
+        if node is None:
+            return None
+    else:
+        field = next((f for f in doc.fields.all if f.name == field_name), None)
+        if field is None:
+            return None
+        node = field.element
     tc_node = None
     tbl_node = None
     while node is not None:

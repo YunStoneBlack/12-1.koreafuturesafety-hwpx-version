@@ -20,6 +20,7 @@ from core.constants import (
     MEASUREMENT_INSTRUMENTS,
     display_measurement_standard,
 )
+from core import hwpx_fast_fields
 from core.db import SessionLocal
 from core.models_db import MeasurementStandard, Report, Site
 from core.report_builder_hwpx_images import _cell_inner_box, _locate_field_cell
@@ -30,7 +31,10 @@ def _put(doc, field_name: str, value: str) -> None:
     `field_exist()` 가드 — 표6의 16·17번처럼 애초에 필드가 없는 자리가 있다).
     """
     try:
-        doc.fill_form_field(value or "", name=field_name)
+        if hwpx_fast_fields.active():  # 같은 결과를 빠르게(10/26 — 칸마다 문서 전체 두 번 훑던 것, core/hwpx_fast_fields.py)
+            hwpx_fast_fields.fill_by_name(doc, field_name, value or "")
+        else:
+            doc.fill_form_field(value or "", name=field_name)
     except Exception:
         pass
 

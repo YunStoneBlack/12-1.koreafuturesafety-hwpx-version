@@ -31,11 +31,17 @@ def _local_name(tag) -> str:
 
 def _find_table_by_field(doc, field_name: str):
     """`field_name` 누름틀 필드가 들어있는 표(`HwpxOxmlTable`) 자체를 찾는다."""
-    field = next((f for f in doc.fields.all if f.name == field_name), None)
-    if field is None:
-        return None
+    from core import hwpx_fast_fields
 
-    node = field.element
+    if hwpx_fast_fields.active():  # 같은 첫 칸을 빠르게(10/26)
+        node = hwpx_fast_fields.first_field_begin(doc, field_name)
+        if node is None:
+            return None
+    else:
+        field = next((f for f in doc.fields.all if f.name == field_name), None)
+        if field is None:
+            return None
+        node = field.element
     tbl_node = None
     while node is not None:
         if _local_name(node.tag) == "tbl":
