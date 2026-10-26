@@ -300,6 +300,26 @@ BRICK_PHOTOS = """학교 건물 정기안전점검 보고서 "1.7 제3종시설�
 보이지 않는 결함을 지어내지 말 것. 보고서 문어체. 머리말 없이 글만."""
 
 
+BRICK_GRADE = """학교 건물 외벽 치장벽돌 결함 사진입니다. 아래 상태등급 기준(교육부 제3종시설물 외부 치장벽돌 안전점검)으로 이 결함의 상태등급을 2~5 중 하나로 정하세요.
+2 = 치장벽돌에 경미한 결함(줄눈 균열·탈락 등)이 발생하였으나, 안전에는 지장이 없고 내구성 증진을 위하여 보수가 필요한 상태
+3 = 치장벽돌에 경미한 결함(줄눈 균열·탈락 등)이 발생하였으며, 안전성·기능성·내구성 증진을 위하여 보강이 필요한 상태
+4 = 치장벽돌에 심각한 결함(배부름, 균열, 탈락 등)이 발생하여 교체가 필요한 상태
+5 = 치장벽돌에 심각한 결함(배부름, 균열, 탈락 등)에 따른 안전에 위험이 있어 즉시 교체가 필요한 상태
+[결함 기록] {info}
+사진에서 보이는 것만으로 판단하고, 애매하면 낮은 쪽(덜 심각한 쪽)으로. JSON 한 개만: {{"grade": 2~5 정수, "why": "근거 한 문장(40자 안팎, 보고서 문어체)"}}"""
+
+
+def brick_grade(company_id: int, photo: bytes, info: str) -> tuple[int, str]:
+    """치장벽돌 결함 사진 → (상태등급 2~5, 근거 한 문장)(10/26 민재형 "교체인지 보수인지는 AI 판단, 점검자가 변경 가능"). 못 읽으면 ValueError."""
+    from server.sitok import vision
+
+    got = vision.ask_json(company_id, [photo], BRICK_GRADE.format(info=info or "-"), max_tokens=1500, effort="low")
+    grade = int((got or {}).get("grade") or 0)
+    if grade not in (2, 3, 4, 5):
+        raise ValueError(f"AI 등급을 못 읽었습니다: {got!r}"[:120])
+    return grade, str((got or {}).get("why") or "").strip()[:120]
+
+
 def brick_note(company_id: int, facility: str, defects: list, photos: list) -> tuple[str, str]:
     """1.7 외부 치장벽돌 특이사항(3종학교, 10/23 사용자 "치장벽돌 결함조사에 결함이 있으면 AI 작성에 반영, 상태양호 칸 치장벽돌이면
     상태양호 사진으로 분석") → (글, 근거 "defects"|"photos"|""). 둘 다 없으면 AI를 부르지 않고 ("", "")."""

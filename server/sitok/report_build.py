@@ -1295,10 +1295,22 @@ def _brick_table(root, base: dict) -> int:
             notes = [r for (r, c), tc in cells.items() if re.sub(r"\s", "", _cell_text(tc)) == "특이사항"]
             if not heads or not notes:
                 continue
+            # 값 = base["brick_cells"](good.brick_cells — 구성·결함 등급, 10/26), 칸 = 머리 0줄 "수직 연속"·"층간 구분" 시작 칸부터 보유·교체 실수·등급·보강 실수·등급
+            vals_b = base.get("brick_cells") or {}
+            col = {0: "A"}
             for (r, c), tc in cells.items():
-                if max(heads) < r < min(notes) and _cell_text(tc).strip() != "-":
-                    _set_lines(tc, ["-"])
-                    n += 1
+                h = re.sub(r"\s", "", _cell_text(tc))
+                if r == 0 and h.startswith("수직"):
+                    col.update({c + i: k for i, k in enumerate(("B", "C", "Cg", "D", "Dg"))})
+                elif r == 0 and h.startswith("층간"):
+                    col.update({c + i: k for i, k in enumerate(("E", "F", "Fg", "G", "Gg"))})
+            first = min((r for (r, c) in cells if max(heads) < r < min(notes)), default=None)
+            for (r, c), tc in cells.items():
+                if max(heads) < r < min(notes):
+                    v = (vals_b.get(col.get(c, "")) if r == first else None) or "-"
+                    if _cell_text(tc).strip() != v:
+                        _set_lines(tc, [v])
+                        n += 1
     for p in tops[start:end]:
         if next(p.iter(f"{{{HP}}}tbl"), None) is None and "치장벽돌이 없는 것으로" in _top_text(p):
             p.getparent().remove(p)

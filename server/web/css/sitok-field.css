@@ -323,3 +323,20 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, .3); cursor: pointer; z-index: 2; }
 .main .sf-rot:hover { background: var(--blue); }
 .main .sf-rot:disabled { opacity: .7; cursor: default; }
+/* 치장벽돌 결함 줄(10/26 민재형) — 구분·상태등급·AI */
+.sf-brick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 0 34px; padding: 6px 10px; border: 1px solid #f0c9a8; border-radius: 8px; background: #fff7f0; font-size: 13px; }
+.sf-brick > b { color: #b45309; }
+.sf-seg { display: inline-flex; }
+.main .sf-seg button { margin: 0; padding: 4px 10px; font-size: 12.5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 0; }
+.main .sf-seg button:first-child { border-radius: 6px 0 0 6px; }
+.main .sf-seg button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
+.main .sf-seg button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.main .sf-brick select { width: auto; margin: 0; padding: 4px 8px; font-size: 13px; }
+.main .sf-brick .sf-bai { margin: 0; padding: 4px 10px; font-size: 12.5px; }
+.sf-bwhy { color: var(--muted); font-size: 12px; flex-basis: 100%; }
+@media (max-width: 600px) { .sf-brick { margin-left: 0; } }
+/* 상태양호 외부 치장벽돌 구성(10/26) */
+.gd-kinds { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; }
+.main .gd-kinds button { margin: 0; padding: 4px 10px; font-size: 12.5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; font-weight: 600; }
+.main .gd-kinds button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.gd-kind-need { margin: 4px 0 8px; padding: 6px 10px; border-radius: 8px; background: var(--warn-soft, #fff4e5); color: var(--warn, #b45309); font-size: 12.5px; font-weight: 600; }

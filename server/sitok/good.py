@@ -30,6 +30,65 @@ def is_brick(d: dict) -> bool:
 
 
 BRICK_NA_TEXT = "해당없음(치장벽돌 마감 없음)"  # 상태양호 [외부 치장벽돌] [해당없음] — 1.7 특이사항(10/26 민재형)
+# 치장벽돌 구성·결함 등급(10/26 민재형 2.7 기준표 — 1) 상태등급 분류 기준, 2) 수직연속·층간구분)
+BRICK_TYPES = ("수직연속", "층간구분")
+BRICK_KINDS = {"none": (), "vertical": ("수직연속",), "story": ("층간구분",), "both": ("수직연속", "층간구분")}
+BRICK_GRADES = {2: "보수", 3: "보강", 4: "교체", 5: "즉시 교체"}  # 결함 등급(1 = 문제없는 최상 — 결함이 없을 때)
+
+
+def brick_letter(completion_year: int | None, year: int) -> str:
+    """상태등급 소분류 — 노후도(준공년도 기준): 20년 미만 A, 20년 이상~25년 미만 B, 25년 이상 C. 준공년도를 모르면 ""."""
+    if not completion_year:
+        return ""
+    age = year - completion_year
+    return "A" if age < 20 else "B" if age < 25 else "C"
+
+
+def _num(s) -> float:
+    try:
+        return float(str(s or "").replace(",", "").strip())
+    except ValueError:
+        return 0.0
+
+
+def _fmt(n: float) -> str:
+    return "-" if not n else (str(int(n)) if float(n).is_integer() else f"{n:g}")
+
+
+def brick_cells(defects: list, kind: str | None, completion_year: int | None, year: int) -> tuple[dict, list[str]]:
+    """1.7 외부 치장벽돌 점검 현황 표 값 줄 {A 전체, B 수직 보유, C 수직 교체 실수, Cg 등급, D 수직 보강(보수) 실수, Dg 등급, E 층간 보유, F·Fg·G·Gg} + 안내.
+    구성에 없는 쪽 "-", 있는 쪽: 결함(보수 완료 뺌)의 등급 4~5 = 교체, 2~3 = 보강(보수), 실수 = 개소 합, 등급 = 결함이 없으면 1 아니면 가장 나쁜 것 + 소분류,
+    교체·보강(보수) 상태등급 두 칸에 같은 등급(사용자 10/26 "두 칸에 같은 등급"). 구성을 안 골랐으면 ({}, 안내) — 표는 "-"."""
+    types = BRICK_KINDS.get(kind or "")
+    if types is None:
+        return {}, ["치장벽돌 구성을 안 골라 1.7 실수·상태등급이 \"-\" — 상태양호 탭 [외부 치장벽돌]에서 해당없음·수직연속만·층간구분만·둘 다 중 고르세요"]
+    warn: list[str] = []
+    letter = brick_letter(completion_year, year)
+    if types and not letter:
+        warn.append("준공년도가 없어 1.7 치장벽돌 상태등급에 소분류(A~C)를 못 붙였습니다 — 시설물 정보에 준공일을 넣으세요")
+    bricks = [d for d in defects if is_brick({"part": d.part, "member": d.member, "dtype": d.dtype, "note": d.note}) and d.check != "repaired"]
+    ok = [d for d in bricks if (d.brick or {}).get("type") in BRICK_TYPES and int((d.brick or {}).get("grade") or 0) in BRICK_GRADES]
+    if len(ok) < len(bricks):
+        warn.append(f"치장벽돌 결함 {len(bricks) - len(ok)}개에 수직연속/층간구분·상태등급이 없어 1.7 표에 안 셌습니다 — 현장 조사 결함 카드에서 고르세요")
+    out: dict = {}
+    total, has = 0.0, False
+    for t, (own, rep, rep_g, fix, fix_g) in (("수직연속", ("B", "C", "Cg", "D", "Dg")), ("층간구분", ("E", "F", "Fg", "G", "Gg"))):
+        if t not in types:
+            for k in (own, rep, rep_g, fix, fix_g):
+                out[k] = "-"
+            n_out = sum(1 for d in ok if d.brick["type"] == t)
+            if n_out:
+                warn.append(f"치장벽돌 구성에 {t}이 없는데 {t} 결함 {n_out}개가 있어 1.7 표에 안 셌습니다 — 구성이나 결함 구분을 고치세요")
+            continue
+        ds = [d for d in ok if d.brick["type"] == t]
+        r = sum(_num(d.count) for d in ds if int(d.brick["grade"]) >= 4)
+        f = sum(_num(d.count) for d in ds if int(d.brick["grade"]) <= 3)
+        g = f"{max([int(d.brick['grade']) for d in ds] or [1])}{letter}"
+        out.update({own: _fmt(r + f), rep: _fmt(r), rep_g: g, fix: _fmt(f), fix_g: g})
+        total += r + f
+        has = True
+    out["A"] = _fmt(total) if has else "-"
+    return out, warn
 
 
 def brick_photos(sv: dict | None, base: Path) -> list[Path]:
@@ -54,7 +113,8 @@ def norm(sv: dict | None, fam: str = "") -> dict:
     se = sv.get("seismic") or {}
     rows = [{"mark": r.get("mark") if r.get("mark") in ("○", "×") else "", "text": str(r.get("text") or "").strip(), "action": str(r.get("action") or "").strip()}
             for r in (se.get("rows") or []) if isinstance(r, dict)][:len(SEISMIC_ITEMS)]
-    return {"good": good, "steel_na": bool(sv.get("steel_na")), "brick_na": bool(sv.get("brick_na")),
+    kind = sv.get("brick_kind") if sv.get("brick_kind") in BRICK_KINDS else ("none" if sv.get("brick_na") else None)
+    return {"good": good, "steel_na": bool(sv.get("steel_na")), "brick_na": kind == "none", "brick_kind": kind,
             "seismic": {"none": bool(se.get("none")), "photos": [str(x or "") for x in (se.get("photos") or [])][:2] + [""] * max(0, 2 - len((se.get("photos") or [])[:2])),
                         "rows": rows, "opinion": str(se.get("opinion") or "").strip(), "at": str(se.get("at") or "")}}
 

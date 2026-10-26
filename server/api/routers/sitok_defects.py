@@ -128,6 +128,7 @@ def _out(d: SitokDefect) -> dict:
             "has_prev_photo": bool(d.prev_photo and Path(d.prev_photo).exists()), "starred": d.starred,
             "prev_v": int(Path(d.prev_photo).stat().st_mtime) if d.prev_photo and Path(d.prev_photo).exists() else 0,  # 사진 주소 ?v= — 파일이 바뀌면 새로 받게(10/20 사진 바로잡기)
             "checked_by": d.checked_by,
+            "brick": d.brick or None, "is_brick": _is_brick(d),  # 치장벽돌 결함 — 카드에 수직연속/층간구분·상태등급(10/26)
             "ts": max(int(d.checked_at.timestamp()) if d.checked_at else 0,  # 이번 사진 주소 ?t= — 사진을 돌리면(파일 시각) 새로 받게(10/23)
                       int(Path(d.photo).stat().st_mtime) if d.photo and Path(d.photo).exists() else 0)}
 
@@ -633,6 +634,12 @@ def clear(report_id: int, force: bool = False, user: User = Depends(get_current_
     return {"ok": True}
 
 
+def _is_brick(d: SitokDefect) -> bool:
+    from server.sitok import good as G
+
+    return G.is_brick({"part": d.part, "member": d.member, "dtype": d.dtype, "note": d.note})
+
+
 class DefectIn(BaseModel):
     floor: str | None = None
     part: str | None = None
@@ -651,6 +658,7 @@ class DefectIn(BaseModel):
     starred: bool | None = None
     ai_guess: dict | None = None  # [+ 신규] 사진 AI 첫 추천 {part, member, dtype, token} — 교정 기록(server/sitok/learn.py, 10/12)
     client_key: str | None = None  # [+ 신규] 창마다 하나 — 신호가 약해 응답만 못 받고 [추가]를 다시 눌러도 두 번 안 생기게(10/22)
+    brick: dict | None = None  # 치장벽돌 결함 {type: 수직연속|층간구분, grade: 2~5}(10/26 — 점검자가 고친 것, 비운 값은 지움)
 
 
 NEW_KEYS: dict[str, tuple[int, float]] = {}  # 신규 결함 client_key → (결함 id, 시각) — 1시간 기억(API 메모리, 재시작하면 비움)
@@ -666,6 +674,22 @@ def _require(db: Session, user: User, defect_id: int) -> tuple[SitokDefect, Sito
 def _apply(d: SitokDefect, body: DefectIn, user: User, bases: tuple[float, float] | None = None, allowed: dict | None = None) -> None:
     data = body.model_dump(exclude_unset=True)
     data.pop("ai_guess", None)  # 결함 칸이 아님 — add_defect가 따로
+    if "brick" in data:  # 치장벽돌 구분·등급(10/26) — 점검자가 등급을 고치면 by = 이름(AI 근거는 지움)
+        from server.sitok import good as G
+
+        b = dict(d.brick or {})
+        nb = data.pop("brick") or {}
+        if "type" in nb:
+            if nb["type"] not in (*G.BRICK_TYPES, "", None):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "치장벽돌 구분은 수직연속·층간구분 중 하나입니다.")
+            b["type"] = nb["type"] or ""
+        if "grade" in nb:
+            g = int(nb["grade"] or 0)
+            if g and g not in G.BRICK_GRADES:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "치장벽돌 상태등급은 2~5입니다.")
+            if g != int(b.get("grade") or 0):
+                b.update({"grade": g or None, "by": (user.display_name or "점검자") if g else "", "why": ""})
+        d.brick = {k: v for k, v in b.items() if v not in ("", None)} or None
     if "check" in data and data["check"] not in CHECKS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "확인 값이 올바르지 않습니다.")
     for k in ("member", "dtype") if allowed else ():  # 고정 목록(바꿀 때만 — 지난 보고서에서 온 목록 밖 값은 그대로 둘 수 있음)
@@ -695,6 +719,27 @@ def _apply(d: SitokDefect, body: DefectIn, user: User, bases: tuple[float, float
         d.qty = calc_qty(d.dtype, d.count, d.width, d.length) or d.qty
         if bases is not None and d.check in ("grew", "new"):  # 크기를 새로 잰 것만 다시(그대로·전회차 값은 전회차 면적률 유지)
             d.area_ratio = calc_ratio(d.dtype, d.member, d.count, d.width, d.length, bases) or d.area_ratio
+
+
+@router.post("/defects/{defect_id}/brick-ai")
+def brick_ai(defect_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """치장벽돌 결함 사진(이번, 없으면 전회차)을 AI가 보고 상태등급 2~5(보수·보강·교체·즉시 교체) — 점검자가 바꿀 수 있음(10/26 민재형)."""
+    from server.sitok import ai_draft
+
+    d, r = _require(db, user, defect_id)
+    if not _is_brick(d):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "치장벽돌 결함이 아닙니다 — 부재를 치장벽돌로 고른 결함만 됩니다.")
+    path = next((Path(p) for p in (d.photo, d.prev_photo) if p and Path(p).exists()), None)
+    if path is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "사진이 없습니다 — 결함 사진을 먼저 찍으세요.")
+    info = f"{d.floor} {d.seq}번 · {d.member} · {d.dtype} · 개소 {d.count or '-'} · 폭 {d.width or '-'} · 길이 {d.length or '-'}"
+    try:
+        grade, why = ai_draft.brick_grade(user.company_id, path.read_bytes(), info)
+    except Exception as e:  # noqa: BLE001 — 화면에 안내(400 — 5xx면 nginx 화면)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"AI 등급 판단을 못 했습니다: {str(e)[:120]}") from e
+    d.brick = {**(d.brick or {}), "grade": grade, "by": "AI", "why": why}
+    db.commit()
+    return _out(d)
 
 
 @router.post("/reports/{report_id}/defects")

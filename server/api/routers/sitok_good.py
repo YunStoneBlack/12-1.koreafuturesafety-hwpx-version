@@ -31,7 +31,7 @@ def _base(db: Session, r: SitokReport) -> Path:
 
 
 def _save(r: SitokReport, g: dict) -> None:
-    r.survey = {**(r.survey or {}), "good": g["good"], "steel_na": g["steel_na"], "brick_na": g["brick_na"], "seismic": g["seismic"]}
+    r.survey = {**(r.survey or {}), "good": g["good"], "steel_na": g["steel_na"], "brick_na": g["brick_na"], "brick_kind": g["brick_kind"], "seismic": g["seismic"]}
 
 
 def _out(db: Session, r: SitokReport) -> dict:
@@ -57,7 +57,7 @@ def _out(db: Session, r: SitokReport) -> dict:
                       "photos": [{"idx": i, "title": x["title"], "prev": bool(x.get("prev"))} for i, x in enumerate(g["good"][k]) if (base / x["file"]).exists()]}
                      for k, name in G.cats_for(fam, school)],
             "fam": fam, "per": G.PER, "steel_na": g["steel_na"], "steel_text": G.STEEL_NA_TEXT, "school": (f.template or "") == "3종학교",
-            "brick_na": g["brick_na"], "brick_text": G.BRICK_NA_TEXT,
+            "brick_na": g["brick_na"], "brick_text": G.BRICK_NA_TEXT, "brick_kind": g["brick_kind"],
             "seismic": {"none": se["none"], "photos": [bool(x and (base / x).exists()) for x in se["photos"]], "rows": se["rows"], "opinion": se["opinion"],
                         "at": se["at"], "items": G.SEISMIC_ITEMS}}
 
@@ -163,12 +163,22 @@ def steel_na(report_id: int, body: SteelIn, user: User = Depends(get_current_use
     return _out(db, r)
 
 
+class BrickIn(BaseModel):
+    na: bool | None = None  # 예전 화면(해당없음 켜고 끄기)
+    kind: str | None = None  # none(해당없음)·vertical(수직연속만)·story(층간구분만)·both(둘 다), ""면 안 고름
+
+
 @router.post("/reports/{report_id}/good/brick")
-def brick_na(report_id: int, body: SteelIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """외부 치장벽돌 해당없음(치장벽돌 마감이 없는 건물, 10/26 민재형) — AI 초안이 치장벽돌 사진을 안 보고, 1.7 실수·등급 "-"·특이사항 해당없음."""
+def brick_na(report_id: int, body: BrickIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """외부 치장벽돌 구성(10/26 민재형) — 해당없음(마감 없음: AI 초안이 사진을 안 보고 1.7 "-"·특이사항 해당없음)·수직연속만·층간구분만·둘 다
+    (1.7 표에서 없는 쪽 "-", 있는 쪽은 결함 등급, good.brick_cells)."""
     r = _require(db, user, report_id)
     g = G.norm(r.survey)
-    g["brick_na"] = body.na
+    kind = body.kind if body.kind is not None else ("none" if body.na else "")
+    if kind not in (*G.BRICK_KINDS, ""):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "치장벽돌 구성이 올바르지 않습니다.")
+    g["brick_kind"] = kind or None
+    g["brick_na"] = kind == "none"
     _save(r, g)
     db.commit()
     return _out(db, r)

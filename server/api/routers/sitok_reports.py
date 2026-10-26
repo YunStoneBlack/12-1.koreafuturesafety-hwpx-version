@@ -2292,6 +2292,17 @@ def _brick_text(r: SitokReport, ex: rb.Extras) -> str:
     return str((ex.ai or {}).get("brick") or "").strip()
 
 
+def _brick_cells(db: Session, r: SitokReport, f: SitokFacility) -> tuple[dict, list[str]]:
+    """1.7 치장벽돌 점검 현황 표 값(3종학교만) — 상태양호 구성 + 이 회차 치장벽돌 결함 등급(good.brick_cells, 10/26)."""
+    from core.models_web import SitokDefect
+    from server.sitok import good as G
+
+    if f.template != "3종학교":
+        return {}, []
+    defects = db.query(SitokDefect).filter(SitokDefect.report_id == r.id).all()
+    return G.brick_cells(defects, G.norm(r.survey)["brick_kind"], f.completion_date.year if f.completion_date else None, r.year)
+
+
 def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, prior: Path | None, pv: rb.Values | None) -> list[str]:
     """회사 원본의 시설물 고유 내용(표지·위치도·전경·일반현황·결과표 고정 칸·1.2.6·1.2.7·1.1/1.2·결과표 글·1.3·1.4)을 이 시설물 것으로 —
     전회차 보고서가 있으면 그 데이터, 없으면(처음 맡는 시설물) 비우거나 안내. 경고(채워야 할 것)를 돌려줌."""
@@ -2340,6 +2351,7 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
               "종별": class_label(f) if f.legal else "해당없음"}  # 법정 외(자체 점검) = 해당없음(사용자 10/12), 1종은 시설물 종별 칸(10/20)
     if c is not None:
         result.update({"공동수급": f"{c.joint_type} {c.joint_pct}%".strip(), "계약방법": c.bid_method})
+    brick_cells, brick_warn = _brick_cells(db, r, f)  # 1.7 치장벽돌 실수·상태등급(10/26)
     ex.base = {"map": str(mp) if mp else "", "cover": ov[0][0] if ov else "", "has_overview": bool(ov), "name": f.name,
                "short": f.name.split()[-1] if " " in f.name else f.name, "year": f"{f.completion_date.year}년" if f.completion_date else "-",
                "floors": floors or "-", "area": f"{f.total_area:,.2f}㎡" if f.total_area else "-", "structure": f.structure or "-",
@@ -2347,6 +2359,7 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
                "history": history, "repairs": repairs, "result": result, "school": f.template == "3종학교", "legal": f.legal,
                "fms": f.fms_no or "-", "floors_txt": (f"지상{f.floors_above}층" if f.floors_above else "-") + (f", 지하{f.floors_below}층" if f.floors_below else ""),
                "brick": _brick_text(r, ex),  # 1.7 치장벽돌 특이사항(AI 초안·창에서 고친 것, 10/23 — 상태양호 [해당없음]이면 고정 글, 10/26)
+               "brick_cells": brick_cells,  # 1.7 점검 현황 표 실수·상태등급(구성·결함 등급, 10/26)
                "target": {"owner": f.owner_name or (pv.owner if pv else "") or "-", "name": f.name, "use": f.use_type or f.main_use or "-",
                           "year": str(f.completion_date.year) if f.completion_date else "-", "area": f"{f.total_area:,.2f}" if f.total_area else "-",
                           "floors": (f"-{f.floors_below}/{f.floors_above}" if f.floors_below else str(f.floors_above or "-")),
@@ -2374,8 +2387,5 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
     if f.template == "3종학교":  # 1.7 — 건축물 개요는 시설물 값, 특이사항은 AI 초안(치장벽돌 결함·상태양호 사진), 실수·상태등급은 "-"(10/26 — 원본 값 지움)
         if not ex.base["brick"]:
             warn.append("1.7 치장벽돌 특이사항이 비어 \"-\"로 넣었습니다 — 치장벽돌이 있으면 상태양호 탭 [외부 치장벽돌]에 찍고 AI 초안을 다시, 없으면 [해당없음]")
-        from server.sitok.good import BRICK_NA_TEXT
-
-        if ex.base["brick"] != BRICK_NA_TEXT:
-            warn.append("1.7 치장벽돌 점검 현황 표의 실수·상태등급은 아직 자동이 아니라 \"-\" — 치장벽돌이 있으면 손으로 확인하세요")
+        warn += brick_warn  # 1.7 실수·상태등급 — 구성을 안 골랐거나 결함에 구분·등급이 없을 때(10/26)
     return warn

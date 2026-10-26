@@ -452,7 +452,7 @@
         <button type="button" class="sf-edit" title="구분·부재·결함유형 고치기">✏️</button>
         <button type="button" class="sf-star${d.starred ? " on" : ""}" title="비교 사진대장에 꼭 넣기">★</button>
         <button type="button" class="sf-trash" title="이 결함 지우기 — 같은 ${esc(unit())} 뒤 번호가 하나씩 당겨집니다">🗑</button></div>
-      ${prev}${nowLine}
+      ${prev}${nowLine}${brickRow(d)}
       <div class="sf-photos">
         <figure>${pPrev ? `<label class="sf-prev-up"><img src="${pPrev.url}" alt="전회차" />${pend(pPrev)}<input type="file" accept="image/*" hidden data-kr-file="1" /></label>`
           : d.has_prev_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/prev?v=${d.prev_v || 0}${turnTag(d, "prev")}" alt="전회차" loading="lazy" />
@@ -520,10 +520,20 @@
         fd.append("file", file.files[0]);
         await apiUploadSafe(`/sitok/defects/${d.id}/photo`, fd, { key: `defect:${d.id}:now`, label: `${d.floor} ${d.seq}번 ${d.dtype} 이번 사진` }); // 신호 약하면 폰에 보관(10/22)
         if (!d.check) await autoCheck(d); // 10/14 형: 전회차가 있으면 사진 들어가면 바로 비교, 진행 추천이 아니면 자동 "그대로"
+        if (d.is_brick && !(d.brick && d.brick.grade)) await brickAi(d).catch(() => {}); // 치장벽돌 결함 — 사진이 들어가면 AI 등급(못 하면 그냥, 10/26)
         refresh(false);
       } catch (e) { err(e); el.classList.remove("busy"); }
     });
     enableFileDrop(el.querySelector(".sf-shot"), file);
+    // 치장벽돌 줄(10/26) — 구분·등급 저장, 🤖 AI 등급
+    el.querySelectorAll(".sf-btype").forEach((b) => b.addEventListener("click", () => save({ brick: { type: b.dataset.t } })));
+    el.querySelector(".sf-bgrade")?.addEventListener("change", (e) => save({ brick: { grade: Number(e.target.value) || 0 } }));
+    el.querySelector(".sf-bai")?.addEventListener("click", async (ev) => {
+      const b = ev.currentTarget;
+      b.disabled = true;
+      b.textContent = "🤖 보는 중…";
+      try { await brickAi(d); refresh(false); } catch (e) { err(e); b.disabled = false; b.textContent = "🤖 다시"; }
+    });
     // 사진 위 [↻] — 오른쪽 90도(원본 파일, 서버 POST /sitok/rotate — 크게 보기 창의 ↻와 같음), 돌린 뒤 새로 읽게 주소에 돌린 시각(10/26 민재형)
     el.querySelectorAll(".sf-rot").forEach((b) => b.addEventListener("click", async (ev) => {
       ev.preventDefault();
@@ -824,6 +834,20 @@
       document.getElementById("sf-title").textContent = "외관조사(결함)";
     }
   }
+
+  // 치장벽돌 결함 줄(10/26 민재형) — [수직연속 / 층간구분] + 상태등급(2 보수·3 보강·4 교체·5 즉시 교체, AI가 사진으로 → 점검자가 바꿈) → 1.7 표
+  const BRICK_G = [["", "등급 —"], [2, "2 보수"], [3, "3 보강"], [4, "4 교체"], [5, "5 즉시 교체"]];
+  const brickRow = (d) => {
+    if (!d.is_brick) return "";
+    const b = d.brick || {};
+    const by = b.grade ? (b.by === "AI" ? `🤖 AI${b.why ? ` — ${esc(b.why)}` : ""}` : `✍ ${esc(b.by || "")} 고침`) : (d.has_photo || d.has_prev_photo ? "사진을 AI가 보고 정합니다" : "사진을 찍으면 AI가 정합니다");
+    return `<div class="sf-brick"><b>치장벽돌</b>
+      <span class="sf-seg">${["수직연속", "층간구분"].map((t) => `<button type="button" class="sf-btype${b.type === t ? " on" : ""}" data-t="${t}">${t}</button>`).join("")}</span>
+      <select class="sf-bgrade" aria-label="치장벽돌 상태등급">${BRICK_G.map(([v, l]) => `<option value="${v}"${String(b.grade || "") === String(v) ? " selected" : ""}>${l}</option>`).join("")}</select>
+      ${d.has_photo || d.has_prev_photo ? `<button type="button" class="secondary sf-bai">🤖 ${b.grade ? "다시" : "AI 등급"}</button>` : ""}
+      <small class="sf-bwhy">${by}</small></div>`;
+  };
+  const brickAi = async (d) => { await apiPost(`/sitok/defects/${d.id}/brick-ai`, {}); };
 
   // 사진 위 [↻] 돌리기(10/26) — 돌린 사진은 주소 끝에 돌린 시각을 붙여 옛 사진이 캐시로 안 보이게
   const turned = {};

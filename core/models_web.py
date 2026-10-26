@@ -739,6 +739,7 @@ class SitokDefect(Base):
     checked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     # 사진 AI 첫 추천 {part, member, dtype, thumb}(0038) — 점검자가 다르게 저장하면 회사 교정 기록(SitokCorrection)으로, server/sitok/learn.py
     ai_guess: Mapped[dict | None] = mapped_column(JSON, default=None)
+    brick: Mapped[dict | None] = mapped_column(JSON, default=None)  # 치장벽돌 결함 {type 수직연속|층간구분, grade 2~5, by, why}(0066, 10/26)
 
 
 class SitokDocContract(Base):
