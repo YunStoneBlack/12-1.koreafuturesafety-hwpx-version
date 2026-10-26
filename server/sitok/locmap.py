@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 TILE = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 UA = "KFSC-sitok-report/1.0"  # OSM 타일 이용 규칙 — 앱 이름
-ZOOM = 16
+ZOOM = 17  # 기본 확대 단계 = 시설물 화면 지도가 핀·주소로 여는 단계(10/26 형 "화면과 보고서 위치도 축척 상이" — 전엔 16), 핀 저장 때 화면 단계를 같이 저장하면 그 단계
 FONT = "C:/Windows/Fonts/malgunbd.ttf"
 
 
@@ -63,8 +63,8 @@ def render(lat: float, lng: float, name: str, w: int = 1200, h: int = 900, z: in
 UPLOADED = "위치도_올린것.jpg"  # 점검자가 밖에서 만들어 올린 위치도(옹벽, 10/21 형 방법1) — 있으면 이게 우선
 
 
-def map_for(address: str, name: str, folder: Path, latlng: tuple[float, float] | None = None) -> Path | None:
-    """위치도 그림 파일(없으면 만듦) — latlng(점검자가 핀을 끌어 둔 좌표, 10/21 형 방법2)가 있으면 그 자리, 없으면 주소를 좌표로.
+def map_for(address: str, name: str, folder: Path, latlng: tuple[float, float] | None = None, z: int = ZOOM) -> Path | None:
+    """위치도 그림 파일(없으면 만듦) — latlng(점검자가 핀을 끌어 둔 좌표, 10/21 형 방법2)가 있으면 그 자리, 없으면 주소를 좌표로. z = 확대 단계(화면과 같게).
     좌표를 못 찾거나 지도를 못 받으면 None."""
     from server.api import geocode
 
@@ -74,6 +74,8 @@ def map_for(address: str, name: str, folder: Path, latlng: tuple[float, float] |
         key = address
     else:
         return None
+    if z != 16:  # 파일 이름에 확대 단계 — 전에 16으로 만들어 둔 그림을 다시 쓰지 않게(16은 예전 이름 그대로)
+        key += f"|z{z}"
     p = folder / f"위치도_{hashlib.md5((key + name).encode()).hexdigest()[:8]}.jpg"
     if p.exists():
         return p
@@ -85,12 +87,21 @@ def map_for(address: str, name: str, folder: Path, latlng: tuple[float, float] |
             return None
         lat, lng = g[0], g[1]
     try:
-        data = render(lat, lng, name)
+        data = render(lat, lng, name, z=min(z + 1, 19))  # 그림(가로 1200px)은 화면 지도(약 600px)의 두 배 — 한 단계 더 확대해야 화면에서 보던 넓이와 같음(10/26)
     except Exception:  # noqa: BLE001 — 지도 서버가 안 되면 틀 그림 그대로
         return None
     folder.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
     return p
+
+
+def zoom_of(f) -> int:
+    """위치도 확대 단계 — 핀 저장 때 화면 지도 단계(ledger.wall.zoom, 10/26), 없으면 기본(화면이 여는 단계)."""
+    try:
+        z = int((((f.ledger or {}).get("wall") or {}).get("zoom")) or 0)
+    except (TypeError, ValueError):
+        z = 0
+    return z if 10 <= z <= 19 else ZOOM
 
 
 def pin_of(f) -> tuple[float, float] | None:
@@ -107,7 +118,7 @@ def facility_map(f, folder: Path) -> Path | None:
     up = folder / UPLOADED
     if up.exists():
         return up
-    return map_for(f.address or "", f.name, folder, pin_of(f))
+    return map_for(f.address or "", f.name, folder, pin_of(f), zoom_of(f))
 
 
 def rough(address: str) -> str:

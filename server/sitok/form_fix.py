@@ -55,6 +55,9 @@ def _grid(tbl, cells: dict) -> list:
     return w
 
 
+INNER_LABELS = ("점검기간", "대표자", "계약방법", "종류", "종별", "점검금액(천원)", "안전등급", "시설물규모")  # 결과표 가. 일반현황 안쪽 이름칸
+
+
 def result_official(root) -> int:
     n = 0
     for tbl in root.iter(f"{{{HP}}}tbl"):
@@ -83,8 +86,12 @@ def result_official(root) -> int:
             k += 1
         if not k or sub < 2000:
             continue
+        inner = next((tc.get("borderFillIDRef") for (rr, c), tc in sorted(cells.items())  # 안쪽 이름칸 테두리(네 변 가는 선·회색 바탕) — 맨 왼쪽 칸을 복사하면
+                      if c > 0 and _n(rb._cell_text(tc)) in INNER_LABELS and tc.get("borderFillIDRef")), None)  # 표 왼쪽 바깥선(0.5mm)까지 와 안쪽에 굵은 세로선(10/26 형 "결과표 선두께")
         for lab, v, rr, txt in ((l8, v8, r, "중대한 결함"), (l9, v9, r + 1, "공중이 이용하는 부위에 결함")):
             s = copy.deepcopy(lab)
+            if inner:
+                s.set("borderFillIDRef", inner)
             _addr(s).set("colAddr", str(c0))
             _addr(s).set("rowAddr", str(rr))
             _spanel(s).set("colSpan", str(k))

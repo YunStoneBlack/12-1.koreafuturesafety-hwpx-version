@@ -894,6 +894,7 @@ def deliver_save(contract_id: int, body: DeliverIn, user: User = Depends(get_cur
 class PinIn(BaseModel):
     lat: float
     lng: float
+    zoom: int | None = None  # 화면 지도 확대 단계 — 보고서 위치도도 이 단계로(10/26 형 "축척 상이")
 
 
 def _locmap_out(f: SitokFacility) -> dict:
@@ -908,7 +909,7 @@ def _locmap_out(f: SitokFacility) -> dict:
         rough = locmap.rough(f.address or "") if g else ""
     except Exception:  # noqa: BLE001
         addr = None
-    return {"pin": [pin[0], pin[1]] if pin else None, "address": addr, "rough": rough, "has_image": (_facility_dir(f) / locmap.UPLOADED).exists(),
+    return {"pin": [pin[0], pin[1]] if pin else None, "zoom": locmap.zoom_of(f), "address": addr, "rough": rough, "has_image": (_facility_dir(f) / locmap.UPLOADED).exists(),
             "src": "image" if (_facility_dir(f) / locmap.UPLOADED).exists() else "pin" if pin else "address" if addr else ""}
 
 
@@ -945,6 +946,8 @@ def locmap_pin(facility_id: int, body: PinIn, user: User = Depends(get_current_u
     f = _require_facility(db, user, facility_id)
     led = dict(f.ledger or {})
     led["wall"] = {**(led.get("wall") or {}), "lat": round(body.lat, 6), "lng": round(body.lng, 6)}
+    if body.zoom and 10 <= body.zoom <= 19:
+        led["wall"]["zoom"] = int(body.zoom)
     f.ledger = led
     db.commit()
     return _locmap_out(f)
@@ -954,7 +957,7 @@ def locmap_pin(facility_id: int, body: PinIn, user: User = Depends(get_current_u
 def locmap_unpin(facility_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     f = _require_facility(db, user, facility_id)
     led = dict(f.ledger or {})
-    led["wall"] = {k: v for k, v in (led.get("wall") or {}).items() if k not in ("lat", "lng")}
+    led["wall"] = {k: v for k, v in (led.get("wall") or {}).items() if k not in ("lat", "lng", "zoom")}
     f.ledger = led
     db.commit()
     return _locmap_out(f)
