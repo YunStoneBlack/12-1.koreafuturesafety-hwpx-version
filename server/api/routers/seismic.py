@@ -607,7 +607,7 @@ def _field_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "has_core_report": bool(core_doc.get("rel") and (rdir / core_doc["rel"]).exists()),
             "floors": [{"n": n, "label": SF.floor_label(n)} for n in floors], "units": SD.survey_units(f), "item_units": SD.item_units(f),
             "sample_floors": SD.sample_floors(f, "member"), "masonry_floors": SD.sample_floors(f, "masonry"),  # 항목별 조사단위 층(10/26)
-            "member_kinds": list(SD.MEMBER_KINDS), "member_plan": SD.member_plan(f, fd["member_plan"]),
+            "member_kinds": list(SD.MEMBER_KINDS), "member_plan": SD.member_plan(f, fd["member_plan"]), "member_order": fd["member_order"],
             "member_plan_default": SD.member_plan(f), "drawings": SD.has_drawings(f),
             "masonry_types": fd["masonry_types"], "masonry_plan": SD.masonry_plan(f, fd["masonry_plan"]), "masonry_plan_default": SD.masonry_plan(f),
             "min_counts": SD.min_counts(SD.item_units(f), grade, SD.has_drawings(f)), "rebar": _rebar_done(r),
@@ -637,7 +637,7 @@ def save_field(rid: int, body: dict = Body(...), user: User = Depends(get_curren
 
     f, r = _require(db, user, rid)
     cur = _field(r)
-    for k in ("members", "cores", "masonry", "texts", "core_note", "core_design", "summary", "member_plan", "masonry_types", "masonry_plan"):
+    for k in ("members", "cores", "masonry", "texts", "core_note", "core_design", "summary", "member_plan", "member_order", "masonry_types", "masonry_plan"):
         if k in body:
             cur[k] = body[k]
     cur = SF.apply_types(SF.normalize(cur))  # 조적 칸은 목록 값으로(10/22)

@@ -37,21 +37,32 @@
   const floorChoices = () => F.floors.map((f) => [f.n, f.label]);
 
   // 부재 단면 — 표본 층 × 종별 칸을 미리 깔고(위 수량 표에서 늘리고 줄임), 일람표 칸은 그 층·그 부재 것만(철근탐사처럼) — 10/22 형.
-  // 빈 칸은 저장 안 함(보고서엔 채운 줄만), 칸 수는 member_plan으로 저장.
-  let plan = {}, groups = {};
+  // 빈 칸은 저장 안 함(보고서엔 채운 줄만), 칸 수는 member_plan, 층별 칸 차례(1 보·2 기둥·3 보처럼 섞임 — 10/26)는 member_order로 저장.
+  let plan = {}, slots = {}; // slots = {층: [줄…]} 화면 차례, 줄마다 kind
   const gkey = (n, k) => `${n}|${k}`;
   const filledM = (x) => !!(x.where || x.mark || x.design || x.measured || x.note);
   const blankM = (n, k) => ({ floor: n, kind: k, where: "", item_id: "", mark: "", design: "", measured: "", note: "" });
   const floorName = (n) => (F.floors.find((f) => f.n === n) || {}).label || (n < 0 ? `지하${-n}층` : `지상${n}층`);
   const itemsFor = (r) => F.schedule.filter((x) => x.kind === r.kind && (!x.range || (x.range[0] <= r.floor && r.floor <= x.range[1])));
   function memberFloors() {
-    const s = new Set([...F.sample_floors, ...Object.keys(plan).map((k) => Number(k.split("|")[0])), ...Object.keys(groups).map((k) => Number(k.split("|")[0]))]);
+    const s = new Set([...F.sample_floors, ...Object.keys(plan).map((k) => Number(k.split("|")[0])), ...Object.keys(slots).map(Number)]);
     return [...s].filter((n) => n).sort((a, b) => a - b);
   }
   function drawMembers() {
     plan = { ...F.member_plan };
-    groups = {};
-    for (const m of F.members) (groups[gkey(m.floor, m.kind)] ||= []).push({ ...m });
+    slots = {};
+    const mem = {};
+    for (const m of F.members) (mem[m.floor] ||= []).push({ ...m });
+    const order = F.member_order || {};
+    for (const n of new Set([...Object.keys(mem), ...Object.keys(order)].map(Number))) {
+      const o = order[String(n)], ms = mem[n] || [];
+      if (Array.isArray(o) && o.filter((x) => x.endsWith("*")).length === ms.length) { // 저장한 칸 차례 — 쓴 칸(*)은 members 차례대로
+        const q = [...ms], out = [];
+        const ok = o.every((x) => { const k = x.replace("*", ""); if (!x.endsWith("*")) { out.push(blankM(n, k)); return true; } const m = q.shift(); out.push(m); return m && m.kind === k; });
+        if (ok) { slots[n] = out; continue; }
+      }
+      slots[n] = F.member_kinds.flatMap((k) => ms.filter((m) => m.kind === k)); // 차례가 없으면 예전처럼 부재 차례(빈 칸은 renderMembers가)
+    }
     renderMembers();
   }
   // 실측치수 — 일치/불일치/일부 일치(10/22 민재형): 일치 = 도면치수 그대로, 불일치·일부 일치 = 두 칸(벽체는 THK 한 칸), 못 재면 □
@@ -79,37 +90,48 @@
 
   let mFloor = ""; // 부재 단면 보이는 층(""= 전체) — 폰에서 길어 층만 골라 보기(10/25 민재형)
   try { mFloor = sessionStorage.getItem(`sf2-mf-${id}`) || ""; } catch (_) { /* */ }
+  const ofKind = (n, k) => (slots[n] || []).filter((x) => x.kind === k);
+  const syncPlan = (n) => { for (const k of F.member_kinds) plan[gkey(n, k)] = ofKind(n, k).length; }; // 칸 수 = 칸 차례에서 셈
+  // 그 부재 칸 끼우는 자리 — 같은 부재 마지막 칸 뒤, 없으면 부재 차례(보·기둥·벽체)상 앞 부재 마지막 칸 뒤, 그것도 없으면 맨 앞
+  function insertAt(n, k) {
+    const s = slots[n], ord = F.member_kinds.indexOf(k);
+    let at = -1;
+    s.forEach((x, i) => { if (x.kind === k) at = i; });
+    if (at < 0) s.forEach((x, i) => { if (F.member_kinds.indexOf(x.kind) <= ord) at = i; });
+    return at + 1;
+  }
   function renderMembers() {
     const floors = memberFloors(), kinds = F.member_kinds;
     if (mFloor && !floors.some((n) => String(n) === mFloor)) mFloor = "";
-    for (const n of floors) for (const k of kinds) { // 칸 수 맞추기 — 채운 줄은 안 지움
-      const key = gkey(n, k), g = (groups[key] ||= []);
-      const want = Math.max(plan[key] ?? 0, g.filter(filledM).length);
-      while (g.length < want) g.push(blankM(n, k));
-      while (g.length > want && !filledM(g[g.length - 1])) g.pop();
+    for (const n of floors) { // 칸 수 맞추기 — 채운 줄은 안 지움
+      const s = (slots[n] ||= []);
+      for (const k of kinds) {
+        const want = Math.max(plan[gkey(n, k)] ?? 0, ofKind(n, k).filter(filledM).length);
+        while (ofKind(n, k).length < want) s.splice(insertAt(n, k), 0, blankM(n, k));
+        for (let i = s.length - 1; i >= 0 && ofKind(n, k).length > want; i -= 1) if (s[i].kind === k && !filledM(s[i])) s.splice(i, 1);
+      }
     }
-    const cnt = (key) => (groups[key] || []).filter(filledM).length;
+    const cnt = (n, k) => ofKind(n, k).filter(filledM).length;
     let no = 0;
-    const row = (n, k, r, j) => {
+    const row = (n, r, j) => {
       no += 1;
-      const key = gkey(n, k), ch = itemsFor(r);
+      const k = r.kind, ch = itemsFor(r), nth = (slots[n] || []).slice(0, j + 1).filter((x) => x.kind === k).length; // 그 부재 몇 번째
       const opts = [["", ch.length ? "— 일람표 칸 —" : "맞는 칸 없음 — 직접"], ...ch.map((x) => [x.id, `${x.marks.join(",")}${x.size ? ` ${x.size}` : ""}${x.floors ? ` (${x.floors})` : ""}`])];
-      const inp = (f, label, w) => `<input data-g="${key}" data-j="${j}" data-k="${f}" placeholder="${esc(label)}" title="${esc(label)}" style="flex:${w}" value="${esc(r[f] ?? "")}" />`;
-      const kindSel = `<select class="sf2-mkind" data-g="${key}" data-j="${j}" data-mk="1" title="부재 — 바꾸면 같은 층 빈 칸과 자리를 바꿈(칸 수 그대로)">${opt(kinds.map((x) => [x, x]), k)}</select>`;
-      return `<div class="sf2-row${filledM(r) ? "" : " empty"}"><span class="sf2-no">${no}</span><span class="sf2-mk">${kindSel}<i>${j + 1}</i></span>
-        ${inp("where", "위치(예: 3 : I 열)", 1.2)}<select data-g="${key}" data-j="${j}" data-k="item_id" title="일람표 칸" style="flex:1.5">${opt(opts, r.item_id)}</select>
-        ${inp("mark", "부호", 0.7)}${inp("design", "도면치수", 1)}${measuredCell(key, j, r, k)}${inp("note", "비고", 0.9)}</div>`;
+      const inp = (f, label, w) => `<input data-g="${n}" data-j="${j}" data-k="${f}" placeholder="${esc(label)}" title="${esc(label)}" style="flex:${w}" value="${esc(r[f] ?? "")}" />`;
+      const kindSel = `<select class="sf2-mkind" data-g="${n}" data-j="${j}" data-mk="1" title="부재 — 바꾸면 이 칸은 그 부재로, 같은 층 그 부재 빈 칸 하나는 이 칸의 원래 부재로(칸 수 그대로)">${opt(kinds.map((x) => [x, x]), k)}</select>`;
+      return `<div class="sf2-row${filledM(r) ? "" : " empty"}"><span class="sf2-no">${no}</span><span class="sf2-mk">${kindSel}<i>${nth}</i></span>
+        ${inp("where", "위치(예: 3 : I 열)", 1.2)}<select data-g="${n}" data-j="${j}" data-k="item_id" title="일람표 칸" style="flex:1.5">${opt(opts, r.item_id)}</select>
+        ${inp("mark", "부호", 0.7)}${inp("design", "도면치수", 1)}${measuredCell(n, j, r, k)}${inp("note", "비고", 0.9)}</div>`;
     };
     $("sf2-members").innerHTML = `<div class="sf2-qty"><table class="sf2-qty-t"><thead><tr><th>층</th>${kinds.map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>
-        ${floors.map((n) => `<tr><td><button type="button" class="sf2-fname${String(n) === mFloor ? " on" : ""}" data-mf="${n}" title="이 층만 보기">${esc(floorName(n))}</button></td>${kinds.map((k) => { const key = gkey(n, k), c = cnt(key), want = (groups[key] || []).length;
-          return `<td class="${want && c >= want ? "ok" : c ? "part" : ""}"><span>${c}/</span><input type="number" min="0" max="40" inputmode="numeric" data-q="${key}" value="${want}" title="${esc(floorName(n))} ${esc(k)} 칸 수" /></td>`; }).join("")}</tr>`).join("")}
-        </tbody></table><div class="sf2-qty-side"><span class="sk-help">칸 수(입력/칸) — 표본 층 × 종별 ${F.drawings ? 3 : 9}개소가 기본, 숫자를 고치면 아래 칸이 늘고 줆</span>
+        ${floors.map((n) => `<tr><td><button type="button" class="sf2-fname${String(n) === mFloor ? " on" : ""}" data-mf="${n}" title="이 층만 보기">${esc(floorName(n))}</button></td>${kinds.map((k) => { const c = cnt(n, k), want = ofKind(n, k).length;
+          return `<td class="${want && c >= want ? "ok" : c ? "part" : ""}"><span>${c}/</span><input type="number" min="0" max="40" inputmode="numeric" data-q="${gkey(n, k)}" value="${want}" title="${esc(floorName(n))} ${esc(k)} 칸 수" /></td>`; }).join("")}</tr>`).join("")}
+        </tbody></table><div class="sf2-qty-side"><span class="sk-help">칸 수(입력/칸) — 표본 층 × 종별 ${F.drawings ? 3 : 9}개소가 기본, 숫자를 고치면 아래 칸이 늘고 줆(줄이면 다른 부재로 옮기거나 빈 칸만 줄이기)</span>
         <button type="button" class="secondary" id="sf2-q-reset">기본 칸 수로</button></div></div>
       <div class="sf2-mnote" id="sf2-mnote"></div>
       <div class="sf2-row sf2-row-h"><span class="sf2-no">#</span><span class="sf2-mk">부재</span><span style="flex:1.2">위치</span><span style="flex:1.5">일람표 칸(그 층·부재만)</span><span style="flex:0.7">부호</span><span style="flex:1">도면치수</span><span class="sf2-meas-h">실측치수(일치·불일치, 못 재면 □)</span><span style="flex:0.9">비고</span></div>
-      ${floorChips(floors.map((n) => ({ n, label: floorName(n), done: kinds.reduce((b, k) => b + cnt(gkey(n, k)), 0),
-        total: kinds.reduce((b, k) => b + (groups[gkey(n, k)] || []).length, 0) })), mFloor)}
-      ${floors.map((n) => { const rs = kinds.flatMap((k) => (groups[gkey(n, k)] || []).map((r, j) => row(n, k, r, j))); const c = kinds.reduce((b, k) => b + cnt(gkey(n, k)), 0);
+      ${floorChips(floors.map((n) => ({ n, label: floorName(n), done: (slots[n] || []).filter(filledM).length, total: (slots[n] || []).length })), mFloor)}
+      ${floors.map((n) => { const rs = (slots[n] || []).map((r, j) => row(n, r, j)); const c = (slots[n] || []).filter(filledM).length;
         return rs.length && (!mFloor || String(n) === mFloor) ? `<div class="sf2-mfloor"><h4>${esc(floorName(n))} <span class="sk-help" data-fc="${n}">${c}/${rs.length}</span></h4>${rs.join("")}</div>` : ""; }).join("")}`;  // 번호는 전체 차례 그대로(다른 층도 세고 안 그림)
     const box = $("sf2-members");
     box.querySelectorAll("[data-mf]").forEach((b) => b.addEventListener("click", () => { // 층 단추·칸 수 표 층 이름 → 그 층만, [전체 보기] → 전부
@@ -120,10 +142,11 @@
     }));
     box.querySelectorAll('select[data-k="item_id"]').forEach((sel) => searchSelect(sel, { placeholder: "일람표 칸 — 부호·치수로 검색" })); // 검색 고르기(app.js, 10/22)
     box.querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => qtyChange(el.dataset.q, Math.max(0, Math.min(40, Number(el.value) || 0)))));
-    box.querySelectorAll("select[data-mk]").forEach((el) => el.addEventListener("change", () => moveKind(el.dataset.g, Number(el.dataset.j), el.value)));
+    box.querySelectorAll("select[data-mk]").forEach((el) => el.addEventListener("change", () => moveKind(Number(el.dataset.g), Number(el.dataset.j), el.value)));
     box.querySelector("#sf2-q-reset").addEventListener("click", () => { plan = { ...F.member_plan_default }; renderMembers(); });
+    const rowOf = (el) => slots[el.dataset.g][Number(el.dataset.j)];
     box.querySelectorAll("[data-g][data-k]").forEach((el) => el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => {
-      const r = groups[el.dataset.g][Number(el.dataset.j)];
+      const r = rowOf(el);
       r[el.dataset.k] = el.value;
       if (el.dataset.k === "item_id") {
         const it = F.schedule.find((x) => x.id === r.item_id);
@@ -139,92 +162,83 @@
       }
     }));
     box.querySelectorAll("input[data-side]").forEach((el) => el.addEventListener("input", () => { // 두 칸 → "가로 x 세로"(벽체 THK=)
-      const r = groups[el.dataset.g][Number(el.dataset.j)];
-      const kind = el.dataset.g.split("|")[1], v = sides(r, kind);
+      const r = rowOf(el), v = sides(r, r.kind);
       v[Number(el.dataset.side)] = el.value.trim();
-      r.measured = joinSides(v, kind);
+      r.measured = joinSides(v, r.kind);
       el.closest(".sf2-row").classList.toggle("empty", !filledM(r)); memberCounts();
     }));
     box.querySelectorAll("button[data-sq]").forEach((el) => el.addEventListener("click", () => { // □ = 못 잼(다시 누르면 지움)
-      const r = groups[el.dataset.g][Number(el.dataset.j)];
-      const kind = el.dataset.g.split("|")[1], v = sides(r, kind), i = Number(el.dataset.sq);
+      const r = rowOf(el), v = sides(r, r.kind), i = Number(el.dataset.sq);
       v[i] = v[i] === "□" ? "" : "□";
-      r.measured = joinSides(v, kind);
+      r.measured = joinSides(v, r.kind);
       renderMembers();
     }));
     memberCounts();
   }
-  // 부재 바꾸기(10/26 민재형 "철근탐사처럼 고르면 전체수량 변동없이 위치만") — 같은 층 그 부재의 첫 빈 칸과 자리를 맞바꿈, 칸 수 표는 그대로.
-  // 그 부재 빈 칸이 없으면 안내(이미 쓴 칸을 다른 부재로 바꾸지 않게).
+  // 부재 바꾸기(10/26 민재형 "RC-1 보를 기둥으로 바꾸면 RC-1이 기둥으로 바뀌고 RC-4가 보로 — 1번 보 2번 기둥 3번 보 4번 벽체처럼 자유롭게") —
+  // 이 칸은 제자리에서 그 부재로, 같은 층 그 부재의 첫 빈 칸 하나가 이 칸의 원래 부재로(칸 수 표 그대로). 그 부재 빈 칸이 없으면 안내(이미 쓴 칸을 다른 부재로 바꾸지 않게).
   const mnote = (t) => { const el = $("sf2-mnote"); if (el) el.textContent = t || ""; };
   const dataM = (x) => !!(x.item_id || x.mark || x.design || x.measured || x.note); // 조사 내용이 있는 칸 — 위치만 적은 칸(예: 모든 칸 "장비 위치도 참조.")은 빈 칸으로 봄
   const kindChanged = (r, k2) => {
+    if (!dataM(r)) return { ...r, kind: k2 }; // 빈 칸(위치만) — 부재만
     const out = { ...r, kind: k2, item_id: "", mark: "", design: "" }; // 일람표 칸·부호·도면치수는 부재마다 — 위치·비고는 그대로
     if (r.match === "일치" || r.kind === "벽체" || k2 === "벽체") { out.measured = ""; out.match = ""; } // 일치(= 도면치수)·벽체 THK는 다시
     return out;
   };
-  function flashRow(key, j) {
-    const el = $("sf2-members").querySelector(`select[data-mk][data-g="${key}"][data-j="${j}"]`)?.closest(".sf2-row");
+  const noOf = (n, j) => memberFloors().filter((x) => x < n).reduce((a, x) => a + (slots[x] || []).length, 0) + j + 1; // 화면 번호(전체 차례)
+  function flashRow(n, j) {
+    const el = $("sf2-members").querySelector(`select[data-mk][data-g="${n}"][data-j="${j}"]`)?.closest(".sf2-row");
     if (!el) return;
     el.scrollIntoView({ block: "center", behavior: "smooth" });
     el.classList.add("sf2-flash");
     setTimeout(() => el.classList.remove("sf2-flash"), 1500);
   }
-  function moveKind(key, j, k2) {
-    const [ns, k] = key.split("|"), n = Number(ns), key2 = gkey(n, k2);
-    const g = groups[key], g2 = (groups[key2] ||= []), r = g[j];
-    const e = g2.findIndex((x) => !dataM(x));
-    if (e < 0) { renderMembers(); mnote(`${floorName(n)} ${k2} 칸이 다 찼습니다 — 위 칸 수 표에서 ${k2} 칸을 늘린 뒤 바꾸세요`); return; }
-    if (dataM(r)) { const t = g2[e]; g2[e] = kindChanged(r, k2); g[j] = { ...blankM(n, k), where: t.where || "" }; } // 맞바꿈 — 위치 글도 서로
-    renderMembers(); // 빈 줄이면 바꿀 것 없이 그 부재 빈 칸으로 데려다 줌
-    mnote(dataM(r) ? `${floorName(n)} ${k} ${j + 1} → ${k2} ${e + 1} 자리로 옮겼습니다(칸 수 그대로) — [저장]` : "");
-    flashRow(key2, e);
+  function moveKind(n, j, k2) {
+    const s = slots[n], r = s[j], k = r.kind;
+    if (k === k2) return;
+    const e = s.findIndex((x, i) => i !== j && x.kind === k2 && !dataM(x));
+    if (e < 0) { renderMembers(); mnote(`${floorName(n)} ${k2} 빈 칸이 없습니다 — 위 칸 수 표에서 ${k2} 칸을 늘린 뒤 바꾸세요`); return; }
+    s[j] = kindChanged(r, k2);
+    s[e] = { ...s[e], kind: k }; // 빈 칸(위치 글은 그대로)
+    renderMembers();
+    mnote(`${noOf(n, j)}번 → ${k2}, ${noOf(n, e)}번 → ${k}(칸 수 그대로) — [저장]`);
+    flashRow(n, j);
   }
-  // 칸 수 표 — 늘리면 빈 칸 더함, 줄이면 고르기 창: 다른 부재로 옮기기(층 합계 그대로 — 쓴 칸이면 내용도 같이) 또는 그냥 줄이기(빈 칸만)
+  // 칸 수 표 — 늘리면 빈 칸 더함, 줄이면 고르기 창: 다른 부재로 옮기기(그 칸들이 제자리에서 그 부재로 — 층 합계 그대로, 쓴 칸이면 내용도) 또는 그냥 줄이기(빈 칸만)
   // (10/26 민재형 "최소수량 아래로도 — 벽체 1 빼면 기둥 1 올라가기, 전체 9개는 유지")
   async function qtyChange(key, v) {
-    const [ns, k] = key.split("|"), n = Number(ns), g = (groups[key] ||= []), cur = g.length;
+    const [ns, k] = key.split("|"), n = Number(ns), s = (slots[n] ||= []), cur = ofKind(n, k).length;
     if (v >= cur) { plan[key] = v; renderMembers(); return; }
-    const d = cur - v, empty = g.filter((x) => !dataM(x)).length, used = Math.max(0, d - empty);
-    const sum = F.member_kinds.reduce((a, x) => a + (groups[gkey(n, x)] || []).length, 0);
+    const d = cur - v, empty = ofKind(n, k).filter((x) => !dataM(x)).length, used = Math.max(0, d - empty);
+    const sum = s.length;
     const pick = await pickSheet({
       title: `${floorName(n)} ${k} ${cur} → ${v}칸`,
-      sub: used ? `${k} 칸 ${used}개는 쓴 내용이 있습니다 — 다른 부재로 옮기면 내용도 같이 옮겨집니다(일람표 칸·도면치수는 다시)` : "줄인 칸을 다른 부재로 옮기면 층 합계가 그대로입니다",
-      options: [...F.member_kinds.filter((x) => x !== k).map((x) => { const m = (groups[gkey(n, x)] || []).length; return { v: x, label: `${withRo(x)} 옮기기`, note: `${x} ${m} → ${m + d}칸 · 층 합계 ${sum}칸 그대로` }; }),
-        { v: "", label: "그냥 줄이기", note: used ? `쓴 칸이 있어 못 줄입니다` : `층 합계 ${sum} → ${sum - d}칸`, disabled: used > 0 }],
+      sub: used ? `${k} 칸 ${used}개는 쓴 내용이 있습니다 — 다른 부재로 옮기면 그 칸이 제자리에서 그 부재로 바뀝니다(일람표 칸·도면치수는 다시)` : "줄인 칸을 다른 부재로 옮기면 층 합계가 그대로입니다",
+      options: [...F.member_kinds.filter((x) => x !== k).map((x) => { const m = ofKind(n, x).length; return { v: x, label: `${withRo(x)} 옮기기`, note: `${x} ${m} → ${m + d}칸 · 층 합계 ${sum}칸 그대로` }; }),
+        { v: "", label: "그냥 줄이기", note: used ? "쓴 칸이 있어 못 줄입니다" : `층 합계 ${sum} → ${sum - d}칸`, disabled: used > 0 }],
     });
     if (pick == null) { renderMembers(); return; }
-    const out = [];
-    for (let i = g.length - 1; i >= 0 && out.length < d; i -= 1) if (!dataM(g[i])) out.push(...g.splice(i, 1)); // 빈 칸부터(뒤에서)
-    for (let i = g.length - 1; i >= 0 && out.length < d && pick; i -= 1) out.unshift(...g.splice(i, 1)); // 모자라면 쓴 칸도(뒤에서)
-    plan[key] = g.length;
-    if (pick) {
-      const g2 = (groups[gkey(n, pick)] ||= []);
-      for (const r of out) {
-        if (!dataM(r)) { g2.push({ ...blankM(n, pick), where: r.where || "" }); continue; } // 빈 칸(위치만) — 그 부재 칸 +1
-        const e = g2.findIndex((x) => !dataM(x)); // 쓴 칸 — 그 부재 첫 빈 칸 자리에, 밀린 빈 칸은 끝으로(칸 +1)
-        if (e < 0) g2.push(kindChanged(r, pick));
-        else { const t = g2[e]; g2[e] = kindChanged(r, pick); g2.push(t); }
-      }
-      plan[gkey(n, pick)] = g2.length;
-    }
+    const idx = [];
+    for (let i = s.length - 1; i >= 0 && idx.length < d; i -= 1) if (s[i].kind === k && !dataM(s[i])) idx.push(i); // 빈 칸부터(뒤에서)
+    for (let i = s.length - 1; i >= 0 && idx.length < d && pick; i -= 1) if (s[i].kind === k && !idx.includes(i)) idx.push(i); // 모자라면 쓴 칸도(뒤에서)
+    if (pick) idx.forEach((i) => { s[i] = kindChanged(s[i], pick); });
+    else idx.sort((a, b) => b - a).forEach((i) => s.splice(i, 1));
+    syncPlan(n);
     renderMembers();
-    mnote(pick ? `${floorName(n)} ${k} ${d}칸을 ${withRo(pick)} 옮겼습니다(층 합계 그대로) — [저장]` : "");
+    mnote(pick ? `${floorName(n)} ${k} ${d}칸을 ${withRo(pick)} 바꿨습니다(층 합계 그대로) — [저장]` : "");
   }
 
   // 입력 수 — 위 요약·수량 표 "입력/"·층 머리(글 쓸 때마다, 다시 그리지 않고)
   function memberCounts() {
     const floors = memberFloors(), kinds = F.member_kinds;
-    const cnt = (key) => (groups[key] || []).filter(filledM).length;
     let done = 0, total = 0;
     for (const n of floors) {
-      let c = 0, t = 0;
       for (const k of kinds) {
-        const key = gkey(n, k), g = groups[key] || [], ck = cnt(key);
-        c += ck; t += g.length;
-        const td = $("sf2-members").querySelector(`input[data-q="${key}"]`)?.closest("td");
+        const g = ofKind(n, k), ck = g.filter(filledM).length;
+        const td = $("sf2-members").querySelector(`input[data-q="${gkey(n, k)}"]`)?.closest("td");
         if (td) { td.className = g.length && ck >= g.length ? "ok" : ck ? "part" : ""; td.querySelector("span").textContent = `${ck}/`; }
       }
+      const c = (slots[n] || []).filter(filledM).length, t = (slots[n] || []).length;
       const h = $("sf2-members").querySelector(`[data-fc="${n}"]`);
       if (h) h.textContent = `${c}/${t}`;
       const chip = $("sf2-members").querySelector(`[data-fcc="${n}"]`);
@@ -233,9 +247,11 @@
     }
     $("sf2-m-sum").textContent = `${done}/${total}칸 입력 (최소 ${F.min_counts.member}) — 2.2.1 부재 단면 치수 조사 결과, 일람표 칸을 고르면 도면치수`;
   }
-  function membersOut() {
-    const kinds = F.member_kinds;
-    return memberFloors().flatMap((n) => kinds.flatMap((k) => (groups[gkey(n, k)] || []).filter(filledM).map((x) => ({ ...x, floor: n, kind: k }))));
+  function membersOut() { // 보고서 줄 = 쓴 칸만, 칸 차례대로
+    return memberFloors().flatMap((n) => (slots[n] || []).filter(filledM).map((x) => ({ ...x, floor: n })));
+  }
+  function orderOut() { // 층별 칸 차례(* = 쓴 칸) — 다시 열어도 1 보·2 기둥·3 보 그대로
+    return Object.fromEntries(memberFloors().filter((n) => (slots[n] || []).length).map((n) => [String(n), slots[n].map((x) => x.kind + (filledM(x) ? "*" : ""))]));
   }
 
   function drawCores() {
@@ -428,7 +444,7 @@
     try { draw(await apiPatch(`/seismic/projects/${id}/field`, body)); flash($(savedEl), "✓ 저장했습니다"); } catch (e) { err(e); }
   }
   const nz = (v) => (v === "" || v == null ? null : Number(v));
-  $("sf2-m-save").addEventListener("click", () => save("members", { members: membersOut(), member_plan: plan }, "sf2-m-saved"));
+  $("sf2-m-save").addEventListener("click", () => save("members", { members: membersOut(), member_plan: plan, member_order: orderOut() }, "sf2-m-saved"));
   $("sf2-c-save").addEventListener("click", () => save("cores", { cores: cores.filter((x) => x.name || x.mpa).map((x) => ({ ...x, mpa: nz(x.mpa) })), core_design: nz($("sf2-c-design").value) }, "sf2-c-saved"));
   $("sf2-w-save").addEventListener("click", () => save("masonry", { masonry: masonryOut(), masonry_types: mtypes.map((t) => ({ ...t, height: nz(t.height), width: nz(t.width), finish: nz(t.finish) })), masonry_plan: mplan }, "sf2-w-saved"));
   $("sf2-t-save").addEventListener("click", () => save("texts", { texts: Object.fromEntries([...document.querySelectorAll("[data-t]")].map((t) => [t.dataset.t, t.value.trim()])), summary: $("sf2-summary").value.trim() }, "sf2-t-saved"));

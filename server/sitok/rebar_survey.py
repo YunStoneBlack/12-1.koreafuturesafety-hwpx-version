@@ -165,29 +165,33 @@ def default_plan(floors: list[int]) -> dict:
 
 
 def apply_plan(rows: list[dict], plan: dict) -> list[dict]:
-    """칸 수 {"층|종별": n}대로 줄 맞추기 — 모자라면 빈 줄 더하고, 남으면 손 안 댄 줄만 뒤에서부터 지움.
-    층(아래 → 위)·종별 차례로 세우고 번호 다시. plan에 없는 층·종별 줄은 그대로."""
+    """칸 수 {"층|종별": n}대로 줄 맞추기 — 모자라면 빈 줄 더하고, 남으면 손 안 댄 줄만 뒤에서부터 지움. 번호 다시. plan에 없는 층·종별 줄은 그대로.
+    있는 줄 차례는 그대로 둠(10/26 — 1 보·2 기둥·3 보처럼 섞어 둔 차례를 다시 부재별로 세우지 않음). 새 줄은 같은 층·종별 마지막 줄 뒤,
+    없으면 그 층에서 종별 차례상 앞 줄 뒤(그것도 없으면 그 층 맨 앞), 층도 없으면 층 차례 자리 — 부재별로 서 있던 줄이면 예전과 같은 자리."""
     order = {k: i for i, k in enumerate(KINDS)}
-    groups: dict[tuple, list] = {}
-    for r in rows:
-        groups.setdefault((r["floor"], r["kind"]), []).append(r)
     want = {}
     for key, n in (plan or {}).items():
         m = re.fullmatch(r"(-?\d+)\|(.+)", str(key))
         if m and m.group(2) in LINES and int(m.group(1)):
             want[(int(m.group(1)), m.group(2))] = max(0, min(_int(n) or 0, 40))
-    out = []
-    for key in sorted(set(groups) | set(want), key=lambda k: (k[0] is None, k[0] or 0, order.get(k[1], 9))):
-        g = list(groups.get(key, []))
-        if key in want:
-            i = len(g) - 1
-            while len(g) > want[key] and i >= 0:
-                if not touched(g[i]):
-                    g.pop(i)
-                i -= 1
-            while len(g) < want[key]:
-                g.append(norm_row({"kind": key[1], "floor": key[0]}, 0))
-        out.extend(g)
+    out = list(rows)
+    for key, n in want.items():  # 줄이기 — 손 안 댄 줄만 뒤에서부터
+        extra = sum(1 for r in out if (r["floor"], r["kind"]) == key) - n
+        for i in range(len(out) - 1, -1, -1):
+            if extra <= 0:
+                break
+            if (out[i]["floor"], out[i]["kind"]) == key and not touched(out[i]):
+                out.pop(i)
+                extra -= 1
+    fkey = lambda f: (f is None, f or 0)  # noqa: E731 — 층 차례(층 없음은 맨 뒤)
+    for key in sorted(want, key=lambda k: (k[0], order.get(k[1], 9))):  # 늘리기
+        for _ in range(want[key] - sum(1 for r in out if (r["floor"], r["kind"]) == key)):
+            same = [i for i, r in enumerate(out) if (r["floor"], r["kind"]) == key]
+            near = [i for i, r in enumerate(out) if r["floor"] == key[0] and order.get(r["kind"], 9) <= order.get(key[1], 9)]
+            floor = [i for i, r in enumerate(out) if r["floor"] == key[0]]
+            later = [i for i, r in enumerate(out) if fkey(r["floor"]) > fkey(key[0])]
+            at = same[-1] + 1 if same else near[-1] + 1 if near else floor[0] if floor else later[0] if later else len(out)
+            out.insert(at, norm_row({"kind": key[1], "floor": key[0]}, 0))
     for i, r in enumerate(out, 1):
         r["no"] = i
     return out

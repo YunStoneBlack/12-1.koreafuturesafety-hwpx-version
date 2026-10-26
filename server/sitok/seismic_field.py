@@ -158,6 +158,16 @@ def norm_mplan(plan) -> dict:
     return out
 
 
+def norm_order(order) -> dict:
+    """부재 단면 층별 칸 차례 {"층": ["보", "기둥*", …]}(* = 쓴 칸 — members에 그 차례로 저장) — 1 보·2 기둥·3 보처럼 섞인 차례를 다시 열어도 그대로(10/26 민재형)."""
+    out = {}
+    for k, v in (order or {}).items() if isinstance(order, dict) else []:
+        n = _int(k)
+        if n and isinstance(v, list):
+            out[str(n)] = [str(x) for x in v if str(x).rstrip("*") in MEMBER_KINDS][:120]
+    return dict(list(out.items())[:40])
+
+
 def normalize(data: dict | None) -> dict:
     d = dict(data or {})
     texts = {k: _s((d.get("texts") or {}).get(k, default), 600) for k, _label, default in TEXTS}
@@ -170,6 +180,7 @@ def normalize(data: dict | None) -> dict:
             "core_design": _num(d.get("core_design")),  # 설계기준강도(도면, MPa) — 2.2.4 85%·75% 비교
             "summary": _s(d.get("summary"), 4000),  # 요약문 책임기술자 종합의견(견본 문장 채우기·AI 초안 뒤 사람이 고침, 10/22)
             "member_plan": norm_plan(d.get("member_plan")),  # 부재 단면 칸 수(비면 표본 층 × 종별 × 3·9 기본)
+            "member_order": norm_order(d.get("member_order")),  # 부재 단면 층별 칸 차례(화면만 — 보고서는 members 차례)
             "masonry_types": [norm_mtype(x) for x in d.get("masonry_types") or [] if isinstance(x, dict)][:60],
             "masonry_plan": norm_mplan(d.get("masonry_plan"))}
 
