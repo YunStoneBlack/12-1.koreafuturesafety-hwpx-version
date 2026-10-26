@@ -1395,14 +1395,47 @@ def fill_defects(root, rows: list[list], member_tpl) -> int:
 
 
 # ---------- 1.2 건물 길이·층별 평면도 ----------
+PLAN_TITLE = re.compile(r"(지붕및옥탑층|옥탑지붕|옥탑층|옥탑|지붕층|지붕|기초|(?:지하|지상)\d+층|\d+층)평면도")
+
+
+def plan_title(text: str) -> str | None:
+    """도면 글에서 평면도 제목 — "지붕 및 옥탑층"·"지상 5층"·"지하 1층"(표제란·도면 아래 제목에 여러 번 나오면 가장 많은 것). 없으면 None."""
+    import collections
+
+    found = PLAN_TITLE.findall(re.sub(r"\s", "", text or ""))
+    if not found:
+        return None
+    name = collections.Counter(found).most_common(1)[0][0]
+    name = name.replace("지붕및옥탑층", "지붕 및 옥탑층")
+    name = re.sub(r"^(지하|지상)(\d+)층$", r"\1 \2층", name)
+    return re.sub(r"^(\d+)층$", r"지상 \1층", name)
+
+
+def _plan_order(name: str) -> float:
+    """층 차례 — 기초 → 지하(깊은 데부터) → 지상 1층… → 옥탑 → 지붕."""
+    m = re.search(r"(지하|지상)?\s*(\d+)층", name)
+    if "기초" in name:
+        return -100
+    if "옥탑지붕" in name:
+        return 950
+    if "옥탑" in name:
+        return 900
+    if "지붕" in name:
+        return 940
+    if m:
+        return -int(m[2]) if m[1] == "지하" else int(m[2])
+    return 1000
+
+
 def plan_images(f, rdir: Path) -> list[tuple[str, Path]]:
-    """서류 칸 층별 평면도 → [(제목, 그림)] — 파일 이름에 "층"이 있으면 그 이름, PDF는 쪽마다 지상 1층부터."""
+    """서류 칸 층별 평면도 → [(제목, 그림)] — 이름은 도면에 적힌 제목(10/26 형 "도면상 네이밍으로" — 호원초 첫 쪽이 지붕인데 "지상 1층"이었음),
+    없으면 파일 이름에 "층"이 있으면 그 이름, 그것도 없으면 차례대로 지상 1층부터. 제목을 읽은 것은 층 차례(지하 → 지상 → 옥탑 → 지붕)로."""
     import pymupdf
 
     from server.api.routers.sitok import _facility_dir
     from server.sitok import drawings as D
 
-    out: list[tuple[str, Path]] = []
+    out: list[tuple[float, int, str, Path]] = []
     cache = rdir / "보고서그림"
     cache.mkdir(parents=True, exist_ok=True)
     k = 0
@@ -1415,11 +1448,39 @@ def plan_images(f, rdir: Path) -> list[tuple[str, Path]]:
                     k += 1
                     img = cache / f"평면도_{k}.png"
                     pg.get_pixmap(dpi=130).save(img)
-                    out.append((f"{stem} 평면도" if "층" in stem and doc.page_count == 1 else f"지상 {k}층 평면도", img))
+                    title = plan_title(pg.get_text())
+                    cap = f"{title} 평면도" if title else f"{stem} 평면도" if "층" in stem and doc.page_count == 1 else f"지상 {k}층 평면도"
+                    out.append((_plan_order(title) if title else 2000 + k, k, cap, img))
         else:
             k += 1
-            out.append((f"{stem} 평면도" if "층" in stem else f"지상 {k}층 평면도", p))
-    return out
+            cap = f"{stem} 평면도" if "층" in stem else f"지상 {k}층 평면도"
+            out.append((_plan_order(stem) if "층" in stem else 2000 + k, k, cap, p))
+    return [(cap, img) for _, _, cap, img in sorted(out)]
+
+
+def _put_full(doc, pic, path: Path) -> bool:
+    """도면 그림을 원본 해상도 그대로 틀에 — 틀 비율로 흰 여백만 둘러 PNG, 크기는 틀(_size_pic: 원래 크기·자르기를 픽셀로)이라 한글이 줄여 그림
+    (10/26 형 "도면 화질저하" — 전엔 틀 크기 96dpi JPEG로 줄여 넣어 566px, 이제 원본 2149px → PDF 속 364dpi, 한 장 약 120KB)."""
+    from PIL import Image
+
+    img = next(pic.iter(f"{{{HC}}}img"), None)
+    sz = pic.find(f"{{{HP}}}curSz")
+    if img is None or sz is None or path is None or not Path(path).exists():
+        return False
+    w, h = int(sz.get("width") or 0), int(sz.get("height") or 0)
+    if w <= 0 or h <= 0:
+        return False
+    im = Image.open(path).convert("RGB")
+    r = w / h
+    cw, ch = (im.width, round(im.width / r)) if im.width / im.height > r else (round(im.height * r), im.height)
+    canvas = Image.new("RGB", (cw, ch), "white")
+    canvas.paste(im, ((cw - im.width) // 2, (ch - im.height) // 2))
+    buf = io.BytesIO()
+    canvas.save(buf, "PNG", optimize=True)
+    data = buf.getvalue()
+    img.set("binaryItemIDRef", doc.add_image(data, "png", "image/png"))
+    _size_pic(pic, w, h, data)
+    return True
 
 
 def _pic_turned(t) -> bool:
@@ -1464,7 +1525,7 @@ def fill_size_plans(doc, root, f, reg: dict, rdir: Path, warn: list, field: dict
         used.append(p)
         tb = next(x for x in _outer(p) if rb._pic_slots(x))
         _set(rb._cells(tb), (2, 0), cap)
-        n += _put(doc, rb._pic_slots(tb)[0][1], img, crop=False)
+        n += _put_full(doc, rb._pic_slots(tb)[0][1], img)  # 원본 해상도(10/26)
     for p in paras[len(plans):]:
         if p.getparent() is not None and p not in used:
             p.getparent().remove(p)
