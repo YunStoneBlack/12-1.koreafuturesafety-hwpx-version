@@ -305,10 +305,32 @@ def even_rows(tbl, header: int) -> None:
             x.set("charPrIDRef", base)
 
 
-def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, flat: bool) -> int:
+def split_pages(t) -> None:
+    """한 쪽을 넘기는 표를 줄 단위로 쪽에서 나뉘게(pageBreak TABLE — CELL은 칸 안 글이 끊기고 NONE은 안 나뉨). 글자처럼 취급이면 한글이 표를 통째로
+    다음 쪽으로 밀어 나뉘지 않으니(10/26 호원초 조적벽 결과표 — 제목만 남고 표는 다음 쪽) 끄고 단 가운데(민재형도 한 표로 합칠 때 끔)."""
+    t.set("pageBreak", "TABLE")
+    pos = t.find(f"{{{HP}}}pos")
+    if pos is not None and pos.get("treatAsChar") == "1":
+        for k, v in (("treatAsChar", "0"), ("flowWithText", "1"), ("allowOverlap", "0"), ("vertRelTo", "PARA"), ("vertOffset", "0"),
+                     ("horzRelTo", "COLUMN"), ("horzAlign", "CENTER"), ("horzOffset", "0")):
+            pos.set(k, v)
+
+
+def _notes_after(p) -> list:
+    """p 바로 뒤 "※" 주석 문단들."""
+    out, nxt = [], p.getnext()
+    while nxt is not None and nxt.tag == f"{{{HP}}}p" and next(nxt.iter(f"{{{HP}}}tbl"), None) is None             and "".join(x.text or "" for x in nxt.iter(f"{{{HP}}}t")).strip().startswith("※"):
+        out.append(nxt)
+        nxt = nxt.getnext()
+    return out
+
+
+def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, flat: bool, one: bool = False) -> int:
     """견본 표들(같은 모양)에 rows를 per줄씩 — 표가 모자라면 마지막 표 문단을 복사(쪽 나눔), 남는 견본 표는 지움. 넣은 줄 수.
     표는 문단 안 몇 번째 표인지로 집음(부록은 사진 머리 표와 값 표가 한 문단에 같이 있음, 10/22). 둘째 표부터는 앞 빈 문단을 지우고 그 표 문단에서 새 쪽,
-    남는 견본 표를 지울 때는 앞 빈 문단·뒤 "※" 주석도(빈 쪽·겹친 주석 없게), 줄 높이·글자 모양은 고르게(even_rows — 줄 복사로 만든 flat 표는 이미 고름)."""
+    남는 견본 표를 지울 때는 앞 빈 문단·뒤 "※" 주석도(빈 쪽·겹친 주석 없게), 줄 높이·글자 모양은 고르게(even_rows — 줄 복사로 만든 flat 표는 이미 고름).
+    one: 첫 견본 표 하나에 다 넣고 쪽을 넘기면 머리 줄 반복(10/26 민재형 "쪽마다 나뉜 표를 한 표로") — 주석은 마지막 견본 표 것(□ 조사불가 등)을 첫 표 주석 모양으로
+    표 바로 뒤에 한 번, 한 쪽에 안 들어갈 만큼(per줄 넘게)이면 줄 단위로 나뉘게(pageBreak TABLE)."""
     if not tables:
         return 0
     slots = []
@@ -317,7 +339,24 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
         slots.append((p, _outer(p).index(t)))
     tpl_p, tpl_idx = slots[-1]
     tpl = copy.deepcopy(tpl_p)
-    chunks = [rows[i:i + per] for i in range(0, len(rows), per)] or [[]]
+    chunks = [rows] if one else [rows[i:i + per] for i in range(0, len(rows), per)] or [[]]
+    if one and len(slots) > 1:
+        first, last = _notes_after(slots[0][0]), _notes_after(slots[-1][0])
+        if last:
+            style = first[0].get("paraPrIDRef") if first else None
+            for x in first:
+                x.getparent().remove(x)
+            inline = [x for x in slots[0][0].iter(f"{{{HP}}}t") if next(x.iterancestors(f"{{{HP}}}tbl"), None) is None]
+            if "".join(x.text or "" for x in inline).strip().startswith("※"):  # 첫 표 문단에 같이 붙은 주석 글("※ □ : 조사불가") — 두 번 나오지 않게
+                for x in inline:
+                    for pc in rb._pieces(x):
+                        pc.text = ""
+            at = slots[0][0]
+            for x in last:
+                if style:
+                    x.set("paraPrIDRef", style)
+                at.addnext(x)
+                at = x
     used = []
     for k, chunk in enumerate(chunks):
         if k < len(slots):
@@ -333,6 +372,12 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
         used.append(p)
         t = _outer(p)[idx]
         (_resize_flat if flat else _resize_tail)(t, header, len(chunk))
+        if one and len(chunk) > per:  # 쪽을 넘기는 한 표 — 줄 단위로 나뉘게
+            split_pages(t)
+            cap = p.getprevious()  # 표 제목("【 부재 단면 치수 조사 결과 】")부터 새 쪽 — 앞 쪽 끝에 머리 줄만 걸리지 않게(짧은 표는 이어서)
+            if cap is not None and next(cap.iter(f"{{{HP}}}tbl"), None) is None and _t(cap).strip()[:1] in ("【", "["):
+                _drop_empty_before(cap)  # 앞 빈 줄이 앞 쪽 끝에서 넘치면 쪽 나눔과 겹쳐 빈 쪽
+                cap.set("pageBreak", "1")
         if not flat:
             even_rows(t, header)
         cells = rb._cells(t)
@@ -802,9 +847,9 @@ def fill_members(root, field: dict, d: dict, rebar_rows: list, units, warn: list
     if members:
         rows = [[str(i + 1), f"{SF.floor_label(m['floor'])}( {m['where']} )" if m["where"] else SF.floor_label(m["floor"]),
                  f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", m["note"]] for i, m in enumerate(members)]
-        n += fill_chunks(root, tables, rows, 18, 1, flat=False)
+        n += fill_chunks(root, tables, rows, 18, 1, flat=False, one=True)
     else:  # 입력 없으면 빈 줄 하나(10/22 형 "안 적었는데 값이 들어가 있음") — 노랑(10/26)
-        fill_chunks(root, tables, [[""] * 6], 18, 1, flat=False)
+        fill_chunks(root, tables, [[""] * 6], 18, 1, flat=False, one=True)
         TD.paint_empty(next((t for t in _outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"
                              and _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "조사위치"), None), 1)
         warn.append("부재 단면 줄이 없어 2.2.1 표는 빈칸입니다(현장조사 입력)")
@@ -921,6 +966,7 @@ def fill_cores(doc, root, field: dict, rdir: Path, core_doc: dict | None, warn: 
                     _put(doc, rb._pic_slots(t)[0][1], pages[k], crop=False)
                     n += 1
                 elif p.getparent() is not None:
+                    _drop_empty_before(p)  # 성적서 둘째 쪽 칸 앞 쪽 나눔 빈 줄도(남으면 다음 제목 쪽 나눔과 겹쳐 빈 쪽, 10/26)
                     p.getparent().remove(p)
         else:
             warn.append("압축강도 시험성적서가 없어 2.2.4 성적서 그림은 빈칸입니다(서류 칸)")
@@ -928,6 +974,7 @@ def fill_cores(doc, root, field: dict, rdir: Path, core_doc: dict | None, warn: 
                 if k == 0:
                     _put(doc, rb._pic_slots(t)[0][1], blank_png(rdir), crop=False)
                 elif p.getparent() is not None:
+                    _drop_empty_before(p)
                     p.getparent().remove(p)
     return n
 
@@ -1021,7 +1068,7 @@ def fill_masonry(root, field: dict, warn: list) -> int:
     rows = field["masonry"]
     tables = [t for t in _outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"]
     if not rows:
-        fill_chunks(root, tables, [[""] * 11], 60, 2, flat=True)
+        fill_chunks(root, tables, [[""] * 11], 60, 2, flat=True, one=True)
         TD.paint_empty(next((t for t in _outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"), None), 2)  # 노랑(10/26)
         warn.append("조적조 줄이 없어 2.4.3 조적벽 결과표는 빈칸입니다(현장조사 입력)")
         return 0
@@ -1029,7 +1076,7 @@ def fill_masonry(root, field: dict, warn: list) -> int:
     vals = [[SF.floor_label(x["floor"]).replace("지상", "지상 ").replace("지하", "지하 "), x["kind"], x["mid"], _fmt(x["height"], 0) if x["height"] else "-",
              _fmt(x["width"], 0) if x["width"] else "-", x["thick"], x["dir"], x["expose"].replace(" ", "\n", 1), f"{x['finish']}" if x["finish"] is not None else "-",
              x["boundary"], x["applied"]] for x in rows]
-    return fill_chunks(root, tables, vals, 20, 2, flat=True)
+    return fill_chunks(root, tables, vals, 20, 2, flat=True, one=True)
 
 
 # ---------- 2.5 지반 ----------
@@ -1391,7 +1438,7 @@ def fill_defects(root, rows: list[list], member_tpl) -> int:
     cells = rb._cells(t)
     for c, label in enumerate(("NO", "위치", "부재", "결함유형", "크기·개수", "진행유무·원인")):
         _set(cells, (0, c), label)
-    return fill_chunks(root, [t], rows or [["-", "-", "-", "결함 없음", "-", "-"]], 18, 1, flat=False)
+    return fill_chunks(root, [t], rows or [["-", "-", "-", "결함 없음", "-", "-"]], 18, 1, flat=False, one=True)
 
 
 # ---------- 1.2 건물 길이·층별 평면도 ----------

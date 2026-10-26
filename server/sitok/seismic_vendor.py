@@ -140,6 +140,17 @@ def _xml(e) -> bytes:
     return etree.tostring(e) if e is not None else b""
 
 
+def _xml_cmp(tag: str, e) -> bytes:
+    """비교용 — 번호 정의는 시작값(start)을 빼고: 우리 원본은 요약문·2.2.4 번호가 이어지게 시작값을 고쳐 둠(10/26 fix_seismic_master),
+    외주 견본은 고치기 전 그대로(모두 1)라 다르게 보임. 문단째 옮기면 우리 시작값을 쓰니 번호도 맞음."""
+    if tag != "numbering" or e is None:
+        return _xml(e)
+    e = copy.deepcopy(e)
+    for x in e.iter():
+        x.attrib.pop("start", None)
+    return _xml(e)
+
+
 def style_mismatch(our: Hwpx, ven: Hwpx, paras: list) -> list[str]:
     """paras(외주 문단)가 쓰는 서식이 우리 header에 같은 번호·같은 내용으로 있는지 — 다른 것 목록(빈 목록 = 문단째 옮겨도 됨)."""
     O, V = _defs(our.header), _defs(ven.header)
@@ -171,7 +182,7 @@ def style_mismatch(our: Hwpx, ven: Hwpx, paras: list) -> list[str]:
         if cp is not None:
             need["borderFill"].add(cp.get("borderFillIDRef"))
     bad = [f"{tag} {i}" for tag in _TAGS for i in sorted(x for x in need[tag] if x)
-           if i in V[tag] and _xml(O[tag].get(i)) != _xml(V[tag][i])]
+           if i in V[tag] and _xml_cmp(tag, O[tag].get(i)) != _xml_cmp(tag, V[tag][i])]
     if need["charPr"]:
         fo = b"".join(_xml(e) for e in our.header.iter(f"{{{HH}}}fontface"))
         fv = b"".join(_xml(e) for e in ven.header.iter(f"{{{HH}}}fontface"))

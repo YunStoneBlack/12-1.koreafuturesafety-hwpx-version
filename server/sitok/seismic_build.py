@@ -30,7 +30,6 @@ SAMPLE_ADDRESS = "경기도 양주시 삼숭로38번길 112"
 SAMPLE_PERIOD_KOR = "2025년 10월 24일~2026년 01월 02일"
 SAMPLE_PERIOD_DOT = "2025. 10. 24. ~ 2026. 01. 02."
 SAMPLE_MONTHS = ("2026년 01월", "2026. 01.", "2026․01", "2026∙01")
-PER_TABLE = 18  # 철근배근 표 하나에 시험 18개(견본 한 쪽)
 
 NO_FRONT = "결과표 나~마·(2) 내진성능평가 적용·확인서·체크리스트는 외주 몫이라 견본 값을 비우고 노랗게 칠했습니다 — 견본 전체에 외주 몫까지 쓴 한글을 올리면 옮겨 넣습니다"
 STILL_SAMPLE = [  # 아직 견본 값 그대로인 곳 — 만들기 알림(나머지는 server/sitok/seismic_fill이 채우고 빈 입력만 알림)
@@ -226,7 +225,8 @@ def _rebar_tables(root) -> list:
 
 
 def fill_rebar(root, d: dict, warn: list) -> int:
-    """2.2.2 철근배근 조사결과 — 견본 첫 표를 틀로 18개씩 표 하나(머리 줄 + 시험마다 두 줄), 남는 견본 표·제목·주석은 지움. 조사 수량 칸도."""
+    """2.2.2 철근배근 조사결과 — 견본 첫 표 하나에 시험 전부(머리 줄 + 시험마다 두 줄, 쪽을 넘기면 머리 줄 반복 — 10/26 민재형 "한 표로", 전엔 18개씩 표를 나눔),
+    남는 견본 표·제목·주석과 그 앞 빈 줄은 지움. 조사 수량 칸도."""
     rows = d["rebar"]
     if d.get("rebar_empty"):
         warn.append(f"철근탐사 빈 칸 {d['rebar_empty']}개(조사 결과 없음)는 보고서에서 뺐습니다 — 시험번호는 차례로 다시")
@@ -238,7 +238,7 @@ def fill_rebar(root, d: dict, warn: list) -> int:
         warn.append("철근탐사 결과가 없어 2.2.2 철근배근 표는 빈칸입니다(🧪 현장시험)")
     from server.sitok.seismic_todo import paint_empty
     lines = RV.table_rows(rows) if rows else [[""] * 7, [""] * 7]  # 없으면 빈 시험 한 줄(두 줄)
-    chunks = [lines[i:i + PER_TABLE * 2] for i in range(0, len(lines), PER_TABLE * 2)]
+    chunks = [lines]
     paras = [next(t.iterancestors(f"{{{HP}}}p")) for t in tables]
     # 표마다 앞(제목 "【 철근배근 조사결과 】")·뒤(주석) 문단 묶음 — 첫 표 것을 틀로
     tops = [p for p in root if p.tag == f"{{{HP}}}p"]
@@ -250,9 +250,12 @@ def fill_rebar(root, d: dict, warn: list) -> int:
         return [x for x in (head, p, note) if x is not None]
 
     tpl = [copy.deepcopy(x) for x in block(paras[0])]
-    for p in paras[1:]:  # 견본 2·3번 표 묶음은 지움
+    for p in paras[1:]:  # 견본 2·3번 표 묶음은 지움(앞 빈 줄도 — 첫 표 뒤에 빈 줄만 남지 않게)
+        from server.sitok.seismic_fill import _drop_empty_before
+
         for x in block(p):
             if x.getparent() is not None:
+                _drop_empty_before(x)
                 x.getparent().remove(x)
     anchor = block(paras[0])[-1]
     first_block = block(paras[0])
@@ -273,6 +276,10 @@ def fill_rebar(root, d: dict, warn: list) -> int:
             rb._dup_rows(t, 1 + (have - 1) * 2, 2, want - have)
         elif want < have:
             rb._del_rows(t, 1 + want * 2, (have - want) * 2)
+        if want > 18:  # 한 쪽(견본 18개)을 넘기면 줄 단위로 나뉘게(글자처럼 취급도 끔)
+            from server.sitok.seismic_fill import split_pages
+
+            split_pages(t)
         cells = rb._cells(t)
         for j, line in enumerate(chunk):
             r = 1 + j
