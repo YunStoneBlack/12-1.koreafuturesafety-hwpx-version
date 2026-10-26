@@ -365,6 +365,25 @@ def merge_vendor(ours: Path, vendor: Path, dest: Path) -> int:
     return fix_vendor_chapters(dest, n0)
 
 
+def _tidy(hwpx: Path, pdf: Path, say=None, sections_from: int = 1) -> list[str]:
+    """애매한 넘침 정리(10/26 사용자 "산안·시특·내진·결함 전부" — pagecheck.tidy_checked, 시특법과 같은 규칙·안전장치). 못 하면 그대로."""
+    import traceback
+
+    from server.contract_docs import hwp_queue
+    from server.sitok import pagecheck
+
+    def render(hx: Path, out: Path) -> None:
+        if say:
+            say("애매하게 넘친 쪽 정리해서 다시 PDF로…")
+        out.write_bytes(hwp_queue.convert_via_worker(hx.read_bytes(), ".hwpx", wait=1500))
+
+    try:
+        return pagecheck.tidy_checked(hwpx, pdf, render, sections_from=sections_from)
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        return []
+
+
 def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]:
     import pymupdf
 
@@ -436,6 +455,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     say("PDF로 바꾸는 중(2~3분)…")
     pdf = folder / f"{base}.pdf"
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
+    _tidy(hwpx, pdf, say)  # 애매한 넘침 정리(10/26) — 목차 쪽 번호 전에
     if f.seismic_only:  # 목차 쪽 번호 — 첫 PDF로 세어 넣고 다시(10/22)
         if seismic_fill.fill_toc(hwpx, pdf):
             say("목차 쪽 번호 넣고 다시 PDF로…")

@@ -935,31 +935,11 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
 def _tidy_pages(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
     """애매한 넘침 정리(10/26 사용자·민재형 "애매하게 페이지를 초과" — pagecheck.tidy_overflow: 빈 줄·칸 빈 자리만 줄여 당기거나, 줄 단위·작은 표 통째로 넘김,
     글자 크기·장평·줄 간격은 그대로) → PDF 다시 → 쪽 문제(몇 줄만 넘친 쪽·제목만 쪽 끝)가 늘거나 쪽 수가 늘면 고치기 전으로 되돌림. 고친 곳 설명(되돌렸거나 없으면 [])."""
-    import pymupdf
-
     from server.sitok import pagecheck
 
     try:
-        snap = hwpx.read_bytes()
-        before = pagecheck.issue_count(pdf, hwpx)
-        with pymupdf.open(pdf) as d:
-            pages = len(d)
-        done = pagecheck.tidy_overflow(hwpx, pdf, sections_from=sections_from)
-        if not done:
-            return []
-        tmp = pdf.with_name(pdf.stem + "_정리.pdf")
-        tmp.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
-        after = pagecheck.issue_count(tmp, hwpx)
-        with pymupdf.open(tmp) as d:
-            pages2 = len(d)
-        if after > before or pages2 > pages:  # 다른 데가 더 이상해짐 — 고치기 전 그대로
-            hwpx.write_bytes(snap)
-            tmp.unlink(missing_ok=True)
-            print(f"[쪽 정리 되돌림] {hwpx.name}: 문제 {before}→{after}, 쪽 {pages}→{pages2}", flush=True)
-            return []
-        tmp.replace(pdf)
-        print(f"[쪽 정리] {hwpx.name}: 문제 {before}→{after}, 쪽 {pages}→{pages2} — {' / '.join(done)}", flush=True)
-        return done
+        return pagecheck.tidy_checked(hwpx, pdf, lambda hx, out: out.write_bytes(hwp_queue.convert_via_worker(hx.read_bytes(), ".hwpx", wait=PDF_WAIT)),
+                                      sections_from=sections_from)
     except Exception:  # noqa: BLE001 — 못 하면 그대로
         traceback.print_exc()
         return []

@@ -139,10 +139,11 @@ def build_report_hwpx(report_id: int, output_path: str | Path) -> Path:
     return output_path
 
 
-def _fix_process_splits(hwp, tmp_hwpx: Path, tmp_pdf: Path) -> None:
+def _fix_process_splits(hwp, tmp_hwpx: Path, tmp_pdf: Path) -> Path:
     """진행공정 표(표12)가 공정 중간에서 쪽을 넘었으면 그 자리에 선 + 다음 쪽 칸에도 공정명을 넣은 hwpx로 한 번 더 PDF
     (2026-10-15 사용자 — core/hwpx_process_split.py). 이미 켜 둔 한글로 다시 열어 저장만 하므로 한글을 다시 켜는 시간은 안 든다.
-    안전장치: 고칠 곳이 없으면 아무것도 안 함(지금과 같음), 무슨 오류든·쪽 수가 달라지면 첫 PDF 그대로."""
+    안전장치: 고칠 곳이 없으면 아무것도 안 함(지금과 같음), 무슨 오류든·쪽 수가 달라지면 첫 PDF 그대로.
+    돌려주는 값 = 지금 tmp_pdf를 만든 hwpx(고쳤으면 _split.hwpx)."""
     try:
         import pymupdf
 
@@ -152,15 +153,37 @@ def _fix_process_splits(hwp, tmp_hwpx: Path, tmp_pdf: Path) -> None:
         fixed_pdf = tmp_pdf.with_name(tmp_pdf.stem + "_split.pdf")
         fixed_pdf.unlink(missing_ok=True)
         if not fix_process_splits(tmp_hwpx, tmp_pdf, fixed_hwpx):
-            return
+            return tmp_hwpx
         hwp.clear(1)
         if not hwp.open(str(fixed_hwpx)) or not hwp.save_as(str(fixed_pdf), format="PDF"):
-            return
+            return tmp_hwpx
         with pymupdf.open(tmp_pdf) as a, pymupdf.open(fixed_pdf) as b:
             same = a.page_count == b.page_count and b.page_count > 0
         if same:
             shutil.copy2(fixed_pdf, tmp_pdf)
+            return fixed_hwpx
     except Exception:  # noqa: BLE001 — 첫 PDF 그대로(보고서 만들기는 절대 안 막음)
+        pass
+    return tmp_hwpx
+
+
+def _tidy_overflow(hwp, src_hwpx: Path, tmp_pdf: Path) -> None:
+    """애매한 넘침 정리(2026-10-26 사용자 "산안·시특·내진·결함 전부" — server/sitok/pagecheck.tidy_checked, 시특법과 같은 규칙: 빈 줄·칸 빈 자리만 줄여
+    당기거나 줄 단위·작은 표 통째로 넘김, 글자 크기·장평·줄 간격 그대로). 켜 둔 한글로 다시 그림. 안전장치: 걸리는 곳 없으면 아무것도 안 함(검사 약 0.4초),
+    쪽 문제·쪽 수가 늘거나 무슨 오류든 첫 PDF 그대로. 원본 hwpx는 안 건드리고 복사본(_tidy.hwpx)을 고침."""
+    try:
+        from server.sitok import pagecheck
+
+        work = src_hwpx.with_name(src_hwpx.stem + "_tidy.hwpx")
+        shutil.copy2(src_hwpx, work)
+
+        def render(hx: Path, out: Path) -> None:
+            hwp.clear(1)
+            if not hwp.open(str(hx)) or not hwp.save_as(str(out), format="PDF"):
+                raise RuntimeError("쪽 정리 PDF 실패")
+
+        pagecheck.tidy_checked(work, tmp_pdf, render, sections_from=0)
+    except Exception:  # noqa: BLE001 — 첫 PDF 그대로(보고서 만들기는 절대 안 막음, 데스크톱 앱엔 server 패키지가 없음)
         pass
 
 
@@ -210,7 +233,7 @@ def build_report_pdf_via_hwpx(report_id: int, output_path: str | Path) -> Path:
             raise HwpBuildError("생성된 hwpx 파일을 여는 데 실패했습니다.")
         if not hwp.save_as(str(tmp_pdf), format="PDF"):
             raise HwpBuildError("PDF로 변환하는 데 실패했습니다.")
-        _fix_process_splits(hwp, tmp_hwpx, tmp_pdf)
+        _tidy_overflow(hwp, _fix_process_splits(hwp, tmp_hwpx, tmp_pdf), tmp_pdf)
     except HwpBuildError:
         raise
     except Exception as e:  # noqa: BLE001 - 한글 COM 자동화 에러를 그대로 전달

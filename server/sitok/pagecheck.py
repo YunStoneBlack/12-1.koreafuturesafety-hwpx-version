@@ -45,21 +45,50 @@ def designed_starts(hwpx: Path) -> set[str]:
     return out
 
 
-def _body(pg) -> tuple[list[tuple[float, float, str]], float, float, list]:
-    """(본문 줄들 [(y0, y1, 글)], 내용 끝 y, 꼬리말 줄 y, 꼬리말을 넘은 선)."""
+def _body(pg, rects: list | None = None, imgs: list | None = None) -> tuple[list[tuple[float, float, str]], float, float, list]:
+    """(본문 줄들 [(y0, y1, 글)], 내용 끝 y, 꼬리말 줄 y, 꼬리말을 넘은 선). rects·imgs = 이미 읽은 선·그림 위치(_pages — 두 번 안 읽게)."""
     H = pg.rect.height
-    foot = min([rr.y0 for info in pg.get_images(full=True) for rr in pg.get_image_rects(info[0]) if rr.y0 > H * 0.85] or [H - 63])
+    if imgs is None:
+        imgs = [rr for info in pg.get_images(full=True) for rr in pg.get_image_rects(info[0])]
+    if rects is None:
+        rects = [d["rect"] for d in pg.get_drawings()]
+    foot = min([rr.y0 for rr in imgs if rr.y0 > H * 0.85] or [H - 63])
     lines = []
     for b in pg.get_text("dict")["blocks"]:
         for ln in b.get("lines", []):
             t = "".join(s["text"] for s in ln["spans"]).strip()
             if t and TOP < ln["bbox"][1] < foot - 2:
                 lines.append((ln["bbox"][1], ln["bbox"][3], t))
-    draws = [d["rect"] for d in pg.get_drawings() if TOP < d["rect"].y0 < foot - 2 and d["rect"].height < H * 0.9]
+    draws = [r for r in rects if TOP < r.y0 < foot - 2 and r.height < H * 0.9]
     over = [r for r in draws if r.y1 > foot + 1 and r.y0 < foot - 20]
-    pics = [rr for info in pg.get_images(full=True) for rr in pg.get_image_rects(info[0]) if TOP < rr.y0 < foot - 2]
+    pics = [rr for rr in imgs if TOP < rr.y0 < foot - 2]
     bottom = max([y1 for _, y1, _ in lines] + [r.y1 for r in draws] + [r.y1 for r in pics] + [0])
     return sorted(lines), bottom, foot, over
+
+
+_READ: dict = {}  # PDF 읽은 결과 하나(같은 파일을 넘침·꼬리·문제 수 검사가 또 읽지 않게 — 10/26 산안법 한 건 검사 1.1초 → 절반)
+
+
+def _pages(pdf: Path) -> tuple[list, list, list, list]:
+    """(쪽마다 _body, 쪽마다 선 그림 rect, 쪽 높이, 쪽마다 그림 rect) — 파일·크기·고친 시각이 같으면 다시 안 읽음."""
+    import pymupdf
+
+    st = pdf.stat()
+    key = (str(pdf), st.st_size, st.st_mtime_ns)
+    if key not in _READ:
+        bodies, rects, heights, imgs = [], [], [], []
+        with pymupdf.open(pdf) as doc:
+            for pg in doc:
+                rr = [d["rect"] for d in pg.get_drawings()]
+                ii = [x for info in pg.get_images(full=True) for x in pg.get_image_rects(info[0])]
+                bodies.append(_body(pg, rr, ii))
+                rects.append(rr)
+                heights.append(pg.rect.height)
+                imgs.append(ii)
+        got = (bodies, rects, heights, imgs)
+        _READ.clear()
+        _READ[key] = got
+    return _READ[key]
 
 
 def _divider(lines) -> bool:
@@ -75,11 +104,8 @@ def _divider(lines) -> bool:
 
 def scan(pdf: Path, hwpx: Path, limit: int = 12, skip: set[int] | None = None) -> list[str]:
     """경고 글들(쪽 번호 순, 많으면 limit개까지 + 나머지 개수). skip = 안 볼 쪽(0부터 — 끼운 도면 쪽)."""
-    import pymupdf
-
     starts = designed_starts(hwpx)
-    doc = pymupdf.open(pdf)
-    pages = [_body(pg) for pg in doc]
+    pages = _pages(pdf)[0]
     out = []
     skip = skip or set()
     for i, (lines, bottom, foot, over) in enumerate(pages):
@@ -379,11 +405,8 @@ def split_result_tables(hwpx: Path, pdf: Path) -> list[str]:
 def orphans(pdf: Path, hwpx: Path) -> list[tuple[int, str, float, int]]:
     """앞 쪽이 꽉 찼는데 몇 줄만 넘어온 쪽 [(쪽 0부터, 넘친 마지막 줄 글, 넘친 높이 pt, 그 글이 PDF에서 몇 번째로 나온 것인지 0부터)].
     넘친 높이는 글자 줄만으로(꼬리말 띠·쪽 테두리 선은 빼고), 표 머리줄이 되풀이돼도 되게 줄 수는 14줄까지."""
-    import pymupdf
-
     starts = designed_starts(hwpx)
-    with pymupdf.open(pdf) as doc:
-        pages = [_body(pg) for pg in doc]
+    pages = _pages(pdf)[0]
     out = []
     for i, (lines, _, foot, _) in enumerate(pages):
         span = foot - TOP
@@ -759,14 +782,9 @@ MIN_MARGIN = 283  # 칸 안쪽 위아래 여백은 1mm까지만 줄임(글은 �
 def tails(pdf: Path, hwpx: Path) -> list[tuple[int, str, float, int]]:
     """나뉜 표의 꼬리 줄만 다음 쪽 위에 오고 그 아래 다른 내용이 이어지는 곳(10/26 형 사전검토 3.1 "기타시설 두 줄만 다음 쪽" — orphans엔 안 걸림).
     [(쪽, 꼬리에서 앞 쪽에 없던 가장 긴 줄 글, 꼬리 줄 높이 pt(되풀이 머리줄 빼고), 그 글이 PDF에서 몇 번째)]. 사진 든 표·간지는 뺌."""
-    import pymupdf
-
     starts = designed_starts(hwpx)
-    with pymupdf.open(pdf) as doc:
-        pages = [_body(pg) for pg in doc]
-        draws = [sorted((d["rect"] for d in pg.get_drawings() if TOP < d["rect"].y0 < pages[i][2] - 2 and d["rect"].height < pg.rect.height * 0.9),
-                        key=lambda r: r.y0) for i, pg in enumerate(doc)]
-        pics = [[rr for info in pg.get_images(full=True) for rr in pg.get_image_rects(info[0])] for pg in doc]
+    pages, rects, heights, pics = _pages(pdf)
+    draws = [sorted((r for r in rects[i] if TOP < r.y0 < pages[i][2] - 2 and r.height < heights[i] * 0.9), key=lambda r: r.y0) for i in range(len(pages))]
     out = []
     for i in range(1, len(pages)):
         lines, _, foot, _ = pages[i]
@@ -1019,18 +1037,15 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
     ② 넘기기: 그걸로 모자라면 여러 줄 표는 "줄 단위로 나눔"(pageBreak TABLE — 한글 시험: CELL은 칸 안 글도 끊어 "유지되고 있다." 한 줄만 넘어감)으로 —
        마지막 줄이 통째로 머리줄과 함께 다음 쪽(뒤 ※ 상자도 같이). 상자(한 줄 표)는 못 나누니 그대로.
     고친 곳 설명(비면 안 바꿈 — 부르는 쪽이 PDF를 다시 뽑고, 문제가 늘었으면 되돌림)."""
-    import pymupdf
-
     from server.sitok import report_build as rb
 
     found = [("넘침", *x) for x in orphans(pdf, hwpx)] + [("꼬리", *x) for x in tails(pdf, hwpx)]
     if not found:
         return []
-    with pymupdf.open(pdf) as doc:
-        bodies = [_body(pg) for pg in doc]
-        firsts = [(b[0] or [(0, 0, "")])[0][2] for b in bodies]  # 쪽마다 첫 줄 글
-        table_top = [bool(b[0]) and any(TOP < d["rect"].y0 <= b[0][0][0] + 2 and d["rect"].height < pg.rect.height * 0.9 for d in pg.get_drawings())
-                     for pg, b in zip(doc, bodies)]  # 쪽이 표(나뉜 표 꼬리·※ 상자)로 시작
+    bodies, rects, heights, _ = _pages(pdf)
+    firsts = [(b[0] or [(0, 0, "")])[0][2] for b in bodies]  # 쪽마다 첫 줄 글
+    table_top = [bool(b[0]) and any(TOP < r.y0 <= b[0][0][0] + 2 and r.height < h * 0.9 for r in rr)
+                 for b, rr, h in zip(bodies, rects, heights)]  # 쪽이 표(나뉜 표 꼬리·※ 상자)로 시작
     with zipfile.ZipFile(hwpx) as z:
         infos = z.infolist()
         data = {i.filename: z.read(i.filename) for i in infos}
@@ -1041,6 +1056,10 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
         target = _overflow_target(roots, first, nth, rb)
         if target is None or any(target is t for t in seen) or next(target.iter(f"{{{rb.HP}}}pic"), None) is not None:
             continue
+        on_prev = {_key(t) for _, _, t in bodies[page - 1][0]} if page else set()
+        cells = [_key(rb._cell_text(c)) for c in rb._cells(target).values()]
+        if not any(len(c) >= 4 and any(c[:12] in t or t in c for t in on_prev if len(t) >= 4) for c in cells):
+            continue  # 찾은 표가 넘친 쪽 바로 앞 쪽에 없음 — 같은 글이 딴 데도 있어 엉뚱한 표(10/26 옹벽 목차 "6. 기타부록참고자료" → 부록 간지 표)
         seen.append(target)
         need = int(h * 100 * 1.2) + 800
         blanks, others = _same_page(target, firsts[page - 1] if page else "", rb)
@@ -1107,6 +1126,43 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
     for n, root in roots.items():
         data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
     _rewrite(hwpx, infos, data)
+    return done
+
+
+def tidy_checked(hwpx: Path, pdf: Path, render, sections_from: int = 1) -> list[str]:
+    """애매한 넘침 정리 + 안전장치(시특법·옹벽·내진·산안법 공용, 10/26) — tidy_overflow로 고치고 render(hwpx, 새 PDF)로 다시 그려
+    쪽 문제(몇 줄만 넘친 쪽·제목만 쪽 끝)가 늘거나 쪽 수가 늘면 hwpx를 고치기 전으로 되돌림(PDF도 그대로). 고쳤으면 pdf를 새 것으로 바꾸고 설명, 아니면 []."""
+    import pymupdf
+
+    snap = hwpx.read_bytes()
+    done = tidy_overflow(hwpx, pdf, sections_from=sections_from)  # 걸리는 곳이 없으면 여기서 끝(산안법 대부분 — 검사 약 0.5초)
+    if not done:
+        return []
+    orig = hwpx.with_name(hwpx.stem + "_정리전.hwpx")  # 고치기 전 문제 수는 고치기 전 파일로(쪽 나눔을 더했으면 "일부러 새 쪽"이 달라짐)
+    orig.write_bytes(snap)
+    try:
+        before = issue_count(pdf, orig)
+    finally:
+        orig.unlink(missing_ok=True)
+    pages = len(_pages(pdf)[0])
+    tmp = pdf.with_name(pdf.stem + "_정리.pdf")
+    try:
+        tmp.unlink(missing_ok=True)
+        render(hwpx, tmp)
+        after = issue_count(tmp, hwpx)
+        with pymupdf.open(tmp) as d:
+            pages2 = len(d)
+    except Exception:  # noqa: BLE001 — 다시 못 그리면 고치기 전 그대로
+        hwpx.write_bytes(snap)
+        tmp.unlink(missing_ok=True)
+        raise
+    if after > before or pages2 > pages or pages2 == 0:  # 다른 데가 더 이상해짐 — 고치기 전 그대로
+        hwpx.write_bytes(snap)
+        tmp.unlink(missing_ok=True)
+        print(f"[쪽 정리 되돌림] {hwpx.name}: 문제 {before}→{after}, 쪽 {pages}→{pages2}", flush=True)
+        return []
+    tmp.replace(pdf)
+    print(f"[쪽 정리] {hwpx.name}: 문제 {before}→{after}, 쪽 {pages}→{pages2} — {' / '.join(done)}", flush=True)
     return done
 
 

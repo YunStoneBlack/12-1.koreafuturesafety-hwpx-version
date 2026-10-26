@@ -2380,6 +2380,20 @@ def _body_lines(pg) -> tuple[list[str], int | None]:
     return out, num
 
 
+def _tidy(hwpx: Path, pdf: Path) -> list[str]:
+    """애매한 넘침 정리(10/26 사용자 "산안·시특·내진·결함 전부" — pagecheck.tidy_checked, 시특법과 같은 규칙·안전장치). 못 하면 그대로."""
+    import traceback
+
+    from server.contract_docs import hwp_queue
+    from server.sitok import pagecheck
+
+    try:
+        return pagecheck.tidy_checked(hwpx, pdf, lambda hx, out: out.write_bytes(hwp_queue.convert_via_worker(hx.read_bytes(), ".hwpx", wait=PDF_WAIT)))
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        return []
+
+
 def _page_map(pdf: Path) -> dict[str, int]:
     """한글이 만든 PDF에서 목차 제목이 처음 나오는 쪽의 꼬리말 번호(본문 쪽 번호) — 번호 없는 쪽(표지·목차)은 뺌, 간지(글 몇 줄뿐)는 장 제목만."""
     out: dict[str, int] = {}
@@ -2480,6 +2494,9 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     doc.save(hwpx_out)
     say("PDF로 바꾸는 중(1/2 — 목차 쪽 번호 세기, 1~2분)…")
     pdf1.write_bytes(hwp_queue.convert_via_worker(hwpx_out.read_bytes(), ".hwpx", wait=PDF_WAIT))
+    if _tidy(hwpx_out, pdf1):  # 애매한 넘침 정리(10/26) — 고친 파일을 다시 읽어 목차 쪽 번호
+        doc = Hwpx(hwpx_out)
+        loc = locate(doc)
     pages = _page_map(pdf1)
     n_toc = fill_toc(doc.view(loc["toc"]), d, pages)
     doc.save(hwpx_out)
