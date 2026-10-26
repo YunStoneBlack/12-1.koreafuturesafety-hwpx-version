@@ -21,6 +21,7 @@ from server.sitok import report_build as rb
 from server.sitok.report_build import _n
 from server.sitok import seismic_docs as SD
 from server.sitok import seismic_field as SF
+from server.sitok import seismic_todo as TD
 from server.sitok.wall_build import HC, HP, _size_pic, _tables
 
 SAMPLE_CORE = "15.7~17.3MPa(평균 13.82MPa)로 설계도면상 강도기준의 85%, 각각의 값이 75%를 하회하나"
@@ -159,13 +160,13 @@ def replace_loose(doc, old: str, new: str) -> int:
 
 
 def blank_png(rdir: Path) -> Path:
-    """빈칸 그림(흰 바탕) — 입력이 없으면 견본 사진 대신(10/22 형 "없으면 공란이 정상")."""
+    """빈칸 그림(연한 노랑) — 입력이 없으면 견본 사진 대신(10/22 형 "없으면 공란이 정상", 10/26 "노란색으로 바뀌어야 한다는 표시" — 전엔 흰 바탕)."""
     from PIL import Image
 
-    p = rdir / "보고서그림" / "빈칸.png"
+    p = rdir / "보고서그림" / "빈칸_노랑.png"
     if not p.exists():
         p.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (400, 300), "white").save(p)
+        Image.new("RGB", (400, 300), (255, 242, 168)).save(p)
     return p
 
 
@@ -389,6 +390,7 @@ def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, 
             _set(cells, (1, 1), joined)
             if not joined:
                 _no_bullet(doc, cells[(1, 1)])
+                TD.paint(cells[(1, 1)])  # 조사결과 글이 없음 — 노랑(10/26)
             n += 1
             continue
         for (r, c), x in list(cells.items()):
@@ -397,6 +399,7 @@ def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, 
                 _set(cells, (r, 1), field["texts"].get(key) or "")
                 if not field["texts"].get(key):
                     _no_bullet(doc, cells[(r, 1)])
+                    TD.paint(cells[(r, 1)])
                 n += 1
     return n
 
@@ -800,8 +803,10 @@ def fill_members(root, field: dict, d: dict, rebar_rows: list, units, warn: list
         rows = [[str(i + 1), f"{SF.floor_label(m['floor'])}( {m['where']} )" if m["where"] else SF.floor_label(m["floor"]),
                  f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", m["note"]] for i, m in enumerate(members)]
         n += fill_chunks(root, tables, rows, 18, 1, flat=False)
-    else:  # 입력 없으면 빈 줄 하나(10/22 형 "안 적었는데 값이 들어가 있음")
+    else:  # 입력 없으면 빈 줄 하나(10/22 형 "안 적었는데 값이 들어가 있음") — 노랑(10/26)
         fill_chunks(root, tables, [[""] * 6], 18, 1, flat=False)
+        TD.paint_empty(next((t for t in _outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"
+                             and _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "조사위치"), None), 1)
         warn.append("부재 단면 줄이 없어 2.2.1 표는 빈칸입니다(현장조사 입력)")
     qty = [x for x in _outer(root) if (x.get("rowCnt"), x.get("colCnt")) == ("2", "4") and "금회조사수량" in _n(rb._cell_text(rb._cells(x).get((0, 3), x)))]
     by = units if isinstance(units, dict) else {"member": units, "rebar": units}  # 항목별 조사단위(10/26) — 부재 단면 표 = member, 철근배근 표 = rebar
@@ -937,11 +942,13 @@ def _blank_cores(doc, root) -> None:
         for (r, c) in list(cells):
             if (c == 1 and 1 <= r < last) or c == 3:
                 _set(cells, (r, c), "")
+                TD.paint(cells.get((r, c)))  # 노랑(10/26)
         nested = next((x for x in t.iter(f"{{{HP}}}tbl") if x is not t), None)
         if nested is not None:
             nc = rb._cells(nested)
             for rc in ((2, 0), (2, 1), (2, 2), (2, 3), (3, 1), (3, 2)):
                 _set(nc, rc, "")
+                TD.paint(nc.get(rc))
     for old, new in ((SAMPLE_CORE, "-~-MPa(평균 -MPa)로 조사되었으며"), (SAMPLE_CORE_TITLE, "콘크리트 코어시험에 의한 강도결정(코어 -개소)"),
                      ("6개소의 코어가 모두 양호", "-개소의 코어가 모두 양호"), ("현장채취값인 15.8MPa", "현장채취값인 -MPa"),
                      ("설계 기준강도 15.8MPa로 측정되어", "설계 기준강도 -MPa로 측정되어"), ("현장조사 설계기준강도 값인 15.8MPa", "현장조사 설계기준강도 값인 -MPa"),
@@ -1015,6 +1022,7 @@ def fill_masonry(root, field: dict, warn: list) -> int:
     tables = [t for t in _outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"]
     if not rows:
         fill_chunks(root, tables, [[""] * 11], 60, 2, flat=True)
+        TD.paint_empty(next((t for t in _outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"), None), 2)  # 노랑(10/26)
         warn.append("조적조 줄이 없어 2.4.3 조적벽 결과표는 빈칸입니다(현장조사 입력)")
         return 0
     rows = sorted(rows, key=lambda x: (x["floor"], x["kind"] != "채움벽", x["mid"]))
@@ -1127,7 +1135,14 @@ def _ole_to_pic(doc, ole, pic_tpl, path: Path) -> bool:
 def fill_ground(doc, root, ground: dict | None, rdir: Path, warn: list) -> int:
     holes = (ground or {}).get("holes") or []
     if not holes:
-        warn.append("지반조사보고서가 없어 2.5 지반 및 기초는 견본 값 그대로입니다(서류 칸)")
+        warn.append("지반조사보고서가 없어 2.5 지반 및 기초 값은 비우고 노랗게 칠했습니다(서류 칸에 올리면 채워짐)")
+        key = _n(SAMPLE_GROUND)[:12]
+        for t in _tables(root):  # 요약 "가. 지반 조사 결과" 칸 — 견본 문장(S2 지반·BH 속도) 대신 빈칸 + 노랑(10/26, 있으면 SAMPLE_GROUND를 바꿈)
+            for tc in rb._cells(t).values():
+                if key in _n(rb._cell_text(tc)) and next(tc.iter(f"{{{HP}}}tbl"), None) is None:
+                    rb._set_lines(tc, [""])
+                    _no_bullet(doc, tc)
+                    TD.paint(tc)
         return 0
     gdir = rdir / "지반"
     n = 0

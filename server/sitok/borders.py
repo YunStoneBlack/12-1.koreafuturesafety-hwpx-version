@@ -79,6 +79,17 @@ class Borders:
         new = re.sub(rf"<hh:{side}Border [^>]*/>", m[0], d, count=1)
         return bid if new == d else self.adopt(new)
 
+    def fill(self, bid: str | None, color: str) -> str | None:
+        """bid 모양의 칸 바탕을 color로 바꾼 모양 번호(테두리 그대로, 10/26 내진 못 채운 칸 노랑 — seismic_todo)."""
+        d = self.by_id.get(str(bid)) if bid is not None else None
+        if d is None:
+            return bid
+        if "winBrush" in d:
+            new = re.sub(r'(<hc:winBrush[^>]*?faceColor=")[^"]*(")', rf"\g<1>{color}\g<2>", d, count=1)
+        else:
+            new = d.replace("</hh:borderFill>", f'<hc:fillBrush><hc:winBrush faceColor="{color}" hatchColor="#FF000000" alpha="0"/></hc:fillBrush></hh:borderFill>', 1)
+        return bid if new == d else self.adopt(new)
+
     def char_size(self, cid: str | None) -> int | None:
         """글자 모양 cid의 크기(1/100pt)."""
         self._char_variant(None, None)  # 목록 준비

@@ -32,7 +32,7 @@ SAMPLE_PERIOD_DOT = "2025. 10. 24. ~ 2026. 01. 02."
 SAMPLE_MONTHS = ("2026년 01월", "2026. 01.", "2026․01", "2026∙01")
 PER_TABLE = 18  # 철근배근 표 하나에 시험 18개(견본 한 쪽)
 
-NO_FRONT = "결과표 나~마·(2) 내진성능평가 적용·확인서·체크리스트는 견본 값 그대로입니다 — 견본 전체에 외주 몫까지 쓴 한글을 올리면 옮겨 넣습니다"
+NO_FRONT = "결과표 나~마·(2) 내진성능평가 적용·확인서·체크리스트는 외주 몫이라 견본 값을 비우고 노랗게 칠했습니다 — 견본 전체에 외주 몫까지 쓴 한글을 올리면 옮겨 넣습니다"
 STILL_SAMPLE = [  # 아직 견본 값 그대로인 곳 — 만들기 알림(나머지는 server/sitok/seismic_fill이 채우고 빈 입력만 알림)
     "요약문 책임기술자 종합의견(견본 글)",
     "1.2 건물 길이·층별 평면도(견본 그림)",
@@ -236,6 +236,7 @@ def fill_rebar(root, d: dict, warn: list) -> int:
         return 0
     if not rows:
         warn.append("철근탐사 결과가 없어 2.2.2 철근배근 표는 빈칸입니다(🧪 현장시험)")
+    from server.sitok.seismic_todo import paint_empty
     lines = RV.table_rows(rows) if rows else [[""] * 7, [""] * 7]  # 없으면 빈 시험 한 줄(두 줄)
     chunks = [lines[i:i + PER_TABLE * 2] for i in range(0, len(lines), PER_TABLE * 2)]
     paras = [next(t.iterancestors(f"{{{HP}}}p")) for t in tables]
@@ -282,6 +283,8 @@ def fill_rebar(root, d: dict, warn: list) -> int:
         from server.sitok.seismic_fill import thick_bottom
 
         thick_bottom(t)  # 표 끝 굵은 선(10/22)
+        if not rows:
+            paint_empty(t, 1)  # 결과가 없어 비운 줄 — 노랑(10/26)
     # 조사 수량 — "금회 조사 수량 = N개소"(철근 표 앞의 수량 표: 두 번째 2×4)
     qty = [x for x in _tables(root) if (x.get("rowCnt"), x.get("colCnt")) == ("2", "4") and "금회조사수량" in rb._n(rb._cell_text(rb._cells(x).get((0, 3), x)))]
     if len(qty) >= 2:
@@ -429,17 +432,26 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
             warn.append("외주 한글에서 \"제3장\"을 못 찾아 끼워 넣지 않았습니다 — 파일을 확인해 주세요")
     else:
         warn.append(NO_FRONT)
-    from server.sitok import seismic_fill
+    from server.sitok import seismic_fill, seismic_todo
 
-    with seismic_fill.borders_for(doc):  # 표 줄 지우기·복사 때 끝줄 굵은 선·맞닿는 선(10/22)
-        changed = seismic_fill.fill_cover_names(root, d)  # 표지 아래 발주처·회사 글자로(로고 지움, 10/22) — 이름 바꾸기 앞에서
-        changed += replace_globals(doc, d)
-        changed += fill_persons(root, d) + fill_result_ga(root, d) + fill_result_people(root, d) + fill_chapter1(root, d) + fill_field_summary(root, d)
-        changed += fill_rebar(root, d, warn)
-        if f.seismic_only or (r.survey or {}).get("seismic_field") or (r.survey or {}).get("seismic_docs"):  # 별개 건(10/21) — 현장조사 입력·서류 값
-            say("현장조사·서류 값 채우는 중…")
-            changed += seismic_fill.fill_all(doc, root, r, f, folder, d, warn, front_taken=front_taken, vendor_text=vendor_text)
-        changed += seismic_fill.fix_confirm_layout(doc, root) + seismic_fill.fix_checklist_stamp(root)  # 확인서 두 칸·체크리스트 도장(10/22)
+    filling = f.seismic_only or (r.survey or {}).get("seismic_field") or (r.survey or {}).get("seismic_docs")  # 별개 건(10/21) — 현장조사 입력·서류 값
+    has_ground = bool((((r.survey or {}).get("seismic_docs") or {}).get("ground") or {}).get("parsed"))
+    todo = seismic_todo.Todo(doc, vendor=not front_taken, ground=not has_ground) if filling else None  # 외주 몫·지반 견본 값 기억(채우기 전, 10/26)
+    try:
+        with seismic_fill.borders_for(doc):  # 표 줄 지우기·복사 때 끝줄 굵은 선·맞닿는 선(10/22)
+            changed = seismic_fill.fill_cover_names(root, d)  # 표지 아래 발주처·회사 글자로(로고 지움, 10/22) — 이름 바꾸기 앞에서
+            changed += replace_globals(doc, d)
+            changed += fill_persons(root, d) + fill_result_ga(root, d) + fill_result_people(root, d) + fill_chapter1(root, d) + fill_field_summary(root, d)
+            changed += fill_rebar(root, d, warn)
+            if filling:
+                say("현장조사·서류 값 채우는 중…")
+                changed += seismic_fill.fill_all(doc, root, r, f, folder, d, warn, front_taken=front_taken, vendor_text=vendor_text)
+            changed += seismic_fill.fix_confirm_layout(doc, root) + seismic_fill.fix_checklist_stamp(root)  # 확인서 두 칸·체크리스트 도장(10/22)
+            if todo is not None:  # 손대지 않은 견본 값 → 빈칸 + 노랑(10/26 사용자 "다 지우고 노란색으로 바뀌어야 한다는 표시")
+                changed += todo.finish(folder, warn)
+    finally:
+        if todo is not None:
+            todo.stop()
     ours = folder / f"{base}(1~2장).hwpx"
     doc.save(ours)
     hwpx = folder / f"{base}.hwpx"

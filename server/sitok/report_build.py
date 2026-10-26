@@ -789,6 +789,9 @@ def _set_para(p, text: str, in_table: bool = False) -> None:
 
 def _set_lines(tc, lines: list[str]) -> None:
     """칸 글을 lines(줄마다 문단 하나)로 — 첫 문단 모양을 복사."""
+    w = getattr(_TL, "written", None)  # 내진 견본 값 지우기(seismic_todo)가 "우리가 쓴 칸"을 알게
+    if w is not None:
+        w.add(tc)
     ps = [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]
     if not ps:
         return
