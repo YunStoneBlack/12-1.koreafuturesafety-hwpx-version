@@ -924,11 +924,45 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
                 pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
         except Exception:  # noqa: BLE001
             traceback.print_exc()
+    _tidy_pages(hwpx, pdf)  # 애매한 넘침 정리(10/26) — 목차 쪽 번호 전에
     try:  # 목차 쪽 번호 = 다 고친 PDF의 실제 쪽(10/19 형 — 원본 숫자·책갈피 그대로라 묶음 2·3장이 1장 쪽으로 나왔음), 바뀌면 한 번 더
         if pagecheck.fill_toc(hwpx, pdf):
             pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
     except Exception:  # noqa: BLE001 — 못 하면 그대로
         traceback.print_exc()
+
+
+def _tidy_pages(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
+    """애매한 넘침 정리(10/26 사용자·민재형 "애매하게 페이지를 초과" — pagecheck.tidy_overflow: 빈 줄·칸 빈 자리만 줄여 당기거나, 줄 단위·작은 표 통째로 넘김,
+    글자 크기·장평·줄 간격은 그대로) → PDF 다시 → 쪽 문제(몇 줄만 넘친 쪽·제목만 쪽 끝)가 늘거나 쪽 수가 늘면 고치기 전으로 되돌림. 고친 곳 설명(되돌렸거나 없으면 [])."""
+    import pymupdf
+
+    from server.sitok import pagecheck
+
+    try:
+        snap = hwpx.read_bytes()
+        before = pagecheck.issue_count(pdf, hwpx)
+        with pymupdf.open(pdf) as d:
+            pages = len(d)
+        done = pagecheck.tidy_overflow(hwpx, pdf, sections_from=sections_from)
+        if not done:
+            return []
+        tmp = pdf.with_name(pdf.stem + "_정리.pdf")
+        tmp.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        after = pagecheck.issue_count(tmp, hwpx)
+        with pymupdf.open(tmp) as d:
+            pages2 = len(d)
+        if after > before or pages2 > pages:  # 다른 데가 더 이상해짐 — 고치기 전 그대로
+            hwpx.write_bytes(snap)
+            tmp.unlink(missing_ok=True)
+            print(f"[쪽 정리 되돌림] {hwpx.name}: 문제 {before}→{after}, 쪽 {pages}→{pages2}", flush=True)
+            return []
+        tmp.replace(pdf)
+        print(f"[쪽 정리] {hwpx.name}: 문제 {before}→{after}, 쪽 {pages}→{pages2} — {' / '.join(done)}", flush=True)
+        return done
+    except Exception:  # noqa: BLE001 — 못 하면 그대로
+        traceback.print_exc()
+        return []
 
 
 def _convert_appendix(appx: Path, apdf: Path) -> None:
@@ -946,6 +980,7 @@ def _convert_appendix(appx: Path, apdf: Path) -> None:
             apdf.write_bytes(hwp_queue.convert_via_worker(appx.read_bytes(), ".hwpx", wait=PDF_WAIT))
     except Exception:  # noqa: BLE001
         traceback.print_exc()
+    _tidy_pages(appx, apdf, sections_from=0)  # 애매한 넘침 정리(10/26)
 
 
 def _run_precision_build(db: Session, r: SitokReport) -> None:
@@ -1320,6 +1355,7 @@ def _add_summary(db: Session, pairs: list, title: str, hwpx: Path, pdf: Path, wa
                 spdf.write_bytes(hwp_queue.convert_via_worker(out.read_bytes(), ".hwpx", wait=PDF_WAIT))
         except Exception:  # noqa: BLE001 — 못 고치면 그대로
             traceback.print_exc()
+        _tidy_pages(out, spdf, sections_from=0)  # 결언 상자 끝 몇 줄 등 애매한 넘침(10/26)
         n = S.insert_before_toc(pdf, spdf)
         if not n:
             warn.append("요약문: 보고서에서 목차 쪽을 못 찾아 끼우지 못했습니다(요약문 한글은 따로 있음)")

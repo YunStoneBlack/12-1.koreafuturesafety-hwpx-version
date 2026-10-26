@@ -605,22 +605,27 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
                 return tbl
         return None
 
+    def any_table(tops: list, i: int) -> bool:  # 제목 바로 뒤 문단에 표(글자처럼이든 떠 있든) — PDF 쪽 셈(table_follows)과 같게 세려고
+        return any(next(q.iter(f"{{{rb.HP}}}tbl"), None) is not None for q in tops[i + 1:i + 3])
+
     for head, short, need, nth, table_only in found:
         seen = 0
         target = None
+        matched = False
         for root in roots.values():
             tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
             for i, p in enumerate(tops):
                 if not _same_head(rb._top_text(p), head):
                     continue
-                if table_only and char_table(tops, i) is None:  # ② 표가 뒤따르는 제목만 셈(PDF와 같게)
-                    continue
+                if table_only and not any_table(tops, i):  # ② 표가 뒤따르는 제목만 셈(PDF와 같게 — 이미 나뉘게 바꾼 떠 있는 표도 셈,
+                    continue  # 10/26 묶음 동마다 같은 제목: 전엔 글자처럼 표만 세어 서관 대신 급식실 표를 고쳤음)
                 if seen < nth:
                     seen += 1
                     continue
-                target = char_table(tops, i)
+                target = char_table(tops, i)  # 그 제목 표가 이미 떠 있는 표면 None — 다른 동 제목으로 넘어가지 않음
+                matched = True
                 break
-            if target is not None:
+            if matched:
                 break
         if target is None:
             continue
@@ -745,3 +750,371 @@ def fill_toc(hwpx: Path, pdf: Path) -> list[str]:
         data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
     _rewrite(hwpx, infos, data)
     return [f"목차 쪽 번호 {done}곳 고침" + (f"(못 찾은 줄 {len(missed)}: {', '.join(missed[:3])})" if missed else "")]
+
+
+# ---------- 애매한 넘침 정리(10/26 사용자·민재형 "애매하게 페이지를 초과") — 글자 크기·장평·줄 간격은 절대 안 건드림 ----------
+MIN_MARGIN = 283  # 칸 안쪽 위아래 여백은 1mm까지만 줄임(글은 그대로)
+
+
+def tails(pdf: Path, hwpx: Path) -> list[tuple[int, str, float, int]]:
+    """나뉜 표의 꼬리 줄만 다음 쪽 위에 오고 그 아래 다른 내용이 이어지는 곳(10/26 형 사전검토 3.1 "기타시설 두 줄만 다음 쪽" — orphans엔 안 걸림).
+    [(쪽, 꼬리에서 앞 쪽에 없던 가장 긴 줄 글, 꼬리 줄 높이 pt(되풀이 머리줄 빼고), 그 글이 PDF에서 몇 번째)]. 사진 든 표·간지는 뺌."""
+    import pymupdf
+
+    starts = designed_starts(hwpx)
+    with pymupdf.open(pdf) as doc:
+        pages = [_body(pg) for pg in doc]
+        draws = [sorted((d["rect"] for d in pg.get_drawings() if TOP < d["rect"].y0 < pages[i][2] - 2 and d["rect"].height < pg.rect.height * 0.9),
+                        key=lambda r: r.y0) for i, pg in enumerate(doc)]
+        pics = [[rr for info in pg.get_images(full=True) for rr in pg.get_image_rects(info[0])] for pg in doc]
+    out = []
+    for i in range(1, len(pages)):
+        lines, _, foot, _ = pages[i]
+        prev_lines, _, prev_foot, _ = pages[i - 1]
+        if not lines or not draws[i] or not draws[i - 1] or _divider(lines) or _divider(prev_lines) or _key(lines[0][2]) in starts:
+            continue
+        top = draws[i][0]
+        if top.y0 > lines[0][0] + 2:  # 쪽 첫 줄이 표 안이 아님
+            continue
+        bottom = top.y1
+        for r in draws[i]:  # 이어진 선들 = 그 표 덩어리
+            if r.y0 > bottom + 3:
+                break
+            bottom = max(bottom, r.y1)
+        span = foot - TOP
+        if bottom - top.y0 > span * 0.15 or max(r.y1 for r in draws[i - 1]) < TOP + (prev_foot - TOP) * 0.85:
+            continue  # 꼬리가 길거나(쪽 15% 넘게) 앞 쪽이 표로 끝까지 안 찼으면 자연스러운 나뉨
+        if any(r.y0 < bottom and r.y1 > top.y0 for r in pics[i]) or not any(y0 > bottom + 1 for y0, _, _ in lines):
+            continue  # 사진 표, 또는 꼬리 아래 내용이 없음(그건 orphans)
+        before = {_key(t) for _, _, t in prev_lines}
+        block = [(y0, t) for y0, y1, t in lines if top.y0 - 1 <= y0 and y1 <= bottom + 1]
+        new = [(y0, t) for y0, t in block if _key(t) not in before]
+        if not new or len(new) == len(block):  # 머리줄이 되풀이되지 않음 — 나뉜 표 꼬리가 아님(간지 제목 상자 등)
+            continue
+        text = max((t for _, t in new), key=lambda t: len(_key(t)))
+        if len(_key(text)) < 4:
+            continue
+        k = sum(1 for j in range(i) if any(_key(text) == _key(t) for _, _, t in pages[j][0]))
+        out.append((i, text, bottom - new[0][0], k))
+    return out
+
+
+def _overflow_target(roots: dict, first: str, nth: int, rb):
+    """넘친 줄(first, PDF에서 nth번째로 나온 글)이 든 표 — 여러 줄 표 또는 문단 많은 상자, 짧은 글·상자면 바로 앞(3문단 안) 큰 표(squeeze_overflow와 같은 찾기).
+    글이 너무 짧으면(4글자 미만 — "1"·"○") 엉뚱한 표를 잡으니 안 찾음."""
+    flat = lambda s: re.sub(r"\s", "", s or "")  # noqa: E731
+    if len(_key(first)) < 4:
+        return None
+
+    def find(hit, nth: int):
+        seen = 0
+        for root in roots.values():
+            tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
+            for i, p in enumerate(tops):
+                tbls = [t for t in p.iter(f"{{{rb.HP}}}tbl")]
+                if not hit(rb._top_text(p)) and not any(hit(rb._cell_text(c)) for t in tbls for c in rb._cells(t).values()):
+                    continue
+                if seen < nth:
+                    seen += 1
+                    continue
+                big = next((t for t in tbls if (int(t.get("rowCnt") or 1) > 1 or len(list(t.iter(f"{{{rb.HP}}}p"))) >= 5)
+                            and any(hit(rb._cell_text(c)) for c in rb._cells(t).values())), None)
+                if big is None:
+                    for q in reversed(tops[max(0, i - 3):i]):
+                        big = next((t for t in q.iter(f"{{{rb.HP}}}tbl") if int(t.get("rowCnt") or 1) > 1), None)
+                        if big is not None:
+                            break
+                return big
+        return None
+
+    line = flat(first)
+    once = len(line) >= 8 and sum(flat("".join(t.text or "" for t in p.iter(rb.T))).count(line)
+                                      for root in roots.values() for p in root if p.tag == f"{{{rb.HP}}}p") == 1
+    target = find(lambda t: line in flat(t), 0) if once else None
+    return target if target is not None else find(lambda t: _key(first) in _key(t), nth)
+
+
+def _has(p, rb, *tags) -> bool:
+    return any(next(p.iter(f"{{{rb.HP}}}{t}"), None) is not None for t in tags)
+
+
+def _blank(p, rb) -> bool:
+    """빈 문단 — 글도 표·그림·구역 설정도 없음."""
+    return not rb._top_text(p).strip() and not _has(p, rb, "tbl", "pic", "secPr", "ctrl", "container")
+
+
+def _same_page(tbl, page_top: str, rb) -> tuple[list, list]:
+    """넘친 표와 같은 쪽(앞 쪽 첫 줄 글 page_top이 든 문단부터 그 표까지)의 (빈 문단들, 다른 여러 줄 표들 — 사진 든 표 빼고).
+    쪽 첫 줄을 40문단 안에서 못 찾으면 표 바로 앞 빈 문단(최대 2 — 10/26 형 "3.1 다음 표 띄워쓰기 하지말고 붙이고")만."""
+    host = tbl
+    while host.getparent() is not None and host.getparent().getparent() is not None:
+        host = host.getparent()
+    root = host.getparent()
+    if root is None:
+        return [], []
+    tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
+    if host not in tops:
+        return [], []
+    at = tops.index(host)
+    key = _key(page_top)
+    start = None
+    for j in range(at - 1, max(-1, at - 41), -1):
+        q = tops[j]
+        texts = [rb._top_text(q)] + [rb._cell_text(c) for t in q.iter(f"{{{rb.HP}}}tbl") for c in rb._cells(t).values()]
+        if len(key) >= 4 and any(key in _key(t) for t in texts if t):
+            start = j
+            break
+    blanks, tables = [], []
+    if start is None:
+        for q in reversed(tops[:at]):
+            if len(blanks) >= 2 or not _blank(q, rb):
+                break
+            blanks.append(q)
+        return blanks, tables
+    for q in tops[start:at]:
+        if _blank(q, rb):
+            blanks.append(q)
+        for t in q.iter(f"{{{rb.HP}}}tbl"):
+            if next(t.iter(f"{{{rb.HP}}}pic"), None) is None and int(t.get("rowCnt") or 1) > 1 and next(t.iterancestors(f"{{{rb.HP}}}tbl"), None) is None:
+                tables.append(t)
+    return blanks, tables
+
+
+def _inner_blanks(tbl, rb) -> list:
+    """한 줄 상자(요약문 결언 등) 안의 빈 문단 — 끝 빈 줄 먼저, 그다음 글 문단 사이 빈 줄(첫 문단은 남김 — 10/26 끝 빈 줄이 남아 상자 아래 테두리만 다음 쪽)."""
+    if int(tbl.get("rowCnt") or 1) != 1:
+        return []
+    tail, mid = [], []
+    for tc in rb._cells(tbl).values():
+        ps = [p for p in tc.iter(f"{{{rb.HP}}}p") if next(p.iterancestors(f"{{{rb.HP}}}tc"), None) is tc]
+        empty = [not "".join(t.text or "" for t in p.iter(rb.T)).strip() and not _has(p, rb, "tbl", "pic") for p in ps]
+        j = len(ps)
+        while j > 1 and empty[j - 1]:
+            j -= 1
+            tail.append(ps[j])
+        mid += [p for p, e in zip(ps[1:j], empty[1:j]) if e]
+    return tail + mid
+
+
+def _vm(tc, tbl, rb) -> tuple[int, int]:
+    m = tc.find(f"{{{rb.HP}}}cellMargin") if tc.get("hasMargin") == "1" else tbl.find(f"{{{rb.HP}}}inMargin")
+    if m is None:
+        return 141, 141
+    return int(m.get("top") or 141), int(m.get("bottom") or 141)
+
+
+def _fit_rows(tbl, rb, cut: int | None) -> tuple[dict, dict]:
+    """줄마다 (지금 차지 높이, 줄일 수 있는 양) — 칸 위아래 여백을 cut으로 줄였을 때(None = 그대로). 글 어림은 _table_row_heights와 같은 셈, 2mm 여유는 남김."""
+    import math
+
+    cells = rb._cells(tbl)
+    h, est_now, est_cut = {}, {}, {}
+    for (r, _), tc in cells.items():
+        if rb._span(tc, "rowSpan") != 1:
+            continue
+        sz = tc.find(f"{{{rb.HP}}}cellSz")
+        w, hh = int(sz.get("width") or 0), int(sz.get("height") or 0)
+        h[r] = max(h.get(r, 0), hh)
+        mt, mb = _vm(tc, tbl, rb)
+        m = tc.find(f"{{{rb.HP}}}cellMargin")
+        mx = (int(m.get("left") or 141) + int(m.get("right") or 141)) if m is not None else 282
+        if next(tc.iter(f"{{{rb.HP}}}pic"), None) is not None or next(tc.iter(f"{{{rb.HP}}}tbl"), None) is not None:
+            a = b = hh
+        else:
+            lines = 0
+            for p in tc.iter(f"{{{rb.HP}}}p"):
+                t = "".join(x.text or "" for x in p.iter(rb.T))
+                lines += max(1, math.ceil(len(t) * rb.CHAR_W / max(w - mx, 1000)))
+            body = min(lines, 200) * rb.LINE_H
+            a = body + mt + mb
+            b = body + (min(mt, cut) if cut else mt) + (min(mb, cut) if cut else mb)
+        est_now[r] = max(est_now.get(r, 0), a)
+        est_cut[r] = max(est_cut.get(r, 0), b)
+    cur = {r: max(h[r], est_now.get(r, 0)) for r in h}
+    if int(tbl.get("rowCnt") or 1) == 1:  # 한 칸 상자(결언 등) — 글이 많아 어림이 실제보다 작게 나오니 칸 높이 빈 자리는 안 믿고 여백 줄인 만큼만(10/26 상자 끝이 넘어감)
+        return cur, {r: max(0, est_now.get(r, 0) - est_cut.get(r, 0)) for r in h}
+    return cur, {r: max(0, cur[r] - est_cut.get(r, 0) - 200) for r in h}
+
+
+def _apply_fit(tbl, rb, need: int, cut: int | None) -> int:
+    """칸 여백(cut)·줄 빈 높이를 need만큼 줄임 — 글은 그대로. 줄인 어림 양."""
+    from server.sitok.precision_build import _set_row_height
+
+    cur, spare = _fit_rows(tbl, rb, cut)
+    total = sum(spare.values())
+    if total <= 0 or need <= 0:
+        return 0
+    if cut:
+        for tc in rb._cells(tbl).values():
+            m = tc.find(f"{{{rb.HP}}}cellMargin")
+            if m is not None:
+                for k in ("top", "bottom"):
+                    if int(m.get(k) or 0) > cut:
+                        m.set(k, str(cut))
+        im = tbl.find(f"{{{rb.HP}}}inMargin")
+        if im is not None:
+            for k in ("top", "bottom"):
+                if int(im.get(k) or 0) > cut:
+                    im.set(k, str(cut))
+
+    def row_heights():
+        hs = {}
+        for (r, _), tc in rb._cells(tbl).items():
+            if rb._span(tc, "rowSpan") == 1:
+                hs[r] = max(hs.get(r, 0), int(tc.find(f"{{{rb.HP}}}cellSz").get("height") or 0))
+        return hs
+
+    k = min(1.0, need / total)
+    done = 0
+    heights = row_heights()
+    for r, s in spare.items():
+        cutr = int(s * k)
+        if cutr <= 0:
+            continue
+        done += cutr
+        if heights.get(r, 0) > cur[r] - cutr:  # 칸 높이(최소 높이)가 붙들고 있던 줄만 값 낮춤 — 글이 정한 줄은 여백만 줄면 저절로
+            _set_row_height(tbl, r, cur[r] - cutr)
+    heights = row_heights()
+    for (r, _), tc in rb._cells(tbl).items():  # 합친 칸(여러 줄) 높이 = 그 줄들 합
+        span = rb._span(tc, "rowSpan")
+        if span > 1 and all(rr in heights for rr in range(r, r + span)):
+            tc.find(f"{{{rb.HP}}}cellSz").set("height", str(sum(heights[rr] for rr in range(r, r + span))))
+    return done
+
+
+SMALL_TABLE = 30000  # 이보다 낮은(어림 약 10cm, 본문 높이의 40% 남짓) 표는 꼬리만 넘기지 않고 통째로
+CAPTION_LINE = re.compile(r"^\s*[<〈《【\[(].{1,40}[>〉》】\])]\s*$")
+
+
+def _keep_together(tbl, rb):
+    """작은 표를 통째로 다음 쪽에 보낼 때 쪽 나눔을 걸 문단 — 표 바로 앞 문단이 캡션(<…>·【…】)이면 그 문단, 그 앞이 절 제목이면 제목(제목만 남지 않게), 아니면 표 문단.
+    이미 쪽 나눔이 있거나 구역 첫 문단이면 None."""
+    host = tbl
+    while host.getparent() is not None and host.getparent().getparent() is not None:
+        host = host.getparent()
+    root = host.getparent()
+    if root is None:
+        return None
+    tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
+    if host not in tops:
+        return None
+    at = tops.index(host)
+    j = at
+    if at > 0 and CAPTION_LINE.match(rb._top_text(tops[at - 1]) or ""):
+        j = at - 1
+        if j > 0 and HEAD.match(rb._top_text(tops[j - 1]) or ""):
+            j -= 1
+    if j == 0 or tops[j].get("pageBreak") == "1" or _has(tops[j], rb, "secPr"):
+        return None
+    return tops[j]
+
+
+def _levels(tables: list, rb) -> list:
+    return sorted({m for t in tables for tc in rb._cells(t).values() for m in _vm(tc, t, rb) if m > MIN_MARGIN} | {MIN_MARGIN}, reverse=True)
+
+
+def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
+    """애매한 넘침 정리(10/26 사용자·민재형 "애매하게 페이지를 초과" — 제미나이 권고 중 글자 크기·장평은 빼고) — 몇 줄만 넘친 쪽(orphans)·나뉜 표 꼬리(tails)마다:
+    ① 당기기: 넘친 양만큼 그 쪽의 빈 줄 → 표 칸 빈 높이·칸 안쪽 위아래 여백(1mm까지, 상자면 안의 빈 줄도)을 줄여 앞 쪽에 — 글자 크기·장평·줄 간격은 그대로.
+    ② 넘기기: 그걸로 모자라면 여러 줄 표는 "줄 단위로 나눔"(pageBreak TABLE — 한글 시험: CELL은 칸 안 글도 끊어 "유지되고 있다." 한 줄만 넘어감)으로 —
+       마지막 줄이 통째로 머리줄과 함께 다음 쪽(뒤 ※ 상자도 같이). 상자(한 줄 표)는 못 나누니 그대로.
+    고친 곳 설명(비면 안 바꿈 — 부르는 쪽이 PDF를 다시 뽑고, 문제가 늘었으면 되돌림)."""
+    import pymupdf
+
+    from server.sitok import report_build as rb
+
+    found = [("넘침", *x) for x in orphans(pdf, hwpx)] + [("꼬리", *x) for x in tails(pdf, hwpx)]
+    if not found:
+        return []
+    with pymupdf.open(pdf) as doc:
+        bodies = [_body(pg) for pg in doc]
+        firsts = [(b[0] or [(0, 0, "")])[0][2] for b in bodies]  # 쪽마다 첫 줄 글
+        table_top = [bool(b[0]) and any(TOP < d["rect"].y0 <= b[0][0][0] + 2 and d["rect"].height < pg.rect.height * 0.9 for d in pg.get_drawings())
+                     for pg, b in zip(doc, bodies)]  # 쪽이 표(나뉜 표 꼬리·※ 상자)로 시작
+    with zipfile.ZipFile(hwpx) as z:
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+        sections = rb._sections(z)
+    roots = {n: etree.fromstring(data[n]) for n in sections[sections_from:]}
+    done, seen = [], []
+    for kind, page, first, h, nth in found:
+        target = _overflow_target(roots, first, nth, rb)
+        if target is None or any(target is t for t in seen) or next(target.iter(f"{{{rb.HP}}}pic"), None) is not None:
+            continue
+        seen.append(target)
+        need = int(h * 100 * 1.2) + 800
+        blanks, others = _same_page(target, firsts[page - 1] if page else "", rb)
+        host = target
+        while host.getparent() is not None and host.getparent().getparent() is not None:
+            host = host.getparent()
+        tops = [q for q in host.getparent() if q.tag == f"{{{rb.HP}}}p"] if host.getparent() is not None else []
+        near = []  # 표 바로 앞 빈 줄(제목과 표 사이)
+        for q in reversed(tops[:tops.index(host)] if host in tops else []):
+            if not _blank(q, rb) or len(near) >= 2:
+                break
+            near.append(q)
+        far = [q for q in reversed(blanks) if all(q is not x for x in near)]  # 같은 쪽 다른 빈 줄(절 사이) — 모자랄 때만, 표에 가까운 것부터
+        inner = _inner_blanks(target, rb)
+        tables = [target] + [t for t in others if t is not target]
+        plan, use_far = False, False
+        for with_far in (False, True):  # 절 사이 빈 줄은 마지막 수단
+            free = (len(near) + len(inner) + (len(far) if with_far else 0)) * rb.LINE_H
+            for cut in [None] + _levels(tables, rb):  # 여백은 덜 줄이는 것부터
+                if free + sum(sum(_fit_rows(t, rb, cut)[1].values()) for t in tables) >= need:
+                    plan, use_far = cut, with_far
+                    break
+            if plan is not False:
+                break
+        if plan is not False:
+            left, n_blank = need, 0
+
+            def drop(qs):
+                nonlocal left, n_blank
+                for q in qs:
+                    if left <= 0:
+                        return
+                    if q.getparent() is not None:
+                        q.getparent().remove(q)
+                        left -= rb.LINE_H
+                        n_blank += 1
+            drop(near)
+            if left > 0:
+                left -= _apply_fit(target, rb, left, plan)
+            drop(inner)
+            if use_far:
+                drop(far)
+            for t in tables[1:]:
+                if left <= 0:
+                    break
+                left -= _apply_fit(t, rb, left, plan)
+            how = [f"빈 줄 {n_blank}개" if n_blank else "", f"칸 위아래 여백 {plan / 283:.1f}mm까지" if plan else "", "칸 빈 높이" if n_blank * rb.LINE_H < need else ""]
+            done.append(f"{kind} '{first[:14]}…' → {'·'.join(x for x in how if x)} 줄여 앞 쪽에(글자 그대로)")
+            continue
+        if not table_top[page] or int(target.get("rowCnt") or 1) < 3:
+            continue  # 글만 넘친 쪽·상자 — 표 나눔을 바꿔도 소용없음, 그대로
+        heights = rb._table_row_heights(target, text_only=True)
+        if sum(heights.values()) <= SMALL_TABLE:  # 작은 표(공사비 산정 등) — 제목(캡션)과 함께 통째로 다음 쪽 위에(10/26 형 "총 공사비만 덩그러니")
+            at = _keep_together(target, rb)
+            if at is not None:
+                at.set("pageBreak", "1")
+                done.append(f"{kind} '{first[:14]}…' → 작은 표라 제목과 함께 통째로 다음 쪽에")
+                continue
+        if target.get("pageBreak") == "CELL" and heights.get(max(heights, default=0), 0) <= 8000:
+            target.set("pageBreak", "TABLE")  # 마지막 줄이 크면(약 3cm 넘게) 통째로 넘길 때 앞 쪽이 크게 비니 그대로
+            done.append(f"{kind} '{first[:14]}…' → 줄 단위로 넘김(칸 안 글이 쪽에서 끊기지 않게)")
+    if not done:
+        return []
+    for n, root in roots.items():
+        data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    _rewrite(hwpx, infos, data)
+    return done
+
+
+def issue_count(pdf: Path, hwpx: Path) -> int:
+    """쪽 문제 수 — 몇 줄만 넘친 쪽 + 제목만 쪽 끝(tidy_overflow 뒤 되돌릴지 정할 때 — 늘었으면 되돌림). 꼬리(tails)는 안 셈:
+    줄 단위로 넘긴 뒤의 "머리줄 + 줄 통째로"도 짧은 꼬리로 보이니까."""
+    try:
+        heads = sum(1 for s in scan(pdf, hwpx, limit=200) if "만 쪽 끝에 있음" in s)
+        return len(orphans(pdf, hwpx)) + heads
+    except Exception:  # noqa: BLE001
+        return 0
