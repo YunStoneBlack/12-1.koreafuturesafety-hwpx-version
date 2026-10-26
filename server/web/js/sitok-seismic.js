@@ -48,7 +48,7 @@
     const opts = `<option value="">${ch.length ? "일람표 칸 고르기" : "맞는 일람표 칸 없음 — 부호 직접"}</option>` + ch.map((c) => `<option value="${c.id}"${c.id === row.item_id ? " selected" : ""}>${esc(c.marks.join(", "))}${c.position ? ` ${esc(c.position)}` : ""}${c.floors ? ` (${esc(c.floors)})` : ""}${c.confirmed ? "" : " ⚠미확인"}</option>`).join("");
     return `<div class="ss-card${hasResult(row) ? " filled" : " empty"}" data-id="${row.id}" data-floor="${row.floor ?? ""}" data-kind="${esc(row.kind)}">
       <div class="ss-card-h"><b class="ss-no">RC-${row.no}</b><span class="sk-help">${esc(floorLabel(row.floor))} · ${esc(row.kind)}${row.mark ? ` (${esc(row.mark)})` : ""}</span>
-        <button type="button" class="link-btn ss-del" title="이 시험 지우기">🗑</button></div>
+        ${blankCard(row) ? "" : '<button type="button" class="link-btn ss-del" title="이 카드 내용 비우기 — 칸은 그대로(칸 수는 위 칸 수 표에서)">비우기</button>'}</div>
       <div class="field-grid ss-pick">
         <div class="sk-f"><label>층</label><select data-f="floor"><option value="">층 고르기</option>${d.floors.map((f) => `<option value="${f.n}"${f.n === row.floor ? " selected" : ""}>${esc(f.label)}</option>`).join("")}</select></div>
         <div class="sk-f"><label>부재</label><select data-f="kind">${KINDS.map((k) => `<option${k === row.kind ? " selected" : ""}>${k}</option>`).join("")}</select></div>
@@ -110,7 +110,7 @@
     }).join("");
     $("ss-rows").innerHTML = d.rows.length ? `<section class="panel ss-rows-panel"><div class="panel-body ss-cards">${nav}${cards || '<div class="empty-note">이 층에는 시험 카드가 없습니다.</div>'}</div>
         <div class="ss-foot"><span class="sp-saved" id="ss-saved2"></span><span class="sk-help">고치는 대로 자동 저장됩니다</span><button type="button" id="ss-save">저장</button></div></section>`
-      : '<section class="panel"><div class="panel-body empty-note">아직 시험이 없습니다 — 위 [＋ 시험 추가]</div></section>';
+      : '<section class="panel"><div class="panel-body empty-note">아직 시험 칸이 없습니다 — 위 칸 수 표에서 칸을 늘리세요</div></section>';
     bind();
     $("ss-save")?.addEventListener("click", saveAll);
     document.querySelectorAll("#ss-rows [data-mf], #ss-qty [data-mf]").forEach((b) => b.addEventListener("click", () => { // 층 단추·칸 수 표 층 이름 → 그 층만(표 층 이름을 다시 누르면 전체)
@@ -258,9 +258,11 @@
         const next = document.activeElement && el.contains(document.activeElement) ? document.activeElement : null;
         save(rows, next && next !== inp ? { id, f: next.dataset.f, i: next.dataset.i } : null);
       }));
-      el.querySelector(".ss-del").addEventListener("click", () => {
-        if (!confirm("이 시험을 지울까요? 뒤 시험 번호가 하나씩 당겨집니다.")) return;
-        save(rowsCopy().filter((x) => x.id !== id));
+      el.querySelector(".ss-del")?.addEventListener("click", async () => { // 비우기(10/26 — 전체 수량은 칸 수 표에서만, 카드 지우기·시험 추가 없앰)
+        const no = el.querySelector(".ss-no")?.textContent || "";
+        if (!confirm(`${no} 카드 내용을 비울까요? 일람표 칸·설계·조사값·피복·캡처가 지워지고 칸(번호)은 그대로 남습니다.`)) return;
+        if (saving) await saving;
+        try { d = await apiPost(`${URL_}/rebar/${id}/clear`, {}); showErr(""); $("ss-saved").textContent = `${no} 비움`; draw(); } catch (e) { showErr(e.message); }
       });
       el.querySelectorAll("[data-capdel]").forEach((btn) => btn.addEventListener("click", async () => {
         // 캡처 지우기(10/22) — 읽어 넣은 조사값·피복은 그대로
@@ -288,14 +290,6 @@
       });
     });
   }
-
-  $("ss-add").addEventListener("click", () => {
-    const rows = rowsCopy();
-    const mine = sFloor ? rows.filter((x) => String(x.floor) === sFloor) : rows; // 층만 보는 중이면 그 층에(안 보이는 층에 생기지 않게)
-    const last = mine[mine.length - 1];
-    rows.push({ kind: last ? last.kind : "기둥", floor: sFloor ? Number(sFloor) : last ? last.floor : (d.floors[0] || {}).n ?? null, position: "중앙부", side: "단변" }); // 앞 시험과 같은 층·부재로
-    save(rows).then(() => { const cards = document.querySelectorAll(".ss-card"); const c = cards[cards.length - 1]; if (c) { c.scrollIntoView({ block: "center" }); (c.querySelector(".search-sel input") || c.querySelector('[data-f="item_id"]'))?.focus(); } });
-  });
 
   async function planSave(body) {
     $("ss-saved").textContent = "칸 맞추는 중…";

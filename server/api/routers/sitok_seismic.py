@@ -183,6 +183,23 @@ def delete_capture(report_id: int, row_id: str, line: int, user: User = Depends(
     return _out(db, r)
 
 
+@router.post("/reports/{report_id}/seismic/rebar/{row_id}/clear")
+def clear_row(report_id: int, row_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """카드 비우기(10/26 민재형 "전체 수량은 수량표에서만" — 카드 지우기 대신) — 층·부재·자리(RC 번호)는 그대로, 일람표 칸·설계·조사값·피복·실측불가·캡처(파일도)·비고를 지움."""
+    r = _require(db, user, report_id)
+    data, i = _row(r, row_id)
+    row = data["rows"][i]
+    base = _report_dir(db.get(SitokFacility, r.facility_id), r)
+    for rel in row["captures"]:
+        p = (base / rel).resolve() if rel else None
+        if p is not None and base.resolve() in p.parents:
+            p.unlink(missing_ok=True)
+    data["rows"][i] = RV.norm_row({"id": row["id"], "kind": row["kind"], "floor": row["floor"]}, row["no"])
+    _put(r, data)
+    db.commit()
+    return _out(db, r)
+
+
 VENDOR_KEYS = {"body": ("외주 결과물 한글", (".hwp", ".hwpx"))}  # 3~7장만 또는 견본 전체(seismic_vendor가 가려 씀) — 다음: GEN 부록·내역서·지반조사보고서 PDF
 
 
