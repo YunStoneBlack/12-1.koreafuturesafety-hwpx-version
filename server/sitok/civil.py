@@ -419,3 +419,15 @@ def read_existing(data: bytes, filename: str, company_id: int) -> dict:
             "rounds": rounds, "open_ended": bool(d.get("open_ended")), "unit": unit if d.get("open_ended") else None,
             "guarantee": _str(d.get("guarantee")) or "-", "delay_rate": _str(d.get("delay_rate")) or "-",
             "contract_date": _date(d.get("contract_date")), "start_date": _date(d.get("start_date")), "end_date": _date(d.get("end_date"))}
+
+
+def comma_k(text: str) -> str:
+    """점검금액(천원) 글 — 숫자만이면 천 단위 쉼표(3441 → 3,441, 3441.5 → 3,441.5), 아니면 그대로(10/26 민재형 "결과표의 금액은 천 단위 쉼표" —
+    회차에 직접 넣은 동별 금액은 넣은 글 그대로 들어갔음)."""
+    s = (text or "").strip()
+    raw = s.replace(",", "")
+    whole, dot, frac = raw.partition(".")
+    if whole.isdigit() and (not dot or frac.isdigit()):
+        return f"{int(whole):,}" + (f".{frac}" if dot else "")
+    return s
+

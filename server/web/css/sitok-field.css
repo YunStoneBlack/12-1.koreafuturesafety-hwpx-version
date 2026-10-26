@@ -317,3 +317,9 @@
 .gd-prev { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .gd-prev-card { background: #f6f7f9; }
 .wi-pub { grid-column: span 2; }
+/* 결함 사진 위 [↻] 돌리기(10/26 민재형 — 기술지도처럼 사진 위에 바로, 크게 보기 창에도 있음) */
+.main .sf-rot { position: absolute; top: 6px; left: 6px; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; min-width: 0; min-height: 0;
+  margin: 0; padding: 0; border: 2px solid #fff; border-radius: 50%; background: rgba(31, 41, 55, .78); color: #fff; font-size: 17px; font-weight: 700; line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3); cursor: pointer; z-index: 2; }
+.main .sf-rot:hover { background: var(--blue); }
+.main .sf-rot:disabled { opacity: .7; cursor: default; }

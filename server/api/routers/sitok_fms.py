@@ -95,7 +95,7 @@ def _jobs(db: Session, reps: list[SitokReport]) -> list[FmsSubmission]:
 
 @router.get("/reports/{rid}/fms/file")
 def fms_file(rid: int, folder: str, name: str, dl: int = 0, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """e-보고서로 나눌 파일 하나 — 누르면 미리보기(창에서 PDF), dl=1이면 내려받기(10/25 민재형). 대가내역서는 서류 자동화 계약의 대가내역서.pdf."""
+    """e-보고서로 나눌 파일 하나 — 누르면 미리보기(창에서 PDF), dl=1이면 내려받기(10/25 민재형). 대가내역서는 회차 기준으로 그때 만듦(10/26, fms.contract_files)."""
     from urllib.parse import quote
 
     from fastapi.responses import Response

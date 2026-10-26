@@ -419,6 +419,37 @@ def _contract_page(root) -> bool:
     return False
 
 
+def _report_page(root) -> int:
+    """부록 과업지시서 "7. 보고서 작성"을 새 쪽에서 — 제목·안내 글·<안전점검등 실시결과 보고서에 포함되어야 할 사항> 표가 한 쪽에(10/26 민재형
+    "7.보고서 작성부터 다음 페이지로 넘기고 다음 페이지 표까지 한 페이지로" — 원본은 앞 내용 밑에 제목·글만 남고 표는 다음 쪽). 바꾼 수.
+    새 쪽만으로는 표(쪽을 안 넘는 표, 약 207mm)가 제목 밑에 20pt쯤 모자라 통째로 다음 쪽 → 사이 빈 문단 하나 빼고, 그 표 줄 높이 값을 80%로
+    (한글은 칸 높이를 최소 높이로 씀 — 글이 더 필요하면 늘려서 글은 안 잘리고 남는 빈 자리만 줄어듦, 시험 PDF로 확인)."""
+    n = 0
+    tops = _tops(root)
+    for i, p in enumerate(tops):
+        if not re.match(r"^\s*7\.\s*보고서\s*작성\s*$", rb._top_text(p)) or p.get("pageBreak") == "1":
+            continue
+        p.set("pageBreak", "1")
+        n += 1
+        after = tops[i + 1:i + 6]
+        for q in after[:3]:
+            if not rb._top_text(q).strip() and next(q.iter(f"{{{HP}}}tbl", f"{{{HP}}}pic"), None) is None:
+                q.getparent().remove(q)
+                break
+        for q in after:
+            t = next(q.iter(f"{{{HP}}}tbl"), None)
+            if t is None:
+                continue
+            for cs in t.iter(f"{{{HP}}}cellSz"):
+                if (cs.get("height") or "").isdigit():
+                    cs.set("height", str(int(int(cs.get("height")) * 0.8)))
+            sz = t.find(f"{{{HP}}}sz")
+            if sz is not None and (sz.get("height") or "").isdigit():
+                sz.set("height", str(int(int(sz.get("height")) * 0.8)))
+            break
+    return n
+
+
 def _appendix_terms(root, school: bool, private: bool) -> None:
     """부록 과업지시서·과업수행계획서 문구(민재형 10/12): 민간 = 보고서 1부·착수계 7일 이내, 적용법규 "제3종시설물 안전등급 평가 매뉴얼"은 학교만."""
     if private:
@@ -459,6 +490,7 @@ def prepare(src: Path, kind: str, dest: Path, private: bool = True, legal: bool 
         for n in secs[2:]:
             _appendix_terms(roots[n], kind == "3종학교", private)
             _contract_page(roots[n])
+            _report_page(roots[n])
         body = roots[secs[2]]
         tops = _tops(body)
         stop = _appendix_start(tops)

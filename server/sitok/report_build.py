@@ -1285,6 +1285,20 @@ def _brick_table(root, base: dict) -> int:
                 if key in vals and vals[key] and nxt is not None:
                     _set_lines(nxt, [vals[key]])
                     n += 1
+    for p in tops[start:end]:  # 점검 현황 표 실수·상태등급 — 원본(광숭초) 값이 남지 않게 "-"(10/26 민재형 "치장벽돌 마감이 없는데 1A가 들어가면 안 됨")
+        for tbl in p.iter(f"{{{HP}}}tbl"):
+            txt = re.sub(r"\s", "", "".join(tbl.itertext()))
+            if "치장벽돌실수" not in txt or "개선대상" not in txt:
+                continue
+            cells = _cells(tbl)
+            heads = [r for (r, c), tc in cells.items() if re.sub(r"\s", "", _cell_text(tc)) == "상태등급"]
+            notes = [r for (r, c), tc in cells.items() if re.sub(r"\s", "", _cell_text(tc)) == "특이사항"]
+            if not heads or not notes:
+                continue
+            for (r, c), tc in cells.items():
+                if max(heads) < r < min(notes) and _cell_text(tc).strip() != "-":
+                    _set_lines(tc, ["-"])
+                    n += 1
     for p in tops[start:end]:
         if next(p.iter(f"{{{HP}}}tbl"), None) is None and "치장벽돌이 없는 것으로" in _top_text(p):
             p.getparent().remove(p)
@@ -2185,6 +2199,33 @@ def _splittable(t, head_rows: int = 1) -> None:
         addr = tc.find(f"{{{HP}}}cellAddr")
         if addr is not None and int(addr.get("rowAddr", "99")) < head_rows and next(tc.iterancestors(f"{{{HP}}}tbl")) is t:
             tc.set("header", "1")
+    _follow_note(t)
+
+
+def _follow_note(t) -> None:
+    """바로 아래 "※…" 안내 상자(한 칸 표, 글자처럼 취급)도 위 표와 같은 자리(떠 있는 가운데)로 — 위 표만 나뉘게 바꾸면 상자는 문단 들여쓰기 자리에 남아
+    오른쪽으로 틀어졌음(10/26 민재형 "※상기~ 표 오른쪽으로 틀어진 거 맞추기" — 회사 원본은 둘 다 글자처럼이라 맞았음). 사이에 빈 문단은 건너뜀."""
+    p = t.getparent()
+    while p is not None and p.tag != f"{{{HP}}}p":
+        p = p.getparent()
+    q = p.getnext() if p is not None else None
+    for _ in range(3):
+        if q is None or q.tag != f"{{{HP}}}p":
+            return
+        tbls = list(q.iter(f"{{{HP}}}tbl"))
+        text = re.sub(r"\s", "", "".join(q.itertext()))
+        if tbls:
+            box = tbls[0]
+            pos = box.find(f"{{{HP}}}pos")
+            if (len(tbls) == 1 and box.get("rowCnt") == "1" and box.get("colCnt") == "1" and text.startswith("※")
+                    and pos is not None and pos.get("treatAsChar") == "1"):
+                pos.attrib.update({"treatAsChar": "0", "flowWithText": "1", "allowOverlap": "0", "vertRelTo": "PARA", "vertAlign": "TOP", "vertOffset": "0",
+                                   "horzRelTo": "COLUMN", "horzAlign": "CENTER", "horzOffset": "0"})
+                box.set("textWrap", "TOP_AND_BOTTOM")
+            return
+        if text:
+            return
+        q = q.getnext()
 
 
 def _let_split(root, before: dict | None = None) -> int:

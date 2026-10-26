@@ -6,6 +6,9 @@
   동별 금액이 없으면 한 동(시설물명)에 회차 줄 그대로. 끝 없는 계약 = "매 반기" 한 줄(단가), 관급(회차 없음) = 계약기간 한 줄(계약금액).
 - 양식 모양 그대로: 표 머리(10행) 위·합계·비고·회사 칸은 형 양식의 글·서식을 옮기고, 가운데 줄만 개수에 맞게 다시 그림(병합·테두리 복사).
 - 엑셀 → PDF는 LibreOffice(server/contract_docs/to_pdf.py, 착수계와 같음).
+- FMS e-보고서용(report_rows·build_report_pdf, 10/26 민재형 "각 결과표에 들어간 시설물별 계약금이 맞는지 확인하는 서류"): 줄 = 그 회차(묶음이면 동마다) —
+  시설명·과업기간(상반기/하반기)·분야(정기/정밀/진단)·단가 = 만든 보고서 결과표의 점검금액(천원) × 1,000(결과표와 다를 수 없게), 날짜 = 관급 착수일·민간 계약일.
+- 표 오른쪽 끝 굵은 선: 양식은 합계 줄만 굵고 머리·줄은 가는 선 → 오른쪽 끝에 닿는 합친 칸(비고 L:M)에 굵은 선, 끝 칸(M)까지 퍼뜨림(LibreOffice는 끝 칸 값으로 그림, 10/26).
 """
 from __future__ import annotations
 
@@ -56,8 +59,41 @@ def _put_style(cell, st: dict) -> None:
         setattr(cell, k, v)
 
 
-def build(c, dest: Path, day: datetime.date | None = None) -> Path:
-    """대가내역서 엑셀을 dest에 만든다(c = SitokDocContract 같은 모양 — facility_name·client·title·doc_no·rounds·unit·open_ended·amount·contract_date)."""
+def report_rows(reports: list, facilities: dict) -> list[tuple[str, list[tuple[str, str, int]]]]:
+    """FMS용 대가내역서 줄 — 회차마다 [(시설명, [(과업기간, 분야, 단가)])]. 단가 = 그 회차(묶음이면 n번째 동) 결과표 점검금액(천원) × 1,000 —
+    만든 보고서(out_hwpx)에서 읽음. 보고서가 없거나 점검금액을 못 읽으면 ValueError(안내 글)."""
+    import re
+
+    from server.sitok import fms
+
+    seen: dict = {}
+    out = []
+    for r in reports:
+        f = facilities[r.facility_id]
+        if not r.out_hwpx or not Path(r.out_hwpx).exists():
+            raise ValueError(f"{f.name}: 보고서를 아직 안 만들어 결과표 점검금액을 모릅니다 — 보고서를 먼저 만드세요")
+        nth = seen.get(r.out_hwpx, 0)
+        seen[r.out_hwpx] = nth + 1
+        amount_k = fms.result_fields(Path(r.out_hwpx), nth).get("amount_k", "")
+        digits = re.sub(r"[^\d]", "", amount_k.split(".")[0])
+        if not digits:
+            raise ValueError(f"{f.name}: 결과표 점검금액이 비어 있습니다(\"{amount_k}\") — 회차 정보의 동별 점검금액·계약을 확인하세요")
+        out.append((f.name, [(r.half or "", r.kind or "정기", int(digits) * 1000)]))
+    return out
+
+
+def build_report_pdf(c, data: list, xlsx: Path, pdf: Path) -> Path:
+    """FMS용 대가내역서(회차 기준 줄 data) — 날짜 = 관급 착수일·민간 계약일(10/26 민재형)."""
+    from server.contract_docs.to_pdf import office_to_pdf
+
+    day = (c.start_date if getattr(c, "sector", "") == "관급" else c.contract_date) or c.contract_date or c.start_date
+    build(c, xlsx, data=data, print_day=day)
+    return office_to_pdf(xlsx, pdf)
+
+
+def build(c, dest: Path, day: datetime.date | None = None, data: list | None = None, print_day: datetime.date | None = None) -> Path:
+    """대가내역서 엑셀을 dest에 만든다(c = SitokDocContract 같은 모양 — facility_name·client·title·doc_no·rounds·unit·open_ended·amount·contract_date).
+    data = 줄(없으면 계약 회차 줄 blocks(c)), print_day = 아래 날짜(없으면 계약일)."""
     wb = openpyxl.load_workbook(TEMPLATE)
     ws = wb.active
     # 양식에서 옮길 것: 줄 서식(묶음 첫 줄·가운데·끝), 합계~끝 줄(글·서식·높이·병합)
@@ -78,7 +114,7 @@ def build(c, dest: Path, day: datetime.date | None = None) -> Path:
                 cell.value = None
 
     r = FIRST
-    data = blocks(c)
+    data = blocks(c) if data is None else data
     for b, (name, rows) in enumerate(data):
         start = r
         for i, (period, kind, amount) in enumerate(rows):
@@ -107,6 +143,20 @@ def build(c, dest: Path, day: datetime.date | None = None) -> Path:
     for r1, c1, r2, c2 in tail_merges:
         ws.merge_cells(start_row=r1 + shift, start_column=c1, end_row=r2 + shift, end_column=c2)
     ws.cell(sum_row, 10, f"=SUM(J{FIRST}:K{sum_row - 1})")
+    # 표 오른쪽 끝 굵은 선 — 오른쪽 끝(M)에 닿는 합친 칸에 합계 줄과 같은 오른쪽 선(10/26 — 양식은 머리·줄 오른쪽이 가는 선이었음)
+    thick = ws.cell(sum_row, 12).border.right
+    for m in ws.merged_cells.ranges:
+        if m.max_col == COLS and HEAD <= m.min_row < sum_row and m.min_col < COLS:
+            a = ws.cell(m.min_row, m.min_col)
+            b = copy.copy(a.border)
+            b.right = copy.copy(thick)
+            a.border = b
+            for row, col in m.right:  # 끝 칸(M)에도 직접 — LibreOffice는 합친 칸 오른쪽 선을 끝 칸 값으로 그리고, openpyxl은 합칠 때 복사한 옛 가는 선을
+                e = ws._cells.get((row, col))  # 덮어쓰지 않아(format()은 더하기만) 첫 칸만 바꾸면 그대로 가늘었음
+                if e is not None:
+                    eb = copy.copy(e.border)
+                    eb.right = copy.copy(thick)
+                    e.border = eb
     total = sum(a for _, rows in data for _, _, a in rows)
     # 위쪽 칸
     d = getattr(c, "contract_date", None) or day or datetime.date.today()
@@ -120,7 +170,7 @@ def build(c, dest: Path, day: datetime.date | None = None) -> Path:
         img.anchor._from.row += shift
         if getattr(img.anchor, "to", None) is not None:
             img.anchor.to.row += shift
-    ws.cell(29 + shift, 6, d)
+    ws.cell(29 + shift, 6, print_day or d)
     who = c.client or c.facility_name or ""
     ws.cell(37 + shift, 1, f"{who} 시설물 안전점검 담당자님" if who else "시설물 안전점검 담당자님")
     ws.print_area = f"A1:M{LAST_ROW + shift}"

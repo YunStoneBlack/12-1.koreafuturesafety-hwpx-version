@@ -29,8 +29,13 @@ def is_brick(d: dict) -> bool:
     return any(w in str(d.get(k) or "") for k in ("part", "member", "dtype", "note") for w in BRICK_WORDS)
 
 
+BRICK_NA_TEXT = "해당없음(치장벽돌 마감 없음)"  # 상태양호 [외부 치장벽돌] [해당없음] — 1.7 특이사항(10/26 민재형)
+
+
 def brick_photos(sv: dict | None, base: Path) -> list[Path]:
-    """외부 치장벽돌 상태양호 사진(이번 것, 없으면 전회차 가져온 것) — 있는 파일만."""
+    """외부 치장벽돌 상태양호 사진(이번 것, 없으면 전회차 가져온 것) — 있는 파일만. 해당없음이면 없음(10/26 — 다른 마감재 사진을 AI가 치장벽돌로 읽던 것)."""
+    if norm(sv)["brick_na"]:
+        return []
     rows = norm(sv)["good"].get("brick") or []
     pick = [x for x in rows if not x.get("prev")] or [x for x in rows if x.get("prev")]
     return [base / x["file"] for x in pick if (base / x["file"]).exists()]
@@ -49,7 +54,7 @@ def norm(sv: dict | None, fam: str = "") -> dict:
     se = sv.get("seismic") or {}
     rows = [{"mark": r.get("mark") if r.get("mark") in ("○", "×") else "", "text": str(r.get("text") or "").strip(), "action": str(r.get("action") or "").strip()}
             for r in (se.get("rows") or []) if isinstance(r, dict)][:len(SEISMIC_ITEMS)]
-    return {"good": good, "steel_na": bool(sv.get("steel_na")),
+    return {"good": good, "steel_na": bool(sv.get("steel_na")), "brick_na": bool(sv.get("brick_na")),
             "seismic": {"none": bool(se.get("none")), "photos": [str(x or "") for x in (se.get("photos") or [])][:2] + [""] * max(0, 2 - len((se.get("photos") or [])[:2])),
                         "rows": rows, "opinion": str(se.get("opinion") or "").strip(), "at": str(se.get("at") or "")}}
 

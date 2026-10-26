@@ -34,9 +34,12 @@
     const n = data.cats.reduce((a, c) => a + c.photos.length, 0);
     $("gd-count").textContent = n ? `(${n})` : "";
     $("gd-list").innerHTML = data.cats.map((c) => {
-      const na = c.key === "steel" && data.steel_na;
+      // [해당없음] — 강재(철근콘크리트 구조)·외부 치장벽돌(치장벽돌 마감 없음, 10/26 민재형 — 다른 마감재 사진을 AI가 치장벽돌로 읽던 것)
+      const na = (c.key === "steel" && data.steel_na) || (c.key === "brick" && data.brick_na);
       const head = `<h3 class="sf-h">${esc(c.name)} <span class="sk-help">결함 ${c.defects}개${c.defects ? "" : " — 상태양호 사진을 찍어 두세요"}${c.hint ? ` · ${esc(c.hint)}` : ""}</span>
-        ${c.key === "steel" ? `<button type="button" class="gd-na${na ? " on" : ""}">${na ? "해당없음 풀기" : "해당없음"}</button>` : ""}</h3>`;
+        ${c.key === "steel" || c.key === "brick" ? `<button type="button" class="gd-na${na ? " on" : ""}">${na ? "해당없음 풀기" : "해당없음"}</button>` : ""}</h3>`;
+      if (na && c.key === "brick") return `<div class="pt-group" data-key="${c.key}">${head}<div class="pt-card none gd-na-card"><div class="pt-name">해당없음<span>치장벽돌 마감 없음</span></div>
+        <div class="pt-hint">보고서 1.7: 실수·상태등급 "-", 특이사항 "${esc(data.brick_text)}" · AI가 사진을 안 봄</div></div></div>`;
       if (na) return `<div class="pt-group" data-key="${c.key}">${head}<div class="pt-card none gd-na-card"><div class="pt-name">해당없음<span>철근콘크리트 구조</span></div>
         <div class="pt-hint">보고서 1.3 강재구조 글: "${esc(data.steel_text)}" · 사진 칸 "해당없음"</div></div></div>`;
       const nowP = c.photos.filter((p) => !p.prev), prevP = c.photos.filter((p) => p.prev);
@@ -70,8 +73,10 @@
       const key = g.dataset.key;
       g.querySelector(".gd-na")?.addEventListener("click", async () => {
         const c = data.cats.find((x) => x.key === key);
-        if (!data.steel_na && c.photos.length && !confirm("강재를 해당없음으로 하면 찍은 강재 사진은 보고서에 안 들어갑니다. 할까요?")) return;
-        try { data = await apiPost(`${url}/good/steel`, { na: !data.steel_na }); draw(); } catch (e) { say("gd-msg", e.message); }
+        const brick = key === "brick", on = brick ? data.brick_na : data.steel_na;
+        const what = brick ? "외부 치장벽돌" : "강재";
+        if (!on && c.photos.length && !confirm(`${what}를 해당없음으로 하면 찍은 ${what} 사진은 보고서에 안 들어갑니다. 할까요?`)) return;
+        try { data = await apiPost(`${url}/good/${brick ? "brick" : "steel"}`, { na: !on }); draw(); } catch (e) { say("gd-msg", e.message); }
       });
       const sendNew = (el, title) => async (file) => {
         say("gd-msg", "올리는 중…", true);

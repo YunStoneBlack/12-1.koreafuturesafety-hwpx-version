@@ -30,7 +30,7 @@ from lxml import etree
 
 from core.stored_path import to_full
 
-from server.sitok import wall_ai, wall_collect, wall_ledger, wall_manual
+from server.sitok import civil, wall_ai, wall_collect, wall_ledger, wall_manual
 from server.sitok import report_build as rb
 from server.sitok.report_build import HP, T
 
@@ -664,7 +664,7 @@ def gather(db, r, f) -> Data:
             per_half = c.amount / 2 if c.sector == "관급" and c.halves == "연간" else c.amount
             d.amount_k = f"{round(per_half / 1000):,}"
     if (r.amount_k or "").strip():
-        d.amount_k = r.amount_k.strip()
+        d.amount_k = civil.comma_k(r.amount_k)  # 천 단위 쉼표(10/26)
     if c:  # 발주처 과업지시서·납품 항목(형 10/21) — 기본 책자 -·USB -·비고 협의
         dv = c.deliver or {}
         d.deliver = {k: str(dv.get(k) or v).strip() for k, v in (("book", "-"), ("usb", "-"), ("note", "협의"))}

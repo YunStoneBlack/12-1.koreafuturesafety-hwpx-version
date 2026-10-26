@@ -534,8 +534,8 @@ def _new_values(db: Session, r: SitokReport, old: rb.Values, prior: rb.Values | 
             new.amount_k = f"{round(by_round / 1000):,}"
     else:
         warn.append("계약을 고르지 않아 대표자·점검금액은 전회차 보고서 값입니다" if prior else "계약을 고르지 않아 대표자·점검금액이 비었습니다")
-    if (r.amount_k or "").strip():  # 이 동 점검금액(같은 계약서를 여러 동이 같이 쓸 때 — 회차에서 넣음)
-        new.amount_k = r.amount_k.strip()
+    if (r.amount_k or "").strip():  # 이 동 점검금액(같은 계약서를 여러 동이 같이 쓸 때 — 회차에서 넣음), 천 단위 쉼표(10/26)
+        new.amount_k = civil.comma_k(r.amount_k)
     if holder:
         new.rep = holder
     else:
@@ -1852,7 +1852,9 @@ def _ai_draft_work(db: Session, r: SitokReport, user: User, target: str) -> dict
                               combos=method_combos(db, r.id), price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)],
                               parts_facts=facts, template=f.template, target=target)
         data["parts"] = P.rows(r.parts, judged)
-        if f.template == "3종학교":  # 1.7 외부 치장벽돌 특이사항 — 치장벽돌 결함, 없으면 상태양호 치장벽돌 사진(10/23 사용자)
+        if f.template == "3종학교" and G.norm(r.survey)["brick_na"]:  # 치장벽돌 마감 없음(상태양호 [해당없음], 10/26 민재형) — AI 안 부름
+            data["brick"], data["brick_src"] = G.BRICK_NA_TEXT, "na"
+        elif f.template == "3종학교":  # 1.7 외부 치장벽돌 특이사항 — 치장벽돌 결함, 없으면 상태양호 치장벽돌 사진(10/23 사용자)
             try:
                 data["brick"], data["brick_src"] = ai_draft.brick_note(user.company_id, facility, defects, G.brick_photos(r.survey, _report_dir(f, r)))
             except Exception:  # noqa: BLE001 — 못 쓰면 비워 두고(창에서 직접) 나머지 초안은 그대로
@@ -2281,6 +2283,15 @@ def _ours(hwpx: Path) -> bool:
         return "한국미래안전" in z.read(rb._sections(z)[0]).decode("utf-8", "ignore")
 
 
+def _brick_text(r: SitokReport, ex: rb.Extras) -> str:
+    """1.7 치장벽돌 특이사항 — 상태양호 [외부 치장벽돌] [해당없음]이면 고정 글(AI 초안을 다시 안 해도), 아니면 AI 초안(창에서 고친 것)."""
+    from server.sitok import good as G
+
+    if G.norm(r.survey)["brick_na"]:
+        return G.BRICK_NA_TEXT
+    return str((ex.ai or {}).get("brick") or "").strip()
+
+
 def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, prior: Path | None, pv: rb.Values | None) -> list[str]:
     """회사 원본의 시설물 고유 내용(표지·위치도·전경·일반현황·결과표 고정 칸·1.2.6·1.2.7·1.1/1.2·결과표 글·1.3·1.4)을 이 시설물 것으로 —
     전회차 보고서가 있으면 그 데이터, 없으면(처음 맡는 시설물) 비우거나 안내. 경고(채워야 할 것)를 돌려줌."""
@@ -2335,7 +2346,7 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
                "grade": class_label(f)[:1], "use": f.use_type or f.main_use or "시설물",
                "history": history, "repairs": repairs, "result": result, "school": f.template == "3종학교", "legal": f.legal,
                "fms": f.fms_no or "-", "floors_txt": (f"지상{f.floors_above}층" if f.floors_above else "-") + (f", 지하{f.floors_below}층" if f.floors_below else ""),
-               "brick": str((ex.ai or {}).get("brick") or "").strip(),  # 1.7 치장벽돌 특이사항(AI 초안·창에서 고친 것, 10/23)
+               "brick": _brick_text(r, ex),  # 1.7 치장벽돌 특이사항(AI 초안·창에서 고친 것, 10/23 — 상태양호 [해당없음]이면 고정 글, 10/26)
                "target": {"owner": f.owner_name or (pv.owner if pv else "") or "-", "name": f.name, "use": f.use_type or f.main_use or "-",
                           "year": str(f.completion_date.year) if f.completion_date else "-", "area": f"{f.total_area:,.2f}" if f.total_area else "-",
                           "floors": (f"-{f.floors_below}/{f.floors_above}" if f.floors_below else str(f.floors_above or "-")),
@@ -2360,8 +2371,11 @@ def _base_extras(db: Session, r: SitokReport, f: SitokFacility, ex: rb.Extras, p
             warn.append("[🤖 AI 초안]을 안 만들어 결과표·1.3·1.4·종합결론은 전회차 보고서 글 그대로입니다")
         else:
             warn.append("[🤖 AI 초안]을 안 만들어 결과표·1.3·1.4·종합결론이 원본(다른 시설물) 글입니다 — 꼭 만드세요")
-    if f.template == "3종학교":  # 1.7 — 건축물 개요는 시설물 값, 특이사항은 AI 초안(치장벽돌 결함·상태양호 사진), 실수·상태등급은 원본 "-"(10/23)
+    if f.template == "3종학교":  # 1.7 — 건축물 개요는 시설물 값, 특이사항은 AI 초안(치장벽돌 결함·상태양호 사진), 실수·상태등급은 "-"(10/26 — 원본 값 지움)
         if not ex.base["brick"]:
-            warn.append("1.7 치장벽돌 특이사항이 비어 \"-\"로 넣었습니다 — 치장벽돌이 있으면 상태양호 탭 [외부 치장벽돌]에 찍고 AI 초안을 다시(또는 AI 창에서 직접)")
-        warn.append("1.7 치장벽돌 점검 현황 표의 실수·상태등급 칸은 원본 값 그대로 — 치장벽돌이 있으면 손으로 확인하세요")
+            warn.append("1.7 치장벽돌 특이사항이 비어 \"-\"로 넣었습니다 — 치장벽돌이 있으면 상태양호 탭 [외부 치장벽돌]에 찍고 AI 초안을 다시, 없으면 [해당없음]")
+        from server.sitok.good import BRICK_NA_TEXT
+
+        if ex.base["brick"] != BRICK_NA_TEXT:
+            warn.append("1.7 치장벽돌 점검 현황 표의 실수·상태등급은 아직 자동이 아니라 \"-\" — 치장벽돌이 있으면 손으로 확인하세요")
     return warn

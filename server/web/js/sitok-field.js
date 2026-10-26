@@ -455,11 +455,11 @@
       ${prev}${nowLine}
       <div class="sf-photos">
         <figure>${pPrev ? `<label class="sf-prev-up"><img src="${pPrev.url}" alt="전회차" />${pend(pPrev)}<input type="file" accept="image/*" hidden data-kr-file="1" /></label>`
-          : d.has_prev_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/prev?v=${d.prev_v || 0}" alt="전회차" loading="lazy" />
-          <button type="button" class="sf-prev-del" title="전회차 사진 지우기">✕</button>`
+          : d.has_prev_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/prev?v=${d.prev_v || 0}${turnTag(d, "prev")}" alt="전회차" loading="lazy" />
+          <button type="button" class="sf-prev-del" title="전회차 사진 지우기">✕</button>${rotBtn("prev")}`
           : '<label class="sf-prev-up" title="전회차 사진 올리기"><span class="sf-nophoto">전회차 사진 없음<b>＋ 사진 올리기</b></span><input type="file" accept="image/*" hidden data-kr-file="1" /></label>'}<figcaption>전회차</figcaption></figure>
-        <figure><label class="sf-shot">${pNow ? `<img src="${pNow.url}" alt="이번" />${pend(pNow)}` : d.has_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/now?t=${d.ts}" alt="이번" />` : '<span>📷 찍기</span>'}
-          <input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label><figcaption>이번</figcaption></figure>
+        <figure><label class="sf-shot">${pNow ? `<img src="${pNow.url}" alt="이번" />${pend(pNow)}` : d.has_photo ? `<img src="${BASE}/api/sitok/defects/${d.id}/photo/now?t=${d.ts}${turnTag(d, "now")}" alt="이번" />` : '<span>📷 찍기</span>'}
+          <input type="file" accept="image/*" capture="environment" hidden data-kr-file="1" /></label>${!pNow && d.has_photo ? rotBtn("now") : ""}<figcaption>이번</figcaption></figure>
       </div>
       <div class="sf-acts">
         <button type="button" data-c="same" class="${d.check === "same" ? "on" : ""}">비진행</button>
@@ -524,6 +524,18 @@
       } catch (e) { err(e); el.classList.remove("busy"); }
     });
     enableFileDrop(el.querySelector(".sf-shot"), file);
+    // 사진 위 [↻] — 오른쪽 90도(원본 파일, 서버 POST /sitok/rotate — 크게 보기 창의 ↻와 같음), 돌린 뒤 새로 읽게 주소에 돌린 시각(10/26 민재형)
+    el.querySelectorAll(".sf-rot").forEach((b) => b.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      b.disabled = true;
+      b.textContent = "…";
+      try {
+        await apiPost("/sitok/rotate", { src: `/sitok/defects/${d.id}/photo/${b.dataset.w}` });
+        turned[`${d.id}:${b.dataset.w}`] = Date.now();
+        refresh(false);
+      } catch (e) { err(e); b.disabled = false; b.textContent = "↻"; }
+    }));
     // 전회차 사진 하나씩 지우기·올리기(10/22 — 지난 보고서에서 잘못 가져온 사진 방어)
     el.querySelector(".sf-prev-del")?.addEventListener("click", async () => {
       if (!confirm("이 결함의 전회차 사진을 지울까요?\n(지난 보고서에서 잘못 가져온 사진일 때 — 지운 뒤 다시 올릴 수 있습니다)")) return;
@@ -812,6 +824,11 @@
       document.getElementById("sf-title").textContent = "외관조사(결함)";
     }
   }
+
+  // 사진 위 [↻] 돌리기(10/26) — 돌린 사진은 주소 끝에 돌린 시각을 붙여 옛 사진이 캐시로 안 보이게
+  const turned = {};
+  const turnTag = (d, w) => (turned[`${d.id}:${w}`] ? `&r=${turned[`${d.id}:${w}`]}` : "");
+  const rotBtn = (w) => `<button type="button" class="sf-rot" data-w="${w}" title="오른쪽으로 90도 돌리기" aria-label="사진 돌리기">↻</button>`;
 
   async function refresh(redraw = true) {
     try {

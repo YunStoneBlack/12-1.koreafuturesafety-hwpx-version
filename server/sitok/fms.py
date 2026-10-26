@@ -113,6 +113,7 @@ def result_fields(hwpx: Path, nth: int = 0) -> dict:
         "public": _has_defect(public_t),
         "serious_text": serious_t,
         "public_text": public_t,
+        "amount_k": val("점검금액", starts=True),  # 결과표 점검금액(천원) — FMS용 대가내역서 단가(10/26)
         "opinion": ops[min(nth, len(ops) - 1)] if ops else "",
     }
 
@@ -379,10 +380,9 @@ def apply_engineers(payload: dict, found: dict) -> list[str]:
 
 
 def contract_files(db, reports: list) -> tuple[list[dict], list[str]]:
-    """e-보고서 "계약서 및 대가내역서" 폴더에 더할 대가내역서 — 이 회차 계약과 이어진 서류 자동화 계약(보고서 쪽 계약으로 넣은 것, 없으면 같은 시설물 연결)으로
-    만든 대가내역서.pdf(없으면 지금 만듦, server/sitok/daega.py). → (파일들, 알림)."""
+    """e-보고서 "계약서 및 대가내역서" 폴더에 더할 대가내역서 — 이 회차 계약과 이어진 서류 자동화 계약(보고서 쪽 계약으로 넣은 것, 없으면 같은 시설물 연결)의
+    용역명·문서번호·날짜에, 줄은 이 회차 기준(동마다 결과표 점검금액, 10/26 — server/sitok/daega.py report_rows). → (파일들, 알림)."""
     from core.models_web import SitokDocContract
-    from server.api.routers.sitok_docs import folder
     from server.sitok import daega
 
     r0 = reports[0]
@@ -391,10 +391,20 @@ def contract_files(db, reports: list) -> tuple[list[dict], list[str]]:
         or q.filter(SitokDocContract.facility_id.in_([r.facility_id for r in reports])).order_by(SitokDocContract.id.desc()).first()
     if c is None:
         return [], ["대가내역서: 이어진 서류 자동화 계약이 없어 못 만듦 — 서류 자동화 · 시특법 계약에서 [📑 대가내역서]"]
-    pdf = folder(c) / "대가내역서.pdf"
-    if not pdf.exists():
-        try:
-            daega.build_pdf(c, pdf.with_suffix(".xlsx"), pdf)
-        except Exception as e:  # noqa: BLE001
-            return [], [f"대가내역서를 만들지 못했습니다: {str(e)[:100]}"]
+    # 회차 기준(10/26 민재형) — 줄 = 이 회차(묶음이면 동마다), 단가 = 결과표 점검금액. 회차 폴더에 매번 새로(결과표를 고쳐 다시 만들면 따라감)
+    from core.models_web import SitokFacility
+    from server.api.routers.sitok_reports import _report_dir
+
+    reports = sorted(reports, key=lambda r: (db.get(SitokFacility, r.facility_id).group_order, r.id))
+    facs = {r.facility_id: db.get(SitokFacility, r.facility_id) for r in reports}
+    try:
+        data = daega.report_rows(reports, facs)
+    except ValueError as e:
+        return [], [f"대가내역서: {e}"]
+    pdf = _report_dir(facs[r0.facility_id], r0) / "FMS" / "대가내역서.pdf"
+    pdf.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        daega.build_report_pdf(c, data, pdf.with_suffix(".xlsx"), pdf)
+    except Exception as e:  # noqa: BLE001
+        return [], [f"대가내역서를 만들지 못했습니다: {str(e)[:100]}"]
     return [{"folder": "계약서 및 대가내역서", "name": "대가내역서", "file": str(pdf)}], []

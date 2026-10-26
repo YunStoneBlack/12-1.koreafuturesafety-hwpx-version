@@ -63,7 +63,9 @@ def gather(db, r, f) -> dict:
             short = f"{p.sitok_field or '건축'} {(p.grade or '').replace('기술자', '').replace('기술인', '')}".strip() if p.grade else (p.sitok_grade or "")
             persons.append({"role": "사업책임기술자" if i == 0 else "분야별 참여기술자", "name": p.name, "qual": f"{grade} ({qual})" if qual else grade,
                             "duty": "사업책임 기술인" if i == 0 else "현장조사 및 보고서 작성", "grade": short})
-    amount_k = (r.amount_k or "").strip()
+    from server.sitok import civil
+
+    amount_k = civil.comma_k(r.amount_k or "")  # 천 단위 쉼표(10/26)
     if not amount_k and c and c.amount:
         amount_k = f"{c.amount / 1000:,.1f}"
     if not amount_k and sc.get("amount"):
