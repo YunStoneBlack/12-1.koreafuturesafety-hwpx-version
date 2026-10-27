@@ -116,6 +116,29 @@ def borders_for(doc):
         doc.header = etree.fromstring(b.result(etree.tostring(doc.header, encoding="unicode")).encode("utf-8"))
 
 
+def even_head_line(tbl, header: int) -> int:
+    """머리 줄 아래 선을 모든 칸이 같게 — 머리 줄 맨 아래에 닿는 칸들의 아래 선 중 가장 많이 쓴 모양으로(10/27 사용자 "선 굵기 안 맞는 것 — 매번 이런 게 생김":
+    견본 조적벽 표 "층·구분" 머리 칸만 가는 한 줄, 나머지는 두 줄). 테두리 도구(borders_for) 안에서만. 바꾼 칸 수."""
+    import collections
+
+    b = getattr(rb._TL, "borders", None)
+    if b is None or header < 1:
+        return 0
+    heads = [tc for (r, _c), tc in rb._cells(tbl).items() if r + int(tc.find(f"{{{HP}}}cellSpan").get("rowSpan")) - 1 == header - 1]
+    lines = {id(tc): re.search(r"<hh:bottomBorder [^>]*/>", b.by_id.get(str(tc.get("borderFillIDRef")), "") or "") for tc in heads}
+    got = collections.Counter(m.group(0) for m in lines.values() if m)
+    if len(got) < 2:
+        return 0
+    want = got.most_common(1)[0][0]
+    n = 0
+    for tc in heads:
+        m = lines[id(tc)]
+        if m and m.group(0) != want:
+            tc.set("borderFillIDRef", b.adopt(b.by_id[str(tc.get("borderFillIDRef"))].replace(m.group(0), want, 1)))
+            n += 1
+    return n
+
+
 def thick_bottom(tbl) -> int:
     """표 끝줄(아래로 끝까지 닿는 칸) 아래 선 = 머리줄 첫 칸의 위 선 모양(보통 굵은 선) — 다음 쪽으로 이어지던 견본 표를 틀로 쓴 표도 그 쪽에서 끝나면
     굵게(10/22 사용자 "표 맨 아래 굵은선"). 테두리 도구(borders_for) 안에서만. 바꾼 칸 수."""
@@ -512,6 +535,7 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
                 if v is not None:
                     _set(cells, (header + j, c), v)
         thick_bottom(t)
+        even_head_line(t, header)  # 머리 줄 아래 선 고르게(10/27)
     for p, idx in slots[len(chunks):]:
         if p.getparent() is None:
             continue
@@ -1272,6 +1296,90 @@ def fill_masonry(root, field: dict, warn: list) -> int:
              _fmt(x["width"], 0) if x["width"] else "-", x["thick"], x["dir"], x["expose"].replace(" ", "\n", 1), f"{x['finish']}" if x["finish"] is not None else "-",
              x["boundary"], x["applied"]] for x in rows]
     return fill_chunks(root, tables, vals, 20, 2, flat=True, one=True)
+
+MASONRY_HEAD = 2  # 조적벽 결과표 머리 줄 수
+
+
+def masonry_tables(root) -> list:
+    """2.4.3 [ 조적벽 치수 및 상태조사 결과표 ] — 11칸, 첫 칸 "층"(시안 2로 둘로 나뉘었으면 둘 다, 문서 차례)."""
+    return [t for t in _outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"]
+
+
+def masonry_cuts(root, pdf: Path) -> list[set] | None:
+    """조적벽 결과표가 쪽마다 몇 줄씩 들어갔는지 PDF로 세어 쪽이 바뀌는 데이터 줄 번호(표마다, 0부터) — 부재 ID(셋째 칸) 차례대로 PDF 줄과 맞춤.
+    못 맞추면(ID 빈칸·글이 다름) None — 그때는 끊지 않고 합침(한글이 걸리는 층 묶음을 통째로 다음 쪽으로)."""
+    import pymupdf
+
+    seq, owner = [], []
+    for k, t in enumerate(masonry_tables(root)):
+        cells = rb._cells(t)
+        for r in range(MASONRY_HEAD, int(t.get("rowCnt"))):
+            tc = cells.get((r, 2))
+            seq.append(_n(rb._cell_text(tc)) if tc is not None else "")
+            owner.append((k, r - MASONRY_HEAD))
+    if not seq or not all(seq):
+        return None
+    k, starts = 0, []  # starts = 쪽마다 첫 데이터 줄(전체 차례)
+    with pymupdf.open(pdf) as doc:
+        on = False
+        for pg in doc:
+            if not on:
+                on = "조적벽치수및상태조사결과표" in _n(pg.get_text())
+                if not on:
+                    continue
+            lines = sorted((ln["bbox"][1], ln["bbox"][0], _n("".join(s["text"] for s in ln["spans"])))
+                           for b in pg.get_text("dict")["blocks"] for ln in b.get("lines", []))
+            first = None
+            for _y, _x, t in lines:
+                if k < len(seq) and t == seq[k]:
+                    first = k if first is None else first
+                    k += 1
+            if first is not None:
+                starts.append(first)
+            if k >= len(seq):
+                break
+    if k != len(seq):
+        return None
+    cuts = [set() for _ in masonry_tables(root)]
+    for s in starts[1:]:
+        tk, i = owner[s]
+        if i > 0:  # 표 첫 줄이면(시안 2로 나뉜 뒤 표) 이미 끊김
+            cuts[tk].add(i)
+    return cuts
+
+
+def merge_masonry(root, cuts: list[set] | None = None) -> int:
+    """조적벽 결과표 층(첫 칸)·구분(둘째 칸, 같은 층 안)을 같은 값끼리 세로로 합침(10/27 사용자 "견본대로 층마다, 구분마다 셀 합치기").
+    cuts = 표마다 쪽이 바뀌는 데이터 줄 — 거기서 합치기를 끊어 다음 쪽 첫 줄에 층·구분이 다시 보이게(사용자가 고른 시안 — 안 끊으면 한글이 걸리는 층을 통째로 넘겨 빈자리).
+    끝줄 굵은 선은 합친 칸에도(thick_bottom — 테두리 도구 안에서). 합친 묶음 수."""
+    n = 0
+    for k, t in enumerate(masonry_tables(root)):
+        cells = rb._cells(t)
+        m = int(t.get("rowCnt")) - MASONRY_HEAD
+        rows = [MASONRY_HEAD + i for i in range(m)]
+        if m < 2 or any((r, c) not in cells or cells[(r, c)].find(f"{{{HP}}}cellSpan").get("rowSpan") != "1" for r in rows for c in (0, 1, 2)):
+            continue  # 이미 합쳤거나 모양이 다름
+        floor = [_n(rb._cell_text(cells[(r, 0)])) for r in rows]
+        kind = [f + "|" + _n(rb._cell_text(cells[(r, 1)])) for f, r in zip(floor, rows)]
+        height = [int(cells[(r, 2)].find(f"{{{HP}}}cellSz").get("height") or 0) for r in rows]
+        cut = (cuts[k] if cuts and k < len(cuts) else set())
+        for col, keys in ((0, floor), (1, kind)):
+            s = 0
+            for i in range(1, m + 1):
+                if i < m and keys[i] == keys[i - 1] and i not in cut:
+                    continue
+                if i - s >= 2 and floor[s]:
+                    top = cells[(rows[s], col)]
+                    top.find(f"{{{HP}}}cellSpan").set("rowSpan", str(i - s))
+                    top.find(f"{{{HP}}}cellSz").set("height", str(sum(height[s:i])))
+                    for j in range(s + 1, i):
+                        tc = cells[(rows[j], col)]
+                        tc.getparent().remove(tc)
+                    n += 1
+                s = i
+        thick_bottom(t)  # 합친 칸이 끝줄에 닿으면 그 칸도 굵은 아래 선
+        even_head_line(t, MASONRY_HEAD)
+    return n
 
 
 # ---------- 2.5 지반 ----------

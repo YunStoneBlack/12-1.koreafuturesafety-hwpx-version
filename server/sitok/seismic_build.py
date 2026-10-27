@@ -424,6 +424,34 @@ def _push_lonely(hwpx: Path, pdf: Path, say=None, after: str | None = None) -> l
     return done
 
 
+def _merge_masonry(hwpx: Path, pdf: Path, say=None) -> int:
+    """조적벽 결과표 층·구분 세로 합치기(10/27 사용자) — PDF로 쪽마다 줄 수를 세어 쪽 경계에서 끊고(다음 쪽 첫 줄에 층·구분 다시) 합친 뒤 다시 PDF.
+    쪽 정리·제목 넘김이 끝난 뒤(합치기 전 모양 그대로 쪽이 나뉘므로 쪽 경계는 안 바뀜). 못 하면 그대로."""
+    import traceback
+
+    from server.contract_docs import hwp_queue
+    from server.sitok import seismic_fill
+
+    try:
+        doc = Hwpx(hwpx)
+        if not seismic_fill.masonry_tables(doc.root):
+            return 0
+        cuts = seismic_fill.masonry_cuts(doc.root, pdf)
+        with seismic_fill.borders_for(doc):
+            n = seismic_fill.merge_masonry(doc.root, cuts)
+        if not n:
+            return 0
+        doc.save(hwpx, drop_unused=False)
+        if say:
+            say("조적벽 결과표 층·구분 칸 합쳐서 다시 PDF로…")
+        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
+        print("[조적벽 합치기]", hwpx.name, n, "묶음", "쪽 경계 끊음" if cuts else "끊을 곳 못 찾음(통째로)", [sorted(c) for c in cuts or []], flush=True)
+        return n
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        return 0
+
+
 def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]:
     import pymupdf
 
@@ -509,6 +537,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     _tidy(hwpx, pdf, say, sections_from=0, after="제1장건물개요1.1")  # 애매한 넘침 정리(10/26) — 목차 쪽 번호 전에. 내진은 구역 하나 — 첫 구역부터,
     # 고치는 건 1장 간지 뒤 표만(10/27 — 전엔 둘째 구역부터라 내진 본문은 아무것도 안 고쳤음, 앞 결과표 줄 높이는 그대로)
     _push_lonely(hwpx, pdf, say, after="제1장건물개요1.1")  # 제목·표 이름만 쪽 끝 → 다음 쪽(10/27) — 목차 쪽 번호 전에
+    _merge_masonry(hwpx, pdf, say)  # 조적벽 결과표 층·구분 합치기 — 쪽이 정해진 뒤(10/27)
     if f.seismic_only:  # 목차 쪽 번호 — 첫 PDF로 세어 넣고 다시(10/22)
         if seismic_fill.fill_toc(hwpx, pdf):
             say("목차 쪽 번호 넣고 다시 PDF로…")
