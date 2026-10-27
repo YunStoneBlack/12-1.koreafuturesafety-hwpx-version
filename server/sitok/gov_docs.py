@@ -228,6 +228,7 @@ def build_start(c: build.Contract, doc_no: str, greet: str, contact: str, seal: 
     out.parent.mkdir(parents=True, exist_ok=True)
     st.fix_dot_numbers(wb)
     wb.save(out)
+    st.refit_pictures(wb, out)  # 서류 그림 = 실제 칸(PDF로 잼) 비율·사방 3mm(10/27)
     return warnings
 
 
@@ -280,6 +281,7 @@ def build_done(c: build.Contract, doc_no: str, greet: str, contact: str, seal: b
     out.parent.mkdir(parents=True, exist_ok=True)
     st.fix_dot_numbers(wb)
     wb.save(out)
+    st.refit_pictures(wb, out)  # 서류 그림 = 실제 칸(PDF로 잼) 비율·사방 3mm(10/27)
     return warnings
 
 
@@ -321,11 +323,20 @@ def _inspector_top(ws: Worksheet) -> None:
 
 
 def cover_image(pdf: Path) -> bytes | None:
-    """보고서·표지 PDF 첫 쪽 → PNG(결과보고서 장)."""
+    """보고서·표지 PDF 첫 쪽 → 그림(결과보고서 장). 첫 쪽이 사진 한 장뿐이면(성과품을 카메라로 찍어 올린 표지 — 올릴 때 A4로 감쌈) 사진 원본 그대로
+    (10/27 사용자 "카메라로 찍어 올리는 경우 고려" — A4 쪽을 떠서 넣으면 사방 흰 여백까지 들어가 작아짐), 아니면 쪽을 그림으로."""
     import pymupdf
 
     try:
         with pymupdf.open(pdf) as doc:
-            return doc[0].get_pixmap(dpi=110).tobytes("png")
+            pg = doc[0]
+            infos = pg.get_images(full=True)
+            if pg.rotation == 0 and not pg.get_text().strip() and len(infos) == 1:
+                rs = pg.get_image_rects(infos[0][0])
+                w, h = infos[0][2], infos[0][3]
+                if rs and h and rs[0].height and rs[0].width * rs[0].height > 0.5 * pg.rect.width * pg.rect.height \
+                        and abs(rs[0].width / rs[0].height - w / h) < 0.02 * (w / h):  # 쪽 절반 넘게 차지하고 돌림 없이 놓인 사진
+                    return doc.extract_image(infos[0][0])["image"]
+            return pg.get_pixmap(dpi=110).tobytes("png")
     except Exception:  # noqa: BLE001
         return None

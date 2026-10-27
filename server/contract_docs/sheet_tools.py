@@ -16,12 +16,13 @@ from pathlib import Path
 
 from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XLImage
-from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor, TwoCellAnchor
 from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.utils import get_column_letter, range_boundaries
 from openpyxl.utils.units import pixels_to_EMU
 from openpyxl.worksheet.worksheet import Worksheet
 from PIL import Image as PILImage
+from PIL import ImageOps
 
 SEAL_PX = (237, 238)
 SEAL_SIZE = 66  # 인쇄 때 도장 크기(픽셀, 약 17mm)
@@ -162,32 +163,139 @@ def find_image(ws: Worksheet, px: tuple[int, int]) -> XLImage | None:
     return None
 
 
-def _fit(src: str | Path | bytes, box_w: float, box_h: float) -> bytes:
-    """올린 그림을 칸 비율에 맞춰 흰 여백을 붙인 JPEG(늘어나 보이지 않게)."""
+MARGIN_MM = 3  # 서류 그림 칸 안 여백(사방, 10/27 사용자 "원본 비율 최대한 유지하면서 틀에 맞게, 여백 3미리")
+
+
+def _upright(src: str | Path | bytes) -> bytes:
+    """올린 그림 → 바로 세운(폰 사진 회전 정보 — 카메라로 찍은 성과품 표지 등) RGB JPEG, 긴 변 MAX_DOC_PX."""
     with PILImage.open(io.BytesIO(src) if isinstance(src, bytes) else str(src)) as p:
-        p = p.convert("RGB")
+        p = ImageOps.exif_transpose(p).convert("RGB")
         p.thumbnail((MAX_DOC_PX, MAX_DOC_PX))
-        w, h = p.size
-        if box_w > 0 and box_h > 0:
-            ratio = box_w / box_h
-            if w / h > ratio:  # 그림이 더 넓음 → 위아래 여백
-                canvas = PILImage.new("RGB", (w, round(w / ratio)), "white")
-                canvas.paste(p, (0, (canvas.height - h) // 2))
-            else:
-                canvas = PILImage.new("RGB", (round(h * ratio), h), "white")
-                canvas.paste(p, ((canvas.width - w) // 2, 0))
-            p = canvas
         buf = io.BytesIO()
         p.save(buf, "JPEG", quality=88)
         return buf.getvalue()
 
 
+def _pad(content: bytes, box_w: float, box_h: float, margin: float = 0) -> bytes:
+    """content(JPEG)를 칸(box_w × box_h — 단위는 margin과 같음) 비율의 흰 바탕 가운데에, 사방 margin을 남기고 원본 비율 그대로 가장 크게 → JPEG.
+    칸에 그대로 늘려 넣어도(두 칸 기준 그림) 그림이 안 찌그러짐."""
+    with PILImage.open(io.BytesIO(content)) as p:
+        p = p.convert("RGB")
+        w, h = p.size
+        if box_w <= 0 or box_h <= 0 or not w or not h:
+            canvas = p
+        else:
+            iw, ih = max(box_w - 2 * margin, box_w * 0.5), max(box_h - 2 * margin, box_h * 0.5)
+            s = min(iw / w, ih / h)  # 칸 단위 / 그림 px
+            cw, ch = max(round(box_w / s), w), max(round(box_h / s), h)
+            canvas = PILImage.new("RGB", (cw, ch), "white")
+            canvas.paste(p, ((cw - w) // 2, (ch - h) // 2))
+            if max(canvas.size) > MAX_DOC_PX * 1.3:  # 바탕이 너무 크면 줄임(파일 크기)
+                canvas.thumbnail((round(MAX_DOC_PX * 1.3), round(MAX_DOC_PX * 1.3)))
+        buf = io.BytesIO()
+        canvas.save(buf, "JPEG", quality=88)
+        return buf.getvalue()
+
+
+def _fit(src: str | Path | bytes, box_w: float, box_h: float) -> bytes:
+    """올린 그림을 칸 비율에 맞춰 흰 여백을 붙인 JPEG(늘어나 보이지 않게) — 사방 MARGIN_MM(칸 크기는 엑셀 어림, PDF로 잰 뒤 refit_pictures가 다시 맞춤)."""
+    return _pad(_upright(src), box_w, box_h, MARGIN_MM / 25.4 * 96)
+
+
+def _frame_anchor(ws: Worksheet, img: XLImage):
+    """그림이 들어 있는 테두리 틀(합친 칸 — 결과보고서·통장 사본 B4:M25, 4대보험 B4:M27)에 꼭 맞는 두 칸 기준 자리. 틀이 없으면 None.
+    (10/27 — 견본 그림이 틀 위쪽 일부에만 걸려 있어 사진 윗부분이 제목 줄 뒤로 가려지고 틀 아래는 비던 것)"""
+    a = img.anchor
+    fr, fc = a._from.row + 1, a._from.col + 1
+    best = None
+    for m in ws.merged_cells.ranges:
+        if m.min_row <= fr <= m.max_row and m.min_col <= fc <= m.max_col and m.max_row - m.min_row >= 4 and m.max_col - m.min_col >= 3:
+            if best is None or (m.max_row - m.min_row) * (m.max_col - m.min_col) > (best.max_row - best.min_row) * (best.max_col - best.min_col):
+                best = m
+    if best is None:
+        return None
+    m = MARGIN_MM / 25.4 * 96  # 틀 안쪽으로 사방 3mm 들임 — 그림 흰 바탕이 틀 테두리 선을 덮지 않게(여백은 그림 밖)
+
+    def end(last: int, size) -> tuple[int, float]:  # 끝 칸(1부터)에서 m만큼 안쪽 — 끝 칸이 좁으면 앞 칸으로
+        k, back = last, m
+        while k > 1 and size(k) <= back + 1:
+            back -= size(k)
+            k -= 1
+        return k - 1, max(size(k) - back, 1)
+
+    tc, tco = end(best.max_col, lambda c: col_px(ws, c))
+    tr, tro = end(best.max_row, lambda r: row_px(ws, r))
+    return TwoCellAnchor(_from=AnchorMarker(col=best.min_col - 1, row=best.min_row - 1, colOff=pixels_to_EMU(m), rowOff=pixels_to_EMU(m)),
+                         to=AnchorMarker(col=tc, row=tr, colOff=pixels_to_EMU(tco), rowOff=pixels_to_EMU(tro)))
+
+
 def replace_image(ws: Worksheet, old: XLImage, src: str | Path | bytes) -> None:
-    """old 그림 자리에 src(파일 경로·바이트)를 넣는다 — 위치·크기는 old 그대로."""
+    """old 그림 자리에 src(파일 경로·바이트)를 넣는다 — 자리는 old가 든 테두리 틀(합친 칸) 전체, 틀이 없으면 old 그대로.
+    원본은 그림에 붙여 둠(refit_pictures가 실제 칸 비율로 다시)."""
+    frame = _frame_anchor(ws, old)
+    if frame is not None:
+        old.anchor = frame
+    margin = 0 if frame is not None else MARGIN_MM  # 틀이 있으면 여백은 그림 밖(들인 자리), 없으면 그림 안 흰 바탕
     _, _, w, h = _anchor_box(ws, old)
-    new = XLImage(io.BytesIO(_fit(src, w, h)))
+    content = _upright(src)
+    data = _pad(content, w, h, margin / 25.4 * 96)
+    new = XLImage(io.BytesIO(data))
     new.anchor = old.anchor
+    new._kfsc_src, new._kfsc_data, new._kfsc_margin = content, data, margin
+    with PILImage.open(io.BytesIO(data)) as p:
+        new._kfsc_px = p.size
     ws._images[ws._images.index(old)] = new
+
+
+def refit_pictures(wb, xlsx: Path, margin_mm: float = MARGIN_MM) -> int:
+    """replace_image로 넣은 서류 그림을 실제 칸 비율로 다시(10/27 — 엑셀 열 너비·행 높이 어림과 LibreOffice PDF의 실제 칸이 달라
+    결과보고서 표지가 가로로 30%·4대보험 서류가 10~15% 눌리던 것): xlsx를 PDF로 한 번 바꿔 그림 칸(넣은 그림 px로 찾음)을 재고,
+    원본 비율 그대로 사방 margin_mm 안에 가장 크게 → xlsx 다시 저장. 바꾼 그림 수(못 하면 0 — 그때는 어림 그대로)."""
+    import tempfile
+
+    import pymupdf
+
+    from server.contract_docs import to_pdf
+
+    marked = [(ws, img) for ws in wb.worksheets for img in ws._images if getattr(img, "_kfsc_src", None) is not None]
+    if not marked:
+        return 0
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = to_pdf.office_to_pdf(Path(xlsx), Path(tmp) / "fit.pdf")
+            with pymupdf.open(pdf) as doc:
+                rects = [((info[2], info[3]), r) for pg in doc for info in pg.get_images(full=True) for r in pg.get_image_rects(info[0])]
+    except Exception:  # noqa: BLE001
+        return 0
+    used: set = set()
+    swap: dict[bytes, bytes] = {}  # 엑셀 안 그림 파일 바이트 → 새 바이트(저장한 통합문서를 다시 저장하면 앞 그림 파일이 닫혀 실패 — zip 속 그림만 바꿈)
+    for ws, img in marked:
+        px0 = tuple(img._kfsc_px)
+        ok = [i for i, (px, r) in enumerate(rects) if i not in used and r.width > 20 and r.height > 20]
+        k = next((i for i in ok if rects[i][0] == px0), None)  # 넣은 그림 px 그대로
+        if k is None:  # PDF 변환기가 큰 그림 해상도를 줄임(통장 사본 1856×1664 → 1747×1566) — 쪽 차례대로 가로세로 비율(1% 안)로
+            k = next((i for i in ok if rects[i][0][1] and abs(rects[i][0][0] / rects[i][0][1] - px0[0] / px0[1]) < 0.01 * px0[0] / px0[1]), None)
+        if k is None:
+            continue
+        used.add(k)
+        r = rects[k][1]
+        swap[img._kfsc_data] = _pad(img._kfsc_src, r.width, r.height, getattr(img, "_kfsc_margin", margin_mm) / 25.4 * 72)
+    if not swap:
+        return 0
+    import shutil
+    import zipfile
+
+    tmp_x = Path(xlsx).with_suffix(".refit.xlsx")
+    n = 0
+    with zipfile.ZipFile(xlsx) as zin, zipfile.ZipFile(tmp_x, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in zin.infolist():
+            data = zin.read(info.filename)
+            if info.filename.startswith("xl/media/") and data in swap:
+                data = swap[data]
+                n += 1
+            zout.writestr(info, data)
+    shutil.move(str(tmp_x), str(xlsx))
+    return n
 
 
 def drop_image(ws: Worksheet, img: XLImage | None) -> None:

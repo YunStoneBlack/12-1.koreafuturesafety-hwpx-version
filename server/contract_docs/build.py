@@ -273,6 +273,7 @@ def build_start(contract: Contract, common: Common, agent: Person, participants:
     out.parent.mkdir(parents=True, exist_ok=True)
     st.fix_dot_numbers(wb)
     wb.save(out)
+    st.refit_pictures(wb, out)  # 서류 그림 = 실제 칸(PDF로 잼) 비율·사방 3mm(10/27)
     return warnings
 
 
@@ -309,6 +310,7 @@ def build_done(contract: Contract, common: Common, company_docs: dict[str, str],
     out.parent.mkdir(parents=True, exist_ok=True)
     st.fix_dot_numbers(wb)
     wb.save(out)
+    st.refit_pictures(wb, out)  # 서류 그림 = 실제 칸(PDF로 잼) 비율·사방 3mm(10/27)
     return warnings
 
 
