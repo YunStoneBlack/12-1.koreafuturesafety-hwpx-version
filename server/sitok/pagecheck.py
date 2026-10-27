@@ -1052,12 +1052,13 @@ def _levels(tables: list, rb) -> list:
     return sorted({m for t in tables for tc in rb._cells(t).values() for m in _vm(tc, t, rb) if m > MIN_MARGIN} | {MIN_MARGIN}, reverse=True)
 
 
-def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
+def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1, after: str | None = None) -> list[str]:
     """애매한 넘침 정리(10/26 사용자·민재형 "애매하게 페이지를 초과" — 제미나이 권고 중 글자 크기·장평은 빼고) — 몇 줄만 넘친 쪽(orphans)·나뉜 표 꼬리(tails)마다:
     ① 당기기: 넘친 양만큼 그 쪽의 빈 줄 → 표 칸 빈 높이·칸 안쪽 위아래 여백(1mm까지, 상자면 안의 빈 줄도)을 줄여 앞 쪽에 — 글자 크기·장평·줄 간격은 그대로.
     ② 넘기기: 그걸로 모자라면 여러 줄 표는 "줄 단위로 나눔"(pageBreak TABLE — 한글 시험: CELL은 칸 안 글도 끊어 "유지되고 있다." 한 줄만 넘어감)으로 —
        마지막 줄이 통째로 머리줄과 함께 다음 쪽(뒤 ※ 상자도 같이). 상자(한 줄 표)는 못 나누니 그대로.
-    고친 곳 설명(비면 안 바꿈 — 부르는 쪽이 PDF를 다시 뽑고, 문제가 늘었으면 되돌림)."""
+    고친 곳 설명(비면 안 바꿈 — 부르는 쪽이 PDF를 다시 뽑고, 문제가 늘었으면 되돌림).
+    after = 이 글(띄어쓰기 뺀 앞부분)로 시작하는 문단 뒤의 표만 고침(10/27 내진 — 구역이 하나라 표지~결과표도 같은 구역, 앞 결과표 줄 높이는 손대지 않게)."""
     from server.sitok import report_build as rb
 
     found = [("넘침", *x) for x in orphans(pdf, hwpx)] + [("꼬리", *x) for x in tails(pdf, hwpx)]
@@ -1081,6 +1082,15 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
         cells = [_key(rb._cell_text(c)) for c in rb._cells(target).values()]
         if not any(len(c) >= 4 and any(c[:12] in t or t in c for t in on_prev if len(t) >= 4) for c in cells):
             continue  # 찾은 표가 넘친 쪽 바로 앞 쪽에 없음 — 같은 글이 딴 데도 있어 엉뚱한 표(10/26 옹벽 목차 "6. 기타부록참고자료" → 부록 간지 표)
+        if after:
+            top = target
+            while top.getparent() is not None and top.getparent().getparent() is not None:
+                top = top.getparent()
+            sec = top.getparent()
+            tops_all = [q for q in sec if q.tag == f"{{{rb.HP}}}p"] if sec is not None else []
+            start = next((k for k, q in enumerate(tops_all) if re.sub(r"\s", "", "".join(x.text or "" for x in q.iter(rb.T))).startswith(after)), None)  # 간지 글은 표 안
+            if start is None or top not in tops_all or tops_all.index(top) <= start:
+                continue
         seen.append(target)
         need = int(h * 100 * 1.2) + 800
         blanks, others = _same_page(target, firsts[page - 1] if page else "", rb)
@@ -1150,13 +1160,13 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
     return done
 
 
-def tidy_checked(hwpx: Path, pdf: Path, render, sections_from: int = 1) -> list[str]:
+def tidy_checked(hwpx: Path, pdf: Path, render, sections_from: int = 1, after: str | None = None) -> list[str]:
     """애매한 넘침 정리 + 안전장치(시특법·옹벽·내진·산안법 공용, 10/26) — tidy_overflow로 고치고 render(hwpx, 새 PDF)로 다시 그려
     쪽 문제(몇 줄만 넘친 쪽·제목만 쪽 끝)가 늘거나 쪽 수가 늘면 hwpx를 고치기 전으로 되돌림(PDF도 그대로). 고쳤으면 pdf를 새 것으로 바꾸고 설명, 아니면 []."""
     import pymupdf
 
     snap = hwpx.read_bytes()
-    done = tidy_overflow(hwpx, pdf, sections_from=sections_from)  # 걸리는 곳이 없으면 여기서 끝(산안법 대부분 — 검사 약 0.5초)
+    done = tidy_overflow(hwpx, pdf, sections_from=sections_from, after=after)  # 걸리는 곳이 없으면 여기서 끝(산안법 대부분 — 검사 약 0.5초)
     if not done:
         return []
     orig = hwpx.with_name(hwpx.stem + "_정리전.hwpx")  # 고치기 전 문제 수는 고치기 전 파일로(쪽 나눔을 더했으면 "일부러 새 쪽"이 달라짐)
