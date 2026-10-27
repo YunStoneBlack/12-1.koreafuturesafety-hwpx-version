@@ -204,6 +204,7 @@
   **보고서 메일(DB 0065 `mail_job`)** — 시특법 회차 [📧 보고서 보내기](합본 내려받기 링크 `/report/share/{토큰}` 로그인 없이·30일·바로/예약·제출 현황 전송 표시,
   `server/api/mail_jobs.py`·`routers/sitok_mail.py`·`routers/share.py`, 그룹웨어 nginx 예외), 산안법 고객사 전송 예약(전송 창 첫 화면 [⏰ 예약 보내기]·목록/제출 현황 "⏰ 예약"),
   작업 프로그램 `server/worker/mail_worker.py`.
+- **174차(10/27 밤~10/28 새벽)**: 내진 **용지 여백 12mm**(민재형) 시험 틀 완성 — `fix_seismic_master --mm 12`(여백 + 한 쪽짜리 표·그림 줄이기), 외주 3~7장은 **구역 유지**로 제 여백 그대로(`merge_vendor` keep_section=1, 외주 78쪽 1:1), 쪽 검사 기준은 틀 여백에서(`page_marks`), 주석만 넘친 쪽·꽉 찬 표 뒤 빈 쪽 정리, 외주 앞부분 쪽 나눔(`_front_layout`). 호원초 66 → 67쪽·삼숭초 134 → 136쪽, 빈 쪽 없음. **운영 적용은 사용자 "적용" 뒤**(작업내용 174차).
 - **161~173차(10/27)**: 내진 — AI 글 칸 빈칸 노랑, **쪽 나눔 원칙**(늘 새 쪽은 민재형 목록만 `fix_seismic_master`, 나머지 이어 붙임 + `pagecheck.push_lonely` 제목·표 이름만 쪽 끝 → 다음 쪽,
   `top_at(본문 시작, 꼬리말 자리)`), 조적벽 결과표 층·구분 세로 합치기(`seismic_fill.merge_masonry`·`masonry_cuts` — 쪽 경계에서 끊고 다음 쪽에 다시), 표 선 고르게(`even_head_line`·`even_col_lines`),
   **표 선 굵기 검사**(`pagecheck.line_mismatch`·`line_check` — 내진·시특법 만들 때 "선 굵기 확인" 경고, 도면·간지 거름, 과업구분 표 `form_fix.task_head_line`), 덕계고 일람표 "HD22-2EA" 개수(`rebar_schedule.bar_count`)·

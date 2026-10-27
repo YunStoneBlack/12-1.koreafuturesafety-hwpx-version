@@ -20,7 +20,7 @@ from pathlib import Path
 
 from server.sitok import rebar_survey as RV
 from server.sitok import report_build as rb
-from server.sitok.seismic_fill import _set
+from server.sitok.seismic_fill import _set, _t
 from server.sitok.wall_build import HP, Hwpx, _tables
 
 SAMPLE_TITLES = ("삼숭초 교사동 내진성능평가 용역", "삼숭초 교사동 내진성능평가용역", "삼숭초교사동 내진성능평가용역")
@@ -358,8 +358,11 @@ def fix_vendor_chapters(path: Path, ours_paras: int, first: int = 3) -> int:
 
 
 def merge_vendor(ours: Path, vendor: Path, dest: Path) -> int:
-    """우리 1~2장 한글 끝에 외주 3~7장을 한글이 직접 끼워 넣음(hwp_queue "merge" — 쪽 나눔 뒤 파일 끼워 넣기, 구역 설정은 우리 것 → 쪽 번호·꼬리말 이어짐)
-    → 외주 장 번호 고침. 고친 장 수."""
+    """우리 1~2장 한글 끝에 외주 3~7장을 한글이 직접 끼워 넣음(hwp_queue "merge" — 쪽 나눔 뒤 파일 끼워 넣기).
+    10/27 밤부터 **외주 구역 설정 유지**(keep_section=1 — 외주 장은 제 용지 여백(10·8·6·10mm)·쪽 모양 그대로 둘째 구역으로, 쪽 번호·꼬리말은 우리 것이 이어짐):
+    우리 틀이 12mm 여백이 되면서 외주 장에 우리 여백을 씌우면 한 쪽짜리 표·그림이 넘쳐 빈 쪽이 10곳 넘게 생김(삼숭초 134 → 180쪽, 구역 유지는 149쪽·외주 78쪽 그대로).
+    장 번호는 외주 번호 정의가 우리 1·2장에 이어져 3장부터(시험 확인, fix_vendor_chapters는 구역 하나로 합칠 때만 필요했음 — 지금은 손댈 문단이 없어 0).
+    쪽 나눔 뒤 구역이 바뀌어 빈 쪽이 하나 생기는 것은 우리 구역 끝 쪽 나눔 문단을 풀어 없앰(_unbreak_tail). 고친 장 수."""
     import zipfile
 
     from server.contract_docs import hwp_queue
@@ -367,8 +370,9 @@ def merge_vendor(ours: Path, vendor: Path, dest: Path) -> int:
     data = vendor.read_bytes()
     if vendor.suffix.lower() == ".hwp":
         data = hwp_queue.convert_via_worker(data, ".hwp", to="hwpx", wait=600)
-    merged = hwp_queue.convert_via_worker(ours.read_bytes(), ".hwpx", to="merge", add=data, keep_section=0, wait=1200)
+    merged = hwp_queue.convert_via_worker(ours.read_bytes(), ".hwpx", to="merge", add=data, keep_section=1, wait=1200)
     dest.write_bytes(merged)
+    _unbreak_tail(dest)
     with zipfile.ZipFile(ours) as z:
         from lxml import etree
 
@@ -377,11 +381,50 @@ def merge_vendor(ours: Path, vendor: Path, dest: Path) -> int:
     return fix_vendor_chapters(dest, n0)
 
 
-SEISMIC_TOP = 49  # 쪽 검사 본문 시작(pt) — 내진 머리말 선 47pt(시특법·옹벽은 85pt 근처라 pagecheck 기본 70)
+def _unbreak_tail(path: Path) -> bool:
+    """합친 한글 첫 구역 끝의 빈 쪽 나눔 문단(끼워 넣기 전 BreakPage) — 구역이 바뀌면 어차피 새 쪽이라 빈 쪽 하나가 생김 → 쪽 나눔을 풂. 풀었으면 True."""
+    import zipfile
+
+    from lxml import etree
+
+    with zipfile.ZipFile(path) as z:
+        names = rb._sections(z)
+        if len(names) < 2:
+            return False
+        root = etree.fromstring(z.read(names[0]))
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    tail = tops[-1] if tops else None
+    from server.sitok.seismic_fill import _empty_para
+
+    if tail is None or tail.get("pageBreak") != "1" or not _empty_para(tail):
+        return False
+    tail.set("pageBreak", "0")
+    data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    tmp = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in zin.infolist():
+            zout.writestr(info, data if info.filename == names[0] else zin.read(info.filename))
+    tmp.replace(path)
+    return True
+
+
+SEISMIC_TOP = 49  # 쪽 검사 본문 시작(pt) — 내진 머리말 선 47pt(시특법·옹벽은 85pt 근처라 pagecheck 기본 70), 원본 틀 여백 위 10·머리말 8mm 기준(page_marks가 틀에서 다시 잼)
 SEISMIC_FOOT = 41  # 쪽 검사 꼬리말 자리 = 쪽 아래에서(pt) — 내진 꼬리말 선 801pt(쪽 841pt), pagecheck 기본 63은 778pt 아래 본문 줄을 못 봄(10/27)
 
 
-def _tidy(hwpx: Path, pdf: Path, say=None, sections_from: int = 1, after: str | None = None) -> list[str]:
+def page_marks(root) -> tuple[int, int]:
+    """쪽 검사 기준(본문 시작 y, 꼬리말 자리)을 틀의 용지 여백에서 — 머리말 선은 위 여백 + 18.5pt(머리말 글 높이), 본문은 위 + 머리말 여백부터 → 그 사이,
+    꼬리말 선은 아래 여백 + 12.7pt 위(10/27 실측: 여백 10·8·6·10mm → 선 47·본문 52·꼬리말 선 801pt = (49, 41), 12mm → 52·68·795pt = (60, 46)).
+    여백 12mm 틀(민재형 10/27)과 옛 틀 모두 맞게 — 못 읽으면 옛 값."""
+    pg = next(root.iter(f"{{{HP}}}pagePr"), None)
+    m = pg.find(f"{{{HP}}}margin") if pg is not None else None
+    if m is None:
+        return SEISMIC_TOP, SEISMIC_FOOT
+    top, head, bottom = (int(m.get(k) or 0) / 100 for k in ("top", "header", "bottom"))
+    return round((top + 18.5 + top + head) / 2), int(bottom + 12.7)
+
+
+def _tidy(hwpx: Path, pdf: Path, say=None, sections_from: int = 1, after: str | None = None, marks: tuple[int, int] | None = None) -> list[str]:
     """애매한 넘침 정리(10/26 사용자 "산안·시특·내진·결함 전부" — pagecheck.tidy_checked, 시특법과 같은 규칙·안전장치). 못 하면 그대로."""
     import traceback
 
@@ -394,14 +437,14 @@ def _tidy(hwpx: Path, pdf: Path, say=None, sections_from: int = 1, after: str | 
         out.write_bytes(hwp_queue.convert_via_worker(hx.read_bytes(), ".hwpx", wait=1500))
 
     try:
-        with pagecheck.top_at(SEISMIC_TOP, SEISMIC_FOOT):  # 내진은 머리말 선이 47pt — 본문 52pt부터, 꼬리말 선 801pt(10/27)
+        with pagecheck.top_at(*(marks or (SEISMIC_TOP, SEISMIC_FOOT))):  # 내진은 머리말 선이 47pt — 본문 52pt부터, 꼬리말 선 801pt(10/27), 12mm 틀은 page_marks
             return pagecheck.tidy_checked(hwpx, pdf, render, sections_from=sections_from, after=after, split_tails=True)  # 시안 2(10/27)
     except Exception:  # noqa: BLE001
         traceback.print_exc()
         return []
 
 
-def _push_lonely(hwpx: Path, pdf: Path, say=None, after: str | None = None) -> list[str]:
+def _push_lonely(hwpx: Path, pdf: Path, say=None, after: str | None = None, marks: tuple[int, int] | None = None) -> list[str]:
     """제목·표 이름만 쪽 끝 → 다음 쪽(10/27 사용자 — 민재형이 정한 곳 말고는 이어 붙이되 제목만 걸리면 넘김, pagecheck.push_lonely). 넘기면 다시 PDF, 최대 3번. 못 하면 그대로."""
     import traceback
 
@@ -411,7 +454,7 @@ def _push_lonely(hwpx: Path, pdf: Path, say=None, after: str | None = None) -> l
     done: list[str] = []
     try:
         for _ in range(3):
-            with pagecheck.top_at(SEISMIC_TOP, SEISMIC_FOOT):
+            with pagecheck.top_at(*(marks or (SEISMIC_TOP, SEISMIC_FOOT))):
                 got = pagecheck.push_lonely(hwpx, pdf, sections_from=0, after=after)
             if not got:
                 break
@@ -443,6 +486,149 @@ def _line_check(pdf: Path, label: str = "본문") -> list[str]:
     except Exception:  # noqa: BLE001
         traceback.print_exc()
         return []
+
+
+def _vendor_chapter_check(pdf: Path) -> list[str]:
+    """외주 장 제목 번호 확인 — 2장 간지 뒤 "제N장" 제목이 3·4·5…로 이어지지 않으면 경고(구역 유지 끼워 넣기에서 번호 정의가 안 이어진 경우)."""
+    import pymupdf
+
+    try:
+        firsts, s2 = [], None
+        with pymupdf.open(pdf) as doc:
+            for i, pg in enumerate(doc):
+                if s2 is None and re.sub(r"\s", "", pg.get_text()).startswith("제2장현장조사2.1"):
+                    s2 = i
+                lines = sorted((ln["bbox"][1], "".join(s["text"] for s in ln["spans"]).strip()) for b in pg.get_text("dict")["blocks"] for ln in b.get("lines", []))
+                lines = [t for y, t in lines if t and y > 60]  # 머리말("… 제2장 현장조사") 아래 첫 글줄
+                firsts.append(re.sub(r"\s", "", lines[0]) if lines else "")
+        if s2 is None:
+            return []
+        nums = []
+        for t in firsts[s2 + 1:]:
+            m = re.match(r"^제(\d+)장", t)  # 간지·장 제목 쪽
+            if m and (not nums or int(m.group(1)) != nums[-1]):
+                nums.append(int(m.group(1)))
+        nums = [n for n in nums if n > 2]  # 2장 본문 첫 쪽도 "제2장 현장조사"로 시작 — 우리 장은 뺌
+        if nums and nums[0] != 3:
+            return [f"외주 장 번호가 제{nums[0]}장부터입니다(3장이어야 함) — 외주 한글의 번호 정의를 확인해 주세요"]
+    except Exception:  # noqa: BLE001
+        pass
+    return []
+
+
+def _fix_blank_pages(hwpx: Path, pdf: Path, say=None, marks: tuple[int, int] | None = None) -> list[str]:
+    """꽉 찬 표 뒤 문단 끝만 다음 쪽으로 넘어가 생긴 빈 쪽(10/27 12mm 삼숭초 — 체크리스트 D 표가 외주 값으로 두 줄 칸이 늘어 쪽을 꽉 채움) →
+    앞 쪽 표의 칸 빈 여백(글은 그대로)을 두 줄 남짓 줄이고 다시 PDF, 쪽이 안 줄면 되돌림. 우리 구역만(외주 장은 그대로). 고친 설명."""
+    import traceback
+
+    import pymupdf
+
+    from server.contract_docs import hwp_queue
+    from server.sitok import pagecheck
+    from server.sitok import report_build as rb
+
+    HH = "http://www.hancom.co.kr/hwpml/2011/head"
+    try:
+        with pagecheck.top_at(*(marks or (SEISMIC_TOP, SEISMIC_FOOT))):
+            bodies = pagecheck._pages(pdf)[0]
+        blanks = [i for i in range(1, len(bodies)) if not bodies[i][0] and bodies[i][1] <= 0 and bodies[i - 1][0] and bodies[i - 1][1] > bodies[i - 1][2] - 60]
+        if not blanks:
+            return []
+        doc = Hwpx(hwpx)
+        roots = {"s0": doc.root}
+        done = []
+        for i in blanks:
+            lines = [t for _, _, t in bodies[i - 1][0] if len(pagecheck._key(t)) >= 4]
+            if not lines:
+                continue
+            first = max(lines, key=len)
+            k = sum(1 for j in range(i - 1) if any(pagecheck._key(first) == pagecheck._key(t) for _, _, t in bodies[j][0]))
+            tbl = pagecheck._overflow_target(roots, first, k, rb)
+            if tbl is None or int(tbl.get("rowCnt") or 1) < 2:
+                continue
+            got = pagecheck._squeeze_table(tbl, rb.LINE_H * 2, rb)  # ① 칸 빈 여백(글은 그대로) — 체크리스트 표는 여유가 거의 없음
+            p = tbl
+            while not (p.tag == f"{{{HP}}}p" and p.getparent() is doc.root):
+                p = p.getparent()
+            pp = next((x for x in doc.header.iter(f"{{{HH}}}paraPr") if x.get("id") == p.get("paraPrIDRef")), None)
+            ls = pp.find(f"{{{HH}}}lineSpacing") if pp is not None else None
+            if ls is not None and not (ls.get("type") == "PERCENT" and int(ls.get("value") or 0) <= 100):  # ② 표 문단 줄 간격 160 → 100%(문단 끝 표시 줄이 작아짐 — 10/27 시험: 빈 쪽 없어짐, 표 모양 그대로)
+                nid = doc.clone_parapr(p.get("paraPrIDRef"))
+                ls2 = next(x for x in doc.header.iter(f"{{{HH}}}paraPr") if x.get("id") == nid).find(f"{{{HH}}}lineSpacing")
+                ls2.set("type", "PERCENT")
+                ls2.set("value", "100")
+                p.set("paraPrIDRef", nid)
+                got += 1
+            if got:
+                done.append(f"{i + 1}쪽 빈 쪽 → 앞 표 문단 줄 간격 100%·칸 여백 {got // 100}pt")
+        if not done:
+            return []
+        snap = hwpx.read_bytes()
+        doc.save(hwpx, drop_unused=False)
+        if say:
+            say("빈 쪽 없애고 다시 PDF로…")
+        tmp = pdf.with_name(pdf.stem + "_빈쪽.pdf")
+        tmp.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
+        with pymupdf.open(tmp) as d:
+            n2 = len(d)
+        if n2 >= len(bodies):
+            hwpx.write_bytes(snap)
+            tmp.unlink(missing_ok=True)
+            print(f"[빈 쪽 정리 되돌림] {hwpx.name}: 쪽 {len(bodies)}→{n2}", flush=True)
+            return []
+        tmp.replace(pdf)
+        print(f"[빈 쪽 정리] {hwpx.name}: 쪽 {len(bodies)}→{n2} — {' / '.join(done)}", flush=True)
+        return done
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        return []
+
+
+def _front_layout(root) -> int:
+    """외주 견본 전체 파일의 앞 문단((2) 내진성능평가 적용~체크리스트)을 그대로 옮겨 온 뒤 우리 틀의 쪽 나눔 규칙을 다시(10/27 — 옮겨 온 문단엔 fix_seismic_master ④·⑤가
+    없어 12mm에서 모델링 그림만 혼자 한 쪽·체크리스트 표지 서명 줄이 다음 쪽으로): (2) 내진성능평가 적용·다. 평가방법 적용기준은 늘 새 쪽(앞 빈 줄 지움),
+    체크리스트 표지 날짜 앞 빈 줄은 3개까지. 고친 곳 수."""
+    from server.sitok.seismic_fill import _empty_para
+
+    n = 0
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    start = next((k for k, p in enumerate(tops) if rb._n(_t(p)) == "내진성능평가적용"), None)  # 옮겨 온 범위 = (2)부터(목차에도 같은 글이 있음)
+    if start is None:
+        return 0
+    exact = ("내진성능평가적용", "평가방법적용기준", "내진성능평가결과")
+    prefix = ("붙임(1-1)내진성능평가확인서", "b.기존학교시설내진성능평가및보강체크리스트", "검토항목검토내용보고서페이지적합여부A.", "검토항목검토내용보고서페이지적합여부E.")
+    blank_before = ("검토항목검토내용보고서페이지적합여부D.",)  # 쪽 나눔은 없이(앞 표가 꽉 찬 쪽) 앞 빈 줄만
+    for p in tops[start:]:
+        text = rb._n(_t(p))
+        pb = text in exact or text.startswith(prefix)
+        if not pb and not text.startswith(blank_before):
+            continue
+        if pb and p.get("pageBreak") != "1":
+            p.set("pageBreak", "1")
+            n += 1
+        q = p.getprevious()
+        while q is not None and q.tag == f"{{{HP}}}p" and _empty_para(q):
+            q.getparent().remove(q)
+            q = p.getprevious()
+            n += 1
+    sign = next((t for t in root.iter(f"{{{HP}}}tbl") if (t.get("rowCnt"), t.get("colCnt")) == ("1", "8") and rb._n(_t(t)).startswith("책임자소속")), None)
+    if sign is not None:
+        p = sign
+        while not (p.tag == f"{{{HP}}}p" and p.getparent() is root):
+            p = p.getparent()
+        date = p.getprevious()
+        while date is not None and not _t(date):
+            date = date.getprevious()
+        if date is not None and re.match(r"^\d{4}년\d{1,2}월일?$", rb._n(_t(date))):
+            blanks = []
+            q = date.getprevious()
+            while q is not None and q.tag == f"{{{HP}}}p" and _empty_para(q):
+                blanks.append(q)
+                q = q.getprevious()
+            for b in blanks[3:]:  # 날짜에서 먼 것부터 — 3개 남김
+                b.getparent().remove(b)
+                n += 1
+    return n
 
 
 def _merge_masonry(hwpx: Path, pdf: Path, say=None) -> int:
@@ -508,6 +694,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
         checks = SV.review(ven, d)
         if info["full"]:  # 우리 견본 전체에 외주 몫까지 쓴 파일 — 앞 외주 몫 옮기고 3~7장만 잘라 끼움
             SV.take_front(doc, ven, warn)
+            _front_layout(root)  # 옮겨 온 문단에 우리 쪽 나눔 규칙(10/27)
             chapters = folder / "외주_3~7장.hwpx"
             SV.cut_chapters(vx, chapters)
         elif info["chapter3"] is not None:
@@ -546,7 +733,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     if chapters is not None:
         say("외주 3~7장 한글 끼워 넣는 중(1~2분)…")
         fixed = merge_vendor(ours, chapters, hwpx)
-        warn.append(f"외주 3~7장을 끼워 넣었습니다(장 번호 {fixed}곳 3장부터 고침)")
+        warn.append(f"외주 3~7장을 끼워 넣었습니다(장 번호 {fixed}곳 3장부터 고침)" if fixed else "외주 3~7장을 끼워 넣었습니다(외주 쪽 설정 그대로)")
     else:
         hwpx.write_bytes(ours.read_bytes())
         if body is None or not body.exists():
@@ -555,15 +742,18 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     say("PDF로 바꾸는 중(2~3분)…")
     pdf = folder / f"{base}.pdf"
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
-    _tidy(hwpx, pdf, say, sections_from=0, after="제1장건물개요1.1")  # 애매한 넘침 정리(10/26) — 목차 쪽 번호 전에. 내진은 구역 하나 — 첫 구역부터,
+    marks = page_marks(root)  # 쪽 검사 기준 = 틀 용지 여백에서(10/27 — 12mm 틀도 맞게)
+    _tidy(hwpx, pdf, say, sections_from=0, after="제1장건물개요1.1", marks=marks)  # 애매한 넘침 정리(10/26) — 목차 쪽 번호 전에. 내진은 구역 하나 — 첫 구역부터,
     # 고치는 건 1장 간지 뒤 표만(10/27 — 전엔 둘째 구역부터라 내진 본문은 아무것도 안 고쳤음, 앞 결과표 줄 높이는 그대로)
-    _push_lonely(hwpx, pdf, say, after="제1장건물개요1.1")  # 제목·표 이름만 쪽 끝 → 다음 쪽(10/27) — 목차 쪽 번호 전에
+    _push_lonely(hwpx, pdf, say, after="제1장건물개요1.1", marks=marks)  # 제목·표 이름만 쪽 끝 → 다음 쪽(10/27) — 목차 쪽 번호 전에
     _merge_masonry(hwpx, pdf, say)  # 조적벽 결과표 층·구분 합치기 — 쪽이 정해진 뒤(10/27)
+    _fix_blank_pages(hwpx, pdf, say, marks=marks)  # 꽉 찬 표 뒤 빈 쪽(10/27 12mm)
     if f.seismic_only:  # 목차 쪽 번호 — 첫 PDF로 세어 넣고 다시(10/22)
         if seismic_fill.fill_toc(hwpx, pdf):
             say("목차 쪽 번호 넣고 다시 PDF로…")
             pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
     warn += _line_check(pdf)  # 표 선 굵기 다름(10/27) — 도면 얹기 전
+    warn += _vendor_chapter_check(pdf)  # 외주 장 번호가 3장부터인지(10/27 구역 유지 — 번호가 외주 정의대로 이어지는지 PDF로 확인)
     if filling:  # 1.2 평면도·2.2.4 성적서 칸에 원본 PDF 쪽을 그대로(10/27 — 그림은 한글 파일용)
         seismic_fill.overlay_plans(pdf, f)
         seismic_fill.overlay_core(pdf, ((r.survey or {}).get("seismic_docs") or {}).get("core"), folder)

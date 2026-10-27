@@ -1278,6 +1278,24 @@ def _levels(tables: list, rb) -> list:
     return sorted({m for t in tables for tc in rb._cells(t).values() for m in _vm(tc, t, rb) if m > MIN_MARGIN} | {MIN_MARGIN}, reverse=True)
 
 
+def _note_target(roots: dict, first: str, on_prev: set, rb):
+    """주석(※) 글이 넘친 쪽 — 그 주석 문단 앞(3문단 안) 여러 줄 표 중 바로 앞 쪽에 칸 글이 있는 것(10/27 내진 조적벽 결과표: 같은 주석이 부재 단면·철근 표 뒤에도 있음)."""
+    key = _key(first)
+    for root in roots.values():
+        tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
+        for i, p in enumerate(tops):
+            if _key(rb._top_text(p)) != key:
+                continue
+            for q in reversed(tops[max(0, i - 3):i + 1]):
+                for t in q.iter(f"{{{rb.HP}}}tbl"):
+                    if int(t.get("rowCnt") or 1) < 2:
+                        continue
+                    cells = [_key(rb._cell_text(c)) for c in rb._cells(t).values()]
+                    if any(len(c) >= 4 and any(c[:12] in x or x in c for x in on_prev if len(x) >= 4) for c in cells):
+                        return t
+    return None
+
+
 def _header_rows(tbl, rb) -> int:
     """머리 줄 수 — 맨 위부터 칸이 모두 제목 칸(header="1")인 줄."""
     n = 0
@@ -1366,10 +1384,12 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1, after: str | No
     roots = {n: etree.fromstring(data[n]) for n in sections[sections_from:]}
     done, seen = [], []
     for kind, page, first, h, nth in found:
+        on_prev = {_key(t) for _, _, t in bodies[page - 1][0]} if page else set()
         target = _overflow_target(roots, first, nth, rb)
+        if target is None and kind == "넘침" and first.lstrip().startswith("※"):  # 되풀이되는 주석(※ 측정 위치는 …)은 PDF 쪽 수와 문단 수가 안 맞아 못 찾음(10/27)
+            target = _note_target(roots, first, on_prev, rb)
         if target is None or any(target is t for t in seen) or next(target.iter(f"{{{rb.HP}}}pic"), None) is not None:
             continue
-        on_prev = {_key(t) for _, _, t in bodies[page - 1][0]} if page else set()
         cells = [_key(rb._cell_text(c)) for c in rb._cells(target).values()]
         if not any(len(c) >= 4 and any(c[:12] in t or t in c for t in on_prev if len(t) >= 4) for c in cells):
             continue  # 찾은 표가 넘친 쪽 바로 앞 쪽에 없음 — 같은 글이 딴 데도 있어 엉뚱한 표(10/26 옹벽 목차 "6. 기타부록참고자료" → 부록 간지 표)
@@ -1431,8 +1451,9 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1, after: str | No
             how = [f"빈 줄 {n_blank}개" if n_blank else "", f"칸 위아래 여백 {plan / 283:.1f}mm까지" if plan else "", "칸 빈 높이" if n_blank * rb.LINE_H < need else ""]
             done.append(f"{kind} '{first[:14]}…' → {'·'.join(x for x in how if x)} 줄여 앞 쪽에(글자 그대로)")
             continue
-        if split_tails and kind == "꼬리":
-            moved = _split_tail(target, h, rb)
+        notes_only = kind == "넘침" and bool(bodies[page][0]) and all(t.lstrip().startswith("※") for _, _, t in bodies[page][0])
+        if split_tails and (kind == "꼬리" or notes_only):  # 주석(※)만 넘친 쪽(10/27 내진 12mm 조적벽 결과표 — 당길 여백이 없음)도 끝 3줄을 머리 줄과 함께
+            moved = _split_tail(target, 0 if notes_only else h, rb)
             if moved:
                 done.append(f"꼬리 '{first[:14]}…' → 표 끝 {moved}줄을 머리 줄과 함께 다음 쪽에(시안 2)")
                 continue
