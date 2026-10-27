@@ -398,6 +398,31 @@ def _tidy(hwpx: Path, pdf: Path, say=None, sections_from: int = 1, after: str | 
         return []
 
 
+def _push_lonely(hwpx: Path, pdf: Path, say=None, after: str | None = None) -> list[str]:
+    """제목·표 이름만 쪽 끝 → 다음 쪽(10/27 사용자 — 민재형이 정한 곳 말고는 이어 붙이되 제목만 걸리면 넘김, pagecheck.push_lonely). 넘기면 다시 PDF, 최대 3번. 못 하면 그대로."""
+    import traceback
+
+    from server.contract_docs import hwp_queue
+    from server.sitok import pagecheck
+
+    done: list[str] = []
+    try:
+        for _ in range(3):
+            with pagecheck.top_at(SEISMIC_TOP):
+                got = pagecheck.push_lonely(hwpx, pdf, sections_from=0, after=after)
+            if not got:
+                break
+            done += got
+            if say:
+                say("쪽 끝에 걸린 제목 넘겨서 다시 PDF로…")
+            pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+    if done:
+        print("[제목 넘김]", hwpx.name, "—", " · ".join(done), flush=True)
+    return done
+
+
 def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]:
     import pymupdf
 
@@ -482,6 +507,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
     _tidy(hwpx, pdf, say, sections_from=0, after="제1장건물개요1.1")  # 애매한 넘침 정리(10/26) — 목차 쪽 번호 전에. 내진은 구역 하나 — 첫 구역부터,
     # 고치는 건 1장 간지 뒤 표만(10/27 — 전엔 둘째 구역부터라 내진 본문은 아무것도 안 고쳤음, 앞 결과표 줄 높이는 그대로)
+    _push_lonely(hwpx, pdf, say, after="제1장건물개요1.1")  # 제목·표 이름만 쪽 끝 → 다음 쪽(10/27) — 목차 쪽 번호 전에
     if f.seismic_only:  # 목차 쪽 번호 — 첫 PDF로 세어 넣고 다시(10/22)
         if seismic_fill.fill_toc(hwpx, pdf):
             say("목차 쪽 번호 넣고 다시 PDF로…")

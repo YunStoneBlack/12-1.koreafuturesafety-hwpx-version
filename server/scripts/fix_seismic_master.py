@@ -155,7 +155,8 @@ class Fix:
             q = q.getprevious() if step < 0 else q.getnext()
         return out
 
-    def act(self, p, before=False, after=False, pb=False, keep=0):
+    def act(self, p, before=False, after=False, pb=False, keep=0, unpb=False):
+        """before/after = 앞/뒤 빈 줄 지움(keep = 앞 빈 줄 몇 개 남김), pb = 늘 새 쪽, unpb = 늘 새 쪽을 풂(이어 붙임 — 제목만 쪽 끝에 걸리면 만들 때 pagecheck.push_lonely가 넘김)."""
         name = _t(p)[:20]
         gone = 0
         if before:
@@ -169,10 +170,16 @@ class Fix:
         if pb and p.get("pageBreak") != "1":
             p.set("pageBreak", "1")
             self.log.append(f"쪽 나눔 {name}")
+        if unpb and p.get("pageBreak") == "1":
+            p.set("pageBreak", "0")
+            self.log.append(f"쪽 나눔 풂 {name}")
         if gone:
             self.log.append(f"빈 줄 {gone}개 지움 {name}")
 
     def blanks(self):
+        """늘 새 쪽 = 민재형이 정한 곳만(10/27 사용자 목록 — 제1장·(6) 평면도·1.3·1.4·2.1·2.2·【부재단면치수조사결과】·2.2.2·[철근배근 조사결과]·2.2.3·2.2.4·2.3·
+        【금회 균열 및 기타 결함현황 조사 결과표】·2.4·2.4.2·2.4.3·[조적벽 상태 평가를 위한 예시]·[조적벽 치수 및 상태조사 결과표]·2.5, (6) 평면도·2.2.3은 만들 때 seismic_fill).
+        나머지는 이어 붙임 — 앞 내용이 짧으면 다음 내용이 당겨 올라옴, 제목·표 이름만 쪽 끝에 걸리면 만들 때 그것만 다음 쪽(pagecheck.push_lonely)."""
         f, a = self.find, self.act
         a(f("a.내진성능평가결과요약", last=True), before=True, pb=True)
         a(f("요약문"), before=True, pb=True)
@@ -190,7 +197,7 @@ class Fix:
         while body2 is not None and _empty_para(body2):
             body2 = body2.getnext()
         a(body2, before=True, pb=True)
-        a(f("2.1.3세부사항", last=True), before=True, pb=True)
+        a(f("2.1.3세부사항", last=True), before=True, unpb=True)  # 목록 밖 — 이어 붙임(10/27)
         a(f("2.2철근콘크리트조사", last=True), before=True, pb=True)
         a(f("【부재단면조사수량】"), before=True)
         a(f("【부재단면치수조사결과】"), before=True, after=True, pb=True)  # 무조건 새 쪽(10/27 사용자 "부재단면·철근배근·조적 결과표는 새 페이지부터 [고정]")
@@ -199,21 +206,22 @@ class Fix:
         a(f("【철근배근조사결과】"), before=True, after=True)
         a(f("2.2.3콘크리트압축강도", last=True), before=True)
         a(f("2.2.4재료강도의결정", last=True), before=True, pb=True)
-        a(f("압축강도시험성적서", numbered=True), before=True, pb=True)
-        a(f("조사결과", numbered=True), before=True, pb=True)
+        a(f("압축강도시험성적서", numbered=True), before=True, unpb=True)  # 목록 밖(10/27)
+        a(f("조사결과", numbered=True), before=True, unpb=True)  # 목록 밖(10/27)
         a(f("2.3외관조사", last=True), before=True, pb=True)
+        a(f("【금회균열및기타결함현황조사결과표】"), before=True, pb=True)  # 늘 새 쪽(10/27 사용자 목록)
         a(f("2.4마감재및조적조조사", last=True), before=True, pb=True)  # 결함 표가 한 표가 되면 2.4가 바로 뒤에 붙어 중량물 사진 표가 쪽 끝에서 넘침
         a(f("(2)조사내용", after=f("2.4.1중량물", last=True)), after=True)
         a(f("2.4.2마감재", last=True), before=True, pb=True)
         a(f("2.4.3조적조", last=True), before=True, pb=True)  # 늘 새 쪽(10/27 사용자 "위 내용이 짧아도 다음 페이지부터" — 제목만 쪽 끝에 걸리던 것)
         a(f("【조적벽상태평가를위한예시】"), before=True, pb=True)  # 표 제목만 쪽 끝에 걸리던 것 — 늘 새 쪽(10/27)
-        a(f("조적벽의치수및상태조사에서순수조적두께는", prefix=True), before=True, pb=True)
+        a(f("조적벽의치수및상태조사에서순수조적두께는", prefix=True), before=True, unpb=True)  # 목록 밖(10/27) — 결과표 제목이 늘 새 쪽
         a(f("[조적벽치수및상태조사결과표]"), before=True, after=True, pb=True)  # 조적벽 결과표 새 쪽(고정)
         a(f("2.5지반및기초", last=True), before=True, pb=True)  # 늘 새 쪽(10/27) — 앞 빈 줄 2개도 지움(쪽 나눔 앞 빈 줄은 앞 쪽에서 넘쳐 빈 쪽)
-        a(f("지반조사현황(BH-1)", prefix=True), before=True, pb=True)
-        a(f("지반조사현황(BH-2)", prefix=True), before=True, pb=True)
-        a(f("BH-1지반조사결과"), before=True, pb=True)
-        a(f("BH-2지반조사결과"), before=True, pb=True)
+        a(f("지반조사현황(BH-1)", prefix=True), before=True, unpb=True)  # 2.5 안 — 목록 밖(10/27)
+        a(f("지반조사현황(BH-2)", prefix=True), before=True, unpb=True)
+        a(f("BH-1지반조사결과"), before=True, unpb=True)
+        a(f("BH-2지반조사결과"), before=True, unpb=True)
 
 
 def main():

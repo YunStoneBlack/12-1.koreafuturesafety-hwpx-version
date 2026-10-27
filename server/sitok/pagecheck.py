@@ -185,6 +185,96 @@ def push_headings(hwpx: Path, found: list[str]) -> list[str]:
     return pushed
 
 
+LONELY = re.compile(r"^(\d+(\.\d+)+\.?\s*\S|\d+\)\s*\S|[가-하]\.\s*\S|\(\d+\)\s*\S|【[^】]*】|\[[^\]]+\])")  # 제목(2.4.3 …·1) …·가. …·(2) …)·표 이름(【…】·[…])
+NUM_HEAD = re.compile(r"^(\(\d+\)|\d+\)|[가-하]\.|\d+(\.\d+)+\.?)\s*")  # 제목 앞 번호 — 짝지을 땐 뗌(자동 번호는 한글 글에 없고 PDF에만 있음)
+
+
+def push_lonely(hwpx: Path, pdf: Path, sections_from: int = 0, after: str | None = None) -> list[str]:
+    """제목·표 이름만 쪽 끝 → 그것만 다음 쪽(내진, 10/27 사용자 "위 내용이 짧으면 당겨 오고, 제목만 쪽 끝에 걸리면 다음 쪽부터"):
+    쪽 마지막 줄이 제목·표 이름(LONELY, 45자 이하)이고 쪽 아래 30% 안, 다음 쪽에 그 내용(원본이 새 쪽으로 시작한 곳 아님)이면 그 문단에 쪽 나눔 —
+    바로 위 줄도 제목이면("(2) 조사결과" + "【 … 】") 거기부터. 시특법 push_headings는 같은 글 제목을 모두 밀어 "(2) 조사결과"처럼 되풀이되는 제목엔 못 씀 →
+    PDF 줄과 한글 문단을 문서 순서로 짝지음(_align). after = 이 글(띄어쓰기 뺀 앞부분)로 시작하는 문단 뒤만(PDF는 그 글로 시작하는 간지 쪽부터 — 목차 줄과 헷갈리지 않게).
+    쪽 나눔 앞 빈 줄은 지움(앞 쪽에서 넘쳐 빈 쪽). 돌려주는 값 = 민 것 설명(비면 안 바꿈) — 부르는 쪽이 PDF를 다시 뽑는다."""
+    from server.sitok import report_build as rb
+
+    def full(p) -> str:
+        return re.sub(r"\s", "", "".join(x.text or "" for x in p.iter(f"{{{rb.HP}}}t")))
+
+    def empty(p) -> bool:
+        return (next(p.iter(f"{{{rb.HP}}}tbl", f"{{{rb.HP}}}pic", f"{{{rb.HP}}}ctrl", f"{{{rb.HP}}}secPr"), None) is None
+                and not "".join(x.text or "" for x in p.iter(f"{{{rb.HP}}}t")).strip())
+
+    def head(t: str) -> bool:
+        return bool(t) and len(t) <= 45 and bool(LONELY.match(t))
+
+    def nkey(t: str) -> str:
+        return _key(NUM_HEAD.sub("", t.strip(), count=1))
+
+    starts = designed_starts(hwpx)
+    pages = _pages(pdf)[0]
+    with zipfile.ZipFile(hwpx) as z:
+        infos = z.infolist()
+        data = {i.filename: z.read(i.filename) for i in infos}
+        sections = rb._sections(z)
+    roots = {n: etree.fromstring(data[n]) for n in sections}
+    hh = "http://www.hancom.co.kr/hwpml/2011/head"
+    numbered = set()  # 자동 번호 문단 모양("(1) 압축강도 시험성적서"·"(2) 조사결과" — 번호는 한글이 붙임)
+    if "Contents/header.xml" in data:
+        for pp in etree.fromstring(data["Contents/header.xml"]).iter(f"{{{hh}}}paraPr"):
+            h = pp.find(f"{{{hh}}}heading")
+            if h is not None and h.get("type") in ("NUMBER", "OUTLINE"):
+                numbered.add(pp.get("id"))
+    heads = []  # 제목·표 이름 문단 [(구역, tops, i)] — 문서 순서
+    on = after is None
+    for si, n in enumerate(sections):
+        tops = [p for p in roots[n] if p.tag == f"{{{rb.HP}}}p"]
+        for i, p in enumerate(tops):
+            if not on:
+                on = full(p).startswith(after)
+                continue
+            t = rb._top_text(p).strip()
+            if si >= sections_from and (head(t) or (t and len(t) <= 45 and p.get("paraPrIDRef") in numbered)):
+                heads.append((si, tops, i))
+    first = 0
+    if after:
+        first = next((i for i, (lines, *_r) in enumerate(pages) if lines and _divider(lines)
+                      and re.sub(r"\s", "", "".join(t for _, _, t in lines)).startswith(after[:6])), 0)
+    seen = [(i, j) for i, (lines, *_r) in enumerate(pages) if i >= first for j, (_, _, t) in enumerate(lines) if head(t.strip())]
+    link = _align([nkey(rb._top_text(tops[i])) for _, tops, i in heads], [nkey(pages[i][0][j][2]) for i, j in seen])
+    where = {seen[b]: heads[a] for b, a in link.items()}
+    done: list[str] = []
+    hit: set = set()
+    for i, (lines, _bottom, foot, _o) in enumerate(pages[:-1]):
+        nxt = pages[i + 1][0]
+        if i < first or len(lines) < 2 or not nxt or _divider(lines) or _key(nxt[0][2]) in starts:
+            continue
+        span = foot - _top()
+        if lines[-1][0] <= _top() + span * 0.7 or (i, len(lines) - 1) not in where:
+            continue
+        si, tops, k = where[(i, len(lines) - 1)]
+        if (i, len(lines) - 2) in where and where[(i, len(lines) - 2)][1] is tops:  # 바로 위 줄도 제목(제목 + 표 이름) — 둘 다 넘김
+            k2 = where[(i, len(lines) - 2)][2]
+            if k2 < k and all(empty(q) for q in tops[k2 + 1:k]):
+                k = k2
+        p = tops[k]
+        if p.get("pageBreak") == "1":
+            continue
+        q = p.getprevious()
+        while q is not None and q.tag == f"{{{rb.HP}}}p" and empty(q):
+            prev = q.getprevious()
+            q.getparent().remove(q)
+            q = prev
+        p.set("pageBreak", "1")
+        hit.add(sections[si])
+        done.append(f"{i + 1}쪽 '{rb._top_text(p).strip()[:14]}' 다음 쪽으로")
+    if not done:
+        return []
+    for n in hit:
+        data[n] = etree.tostring(roots[n], xml_declaration=True, encoding="UTF-8", standalone=True)
+    _rewrite(hwpx, infos, data)
+    return done
+
+
 def _rewrite(hwpx: Path, infos, data: dict) -> None:
     import time
 

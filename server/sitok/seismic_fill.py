@@ -1490,6 +1490,8 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
         p.set("pageBreak", "1")
     for p in [p for p in root if p.tag == f"{{{HP}}}p" and _t(p).strip() == "`" and not _outer(p)]:  # 견본에 남은 군더더기 글자(2.2.4 끝)
         _para_text(p, "")
+    for p in [p for p in root if p.tag == f"{{{HP}}}p" and p.get("pageBreak") == "1"]:  # 쪽 나눔 앞 빈 줄은 앞 쪽 끝이라 안 보이고, 넘치면 빈 쪽
+        _drop_empty_before(p)  # (10/27 — 목록 밖 쪽 나눔을 풀어 2.2.4 조사결과가 성적서 뒤에 이어 붙자 2.3 앞 빈 줄 6개가 넘쳐 빈 쪽)
     db = object_session(r)
     if db is not None:
         n += fill_defects(root, defect_rows(db, r.id), member_tpl)
@@ -1923,6 +1925,8 @@ def fill_size_plans(doc, root, f, reg: dict, rdir: Path, warn: list, field: dict
     for p in paras[len(plans):]:
         if p.getparent() is not None and p not in used:
             p.getparent().remove(p)
+    _drop_empty_before(used[0])  # "(6) 평면도" 늘 새 쪽(10/27 사용자 목록 — 민재형) — 앞 빈 줄은 앞 쪽에서 넘쳐 빈 쪽이 되니 지움
+    used[0].set("pageBreak", "1")
     return n
 
 
