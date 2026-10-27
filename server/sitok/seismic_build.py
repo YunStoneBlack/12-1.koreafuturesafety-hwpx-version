@@ -439,10 +439,7 @@ def _line_check(pdf: Path, label: str = "본문") -> list[str]:
             texts = [re.sub(r"\s", "", pg.get_text()) for pg in doc]
         s2 = next((i for i, t in enumerate(texts) if t.startswith("제2장현장조사2.1")), None)  # 2장 간지(목차는 그 앞)
         end = next((i for i in range(s2 + 1, len(texts)) if "제3장" in texts[i]), len(texts)) if s2 is not None else len(texts)
-        found = pagecheck.line_warnings(pdf, range(end))
-        if found:
-            print("[선 굵기]", pdf.name, found, flush=True)
-        return [f"선 굵기 확인({label}): " + " · ".join(found)] if found else []
+        return pagecheck.line_check(pdf, range(end), label)
     except Exception:  # noqa: BLE001
         traceback.print_exc()
         return []

@@ -197,11 +197,6 @@ def _pad(content: bytes, box_w: float, box_h: float, margin: float = 0) -> bytes
         return buf.getvalue()
 
 
-def _fit(src: str | Path | bytes, box_w: float, box_h: float) -> bytes:
-    """올린 그림을 칸 비율에 맞춰 흰 여백을 붙인 JPEG(늘어나 보이지 않게) — 사방 MARGIN_MM(칸 크기는 엑셀 어림, PDF로 잰 뒤 refit_pictures가 다시 맞춤)."""
-    return _pad(_upright(src), box_w, box_h, MARGIN_MM / 25.4 * 96)
-
-
 def _frame_anchor(ws: Worksheet, img: XLImage):
     """그림이 들어 있는 테두리 틀(합친 칸 — 결과보고서·통장 사본 B4:M25, 4대보험 B4:M27)에 꼭 맞는 두 칸 기준 자리. 틀이 없으면 None.
     (10/27 — 견본 그림이 틀 위쪽 일부에만 걸려 있어 사진 윗부분이 제목 줄 뒤로 가려지고 틀 아래는 비던 것)"""

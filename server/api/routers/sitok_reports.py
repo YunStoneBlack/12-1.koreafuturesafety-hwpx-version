@@ -1363,18 +1363,11 @@ def _page_check(pdf: Path, hwpx: Path, skip: list[int] | None = None) -> list[st
     except Exception:  # noqa: BLE001
         found = []
     out = [f"쪽 확인 — {' / '.join(found)}"] if found else []
-    try:  # 표 선 굵기(10/27 — 내진에서 붙인 검사를 시특법에도, 도면·간지 쪽은 안 봄)
-        import pymupdf
+    import pymupdf
 
-        with pymupdf.open(pdf) as doc:
-            n = doc.page_count
-        lines = pagecheck.line_warnings(pdf, [i for i in range(n) if i not in set(skip or [])])
-        if lines:
-            print("[선 굵기]", pdf.name, lines, flush=True)
-            out.append("선 굵기 확인 — " + " · ".join(lines))
-    except Exception:  # noqa: BLE001
-        pass
-    return out
+    with pymupdf.open(pdf) as doc:
+        n = doc.page_count
+    return out + pagecheck.line_check(pdf, [i for i in range(n) if i not in set(skip or [])])  # 표 선 굵기(10/27 — 도면·간지 쪽은 안 봄)
 
 
 def _group_amounts(pairs: list[tuple[SitokFacility, SitokReport]], db: Session | None = None) -> None:

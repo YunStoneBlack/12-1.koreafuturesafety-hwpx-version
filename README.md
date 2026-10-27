@@ -204,6 +204,11 @@
   **보고서 메일(DB 0065 `mail_job`)** — 시특법 회차 [📧 보고서 보내기](합본 내려받기 링크 `/report/share/{토큰}` 로그인 없이·30일·바로/예약·제출 현황 전송 표시,
   `server/api/mail_jobs.py`·`routers/sitok_mail.py`·`routers/share.py`, 그룹웨어 nginx 예외), 산안법 고객사 전송 예약(전송 창 첫 화면 [⏰ 예약 보내기]·목록/제출 현황 "⏰ 예약"),
   작업 프로그램 `server/worker/mail_worker.py`.
+- **161~173차(10/27)**: 내진 — AI 글 칸 빈칸 노랑, **쪽 나눔 원칙**(늘 새 쪽은 민재형 목록만 `fix_seismic_master`, 나머지 이어 붙임 + `pagecheck.push_lonely` 제목·표 이름만 쪽 끝 → 다음 쪽,
+  `top_at(본문 시작, 꼬리말 자리)`), 조적벽 결과표 층·구분 세로 합치기(`seismic_fill.merge_masonry`·`masonry_cuts` — 쪽 경계에서 끊고 다음 쪽에 다시), 표 선 고르게(`even_head_line`·`even_col_lines`),
+  **표 선 굵기 검사**(`pagecheck.line_mismatch`·`line_check` — 내진·시특법 만들 때 "선 굵기 확인" 경고, 도면·간지 거름, 과업구분 표 `form_fix.task_head_line`), 덕계고 일람표 "HD22-2EA" 개수(`rebar_schedule.bar_count`)·
+  철근 캡처 간격을 점 자리로(`rebar_capture.by_position`), 산안법 8번 AI추천 설명만으로도(`vision_analyzer.FINDING_TEXT_PROMPT`), 착수계·완수계 서류 그림 원본 비율·틀 안 3mm
+  (`sheet_tools.refit_pictures` — PDF로 실제 칸을 재서 다시, 카메라 표지 사진은 `gov_docs.cover_image`가 원본), 산안법 제출 현황 현장별 월별 추진 현황(`submission._site_progress`·status 화면).
 - **142~160차(10/26~27)**: 한글 동시 처리·PDF 단계 시험(운영은 1개씩), 산안법 칸 채우기 빠르게(15.9 → 2.7초, 결과 바이트 같음), **치장벽돌 결함 개편(DB 0066 `sitok_defect.brick`)**,
   **애매한 넘침 정리**(`pagecheck.tidy_overflow`·`tidy_checked` — 빈 자리만 당기기 → 줄 단위·작은 표 통째로 넘기기, 나빠지면 되돌림; 내진은 `top_at(49)`·첫 구역부터·`split_tails` 시안 2),
   내진 — 못 채운 곳 빈칸 + 노랑(`seismic_todo.Todo`), 1.2 평면도 도면 제목 이름·층 차례·원본 해상도·보고서 PDF에 원본 도면 벡터(`seismic_fill.plan_pages`·`overlay_plans`·`overlay_core`),

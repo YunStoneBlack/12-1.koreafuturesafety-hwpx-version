@@ -288,6 +288,17 @@ def line_mismatch(pdf: Path, pages=None) -> list[tuple[int, str, float, float, f
     return out
 
 
+def line_check(pdf: Path, pages=None, label: str = "") -> list[str]:
+    """보고서 만들기 경고 한 줄(없으면 []) — "선 굵기 확인(라벨) — N쪽 …"(시특법 _page_check·내진 _line_check 같이 씀). 검사가 실패해도 []."""
+    try:
+        found = line_warnings(pdf, pages)
+    except Exception:  # noqa: BLE001
+        return []
+    if found:
+        print("[선 굵기]", pdf.name, found, flush=True)
+    return [f"선 굵기 확인{f'({label})' if label else ''} — " + " · ".join(found)] if found else []
+
+
 def line_warnings(pdf: Path, pages=None, limit: int = 8) -> list[str]:
     """line_mismatch를 회차 화면 경고 글로 — 쪽마다 한 줄(가로선은 위에서 몇 cm)."""
     found = line_mismatch(pdf, pages)
