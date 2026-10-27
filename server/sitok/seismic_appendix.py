@@ -107,7 +107,7 @@ def fill_appendix(doc, d: dict, r, f, rdir: Path, warn: list) -> int:
             n += SFL._put_or_blank(doc, pic, (rdir / rel) if rel else None, rdir)  # 없으면 빈칸(10/22 형 "측정 데이터 안 넣었는데 들어감")
     members = field["members"]
     tables = [t for t in SFL._outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"]
-    rows = [[str(i + 1), f"{SF.floor_label(m['floor'])}( {m['where']} )" if m["where"] else SF.floor_label(m["floor"]),
+    rows = [[str(i + 1), SFL.member_where(m),
              f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", m["note"]] for i, m in enumerate(members)]
     n += SFL.fill_chunks(root, tables, rows or [[""] * 6], 18, 1, flat=False)  # 없으면 빈 줄
     n += SB.fill_rebar(root, d, quiet)  # 없으면 빈 줄(fill_rebar가)

@@ -454,6 +454,7 @@ def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, 
     return n
 
 
+EMPTY_RESULT = "(현장조사 입력 ‘조사결과 글’을 쓰거나 AI로 쓰면 채워집니다)"
 BODY_RESULTS = (("2.2.1부재단면", "(2)조사결과", "eq_member"), ("2.2.2철근배근", "(3)철근배근조사결과", "eq_rebar"),
                 ("2.2.4재료강도의결정", "조사결과", "eq_core"))  # 본문 조사결과 글머리 — 요약 장비조사와 같은 글(10/22)
 
@@ -484,8 +485,8 @@ def fill_body_results(root, field: dict, doc=None) -> int:
         if h is None:
             continue
         bullets = []
-        for p in tops[h + 1:]:
-            if not _n(_t(p)) or _outer(p):
+        for p in tops[h + 1:]:  # 글머리 = 빈 줄·표·표 제목(【…】·[…])·주석(※) 앞까지 — 10/26 틀에서 글과 표 제목 사이 빈 줄을 지운 뒤 표 제목까지 지우던 것(10/27)
+            if not _n(_t(p)) or _outer(p) or _n(_t(p))[:1] in ("【", "[", "※"):
                 break
             bullets.append(p)
         if not bullets:
@@ -495,10 +496,11 @@ def fill_body_results(root, field: dict, doc=None) -> int:
         tpl = copy.deepcopy(first)
         for p in bullets[1:]:
             p.getparent().remove(p)
-        _para_text(first, lines[0])
+        _para_text(first, lines[0] or EMPTY_RESULT)
         _blacken(first)
-        if not lines[0]:
+        if not lines[0]:  # 글이 없음 — 노란 안내 글(10/27 민재형 "규격·철근배근 AI 분석 빠짐" — 빈 줄이라 빠진 줄 몰랐음)
             _no_bullet(doc, first)
+            TD.mark_text(first)
         last = first
         for line in lines[1:]:
             q = copy.deepcopy(tpl)
@@ -842,6 +844,13 @@ def _diff_sentence(labels: list[str]) -> str:
     return f"{', '.join(labels[:3])}{more} 부재가 구조도면과 실측 수치와 상이하여 현장 실측 데이터를 내진성능 평가에 반영하였다."
 
 
+def member_where(m: dict) -> str:
+    """부재 단면 표 조사위치 — "지상5층" 윗줄 + "(장비 위치도 참조)" 아랫줄(10/27 민재형 "괄호 하나만 다음 줄에 걸림 — 두 줄로 깔끔하게", 칸은 가운데 정렬)."""
+    floor = SF.floor_label(m["floor"])
+    where = re.sub(r"[.\s]+$", "", (m.get("where") or "").strip())
+    return f"{floor}\n({where})" if where else floor
+
+
 def fill_members(root, field: dict, d: dict, rebar_rows: list, units, warn: list, drawings: bool = True, member_total: int = 0) -> int:
     from server.sitok import rebar_survey as RV
 
@@ -850,7 +859,7 @@ def fill_members(root, field: dict, d: dict, rebar_rows: list, units, warn: list
               and _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "조사위치"]
     n = 0
     if members:
-        rows = [[str(i + 1), f"{SF.floor_label(m['floor'])}( {m['where']} )" if m["where"] else SF.floor_label(m["floor"]),
+        rows = [[str(i + 1), member_where(m),
                  f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", m["note"]] for i, m in enumerate(members)]
         n += fill_chunks(root, tables, rows, 18, 1, flat=False, one=True)
     else:  # 입력 없으면 빈 줄 하나(10/22 형 "안 적었는데 값이 들어가 있음") — 노랑(10/26)
@@ -1537,6 +1546,53 @@ def plan_images(f, rdir: Path) -> list[tuple[str, Path]]:
     return out
 
 
+def overlay_plans(pdf: Path, f) -> int:
+    """보고서 PDF의 1.2 평면도 칸에 원본 도면 PDF 쪽을 벡터로 얹음(10/27 민재형 "화질이 그래도 안 좋음" — 부록 구조도면처럼 원본 그대로).
+    칸 = 그 평면도 제목 줄("지상 3층 평면도") 바로 위 그림 자리, 흰 칸으로 덮고 도면 쪽을 비율 그대로 가운데. 한글 파일은 그림 그대로(고칠 때용). 얹은 수."""
+    import pymupdf
+
+    plans = [x for x in plan_pages(f) if x["path"].suffix.lower() == ".pdf"]
+    if not plans:
+        return 0
+    n, start, srcs = 0, 0, {}
+    doc = pymupdf.open(pdf)
+    try:
+        for x in plans:
+            key = _n(x["cap"])
+            for i in range(start, doc.page_count):
+                pg = doc[i]
+                lines = [ln for b in pg.get_text("dict")["blocks"] for ln in b.get("lines", [])
+                         if _n("".join(s["text"] for s in ln["spans"])) == key]
+                if not lines:
+                    continue
+                cy0, cx0, cx1 = lines[0]["bbox"][1], lines[0]["bbox"][0], lines[0]["bbox"][2]
+                imgs = [pymupdf.Rect(im["bbox"]) for im in pg.get_image_info()
+                        if im["bbox"][3] <= cy0 + 3 and min(im["bbox"][2], cx1) > max(im["bbox"][0], cx0) and im["bbox"][3] - im["bbox"][1] > 50]
+                if not imgs:
+                    continue
+                box = max(imgs, key=lambda r: r.y1)
+                one = pymupdf.open()  # 그 쪽만 — 회전(/Rotate 270 등)을 보이는 그대로 풀어서(안 풀면 돌아가고 잘려 얹힘)
+                with pymupdf.open(x["path"]) as src:
+                    one.insert_pdf(src, from_page=x["page"] - 1, to_page=x["page"] - 1)
+                one[0].remove_rotation()
+                srcs[(x["path"], x["page"])] = one
+                pg.draw_rect(box, color=None, fill=(1, 1, 1), overlay=True)
+                pg.show_pdf_page(box, one, 0, keep_proportion=True)
+                n += 1
+                start = i  # 한 쪽에 두 장
+                break
+        if n:
+            tmp = pdf.with_suffix(".overlay.pdf")
+            doc.save(tmp, garbage=3, deflate=True)
+    finally:
+        doc.close()
+        for s in srcs.values():
+            s.close()
+    if n:
+        tmp.replace(pdf)
+    return n
+
+
 def plan_thumb(path: Path, page: int, width: int = 360) -> bytes:
     """평면도 쪽 작은 그림(PNG) — 건 화면 이름 고치기 칸."""
     import pymupdf
@@ -1620,6 +1676,11 @@ def fill_size_plans(doc, root, f, reg: dict, rdir: Path, warn: list, field: dict
         used.append(p)
         tb = next(x for x in _outer(p) if rb._pic_slots(x))
         _set(rb._cells(tb), (2, 0), cap)
+        if k:  # "(6) 평면도" 제목은 첫 칸만(10/27 민재형 "처음만 나오고 그 뒤로 안 나와야 됨" — 첫 칸을 복사한 칸에 따라옴, 견본 둘째~넷째 칸은 빈 줄)
+            cells = rb._cells(tb)
+            for c in range(4):
+                if (0, c) in cells and _n(rb._cell_text(cells[(0, c)])):
+                    _set(cells, (0, c), "")
         n += _put_full(doc, rb._pic_slots(tb)[0][1], img)  # 원본 해상도(10/26)
     for p in paras[len(plans):]:
         if p.getparent() is not None and p not in used:
