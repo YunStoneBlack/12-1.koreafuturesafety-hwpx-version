@@ -500,7 +500,7 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
         (_resize_flat if flat else _resize_tail)(t, header, len(chunk))
         if one and len(chunk) > per:  # 쪽을 넘기는 한 표 — 줄 단위로 나뉘게
             split_pages(t, header)
-            cap = p.getprevious()  # 표 제목("【 부재 단면 치수 조사 결과 】")부터 새 쪽 — 앞 쪽 끝에 머리 줄만 걸리지 않게(짧은 표는 이어서)
+            cap = p.getprevious()  # 표 제목("【 부재 단면 치수 조사 결과 】")부터 새 쪽 — 앞 쪽 끝에 머리 줄만 걸리지 않게(고친 원본 틀은 이미 새 쪽(157차), 안 고친 회사 원본 대비)
             if cap is not None and next(cap.iter(f"{{{HP}}}tbl"), None) is None and _t(cap).strip()[:1] in ("【", "["):
                 _drop_empty_before(cap)  # 앞 빈 줄이 앞 쪽 끝에서 넘치면 쪽 나눔과 겹쳐 빈 쪽
                 cap.set("pageBreak", "1")

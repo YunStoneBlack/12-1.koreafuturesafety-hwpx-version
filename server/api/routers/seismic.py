@@ -54,7 +54,6 @@ DOCS = [
 DOC = {k: (label, exts, fills) for k, label, exts, fills in DOCS}
 MULTI = ("schedule", "struct", "floorplan")  # 시설물 도면 칸(drawings) — 여러 장
 CONTRACT_KEYS = ("title", "client", "amount", "contract_no", "contract_date", "start_date", "end_date", "days", "method", "joint", "manager", "phone")
-DATE_KEYS = ("contract_date", "start_date", "end_date", "permit_date", "approval_date", "build_start")
 
 
 def _iso(v) -> str:

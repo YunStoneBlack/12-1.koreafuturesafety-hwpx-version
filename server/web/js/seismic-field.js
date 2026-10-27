@@ -38,8 +38,6 @@
     draw();
   }
 
-  const floorChoices = () => F.floors.map((f) => [f.n, f.label]);
-
   // 부재 단면 — 표본 층 × 종별 칸을 미리 깔고(위 수량 표에서 늘리고 줄임), 일람표 칸은 그 층·그 부재 것만(철근탐사처럼) — 10/22 형.
   // 빈 칸은 저장 안 함(보고서엔 채운 줄만), 칸 수는 member_plan, 층별 칸 차례(1 보·2 기둥·3 보처럼 섞임 — 10/26)는 member_order로 저장.
   let plan = {}, slots = {}; // slots = {층: [줄…]} 화면 차례, 줄마다 kind

@@ -204,6 +204,13 @@
   **보고서 메일(DB 0065 `mail_job`)** — 시특법 회차 [📧 보고서 보내기](합본 내려받기 링크 `/report/share/{토큰}` 로그인 없이·30일·바로/예약·제출 현황 전송 표시,
   `server/api/mail_jobs.py`·`routers/sitok_mail.py`·`routers/share.py`, 그룹웨어 nginx 예외), 산안법 고객사 전송 예약(전송 창 첫 화면 [⏰ 예약 보내기]·목록/제출 현황 "⏰ 예약"),
   작업 프로그램 `server/worker/mail_worker.py`.
+- **142~160차(10/26~27)**: 한글 동시 처리·PDF 단계 시험(운영은 1개씩), 산안법 칸 채우기 빠르게(15.9 → 2.7초, 결과 바이트 같음), **치장벽돌 결함 개편(DB 0066 `sitok_defect.brick`)**,
+  **애매한 넘침 정리**(`pagecheck.tidy_overflow`·`tidy_checked` — 빈 자리만 당기기 → 줄 단위·작은 표 통째로 넘기기, 나빠지면 되돌림; 내진은 `top_at(49)`·첫 구역부터·`split_tails` 시안 2),
+  내진 — 못 채운 곳 빈칸 + 노랑(`seismic_todo.Todo`), 1.2 평면도 도면 제목 이름·층 차례·원본 해상도·보고서 PDF에 원본 도면 벡터(`seismic_fill.plan_pages`·`overlay_plans`·`overlay_core`),
+  평면도 이름 고치기(건 화면 서류 칸, `PATCH /seismic/projects/{id}/floorplans`), 철근탐사 📷 캡처 = 윈도우 캡처 도구(`ms-screenclip:`), 민재형 1~2장 수정 반영(`server/scripts/fix_seismic_master.py` —
+  번호 시작값·목차 줄 간격·줄 높이·빈 줄 → 쪽 나눔, 조사 결과표 한 표 `fill_chunks(one=True)`·`split_pages`), 사진·그림 칸 여백 사방 2mm(`_pad_photo`·`pad_figures` — 칸은 그대로·사진을 줄임),
+  결과표 새 쪽 고정, 부재 단면 표(조사위치 층만·비고 자동 `member_note`·주석 세 줄·칸 너비 `member_widths`), 화면 재구성(건 화면 바로가기 넷 — 현장조사 입력 안에 철근탐사,
+  외관조사 탭 [결함 조사] [현장 사진] [전경사진] `js/seismic-photos.js`, 보고서 AI 작성 `seismic-field.html?part=texts`).
 - **91차(10/21 밤)**: 옹벽 묶음 2장부터 꼬리말 고침(`wall_build._drop_before(sec_only=True)` — 구역 정의만 옮김), 보고서 구성 상자 기본 계약 = 반기와 가장 많이 겹치는 계약(`sitok_compose._overlap_days`, `attach_contract`는 contract_for), **정밀 묶음 분권**(`sitok_split._build_precision`), 양주덕산초 되돌리기 `server/scripts/restore_deoksan_test.py`.
 - **75~89차(10/21)**: 옹벽 형 수정사항(요약표 전회 칸·1.5 유지관리방안·1.6 개략공사비 AI, 발주처 과업지시서 DB 0060, 위치도 핀·후면첨부 도면, 1.2.4 틀 점선 X + "후면첨부",
   2.2 과업 예정 공정표 머리 = 과업기간 날짜, 전회차 사진 읽기 세 단계 — 부록2 간지 → 전경사진·주요 손상 및 현황사진 제목 쪽 → 설명 붙은 사진),
