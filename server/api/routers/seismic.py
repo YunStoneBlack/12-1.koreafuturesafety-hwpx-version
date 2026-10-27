@@ -201,7 +201,9 @@ def _project_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "ground_sentence": SD.ground_sentence((ground or {}).get("holes") or []),
             "units": units, "item_units": item_units, "unit_own": sorted(k for k, v in item_units.items() if v != units),
             "drawings_auto": SD.has_drawings(f), "min_counts": SD.min_counts(item_units, building["grade"], SD.has_drawings(f)),
-            "field_counts": {k: len(_field(r)[k]) for k in ("members", "cores", "masonry", "photos")},
+            "field_counts": {**{k: len(_field(r)[k]) for k in ("members", "cores", "masonry", "photos")},
+                             "texts": sum(1 for v in (_field(r).get("texts") or {}).values() if str(v or "").strip()) + (1 if str(_field(r).get("summary") or "").strip() else 0),
+                             "texts_total": len(_field(r).get("texts") or {}) + 1},  # 보고서 AI 작성 — 쓴 글 칸 수(10/27)
             "persons": [{"id": p.id, "name": p.name, "grade": p.grade or "", "position": p.position or ""} for p in persons],
             "floorplans": _floorplans_out(f), "report": report_out(r)}
 

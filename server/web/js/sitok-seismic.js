@@ -3,7 +3,9 @@
 // 고치면 줄 전체를 PATCH(설계 칸을 직접 고치면 design_manual — 일람표로 다시 안 덮음). 서버 server/api/routers/sitok_seismic.py.
 
 (function () {
-  const rid = Number(new URLSearchParams(location.search).get("report")) || null;
+  const qs0 = new URLSearchParams(location.search);
+  const rid = Number(qs0.get("report") || qs0.get("id")) || null; // 현장조사 입력 안(seismic-field.html?id=, 10/27)이면 id
+  const INSIDE = !document.getElementById("ss-fac-link"); // 현장조사 입력 안 — 경로 줄·창 제목은 그 화면 것
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const $ = (id) => document.getElementById(id);
   const errorEl = $("error");
@@ -66,11 +68,13 @@
 
   function drawTop() {
     const r = d.report;
-    $("ss-fac-link").textContent = r.facility_name;
-    $("ss-fac-link").href = `seismic-project.html?facility=${r.facility_id}`; // 내진성능평가 건 화면(10/21 — 시특법과 별개)
-    $("ss-round-link").textContent = r.half === "성능평가" ? `${r.year}년 내진성능평가` : `${r.year}년 ${r.half}`;
-    $("ss-round-link").href = `seismic-project.html?id=${rid}`;
-    document.title = `현장시험 - ${r.facility_name}`;
+    if (!INSIDE) {
+      $("ss-fac-link").textContent = r.facility_name;
+      $("ss-fac-link").href = `seismic-project.html?facility=${r.facility_id}`; // 내진성능평가 건 화면(10/21 — 시특법과 별개)
+      $("ss-round-link").textContent = r.half === "성능평가" ? `${r.year}년 내진성능평가` : `${r.year}년 ${r.half}`;
+      $("ss-round-link").href = `seismic-project.html?id=${rid}`;
+      document.title = `현장시험 - ${r.facility_name}`;
+    }
     $("ss-count").textContent = d.rows.length ? `${d.counts.total}/${d.counts.slots_total}개소` : "";
     const s = d.schedule;
     $("ss-sched").innerHTML = s.count ? `📏 구조 일람표 ${s.count}칸${s.need ? ` — <b class="ss-need">확인 필요 ${s.need}칸</b>(기둥 단변·장변 점 개수 등)` : " — 모두 확인"}

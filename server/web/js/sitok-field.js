@@ -833,12 +833,21 @@
     document.title = `${data.report.facility} - 결함조사`;
   }
 
-  function seismicOnly() { // 내진성능평가(10/21) — 결함 조사 탭만(외관조사망도·사진첩), 전회차 가져오기 없이 바로. 철근탐사는 회차 화면 🧪 현장시험
+  function seismicOnly() { // 내진성능평가(10/21) — 결함 조사(외관조사망도·사진첩), 전회차 가져오기 없이 바로. 철근탐사는 현장조사 입력 안(10/27)
     started = true;
     const tabs = document.querySelector(".sf-tabs");
-    if (tabs) tabs.style.display = "none";
     ["overview", "good", "seismic", "public", "other", "docs", "load", "survey"].forEach((t) => { const el = document.getElementById(`sf-${t}`); if (el) el.hidden = true; });
-    document.getElementById("sf-defects").hidden = false;
+    if (data.seismic_only && window.mountSeismicPhotos) { // 탭 [🔍 결함 조사] [📷 현장 사진] [🏢 전경사진](10/27 형 "외관조사 = 결함 + 현장/전경 사진", 위치도는 뺌)
+      document.querySelectorAll(".sf-tab").forEach((b) => { b.hidden = !["defects", "sphoto", "sfront"].includes(b.dataset.tab); });
+      const cnt = (el) => (have, all) => { document.getElementById(el).textContent = `(${have}/${all})`; };
+      window.mountSeismicPhotos(document.getElementById("sf-sphoto-box"), rid, (k) => !["map", "front"].includes(k), cnt("sp-ph-count"));
+      window.mountSeismicPhotos(document.getElementById("sf-sfront-box"), rid, (k) => k === "front", cnt("sp-fr-count"));
+      const on = document.querySelector(".sf-tab.on");
+      if (!on || on.hidden) document.querySelector('.sf-tab[data-tab="defects"]').click();
+    } else {
+      if (tabs) tabs.style.display = "none";
+      document.getElementById("sf-defects").hidden = false;
+    }
     if (window.setReportSection) window.setReportSection("seismic"); // 왼쪽 메뉴 내진성능평가 줄·경로 첫 칸(10/21)
     if (data.seismic_only) { // 내진성능평가 건(0062) — 경로 = 내진성능평가 › 건 이름 › 외관조사
       const link = document.getElementById("sf-fac-link");
@@ -846,7 +855,7 @@
       const rl = document.getElementById("sf-round-link");
       rl.hidden = true;
       if (rl.nextSibling && rl.nextSibling.nodeType === 3) rl.nextSibling.textContent = " ";
-      document.getElementById("sf-title").textContent = "외관조사(결함)";
+      document.getElementById("sf-title").textContent = data.seismic_only && window.mountSeismicPhotos ? "외관조사" : "외관조사(결함)"; // 결함 + 현장·전경 사진 탭(10/27)
     }
   }
 

@@ -6,6 +6,10 @@
   const errorEl = document.getElementById("error");
   const $ = (id) => document.getElementById(id);
   const id = Number(new URLSearchParams(location.search).get("id")) || 0;
+  // ?part=texts = 보고서 AI 작성(분석 글만, 10/27 형 "분석 글 밖으로 따로") — 아니면 현장조사 입력(부재 단면·철근탐사·코어·조적조, 분석 글 숨김)
+  const TEXTS = new URLSearchParams(location.search).get("part") === "texts";
+  for (const pid of ["sf2-m-panel", "sf2-r-panel", "sf2-c-panel", "sf2-w-panel", "sf2-min", "sf2-min-help"]) { const el = document.getElementById(pid); if (el) el.hidden = TEXTS; }
+  { const t = document.getElementById("sf2-t-panel"); if (t) { t.hidden = !TEXTS; t.open = TEXTS; } }
   let F = null;
   let cores = [];
   const err = (e) => showError(errorEl, e);
@@ -369,35 +373,6 @@
     return Object.keys(mgroups).map(Number).sort((a, b) => a - b).flatMap((n) => mgroups[n].filter(mFilled).map((m) => ({ ...m, floor: n, height: nz(m.height), width: nz(m.width), finish: nz(m.finish) })));
   }
 
-  function drawPhotos() {
-    const box = $("sf2-photos");
-    const have = Object.keys(F.photos).length;
-    $("sf2-p-sum").textContent = `${have}/${F.photo_slots.length}장 — 칸마다 한 장, 누르면 올리기·바꾸기`;
-    box.innerHTML = F.photo_slots.map(([k, label, where]) => {
-      const p = F.photos[k];
-      return `<div class="sf2-ph${p ? " on" : ""}" data-slot="${k}">
-        <label class="sf2-ph-img">${p ? `<img src="${BASE}/api/seismic/projects/${id}/field/photo/${k}?v=${encodeURIComponent(p.at)}" alt="" loading="lazy" />` : '<span class="sf2-ph-empty">＋ 사진</span>'}
-          <input type="file" accept="image/*" hidden data-kr-file="1" /></label>
-        <div class="sf2-ph-cap"><b>${esc(label)}</b><span class="sk-help">${esc(where)}</span>${p ? `<button type="button" class="sp-x" title="지우기">✕</button>` : ""}</div></div>`;
-    }).join("");
-    box.querySelectorAll(".sf2-ph").forEach((el) => {
-      const slot = el.dataset.slot;
-      const input = el.querySelector("input");
-      if (typeof enableFileDrop === "function") enableFileDrop(el, input);
-      input.addEventListener("change", async () => {
-        if (!input.files[0]) return;
-        el.classList.add("busy");
-        const fd = new FormData();
-        fd.append("file", input.files[0]);
-        try { F = await apiUpload(`/seismic/projects/${id}/field/photo/${slot}`, fd); drawPhotos(); } catch (e) { alert(e.message); el.classList.remove("busy"); }
-      });
-      el.querySelector(".sp-x")?.addEventListener("click", async () => {
-        if (!confirm("이 사진을 지울까요?")) return;
-        try { F = await api(`/seismic/projects/${id}/field/photo/${slot}`, { method: "DELETE" }); drawPhotos(); } catch (e) { err(e); }
-      });
-    });
-  }
-
   function drawTexts() {
     $("sf2-summary").value = F.summary || "";
     const box = (k, label) => `<div class="sk-f"><label>${esc(label)}</label><textarea data-t="${k}" rows="2" placeholder="비우면 보고서도 빈칸">${esc(F.texts[k] || "")}</textarea></div>`;
@@ -424,7 +399,7 @@
   function drawMin() {
     const m = F.min_counts;
     const it = (label, n, min, go, href) => `<a class="sp-min-it${n >= min && n > 0 ? " ok" : ""}"${href ? ` href="${href}"` : ` href="#${go}" data-go="${go}"`}><b>${n}</b>/${min} ${esc(label)}</a>`;
-    $("sf2-min").innerHTML = it("부재 단면", F.members.length, m.member, "sf2-m-panel") + it("철근배근", F.rebar, m.rebar, "", `sitok-seismic.html?report=${id}`)
+    $("sf2-min").innerHTML = it("부재 단면", F.members.length, m.member, "sf2-m-panel") + it("철근배근", F.rebar, m.rebar, "sf2-r-panel")
       + it("코어", F.cores.length, m.core, "sf2-c-panel") + it("조적조", F.masonry.length, m.masonry, "sf2-w-panel")
 ;
     $("sf2-min-help").textContent = `조사단위 ${F.units}개 — 매뉴얼 <표 3-1> 최소 수량(지금/최소) · 부재 ${(m.how || {}).member || ""} · 철근 ${(m.how || {}).rebar || ""}`; // 고정 줄 밖
@@ -446,11 +421,15 @@
 
   function draw(f) {
     F = f;
-    document.title = `현장조사 입력 - ${f.name}`;
-    $("sf2-name").textContent = `${f.name} 현장조사 입력`;
+    const what = TEXTS ? "보고서 AI 작성" : "현장조사 입력";
+    document.title = `${what} - ${f.name}`;
+    $("sf2-name").textContent = `${f.name} ${what}`;
+    document.querySelector(".crumb > span:last-child").textContent = what;
+    document.querySelector(".sp-head .page-sub").textContent = TEXTS ? "요약문 책임기술자 종합의견·조사결과 글(2.2 본문·요약 표·2.3 외관조사·2.4 중량물·마감재) — 견본 문장·🤖 AI로 채우고 고쳐 쓰기"
+      : "보고서 차례로 2.2.1 부재 단면 → 2.2.2 철근탐사 → 2.2.3 코어 → 2.4.3 조적조 — 넣은 값은 보고서 표에 들어갑니다(현장·전경 사진은 외관조사)";
     $("sf2-proj").textContent = f.name;
     $("sf2-proj").href = `seismic-project.html?id=${id}`;
-    drawMin(); stickPad(); drawMembers(); drawCores(); drawMasonry(); drawPhotos(); drawTexts();
+    drawMin(); stickPad(); drawMembers(); drawCores(); drawMasonry(); drawTexts(); // 사진은 외관조사 탭(10/27, js/seismic-photos.js)
   }
 
   async function save(part, body, savedEl) {

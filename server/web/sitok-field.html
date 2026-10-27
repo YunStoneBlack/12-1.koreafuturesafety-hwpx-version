@@ -32,7 +32,17 @@
   <button type="button" class="sf-tab sf-tab-pre" data-tab="docs" hidden>📋 자료수집 <span id="pr-docs-count"></span></button>
   <button type="button" class="sf-tab sf-tab-pre" data-tab="load" hidden>⚖ 하중상태 <span id="pr-load-count"></span></button>
   <button type="button" class="sf-tab sf-tab-pre" data-tab="survey" hidden>📷 조사 전경 <span id="pr-survey-count"></span></button>
+  <button type="button" class="sf-tab" data-tab="sphoto" hidden>📷 현장 사진 <span id="sp-ph-count"></span></button>
+  <button type="button" class="sf-tab" data-tab="sfront" hidden>🏢 전경사진 <span id="sp-fr-count"></span></button>
 </div>
+
+<!-- 내진성능평가 현장·전경 사진(10/27 — 현장조사 입력에서 옮김, 위치도는 뺌: 건 화면 📍 위치도 핀) — js/seismic-photos.js -->
+<div id="sf-sphoto" hidden><section class="panel"><div class="panel-body">
+  <p class="page-sub">보고서 2장 사진 칸(구조 부재 단면·철근탐사·코어·중량물·마감재·조적) — 칸마다 한 장, 누르면 올리기·바꾸기</p>
+  <div class="sf2-photos" id="sf-sphoto-box"></div></div></section></div>
+<div id="sf-sfront" hidden><section class="panel"><div class="panel-body">
+  <p class="page-sub">요약 "시설물 위치도 및 전경사진"·1.2 건물규모의 전경 — 위치도는 건 화면 📍 위치도(지도 핀)로 자동</p>
+  <div class="sf2-photos" id="sf-sfront-box"></div></div></section></div>
 
 <div id="sf-defects">
 
@@ -143,5 +153,6 @@ if (/[?&]so=1(&|$)/.test(location.search)) { document.body.dataset.reportTab = "
 <script src="js/sitok-steps.js"></script>
 <script src="js/photo-viewer.js"></script>
 <script src="js/sitok-photos.js"></script>
+<script src="js/seismic-photos.js"></script>
 </body>
 </html>

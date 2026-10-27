@@ -288,11 +288,12 @@
     $("sp-min").querySelectorAll("[data-ub]").forEach((b) => b.addEventListener("click", () => setUnits({ item: b.dataset.ub, n: null })));
     const big = (href, ic, label, sub, ok) => `<a class="rd-btn${ok ? " on" : ""}" href="${href}"><span class="rd-ic">${ic}</span><span class="rd-lb">${esc(label)}${ok ? ' <em class="rd-ok">✓</em>' : ""}</span><span class="rd-sub">${esc(sub)}</span></a>`;
     const fc = P.field_counts || {};
-    $("sp-links").innerHTML = big(`seismic-field.html?id=${id}`, "🧱", "현장조사 입력", `부재 단면 ${fc.members || 0}/${m.member} · 코어 ${fc.cores || 0}/${m.core} · 조적 ${fc.masonry || 0}/${m.masonry} · 사진 ${fc.photos || 0}장`,
-      (fc.members || 0) >= m.member && (fc.cores || 0) >= m.core)
-      + big(`sitok-field.html?report=${id}&seis=1`, "📱", "외관조사(결함)", f.defects ? `결함 ${f.checked}/${f.defects} 확인` : "2.3 외관조사 · 부록 4 사진첩", !!f.done)
-      + big(`sitok-schedule.html?facility=${P.facility_id}&seis=1`, "📏", "구조 일람표 부재 목록", s.schedule ? `${s.schedule}칸${s.schedule_need ? ` · 확인 필요 ${s.schedule_need}` : ""}` : "서류 칸에 구조 일람표를 올리고 읽기", s.schedule > 0 && !s.schedule_need)
-      + big(`sitok-seismic.html?report=${id}`, "🧪", "철근탐사", s.rebar ? `${s.rebar}개소 (최소 ${m.rebar})` : "2.2.2 철근배근 · 부록 6", s.rebar >= m.rebar && s.rebar > 0);
+    // 바로가기 넷(10/27 형·민재형 — 현장조사 입력 / 외관조사(결함 + 현장·전경 사진) / 보고서 AI 작성 / 구조 일람표 부재 목록, 철근탐사는 현장조사 입력 안으로)
+    $("sp-links").innerHTML = big(`seismic-field.html?id=${id}`, "🧱", "현장조사 입력", `부재 단면 ${fc.members || 0}/${m.member} · 철근 ${s.rebar || 0}/${m.rebar} · 코어 ${fc.cores || 0}/${m.core} · 조적 ${fc.masonry || 0}/${m.masonry}`,
+      (fc.members || 0) >= m.member && (fc.cores || 0) >= m.core && (s.rebar || 0) >= m.rebar)
+      + big(`sitok-field.html?report=${id}&seis=1`, "📱", "외관조사", `${f.defects ? `결함 ${f.checked}/${f.defects} 확인` : "결함 2.3 · 부록 4 사진첩"} · 사진 ${fc.photos || 0}장`, !!f.done)
+      + big(`seismic-field.html?id=${id}&part=texts`, "🤖", "보고서 AI 작성", `요약문 종합의견·조사결과 글 ${fc.texts || 0}/${fc.texts_total || 0}칸`, (fc.texts || 0) > 0)
+      + big(`sitok-schedule.html?facility=${P.facility_id}&seis=1`, "📏", "구조 일람표 부재 목록", s.schedule ? `${s.schedule}칸${s.schedule_need ? ` · 확인 필요 ${s.schedule_need}` : ""}` : "서류 칸에 구조 일람표를 올리고 읽기", s.schedule > 0 && !s.schedule_need);
   }
 
   // ---------- 보고서 ----------
