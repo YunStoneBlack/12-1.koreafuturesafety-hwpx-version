@@ -184,20 +184,108 @@ def _pad_photo(pic, pad: int = PHOTO_PAD) -> tuple[int, int] | None:
     cw = int(tc.find(f"{{{HP}}}cellSz").get("width") or 0)
     if w <= 0 or h <= 0 or cw <= 2 * pad:
         return None
-    tc.set("hasMargin", "1")
     cm = tc.find(f"{{{HP}}}cellMargin")
+    tbl = next(tc.iterancestors(f"{{{HP}}}tbl"), None)
+
+    def old_tb_of(c) -> int:  # 지금 칸 안 위아래 여백
+        m = c.find(f"{{{HP}}}cellMargin")
+        o = m if c.get("hasMargin") == "1" and m is not None else (tbl.find(f"{{{HP}}}inMargin") if tbl is not None else None)
+        return sum(int(o.get(k) or 0) for k in ("top", "bottom")) if o is not None else 0
+
+    old_tb = old_tb_of(tc)
+    # 같은 줄 사진은 높이를 같게 — 줄 높이(가장 높은 사진 + 그 칸 위아래 여백) 안에서(10/27 조적 채움벽: 견본 두 칸 여백이 달라 한쪽만 위아래 4mm)
+    row = 0
+    for c in tc.getparent().findall(f"{{{HP}}}tc"):
+        q = next(c.iter(f"{{{HP}}}pic"), None)
+        cs = q.find(f"{{{HP}}}curSz") if q is not None else None
+        if cs is not None and not _turned(q):
+            row = max(row, int(cs.get("height") or 0) + old_tb_of(c))
+    tc.set("hasMargin", "1")
     if cm is None:
         cm = etree.SubElement(tc, f"{{{HP}}}cellMargin")
     for k in ("left", "right", "top", "bottom"):
         cm.set(k, str(pad))
-    k = min(1.0, (cw - 2 * pad) / w)
-    w, h = round(w * k), round(h * k)
+    # 칸 크기는 그대로 — 틀을 폭은 칸 − 4mm 안으로, 높이는 늘어난 위아래 여백만큼 줄임(사진은 틀에 맞게 잘려 들어감). 칸이 커지면 1.2 전경 표가 다음 쪽으로 밀려
+    # 평면도·뒤 쪽이 다 밀림(시험 65 → 66쪽, "2.5" 제목만 쪽 끝)
+    if _turned(pic):  # 돌린 틀 — 틀을 새로 쓰지 않고 보이는 크기 기준 같은 비율로만 줄임(틀 크기·표시 크기가 가로세로 바뀌어 있음)
+        dw, dh = _shown(pic, w, h)
+        k = min(1.0, (cw - 2 * pad) / dw, (dh + old_tb - 2 * pad) / dh)
+        if k < 1:
+            _scale_pic(pic, k)
+        return None
+    w, h = min(w, cw - 2 * pad), (row or h + old_tb) - 2 * pad
     for tag in ("orgSz", "curSz", "sz"):
         el = pic.find(f"{{{HP}}}{tag}")
         if el is not None:
             el.set("width", str(w))
             el.set("height", str(h))
     return w, h
+
+
+def _scale_pic(pic, k: float) -> None:
+    """그림 표시 크기만 k배(그림·원래 크기·잘라 보이기는 그대로) — curSz·sz와 배율 행렬(scaMatrix e1·e5)·회전 중심."""
+    for tag in ("curSz", "sz"):
+        el = pic.find(f"{{{HP}}}{tag}")
+        if el is not None:
+            el.set("width", str(round(int(el.get("width") or 0) * k)))
+            el.set("height", str(round(int(el.get("height") or 0) * k)))
+    sca = pic.find(f"{{{HP}}}renderingInfo/{{{HC}}}scaMatrix")
+    if sca is not None:
+        for e in ("e1", "e5"):
+            sca.set(e, f"{float(sca.get(e) or 1) * k:.6f}")
+    rot = pic.find(f"{{{HP}}}rotationInfo")
+    if rot is not None:  # 회전 중심도 같은 비율(돌린 틀은 중심이 표시 크기 기준이라 다시 셈하면 틀어짐)
+        for c in ("centerX", "centerY"):
+            rot.set(c, str(round(int(rot.get(c) or 0) * k)))
+
+
+def _turned(pic) -> bool:
+    ri = pic.find(f"{{{HP}}}rotationInfo")
+    return ri is not None and (ri.get("angle") or "0") in ("90", "270")
+
+
+def _shown(pic, w: int, h: int) -> tuple[int, int]:
+    """보이는 폭·높이 — 90°·270° 돌린 틀은 틀 크기(curSz)의 가로·세로가 바뀜(10/27 코어시료 사진)."""
+    return (h, w) if _turned(pic) else (w, h)
+
+
+def pad_figures(root, pad: int = PHOTO_PAD) -> int:
+    """1~2장 본문 표 안 그림(도면·성적서·견본 도해·지반 그림)과 요약 모델링 그림도 사진 칸처럼 칸 안 여백 사방 2mm(10/27 민재형 "도면·성적서·모델링·도해도 바꿔") —
+    칸보다 넓으면 표시 크기만 줄임(_scale_pic). 표지~종합의견(도장·서명)·장 간지 그림은 뺌. 맞춘 그림 수."""
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"]
+    start = next((i for i, p in enumerate(tops) if _n(_t(p)).startswith("제1장건물개요1.1")), None)
+    if start is None:
+        return 0
+    targets = [pic for p in tops[start + 1:] for pic in p.iter(f"{{{HP}}}pic")]
+    targets += [pic for t in _outer(root) if "모델링" in _n(_t(t))[:20] for pic in t.iter(f"{{{HP}}}pic")]
+    n = 0
+    for pic in targets:
+        tc = next(pic.iterancestors(f"{{{HP}}}tc"), None)
+        tbl = next(pic.iterancestors(f"{{{HP}}}tbl"), None)
+        cur = pic.find(f"{{{HP}}}curSz")
+        if tc is None or cur is None or re.match(r"^제\d장", _n(_t(tbl))):
+            continue
+        cm = tc.find(f"{{{HP}}}cellMargin")
+        if tc.get("hasMargin") == "1" and cm is not None and all(cm.get(k) == str(pad) for k in ("left", "right", "top", "bottom")):
+            continue  # 이미 맞춤(사진 칸)
+        w, h = int(cur.get("width") or 0), int(cur.get("height") or 0)
+        cw = int(tc.find(f"{{{HP}}}cellSz").get("width") or 0)
+        if w <= 0 or h <= 0 or cw <= 2 * pad:
+            continue
+        old = cm if tc.get("hasMargin") == "1" and cm is not None else tbl.find(f"{{{HP}}}inMargin")  # 지금 칸 안 위아래 여백
+        old_tb = sum(int(old.get(k) or 0) for k in ("top", "bottom")) if old is not None else 0
+        tc.set("hasMargin", "1")
+        if cm is None:
+            cm = etree.SubElement(tc, f"{{{HP}}}cellMargin")
+        for k in ("left", "right", "top", "bottom"):
+            cm.set(k, str(pad))
+        # 칸 크기는 그대로, 그림을 여백만큼 줄임 — 칸이 커지면 평면도(한 쪽 두 장 꽉)·성적서 쪽이 밀려 빈 쪽이 생김(시험 65 → 67쪽)
+        w, h = _shown(pic, w, h)
+        k = min(1.0, (cw - 2 * pad) / w, (h + old_tb - 2 * pad) / h)
+        if k < 1:
+            _scale_pic(pic, k)
+        n += 1
+    return n
 
 
 def _put_or_blank(doc, pic, path: Path | None, rdir: Path, crop: bool = True, pad: bool = False) -> bool:

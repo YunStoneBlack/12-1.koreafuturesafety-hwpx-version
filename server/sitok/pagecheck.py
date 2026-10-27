@@ -8,14 +8,33 @@
 """
 from __future__ import annotations
 
+import contextlib
 import re
+import threading
 import zipfile
 from pathlib import Path
 
 from lxml import etree
 
 HEAD = re.compile(r"^(\d+(\.\d+)+\.?|\d+\)|[가-하]\.)\s*\S")
-TOP = 70  # 머리말 아래(pt)
+TOP = 70  # 머리말 아래(pt) — 쓰는 곳은 _top()(내진은 49, top_at)
+_TOP_TL = threading.local()
+
+
+def _top() -> float:
+    """본문 시작 y(pt) — 기본 TOP, 내진 보고서는 머리말 선이 47pt라 49(top_at). 스레드마다(다른 보고서 만들기와 같이 돌아도 안 섞이게)."""
+    return getattr(_TOP_TL, "v", None) or TOP
+
+
+@contextlib.contextmanager
+def top_at(v: float):
+    """이 스레드에서만 본문 시작 y를 v로(10/27 내진 — 쪽 맨 위 52pt 글을 머리말로 빼서 "몇 줄만 넘친 쪽"을 못 잡고 쪽 맨 위 제목을 넘친 줄로 잘못 잡던 것)."""
+    old = getattr(_TOP_TL, "v", None)
+    _TOP_TL.v = v
+    try:
+        yield
+    finally:
+        _TOP_TL.v = old
 
 
 def _key(s: str) -> str:
@@ -57,11 +76,11 @@ def _body(pg, rects: list | None = None, imgs: list | None = None) -> tuple[list
     for b in pg.get_text("dict")["blocks"]:
         for ln in b.get("lines", []):
             t = "".join(s["text"] for s in ln["spans"]).strip()
-            if t and TOP < ln["bbox"][1] < foot - 2:
+            if t and _top() < ln["bbox"][1] < foot - 2:
                 lines.append((ln["bbox"][1], ln["bbox"][3], t))
-    draws = [r for r in rects if TOP < r.y0 < foot - 2 and r.height < H * 0.9]
+    draws = [r for r in rects if _top() < r.y0 < foot - 2 and r.height < H * 0.9]
     over = [r for r in draws if r.y1 > foot + 1 and r.y0 < foot - 20]
-    pics = [rr for rr in imgs if TOP < rr.y0 < foot - 2]
+    pics = [rr for rr in imgs if _top() < rr.y0 < foot - 2]
     bottom = max([y1 for _, y1, _ in lines] + [r.y1 for r in draws] + [r.y1 for r in pics] + [0])
     return sorted(lines), bottom, foot, over
 
@@ -74,7 +93,7 @@ def _pages(pdf: Path) -> tuple[list, list, list, list]:
     import pymupdf
 
     st = pdf.stat()
-    key = (str(pdf), st.st_size, st.st_mtime_ns)
+    key = (str(pdf), st.st_size, st.st_mtime_ns, _top())
     if key not in _READ:
         bodies, rects, heights, imgs = [], [], [], []
         with pymupdf.open(pdf) as doc:
@@ -96,6 +115,8 @@ def _divider(lines) -> bool:
     "~다."로 끝나는 줄이 있으면 간지가 아님 — 앞 쪽 글상자에서 넘친 문장 한 줄(10/19 요약문 결언 "의 사용성에는 문제가 없을 것으로 판단된다.")."""
     if any(t.rstrip().endswith("다.") for _, _, t in lines):
         return False
+    if all(t.lstrip().startswith("※") for _, _, t in lines):  # 주석(※)만 = 앞 표에서 넘친 주석(10/27 내진 "※ □ : 조사불가" 두 줄만 다음 쪽)
+        return False
     if len(lines) <= 6 and all(len(t) <= 30 for _, _, t in lines):
         return True
     toc = sum(1 for _, _, t in lines if re.match(r"^\d+\.\d+\s", t) and len(t) <= 30)
@@ -111,18 +132,18 @@ def scan(pdf: Path, hwpx: Path, limit: int = 12, skip: set[int] | None = None) -
     for i, (lines, bottom, foot, over) in enumerate(pages):
         if i in skip or i - 1 in skip and i + 1 in skip:
             continue
-        span = foot - TOP
+        span = foot - _top()
         if over or any(y1 > foot + 1 for _, y1, _ in lines):
             out.append(f"{i + 1}쪽: 내용이 쪽 아래(꼬리말)를 넘음 — 표가 잘렸을 수 있음")
         if not lines or _divider(lines):
             continue
         last_y0, _, last = lines[-1]
         nxt = pages[i + 1][0] if i + 1 < len(pages) else []
-        if HEAD.match(last) and len(last) <= 45 and last_y0 > TOP + span * 0.7 and len(lines) > 1 and nxt and _key(nxt[0][2]) not in starts:
+        if HEAD.match(last) and len(last) <= 45 and last_y0 > _top() + span * 0.7 and len(lines) > 1 and nxt and _key(nxt[0][2]) not in starts:
             out.append(f"{i + 1}쪽: 제목 '{last[:20]}'만 쪽 끝에 있음")
-        if i > 0 and _key(lines[0][2]) not in starts and len(lines) <= 6 and bottom < TOP + span * 0.2:
+        if i > 0 and _key(lines[0][2]) not in starts and len(lines) <= 6 and bottom < _top() + span * 0.2:
             prev_lines, prev_bottom, prev_foot, _ = pages[i - 1]
-            if prev_lines and prev_bottom > TOP + (prev_foot - TOP) * 0.8 and not _divider(prev_lines):
+            if prev_lines and prev_bottom > _top() + (prev_foot - _top()) * 0.8 and not _divider(prev_lines):
                 out.append(f"{i + 1}쪽: 앞 쪽에서 넘친 몇 줄만 있음('{lines[0][2][:16]}…')")
     if len(out) > limit:
         out = out[:limit] + [f"외 {len(out) - limit}곳"]
@@ -256,7 +277,7 @@ def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1, keep: set | None = 
     keep = keep if keep is not None else set()
     doc = pymupdf.open(pdf)
     pages = [_body(pg) for pg in doc]
-    has_pic = [any(TOP < rr.y0 < pages[i][2] - 2 for info in pg.get_images(full=True) for rr in pg.get_image_rects(info[0])) for i, pg in enumerate(doc)]
+    has_pic = [any(_top() < rr.y0 < pages[i][2] - 2 for info in pg.get_images(full=True) for rr in pg.get_image_rects(info[0])) for i, pg in enumerate(doc)]
     doc.close()
 
     def divider(i: int) -> bool:  # 간지 = 짧은 줄 몇 개뿐이고 사진·캡션이 없는 쪽(사진 표만 있는 쪽·제목+캡션만 남은 쪽은 간지 아님)
@@ -298,8 +319,8 @@ def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1, keep: set | None = 
         nxt_lines, nxt_bottom, nxt_foot, _ = pages[i + 1]
         if not nxt_lines:
             continue
-        span = foot - TOP
-        gap = foot - max(bottom, TOP)
+        span = foot - _top()
+        gap = foot - max(bottom, _top())
         # 다음 쪽이 원본 쪽 나눔으로 시작하는지(순서대로 맞춰 감)
         match = starts.get(i + 1)
         cap_last = lines and CAPTION.match(lines[-1][2] or "")
@@ -311,7 +332,7 @@ def fill_gaps(hwpx: Path, pdf: Path, sections_from: int = 1, keep: set | None = 
                     hit_sections.add(sections[si])
                     done.append(f"{i + 1}쪽 빈 쪽")
             continue
-        need = nxt_bottom - TOP  # 다음 쪽 내용 높이(pt)
+        need = nxt_bottom - _top()  # 다음 쪽 내용 높이(pt)
         if match is not None and gap > span * 0.25:  # ②
             si, p, key, tops, idx = breaks[match]
             if si < sections_from or _chapter_start(p, rb) or key in keep:
@@ -409,17 +430,17 @@ def orphans(pdf: Path, hwpx: Path) -> list[tuple[int, str, float, int]]:
     pages = _pages(pdf)[0]
     out = []
     for i, (lines, _, foot, _) in enumerate(pages):
-        span = foot - TOP
+        span = foot - _top()
         if i == 0 or not lines or _divider(lines) or _key(lines[0][2]) in starts or len(lines) > 14:
             continue
         text_bottom = max(y1 for _, y1, _ in lines)
-        if text_bottom >= TOP + span * 0.25:
+        if text_bottom >= _top() + span * 0.25:
             continue
         prev_lines, prev_bottom, prev_foot, _ = pages[i - 1]
-        if prev_lines and prev_bottom > TOP + (prev_foot - TOP) * 0.8 and not _divider(prev_lines):
+        if prev_lines and prev_bottom > _top() + (prev_foot - _top()) * 0.8 and not _divider(prev_lines):
             last = max(lines, key=lambda x: (x[0], len(x[2])))[2]
             k = sum(1 for j in range(i) if any(_key(last) == _key(t) for _, _, t in pages[j][0]))
-            out.append((i, last, text_bottom - TOP, k))
+            out.append((i, last, text_bottom - _top(), k))
     return out
 
 
@@ -556,7 +577,7 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
     body_end = _body_end(hwpx)
     with pymupdf.open(pdf) as doc:
         pages = [_body(pg) for pg in doc]
-        raw = [[d["rect"] for d in pg.get_drawings() if TOP < d["rect"].y0 < pages[i][2] - 2] for i, pg in enumerate(doc)]
+        raw = [[d["rect"] for d in pg.get_drawings() if _top() < d["rect"].y0 < pages[i][2] - 2] for i, pg in enumerate(doc)]
         page_h = [pg.rect.height for pg in doc]
         draws = [sorted((r for r in raw[i] if r.height < pg.rect.height * 0.9), key=lambda r: r.y0) for i, pg in enumerate(doc)]
     found = []  # (제목 글, 모자란 pt, 표 높이 pt, 그 제목이 PDF에서 몇 번째로 나온 것인지 0부터, ② = 표가 뒤따르는 제목만 셈)
@@ -587,7 +608,7 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
                     tb = max(tb, r.y1)
                 need = tb - r2[0].y0 + 6
                 room = (body_end or foot - 20) - lines[-1][1] - 4
-                if room >= (foot - TOP) * 0.25:
+                if room >= (foot - _top()) * 0.25:
                     k = sum(1 for j in range(i) for idx, (_, _, t) in enumerate(pages[j][0]) if _same_head(t, lines[-1][2]) and table_follows(j, idx))
                     found.append((lines[-1][2], _short(need, room, i + 1, r2[0].y0), need, k, True))
                     continue
@@ -608,7 +629,7 @@ def pull_tables(hwpx: Path, pdf: Path, sections_from: int = 1, squeeze_max: floa
         gaps = [y0 - lines[j - 1][1] for j, (y0, _, t) in enumerate(lines) if j and HEAD.match(t)]
         need = table_bottom - head[0] + max(gaps + [24.0]) + 6  # + 여유
         room = (body_end or foot - 20) - bottom
-        if room < (foot - TOP) * 0.25:  # 앞 쪽이 별로 안 비었으면 그대로
+        if room < (foot - _top()) * 0.25:  # 앞 쪽이 별로 안 비었으면 그대로
             continue
         k = sum(1 for j in range(i + 1) if any(_same_head(t, head[2]) for _, _, t in pages[j][0]))
         found.append((head[2], _short(need, room, i + 1, rects[0].y0), need, k, False))
@@ -784,7 +805,7 @@ def tails(pdf: Path, hwpx: Path) -> list[tuple[int, str, float, int]]:
     [(쪽, 꼬리에서 앞 쪽에 없던 가장 긴 줄 글, 꼬리 줄 높이 pt(되풀이 머리줄 빼고), 그 글이 PDF에서 몇 번째)]. 사진 든 표·간지는 뺌."""
     starts = designed_starts(hwpx)
     pages, rects, heights, pics = _pages(pdf)
-    draws = [sorted((r for r in rects[i] if TOP < r.y0 < pages[i][2] - 2 and r.height < heights[i] * 0.9), key=lambda r: r.y0) for i in range(len(pages))]
+    draws = [sorted((r for r in rects[i] if _top() < r.y0 < pages[i][2] - 2 and r.height < heights[i] * 0.9), key=lambda r: r.y0) for i in range(len(pages))]
     out = []
     for i in range(1, len(pages)):
         lines, _, foot, _ = pages[i]
@@ -799,8 +820,8 @@ def tails(pdf: Path, hwpx: Path) -> list[tuple[int, str, float, int]]:
             if r.y0 > bottom + 3:
                 break
             bottom = max(bottom, r.y1)
-        span = foot - TOP
-        if bottom - top.y0 > span * 0.15 or max(r.y1 for r in draws[i - 1]) < TOP + (prev_foot - TOP) * 0.85:
+        span = foot - _top()
+        if bottom - top.y0 > span * 0.15 or max(r.y1 for r in draws[i - 1]) < _top() + (prev_foot - _top()) * 0.85:
             continue  # 꼬리가 길거나(쪽 15% 넘게) 앞 쪽이 표로 끝까지 안 찼으면 자연스러운 나뉨
         if any(r.y0 < bottom and r.y1 > top.y0 for r in pics[i]) or not any(y0 > bottom + 1 for y0, _, _ in lines):
             continue  # 사진 표, 또는 꼬리 아래 내용이 없음(그건 orphans)
@@ -1044,7 +1065,7 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1) -> list[str]:
         return []
     bodies, rects, heights, _ = _pages(pdf)
     firsts = [(b[0] or [(0, 0, "")])[0][2] for b in bodies]  # 쪽마다 첫 줄 글
-    table_top = [bool(b[0]) and any(TOP < r.y0 <= b[0][0][0] + 2 and r.height < h * 0.9 for r in rr)
+    table_top = [bool(b[0]) and any(_top() < r.y0 <= b[0][0][0] + 2 and r.height < h * 0.9 for r in rr)
                  for b, rr, h in zip(bodies, rects, heights)]  # 쪽이 표(나뉜 표 꼬리·※ 상자)로 시작
     with zipfile.ZipFile(hwpx) as z:
         infos = z.infolist()
