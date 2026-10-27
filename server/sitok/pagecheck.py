@@ -191,11 +191,17 @@ def push_headings(hwpx: Path, found: list[str]) -> list[str]:
     return pushed
 
 
+DRAWING_LINES = 400  # 한 쪽에 5pt 넘는 그은 선이 이보다 많으면 도면(시특법 실측 — 표·간지 ≤ 200, 외관망도·평면도 505~4219)
+
+
 def _line_sig(cover: list[tuple[float, float]]) -> tuple:
     """한 자리 선 모양 = (선 자리별 굵기 등급) — 자리는 0.08pt 안이면 같은 선(맞닿은 두 칸이 겹쳐 그은 것은 하나), 굵기는 가는(0.8pt 미만 — 0.08~0.2mm는
     눈으로 거의 같음)·굵은 두 등급. 두 줄 선은 자리 둘, 두 줄 위 가운데 한 줄이 더 그어지면 자리 셋."""
+    thick = [(off, w) for off, w in cover if w >= 0.8]
     groups: list[list] = []
     for off, w in sorted(cover):
+        if w < 0.8 and any(abs(off - o) <= tw / 2 + 0.1 for o, tw in thick):
+            continue  # 굵은 선 속에 숨은 가는 선(시특법 1.6 장비 표 쪽 경계 — 1.08pt 선 안 0.12pt 두 줄, 눈엔 한 굵은 선)
         g = 0 if w < 0.8 else 1
         if groups and off - groups[-1][0] <= 0.08:
             groups[-1][1] = max(groups[-1][1], g)
@@ -208,6 +214,8 @@ def line_mismatch(pdf: Path, pages=None) -> list[tuple[int, str, float, float, f
     """표 선 굵기 어긋남(10/27 사용자 "선 굵기 안 맞는 것 — 매번 이런 게 생겨 불편, 이런 일 없게") — PDF 그은 선(get_drawings 's')으로:
     한 경계(가로선은 y가 1.2pt 안, 세로선은 x가)에 끊김 없이 이어진 선을 따라가며 자리마다 모양(_line_sig — 한 줄/두 줄·가는/굵은)을 보고, 모양이 바뀌면 어긋남
     (표 맨 아래 굵은 선이 한 칸만 가는 것, 머리 줄 아래 두 줄이 한 칸만 한 줄·두 줄 위에 한 줄이 겹친 것). 선 끝 3pt 안에서만 바뀌는 것은 뺌(두 줄 테두리 모서리).
+    도면 쪽(5pt 넘는 선이 DRAWING_LINES개 넘음 — 외관망도·평면도)·간지 쪽(_divider — 장 표지 띠·소목차 밑줄)은 건드리지 않음(10/27 사용자 "도면·간지는 바꿀 필요 없어"),
+    20pt보다 짧은 선(표시 상자·기호)도 뺌.
     pages = 볼 쪽 번호(0부터, 없으면 전부). 돌려주는 값 [(쪽 0부터, "가로"/"세로", 위치 pt, 시작, 끝)] — 모양이 바뀌는 둘레."""
     import pymupdf
 
@@ -216,8 +224,15 @@ def line_mismatch(pdf: Path, pages=None) -> list[tuple[int, str, float, float, f
         for i in (pages if pages is not None else range(doc.page_count)):
             if i >= doc.page_count:
                 break
+            draws = doc[i].get_drawings()
+            if sum(1 for d in draws if "s" in (d.get("type") or "") for it in d["items"]
+                   if it[0] == "l" and abs(it[1].x - it[2].x) + abs(it[1].y - it[2].y) > 5) > DRAWING_LINES:
+                continue
+            lines = _body(doc[i], [d["rect"] for d in draws], [])[0]
+            if lines and _divider(lines):
+                continue
             segs = {"가로": [], "세로": []}
-            for d in doc[i].get_drawings():
+            for d in draws:
                 if "s" not in (d.get("type") or ""):
                     continue
                 w = float(d.get("width") or 0)
@@ -261,6 +276,8 @@ def line_mismatch(pdf: Path, pages=None) -> list[tuple[int, str, float, float, f
                     if piece:
                         runs.append(piece)
                     for run in runs:
+                        if run[-1][1] - run[0][0] < 20:
+                            continue  # 짧은 조각
                         while len(run) > 1 and run[0][1] - run[0][0] < 3:  # 모서리
                             run.pop(0)
                         while len(run) > 1 and run[-1][1] - run[-1][0] < 3:
