@@ -966,10 +966,60 @@ def _diff_sentence(labels: list[str]) -> str:
 
 
 def member_where(m: dict) -> str:
-    """부재 단면 표 조사위치 — "지상5층" 윗줄 + "(장비 위치도 참조)" 아랫줄(10/27 민재형 "괄호 하나만 다음 줄에 걸림 — 두 줄로 깔끔하게", 칸은 가운데 정렬)."""
-    floor = SF.floor_label(m["floor"])
-    where = re.sub(r"[.\s]+$", "", (m.get("where") or "").strip())
-    return f"{floor}\n({where})" if where else floor
+    """부재 단면 표 조사위치 — 층만(10/27 형 "(장비 위치도 참조)는 빼고" — 현장조사 입력 위치 칸도 없앰, 측정 위치는 표 아래 주석)."""
+    return SF.floor_label(m["floor"])
+
+
+def size_match(design: str, measured: str) -> str:
+    """도면치수·실측치수 비교 — 잰 치수(□ 빼고)가 모두 같으면 일치, 하나도 안 같으면 불일치, 섞이면(또는 못 잰 치수가 있으면) 일부일치, 잰 게 없으면 ""."""
+    d, s = re.findall(r"[0-9]+|□", design or ""), re.findall(r"[0-9]+|□", measured or "")
+    if not d or len(d) != len(s):
+        return ""
+    same = [a == b for a, b in zip(d, s) if "□" not in (a, b)]
+    if not same:
+        return ""
+    if all(same) and len(same) == len(d):
+        return "일치"
+    return "일부일치" if any(same) else "불일치"
+
+
+def member_note(m: dict) -> str:
+    """부재 단면 표 비고 — 일치·일부일치·불일치(10/27 형 — 전엔 "슬래브 두께 포함."을 적던 칸, 이제 주석으로). 현장조사 입력 실측치수에서 고른 값,
+    안 골랐으면 도면치수·실측치수 비교(size_match). 현장조사 입력 비고 칸은 이 값을 보여 주기만(자동)."""
+    mt = (m.get("match") or "").replace(" ", "")
+    return mt or size_match(m.get("design"), m.get("measured"))
+
+
+MEMBER_NOTE = "※ 보 춤 길이는 슬래브 두께 포함"  # 부재 단면 표 첫 주석(10/27 형 — 비고에 "슬래브 두께 포함." 적던 것)
+MEMBER_WHERE_W = 6500  # 조사위치 칸 폭(10/27 형 "조사위치가 허전하니 너비 줄이고 부재명·도면치수·실측치수 넓혀") — "지상12층"이 한 줄
+
+
+def member_widths(t) -> None:
+    """부재 단면 표 칸 폭 — 조사위치를 MEMBER_WHERE_W로 줄이고 남는 폭을 부재명·도면치수·실측치수에 고루(표 폭은 그대로)."""
+    cells = [tc for tc in t.iter(f"{{{HP}}}tc") if next(tc.iterancestors(f"{{{HP}}}tbl")) is t]
+    width = {}
+    for tc in cells:
+        if tc.find(f"{{{HP}}}cellSpan").get("colSpan") == "1":
+            width.setdefault(int(tc.find(f"{{{HP}}}cellAddr").get("colAddr")), int(tc.find(f"{{{HP}}}cellSz").get("width")))
+    if len(width) != 6 or width[1] <= MEMBER_WHERE_W:
+        return
+    free = width[1] - MEMBER_WHERE_W
+    add = free // 3
+    new = {**width, 1: MEMBER_WHERE_W, 2: width[2] + add, 3: width[3] + add, 4: width[4] + free - 2 * add}
+    for tc in cells:
+        if tc.find(f"{{{HP}}}cellSpan").get("colSpan") == "1":
+            tc.find(f"{{{HP}}}cellSz").set("width", str(new[int(tc.find(f"{{{HP}}}cellAddr").get("colAddr"))]))
+
+
+def member_notes(t) -> None:
+    """부재 단면 표 뒤 주석 맨 앞에 "※ 보 춤 길이는 슬래브 두께 포함"(있으면 그대로) — 다음 주석 모양·들여쓰기 그대로."""
+    notes = _notes_after(_top_p(t))
+    if not notes or any("보춤길이" in _n(_t(x)) for x in notes):
+        return
+    q = copy.deepcopy(notes[0])
+    rb._new_ids(q)
+    _para_text(q, re.match(r"\s*", _t(notes[0]))[0] + MEMBER_NOTE)
+    notes[0].addprevious(q)
 
 
 def fill_members(root, field: dict, d: dict, rebar_rows: list, units, warn: list, drawings: bool = True, member_total: int = 0) -> int:
@@ -981,13 +1031,18 @@ def fill_members(root, field: dict, d: dict, rebar_rows: list, units, warn: list
     n = 0
     if members:
         rows = [[str(i + 1), member_where(m),
-                 f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", m["note"]] for i, m in enumerate(members)]
+                 f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", member_note(m)] for i, m in enumerate(members)]
         n += fill_chunks(root, tables, rows, 18, 1, flat=False, one=True)
     else:  # 입력 없으면 빈 줄 하나(10/22 형 "안 적었는데 값이 들어가 있음") — 노랑(10/26)
         fill_chunks(root, tables, [[""] * 6], 18, 1, flat=False, one=True)
         TD.paint_empty(next((t for t in _outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"
                              and _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "조사위치"), None), 1)
         warn.append("부재 단면 줄이 없어 2.2.1 표는 빈칸입니다(현장조사 입력)")
+    t0 = next((t for t in _outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"
+               and _n(rb._cell_text(rb._cells(t).get((0, 1), t))) == "조사위치"), None)
+    if t0 is not None:  # 조사위치 칸 줄이고 주석 "보 춤 길이는 슬래브 두께 포함"(10/27 형)
+        member_widths(t0)
+        member_notes(t0)
     qty = [x for x in _outer(root) if (x.get("rowCnt"), x.get("colCnt")) == ("2", "4") and "금회조사수량" in _n(rb._cell_text(rb._cells(x).get((0, 3), x)))]
     by = units if isinstance(units, dict) else {"member": units, "rebar": units}  # 항목별 조사단위(10/26) — 부재 단면 표 = member, 철근배근 표 = rebar
     rules = (("모든 조사단위에서 부재 종별로 각각 3개소 이상 조사", "모든 조사단위에서 부재 종별로 각각 9개소 이상 조사하여 구조도면 작성"),  # 부재단면·철근배근(매뉴얼 <표 3-1>)

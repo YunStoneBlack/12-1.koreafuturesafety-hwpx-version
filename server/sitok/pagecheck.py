@@ -1052,12 +1052,77 @@ def _levels(tables: list, rb) -> list:
     return sorted({m for t in tables for tc in rb._cells(t).values() for m in _vm(tc, t, rb) if m > MIN_MARGIN} | {MIN_MARGIN}, reverse=True)
 
 
-def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1, after: str | None = None) -> list[str]:
+def _header_rows(tbl, rb) -> int:
+    """머리 줄 수 — 맨 위부터 칸이 모두 제목 칸(header="1")인 줄."""
+    n = 0
+    for tr in tbl.findall(f"{{{rb.HP}}}tr"):
+        tcs = tr.findall(f"{{{rb.HP}}}tc")
+        if not tcs or any(tc.get("header") != "1" for tc in tcs):
+            break
+        n += 1
+    return n
+
+
+def _row_cut_ok(tbl, r: int, rb) -> bool:
+    """r번째 줄 앞에서 표를 잘라도 되는지 — 위아래로 합친 칸이 r을 가로지르지 않음(철근배근 시험 두 줄 등)."""
+    for tc in tbl.iter(f"{{{rb.HP}}}tc"):
+        if next(tc.iterancestors(f"{{{rb.HP}}}tbl")) is not tbl:
+            continue
+        a = int(tc.find(f"{{{rb.HP}}}cellAddr").get("rowAddr"))
+        s = int(tc.find(f"{{{rb.HP}}}cellSpan").get("rowSpan") or 1)
+        if a < r < a + s:
+            return False
+    return True
+
+
+def _split_tail(tbl, h: float, rb, want: int = 3) -> int:
+    """시안 2(10/27 형 "표 마지막 한 줄과 주석만 다음 쪽 — 앞 줄 몇 개를 함께"): 다음 쪽으로 넘어간 꼬리(머리 줄 빼고 높이 h pt)가 want줄보다 적으면
+    표를 둘로 나눠 뒤 표 = 머리 줄 + 끝 want줄(합친 칸은 안 가르게 더 앞에서), 뒤 표 문단은 새 쪽. 쪽을 넘기는 결과표(머리 줄 = 제목 칸)만. 넘긴 줄 수(0 = 안 함)."""
+    import copy
+
+    hn = _header_rows(tbl, rb)
+    rows = int(tbl.get("rowCnt") or 0)
+    if hn == 0 or rows - hn < want + 2:
+        return 0
+    heights = rb._table_row_heights(tbl)
+    got, n_tail = 0, 0
+    for r in range(rows - 1, hn - 1, -1):  # 끝에서부터 꼬리 높이 안에 드는 줄 수
+        got += heights.get(r, 0)
+        if got > h * 100 * 1.15:
+            break
+        n_tail += 1
+    if n_tail >= want:
+        return 0
+    cut = rows - want
+    while cut > hn and not _row_cut_ok(tbl, cut, rb):
+        cut -= 1
+    if cut <= hn + 1:
+        return 0
+    p = next(tbl.iterancestors(f"{{{rb.HP}}}p"))
+    tables = list(p.iter(f"{{{rb.HP}}}tbl"))
+    idx = tables.index(tbl)
+    p2 = copy.deepcopy(p)
+    rb._new_ids(p2)
+    t2 = list(p2.iter(f"{{{rb.HP}}}tbl"))[idx]
+    rb._del_rows(tbl, cut, rows - cut)  # 앞 표: 끝 줄들 지움(끝줄 아래 선은 새 끝줄로)
+    rb._del_rows(t2, hn, cut - hn)  # 뒤 표: 머리 줄 + 끝 줄들
+    for x in p2.iter(f"{{{rb.HP}}}t"):  # 표 문단에 붙은 표 밖 글(주석 등)은 뒤 표엔 안 씀
+        if next(x.iterancestors(f"{{{rb.HP}}}tbl"), None) is None:
+            x.text = ""
+            for c in x:
+                c.tail = ""
+    p2.set("pageBreak", "1")
+    p.addnext(p2)
+    return rows - cut
+
+
+def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1, after: str | None = None, split_tails: bool = False) -> list[str]:
     """애매한 넘침 정리(10/26 사용자·민재형 "애매하게 페이지를 초과" — 제미나이 권고 중 글자 크기·장평은 빼고) — 몇 줄만 넘친 쪽(orphans)·나뉜 표 꼬리(tails)마다:
     ① 당기기: 넘친 양만큼 그 쪽의 빈 줄 → 표 칸 빈 높이·칸 안쪽 위아래 여백(1mm까지, 상자면 안의 빈 줄도)을 줄여 앞 쪽에 — 글자 크기·장평·줄 간격은 그대로.
     ② 넘기기: 그걸로 모자라면 여러 줄 표는 "줄 단위로 나눔"(pageBreak TABLE — 한글 시험: CELL은 칸 안 글도 끊어 "유지되고 있다." 한 줄만 넘어감)으로 —
        마지막 줄이 통째로 머리줄과 함께 다음 쪽(뒤 ※ 상자도 같이). 상자(한 줄 표)는 못 나누니 그대로.
     고친 곳 설명(비면 안 바꿈 — 부르는 쪽이 PDF를 다시 뽑고, 문제가 늘었으면 되돌림).
+    split_tails = 당기기가 안 되는 표 꼬리(마지막 쪽에 표 줄 3줄 미만 + 아래 주석 등)는 끝 3줄을 머리 줄과 함께 다음 쪽에(_split_tail — 내진, 10/27 형 시안 2).
     after = 이 글(띄어쓰기 뺀 앞부분)로 시작하는 문단 뒤의 표만 고침(10/27 내진 — 구역이 하나라 표지~결과표도 같은 구역, 앞 결과표 줄 높이는 손대지 않게)."""
     from server.sitok import report_build as rb
 
@@ -1140,6 +1205,11 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1, after: str | No
             how = [f"빈 줄 {n_blank}개" if n_blank else "", f"칸 위아래 여백 {plan / 283:.1f}mm까지" if plan else "", "칸 빈 높이" if n_blank * rb.LINE_H < need else ""]
             done.append(f"{kind} '{first[:14]}…' → {'·'.join(x for x in how if x)} 줄여 앞 쪽에(글자 그대로)")
             continue
+        if split_tails and kind == "꼬리":
+            moved = _split_tail(target, h, rb)
+            if moved:
+                done.append(f"꼬리 '{first[:14]}…' → 표 끝 {moved}줄을 머리 줄과 함께 다음 쪽에(시안 2)")
+                continue
         if not table_top[page] or int(target.get("rowCnt") or 1) < 3:
             continue  # 글만 넘친 쪽·상자 — 표 나눔을 바꿔도 소용없음, 그대로
         heights = rb._table_row_heights(target, text_only=True)
@@ -1160,13 +1230,13 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1, after: str | No
     return done
 
 
-def tidy_checked(hwpx: Path, pdf: Path, render, sections_from: int = 1, after: str | None = None) -> list[str]:
+def tidy_checked(hwpx: Path, pdf: Path, render, sections_from: int = 1, after: str | None = None, split_tails: bool = False) -> list[str]:
     """애매한 넘침 정리 + 안전장치(시특법·옹벽·내진·산안법 공용, 10/26) — tidy_overflow로 고치고 render(hwpx, 새 PDF)로 다시 그려
     쪽 문제(몇 줄만 넘친 쪽·제목만 쪽 끝)가 늘거나 쪽 수가 늘면 hwpx를 고치기 전으로 되돌림(PDF도 그대로). 고쳤으면 pdf를 새 것으로 바꾸고 설명, 아니면 []."""
     import pymupdf
 
     snap = hwpx.read_bytes()
-    done = tidy_overflow(hwpx, pdf, sections_from=sections_from, after=after)  # 걸리는 곳이 없으면 여기서 끝(산안법 대부분 — 검사 약 0.5초)
+    done = tidy_overflow(hwpx, pdf, sections_from=sections_from, after=after, split_tails=split_tails)  # 걸리는 곳이 없으면 여기서 끝(산안법 대부분 — 검사 약 0.5초)
     if not done:
         return []
     orig = hwpx.with_name(hwpx.stem + "_정리전.hwpx")  # 고치기 전 문제 수는 고치기 전 파일로(쪽 나눔을 더했으면 "일부러 새 쪽"이 달라짐)

@@ -108,8 +108,10 @@ def fill_appendix(doc, d: dict, r, f, rdir: Path, warn: list) -> int:
     members = field["members"]
     tables = [t for t in SFL._outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"]
     rows = [[str(i + 1), SFL.member_where(m),
-             f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", m["note"]] for i, m in enumerate(members)]
+             f"{m['kind']} ({m['mark']})" if m["mark"] else m["kind"], m["design"] or "-", m["measured"] or "-", SFL.member_note(m)] for i, m in enumerate(members)]
     n += SFL.fill_chunks(root, tables, rows or [[""] * 6], 18, 1, flat=False)  # 없으면 빈 줄
+    for t in [t for t in SFL._outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"]:
+        SFL.member_widths(t)  # 본문과 같게 조사위치 줄이기(10/27)
     n += SB.fill_rebar(root, d, quiet)  # 없으면 빈 줄(fill_rebar가)
     rows = sorted(field["masonry"], key=lambda x: (x["floor"], x["kind"] != "채움벽", x["mid"]))
     vals = [[SF.floor_label(x["floor"]).replace("지상", "지상 ").replace("지하", "지하 "), x["kind"], x["mid"], SFL._fmt(x["height"], 0) if x["height"] else "-",

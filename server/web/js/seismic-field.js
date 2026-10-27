@@ -40,7 +40,7 @@
   // 빈 칸은 저장 안 함(보고서엔 채운 줄만), 칸 수는 member_plan, 층별 칸 차례(1 보·2 기둥·3 보처럼 섞임 — 10/26)는 member_order로 저장.
   let plan = {}, slots = {}; // slots = {층: [줄…]} 화면 차례, 줄마다 kind
   const gkey = (n, k) => `${n}|${k}`;
-  const filledM = (x) => !!(x.where || x.mark || x.design || x.measured || x.note);
+  const filledM = (x) => !!(x.mark || x.design || x.measured || x.note); // 위치는 셈 안 함(10/27 위치 칸 없앰 — 예전에 위치만 적은 칸이 입력한 칸으로 셈)
   const blankM = (n, k) => ({ floor: n, kind: k, where: "", item_id: "", mark: "", design: "", measured: "", note: "" });
   const floorName = (n) => (F.floors.find((f) => f.n === n) || {}).label || (n < 0 ? `지하${-n}층` : `지상${n}층`);
   const itemsFor = (r) => F.schedule.filter((x) => x.kind === r.kind && (!x.range || (x.range[0] <= r.floor && r.floor <= x.range[1])));
@@ -67,6 +67,17 @@
   }
   // 실측치수 — 일치/불일치/일부 일치(10/22 민재형): 일치 = 도면치수 그대로, 불일치·일부 일치 = 두 칸(벽체는 THK 한 칸), 못 재면 □
   const matchOf = (r) => r.match || (r.measured ? (r.measured === r.design ? "일치" : "불일치") : "");
+  // 비고 = 자동(10/27 형 "비고는 일치/일부일치/불일치 — 자동으로 작성되는 칸") — 실측치수에서 고른 값, 안 골랐으면 치수 비교(서버 seismic_fill.member_note와 같은 규칙)
+  function sizeMatch(d, s) {
+    const a = String(d || "").match(/[0-9]+|□/g) || [], b = String(s || "").match(/[0-9]+|□/g) || [];
+    if (!a.length || a.length !== b.length) return "";
+    const same = a.map((x, i) => [x, b[i]]).filter(([x, y]) => x !== "□" && y !== "□").map(([x, y]) => x === y);
+    if (!same.length) return "";
+    if (same.every(Boolean) && same.length === a.length) return "일치";
+    return same.some(Boolean) ? "일부일치" : "불일치";
+  }
+  const autoNote = (r) => String(r.match || "").replace(/ /g, "") || sizeMatch(r.design, r.measured);
+  const refreshAuto = (el, r) => { const a = el.closest(".sf2-row")?.querySelector(".sf2-auto b"); if (a) a.textContent = autoNote(r); };
   function sides(r, kind) {
     const m = String(r.measured || "");
     if (kind === "벽체") return [(m.match(/THK\s*=\s*(\S+)/i) || [, m.replace(/[^\d.□]/g, "")])[1] || ""];
@@ -120,8 +131,8 @@
       const inp = (f, label, w) => `<input data-g="${n}" data-j="${j}" data-k="${f}" placeholder="${esc(label)}" title="${esc(label)}" style="flex:${w}" value="${esc(r[f] ?? "")}" />`;
       const kindSel = `<select class="sf2-mkind" data-g="${n}" data-j="${j}" data-mk="1" title="부재 — 바꾸면 이 칸은 그 부재로, 같은 층 그 부재 빈 칸 하나는 이 칸의 원래 부재로(칸 수 그대로)">${opt(kinds.map((x) => [x, x]), k)}</select>`;
       return `<div class="sf2-row${filledM(r) ? "" : " empty"}"><span class="sf2-no">${no}</span><span class="sf2-mk">${kindSel}<i>${nth}</i></span>
-        ${inp("where", "위치(예: 3 : I 열)", 1.2)}<select data-g="${n}" data-j="${j}" data-k="item_id" title="일람표 칸" style="flex:1.5">${opt(opts, r.item_id)}</select>
-        ${inp("mark", "부호", 0.7)}${inp("design", "도면치수", 1)}${measuredCell(n, j, r, k)}${inp("note", "비고", 0.9)}</div>`;
+        <select data-g="${n}" data-j="${j}" data-k="item_id" title="일람표 칸" style="flex:1.5">${opt(opts, r.item_id)}</select>
+        ${inp("mark", "부호", 0.7)}${inp("design", "도면치수", 1)}${measuredCell(n, j, r, k)}<span class="sf2-auto" style="flex:0.9" title="비고 — 실측치수에서 자동(일치·일부일치·불일치)"><i>비고</i><b>${esc(autoNote(r))}</b></span></div>`; // 위치 칸 없앰(10/27 형 — 보고서 조사위치 = 층만)
     };
     $("sf2-members").innerHTML = `<div class="sf2-qty"><table class="sf2-qty-t"><thead><tr><th>층</th>${kinds.map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>
         ${floors.map((n) => `<tr><td><button type="button" class="sf2-fname${String(n) === mFloor ? " on" : ""}" data-mf="${n}" title="이 층만 보기">${esc(floorName(n))}</button></td>${kinds.map((k) => { const c = cnt(n, k), want = ofKind(n, k).length;
@@ -129,7 +140,7 @@
         </tbody></table><div class="sf2-qty-side"><span class="sk-help">칸 수(입력/칸) — 표본 층 × 종별 ${F.drawings ? 3 : 9}개소가 기본, 숫자를 고치면 아래 칸이 늘고 줆(줄이면 다른 부재로 옮기거나 빈 칸만 줄이기)</span>
         <button type="button" class="secondary" id="sf2-q-reset">기본 칸 수로</button></div></div>
       <div class="sf2-mnote" id="sf2-mnote"></div>
-      <div class="sf2-row sf2-row-h"><span class="sf2-no">#</span><span class="sf2-mk">부재</span><span style="flex:1.2">위치</span><span style="flex:1.5">일람표 칸(그 층·부재만)</span><span style="flex:0.7">부호</span><span style="flex:1">도면치수</span><span class="sf2-meas-h">실측치수(일치·불일치, 못 재면 □)</span><span style="flex:0.9">비고</span></div>
+      <div class="sf2-row sf2-row-h"><span class="sf2-no">#</span><span class="sf2-mk">부재</span><span style="flex:1.5">일람표 칸(그 층·부재만)</span><span style="flex:0.7">부호</span><span style="flex:1">도면치수</span><span class="sf2-meas-h">실측치수(일치·불일치, 못 재면 □)</span><span style="flex:0.9">비고(자동)</span></div>
       ${floorChips(floors.map((n) => ({ n, label: floorName(n), done: (slots[n] || []).filter(filledM).length, total: (slots[n] || []).length })), mFloor)}
       ${floors.map((n) => { const rs = (slots[n] || []).map((r, j) => row(n, r, j)); const c = (slots[n] || []).filter(filledM).length;
         return rs.length && (!mFloor || String(n) === mFloor) ? `<div class="sf2-mfloor"><h4>${esc(floorName(n))} <span class="sk-help" data-fc="${n}">${c}/${rs.length}</span></h4>${rs.join("")}</div>` : ""; }).join("")}`;  // 번호는 전체 차례 그대로(다른 층도 세고 안 그림)
@@ -158,6 +169,7 @@
         renderMembers();
       } else {
         if (el.dataset.k === "design" && r.match === "일치") r.measured = r.design;
+        refreshAuto(el, r);
         el.closest(".sf2-row").classList.toggle("empty", !filledM(r)); memberCounts();
       }
     }));
@@ -165,6 +177,7 @@
       const r = rowOf(el), v = sides(r, r.kind);
       v[Number(el.dataset.side)] = el.value.trim();
       r.measured = joinSides(v, r.kind);
+      refreshAuto(el, r);
       el.closest(".sf2-row").classList.toggle("empty", !filledM(r)); memberCounts();
     }));
     box.querySelectorAll("button[data-sq]").forEach((el) => el.addEventListener("click", () => { // □ = 못 잼(다시 누르면 지움)

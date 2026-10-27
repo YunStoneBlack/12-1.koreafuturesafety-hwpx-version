@@ -944,6 +944,10 @@ button.sp-pick-it.on { border-color: var(--blue); }
 .sf2-row { display: flex; gap: 6px; align-items: center; }
 .sf2-row input, .sf2-row select { min-width: 0; margin: 0; padding-left: 8px; padding-right: 6px; }
 .sf2-row-h { font-size: 12px; color: var(--faint); font-weight: 600; }
+.sf2-auto { min-width: 0; padding: 0 8px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* 부재 단면 비고 = 자동(10/27) */
+.sf2-auto i { display: none; font-style: normal; margin-right: 6px; color: var(--faint); font-size: 12px; } /* 폰 — 머리 줄이 없어 "비고" 이름 */
+.sf2-auto b { font-weight: 600; }
+@media (max-width: 760px) { .sf2-auto { flex: 1 1 100% !important; padding: 2px 4px; } .sf2-auto i { display: inline; } }
 .sf2-row-h span { min-width: 0; padding-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sf2-no { width: 22px; flex: none; text-align: right; font-size: 12px; color: var(--faint); }
 .main .sf2-rows button.sp-add { align-self: flex-start; margin: 2px 0 0; padding: 6px 12px; font-size: 13px; }

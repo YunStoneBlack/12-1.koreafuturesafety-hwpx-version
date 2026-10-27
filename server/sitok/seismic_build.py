@@ -392,7 +392,7 @@ def _tidy(hwpx: Path, pdf: Path, say=None, sections_from: int = 1, after: str | 
 
     try:
         with pagecheck.top_at(SEISMIC_TOP):  # 내진은 머리말 선이 47pt — 본문 52pt부터(10/27)
-            return pagecheck.tidy_checked(hwpx, pdf, render, sections_from=sections_from, after=after)
+            return pagecheck.tidy_checked(hwpx, pdf, render, sections_from=sections_from, after=after, split_tails=True)  # 시안 2(10/27)
     except Exception:  # noqa: BLE001
         traceback.print_exc()
         return []
