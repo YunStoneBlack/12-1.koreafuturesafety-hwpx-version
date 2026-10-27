@@ -111,18 +111,19 @@ def ai_finding(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """8번 "✨ AI추천" — 이 슬롯에 이미 올린 지적사항 사진 + 간단 설명으로 제목(30자)/내용(110자)/관련법령/
-    가능성·중대성을 추천한다. 사진이 필수인 건 데스크톱과 같다(`_FindingSlot._run_ai`). 설명은 다음에 다시
-    누를 때를 위해 슬롯에 저장해 둔다(추천 결과 자체는 저장하지 않음)."""
+    """8번 "✨ AI추천" — 이 슬롯에 올린 지적사항 사진과 간단 설명으로 제목(30자)/내용(110자)/관련법령/
+    가능성·중대성을 추천한다. 사진이나 설명 중 하나만 있어도 됨(10/27 민재형·사용자 — 웹판만, 데스크톱 exe는 안 씀):
+    사진이 없으면 설명만으로. 설명은 다음에 다시 누를 때를 위해 슬롯에 저장해 둔다(추천 결과 자체는 저장하지 않음)."""
     _require_ready(db, user, report_id)
     row = repo.get_slot_row(db, Finding, report_id, slot)
-    if row is None or not row.photo_path or not Path(row.photo_path).exists():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "먼저 지적사항 사진을 올려주세요.")
-    row.description = description.strip()
-    db.commit()
+    has_photo = row is not None and bool(row.photo_path) and Path(row.photo_path).exists()
+    desc = description.strip()
+    if not has_photo and not desc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "사진을 올리거나 간단 설명을 적어 주세요.")
+    row = repo.upsert_slot_row(db, Finding, report_id, slot, description=desc)  # 사진 없이 설명만이면 칸 줄을 새로 만듦
     try:
         result = analyze_finding(
-            prepare_photo_for_report(Path(row.photo_path)), row.description, company_id=user.company_id
+            prepare_photo_for_report(Path(row.photo_path)) if has_photo else None, desc, company_id=user.company_id
         )
     except Exception as err:  # noqa: BLE001
         raise _ai_failed(err) from err

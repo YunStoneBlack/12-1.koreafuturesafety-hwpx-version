@@ -58,6 +58,36 @@ FINDING_PROMPT = """당신은 건설재해예방 기술지도를 보조하는 �
   "severity": "중대성 1~3 중 하나(정수)"
 }}"""
 
+# 사진 없이 간단 설명만으로(10/27 민재형 "사진 or 간단설명 중 하나만 적어도 AI") — 웹판 8번 ✨ AI추천
+FINDING_TEXT_PROMPT = """당신은 건설재해예방 기술지도를 보조하는 전문가입니다.
+현장 사진 없이, 지도자가 현장에서 적은 아래 설명만으로 지적사항을 작성하세요.
+
+지도자 설명: {description}
+
+중요한 규칙:
+- 설명에 적힌 내용만 바탕으로 쓰세요. 설명에 없는 장소·장비·수치·위반사항을 지어내지 마세요.
+- 설명이 너무 짧거나 모호해 위반사항을 특정하기 어려우면, 판단이 곤란하다는 취지로 제목/내용을 쓰고
+  확인할 점(어떤 위험인지, 어느 작업인지 등)을 안내하세요.
+- 설명이 충분하면 실제 위반사항과 구체적인 개선대책을 작성하세요.
+- 제목·내용은 지도자가 현장에서 직접 확인한 문장으로 쓰세요 — "설명에 따르면", "~로 보인다" 같은 표현은 쓰지 마세요.
+- law_citation은 관련 있다고 판단되는 산업안전보건 관련 법령·규칙 조항명을 간단히
+  적되, 확신이 없으면 빈 문자열로 두세요("산업안전보건기준에 관한 규칙 제OO조(...)" 형식 권장).
+- likelihood(가능성)와 severity(중대성)는 아래 기준으로 1~3 중 하나를 고르세요.
+  가능성(빈도): 1=발생 가능성이 거의 없음 / 2=발생 가능성 있음 / 3=일반적 또는 반복적으로 발생
+  중대성(강도): 1=아차사고·무상해·응급조치를 요하는 상해 또는 질병 초래 /
+  2=의학적인 치료를 요하는 상해 또는 장애를 일으키는 질병 /
+  3=사망·중대한 상해 또는 생명을 위협하는 직업성질병 초래 위험
+
+반드시 아래 JSON 스키마와 동일한 형식의 JSON 객체만 응답하세요. 다른 설명 텍스트는 포함하지 마세요.
+
+{{
+  "title": "지적사항 제목 (30자 이내)",
+  "content": "지적사항 및 개선대책 (110자 이내)",
+  "law_citation": "관련 법령 조항 (확신 없으면 빈 문자열)",
+  "likelihood": "가능성 1~3 중 하나(정수)",
+  "severity": "중대성 1~3 중 하나(정수)"
+}}"""
+
 PEOPLE_COUNT_PROMPT = """첨부된 사진에서 사람이 몇 명 보이는지 세어주세요.
 사람을 명확히 셀 수 없는 사진(사람이 없거나, 너무 흐리거나, 사람과 무관한 사진 등)이면
 절대 추측하지 말고 count를 null로 응답하세요.
@@ -294,12 +324,17 @@ def _clamp_1_3(value) -> int | None:
 
 
 def analyze_finding(
-    photo_path: str | Path, description: str, model: str | None = None, company_id: int | None = None
+    photo_path: str | Path | None, description: str, model: str | None = None, company_id: int | None = None
 ) -> dict:
-    """사진 + 지도자 설명으로 지적사항 제목/내용/관련법령/위험성평가(가능성·중대성)를 추천한다."""
-    image_b64, media_type = _encode_image(photo_path)
-    prompt = FINDING_PROMPT.format(description=description or "(설명 없음)")
-    raw_response = _call_claude(image_b64, media_type, prompt, model=model, company_id=company_id)
+    """사진 + 지도자 설명으로 지적사항 제목/내용/관련법령/위험성평가(가능성·중대성)를 추천한다.
+    photo_path가 None이면 설명만으로(FINDING_TEXT_PROMPT, 10/27 웹판 — 사진이나 설명 중 하나만 있어도)."""
+    if photo_path is None:
+        prompt = FINDING_TEXT_PROMPT.format(description=description)
+        raw_response = _call_claude_text(prompt, model=model, company_id=company_id)
+    else:
+        image_b64, media_type = _encode_image(photo_path)
+        prompt = FINDING_PROMPT.format(description=description or "(설명 없음)")
+        raw_response = _call_claude(image_b64, media_type, prompt, model=model, company_id=company_id)
     data = _parse_json_object(raw_response)
     return {
         "title": clean_text(data.get("title") or "")[:30],  # 제3자 표현("사진상 …") 빼기(10/23 형)

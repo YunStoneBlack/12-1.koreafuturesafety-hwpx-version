@@ -215,8 +215,8 @@ async function setupFindings() {
     $("ai").addEventListener("click", async () => {
       errorEl.style.display = "none";
       const msgEl = $("status-msg");
-      if ($("thumb").style.display === "none") {
-        showError(errorEl, new Error(`지적사항 ${slot}: 먼저 사진을 올려주세요.`));
+      if ($("thumb").style.display === "none" && !$("desc").value.trim()) { // 사진이나 간단 설명 중 하나만 있어도(10/27 민재형)
+        showError(errorEl, new Error(`지적사항 ${slot}: 사진을 올리거나 간단 설명을 적어 주세요.`));
         return;
       }
       if (($("title").value || $("content").value) && !confirm("지금 입력된 제목·내용을 AI 추천으로 바꿀까요?")) return;
