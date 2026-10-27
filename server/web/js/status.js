@@ -6,7 +6,7 @@
 
 const errorEl = document.getElementById("error");
 const today = new Date();
-const stView = { year: today.getFullYear(), month: today.getMonth() + 1, staff: "", filter: "all", open: false };
+const stView = { year: today.getFullYear(), month: today.getMonth() + 1, staff: "", filter: "all", open: false, site: null, progAll: false };
 let stData = null;
 
 const STATE = {
@@ -39,10 +39,46 @@ async function loadStatus() {
 }
 
 function render() {
+  if (stView.site && !(stData.progress || []).some((e) => e.site_id === stView.site)) stView.site = null;
   renderCards();
   renderChart();
   renderStaff();
+  renderProgress();
   renderList();
+}
+
+// 현장별 그달 추진 현황(10/27 사용자 "26-4 10월 배정 4회차, 4회차 중 2회차 완료 — 그래프로") — 배정 = 방문 달력 예정(없으면 보고서 수),
+// 막대 = 제출 완료(초록) · 보고서만 작성(주황) · 남은 회차(회색). 누르면 아래 목록을 그 현장만(다시 누르면 전체).
+function renderProgress() {
+  const box = document.getElementById("st-prog-box");
+  let list = stData.progress || [];
+  if (stView.open) list = list.filter((e) => e.submitted < e.assigned);
+  const done = list.filter((e) => e.reports >= e.assigned).length;
+  const pct = (e, n) => (e.assigned ? (n / e.assigned) * 100 : 0);
+  const SHOW = 12; // 처음엔 덜 끝난 순으로 12곳(폰에서 55곳이 다 펼쳐져 너무 길던 것), 나머지는 더 보기
+  const shown = stView.progAll || list.length <= SHOW + 2 ? list : list.slice(0, SHOW);
+  const rows = shown.map((e) => {
+    const left = Math.max(e.assigned - e.reports, 0);
+    const full = e.reports >= e.assigned;
+    const tip = `${e.site_name} — 배정 ${e.assigned}회차(달력 예정 ${e.planned}) · 보고서 ${e.reports} · 제출 완료 ${e.submitted}${left ? ` · 남음 ${left}` : ""}`;
+    return `<button type="button" class="st-prog-row${full ? " full" : ""}${stView.site === e.site_id ? " sel" : ""}" data-site="${e.site_id}" title="${h(tip)}">
+      <span class="nm">${h(e.site_name)}</span>
+      <span class="st-prog-bar"><span class="ok" style="width:${pct(e, e.submitted)}%"></span><span class="wait" style="width:${pct(e, e.reports - e.submitted)}%"></span></span>
+      <span class="num"><b>${e.reports} / ${e.assigned}회차</b>${full ? ' <i class="st-prog-done">완료</i>' : ""}<small>제출 ${e.submitted}${left ? ` · 남음 ${left}` : ""}</small></span>
+    </button>`;
+  }).join("");
+  box.innerHTML = `<div class="st-chart-head"><b>현장별 ${stData.month}월 추진 현황 <span class="st-hint">· ${list.length}곳 중 ${done}곳 다 다녀옴 · 배정 = 방문 달력 예정(없으면 보고서 수) · 누르면 아래 목록을 그 현장만</span></b>
+    <div class="st-legend"><span><i class="ok"></i>제출 완료</span><span><i class="wait"></i>보고서만 작성</span><span><i class="left"></i>남은 회차</span></div></div>
+    ${rows ? `<div class="st-prog-list">${rows}</div>` : '<div class="st-empty">이달 배정·보고서가 없습니다.</div>'}
+    ${list.length > shown.length ? `<button type="button" class="secondary st-prog-more">나머지 ${list.length - shown.length}곳 더 보기 ▼</button>`
+      : stView.progAll && list.length > SHOW + 2 ? '<button type="button" class="secondary st-prog-more">접기 ▲</button>' : ""}`;
+  box.querySelector(".st-prog-more")?.addEventListener("click", () => { stView.progAll = !stView.progAll; renderProgress(); });
+  box.querySelectorAll(".st-prog-row").forEach((b) => b.addEventListener("click", () => {
+    const id = Number(b.dataset.site);
+    stView.site = stView.site === id ? null : id;
+    renderProgress();
+    renderList();
+  }));
 }
 
 function renderCards() {
@@ -154,6 +190,7 @@ function k2bCell(r) {
 
 function filteredReports() {
   let rows = stData.reports;
+  if (stView.site) rows = rows.filter((r) => r.site_id === stView.site); // 현장별 추진 현황에서 고른 현장
   if (stView.open) rows = rows.filter((r) => r.state !== "submitted" || r.modified_after);
   const f = stView.filter;
   if (f === "submitted") rows = rows.filter((r) => r.state === "submitted");
@@ -235,7 +272,7 @@ document.getElementById("st-next").addEventListener("click", () => {
   loadStatus();
 });
 document.getElementById("st-staff").addEventListener("change", (e) => { stView.staff = e.target.value; loadStatus(); });
-document.getElementById("st-open").addEventListener("change", (e) => { stView.open = e.target.checked; renderList(); });
+document.getElementById("st-open").addEventListener("change", (e) => { stView.open = e.target.checked; renderProgress(); renderList(); });
 
 api("/staff").then((list) => {
   const sel = document.getElementById("st-staff");

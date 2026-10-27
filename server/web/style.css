@@ -544,6 +544,23 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .st-staff-bar { height: 10px; background: var(--paper); border-radius: 5px; overflow: hidden; display: flex; gap: 2px; }
 .st-staff-bar .ok { background: #2E9E5B; } .st-staff-bar .wait { background: #E0A33A; }
 .st-staff-row .num { font-size: 12px; color: var(--muted); white-space: nowrap; }
+/* 현장별 그달 추진 현황(10/27) */
+.st-prog { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow-card); margin-bottom: 14px; }
+.st-legend i.left { background: var(--paper); border: 1px solid var(--line); }
+.st-prog-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 20px; }
+.main button.st-prog-more { margin-top: 8px; padding: 5px 14px; font-size: 12.5px; }
+.main button.st-prog-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; margin: 0;
+  border: 1px solid transparent; border-radius: 8px; background: none; box-shadow: none; text-align: left; font: inherit; font-size: 13px; font-weight: 400;
+  color: var(--ink); cursor: pointer; min-width: 0; width: 100%; height: auto; }
+.main button.st-prog-row:hover { background: var(--paper); }
+.main button.st-prog-row.sel { border-color: var(--blue); background: var(--blue-soft); }
+.st-prog-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-prog-bar { height: 12px; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; display: flex; }
+.st-prog-bar .ok { background: #2E9E5B; } .st-prog-bar .wait { background: #E0A33A; }
+.st-prog-row .num { white-space: nowrap; text-align: right; display: flex; flex-direction: column; line-height: 1.25; }
+.st-prog-row .num b { font-size: 13px; } .st-prog-row .num small { font-size: 11px; color: var(--muted); }
+.st-prog-done { font-style: normal; font-size: 11px; color: #2E9E5B; font-weight: 700; margin-left: 2px; }
+.st-prog-row.full .nm { color: var(--muted); }
 .st-empty { font-size: 12.5px; color: var(--faint); }
 .st-site { font-weight: 600; color: var(--ink); }
 .st-site:hover { color: var(--blue); }
@@ -574,6 +591,9 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
   .main button.st-card { padding: 10px 12px; } .st-card .n { font-size: 22px; }
   .main .st-only { margin-left: 0; }
   .st-row2 { grid-template-columns: minmax(0, 1fr); }
+  .st-prog-list { grid-template-columns: minmax(0, 1fr); }
+  .main button.st-prog-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .st-prog-row .st-prog-bar { grid-column: 1 / -1; grid-row: 2; }
   .st-bars { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
   .main button.st-bar.far { display: none; }
   .st-bar .col { height: 90px; }

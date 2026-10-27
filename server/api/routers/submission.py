@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from core.models_db import Report, Site, Staff
-from core.models_web import ReportK2bMark, ReportSubmitMark, User
+from core.models_web import ReportK2bMark, ReportSubmitMark, User, VisitPlan
 from server.api import repo
 from server.api.deps import get_current_user, get_db
 from server.api.submission import STATES, report_states
@@ -88,8 +88,40 @@ def overview(
     return {
         "year": year, "month": month,
         "cards": cards, "months": months, "staff": sorted(by_staff.values(), key=lambda e: (e["id"] is None, e["name"])),
-        "reports": rows,
+        "reports": rows, "progress": _site_progress(db, user.company_id, year, month, staff_id, rows, sites),
     }
+
+
+def _site_progress(db: Session, company_id: int, year: int, month: int, staff_id: int | None, rows: list[dict], sites: dict) -> list[dict]:
+    """현장별 그달 추진 현황(10/27 사용자) — 배정 = 방문 달력 그달 예정 수와 그달 보고서 수 중 큰 쪽(달력을 안 쓴 현장은 보고서 수,
+    예정보다 더 다녀왔으면 보고서 수), 보고서 = 그달 지도일 보고서 수, 제출 = 그중 제출 완료. 요원을 고르면 그 사람 예정(보고서 담당, 없으면 출장자)·보고서만.
+    덜 끝난 현장이 위로(보고서/배정 작은 순)."""
+    import calendar
+    import collections
+
+    first = datetime.date(year, month, 1)
+    last = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    plans = db.query(VisitPlan).filter(VisitPlan.company_id == company_id, VisitPlan.plan_date >= first, VisitPlan.plan_date <= last).all()
+    planned = collections.Counter(p.site_id for p in plans if not staff_id or (p.report_staff_id or p.staff_id) == staff_id)
+    done: dict = {}
+    for x in rows:
+        e = done.setdefault(x["site_id"], [0, 0])
+        e[0] += 1
+        e[1] += x["state"] == "submitted"
+    ids = set(planned) | set(done)
+    missing = ids - set(sites)
+    if missing:
+        sites = {**sites, **{s.id: s for s in db.query(Site).filter(Site.id.in_(missing))}}
+    out = []
+    for sid in ids:
+        site = sites.get(sid)
+        if site is None:
+            continue
+        reports, submitted = done.get(sid, (0, 0))
+        out.append({"site_id": sid, "site_name": site_label(site), "planned": planned.get(sid, 0), "assigned": max(planned.get(sid, 0), reports),
+                    "reports": reports, "submitted": submitted})
+    out.sort(key=lambda e: (e["reports"] / e["assigned"] if e["assigned"] else 1, e["submitted"] / e["assigned"] if e["assigned"] else 1, e["site_name"]))
+    return out
 
 
 def _require_report(db: Session, user: User, report_id: int):
