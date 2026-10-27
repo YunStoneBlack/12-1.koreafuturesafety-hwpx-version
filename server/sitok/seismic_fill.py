@@ -977,7 +977,7 @@ def fill_cores(doc, root, field: dict, rdir: Path, core_doc: dict | None, warn: 
         if pages:
             for k, (p, t) in enumerate(frames):
                 if k < len(pages):
-                    _put(doc, rb._pic_slots(t)[0][1], pages[k], crop=False)
+                    _put_full(doc, rb._pic_slots(t)[0][1], pages[k])  # 원본 해상도(10/27 — 96dpi로 줄여 글씨가 흐림), PDF에는 원본 쪽을 얹음(overlay_core)
                     n += 1
                 elif p.getparent() is not None:
                     _drop_empty_before(p)  # 성적서 둘째 쪽 칸 앞 쪽 나눔 빈 줄도(남으면 다음 제목 쪽 나눔과 겹쳐 빈 쪽, 10/26)
@@ -1546,6 +1546,66 @@ def plan_images(f, rdir: Path) -> list[tuple[str, Path]]:
     return out
 
 
+def _one_page(path: Path, page: int):
+    """원본 PDF의 그 쪽만 새 문서로 — 회전(/Rotate)은 보이는 그대로 풀어서(안 풀면 show_pdf_page가 돌아가고 잘려 얹음)."""
+    import pymupdf
+
+    one = pymupdf.open()
+    with pymupdf.open(path) as src:
+        one.insert_pdf(src, from_page=page - 1, to_page=page - 1)
+    one[0].remove_rotation()
+    return one
+
+
+def _big_image(pg, share: float = 0.3):
+    """쪽에서 가장 큰 그림 자리(쪽 넓이의 share 넘는 것만)."""
+    import pymupdf
+
+    area = pg.rect.width * pg.rect.height
+    boxes = [pymupdf.Rect(im["bbox"]) for im in pg.get_image_info()]
+    boxes = [b for b in boxes if b.width * b.height > area * share]
+    return max(boxes, key=lambda b: b.width * b.height) if boxes else None
+
+
+def overlay_core(pdf: Path, core_doc: dict | None, rdir: Path) -> int:
+    """2.2.4 압축강도 시험성적서 칸(쪽마다 큰 그림 한 칸, 앞 2쪽)에 원본 성적서 PDF 쪽을 그대로 얹음(10/27 — 그림으로 줄여 글씨가 흐림). 얹은 수."""
+    import pymupdf
+
+    if not core_doc or not core_doc.get("rel"):
+        return 0
+    src = rdir / core_doc["rel"]
+    if not src.exists() or src.suffix.lower() != ".pdf":
+        return 0
+    n, ones = 0, []
+    doc = pymupdf.open(pdf)
+    try:
+        start = next((i for i, pg in enumerate(doc) if "압축강도 시험성적서" in pg.get_text() and _big_image(pg) is not None), None)
+        with pymupdf.open(src) as s:
+            count = min(2, s.page_count)
+        for k in range(count if start is not None else 0):
+            if start + k >= doc.page_count:
+                break
+            pg = doc[start + k]
+            box = _big_image(pg)
+            if box is None:
+                break
+            one = _one_page(src, k + 1)
+            ones.append(one)
+            pg.draw_rect(box, color=None, fill=(1, 1, 1), overlay=True)
+            pg.show_pdf_page(box, one, 0, keep_proportion=True)
+            n += 1
+        if n:
+            tmp = pdf.with_suffix(".overlay.pdf")
+            doc.save(tmp, garbage=3, deflate=True)
+    finally:
+        doc.close()
+        for one in ones:
+            one.close()
+    if n:
+        tmp.replace(pdf)
+    return n
+
+
 def overlay_plans(pdf: Path, f) -> int:
     """보고서 PDF의 1.2 평면도 칸에 원본 도면 PDF 쪽을 벡터로 얹음(10/27 민재형 "화질이 그래도 안 좋음" — 부록 구조도면처럼 원본 그대로).
     칸 = 그 평면도 제목 줄("지상 3층 평면도") 바로 위 그림 자리, 흰 칸으로 덮고 도면 쪽을 비율 그대로 가운데. 한글 파일은 그림 그대로(고칠 때용). 얹은 수."""
@@ -1571,10 +1631,7 @@ def overlay_plans(pdf: Path, f) -> int:
                 if not imgs:
                     continue
                 box = max(imgs, key=lambda r: r.y1)
-                one = pymupdf.open()  # 그 쪽만 — 회전(/Rotate 270 등)을 보이는 그대로 풀어서(안 풀면 돌아가고 잘려 얹힘)
-                with pymupdf.open(x["path"]) as src:
-                    one.insert_pdf(src, from_page=x["page"] - 1, to_page=x["page"] - 1)
-                one[0].remove_rotation()
+                one = _one_page(x["path"], x["page"])
                 srcs[(x["path"], x["page"])] = one
                 pg.draw_rect(box, color=None, fill=(1, 1, 1), overlay=True)
                 pg.show_pdf_page(box, one, 0, keep_proportion=True)

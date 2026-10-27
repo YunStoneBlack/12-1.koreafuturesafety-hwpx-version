@@ -479,8 +479,9 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
         if seismic_fill.fill_toc(hwpx, pdf):
             say("목차 쪽 번호 넣고 다시 PDF로…")
             pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
-    if filling:  # 1.2 평면도 칸에 원본 도면 PDF를 벡터로(10/27 — 그림은 한글 파일용)
+    if filling:  # 1.2 평면도·2.2.4 성적서 칸에 원본 PDF 쪽을 그대로(10/27 — 그림은 한글 파일용)
         seismic_fill.overlay_plans(pdf, f)
+        seismic_fill.overlay_core(pdf, ((r.survey or {}).get("seismic_docs") or {}).get("core"), folder)
     with pymupdf.open(pdf) as x:
         pages = x.page_count
     head = f"{pages}쪽"
