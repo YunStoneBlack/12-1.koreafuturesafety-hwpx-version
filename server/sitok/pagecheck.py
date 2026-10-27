@@ -26,15 +26,21 @@ def _top() -> float:
     return getattr(_TOP_TL, "v", None) or TOP
 
 
+def _foot_gap() -> float:
+    """꼬리말 자리 = 쪽 아래에서 이만큼(pt) — 기본 63(시특법 꼬리말 로고), 내진은 41(꼬리말 선 801pt, top_at foot_gap)."""
+    return getattr(_TOP_TL, "foot", None) or 63
+
+
 @contextlib.contextmanager
-def top_at(v: float):
-    """이 스레드에서만 본문 시작 y를 v로(10/27 내진 — 쪽 맨 위 52pt 글을 머리말로 빼서 "몇 줄만 넘친 쪽"을 못 잡고 쪽 맨 위 제목을 넘친 줄로 잘못 잡던 것)."""
-    old = getattr(_TOP_TL, "v", None)
-    _TOP_TL.v = v
+def top_at(v: float, foot_gap: float | None = None):
+    """이 스레드에서만 본문 시작 y를 v로(10/27 내진 — 쪽 맨 위 52pt 글을 머리말로 빼서 "몇 줄만 넘친 쪽"을 못 잡고 쪽 맨 위 제목을 넘친 줄로 잘못 잡던 것),
+    foot_gap이면 꼬리말 자리도(10/27 내진 — 쪽 아래 778~800pt 본문 줄(“2.4.3 조적조”)을 꼬리말로 빼서 제목만 쪽 끝을 못 잡던 것)."""
+    old, old_f = getattr(_TOP_TL, "v", None), getattr(_TOP_TL, "foot", None)
+    _TOP_TL.v, _TOP_TL.foot = v, foot_gap
     try:
         yield
     finally:
-        _TOP_TL.v = old
+        _TOP_TL.v, _TOP_TL.foot = old, old_f
 
 
 def _key(s: str) -> str:
@@ -71,7 +77,7 @@ def _body(pg, rects: list | None = None, imgs: list | None = None) -> tuple[list
         imgs = [rr for info in pg.get_images(full=True) for rr in pg.get_image_rects(info[0])]
     if rects is None:
         rects = [d["rect"] for d in pg.get_drawings()]
-    foot = min([rr.y0 for rr in imgs if rr.y0 > H * 0.85] or [H - 63])
+    foot = min([rr.y0 for rr in imgs if rr.y0 > H * 0.85] or [H - _foot_gap()])
     lines = []
     for b in pg.get_text("dict")["blocks"]:
         for ln in b.get("lines", []):
@@ -93,7 +99,7 @@ def _pages(pdf: Path) -> tuple[list, list, list, list]:
     import pymupdf
 
     st = pdf.stat()
-    key = (str(pdf), st.st_size, st.st_mtime_ns, _top())
+    key = (str(pdf), st.st_size, st.st_mtime_ns, _top(), _foot_gap())
     if key not in _READ:
         bodies, rects, heights, imgs = [], [], [], []
         with pymupdf.open(pdf) as doc:
@@ -245,8 +251,10 @@ def push_lonely(hwpx: Path, pdf: Path, sections_from: int = 0, after: str | None
     done: list[str] = []
     hit: set = set()
     for i, (lines, _bottom, foot, _o) in enumerate(pages[:-1]):
-        nxt = pages[i + 1][0]
-        if i < first or len(lines) < 2 or not nxt or _divider(lines) or _key(nxt[0][2]) in starts:
+        nxt, nxt_bottom = pages[i + 1][0], pages[i + 1][1]
+        if i < first or len(lines) < 2 or _divider(lines) or (nxt and _key(nxt[0][2]) in starts):
+            continue
+        if not nxt and nxt_bottom <= _top() + 5:  # 다음 쪽이 비었음 — 글 줄 없이 그림·표만 있는 쪽(성적서)은 내용으로 봄(10/27)
             continue
         span = foot - _top()
         if lines[-1][0] <= _top() + span * 0.7 or (i, len(lines) - 1) not in where:
@@ -259,6 +267,14 @@ def push_lonely(hwpx: Path, pdf: Path, sections_from: int = 0, after: str | None
         p = tops[k]
         if p.get("pageBreak") == "1":
             continue
+        t = rb._top_text(p).strip()
+        if t[:1] in ("【", "["):  # 표 이름은 뒤에 표·그림이 올 때만 — 그림 아래 이름("[ C2 ]" 외주 장)은 쪽 끝에 있어도 정상
+
+            def obj(q) -> bool:
+                return next(q.iter(f"{{{rb.HP}}}tbl", f"{{{rb.HP}}}pic"), None) is not None
+            after_p = [q for q in tops[k + 1:k + 4] if not empty(q)][:1]
+            if obj(p) or not after_p or not obj(after_p[0]) or (k > 0 and obj(tops[k - 1])):
+                continue
         q = p.getprevious()
         while q is not None and q.tag == f"{{{rb.HP}}}p" and empty(q):
             prev = q.getprevious()

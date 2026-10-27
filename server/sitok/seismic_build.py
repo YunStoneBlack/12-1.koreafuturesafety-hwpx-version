@@ -376,6 +376,7 @@ def merge_vendor(ours: Path, vendor: Path, dest: Path) -> int:
 
 
 SEISMIC_TOP = 49  # 쪽 검사 본문 시작(pt) — 내진 머리말 선 47pt(시특법·옹벽은 85pt 근처라 pagecheck 기본 70)
+SEISMIC_FOOT = 41  # 쪽 검사 꼬리말 자리 = 쪽 아래에서(pt) — 내진 꼬리말 선 801pt(쪽 841pt), pagecheck 기본 63은 778pt 아래 본문 줄을 못 봄(10/27)
 
 
 def _tidy(hwpx: Path, pdf: Path, say=None, sections_from: int = 1, after: str | None = None) -> list[str]:
@@ -391,7 +392,7 @@ def _tidy(hwpx: Path, pdf: Path, say=None, sections_from: int = 1, after: str | 
         out.write_bytes(hwp_queue.convert_via_worker(hx.read_bytes(), ".hwpx", wait=1500))
 
     try:
-        with pagecheck.top_at(SEISMIC_TOP):  # 내진은 머리말 선이 47pt — 본문 52pt부터(10/27)
+        with pagecheck.top_at(SEISMIC_TOP, SEISMIC_FOOT):  # 내진은 머리말 선이 47pt — 본문 52pt부터, 꼬리말 선 801pt(10/27)
             return pagecheck.tidy_checked(hwpx, pdf, render, sections_from=sections_from, after=after, split_tails=True)  # 시안 2(10/27)
     except Exception:  # noqa: BLE001
         traceback.print_exc()
@@ -408,7 +409,7 @@ def _push_lonely(hwpx: Path, pdf: Path, say=None, after: str | None = None) -> l
     done: list[str] = []
     try:
         for _ in range(3):
-            with pagecheck.top_at(SEISMIC_TOP):
+            with pagecheck.top_at(SEISMIC_TOP, SEISMIC_FOOT):
                 got = pagecheck.push_lonely(hwpx, pdf, sections_from=0, after=after)
             if not got:
                 break
