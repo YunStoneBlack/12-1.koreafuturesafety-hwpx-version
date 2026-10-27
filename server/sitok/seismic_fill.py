@@ -1237,18 +1237,23 @@ def fill_texts(root, field: dict, doc=None) -> int:
                 _set(cells, (1, 1), tx[order[k]])
                 if not tx[order[k]]:
                     _no_bullet(doc, cells[(1, 1)])
+                    TD.paint(cells[(1, 1)])  # 조사결과 글이 없음 — 노랑(10/27 사용자 "AI 분석 칸에도 노란색" — 요약 표와 같게)
                 k += 1
                 n += 1
-    for tb in _outer(root):  # 2.4.1·2.4.2 — 조사결과 글(비면 빈칸), 붉은 견본 글자는 검정으로(10/22)
+    for tb in _outer(root):  # 2.4.1·2.4.2 — 조사결과 글(비면 빈칸 + 노랑), 붉은 견본 글자는 검정으로(10/22)
         whole = _n(_t(tb))
         cells = rb._cells(tb)
         if "건물외중량물" in whole and (3, 0) in cells:
             _set(cells, (3, 0), "\n".join(f"· {x.strip()}" for x in tx["heavy"].split("\n") if x.strip()))
             _blacken(cells[(3, 0)])
+            if not tx["heavy"].strip():
+                TD.paint(cells[(3, 0)])
             n += 1
         elif "건물외부마감재" in whole and (2, 0) in cells:
             _set(cells, (2, 0), tx["finish"])
             _blacken(cells[(2, 0)])
+            if not tx["finish"].strip():
+                TD.paint(cells[(2, 0)])
             n += 1
     return n
 
