@@ -57,6 +57,47 @@ def color_dots(data: bytes) -> list[dict]:
     return sorted(out, key=lambda d: d["x"])
 
 
+def start_x(data: bytes) -> float | None:
+    """스캔 시작선 x(px) — 위 눈금선(위쪽 절반에서 가장 긴 가로 검은 줄) 아래로 길게 내려오는 검은 세로 줄 중 맨 왼쪽(점선·세로축). 못 찾으면 None."""
+    import numpy as np
+    from PIL import Image
+
+    im = np.array(Image.open(io.BytesIO(data)).convert("RGB")).astype(int)
+    H, W, _ = im.shape
+    dark = (im[..., 0] < 110) & (im[..., 1] < 110) & (im[..., 2] < 110)
+    ruler = int(np.argmax(dark[: H // 2].sum(axis=1)))
+    reg = dark[ruler + 4:]
+    if reg.shape[0] < 30:
+        return None
+    cnt = reg.sum(axis=0)
+    xs = [x for x in range(W // 3) if cnt[x] >= max(20, int(0.10 * reg.shape[0]))]
+    if not xs:
+        return None
+    first = [x for x in xs if x - xs[0] <= 3]
+    return sum(first) / len(first)
+
+
+def by_position(nums: list, dots_x: list, x0: float | None) -> list | None:
+    """위 숫자들(왼쪽부터 — 시작선~첫 철근·철근 사이·마지막 철근~끝)을 자리(시작선 + 점들) 사이 구간에 차례로 맞춰 철근 사이 간격만 —
+    (10/27 덕계고 대근 캡처 "188 | 176": AI가 숫자는 읽고도 어느 것이 철근 사이인지 못 골라 빈칸). 구간 길이(px)와 숫자 비율이 고를 때만(6% 또는 6px 안), 아니면 None."""
+    marks = sorted(dots_x)
+    if x0 is not None and (not marks or x0 < marks[0] - 8):
+        marks = [x0] + marks
+    gaps = [b - a for a, b in zip(marks, marks[1:])]
+    nums = [float(v) for v in nums if isinstance(v, (int, float)) and v > 0]
+    if not gaps or len(nums) < len(gaps):
+        return None
+    lead = 1 if x0 is not None and marks[0] == x0 else 0  # 첫 구간 = 시작선~첫 철근
+    if len(gaps) - lead < 1 or (len(gaps) == 1 and len(nums) > 1):  # 철근 사이 구간이 없거나, 구간 하나에 숫자 여럿(비율로 못 가림)
+        return None
+    for off in range(len(nums) - len(gaps) + 1):  # 숫자가 더 있으면(끝 거리 또는 시작선을 못 찾은 시작 거리) 비율이 맞는 쪽
+        use = nums[off:off + len(gaps)]
+        k = sum(gaps) / sum(use)  # px/mm
+        if all(abs(g - n * k) <= max(6, 0.06 * g) for g, n in zip(gaps, use)):
+            return use[lead:]
+    return None
+
+
 def values(bar_spacings: list, covers: list) -> dict:
     """표에 넣을 값 — 간격 = 철근 사이 간격 평균(반올림), 피복 = 평균 반올림."""
     sp = [float(v) for v in bar_spacings if isinstance(v, (int, float)) and v > 0]
@@ -75,8 +116,16 @@ def read(company_id: int, data: bytes) -> dict:
     bar = [v for v in (got.get("bar_spacings") or []) if isinstance(v, (int, float))]
     covers = [v for v in (got.get("covers") or []) if isinstance(v, (int, float))]
     n_ai = int(got.get("dots") or 0)
-    v = values(bar, covers)
     warn = []
+    try:  # 철근 사이 간격 = 위 숫자를 자리로 맞춘 것(AI 고르기보다 우선 — 10/27 덕계고 6장 중 3장 빈칸·시작 거리를 간격으로)
+        pos = by_position(got.get("spacings_all") or [], [d["x"] for d in dots], start_x(data)) if dots else None
+    except Exception:  # noqa: BLE001
+        pos = None
+    if pos:
+        bar = [round(x) for x in pos]
+    elif not bar and len(dots) >= 2:
+        warn.append("철근 사이 간격 숫자를 못 골랐습니다 — 캡처를 보고 직접 넣으세요")
+    v = values(bar, covers)
     if dots and n_ai and len(dots) != n_ai:
         warn.append(f"점 개수가 다릅니다 — 색으로 센 {len(dots)}개, AI {n_ai}개")
     if n_ai and bar and len(bar) != n_ai - 1:
@@ -95,6 +144,12 @@ def read(company_id: int, data: bytes) -> dict:
 def _selfcheck() -> None:
     assert values([162, 156], [56, 55, 56]) == {"spacing": 159, "cover": 56}
     assert values([], [40]) == {"spacing": None, "cover": 40}
+    # 위 숫자를 자리로(10/27 덕계고 대근 캡처 — 시작선 18·40px, 점 두 개)
+    assert by_position([188, 176], [650, 1243], 18) == [176.0] and by_position([13, 282], [95, 1364], 38) == [282.0]
+    assert by_position([21, 80, 68], [167, 707, 1166], 28) == [80.0, 68.0]  # 주근 세 개
+    assert by_position([188, 176, 30], [650, 1243], 18) == [176.0]  # 끝 거리 숫자가 더 있음
+    assert by_position([100, 176], [650, 1243], 18) is None  # 숫자와 자리가 안 맞으면 AI 고르기 그대로
+    assert by_position([188, 176], [650, 1243], None) is None  # 시작선 못 찾고 구간 하나 — 못 가림
 
 
 if __name__ == "__main__":

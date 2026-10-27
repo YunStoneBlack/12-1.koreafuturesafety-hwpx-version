@@ -50,8 +50,9 @@ INT_FIELDS = ("short_side", "long_side", "bottom_row", "bottom_layers", "thickne
 
 # ---------- 글자 도우미 ----------
 def bar_count(text) -> int | None:
-    """"12-HD25" → 12, "3-SHD22" → 3. 없으면 None."""
-    m = re.match(r"\s*(\d+)\s*[-−–]", str(text or ""))
+    """"12-HD25" → 12, "3-SHD22" → 3, "HD22-2EA"·"HD22 - 12EA"·"4EA" → 2·12·4(10/27 덕계고 도면 — 굵기 먼저, 개수 뒤 EA). 없으면 None."""
+    t = str(text or "")
+    m = re.match(r"\s*(\d+)\s*[-−–‐]", t) or re.search(r"(\d+)\s*EA", t, re.I)
     return int(m.group(1)) if m else None
 
 
@@ -334,6 +335,7 @@ def stamp() -> str:
 
 def _selfcheck() -> None:
     assert bar_count("12-HD25") == 12 and bar_count("3 - SHD22") == 3 and bar_count("HD10@300") is None
+    assert bar_count("HD22-2EA") == 2 and bar_count("HD22 - 12EA") == 12 and bar_count("4ea") == 4 and bar_count("HD22") is None
     assert spacing("2-HD10@200") == 200 and spacing("HD16+19 @100") == 100 and spacing("HD10 @300 / HD10@300") == 300 and spacing("12-HD25") is None
     assert floor_range("1~4") == (1, 4) and floor_range("지하6층~지하2층") == (-6, -2) and floor_range("6F 이상") == (6, FLOOR_TOP)
     assert floor_range("PIT층/지하층") == (-9, -1) and floor_range("R") == (FLOOR_TOP, FLOOR_TOP) and floor_range("B1F~2F") == (-1, 2)
