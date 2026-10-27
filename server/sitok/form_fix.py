@@ -257,3 +257,27 @@ def precheck_other(root) -> int:
             b.getparent().remove(b)
         n += 1
     return n
+
+
+def task_head_line(root) -> int:
+    """과업수행계획서·사전검토보고서 "과업구분 | 내용" 표 머리 줄 아래 = 굵은 한 줄(10/27 사용자 B안) — 표가 쪽을 넘으면 새 쪽 첫 줄 칸 윗변을
+    한글이 스스로 그려(칸 위 선이 "없음"이어도) 머리 줄 아래 두 줄 선 사이에 한 줄이 끼어 그 칸만 굵어 보이던 것 → 굵은 한 줄(0.5mm)이면 겹친 가는 선이 묻힘.
+    머리 줄 칸 아래 선·첫 줄 칸 위 선을 같게(표 시작 쪽도 같은 모양). 테두리 도구(rb.using_borders) 안에서만. 바꾼 칸 수."""
+    b = getattr(rb._TL, "borders", None)
+    if b is None:
+        return 0
+    n = 0
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        cells = rb._cells(tbl)
+        if _n(rb._cell_text(cells.get((0, 0), tbl))) != "과업구분":
+            continue
+        for (r, _c), tc in cells.items():
+            d = b.by_id.get(str(tc.get("borderFillIDRef")))
+            if r > 1 or not d:
+                continue
+            side = "bottom" if r == 0 else "top"
+            new = re.sub(rf"<hh:{side}Border [^>]*/>", f'<hh:{side}Border type="SOLID" width="0.5 mm" color="#000000"/>', d, count=1)
+            if new != d:
+                tc.set("borderFillIDRef", b.adopt(new))
+                n += 1
+    return n

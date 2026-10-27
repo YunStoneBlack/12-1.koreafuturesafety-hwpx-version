@@ -2513,6 +2513,7 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                         if new.persons:
                             changed += form_fix.org_names(root, [p[0] for p in new.persons])
                         changed += form_fix.precheck_other(root)
+                        changed += form_fix.task_head_line(root)  # 과업구분 표 머리 줄 아래 굵은 한 줄(10/27)
                     if is_front and new.persons:
                         changed += engineer_list(root, new.persons)  # 참여기술자 명단도 이번 회차 사람으로(10/14)
                     if is_front:

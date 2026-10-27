@@ -2184,6 +2184,9 @@ def _fill_appendix_docs(root, D: Data, infos: list[dict], state: dict, when) -> 
         for tc in rb._cells(tbl).values():
             if re.sub(r"\s", "", rb._cell_text(tc)) == "정밀안전점검" and int(tc.find(f"{{{HP}}}cellSz").get("width") or 0) < 9000:
                 rb._set_lines(tc, ["정밀안전", "점검"])
+    from server.sitok import form_fix
+
+    n += form_fix.task_head_line(root)  # 과업구분 표 머리 줄 아래 굵은 한 줄(10/27 — 정기와 같게, 과업수행계획서·사전검토 어디든)
     if state.get("pre") or rb._find_table(root, ["보존대상목록", "관리주체보유현황", "비고"]) is not None:
         n += _fill_docs_appendix(root, D)
         n += _qty_per_member(root, infos)
