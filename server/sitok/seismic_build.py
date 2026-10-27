@@ -287,9 +287,11 @@ def fill_rebar(root, d: dict, warn: list) -> int:
                 if j % 2 == 1 and col in (0, 1):  # 시험번호·측정위치는 두 줄 합친 칸(윗줄에만)
                     continue
                 _set(cells, (r, col), v)
-        from server.sitok.seismic_fill import thick_bottom
+        from server.sitok.seismic_fill import even_col_lines, even_head_line, thick_bottom
 
         thick_bottom(t)  # 표 끝 굵은 선(10/22)
+        even_head_line(t, 1)  # 머리 줄 아래·세로선 고르게(10/27)
+        even_col_lines(t)
         if not rows:
             paint_empty(t, 1)  # 결과가 없어 비운 줄 — 노랑(10/26)
     # 조사 수량 — "금회 조사 수량 = N개소"(철근 표 앞의 수량 표: 두 번째 2×4)
@@ -424,6 +426,28 @@ def _push_lonely(hwpx: Path, pdf: Path, say=None, after: str | None = None) -> l
     return done
 
 
+def _line_check(pdf: Path, label: str = "본문") -> list[str]:
+    """표 선 굵기 검사(pagecheck.line_warnings, 10/27 사용자 "선 굵기 안 맞는 것 — 이런 일 없게") — 우리 쪽만(외주 장 = 2장 간지 뒤 처음 "제3장"이 나오는 쪽부터는 뺌, 도면 얹기 전 PDF). 경고 글."""
+    import traceback
+
+    import pymupdf
+
+    from server.sitok import pagecheck
+
+    try:
+        with pymupdf.open(pdf) as doc:
+            texts = [re.sub(r"\s", "", pg.get_text()) for pg in doc]
+        s2 = next((i for i, t in enumerate(texts) if t.startswith("제2장현장조사2.1")), None)  # 2장 간지(목차는 그 앞)
+        end = next((i for i in range(s2 + 1, len(texts)) if "제3장" in texts[i]), len(texts)) if s2 is not None else len(texts)
+        found = pagecheck.line_warnings(pdf, range(end))
+        if found:
+            print("[선 굵기]", pdf.name, found, flush=True)
+        return [f"선 굵기 확인({label}): " + " · ".join(found)] if found else []
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        return []
+
+
 def _merge_masonry(hwpx: Path, pdf: Path, say=None) -> int:
     """조적벽 결과표 층·구분 세로 합치기(10/27 사용자) — PDF로 쪽마다 줄 수를 세어 쪽 경계에서 끊고(다음 쪽 첫 줄에 층·구분 다시) 합친 뒤 다시 PDF.
     쪽 정리·제목 넘김이 끝난 뒤(합치기 전 모양 그대로 쪽이 나뉘므로 쪽 경계는 안 바뀜). 못 하면 그대로."""
@@ -542,6 +566,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
         if seismic_fill.fill_toc(hwpx, pdf):
             say("목차 쪽 번호 넣고 다시 PDF로…")
             pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
+    warn += _line_check(pdf)  # 표 선 굵기 다름(10/27) — 도면 얹기 전
     if filling:  # 1.2 평면도·2.2.4 성적서 칸에 원본 PDF 쪽을 그대로(10/27 — 그림은 한글 파일용)
         seismic_fill.overlay_plans(pdf, f)
         seismic_fill.overlay_core(pdf, ((r.survey or {}).get("seismic_docs") or {}).get("core"), folder)

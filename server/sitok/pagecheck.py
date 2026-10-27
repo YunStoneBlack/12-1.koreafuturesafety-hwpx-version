@@ -191,6 +191,98 @@ def push_headings(hwpx: Path, found: list[str]) -> list[str]:
     return pushed
 
 
+def _line_sig(cover: list[tuple[float, float]]) -> tuple:
+    """한 자리 선 모양 = (선 자리별 굵기 등급) — 자리는 0.08pt 안이면 같은 선(맞닿은 두 칸이 겹쳐 그은 것은 하나), 굵기는 가는(0.8pt 미만 — 0.08~0.2mm는
+    눈으로 거의 같음)·굵은 두 등급. 두 줄 선은 자리 둘, 두 줄 위 가운데 한 줄이 더 그어지면 자리 셋."""
+    groups: list[list] = []
+    for off, w in sorted(cover):
+        g = 0 if w < 0.8 else 1
+        if groups and off - groups[-1][0] <= 0.08:
+            groups[-1][1] = max(groups[-1][1], g)
+        else:
+            groups.append([off, g])
+    return tuple(g for _, g in groups)
+
+
+def line_mismatch(pdf: Path, pages=None) -> list[tuple[int, str, float, float, float]]:
+    """표 선 굵기 어긋남(10/27 사용자 "선 굵기 안 맞는 것 — 매번 이런 게 생겨 불편, 이런 일 없게") — PDF 그은 선(get_drawings 's')으로:
+    한 경계(가로선은 y가 1.2pt 안, 세로선은 x가)에 끊김 없이 이어진 선을 따라가며 자리마다 모양(_line_sig — 한 줄/두 줄·가는/굵은)을 보고, 모양이 바뀌면 어긋남
+    (표 맨 아래 굵은 선이 한 칸만 가는 것, 머리 줄 아래 두 줄이 한 칸만 한 줄·두 줄 위에 한 줄이 겹친 것). 선 끝 3pt 안에서만 바뀌는 것은 뺌(두 줄 테두리 모서리).
+    pages = 볼 쪽 번호(0부터, 없으면 전부). 돌려주는 값 [(쪽 0부터, "가로"/"세로", 위치 pt, 시작, 끝)] — 모양이 바뀌는 둘레."""
+    import pymupdf
+
+    out = []
+    with pymupdf.open(pdf) as doc:
+        for i in (pages if pages is not None else range(doc.page_count)):
+            if i >= doc.page_count:
+                break
+            segs = {"가로": [], "세로": []}
+            for d in doc[i].get_drawings():
+                if "s" not in (d.get("type") or ""):
+                    continue
+                w = float(d.get("width") or 0)
+                for it in d["items"]:
+                    if it[0] != "l":
+                        continue
+                    p1, p2 = it[1], it[2]
+                    if abs(p1.y - p2.y) < 0.3 and abs(p1.x - p2.x) > 2:
+                        segs["가로"].append(((p1.y + p2.y) / 2, min(p1.x, p2.x), max(p1.x, p2.x), w))
+                    elif abs(p1.x - p2.x) < 0.3 and abs(p1.y - p2.y) > 2:
+                        segs["세로"].append(((p1.x + p2.x) / 2, min(p1.y, p2.y), max(p1.y, p2.y), w))
+            for kind, ss in segs.items():
+                ss.sort()
+                bands, cur = [], []
+                for sg in ss:  # 경계 묶음 — 두 줄 선(0.36pt 간격)·가운데 한 줄을 한 경계로
+                    if cur and sg[0] - cur[0][0] > 1.2:
+                        bands.append(cur)
+                        cur = []
+                    cur.append(sg)
+                if cur:
+                    bands.append(cur)
+                for band in bands:
+                    cuts = sorted({round(v, 1) for _, x0, x1, _ in band for v in (x0, x1)})
+                    runs, piece = [], []  # runs = 끊김 없이 이어진 선마다 [(시작, 끝, 모양)]
+                    for x0, x1 in zip(cuts, cuts[1:]):
+                        if x1 - x0 < 0.8:
+                            continue
+                        m = (x0 + x1) / 2
+                        cover = [(pos - band[0][0], w) for pos, s0, s1, w in band if s0 - 0.2 <= m <= s1 + 0.2]
+                        if not cover or (piece and x0 - piece[-1][1] > 1.5):
+                            if piece:
+                                runs.append(piece)
+                            piece = []
+                            if not cover:
+                                continue
+                        sig = _line_sig(cover)
+                        if piece and piece[-1][2] == sig:
+                            piece[-1][1] = x1
+                        else:
+                            piece.append([x0, x1, sig])
+                    if piece:
+                        runs.append(piece)
+                    for run in runs:
+                        while len(run) > 1 and run[0][1] - run[0][0] < 3:  # 모서리
+                            run.pop(0)
+                        while len(run) > 1 and run[-1][1] - run[-1][0] < 3:
+                            run.pop()
+                        for prev, nxt in zip(run, run[1:]):
+                            if prev[2] != nxt[2]:
+                                out.append((i, kind, round(band[0][0], 1), round(prev[0], 1), round(nxt[1], 1)))
+    return out
+
+
+def line_warnings(pdf: Path, pages=None, limit: int = 8) -> list[str]:
+    """line_mismatch를 회차 화면 경고 글로 — 쪽마다 한 줄(가로선은 위에서 몇 cm)."""
+    found = line_mismatch(pdf, pages)
+    by_page: dict = {}
+    for i, kind, pos, _a, _b in found:
+        by_page.setdefault(i, set()).add(f"{kind}선 {pos / 72 * 2.54:.0f}cm" if kind == "가로" else f"{kind}선(왼쪽 {pos / 72 * 2.54:.0f}cm)")
+    out = [f"{i + 1}쪽 표 선 굵기 다름 — {', '.join(sorted(v))}" for i, v in sorted(by_page.items())]
+    if len(out) > limit:
+        out = out[:limit] + [f"외 {len(out) - limit}쪽"]
+    return out
+
+
 LONELY = re.compile(r"^(\d+(\.\d+)+\.?\s*\S|\d+\)\s*\S|[가-하]\.\s*\S|\(\d+\)\s*\S|【[^】]*】|\[[^\]]+\])")  # 제목(2.4.3 …·1) …·가. …·(2) …)·표 이름(【…】·[…])
 NUM_HEAD = re.compile(r"^(\(\d+\)|\d+\)|[가-하]\.|\d+(\.\d+)+\.?)\s*")  # 제목 앞 번호 — 짝지을 땐 뗌(자동 번호는 한글 글에 없고 PDF에만 있음)
 

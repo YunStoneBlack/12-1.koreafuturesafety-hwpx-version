@@ -166,6 +166,9 @@ def assemble(db, main_pdf: Path, appx_hwpx: Path, dest: Path, r, f, rdir: Path, 
     appx_pdf.write_bytes(hwp_queue.convert_via_worker(appx_hwpx.read_bytes(), ".hwpx", wait=1500))
     from server.sitok.seismic_build import _tidy
     _tidy(appx_hwpx, appx_pdf, sections_from=0)  # 애매한 넘침 정리(10/26)
+    from server.sitok.seismic_build import _line_check
+
+    warn += _line_check(appx_pdf, "부록")  # 표 선 굵기 다름(10/27) — 서류 PDF 끼우기 전
     cache = rdir / "보고서그림"
     adds: dict[int, list[Path]] = {}
     for n, key in DOC_OF.items():

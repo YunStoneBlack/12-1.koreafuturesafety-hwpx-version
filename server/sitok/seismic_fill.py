@@ -136,6 +136,71 @@ def even_head_line(tbl, header: int) -> int:
         if m and m.group(0) != want:
             tc.set("borderFillIDRef", b.adopt(b.by_id[str(tc.get("borderFillIDRef"))].replace(m.group(0), want, 1)))
             n += 1
+    return n + _even_side(tbl, [tc for (r, _c), tc in rb._cells(tbl).items() if r == header], "topBorder")
+
+
+def _even_side(tbl, cells: list, side: str) -> int:
+    """cells의 side 선(topBorder 등)을 가장 많이 쓴 모양으로 — 첫 데이터 줄 위 선(10/27 조적벽 표 층·구분 칸만 한 줄이 머리 줄 아래 두 줄 위에 겹쳐 그어짐)."""
+    import collections
+
+    b = getattr(rb._TL, "borders", None)
+    if b is None or len(cells) < 2:
+        return 0
+    pat = re.compile(rf"<hh:{side} [^>]*/>")
+    got = {id(tc): pat.search(b.by_id.get(str(tc.get("borderFillIDRef")), "") or "") for tc in cells}
+    cnt = collections.Counter(m.group(0) for m in got.values() if m)
+    if len(cnt) < 2:
+        return 0
+    want = cnt.most_common(1)[0][0]
+    n = 0
+    for tc in cells:
+        m = got[id(tc)]
+        if m and m.group(0) != want:
+            tc.set("borderFillIDRef", b.adopt(b.by_id[str(tc.get("borderFillIDRef"))].replace(m.group(0), want, 1)))
+            n += 1
+    return n
+
+
+def even_col_lines(tbl) -> int:
+    """칸 사이 세로선을 위아래로 고르게 — 경계마다 (왼쪽 칸 오른선, 오른쪽 칸 왼선)을 줄마다 보고 가장 많은 모양으로(10/27 사용자 "선 굵기 안 맞는 것":
+    철근배근 표 시험번호 오른쪽 선이 머리 줄만 가늘고 데이터 줄은 0.3mm). 합친 칸이 경계를 덮는 줄은 뺌. 테두리 도구 안에서만. 바꾼 칸 수."""
+    import collections
+
+    b = getattr(rb._TL, "borders", None)
+    if b is None:
+        return 0
+    grid = {}
+    for (r, c), tc in rb._cells(tbl).items():
+        rs, cs = int(tc.find(f"{{{HP}}}cellSpan").get("rowSpan")), int(tc.find(f"{{{HP}}}cellSpan").get("colSpan"))
+        for i in range(r, r + rs):
+            for j in range(c, c + cs):
+                grid[(i, j)] = (tc, c, c + cs)
+    rows, cols = int(tbl.get("rowCnt")), int(tbl.get("colCnt"))
+    lr, ll = re.compile(r"<hh:rightBorder [^>]*/>"), re.compile(r"<hh:leftBorder [^>]*/>")
+    n = 0
+    for k in range(1, cols):
+        pairs = []
+        for r in range(rows):
+            left, right = grid.get((r, k - 1)), grid.get((r, k))
+            if left is None or right is None or left[0] is right[0] or left[2] != k or right[1] != k:
+                continue
+            dl, dr = b.by_id.get(str(left[0].get("borderFillIDRef")), ""), b.by_id.get(str(right[0].get("borderFillIDRef")), "")
+            ml, mr = lr.search(dl or ""), ll.search(dr or "")
+            if ml and mr:
+                pairs.append((left[0], right[0], ml.group(0), mr.group(0)))
+        cnt = collections.Counter((a, c) for _, _, a, c in pairs)
+        if len(cnt) < 2:
+            continue
+        wl, wr = cnt.most_common(1)[0][0]
+        done = set()
+        for lt, rt, a, c in pairs:
+            if (a, c) == (wl, wr):
+                continue
+            for tc, old, new in ((lt, a, wl), (rt, c, wr)):
+                if old != new and (id(tc), old) not in done:
+                    tc.set("borderFillIDRef", b.adopt(b.by_id[str(tc.get("borderFillIDRef"))].replace(old, new, 1)))
+                    done.add((id(tc), old))
+                    n += 1
     return n
 
 
@@ -536,6 +601,7 @@ def fill_chunks(root, tables: list, rows: list[list], per: int, header: int, fla
                     _set(cells, (header + j, c), v)
         thick_bottom(t)
         even_head_line(t, header)  # 머리 줄 아래 선 고르게(10/27)
+        even_col_lines(t)
     for p, idx in slots[len(chunks):]:
         if p.getparent() is None:
             continue
@@ -1379,6 +1445,7 @@ def merge_masonry(root, cuts: list[set] | None = None) -> int:
                 s = i
         thick_bottom(t)  # 합친 칸이 끝줄에 닿으면 그 칸도 굵은 아래 선
         even_head_line(t, MASONRY_HEAD)
+        even_col_lines(t)
     return n
 
 
