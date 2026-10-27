@@ -174,7 +174,7 @@ class Todo:
 
             blank = seismic_fill.blank_png(rdir)
             for t, pic in self.pics:
-                if pic.getparent() is not None and self.doc.root in pic.iterancestors():
-                    seismic_fill._put(self.doc, pic, blank, crop=False)
+                if pic.getparent() is not None and self.doc.root in pic.iterancestors():  # 사진 여러 장 표(지반 조사 현황)는 사진 칸 여백도(10/27)
+                    seismic_fill._put(self.doc, pic, blank, crop=False, pad=len(rb._pic_slots(t)) >= 2)
                     n += 1
         return n

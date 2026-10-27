@@ -170,22 +170,55 @@ def blank_png(rdir: Path) -> Path:
     return p
 
 
-def _put_or_blank(doc, pic, path: Path | None, rdir: Path, crop: bool = True) -> bool:
-    """그림을 넣고(True), 없으면 빈칸 그림(False)."""
-    if _put(doc, pic, path, crop=crop):
+PHOTO_PAD = 566  # 사진 칸 둘레 여백 2mm(10/27 민재형 "조적 채움벽 사진 기준으로 표 안 사진 여백 통일 — 사진 넣는 곳 전체")
+
+
+def _pad_photo(pic, pad: int = PHOTO_PAD) -> tuple[int, int] | None:
+    """사진 칸 = 칸 안 여백 사방 pad, 칸을 꽉 채우던 사진은 그만큼 줄임(비율 그대로) — 견본 칸마다 사진이 칸을 꽉 채우거나(중량물)
+    여백이 있거나(조적 채움벽 2mm) 제각각이었음. 새 그림 크기(w, h) — 못 하면 None."""
+    tc = next(pic.iterancestors(f"{{{HP}}}tc"), None)
+    sz = pic.find(f"{{{HP}}}curSz")
+    if tc is None or sz is None:
+        return None
+    w, h = int(sz.get("width") or 0), int(sz.get("height") or 0)
+    cw = int(tc.find(f"{{{HP}}}cellSz").get("width") or 0)
+    if w <= 0 or h <= 0 or cw <= 2 * pad:
+        return None
+    tc.set("hasMargin", "1")
+    cm = tc.find(f"{{{HP}}}cellMargin")
+    if cm is None:
+        cm = etree.SubElement(tc, f"{{{HP}}}cellMargin")
+    for k in ("left", "right", "top", "bottom"):
+        cm.set(k, str(pad))
+    k = min(1.0, (cw - 2 * pad) / w)
+    w, h = round(w * k), round(h * k)
+    for tag in ("orgSz", "curSz", "sz"):
+        el = pic.find(f"{{{HP}}}{tag}")
+        if el is not None:
+            el.set("width", str(w))
+            el.set("height", str(h))
+    return w, h
+
+
+def _put_or_blank(doc, pic, path: Path | None, rdir: Path, crop: bool = True, pad: bool = False) -> bool:
+    """그림을 넣고(True), 없으면 빈칸 그림(False). pad = 사진 칸 여백 맞추기(_pad_photo)."""
+    if _put(doc, pic, path, crop=crop, pad=pad):
         return True
-    _put(doc, pic, blank_png(rdir), crop=False)
+    _put(doc, pic, blank_png(rdir), crop=False, pad=pad)
     return False
 
 
-def _put(doc, pic, path: Path | None, crop: bool = True) -> bool:
+def _put(doc, pic, path: Path | None, crop: bool = True, pad: bool = False) -> bool:
     img = next(pic.iter(f"{{{HC}}}img"), None)
     if img is None or path is None or not Path(path).exists():
         return False
+    size = _pad_photo(pic) if pad else None
     data = rb._fit_to_pic(str(path), img, crop=crop)
     if not isinstance(data, (bytes, bytearray)):
         data = Path(data).read_bytes()
     img.set("binaryItemIDRef", doc.add_image(bytes(data)))
+    if size:
+        _size_pic(pic, size[0], size[1], bytes(data))
     return True
 
 
@@ -214,7 +247,7 @@ def fill_photos(doc, root, field: dict, rdir: Path, warn: list, f=None) -> int:
         if t is None:
             continue
         for slot, (_, pic) in zip(slots, rb._pic_slots(t)):
-            if _put_or_blank(doc, pic, path(slot), rdir):
+            if _put_or_blank(doc, pic, path(slot), rdir, pad=True):
                 n += 1
             else:
                 miss.append(SF.PHOTO[slot][0])
@@ -227,7 +260,7 @@ def fill_photos(doc, root, field: dict, rdir: Path, warn: list, f=None) -> int:
         if len(ts) >= 2:
             for slot, t, crop in (("map", ts[0], False), ("front", ts[-1], True)):
                 src = map_image(f, field, rdir) if slot == "map" else path(slot)
-                if _put_or_blank(doc, rb._pic_slots(t)[0][1], src, rdir, crop=crop):
+                if _put_or_blank(doc, rb._pic_slots(t)[0][1], src, rdir, crop=crop, pad=True):
                     n += 1
                 else:
                     miss.append(SF.PHOTO[slot][0])
@@ -1252,10 +1285,10 @@ def fill_ground(doc, root, ground: dict | None, rdir: Path, warn: list) -> int:
         for (rc, pic), (slot, label, _keys) in zip(slots, SD.GROUND_SLOTS):
             _set(cells, (rc[0] + 1, rc[1]), f"{h['bh']} {label}")
             name = (h.get("photos") or {}).get(slot)
-            if name and _put(doc, pic, gdir / name, crop=True):
+            if name and _put(doc, pic, gdir / name, crop=True, pad=True):
                 n += 1
             else:  # 없으면 빈칸(10/22 형 "없으면 공란이 정상")
-                _put(doc, pic, blank_png(rdir), crop=False)
+                _put(doc, pic, blank_png(rdir), crop=False, pad=True)
                 warn.append(f"{h['bh']} {label} 사진 없음(빈칸) — 지반조사 확인")
 
     def write_result(t, h):
@@ -1709,7 +1742,7 @@ def fill_size_plans(doc, root, f, reg: dict, rdir: Path, warn: list, field: dict
             warn.append("1.2 건물 길이(장변·단변)가 없어 \"-\"입니다(건 화면 🏢 건물 정보)")
         if rb._pic_slots(t):  # 1.2 표 안 전경 사진 — 현장조사 입력 "시설물 전경", 없으면 빈칸(10/22 형 "전경 없는데 들어가 있음")
             front = ((field or {}).get("photos") or {}).get("front") or {}
-            n += _put_or_blank(doc, rb._pic_slots(t)[0][1], (rdir / front["rel"]) if front.get("rel") else None, rdir)
+            n += _put_or_blank(doc, rb._pic_slots(t)[0][1], (rdir / front["rel"]) if front.get("rel") else None, rdir, pad=True)
     plans = plan_images(f, rdir)
     tables = [t for t in _outer(root) if (t.get("rowCnt"), t.get("colCnt")) == ("3", "4") and rb._pic_slots(t)
               and _n(rb._cell_text(rb._cells(t).get((2, 0), t))).endswith("평면도")]

@@ -104,7 +104,7 @@ def fill_appendix(doc, d: dict, r, f, rdir: Path, warn: list) -> int:
             continue
         for slot, (_, pic) in zip(slots, rb._pic_slots(t)):
             rel = (photos.get(slot) or {}).get("rel")
-            n += SFL._put_or_blank(doc, pic, (rdir / rel) if rel else None, rdir)  # 없으면 빈칸(10/22 형 "측정 데이터 안 넣었는데 들어감")
+            n += SFL._put_or_blank(doc, pic, (rdir / rel) if rel else None, rdir, pad=True)  # 없으면 빈칸(10/22 형 "측정 데이터 안 넣었는데 들어감")
     members = field["members"]
     tables = [t for t in SFL._outer(root) if t.get("colCnt") == "6" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "NO"]
     rows = [[str(i + 1), SFL.member_where(m),
