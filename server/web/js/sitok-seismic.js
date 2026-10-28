@@ -126,7 +126,10 @@
       sFloor = b.dataset.mf === sFloor && b.classList.contains("sf2-fname") ? "" : b.dataset.mf;
       try { sessionStorage.setItem(`ss-mf-${rid}`, sFloor); } catch (_) { /* */ }
       draw();
-      document.querySelector("#ss-rows .ss-cards")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      // 층을 누르면 그 층의 첫 "작성 안 된 칸"으로(10/28 사용자 폰) — 다 썼으면 그 층 첫 카드, 전체 보기는 맨 위
+      const first = sFloor ? document.querySelector(`#ss-rows .ss-card.empty[data-floor="${sFloor}"]`) || document.querySelector(`#ss-rows .ss-card[data-floor="${sFloor}"]`) : null;
+      if (first) setTimeout(() => flashCard(first.dataset.id), 0); // draw()가 스크롤을 제자리로 돌린 직후 같은 틱에 부드러운 스크롤을 걸면 사파리가 버림
+      else document.querySelector("#ss-rows .ss-cards")?.scrollIntoView({ block: "start", behavior: "smooth" });
     }));
     document.querySelectorAll("#ss-rows [data-kj]").forEach((b) => b.addEventListener("click", () => jumpKind(b.dataset.kj)));
     const row = document.querySelector("#ss-rows .ss-nav .sf2-fchips"), on = row?.querySelector("button.on"); // 폰 — 한 줄로 밀리는 층 줄에서 고른 층이 보이게
@@ -142,13 +145,13 @@
     if (r.kind === "벽체" || k === "벽체") out.measured = ["", ""];
     return out;
   };
+  // 층·부재 줄이 위에 붙었을 때의 아래 y = sticky top(--tabs-h) + 줄 높이 — 지금 화면 위치(getBoundingClientRect)로 재면 아직 안 붙은 때(층 누른 직후·전체 보기 맨 위)
+  // 줄이 흐름 속에 있어 그만큼(10/28 시험 266px) 지나쳐 버림
+  const navStuckBottom = () => { const nav = document.querySelector("#ss-rows .ss-nav"); return nav ? (parseFloat(getComputedStyle(nav).top) || 0) + nav.offsetHeight : 0; };
   function flashCard(id, scroll = true) { // scroll=false — 제자리 작업(부재 바꾸기)은 화면을 안 움직이고 깜빡이기만(10/28 사용자 "커서가 바뀐 부재쪽으로 넘어감")
     const target = document.querySelector(`#ss-rows .ss-card[data-id="${id}"]`);
     if (!target) return;
-    if (scroll) {
-      const navBottom = document.querySelector("#ss-rows .ss-nav")?.getBoundingClientRect().bottom || 0;
-      window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - navBottom - 8, behavior: "smooth" });
-    }
+    if (scroll) window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - navStuckBottom() - 8, behavior: "smooth" });
     target.classList.add("ss-flash");
     setTimeout(() => target.classList.remove("ss-flash"), 1500);
   }
@@ -211,8 +214,7 @@
     }
     const target = cards.find((c) => c.dataset.floor === floor && c.dataset.kind === kind);
     if (!target) { showErr(`이 층에는 ${kind} 카드가 없습니다 — 위 칸 수 표에서 칸을 늘리세요.`); setTimeout(() => showErr(""), 2500); return; }
-    const navBottom = document.querySelector("#ss-rows .ss-nav")?.getBoundingClientRect().bottom || 0; // 고정 줄 높이가 폰에선 여러 줄 — 그만큼 아래로
-    window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - navBottom - 8, behavior: "smooth" });
+    window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - navStuckBottom() - 8, behavior: "smooth" }); // 고정 줄 높이가 폰에선 여러 줄 — 그만큼 아래로
     target.classList.add("ss-flash");
     setTimeout(() => target.classList.remove("ss-flash"), 1200);
   }
