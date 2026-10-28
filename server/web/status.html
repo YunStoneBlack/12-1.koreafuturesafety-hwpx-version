@@ -24,9 +24,10 @@
   <label class="st-only"><input type="checkbox" id="st-open" /> 안 끝난 것만</label>
 </div>
 
-<!-- 넓은 PC(1700px~)는 왼쪽 = 카드·월별·목록, 오른쪽 = 현장별 추진 현황(10/28 사용자 "오른쪽 빈 곳으로"), 그보다 좁으면 위에서 아래로 지금 순서 -->
+<!-- 넓은 PC(1700px~)는 왼쪽(.st-left) = 카드·월별·목록, 오른쪽 = 현장별 추진 현황(10/28 사용자 "오른쪽 빈 곳으로"),
+     그보다 좁으면 .st-left를 풀어 카드 · 월별 · 추진 현황 · 목록 순서(style.css order). 숫자 카드는 PC에서 탭 줄 아래에 붙음(왼쪽 기둥 안에서만) -->
 <div class="st-layout">
-<div class="st-top">
+<div class="st-left">
 <div class="st-cards" id="st-cards"></div>
 
 <div class="st-row2">
@@ -37,12 +38,12 @@
   </div>
   <div class="st-staff" id="st-staff-box"></div>
 </div>
-</div>
-
-<div class="st-prog" id="st-prog-box"></div>
 <section class="panel st-list-panel">
   <div id="st-list"></div>
 </section>
+</div>
+
+<div class="st-prog" id="st-prog-box"></div>
 </div>
 
   </main>
