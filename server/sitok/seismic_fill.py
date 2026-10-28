@@ -204,6 +204,72 @@ def even_col_lines(tbl) -> int:
     return n
 
 
+def even_row_lines(tbl) -> int:
+    """줄 사이 가로선을 좌우로 고르게 — 경계마다 (위 칸 아래선, 아래 칸 위선)을 칸마다 보고 가장 많은 모양으로(10/28 사용자 "표 선 굵기가 제멋대로":
+    부재 단면 표 조사위치·실측치수 칸만 0.48pt, 나머지 0.36pt — 견본 줄을 복사해 그대로 따라옴). 합친 칸이 경계를 덮는 자리는 뺌. 테두리 도구 안에서만. 바꾼 칸 수."""
+    import collections
+
+    b = getattr(rb._TL, "borders", None)
+    if b is None:
+        return 0
+    grid = {}
+    for (r, c), tc in rb._cells(tbl).items():
+        rs, cs = int(tc.find(f"{{{HP}}}cellSpan").get("rowSpan")), int(tc.find(f"{{{HP}}}cellSpan").get("colSpan"))
+        for i in range(r, r + rs):
+            for j in range(c, c + cs):
+                grid[(i, j)] = (tc, r, r + rs)
+    rows, cols = int(tbl.get("rowCnt")), int(tbl.get("colCnt"))
+    lb, lt = re.compile(r"<hh:bottomBorder [^>]*/>"), re.compile(r"<hh:topBorder [^>]*/>")
+    n = 0
+    for k in range(1, rows):
+        pairs = []
+        for c in range(cols):
+            up, dn = grid.get((k - 1, c)), grid.get((k, c))
+            if up is None or dn is None or up[0] is dn[0] or up[2] != k or dn[1] != k:
+                continue
+            du, dd = b.by_id.get(str(up[0].get("borderFillIDRef")), ""), b.by_id.get(str(dn[0].get("borderFillIDRef")), "")
+            mu, md = lb.search(du or ""), lt.search(dd or "")
+            if mu and md:
+                pairs.append((up[0], dn[0], mu.group(0), md.group(0)))
+        cnt = collections.Counter((a, c) for _, _, a, c in pairs)
+        if len(cnt) < 2:
+            continue
+        wu, wd = cnt.most_common(1)[0][0]
+        done = set()
+        for ut, dt, a, c in pairs:
+            if (a, c) == (wu, wd):
+                continue
+            for tc, old, new in ((ut, a, wu), (dt, c, wd)):
+                if old != new and (id(tc), old) not in done:
+                    tc.set("borderFillIDRef", b.adopt(b.by_id[str(tc.get("borderFillIDRef"))].replace(old, new, 1)))
+                    done.add((id(tc), old))
+                    n += 1
+    return n
+
+
+def even_table(tbl) -> int:
+    """한 표의 선을 경계마다 고르게 — 칸 사이 세로선·가로선 + 바깥 네 변(위·아래·왼·오른 칸들의 그 변) 각각 가장 많은 모양으로. 테두리 도구 안에서만. 바꾼 칸 수."""
+    cells = rb._cells(tbl)
+    rows, cols = int(tbl.get("rowCnt")), int(tbl.get("colCnt"))
+    span = lambda tc, k: int(tc.find(f"{{{HP}}}cellSpan").get(k))  # noqa: E731
+    n = even_col_lines(tbl) + even_row_lines(tbl)
+    n += _even_side(tbl, [tc for (r, _c), tc in cells.items() if r == 0], "topBorder")
+    n += _even_side(tbl, [tc for (r, _c), tc in cells.items() if r + span(tc, "rowSpan") == rows], "bottomBorder")
+    n += _even_side(tbl, [tc for (_r, c), tc in cells.items() if c == 0], "leftBorder")
+    n += _even_side(tbl, [tc for (_r, c), tc in cells.items() if c + span(tc, "colSpan") == cols], "rightBorder")
+    return n
+
+
+def even_tables(root) -> int:
+    """우리 한글의 모든 표(안쪽 표 포함, 1×1 상자 빼고) 선을 경계마다 고르게(10/28 사용자 "다시는 이런 일 없도록" — 채우는 코드마다 맞추던 것을 마지막에 한 번 전부).
+    테두리 도구(borders_for) 안에서, 채우기가 다 끝난 뒤. 바꾼 칸 수."""
+    n = 0
+    for t in root.iter(f"{{{HP}}}tbl"):
+        if int(t.get("rowCnt") or 1) >= 2 or int(t.get("colCnt") or 1) >= 2:
+            n += even_table(t)
+    return n
+
+
 def thick_bottom(tbl) -> int:
     """표 끝줄(아래로 끝까지 닿는 칸) 아래 선 = 머리줄 첫 칸의 위 선 모양(보통 굵은 선) — 다음 쪽으로 이어지던 견본 표를 틀로 쓴 표도 그 쪽에서 끝나면
     굵게(10/22 사용자 "표 맨 아래 굵은선"). 테두리 도구(borders_for) 안에서만. 바꾼 칸 수."""

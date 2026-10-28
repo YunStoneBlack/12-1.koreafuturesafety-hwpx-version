@@ -724,6 +724,9 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
                 changed += todo.finish(folder, warn)
             if filling:  # 도면·성적서·도해·모델링 그림 칸도 사진 칸처럼 여백 2mm(10/27) — 그림이 다 들어간 뒤
                 changed += seismic_fill.pad_figures(root)
+            evened = seismic_fill.even_tables(root)  # 모든 표 선 경계마다 고르게(10/28 사용자 "표 선 굵기가 제멋대로") — 채우기 끝난 뒤 마지막에
+            if evened:
+                print(f"[표 선 고르게] {base}: {evened}칸", flush=True)
     finally:
         if todo is not None:
             todo.stop()
@@ -767,6 +770,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
         adoc = Hwpx(master.master_path("성능평가부록"))
         with seismic_fill.borders_for(adoc):
             SA.fill_appendix(adoc, d, r, f, folder, warn)
+            seismic_fill.even_tables(adoc.root)  # 부록 표도(10/28)
         appx = folder / f"{base}_부록.hwpx"
         adoc.save(appx)
         say("부록 PDF·합본 만드는 중(2~4분)…")

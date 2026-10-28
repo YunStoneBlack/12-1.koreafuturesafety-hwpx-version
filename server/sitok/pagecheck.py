@@ -195,14 +195,14 @@ DRAWING_LINES = 400  # 한 쪽에 5pt 넘는 그은 선이 이보다 많으면 �
 
 
 def _line_sig(cover: list[tuple[float, float]]) -> tuple:
-    """한 자리 선 모양 = (선 자리별 굵기 등급) — 자리는 0.08pt 안이면 같은 선(맞닿은 두 칸이 겹쳐 그은 것은 하나), 굵기는 가는(0.8pt 미만 — 0.08~0.2mm는
-    눈으로 거의 같음)·굵은 두 등급. 두 줄 선은 자리 둘, 두 줄 위 가운데 한 줄이 더 그어지면 자리 셋."""
+    """한 자리 선 모양 = (선 자리별 굵기) — 자리는 0.08pt 안이면 같은 선(맞닿은 두 칸이 겹쳐 그은 것은 하나), 굵기는 0.1pt로 반올림한 실제 값
+    (10/28 사용자 "제멋대로" — 전엔 0.8pt 미만을 한 등급으로 봐 0.36 vs 0.48pt를 못 잡았음). 두 줄 선은 자리 둘, 두 줄 위 가운데 한 줄이 더 그어지면 자리 셋."""
     thick = [(off, w) for off, w in cover if w >= 0.8]
     groups: list[list] = []
     for off, w in sorted(cover):
         if w < 0.8 and any(abs(off - o) <= tw / 2 + 0.1 for o, tw in thick):
             continue  # 굵은 선 속에 숨은 가는 선(시특법 1.6 장비 표 쪽 경계 — 1.08pt 선 안 0.12pt 두 줄, 눈엔 한 굵은 선)
-        g = 0 if w < 0.8 else 1
+        g = round(w, 1)
         if groups and off - groups[-1][0] <= 0.08:
             groups[-1][1] = max(groups[-1][1], g)
         else:
