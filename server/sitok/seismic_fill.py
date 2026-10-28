@@ -443,19 +443,29 @@ def pad_figures(root, pad: int = PHOTO_PAD) -> int:
     return n
 
 
-def _put_or_blank(doc, pic, path: Path | None, rdir: Path, crop: bool = True, pad: bool = False) -> bool:
+def _put_or_blank(doc, pic, path: Path | None, rdir: Path, crop: bool = True, pad: bool = False, full: bool = False) -> bool:
     """그림을 넣고(True), 없으면 빈칸 그림(False). pad = 사진 칸 여백 맞추기(_pad_photo)."""
-    if _put(doc, pic, path, crop=crop, pad=pad):
+    if _put(doc, pic, path, crop=crop, pad=pad, full=full):
         return True
     _put(doc, pic, blank_png(rdir), crop=False, pad=pad)
     return False
 
 
-def _put(doc, pic, path: Path | None, crop: bool = True, pad: bool = False) -> bool:
+def _put(doc, pic, path: Path | None, crop: bool = True, pad: bool = False, full: bool = False) -> bool:
+    """그림 넣기. full = 선·글이 있는 그림(철근탐사 캡처·위치도·지반조사 그림 — 10/28 사용자 "철근탐사, 도면 이런 거는 화질 좋게")은 원본 해상도 PNG로
+    (틀 비율로 흰 여백만 — _full_png), 아니면 틀 크기 96dpi JPEG(사진)."""
     img = next(pic.iter(f"{{{HC}}}img"), None)
     if img is None or path is None or not Path(path).exists():
         return False
     size = _pad_photo(pic) if pad else None
+    if full:
+        sz = pic.find(f"{{{HP}}}curSz")
+        w, h = int(sz.get("width") or 0), int(sz.get("height") or 0)
+        data = _full_png(path, w, h) if w > 0 and h > 0 else None
+        if data:
+            img.set("binaryItemIDRef", doc.add_image(data, "png", "image/png"))
+            _size_pic(pic, w, h, data)
+            return True
     data = rb._fit_to_pic(str(path), img, crop=crop)
     if not isinstance(data, (bytes, bytearray)):
         data = Path(data).read_bytes()
@@ -503,7 +513,7 @@ def fill_photos(doc, root, field: dict, rdir: Path, warn: list, f=None) -> int:
         if len(ts) >= 2:
             for slot, t, crop in (("map", ts[0], False), ("front", ts[-1], True)):
                 src = map_image(f, field, rdir) if slot == "map" else path(slot)
-                if _put_or_blank(doc, rb._pic_slots(t)[0][1], src, rdir, crop=crop, pad=True):
+                if _put_or_blank(doc, rb._pic_slots(t)[0][1], src, rdir, crop=crop, pad=True, full=slot == "map"):  # 위치도는 원본 화질(10/28)
                     n += 1
                 else:
                     miss.append(SF.PHOTO[slot][0])
@@ -1644,7 +1654,7 @@ def fill_ground(doc, root, ground: dict | None, rdir: Path, warn: list) -> int:
             ole = next(cell.iter(f"{{{HP}}}ole"), None) if cell is not None else None
             slot = rb._pic_slots(mt)
             if slot:
-                n += _put(doc, slot[0][1], gdir / ground["map"], crop=False)
+                n += _put(doc, slot[0][1], gdir / ground["map"], crop=False, full=True)  # 지반조사 위치도 — 원본 화질(10/28)
             elif ole is not None and pic_tpl is not None:
                 n += _ole_to_pic(doc, ole, pic_tpl, gdir / ground["map"])
 
@@ -1688,7 +1698,7 @@ def fill_ground(doc, root, ground: dict | None, rdir: Path, warn: list) -> int:
         crop = gdir / h["result"] if h.get("result") else None
         img = ground_result_image(crop, h, rdir / "보고서그림" / f"지반결과_{h['bh']}.png")
         slot = rb._pic_slots(t)
-        if slot and _put(doc, slot[0][1], img, crop=False):
+        if slot and _put(doc, slot[0][1], img, crop=False, full=True):  # 지반조사 결과(주상도·표 그림) — 원본 화질(10/28)
             n += 1
 
     multiply(photo_tbls, write_photos)
@@ -2094,8 +2104,6 @@ def plan_thumb(path: Path, page: int, width: int = 360) -> bytes:
 def _put_full(doc, pic, path: Path) -> bool:
     """도면 그림을 원본 해상도 그대로 틀에 — 틀 비율로 흰 여백만 둘러 PNG, 크기는 틀(_size_pic: 원래 크기·자르기를 픽셀로)이라 한글이 줄여 그림
     (10/26 형 "도면 화질저하" — 전엔 틀 크기 96dpi JPEG로 줄여 넣어 566px, 이제 원본 2149px → PDF 속 364dpi, 한 장 약 120KB)."""
-    from PIL import Image
-
     img = next(pic.iter(f"{{{HC}}}img"), None)
     sz = pic.find(f"{{{HP}}}curSz")
     if img is None or sz is None or path is None or not Path(path).exists():
@@ -2103,17 +2111,34 @@ def _put_full(doc, pic, path: Path) -> bool:
     w, h = int(sz.get("width") or 0), int(sz.get("height") or 0)
     if w <= 0 or h <= 0:
         return False
-    im = Image.open(path).convert("RGB")
+    data = _full_png(path, w, h)
+    if not data:
+        return False
+    img.set("binaryItemIDRef", doc.add_image(data, "png", "image/png"))
+    _size_pic(pic, w, h, data)
+    return True
+
+
+FULL_MAX = 3200  # 원본 해상도 그림의 긴 변 상한(px) — 폰 사진·큰 스캔이 들어와도 한 장 수 MB가 안 되게(쪽 너비 17cm에서 약 480dpi)
+
+
+def _full_png(path, w: int, h: int) -> bytes | None:
+    """그림을 원본 해상도 그대로(긴 변 FULL_MAX까지) 틀 비율(w:h)로 흰 여백만 둘러 PNG — 한글이 틀 크기로 줄여 그림(PDF 속 해상도 = 원본)."""
+    from PIL import Image, ImageOps
+
+    try:
+        im = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+    except Exception:  # noqa: BLE001
+        return None
+    if max(im.size) > FULL_MAX:
+        im.thumbnail((FULL_MAX, FULL_MAX), Image.LANCZOS)
     r = w / h
     cw, ch = (im.width, round(im.width / r)) if im.width / im.height > r else (round(im.height * r), im.height)
     canvas = Image.new("RGB", (cw, ch), "white")
     canvas.paste(im, ((cw - im.width) // 2, (ch - im.height) // 2))
     buf = io.BytesIO()
     canvas.save(buf, "PNG", optimize=True)
-    data = buf.getvalue()
-    img.set("binaryItemIDRef", doc.add_image(data, "png", "image/png"))
-    _size_pic(pic, w, h, data)
-    return True
+    return buf.getvalue()
 
 
 def _pic_turned(t) -> bool:

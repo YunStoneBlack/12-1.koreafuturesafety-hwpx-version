@@ -19,8 +19,8 @@ DOC_SHOWN_PT = 400     # 이보다 넓게 들어간 그림은 문서 그림으�
 MARGIN = 1.15          # 목표보다 15% 넘게 높을 때만 줄임(줄여 봐야 거의 안 작아지는 그림은 두기)
 
 
-def shrink_doc(doc: pymupdf.Document) -> int:
-    """doc 안의 큰 그림을 줄인다(제자리). 줄인 그림 수."""
+def shrink_doc(doc: pymupdf.Document, docs: bool = True) -> int:
+    """doc 안의 큰 그림을 줄인다(제자리). 줄인 그림 수. docs=False면 쪽 너비 문서 그림(도면·스캔 서류)은 그대로 두고 사진만(10/28 내진 — 용량 한도 없음, 화질 우선)."""
     shown: dict[int, float] = {}  # 그림 → 가장 크게 들어간 가로(pt)
     for page in doc:
         for img in page.get_images(full=True):
@@ -35,6 +35,8 @@ def shrink_doc(doc: pymupdf.Document) -> int:
         if not info or info.get("smask"):
             continue
         w, h = info["width"], info["height"]
+        if width_pt >= DOC_SHOWN_PT and not docs:
+            continue
         dpi, quality = (DOC_DPI, DOC_QUALITY) if width_pt >= DOC_SHOWN_PT else (PHOTO_DPI, PHOTO_QUALITY)
         target_w = round(width_pt / 72 * dpi)
         if w <= target_w * MARGIN:

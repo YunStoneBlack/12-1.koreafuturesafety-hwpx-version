@@ -81,7 +81,7 @@ def fill_rebar_blocks(doc, root, rows: list[dict], rdir: Path, warn: list) -> in
             cap = row["captures"][line]
             pic = pics.get(prc)
             if pic is not None:
-                if not (cap and SFL._put(doc, pic, rdir / cap, crop=False)):
+                if not (cap and SFL._put(doc, pic, rdir / cap, crop=False, full=True)):  # 탐사기 캡처는 원본 화질(10/28 사용자 — 96dpi JPEG로 줄여 흐렸음)
                     SFL._put(doc, pic, _blank(rdir), crop=False)
                     miss += 1
         n += 1
@@ -250,7 +250,7 @@ def assemble(db, main_pdf: Path, appx_hwpx: Path, dest: Path, r, f, rdir: Path, 
     full.insert_pdf(doc)
     doc.close()
     try:
-        pdf_shrink.shrink_doc(full)
+        pdf_shrink.shrink_doc(full, docs=False)  # 내진은 제출 용량 한도 없음 — 사진만 줄이고 도면·성적서·스캔 서류 같은 쪽 너비 그림은 원본 화질(10/28 사용자)
         full.subset_fonts()
     except Exception:  # noqa: BLE001 — 줄이기 못 하면 그대로
         pass
