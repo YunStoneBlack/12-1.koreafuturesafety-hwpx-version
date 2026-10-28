@@ -179,6 +179,8 @@ def normalize(data: dict | None) -> dict:
             "core_note": _s(d.get("core_note"), 200),
             "core_design": _num(d.get("core_design")),  # 설계기준강도(도면, MPa) — 2.2.4 85%·75% 비교
             "summary": _s(d.get("summary"), 4000),  # 요약문 책임기술자 종합의견(견본 문장 채우기·AI 초안 뒤 사람이 고침, 10/22)
+            "text_notes": {k: _s((d.get("text_notes") or {}).get(k), 400) for k, _label, _default in TEXTS},  # 칸마다 "덧붙일 내용"(AI 다시 쓰기에 반영, 10/28 사용자)
+            "summary_note": _s(d.get("summary_note"), 600),  # 요약문 종합의견 덧붙일 내용
             "member_plan": norm_plan(d.get("member_plan")),  # 부재 단면 칸 수(비면 표본 층 × 종별 × 3·9 기본)
             "member_order": norm_order(d.get("member_order")),  # 부재 단면 층별 칸 차례(화면만 — 보고서는 members 차례)
             "masonry_types": [norm_mtype(x) for x in d.get("masonry_types") or [] if isinstance(x, dict)][:60],

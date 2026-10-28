@@ -1110,4 +1110,10 @@ button.sp-pick-it.on { border-color: var(--blue); }
   .sf2-stick .sp-min-row::-webkit-scrollbar { display: none; }
   .sf2-stick .sp-min-go { flex: 1 0 100%; margin-left: 0; }
 }
+/* 분석 글 칸 아래 "덧붙일 내용" + 다시 쓰기(10/28 사용자) */
+.sf2-tn { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.sf2-tn label { flex: none; font-size: 12.5px; color: var(--muted); }
+.sf2-tn input { flex: 1; min-width: 0; font-size: 13px; }
+.main .sf2-tn button { margin: 0; flex: none; white-space: nowrap; padding: 6px 10px; font-size: 12.5px; }
+@media (max-width: 760px) { .sf2-tn { flex-wrap: wrap; } .sf2-tn input { flex-basis: 100%; } }
 

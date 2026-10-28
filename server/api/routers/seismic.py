@@ -655,7 +655,7 @@ def _field_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
     core_doc = (_sv(r).get("seismic_docs") or {}).get("core") or {}
     return {"id": r.id, "facility_id": f.id, "name": f.name, "members": fd["members"], "cores": fd["cores"], "masonry": fd["masonry"],
             "texts": fd["texts"], "text_labels": [[k, label] for k, label, _ in SF.TEXTS], "core_note": fd["core_note"], "core_design": fd["core_design"],
-            "summary": fd["summary"],
+            "summary": fd["summary"], "text_notes": fd["text_notes"], "summary_note": fd["summary_note"],
             "photos": {k: {"at": v.get("at", ""), "name": v.get("name", "")} for k, v in fd["photos"].items()},
             "photo_slots": [[k, label, where] for k, label, where in SF.PHOTO_SLOTS], "core_stats": SF.core_stats(fd["cores"]),
             "has_core_report": bool(core_doc.get("rel") and (rdir / core_doc["rel"]).exists()),
@@ -691,7 +691,8 @@ def save_field(rid: int, body: dict = Body(...), user: User = Depends(get_curren
 
     f, r = _require(db, user, rid)
     cur = _field(r)
-    for k in ("members", "cores", "masonry", "texts", "core_note", "core_design", "summary", "member_plan", "member_order", "masonry_types", "masonry_plan"):
+    for k in ("members", "cores", "masonry", "texts", "core_note", "core_design", "summary", "member_plan", "member_order", "masonry_types", "masonry_plan",
+              "text_notes", "summary_note"):
         if k in body:
             cur[k] = body[k]
     cur = SF.apply_types(SF.normalize(cur))  # 조적 칸은 목록 값으로(10/22)
@@ -811,20 +812,24 @@ def _summary_base(db: Session, f: SitokFacility, r: SitokReport) -> tuple[str, d
 
 
 @router.post("/projects/{rid}/field/summary/{mode}")
-def make_summary(rid: int, mode: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """mode = template(견본 문장에 값만, 무료) | ai(이번 건 자료로 AI가 다시 씀, 약 30원). 만든 글을 저장하고 돌려줌(화면에서 고쳐 저장)."""
+def make_summary(rid: int, mode: str, body: dict | None = Body(None), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """mode = template(견본 문장에 값만, 무료) | ai(이번 건 자료로 AI가 다시 씀, 약 30원). 만든 글을 저장하고 돌려줌(화면에서 고쳐 저장).
+    body {note?} = 덧붙일 내용(10/28 사용자) — AI에 "반드시 반영"으로 주고 summary_note로 보관."""
     import json
 
     if mode not in ("template", "ai"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "template 또는 ai")
     f, r = _require(db, user, rid)
     text, facts = _summary_base(db, f, r)
+    note = str((body or {}).get("note") or "").strip()[:600]
     if mode == "ai":
         from server.sitok import vision
 
         prompt = ("아래는 학교시설 내진성능평가 보고서 '책임기술자 종합의견' 초안과 이번 건 자료입니다. 초안의 문단 구성과 말투(…하였다, …판단됨)를 따라 "
                   "이번 건 자료에 맞게 다듬어 주세요. 자료에 없는 수치·부재 이름은 지어내지 말고, 결함이 있으면 주된 결함 종류와 의견을 한 문장 넣으세요. "
-                  "문단마다 줄을 바꾸고, 머리말 없이 글만 주세요.\n\n[초안]\n" + text + "\n\n[자료]\n" + json.dumps(facts, ensure_ascii=False, default=str))
+                  "문단마다 줄을 바꾸고, 머리말 없이 글만 주세요." + TONE_RULE
+                  + (f"\n\n[점검자가 덧붙인 내용 — 반드시 글에 반영]\n{note}" if note else "")
+                  + "\n\n[초안]\n" + text + "\n\n[자료]\n" + json.dumps(facts, ensure_ascii=False, default=str))
         try:
             got = vision.ask(user.company_id, [], prompt, max_tokens=3000, effort="low", writing=True).strip()
         except Exception as err:  # noqa: BLE001
@@ -832,9 +837,15 @@ def make_summary(rid: int, mode: str, user: User = Depends(get_current_user), db
         text = got or text
     sf = dict(_sv(r).get("seismic_field") or {})
     sf["summary"] = text
+    if note or mode == "ai":
+        sf["summary_note"] = note
     _put(r, seismic_field=sf)
     db.commit()
     return _field_out(db, f, r) | {"made": mode}
+
+
+TONE_RULE = (" 글은 현장을 조사한 기술자가 쓰는 보고서 문체로(…로 조사되었다, …를 확인하였다 — 남이 검토하듯 '사진자료로 확인하였으며' 같은 표현은 쓰지 말 것). "
+             "사진 칸 이름·파일 이름(heavy_1, finish_2 등)·'사진 몇 장' 같은 자료 출처는 글에 쓰지 말고 조사 내용만 쓸 것.")
 
 
 EQ_STYLE = """[견본 말투 예 — 내용은 이번 건 자료로만]
@@ -866,7 +877,9 @@ def _eq_facts(db: Session, f: SitokFacility, r: SitokReport) -> dict:
                    "적용 상태": dict(Counter(x["applied"] for x in field["masonry"])), "경계면": dict(Counter(x["boundary"] for x in field["masonry"])),
                    "노출": dict(Counter(x["expose"] for x in field["masonry"]))},
             "결함(외관조사)": [{"위치": x[1], "부재": x[2], "결함": x[3], "크기·개수": x[4]} for x in SFL.defect_rows(db, r.id)][:60],
-            "현장 사진 칸": sorted(field["photos"])}
+            # 사진은 "무엇을 찍었는지"만(개수) — 칸 이름(heavy_1)을 넘기면 AI가 그대로 글에 씀(10/28 사용자 "제3자가 쓴 것처럼")
+            "현장 사진(찍은 것)": dict(Counter(re.sub(r"\s*\d+$", "", SF.PHOTO[k][0]) for k in field["photos"] if k in SF.PHOTO)),
+            "점검자가 덧붙인 내용(칸마다, 반드시 반영)": {k: v for k, v in (field.get("text_notes") or {}).items() if v}}
 
 
 @router.post("/projects/{rid}/field/texts/ai")
@@ -883,6 +896,7 @@ def ai_eq_texts(rid: int, user: User = Depends(get_current_user), db: Session = 
     prompt = ("아래는 학교시설 내진성능평가 보고서의 조사결과 글 칸(각 글은 본문 조사결과와 요약 표에 같이 들어감)과 이번 건 현장조사 입력 자료입니다. "
               "칸마다 보고서 말투(…조사되었다, …반영하였다)로 글머리 문장 1~3개를 써 주세요(여러 개면 줄을 바꿈). 자료에 없는 수치·부재·위치는 지어내지 말고, "
               "그 칸의 자료가 없으면 빈 문자열로 두세요(예: 부재 단면 조사 개소 0이면 부재규격 빈칸, 결함 목록이 비면 외관조사 칸은 빈칸). "
+              + TONE_RULE + " 중량물·마감재 칸은 입력된 관찰 내용(덧붙인 내용)이 없으면 사진이 있어도 지어내지 말고 빈 문자열. "
               "강재 칸(강재 접합부·부식·외관조사 강재)은 구조가 철근콘크리트조면 '본 건물은 철근콘크리트 구조로, 강재는 적용되지 않아 조사대상에서 제외하였다.'로 쓰세요.\n"
               f"JSON만: {json.dumps({k: '' for k in keys}, ensure_ascii=False)}\n칸 이름: {json.dumps(labels, ensure_ascii=False)}\n\n{EQ_STYLE}\n\n[이번 건 자료]\n"
               + json.dumps(_eq_facts(db, f, r), ensure_ascii=False, default=str))
@@ -900,6 +914,42 @@ def ai_eq_texts(rid: int, user: User = Depends(get_current_user), db: Session = 
     _put(r, seismic_field=sf)
     db.commit()
     return _field_out(db, f, r) | {"made": "ai", "filled": sum(1 for k in keys if texts[k])}
+
+
+@router.post("/projects/{rid}/field/texts/ai/{key}")
+def ai_eq_text_one(rid: int, key: str, body: dict = Body(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """조사결과 글 한 칸을 덧붙인 내용을 반영해 다시 씀(10/28 사용자 "AI 결과에 덧붙이고 싶은 내용을 반영해 다시 작성") — body {note, current}:
+    지금 글(사람이 고친 것 포함) + 이번 건 자료 + 덧붙인 내용으로 그 칸만(약 10원). 덧붙인 내용은 text_notes[key]로 보관."""
+    import json
+
+    from server.sitok import seismic_field as SF
+    from server.sitok import vision
+
+    f, r = _require(db, user, rid)
+    labels = {k: label for k, label, _ in SF.TEXTS}
+    if key not in labels:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "없는 글 칸")
+    note = str(body.get("note") or "").strip()[:400]
+    current = str(body.get("current") or "").strip()[:600]
+    prompt = (f"아래는 학교시설 내진성능평가 보고서의 조사결과 글 칸 '{labels[key]}'의 지금 글과 이번 건 현장조사 자료, 점검자가 덧붙인 내용입니다. "
+              "지금 글을 바탕으로 덧붙인 내용을 반드시 반영해 보고서 말투(…조사되었다, …반영하였다)로 글머리 문장 1~3개를 다시 써 주세요(여러 개면 줄을 바꿈). "
+              "자료·덧붙인 내용에 없는 수치·부재·위치는 지어내지 말 것." + TONE_RULE
+              + f"\nJSON만: {json.dumps({key: ''}, ensure_ascii=False)}\n\n{EQ_STYLE}\n\n[지금 글]\n{current or '(비어 있음)'}\n\n[점검자가 덧붙인 내용 — 반드시 반영]\n{note or '(없음)'}"
+              + "\n\n[이번 건 자료]\n" + json.dumps(_eq_facts(db, f, r), ensure_ascii=False, default=str))
+    try:
+        got = vision.ask_json(user.company_id, [], prompt, max_tokens=800, effort="low", writing=True) or {}
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 글을 못 만들었습니다: {str(err).splitlines()[0][:120]}") from err
+    text = str((got or {}).get(key) or "").strip()[:600] if isinstance(got, dict) else ""
+    if not text:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "AI 답을 읽지 못했습니다 — 다시 눌러 주세요.")
+    sf = dict(_sv(r).get("seismic_field") or {})
+    texts, notes = dict(sf.get("texts") or {}), dict(sf.get("text_notes") or {})
+    texts[key], notes[key] = text, note
+    sf["texts"], sf["text_notes"] = texts, notes
+    _put(r, seismic_field=sf)
+    db.commit()
+    return _field_out(db, f, r) | {"made": "ai_one", "key": key}
 
 
 # ---------- 과업수행계획서 자동(10/22) · 스캔 건축물대장 AI 읽기(10/22) ----------

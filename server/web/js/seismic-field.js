@@ -382,7 +382,10 @@
 
   function drawTexts() {
     $("sf2-summary").value = F.summary || "";
-    const box = (k, label) => `<div class="sk-f"><label>${esc(label)}</label><textarea data-t="${k}" rows="2" placeholder="비우면 보고서도 빈칸">${esc(F.texts[k] || "")}</textarea></div>`;
+    if ($("sf2-s-extra")) $("sf2-s-extra").value = F.summary_note || "";
+    // 칸마다 "덧붙일 내용" + [🤖 반영해 다시 쓰기](10/28 사용자 — AI 결과에 덧붙이고 싶은 내용을 반영해 그 칸만 다시, 약 10원)
+    const box = (k, label) => `<div class="sk-f"><label>${esc(label)}</label><textarea data-t="${k}" rows="2" placeholder="비우면 보고서도 빈칸">${esc(F.texts[k] || "")}</textarea>
+      <div class="sf2-tn"><input data-tn="${k}" placeholder="덧붙일 내용(예: 지붕층 실외기 3대, 물탱크 1기)" maxlength="400" value="${esc((F.text_notes || {})[k] || "")}" /><button type="button" class="secondary" data-rw="${k}">🤖 반영해 다시 쓰기</button></div></div>`;
     const isSum = () => true; // 조사결과 글 — 한 글이 본문 조사결과와 요약 표에 같이(10/22 형 "결과값 연동 AI 작성"), 처음엔 빈칸
     $("sf2-texts").innerHTML = `<div class="sf2-sub-h">조사결과 글 <span class="sk-help">한 글이 본문 조사결과와 요약 표(장비조사·결함조사·비구조)에 같이 들어감 — 비우면 둘 다 빈칸, 줄마다 글머리 하나</span></div>
       <div class="sf2-core-top"><button type="button" class="secondary" id="sf2-eq-ai">🤖 입력값으로 AI가 쓰기 <span class="sk-help">약 40원</span></button><span class="sk-help" id="sf2-eq-note"></span></div>`
@@ -400,6 +403,20 @@
         $("sf2-eq-note").textContent = `✓ ${res.filled}칸 썼습니다 — 고치고 [저장] (자료가 없는 칸은 빈칸)`;
       } catch (e) { $("sf2-eq-note").textContent = e.message; b.disabled = false; }
     });
+    $("sf2-texts").querySelectorAll("button[data-rw]").forEach((b) => b.addEventListener("click", async () => { // 그 칸만 덧붙인 내용 반영해 다시
+      const k = b.dataset.rw, ta = document.querySelector(`textarea[data-t="${k}"]`), nt = document.querySelector(`input[data-tn="${k}"]`);
+      b.disabled = true;
+      const was = b.textContent;
+      b.textContent = "쓰는 중…";
+      try {
+        const res = await apiPost(`/seismic/projects/${id}/field/texts/ai/${k}`, { note: nt.value.trim(), current: ta.value.trim() });
+        F = res;
+        ta.value = res.texts[k] || "";
+        flash($("sf2-t-saved"), "✓ 다시 썼습니다 — 고치면 자동 저장");
+      } catch (e) { err(e); }
+      b.disabled = false;
+      b.textContent = was;
+    }));
   }
 
   // 다른 조사 화면 바로가기(10/28 사용자) — 현장조사 입력 / 외관조사 / 보고서 AI 작성, 지금 화면은 뺌
@@ -450,7 +467,8 @@
     members: () => ({ members: membersOut(), member_plan: plan, member_order: orderOut() }),
     cores: () => ({ cores: cores.filter((x) => x.name || x.mpa).map((x) => ({ ...x, mpa: nz(x.mpa) })), core_design: nz($("sf2-c-design").value) }),
     masonry: () => ({ masonry: masonryOut(), masonry_types: mtypes.map((t) => ({ ...t, height: nz(t.height), width: nz(t.width), finish: nz(t.finish) })), masonry_plan: mplan }),
-    texts: () => ({ texts: Object.fromEntries([...document.querySelectorAll("[data-t]")].map((t) => [t.dataset.t, t.value.trim()])), summary: $("sf2-summary").value.trim() }),
+    texts: () => ({ texts: Object.fromEntries([...document.querySelectorAll("[data-t]")].map((t) => [t.dataset.t, t.value.trim()])), summary: $("sf2-summary").value.trim(),
+      text_notes: Object.fromEntries([...document.querySelectorAll("input[data-tn]")].map((t) => [t.dataset.tn, t.value.trim()])), summary_note: ($("sf2-s-extra")?.value || "").trim() }),
   };
   const PARTS = [["members", "sf2-m-panel", "sf2-m-save", "sf2-m-saved"], ["cores", "sf2-c-panel", "sf2-c-save", "sf2-c-saved"],
     ["masonry", "sf2-w-panel", "sf2-w-save", "sf2-w-saved"], ["texts", "sf2-t-panel", "sf2-t-save", "sf2-t-saved"]];
@@ -488,7 +506,7 @@
       if ($("sf2-summary").value.trim() && !confirm("지금 글을 바꿉니다. 할까요?")) return;
       $(btn).disabled = true;
       $("sf2-s-note").textContent = busy;
-      try { draw(await apiPost(`/seismic/projects/${id}/field/summary/${mode}`)); $("sf2-t-panel").open = true; $("sf2-s-note").textContent = "✓ 채웠습니다 — 고치고 [저장]"; }
+      try { draw(await apiPost(`/seismic/projects/${id}/field/summary/${mode}`, { note: ($("sf2-s-extra")?.value || "").trim() })); $("sf2-t-panel").open = true; $("sf2-s-note").textContent = "✓ 채웠습니다 — 고치고 [저장]"; }
       catch (e) { $("sf2-s-note").textContent = e.message; }
       $(btn).disabled = false;
     });
