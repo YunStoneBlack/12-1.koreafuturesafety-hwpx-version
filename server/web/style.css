@@ -662,4 +662,15 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .ai-rw .ai-rw-note { flex: 1; min-width: 0; font-size: 13px; margin: 0; }
 .ai-rw button.ai-rw-go { flex: none; margin: 0; padding: 6px 10px; font-family: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 @media (max-width: 760px) { .ai-rw { flex-wrap: wrap; } .ai-rw .ai-rw-note { flex-basis: 100%; } }
+/* 산안법 제출 현황 — 넓은 PC에서 현장별 추진 현황을 오른쪽 빈 곳에(10/28 사용자 "데스크탑 기준 오른쪽 빈 공간으로"). 본문 폭 1180 → 1720px,
+   왼쪽 = 카드·월별·요원별·보고서 목록(예전 폭 그대로), 오른쪽 = 추진 현황(내리면 따라옴, 길면 그 안에서 스크롤). 1700px보다 좁은 화면·폰은 예전 순서 그대로. */
+@media (min-width: 1700px) {
+  body[data-report-tab="status"] main.main { max-width: 1720px; }
+  .st-layout { display: grid; grid-template-columns: minmax(0, 1fr) 470px; grid-template-rows: auto 1fr; gap: 0 14px; align-items: start; }
+  .st-layout > .st-top { grid-column: 1; grid-row: 1; }
+  .st-layout > .st-list-panel { grid-column: 1; grid-row: 2; }
+  .st-layout > .st-prog { grid-column: 2; grid-row: 1 / span 2; position: sticky; top: calc(var(--tabs-h, 0px) + 12px); max-height: calc(100vh - var(--tabs-h, 0px) - 24px); overflow-y: auto; margin-bottom: 0; } /* 위 탭 줄(shell.js --tabs-h) 바로 아래 */
+  .st-layout .st-prog-list { grid-template-columns: minmax(0, 1fr); }
+  .st-layout .main button.st-prog-row, .main .st-layout button.st-prog-row { grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr) auto; }
+}
 

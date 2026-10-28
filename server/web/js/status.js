@@ -67,7 +67,7 @@ function renderProgress() {
       <span class="num"><b>${e.reports} / ${e.assigned}회차</b>${full ? ' <i class="st-prog-done">완료</i>' : ""}<small>제출 ${e.submitted}${left ? ` · 남음 ${left}` : ""}</small></span>
     </button>`;
   }).join("");
-  box.innerHTML = `<div class="st-chart-head"><b>현장별 ${stData.month}월 추진 현황 <span class="st-hint">· ${list.length}곳 중 ${done}곳 다 다녀옴 · 배정 = 방문 달력 예정(없으면 보고서 수) · 누르면 아래 목록을 그 현장만</span></b>
+  box.innerHTML = `<div class="st-chart-head"><b>현장별 ${stData.month}월 추진 현황 <span class="st-hint">· ${list.length}곳 중 ${done}곳 다 다녀옴 · 배정 = 방문 달력 예정(없으면 보고서 수) · 누르면 보고서 목록을 그 현장만</span></b>
     <div class="st-legend"><span><i class="ok"></i>제출 완료</span><span><i class="wait"></i>보고서만 작성</span><span><i class="left"></i>남은 회차</span></div></div>
     ${rows ? `<div class="st-prog-list">${rows}</div>` : '<div class="st-empty">이달 배정·보고서가 없습니다.</div>'}
     ${list.length > shown.length ? `<button type="button" class="secondary st-prog-more">나머지 ${list.length - shown.length}곳 더 보기 ▼</button>`
