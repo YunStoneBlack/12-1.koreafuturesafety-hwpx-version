@@ -430,14 +430,41 @@
     drawMin(); stickPad(); drawMembers(); drawCores(); drawMasonry(); drawTexts(); // 사진은 외관조사 탭(10/27, js/seismic-photos.js)
   }
 
-  async function save(part, body, savedEl) {
-    try { draw(await apiPatch(`/seismic/projects/${id}/field`, body)); flash($(savedEl), "✓ 저장했습니다"); } catch (e) { err(e); }
-  }
   const nz = (v) => (v === "" || v == null ? null : Number(v));
-  $("sf2-m-save").addEventListener("click", () => save("members", { members: membersOut(), member_plan: plan, member_order: orderOut() }, "sf2-m-saved"));
-  $("sf2-c-save").addEventListener("click", () => save("cores", { cores: cores.filter((x) => x.name || x.mpa).map((x) => ({ ...x, mpa: nz(x.mpa) })), core_design: nz($("sf2-c-design").value) }, "sf2-c-saved"));
-  $("sf2-w-save").addEventListener("click", () => save("masonry", { masonry: masonryOut(), masonry_types: mtypes.map((t) => ({ ...t, height: nz(t.height), width: nz(t.width), finish: nz(t.finish) })), masonry_plan: mplan }, "sf2-w-saved"));
-  $("sf2-t-save").addEventListener("click", () => save("texts", { texts: Object.fromEntries([...document.querySelectorAll("[data-t]")].map((t) => [t.dataset.t, t.value.trim()])), summary: $("sf2-summary").value.trim() }, "sf2-t-saved"));
+  const BODIES = { // 부분마다 보낼 값 — [저장] 단추·자동 저장이 같이 씀
+    members: () => ({ members: membersOut(), member_plan: plan, member_order: orderOut() }),
+    cores: () => ({ cores: cores.filter((x) => x.name || x.mpa).map((x) => ({ ...x, mpa: nz(x.mpa) })), core_design: nz($("sf2-c-design").value) }),
+    masonry: () => ({ masonry: masonryOut(), masonry_types: mtypes.map((t) => ({ ...t, height: nz(t.height), width: nz(t.width), finish: nz(t.finish) })), masonry_plan: mplan }),
+    texts: () => ({ texts: Object.fromEntries([...document.querySelectorAll("[data-t]")].map((t) => [t.dataset.t, t.value.trim()])), summary: $("sf2-summary").value.trim() }),
+  };
+  const PARTS = [["members", "sf2-m-panel", "sf2-m-save", "sf2-m-saved"], ["cores", "sf2-c-panel", "sf2-c-save", "sf2-c-saved"],
+    ["masonry", "sf2-w-panel", "sf2-w-save", "sf2-w-saved"], ["texts", "sf2-t-panel", "sf2-t-save", "sf2-t-saved"]];
+  let saving = null; // 저장은 차례로(앞 저장이 끝난 뒤) — 응답 순서가 뒤바뀌어 옛 값이 남지 않게(10/28, 철근탐사와 같은 규칙)
+  const timers = {};
+  function queue(job) {
+    const prev = saving;
+    const run = (async () => { if (prev) await prev; return job(); })();
+    saving = run;
+    return run.finally(() => { if (saving === run) saving = null; });
+  }
+  async function save(part, body, savedEl) { // [저장] 단추 — 저장하고 화면 전체를 다시 그림(서버가 맞춘 값으로)
+    clearTimeout(timers[part]);
+    await queue(async () => {
+      try { draw(await apiPatch(`/seismic/projects/${id}/field`, body)); flash($(savedEl), "✓ 저장했습니다"); } catch (e) { err(e); }
+    });
+  }
+  // 자동 저장(10/28 사용자 "부재 단면 자동저장이 안 된대" → "다같이") — 패널 안 칸을 고치고 1.5초 멈추면 그 부분만 저장, 화면은 다시 그리지 않음
+  // (쓰던 칸·키보드가 날아가지 않게 — 서버가 맞춘 값은 [저장] 단추나 다시 열 때). [저장] 단추는 그대로.
+  function autoSave(part, savedEl) {
+    clearTimeout(timers[part]);
+    timers[part] = setTimeout(() => queue(async () => {
+      try { F = await apiPatch(`/seismic/projects/${id}/field`, BODIES[part]()); drawMin(); flash($(savedEl), "✓ 자동 저장"); } catch (e) { err(e); }
+    }), 1500);
+  }
+  for (const [part, panel, btn, savedEl] of PARTS) {
+    $(btn).addEventListener("click", () => save(part, BODIES[part](), savedEl));
+    for (const ev of ["input", "change"]) $(panel).addEventListener(ev, (e) => { if (e.target.matches("input, select, textarea")) autoSave(part, savedEl); });
+  }
   for (const [btn, mode, busy] of [["sf2-s-tpl", "template", "견본 문장 채우는 중…"], ["sf2-s-ai", "ai", "AI가 쓰는 중…(20~40초)"]]) {
     $(btn).addEventListener("click", async () => {
       if ($("sf2-summary").value.trim() && !confirm("지금 글을 바꿉니다. 할까요?")) return;
