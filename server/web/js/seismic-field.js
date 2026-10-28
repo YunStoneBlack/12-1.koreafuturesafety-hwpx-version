@@ -450,15 +450,18 @@
   async function save(part, body, savedEl) { // [저장] 단추 — 저장하고 화면 전체를 다시 그림(서버가 맞춘 값으로)
     clearTimeout(timers[part]);
     await queue(async () => {
-      try { draw(await apiPatch(`/seismic/projects/${id}/field`, body)); flash($(savedEl), "✓ 저장했습니다"); } catch (e) { err(e); }
+      try { draw(await apiPatch(`/seismic/projects/${id}/field`, body)); sent[part] = JSON.stringify(body); flash($(savedEl), "✓ 저장했습니다"); } catch (e) { err(e); }
     });
   }
   // 자동 저장(10/28 사용자 "부재 단면 자동저장이 안 된대" → "다같이") — 패널 안 칸을 고치고 1.5초 멈추면 그 부분만 저장, 화면은 다시 그리지 않음
   // (쓰던 칸·키보드가 날아가지 않게 — 서버가 맞춘 값은 [저장] 단추나 다시 열 때). [저장] 단추는 그대로.
+  const sent = {}; // 부분마다 마지막으로 보낸 값 — 같으면 안 보냄(input 뒤 change가 또 와서 두 번 가던 것)
   function autoSave(part, savedEl) {
     clearTimeout(timers[part]);
     timers[part] = setTimeout(() => queue(async () => {
-      try { F = await apiPatch(`/seismic/projects/${id}/field`, BODIES[part]()); drawMin(); flash($(savedEl), "✓ 자동 저장"); } catch (e) { err(e); }
+      const body = BODIES[part](), key = JSON.stringify(body);
+      if (key === sent[part]) return;
+      try { F = await apiPatch(`/seismic/projects/${id}/field`, body); sent[part] = key; drawMin(); flash($(savedEl), "✓ 자동 저장"); } catch (e) { err(e); }
     }), 1500);
   }
   for (const [part, panel, btn, savedEl] of PARTS) {
