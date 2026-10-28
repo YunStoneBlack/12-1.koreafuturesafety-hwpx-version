@@ -151,7 +151,16 @@
       mFloor = b.dataset.mf === mFloor && b.classList.contains("sf2-fname") ? "" : b.dataset.mf;
       try { sessionStorage.setItem(`sf2-mf-${id}`, mFloor); } catch (_) { /* */ }
       renderMembers();
-      $("sf2-members").querySelector(".sf2-fchips")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      // 층을 누르면 그 층의 첫 "작성 안 된 줄"로(10/28 사용자 "부재도") — 다 썼으면 그 층 첫 줄, 전체 보기는 층 줄 맨 위. 붙은 층 줄(sticky) 아래 8px에
+      const fl = mFloor ? $("sf2-members").querySelector(`.sf2-mfloor .sf2-row.empty:not(.sf2-row-h)`) || $("sf2-members").querySelector(".sf2-mfloor .sf2-row:not(.sf2-row-h)") : null;
+      if (fl) setTimeout(() => {
+        const nav = $("sf2-members").querySelector(".sf2-mnav");
+        const stuck = nav ? (parseFloat(getComputedStyle(nav).top) || 0) + nav.offsetHeight : 0;
+        window.scrollTo({ top: window.scrollY + fl.getBoundingClientRect().top - stuck - 8, behavior: "smooth" });
+        fl.classList.add("sf2-flash");
+        setTimeout(() => fl.classList.remove("sf2-flash"), 1500);
+      }, 0);
+      else $("sf2-members").querySelector(".sf2-fchips")?.scrollIntoView({ block: "start", behavior: "smooth" });
     }));
     box.querySelectorAll('select[data-k="item_id"]').forEach((sel) => searchSelect(sel, { placeholder: "일람표 칸 — 부호·치수로 검색" })); // 검색 고르기(app.js, 10/22)
     box.querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => qtyChange(el.dataset.q, Math.max(0, Math.min(40, Number(el.value) || 0)))));
