@@ -46,14 +46,11 @@
     <div class="sp-sub-h">변동사항 <span class="sk-help">1.4 구조변경 이력사항 — 증축·용도변경 등</span></div>
     <div class="sp-rows" id="sp-changes"></div>
     <div class="ds-foot"><span class="sp-saved" id="sp-b-saved"></span><button type="button" id="sp-b-save">저장</button></div>
+    <!-- 📍 위치도(10/22 형 "주소로 찍고 깃발 조절") — 10/28 사용자 "건물 정보 안으로": 따로 있던 칸을 건물 정보 맨 아래에(js/sitok-locmap.js, 저장은 [핀 자리 저장]) -->
+    <div class="sp-sub-h">📍 위치도 <span class="sk-help">요약 "시설물 위치도"·과업수행계획서 1.4 — 주소 자리에서 깃발을 학교 안 그 동으로 옮겨 [핀 자리 저장]</span></div>
+    <div id="sp-locmap" hidden></div>
   </div>
 </details>
-
-<!-- 📍 위치도(10/22 형 "주소로 찍고 깃발 조절 — 학교 내부 동을 선택해야 할 수도") — 시특법 위치도 카드(js/sitok-locmap.js) 그대로, 접지 않음(지도 크기) -->
-<section class="panel">
-  <div class="panel-head"><h2>📍 위치도</h2><span class="panel-count">요약 "시설물 위치도"·과업수행계획서 1.4 — 주소 자리에서 깃발을 학교 안 그 동으로 옮겨 [핀 자리 저장]</span></div>
-  <div class="panel-body"><div id="sp-locmap" hidden></div></div>
-</section>
 
 <details class="panel sk-fold" id="sp-ground-panel" hidden>
   <summary class="panel-head"><h2>🌏 지반조사 확인</h2><span class="panel-count" id="sp-g-sum">지반조사보고서에서 찾은 값·위치도·사진·결과 표 → 2.5 지반 및 기초</span><span class="sp-need-n" id="sp-g-need" hidden></span><span class="sk-fold-arrow">▾</span></summary>

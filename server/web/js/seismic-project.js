@@ -366,6 +366,10 @@
       if (!id) throw new Error("내진성능평가 건을 찾을 수 없습니다.");
       draw(await api(`/seismic/projects/${id}`));
       if (window.L && typeof sitokDrawLocmap === "function") sitokDrawLocmap($("sp-locmap"), P.facility_id, (P.building || {}).name || ""); // 📍 위치도 깃발(10/22)
+      if (!openedOnce.bmap) { // 위치도가 건물 정보 안으로(10/28) — 접힌 채 만든 지도는 크기를 모름 → 펼칠 때 Leaflet이 다시 재게(window resize를 듣고 invalidateSize)
+        openedOnce.bmap = true;
+        $("sp-b-panel").addEventListener("toggle", () => { if ($("sp-b-panel").open) setTimeout(() => window.dispatchEvent(new Event("resize")), 50); });
+      }
       const done = $("sp-field-done"); // [✓ 조사 완료] — 완료·취소하면 건 화면(외관조사 ✓·보고서 만들기)도 다시
       done.dataset.report = id;
       sitokStepBar(done, async () => { try { draw(await api(`/seismic/projects/${id}`)); } catch (e) { err(e); } });
