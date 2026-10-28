@@ -76,6 +76,15 @@ async function openSitokAi(reportId, title, onSaved) {
   }
 
   // 정밀안전점검(10/13 ⑤-2) — 항목 22개: 기본 글이 먼저, [AI로 다시 쓰기]로 결함·시험·상태평가 값을 보고 다시 씀, 고쳐 저장하면 본문에 들어감
+  // AI 글 칸(textarea)마다 "덧붙일 내용 + 🤖 반영해 다시 쓰기"(10/28 사용자 — 내진에서 시특법까지, app.js aiRewrite) — 받은 글은 칸에 들어가고 [저장]으로 저장
+  function attachRewrite() {
+    if (typeof aiRewrite !== "function") return;
+    box.querySelectorAll(".ai-form textarea, textarea.ai-sum").forEach((t) => {
+      const lab = t.closest("label");
+      const name = (lab && (lab.querySelector("b")?.textContent || lab.childNodes[0]?.textContent) || t.placeholder || t.dataset.k || "글").trim();
+      aiRewrite(t, `/sitok/reports/${reportId}/ai/rewrite`, name);
+    });
+  }
   function drawPrecision(ai) {
     box.innerHTML = `${head}
       <div class="ai-meta">${ai.made_at ? `AI 초안 ${esc(ai.made_at)}` : "아직 AI가 쓰지 않음 — 결함·시험·상태평가 값으로 만든 기본 글입니다"}${ai.edited_at ? ` · ${esc(ai.edited_by)} 고침 ${esc(ai.edited_at)}` : ""}</div>
@@ -88,6 +97,7 @@ async function openSitokAi(reportId, title, onSaved) {
       <div class="mail-msg" hidden></div>
       <div class="mail-foot"><button type="button" class="secondary ai-redo">🤖 AI로 다시 쓰기</button><button type="button" class="mail-cancel">닫기</button>
         <button type="button" class="mail-primary ai-save">저장</button></div>`;
+    attachRewrite(); // 글 칸마다 덧붙일 내용 + 🤖 반영해 다시 쓰기(10/28)
     const byKey = Object.fromEntries(ai.items.map((it) => [it.key, it]));
     box.querySelectorAll(".ai-reset").forEach((b) => b.addEventListener("click", () => { box.querySelector(`[data-k="${b.dataset.k}"]`).value = byKey[b.dataset.k].default; }));
     box.querySelectorAll(".ai-useai").forEach((b) => b.addEventListener("click", () => { box.querySelector(`[data-k="${b.dataset.k}"]`).value = byKey[b.dataset.k].ai; }));
@@ -231,6 +241,7 @@ async function openSitokAi(reportId, title, onSaved) {
       if (!confirm(`등급을 한 단계 ${up ? "올려(좋게)" : "내려(낮게)"} AI가 등급 근거·결과표·종합결론${(f.items || []).length ? "·18항목 평가" : ""}를 다시 씁니다(1~5분). 고친 글은 사라집니다. 할까요?`)) return;
       makeDraft({ grade: up ? "up" : "down" });
     }));
+    attachRewrite(); // 글 칸마다 덧붙일 내용 + 🤖 반영해 다시 쓰기(10/28)
     box.querySelector(".ai-sum-redo").addEventListener("click", async (e) => { // 요약문 결언 — 동마다 확정 AI 초안 결론을 묶어(10/16)
       const btn = e.currentTarget, m = box.querySelector(".ai-sum-msg");
       btn.disabled = true;

@@ -67,6 +67,7 @@ async function setupProcessSlots(containerId, apiPrefix) {
       `;
       row.querySelector(".pi-hazard").value = item.hazard || "";
       row.querySelector(".pi-prevention").value = item.prevention || "";
+      if (typeof aiRewrite === "function") aiRewrite(row.querySelector(".pi-prevention"), `${BASE}/api/reports/${reportId}/ai/rewrite`, "예방대책(한 줄에 하나)"); // 덧붙일 내용 반영해 다시 쓰기(10/28)
       row.querySelector(".pi-risk").value = item.risk_level || "";
       row.querySelector(".pi-del").addEventListener("click", () => row.remove());
       itemsEl.appendChild(row);
@@ -198,6 +199,7 @@ async function setupFindings() {
     const $ = (name) => document.getElementById(`fd-${name}-${slot}`);
     $("title").value = data.title;
     $("content").value = data.content;
+    if (typeof aiRewrite === "function") aiRewrite($("content"), `${BASE}/api/reports/${reportId}/ai/rewrite`, "지적사항 내용(110자 이내)"); // 덧붙일 내용 반영해 다시 쓰기(10/28)
     $("law").value = data.law_citation;
     $("desc").value = data.description || "";
     $("likelihood").value = data.likelihood ?? "";

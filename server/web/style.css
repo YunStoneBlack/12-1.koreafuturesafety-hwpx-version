@@ -657,3 +657,9 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .site-group-body { border-left: 3px solid var(--blue-soft); margin-left: 18px; }
 .site-group-body .site-row:last-child { border-bottom: none; }
 @media (max-width: 720px) { .sg-meta { display: none; } .site-group-body { margin-left: 8px; } }
+/* AI 글 칸 덧붙일 내용 + 다시 쓰기(10/28, app.js aiRewrite) */
+.ai-rw { display: flex; gap: 6px; align-items: center; margin: 4px 0 8px; }
+.ai-rw .ai-rw-note { flex: 1; min-width: 0; font-size: 13px; margin: 0; }
+.ai-rw button.ai-rw-go { flex: none; margin: 0; padding: 6px 10px; font-family: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+@media (max-width: 760px) { .ai-rw { flex-wrap: wrap; } .ai-rw .ai-rw-note { flex-basis: 100%; } }
+

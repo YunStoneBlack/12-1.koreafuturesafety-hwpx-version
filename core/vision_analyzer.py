@@ -17,7 +17,7 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from core.config import get_api_key, get_model_name
-from core.report_style import clean_text
+from core.report_style import WRITING_STYLE, clean_text
 
 _SUPPORTED_MEDIA_TYPES = {
     ".jpg": "image/jpeg",
@@ -250,6 +250,7 @@ def _call_claude(
     response = client.messages.create(
         model=model or get_model_name(),
         max_tokens=max_tokens,
+        system=WRITING_STYLE,  # 보고서 글 말투(10/28 — 시특법·내진과 같은 규칙: 점검자 문체·자료 출처 안 쓰기·지어내지 않기)
         messages=[
             {
                 "role": "user",
@@ -275,6 +276,7 @@ def _call_claude_text(
     response = client.messages.create(
         model=model or get_model_name(),
         max_tokens=max_tokens,
+        system=WRITING_STYLE,  # 보고서 글 말투(10/28)
         messages=[{"role": "user", "content": prompt}],
     )
     return "".join(block.text for block in response.content if block.type == "text")

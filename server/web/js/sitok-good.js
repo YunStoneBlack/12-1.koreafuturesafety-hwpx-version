@@ -179,6 +179,7 @@
       try { data = await apiPost(`${url}/seismic`, { rows, opinion: $("se-opinion").value }); say("se-msg", "저장했습니다.", true); } catch (e) { say("se-msg", e.message); }
     };
     box.querySelectorAll(".se-table select, .se-table input, #se-opinion").forEach((el) => el.addEventListener("change", save));
+    if (typeof aiRewrite === "function") aiRewrite($("se-opinion"), `${url}/ai/rewrite`, "내진보강 점검표 종합의견"); // 덧붙일 내용 반영해 다시 쓰기(10/28) — 받으면 change로 저장
   }
 
   window.addEventListener("sitok-prev-copied", (e) => { // 전회차 사진을 이번 회차에 넣으면 다시 불러 그림(10/23, js/sitok-prevphotos.js)

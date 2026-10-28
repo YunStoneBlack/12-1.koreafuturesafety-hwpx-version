@@ -1759,6 +1759,30 @@ def _wall_ai_draft(db: Session, r: SitokReport, f: SitokFacility, rows: list, us
 AI_JOBS: dict[int, dict] = {}  # 회차 → AI 초안 일 {state: running/done/failed, msg, started} — API가 다시 뜨면 비어 화면은 저장된 초안을 그림
 
 
+class RewriteIn(BaseModel):
+    label: str = ""
+    current: str = ""
+    note: str = ""
+
+
+@router.post("/reports/{report_id}/ai/rewrite")
+def ai_rewrite(report_id: int, body: RewriteIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """AI 글 한 칸을 점검자가 덧붙인 내용을 반영해 다시 씀(10/28 사용자 "내진의 반영해 다시 쓰기를 시특법에도") — 화면이 받은 글을 칸에 넣고 그 화면 저장 방식대로 저장. 약 10원."""
+    from core.report_style import rewrite_prompt
+    from server.sitok import vision
+
+    r = _require(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    ctx = f"{f.name} {r.year}년 {r.half} {r.kind or '정기'}안전점검" + (f" · {f.structure}" if getattr(f, "structure", None) else "")
+    try:
+        text = vision.ask(user.company_id, [], rewrite_prompt(body.label[:80], body.current[:3000], body.note[:600], ctx), max_tokens=2000, effort="low", writing=True).strip()
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 글을 못 만들었습니다: {str(err).splitlines()[0][:120]}") from err
+    if not text:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "AI 답을 읽지 못했습니다 — 다시 눌러 주세요.")
+    return {"text": text}
+
+
 @router.post("/reports/{report_id}/ai/draft")
 def ai_draft_new(report_id: int, body: DraftIn | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """AI 초안 새로 — 결과는 draft에, 점검자가 고치기 전 final도 같은 값으로(화면에서 고쳐 저장하면 final만 바뀜).

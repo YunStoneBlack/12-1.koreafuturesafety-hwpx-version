@@ -731,3 +731,34 @@ function openTmapSearch(address) {
   }, 1500);
 }
 
+// AI 글 칸 "덧붙일 내용 + 🤖 반영해 다시 쓰기"(10/28 사용자 — 내진에서 시특법·산안법까지 모두). field = textarea·input, url = POST {label, current, note} → {text}.
+// 받은 글을 칸에 넣고 input·change 이벤트를 내서 그 화면의 저장 방식(자동 저장·[저장])이 그대로 받음. 덧붙인 내용은 이 브라우저에 칸마다 기억(localStorage).
+function aiRewrite(field, url, label) {
+  if (!field || field.dataset.aiRw) return;
+  field.dataset.aiRw = "1";
+  const key = `ai-rw:${url}:${label}`;
+  const row = document.createElement("div");
+  row.className = "ai-rw";
+  row.innerHTML = '<input class="ai-rw-note" maxlength="600" placeholder="덧붙일 내용 — 적고 누르면 반영해 다시 씀(약 10원)" /><button type="button" class="secondary ai-rw-go">🤖 반영해 다시 쓰기</button>';
+  field.insertAdjacentElement("afterend", row);
+  const note = row.querySelector(".ai-rw-note"), go = row.querySelector(".ai-rw-go");
+  try { note.value = localStorage.getItem(key) || ""; } catch (_) { /* */ }
+  note.addEventListener("input", () => { try { localStorage.setItem(key, note.value); } catch (_) { /* */ } });
+  note.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go.click(); } });
+  go.addEventListener("click", async () => {
+    if (!field.value.trim() && !note.value.trim()) { alert("지금 글이나 덧붙일 내용 중 하나는 있어야 합니다."); return; }
+    go.disabled = true;
+    const was = go.textContent;
+    go.textContent = "쓰는 중…";
+    try {
+      const out = await apiPost(url, { label, current: field.value, note: note.value.trim() });
+      field.value = (out.text || field.value).slice(0, field.maxLength > 0 ? field.maxLength : undefined); // 칸 글자 수 제한(8번 내용 110자)
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+      go.textContent = "✓ 다시 썼습니다";
+      setTimeout(() => { go.textContent = was; }, 1800);
+    } catch (e) { alert(e.message); go.textContent = was; }
+    go.disabled = false;
+  });
+}
+

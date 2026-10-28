@@ -58,6 +58,12 @@ class FindingSuggestionOut(BaseModel):
     severity: int | None
 
 
+class RewriteIn(BaseModel):
+    label: str = ""
+    current: str = ""
+    note: str = ""
+
+
 def _require_ready(db: Session, user: User, report_id: int) -> None:
     if repo.get_report(db, user.company_id, report_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "보고서를 찾을 수 없습니다.")
@@ -165,3 +171,22 @@ def ai_measurement(
         return MeasurementReadOut(value=read_measurement_value(photo, instrument_type, company_id=user.company_id))
     except Exception as err:  # noqa: BLE001
         raise _ai_failed(err) from err
+
+
+@router.post("/rewrite")
+def ai_rewrite(report_id: int, body: RewriteIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """AI가 쓴 글 한 칸(지적사항 내용·안전대책 등)을 점검자가 덧붙인 내용을 반영해 다시 씀(10/28 사용자 "내진의 반영해 다시 쓰기를 산안법에도") — 약 10원.
+    화면이 받은 글을 칸에 넣고 그 화면 저장 방식대로 저장. 말투 = core/report_style(점검자 문체·지어내지 않기)."""
+    from core.report_style import rewrite_prompt
+    from server.sitok import vision
+
+    _require_ready(db, user, report_id)
+    try:
+        text = vision.ask(user.company_id, [], rewrite_prompt(body.label[:80], body.current[:3000], body.note[:600], "건설현장 재해예방 기술지도 결과보고서"),
+                          max_tokens=1500, effort="low", writing=True).strip()
+    except Exception as err:  # noqa: BLE001
+        raise _ai_failed(err) from err
+    if not text:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "AI 답을 읽지 못했습니다 — 다시 눌러 주세요.")
+    return {"text": text}
+
