@@ -247,12 +247,84 @@ def even_row_lines(tbl) -> int:
     return n
 
 
+def flatten_zones(tbl) -> int:
+    """표의 칸 묶음 테두리(hp:cellzone — 칸 테두리 위에 덮어 그림)를 그 가장자리 칸 테두리로 옮기고 묶음 쪽은 선 없음(NONE)으로 — 바탕색은 그대로.
+    (10/28 조적벽 결과표: 머리 줄 층·구분 칸 묶음이 아래 선을 가는 두 줄로 덮어써서, 칸만 보던 맞추기가 못 고침 — 칸 테두리 하나만 남겨야 경계 맞추기가 다 봄.) 테두리 도구 안에서만. 옮긴 칸 수."""
+    b = getattr(rb._TL, "borders", None)
+    zl = tbl.find(f"{{{HP}}}cellzoneList")
+    if b is None or zl is None:
+        return 0
+    cells = rb._cells(tbl)
+    n = 0
+    for z in zl.findall(f"{{{HP}}}cellzone"):
+        d = b.by_id.get(str(z.get("borderFillIDRef")), "") or ""
+        vis = {}
+        for side in ("topBorder", "bottomBorder", "leftBorder", "rightBorder"):
+            m = re.search(rf"<hh:{side} ([^>]*)/>", d)
+            if m and 'type="NONE"' not in m.group(1):
+                vis[side] = m
+        if not vis:
+            continue
+        r0, c0, r1, c1 = (int(z.get(k) or 0) for k in ("startRowAddr", "startColAddr", "endRowAddr", "endColAddr"))
+        for (r, c), tc in cells.items():
+            rs, cs = int(tc.find(f"{{{HP}}}cellSpan").get("rowSpan")), int(tc.find(f"{{{HP}}}cellSpan").get("colSpan"))
+            if r > r1 or r + rs - 1 < r0 or c > c1 or c + cs - 1 < c0:
+                continue
+            edge = {"topBorder": r == r0, "bottomBorder": r + rs - 1 == r1, "leftBorder": c == c0, "rightBorder": c + cs - 1 == c1}
+            cd = b.by_id.get(str(tc.get("borderFillIDRef")), "") or ""
+            new = cd
+            for side, m in vis.items():
+                if edge[side]:
+                    new = re.sub(rf"<hh:{side} [^>]*/>", f"<hh:{side} {m.group(1)}/>", new, count=1)
+            if new != cd:
+                tc.set("borderFillIDRef", b.adopt(new))
+                n += 1
+        zd = d
+        for side, m in vis.items():
+            attrs = re.sub(r'type="[^"]*"', 'type="NONE"', m.group(1))
+            zd = zd.replace(m.group(0), f"<hh:{side} {attrs}/>", 1)
+        z.set("borderFillIDRef", b.adopt(zd))
+    return n
+
+
+THIN_DOUBLE = re.compile(r'<hh:(topBorder|bottomBorder) ([^>]*type="DOUBLE_SLIM"[^>]*)/>')
+
+
+def no_thin_double(tbl) -> int:
+    """가는 두 줄 가로선(DOUBLE_SLIM 0.3mm 이하 — 0.12pt 두 줄이 PDF에서 회색으로 번져 본문 줄 선과 굵기가 달라 보임)을 그 표 본문 가로선(가장 많이 쓴 한 줄 선)으로
+    (10/28 사용자 조적벽 결과표 "머리 줄 아래 선 — 아래 줄 사이 선처럼 맞춰야지, 로직을 더 잘 짜봐"). 굵은 두 줄(0.5mm 넘음)은 일부러 그은 것이라 그대로. 테두리 도구 안에서만. 바꾼 칸 수."""
+    import collections
+
+    b = getattr(rb._TL, "borders", None)
+    if b is None:
+        return 0
+    cells = list(rb._cells(tbl).values())
+    defs = {id(tc): b.by_id.get(str(tc.get("borderFillIDRef")), "") or "" for tc in cells}
+    solid = collections.Counter(m.group(2) for d in defs.values() for m in re.finditer(r'<hh:(topBorder|bottomBorder) ([^>]*type="SOLID"[^>]*)/>', d))
+    if not solid:
+        return 0
+    body = solid.most_common(1)[0][0]
+    n = 0
+    for tc in cells:
+        d = defs[id(tc)]
+        new = d
+        for m in THIN_DOUBLE.finditer(d):
+            w = re.search(r'width="([\d.]+)\s*mm"', m.group(2))
+            if w and float(w.group(1)) <= 0.3:
+                new = new.replace(m.group(0), f"<hh:{m.group(1)} {body}/>", 1)
+        if new != d:
+            tc.set("borderFillIDRef", b.adopt(new))
+            n += 1
+    return n
+
+
 def even_table(tbl) -> int:
-    """한 표의 선을 경계마다 고르게 — 칸 사이 세로선·가로선 + 바깥 네 변(위·아래·왼·오른 칸들의 그 변) 각각 가장 많은 모양으로. 테두리 도구 안에서만. 바꾼 칸 수."""
+    """한 표의 선을 경계마다 고르게 — 가는 두 줄 가로선은 본문 줄 선으로(no_thin_double), 칸 사이 세로선·가로선 + 바깥 네 변(위·아래·왼·오른 칸들의 그 변) 각각 가장 많은 모양으로.
+    테두리 도구 안에서만. 바꾼 칸 수."""
     cells = rb._cells(tbl)
     rows, cols = int(tbl.get("rowCnt")), int(tbl.get("colCnt"))
     span = lambda tc, k: int(tc.find(f"{{{HP}}}cellSpan").get(k))  # noqa: E731
-    n = even_col_lines(tbl) + even_row_lines(tbl)
+    n = flatten_zones(tbl) + no_thin_double(tbl) + even_col_lines(tbl) + even_row_lines(tbl)
     n += _even_side(tbl, [tc for (r, _c), tc in cells.items() if r == 0], "topBorder")
     n += _even_side(tbl, [tc for (r, _c), tc in cells.items() if r + span(tc, "rowSpan") == rows], "bottomBorder")
     n += _even_side(tbl, [tc for (_r, c), tc in cells.items() if c == 0], "leftBorder")
@@ -1521,8 +1593,7 @@ def merge_masonry(root, cuts: list[set] | None = None) -> int:
                     n += 1
                 s = i
         thick_bottom(t)  # 합친 칸이 끝줄에 닿으면 그 칸도 굵은 아래 선
-        even_head_line(t, MASONRY_HEAD)
-        even_col_lines(t)
+        even_table(t)  # 합친 뒤 다시 경계마다 고르게 — 가는 두 줄 머리 줄 선은 본문 줄 선으로(10/28 — 전엔 even_head_line이 가장 많은 두 줄로 되돌림)
     return n
 
 

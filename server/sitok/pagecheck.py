@@ -285,6 +285,10 @@ def line_mismatch(pdf: Path, pages=None) -> list[tuple[int, str, float, float, f
                         for prev, nxt in zip(run, run[1:]):
                             if prev[2] != nxt[2]:
                                 out.append((i, kind, round(band[0][0], 1), round(prev[0], 1), round(nxt[1], 1)))
+                        if kind == "가로":  # 가는 두 줄 가로선(0.3pt 미만 두 줄 — 회색으로 번져 본문 줄 선과 달라 보임, 10/28 사용자 조적벽 머리 줄 아래)
+                            for x0, x1, sig in run:
+                                if len(sig) >= 2 and max(sig) < 0.3 and x1 - x0 >= 60:
+                                    out.append((i, kind, round(band[0][0], 1), round(x0, 1), round(x1, 1)))
     return out
 
 
