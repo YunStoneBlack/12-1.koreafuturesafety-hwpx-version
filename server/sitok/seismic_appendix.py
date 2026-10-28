@@ -255,7 +255,7 @@ def assemble(db, main_pdf: Path, appx_hwpx: Path, dest: Path, r, f, rdir: Path, 
     full.insert_pdf(doc)
     doc.close()
     try:
-        pdf_shrink.shrink_doc(full, docs=False)  # 내진은 제출 용량 한도 없음 — 사진만 줄이고 도면·성적서·스캔 서류 같은 쪽 너비 그림은 원본 화질(10/28 사용자)
+        pdf_shrink.shrink_doc(full, docs=False, photo_dpi=220)  # 내진은 제출 용량 한도 없음 — 사진만 줄이고 도면·성적서·스캔 서류 같은 쪽 너비 그림은 원본 화질(10/28 사용자)
         full.subset_fonts()
     except Exception:  # noqa: BLE001 — 줄이기 못 하면 그대로
         pass

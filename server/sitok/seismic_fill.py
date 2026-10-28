@@ -397,6 +397,7 @@ def blank_png(rdir: Path) -> Path:
     return p
 
 
+PHOTO_DPI = 200  # 내진 사진을 칸에 넣는 해상도(칸 크기 기준, 원본보다 크게는 안 키움) — 산안법·시특법은 96 그대로(제출 용량 10MB, 10/28 사용자)
 PHOTO_PAD = 566  # 사진 칸 둘레 여백 2mm(10/27 민재형 "조적 채움벽 사진 기준으로 표 안 사진 여백 통일 — 사진 넣는 곳 전체")
 
 
@@ -538,12 +539,17 @@ def _put(doc, pic, path: Path | None, crop: bool = True, pad: bool = False, full
             img.set("binaryItemIDRef", doc.add_image(data, "png", "image/png"))
             _size_pic(pic, w, h, data)
             return True
-    data = rb._fit_to_pic(str(path), img, crop=crop)
+    turned = _turned(pic)
+    data = rb._fit_to_pic(str(path), img, crop=crop, dpi=None if turned else PHOTO_DPI)  # 사진도 칸 기준 약 200dpi(10/28 사용자 "전경사진 화질" — 전엔 96dpi), 돌린 틀은 예전대로
     if not isinstance(data, (bytes, bytearray)):
         data = Path(data).read_bytes()
     img.set("binaryItemIDRef", doc.add_image(bytes(data)))
     if size:
         _size_pic(pic, size[0], size[1], bytes(data))
+    elif not turned:  # 높은 해상도 그림도 틀 크기로 보이게(픽셀이 커져도 칸 크기 그대로)
+        sz = pic.find(f"{{{HP}}}curSz")
+        if sz is not None and int(sz.get("width") or 0) > 0:
+            _size_pic(pic, int(sz.get("width")), int(sz.get("height")), bytes(data))
     return True
 
 

@@ -1957,8 +1957,8 @@ def _apply_survey(root, survey: dict) -> int:
 OVERVIEW_PER_PAGE = 6
 
 
-def _cropped(path, w: int, h: int) -> bytes:
-    """사진을 칸 비율(w:h)로 가운데 잘라 JPG — 세로 사진이 가로 칸에 찌그러지지 않게."""
+def _cropped(path, w: int, h: int, dpi: int | None = None) -> bytes:
+    """사진을 칸 비율(w:h)로 가운데 잘라 JPG — 세로 사진이 가로 칸에 찌그러지지 않게. dpi = 칸 크기 기준 해상도(기본 PIC_DPI 96, 내진은 200 — 10/28, 원본보다 크게는 안 키움)."""
     import io
 
     from PIL import Image, ImageOps
@@ -1971,14 +1971,16 @@ def _cropped(path, w: int, h: int) -> bytes:
     else:
         nh = iw * h // w
         img = img.crop((0, (ih - nh) // 2, iw, (ih - nh) // 2 + nh))
-    pw, ph = max(int(w / 7200 * PIC_DPI), 1), max(int(h / 7200 * PIC_DPI), 1)  # 칸 크기 픽셀로(작은 사진은 작게, 큰 사진은 잘려 보이던 것 — 10/14)
-    img = img.resize((pw, ph))
+    pw, ph = max(int(w / 7200 * (dpi or PIC_DPI)), 1), max(int(h / 7200 * (dpi or PIC_DPI)), 1)  # 칸 크기 픽셀로(작은 사진은 작게, 큰 사진은 잘려 보이던 것 — 10/14)
+    if dpi and pw > img.width:  # 높은 해상도로 넣을 때 원본보다 크게는 안 키움(늘려도 선명해지지 않고 용량만)
+        pw, ph = img.width, max(int(img.width * h / w), 1)
+    img = img.resize((pw, ph), Image.LANCZOS) if dpi else img.resize((pw, ph))  # 기본(산안법·시특법)은 예전 그대로
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=88)
     return buf.getvalue()
 
 
-def _fit_to_pic(path, img, crop: bool = True):
+def _fit_to_pic(path, img, crop: bool = True, dpi: int | None = None):
     """그림 파일을 그 그림 틀(img의 pic curSz) 크기 픽셀로 — crop이면 가운데 잘라 꽉, 아니면(서류) 흰 여백을 둘러 통째로. 못 읽으면 원래 경로."""
     import io
 
@@ -1996,10 +1998,13 @@ def _fit_to_pic(path, img, crop: bool = True):
     ratio = (im.width / max(im.height, 1)) / (w / h)
     if crop and 0.4 < ratio < 2.5:  # 비율이 아주 다른 사진(스타프 433×31 같은 띠)은 자르면 한 조각만 크게 흐려짐 → 통째로
         try:
-            return _cropped(path, w, h)
+            return _cropped(path, w, h, dpi)
         except Exception:  # noqa: BLE001
             return path
-    pw, ph = max(int(w / 7200 * PIC_DPI), 1), max(int(h / 7200 * PIC_DPI), 1)
+    pw, ph = max(int(w / 7200 * (dpi or PIC_DPI)), 1), max(int(h / 7200 * (dpi or PIC_DPI)), 1)
+    if dpi and pw > im.width and ph > im.height:  # 원본보다 크게는 안 키움(내진 높은 해상도, 10/28)
+        k = max(im.width / pw, im.height / ph)
+        pw, ph = max(int(pw * k), 1), max(int(ph * k), 1)
     im.thumbnail((pw, ph))
     canvas = Image.new("RGB", (pw, ph), "white")
     canvas.paste(im, ((pw - im.width) // 2, (ph - im.height) // 2))
