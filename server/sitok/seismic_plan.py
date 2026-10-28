@@ -14,6 +14,7 @@ from server.sitok import seismic_field as SF
 from server.sitok import seismic_fill as SFL
 
 SAMPLE_PERIOD = "2025년 10월 24일 ~ 2026년 01월 02일(71일간)"
+PERIOD_PAT = re.compile(r"\d{4}년\s*\d{1,2}월\s*\d{1,2}일\s*~\s*\d{4}년\s*\d{1,2}월\s*\d{1,2}일\s*\(\s*\d+\s*일간\s*\)")  # 과업기간 줄 — 견본 날짜가 바뀌어도(10/28)
 
 
 def _kor(d) -> str:
@@ -44,12 +45,13 @@ def build_plan(db, r, f, dest: Path) -> Path:
 def _fill(doc, root, d: dict, sc: dict, reg: dict, field: dict, r, f) -> None:
     from server.sitok import seismic_build as SB
 
-    SB.replace_globals(doc, d)
-    if d.get("period_start") and d.get("period_end"):
+    if d.get("period_start") and d.get("period_end"):  # 과업기간 줄 — replace_globals보다 먼저(10/28 사용자 "과업수행일정이 용역기간과 연동 안 됨":
+        # 연월 바꾸기(SAMPLE_MONTHS "2026년 01월")가 먼저 돌아 견본 "2026년 01월 02일"이 "2026년 12월 02일"로 바뀐 뒤라 견본 글이 안 맞아 그대로 남았음), 견본 날짜가 무엇이든 "~ (N일간)" 모양으로 찾음
         days = sc.get("days") or ((d["period_end"] - d["period_start"]).days + 1)
-        SFL.replace_loose(doc, SAMPLE_PERIOD, f"{_kor(d['period_start'])} ~ {_kor(d['period_end'])}({days}일간)")
+        SFL.replace_loose(doc, PERIOD_PAT, f"{_kor(d['period_start'])} ~ {_kor(d['period_end'])}({days}일간)")
     else:
         days = sc.get("days") or 71
+    SB.replace_globals(doc, d)
     grade = reg.get("grade") or "특등급"
     for t in SFL._outer(root):
         cells = rb._cells(t)

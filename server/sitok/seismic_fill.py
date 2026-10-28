@@ -296,9 +296,10 @@ def thick_bottom(tbl) -> int:
     return n
 
 
-def replace_loose(doc, old: str, new: str) -> int:
-    """견본 글 바꾸기 — 띄어쓰기 칸 수와 상관없이(2.5 (3) "전단파속도         BH-1"처럼 줄 맞춤 빈칸이 있음). 문단마다 글자 칸을 이어 찾음."""
-    pat = re.compile(r"\s*".join(re.escape(ch) for ch in re.sub(r"\s", "", old)))
+def replace_loose(doc, old, new: str) -> int:
+    """견본 글 바꾸기 — 띄어쓰기 칸 수와 상관없이(2.5 (3) "전단파속도         BH-1"처럼 줄 맞춤 빈칸이 있음). 문단마다 글자 칸을 이어 찾음.
+    old가 정규식(re.Pattern)이면 그대로 씀(10/28 과업기간 줄)."""
+    pat = old if hasattr(old, "sub") else re.compile(r"\s*".join(re.escape(ch) for ch in re.sub(r"\s", "", old)))
     n = 0
     for root in doc.roots.values():
         for para in root.iter(f"{{{HP}}}p"):
