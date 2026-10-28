@@ -413,7 +413,9 @@
 
   function stickPad() { // 고정 줄 밑으로 칸이 숨지 않게 — 탭·찾기로 넘어갈 때 그만큼 띄움
     const bar = $("sf2-min");
-    document.documentElement.style.scrollPaddingTop = `${bar.offsetHeight + (parseInt(getComputedStyle(bar).top, 10) || 0) + 8}px`;
+    const bottom = bar.offsetHeight + (parseInt(getComputedStyle(bar).top, 10) || 0);
+    document.documentElement.style.scrollPaddingTop = `${bottom + 8}px`;
+    $("ss-rows")?.style.setProperty("--tabs-h", `${bottom}px`); // 철근탐사 층·부재 바로가기 줄(.ss-nav sticky)을 고정 요약 줄 바로 아래에(10/28 사용자 폰 — 요약 줄 뒤에 숨던 것)
   }
   window.addEventListener("resize", stickPad);
 
