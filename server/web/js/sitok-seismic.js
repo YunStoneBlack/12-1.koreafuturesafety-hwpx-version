@@ -115,10 +115,12 @@
       prev = r.floor;
       return h + card(r);
     }).join("");
+    const keepY = window.scrollY; // 다시 그리는 동안 쪽 높이가 줄었다 늘어 폰에서 스크롤이 튀는 것 — 그린 뒤 제자리로(10/28)
     $("ss-rows").innerHTML = d.rows.length ? `<section class="panel ss-rows-panel"><div class="panel-body ss-cards">${nav}${cards || '<div class="empty-note">이 층에는 시험 카드가 없습니다.</div>'}</div>
         <div class="ss-foot"><span class="sp-saved" id="ss-saved2"></span><span class="sk-help">고치는 대로 자동 저장됩니다</span><button type="button" id="ss-save">저장</button></div></section>`
       : '<section class="panel"><div class="panel-body empty-note">아직 시험 칸이 없습니다 — 위 칸 수 표에서 칸을 늘리세요</div></section>';
     bind();
+    if (Math.abs(window.scrollY - keepY) > 2) window.scrollTo({ top: keepY });
     $("ss-save")?.addEventListener("click", saveAll);
     document.querySelectorAll("#ss-rows [data-mf], #ss-qty [data-mf]").forEach((b) => b.addEventListener("click", () => { // 층 단추·칸 수 표 층 이름 → 그 층만(표 층 이름을 다시 누르면 전체)
       sFloor = b.dataset.mf === sFloor && b.classList.contains("sf2-fname") ? "" : b.dataset.mf;
@@ -140,11 +142,13 @@
     if (r.kind === "벽체" || k === "벽체") out.measured = ["", ""];
     return out;
   };
-  function flashCard(id) {
+  function flashCard(id, scroll = true) { // scroll=false — 제자리 작업(부재 바꾸기)은 화면을 안 움직이고 깜빡이기만(10/28 사용자 "커서가 바뀐 부재쪽으로 넘어감")
     const target = document.querySelector(`#ss-rows .ss-card[data-id="${id}"]`);
     if (!target) return;
-    const navBottom = document.querySelector("#ss-rows .ss-nav")?.getBoundingClientRect().bottom || 0;
-    window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - navBottom - 8, behavior: "smooth" });
+    if (scroll) {
+      const navBottom = document.querySelector("#ss-rows .ss-nav")?.getBoundingClientRect().bottom || 0;
+      window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - navBottom - 8, behavior: "smooth" });
+    }
     target.classList.add("ss-flash");
     setTimeout(() => target.classList.remove("ss-flash"), 1500);
   }
@@ -158,7 +162,7 @@
       rows[i] = blankCard(row) ? { ...row, kind: nk } : asKind(row, nk);
       rows[j] = { ...other, kind: row.kind }; // 빈 카드 — 서버가 위치·변 기본값
       $("ss-saved").textContent = `RC-${row.no} → ${nk}, RC-${other.no} → ${row.kind}`;
-      save(rows).then((ok) => { if (ok) { flashCard(row.id); $("ss-saved").textContent = `RC-${row.no} → ${nk}, RC-${other.no} → ${row.kind}`; } });
+      save(rows).then((ok) => { if (ok) { flashCard(row.id, false); $("ss-saved").textContent = `RC-${row.no} → ${nk}, RC-${other.no} → ${row.kind}`; } });
       return;
     }
     if (sFloor && String(nf) !== sFloor) { sFloor = String(nf); try { sessionStorage.setItem(`ss-mf-${rid}`, sFloor); } catch (_) { /* */ } } // 다른 층으로 — 그 층을 보여 줌
