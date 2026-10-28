@@ -67,6 +67,7 @@ def _titles_from_hwpx(path: str) -> list[str]:
 
 
 WALL_TITLES = ["시점측 전경", "종점측 전경", "시점측 상부 전경", "전면부 전경", "소단 전경", "배수시설 전경"]  # 옹벽 견본 1.2.3 전경 6장(10/20)
+BRIDGE_TITLES = ["교량 전경", "교량 측면 전경", "교면 전경", "하부구조 전경", "시점부 전경", "종점부 전경"]  # 교량 1.2.3 전경 6장(10/29)
 
 
 def _out(db: Session, r: SitokReport) -> dict:
@@ -74,11 +75,12 @@ def _out(db: Session, r: SitokReport) -> dict:
     from server.sitok import kinds
 
     prev = _previous(db, r)
-    wall = kinds.is_wall(db.get(SitokFacility, r.facility_id))
+    fac = db.get(SitokFacility, r.facility_id)
+    wall = kinds.is_civil(fac)  # 옹벽·교량(10/29)
     titles = [p.get("title") for p in (prev.overview or []) if p.get("title")] if prev and prev.overview else []
     titles += [t for t in _titles_from_hwpx(r.source_hwpx) if t not in titles]
     if wall:
-        titles += [t for t in WALL_TITLES if t not in titles]
+        titles += [t for t in (BRIDGE_TITLES if kinds.is_bridge(fac) else WALL_TITLES) if t not in titles]
     base = _dir(db, r)
     return {"photos": [{"id": p["id"], "title": p.get("title") or "", "ai": bool(p.get("ai")), "main": bool(p.get("main")), "has_now": bool(p.get("file") and (base / p["file"]).exists()),
                         "has_prev": bool(p.get("prev_file") and (base / p["prev_file"]).exists())} for p in (r.overview or [])],

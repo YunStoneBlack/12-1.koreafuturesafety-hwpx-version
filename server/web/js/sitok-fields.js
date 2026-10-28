@@ -30,10 +30,19 @@ const SitokFields = (() => {
     ["wall_form", "옹벽형식", "text", "관리대장 — 예: 블록쌓기·역T형·중력식"], ["wall_material", "재료", "text", "예: 보강토·철근콘크리트"],
     ["wall_length", "연장(m)", "text", ""], ["wall_height", "지면노출높이(m)", "text", ""], ["wall_base_width", "저판폭(m)", "text", ""],
     ["wall_route", "노선", "text", "관리대장 노선·도로명"], ["wall_surround", "주변환경", "text", "예: 산업단지·도로변·주거지"],
-    ["wall_builder", "시공자", "text", ""], ["wall_project", "공사명", "text", "관리대장 공사명(1.3.1 자료수집 보존대상 목록)"], ["wall_attached", "부대시설", "text", "예: 안전펜스·점검로·배수시설"],
+    ["wall_builder", "시공자", "text", ""], ["wall_project", "공사명", "text", "관리대장 공사명(1.3.1 자료수집 보존대상 목록)"], ["wall_attached", "부대·부착시설", "text", "예: 안전펜스·점검로·배수시설 / 교량은 수도관·통신관 등"],
+    // 교량 제원(10/29 — 교량 원본 1.2.1 시설물 현황표 칸): 교량이면 옹벽·건축물 칸 대신 이것(applyKind). 연장·노선·부대시설은 옹벽 칸과 같이 씀
+    ["wall_load", "설계하중", "text", "예: DB-24·DL-24(1등교)"], ["wall_spans", "경간 구성", "text", "예: 3@20.0=60.0"], ["wall_width", "폭(m)", "text", "총폭"],
+    ["wall_lanes", "차로", "text", "예: (보도 1.5+차도 7.0) 2차로"], ["wall_super_type", "상부 형식", "text", "예: PSC I형 거더교·RC 슬래브교"],
+    ["wall_sub_type", "하부 형식", "text", "예: 역T형 교대·T형 교각"], ["wall_abut_found", "교대 기초", "text", "예: 직접기초·말뚝기초"], ["wall_pier_found", "교각 기초", "text", ""],
+    ["wall_bearing", "교량받침", "text", "예: 탄성받침(고무)"], ["wall_joint", "신축이음", "text", "예: 모노셀·핑거형"],
+    ["wall_crossing", "교차시설물", "text", "도로·철도·하천 — 예: 한탄강(하천)"], ["wall_clearance", "통과 높이(m)", "text", ""],
     ["memo", "메모", "text", "보고서엔 안 나감"],
   ];
-  const WALL_ONLY = new Set(["wall_form", "wall_material", "wall_length", "wall_height", "wall_base_width", "wall_route", "wall_surround", "wall_builder", "wall_project", "wall_attached"]);
+  const WALL_ONLY = new Set(["wall_form", "wall_material", "wall_height", "wall_base_width", "wall_surround", "wall_builder", "wall_project"]);
+  const BRIDGE_ONLY = new Set(["wall_load", "wall_spans", "wall_width", "wall_lanes", "wall_super_type", "wall_sub_type", "wall_abut_found", "wall_pier_found", "wall_bearing",
+    "wall_joint", "wall_crossing", "wall_clearance"]); // 교량(10/29)
+  const CIVIL_BOTH = new Set(["wall_length", "wall_route", "wall_attached"]); // 옹벽·교량 같이
   const BUILDING_ONLY = new Set(["main_use", "structure", "floors_above", "floors_below", "floors_roof", "max_height", "total_area", "building_area", "land_area", "coverage_ratio", "floor_area_ratio", "base_wall", "base_slab"]);
 
   // 보고서 틀(10/21 형): 건축물 = 2종 / 3종 일반 / 3종 학교, 옹벽 = 2종 / 3종(속값은 3종일반), 교량·수리 등 다른 토목 = 준비 중(만들기 막힘)
@@ -42,11 +51,11 @@ const SitokFields = (() => {
     if (!tpl) return;
     const help = tpl.closest(".sk-f")?.querySelector(".sk-help");
     const cur = tpl.value;
-    if (isWall) {
+    if (isWall) { // 옹벽·교량(10/29) — 2종 / 3종(속값 3종일반)
       tpl.innerHTML = '<option value="2종">2종</option><option value="3종일반">3종</option>';
       tpl.value = cur === "2종" ? "2종" : "3종일반";
       tpl.disabled = false;
-      if (help) help.textContent = "옹벽 2종 / 3종(+18항목 안전등급 평가)";
+      if (help) help.textContent = civil === "교량" ? "교량 2종 / 3종(+15항목 안전등급 평가)" : "옹벽 2종 / 3종(+18항목 안전등급 평가)";
     } else if (civil) {
       tpl.innerHTML = `<option value="${esc(cur || "2종")}">준비 중 — ${esc(civil)} 보고서 틀 없음</option>`;
       tpl.disabled = true;
@@ -54,16 +63,20 @@ const SitokFields = (() => {
     }
   }
 
-  function applyKind(box, isWall, civil = "") { // 옹벽이면 건축물 칸을 숨기고 옹벽 관리대장 칸을, 아니면 그 반대(10/21)
+  function applyKind(box, isWall, civil = "") { // 옹벽이면 건축물 칸을 숨기고 옹벽 관리대장 칸을, 아니면 그 반대(10/21) · 교량(civil "교량", 10/29)이면 교량 제원 칸
     applyTemplate(box, isWall, civil);
+    const bridge = isWall && civil === "교량";
     for (const el of box.querySelectorAll(".sk-f")) {
       const key = el.className.replace(/.*sk-f-(\S+).*/, "$1");
-      el.classList.toggle("sk-off", isWall ? BUILDING_ONLY.has(key) : WALL_ONLY.has(key));
+      const off = !isWall ? (WALL_ONLY.has(key) || BRIDGE_ONLY.has(key) || CIVIL_BOTH.has(key))
+        : bridge ? (BUILDING_ONLY.has(key) || WALL_ONLY.has(key)) : (BUILDING_ONLY.has(key) || BRIDGE_ONLY.has(key));
+      el.classList.toggle("sk-off", off);
     }
     const kind = box.querySelector("[data-key=kind]");
     const use = box.querySelector("[data-key=use_type]");
-    if (kind && kind.closest(".sk-f")) kind.closest(".sk-f").querySelector(".sk-help").textContent = isWall ? "결과표 — 옹벽" : "결과표 — 보통 건축물";
-    if (use && use.closest(".sk-f")) use.closest(".sk-f").querySelector(".sk-help").textContent = isWall ? "결과표 — 건축물옹벽·도로옹벽 등(관리대장 시설물종류)" : "결과표 — 종교시설·교육연구시설 등";
+    if (kind && kind.closest(".sk-f")) kind.closest(".sk-f").querySelector(".sk-help").textContent = bridge ? "결과표 — 교량" : isWall ? "결과표 — 옹벽" : "결과표 — 보통 건축물";
+    if (use && use.closest(".sk-f")) use.closest(".sk-f").querySelector(".sk-help").textContent = bridge ? "결과표 — 도로교량·보도육교 등(관리대장 시설물종류)"
+      : isWall ? "결과표 — 건축물옹벽·도로옹벽 등(관리대장 시설물종류)" : "결과표 — 종교시설·교육연구시설 등";
   }
   const CON = [
     ["sector", "계약 구분", "sector", ""], ["title", "계약건명", "text", ""], ["contract_no", "계약번호", "text", "관급(나라장터)"],
@@ -132,7 +145,7 @@ const SitokFields = (() => {
   }
 
   // 목록 뱃지 글 — 옹벽은 3종일반을 "3종", 틀 없는 토목은 "준비 중"(10/21)
-  const templateLabel = (f) => (f.civil_kind && f.civil_kind !== "옹벽" ? "틀 준비 중" : f.civil_kind === "옹벽" ? (f.template === "2종" ? "2종" : "3종")
+  const templateLabel = (f) => (f.civil_kind && !["옹벽", "교량"].includes(f.civil_kind) ? "틀 준비 중" : ["옹벽", "교량"].includes(f.civil_kind) ? (f.template === "2종" ? "2종" : "3종")
     : TEMPLATE_LABEL[f.template] || f.template);
   return { esc, FAC, CON, TEMPLATE_LABEL, templateLabel, input, setValues, values, linkLegal, applyKind };
 })();

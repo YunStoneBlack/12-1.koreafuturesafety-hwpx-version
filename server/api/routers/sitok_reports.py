@@ -149,14 +149,14 @@ def _seismic_progress(r: SitokReport) -> dict | None:
 
 
 def _is_wall(r: SitokReport) -> bool:
-    """회차의 시설물이 옹벽인지(server/sitok/kinds.is_wall) — 회차 화면 단계·만들기 분기."""
+    """회차의 시설물이 옹벽식 토목 정기(옹벽·교량 — server/sitok/kinds.is_civil, 교량 10/29)인지 — 회차 화면 단계·만들기·면담 분기."""
     from sqlalchemy.orm import object_session
 
     from server.sitok import kinds as _kinds
 
     db = object_session(r)
     f = db.get(SitokFacility, r.facility_id) if db is not None else None
-    return bool(f) and _kinds.is_wall(f)
+    return bool(f) and _kinds.is_civil(f)
 
 
 def _field_progress(r: SitokReport) -> dict:
@@ -1097,7 +1097,7 @@ def _run_build(report_id: int) -> None:
         if (r.kind or "정기") == "정밀":
             return _run_precision_group_build(db, r) if f.group_id else _run_precision_build(db, r)
         from server.sitok import kinds as _kinds
-        if _kinds.is_wall(f) and (r.kind or "정기") == "정기":
+        if _kinds.is_civil(f) and (r.kind or "정기") == "정기":  # 옹벽·교량(10/29) 정기 — 한 파일 원본(wall_build, 교량은 교량 원본)
             return _run_wall_build(db, r, f)  # 옹벽 정기(10/20 3단계 — 부분 파일 채워 PDF 합침, 묶음은 아직 한 곳씩)
         if f.group_id:
             return _run_group_build(db, r)
@@ -1671,9 +1671,13 @@ def _ai_out(db: Session, r: SitokReport) -> dict:
 
     f = db.get(SitokFacility, r.facility_id)
     lead = _book_lead(db, r)
-    wall = bool(f) and _kinds.is_wall(f)
+    wall = bool(f) and _kinds.is_civil(f)  # 옹벽·교량(10/29) — 절 목록·요약표 줄은 그 모듈 것
+    bridge = bool(f) and _kinds.is_bridge(f)
+    from server.sitok import bridge_ai
+    mod = bridge_ai if bridge else wall_ai
     return {**(r.ai or {}), "prices": [p.method for p in prices(db, r.company_id)], "template": f.template if f else "",
-            "wall": wall, "sections_list": wall_ai.section_list() if wall else None,
+            "wall": wall, "bridge": bridge, "sections_list": mod.section_list() if wall else None,
+            "summary_label": ("1.4.8" if bridge else "1.4.5") if wall else "", "eval_n": (15 if bridge else 18) if wall else 18,
             "summary": ((lead.ai or {}).get("summary") if lead is not None else None) or {}, "book": len(_group_reports(db, r)) if f and f.group_id else 1}
 
 
@@ -1710,17 +1714,27 @@ class DraftIn(BaseModel):
 
 
 def _wall_ai_draft(db: Session, r: SitokReport, f: SitokFacility, rows: list, user: User, target: str) -> dict:
-    """옹벽 AI 초안(server/sitok/wall_ai) — 결함이 없어도 됨(양호 보고서). 전회차 사진 설명·상태양호·공중이용 사실을 같이 줌."""
+    """옹벽·교량 AI 초안(server/sitok/wall_ai · 교량 bridge_ai, 10/29) — 결함이 없어도 됨(양호 보고서). 전회차 사진 설명·상태양호·공중이용 사실을 같이 줌."""
+    from server.sitok import bridge_ai, bridge_manual
     from server.sitok import good as G
+    from server.sitok import kinds as _kinds
     from server.sitok import parts as P
     from server.sitok import wall_ai
+
+    fam = _kinds.family_of(f)
+    mod = bridge_ai if fam == "bridge" else wall_ai
 
     defects = [{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause", "cause_note")}
                for d in rows]
     prev = [f"{d.floor} — {(d.prev or {}).get('설명') or ''}".strip(" —") for d in rows if d.prev and (d.prev or {}).get("설명")]
     spec = (f.ledger or {}).get("wall") or {}
-    facility = f"{f.name} — 옹벽 {f.class_no or spec.get('class_no') or 2}종 · {spec.get('form') or f.structure or ''} · 연장 {spec.get('length') or '-'}m · 높이 {spec.get('height') or '-'}m · 준공 {_iso(f.completion_date)}"
-    facts = G.facts(r.survey, "wall")
+    if fam == "bridge":  # 교량 제원(시설물 칸 교량 — 원본 1.2.1 현황표 칸)
+        facility = (f"{f.name} — 교량 {f.class_no or spec.get('class_no') or (3 if (f.template or '').startswith('3종') else 2)}종 · 상부 {spec.get('super_type') or f.structure or '-'} · 하부 {spec.get('sub_type') or '-'}"
+                    f" · 연장 {spec.get('length') or '-'}m{(' (' + spec['spans'] + ')') if spec.get('spans') else ''} · 폭 {spec.get('width') or '-'}m"
+                    f" · 받침 {spec.get('bearing') or '-'} · 신축이음 {spec.get('joint') or '-'} · 교차 {spec.get('crossing') or '-'} · 준공 {_iso(f.completion_date)}")
+    else:
+        facility = f"{f.name} — 옹벽 {f.class_no or spec.get('class_no') or 2}종 · {spec.get('form') or f.structure or ''} · 연장 {spec.get('length') or '-'}m · 높이 {spec.get('height') or '-'}m · 준공 {_iso(f.completion_date)}"
+    facts = G.facts(r.survey, fam)
     pub = []
     try:
         pp = P.norm(r.parts)["public"]
@@ -1733,14 +1747,15 @@ def _wall_ai_draft(db: Session, r: SitokReport, f: SitokFacility, rows: list, us
     target_word = wall_ai.word(target) if target else ""
     prev_grade = wall_ai.word(f.safety_grade or "")
     from server.sitok import wall_manual
-    form = wall_manual.form_of(spec.get("form") or "", f.name, f.kind or "")
-    eval_items = wall_manual.items_for(form) if (f.template or "").startswith("3종") else None  # 3종 18항목(5단계, 10/21)
+    manual = bridge_manual if fam == "bridge" else wall_manual
+    form = manual.form_of(spec.get("form") or "", f.name, f.kind or "")
+    eval_items = manual.items_for(form) if (f.template or "").startswith("3종") else None  # 3종 18항목(옹벽)·15항목(교량)
     from server.api.routers.sitok_defects import method_combos
     from server.api.routers.sitok_settings import prices
     from server.sitok import wall_collect
     ps = wall_collect.prev_summary(db, r, f)  # 요약표 전회 칸(⑫): 전회차 회차 > 전회차 PDF > 없음
     try:
-        data = wall_ai.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, prev, facts, user.company_id,
+        data = mod.draft(facility, f"{r.year}년 {r.half} (점검기간 {_iso(r.period_start)}~{_iso(r.period_end)})", defects, prev, facts, user.company_id,
                              target_word, prev_grade, ", ".join(pub), eval_items, form, prev_rows=ps["rows"], combos=method_combos(db, r.id),
                              price_list=[(p.method, p.unit, p.price) for p in prices(db, r.company_id)])
     except Exception as err:  # noqa: BLE001
@@ -1860,7 +1875,7 @@ def _ai_draft_work(db: Session, r: SitokReport, user: User, target: str) -> dict
     f = db.get(SitokFacility, r.facility_id)
     rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id).all()
     from server.sitok import kinds as _kinds
-    if _kinds.is_wall(f):
+    if _kinds.is_civil(f):  # 옹벽·교량(10/29)
         return _wall_ai_draft(db, r, f, rows, user, target)
     if not rows:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "현장 조사 결함이 없습니다 — [📱 현장 조사]에서 결함을 먼저 가져오거나 입력하세요.")
@@ -1975,18 +1990,21 @@ def ai_save(report_id: int, body: dict, user: User = Depends(get_current_user), 
     keys = ("critical", "public", "findings", "repairs", "next_focus", "sections", "conclusion", "grade", "grade_reason", "items", "eval_opinion", "facility", "methods", "parts",
             "brick", "brick_src")
     from server.sitok import kinds as _kinds
-    wall = _kinds.is_wall(db.get(SitokFacility, r.facility_id))
-    if wall:  # 옹벽(10/20): 실시결과 요약표 줄·종합의견도, 종합결론은 {survey, repair, urgent}; 10/21 1.5 유지관리방안·전회 칸 출처
+    wall = _kinds.is_civil(db.get(SitokFacility, r.facility_id))
+    if wall:  # 옹벽(10/20)·교량(10/29): 실시결과 요약표 줄·종합의견도, 종합결론은 {survey, repair, urgent}; 10/21 1.5 유지관리방안·전회 칸 출처
         keys += ("summary_rows", "summary_opinion", "maint_plan", "summary_prev_src", "summary_prev_label", "summary_prev_grade")
     final = {k: body.get(k) for k in keys}
     if wall:
         final["wall"] = True
-    if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선) — 옹벽은 매뉴얼 단서(보강토 11번)까지(wall_manual.score)
+        if _kinds.is_bridge(db.get(SitokFacility, r.facility_id)):
+            final["bridge"] = True
+    if final.get("items"):  # 3종: 등급은 18항목 점수로(점검자가 고른 등급보다 우선) — 옹벽은 매뉴얼 단서(보강토 11번)까지(wall_manual.score), 교량 15항목(5·6번 단서)
         if wall:
-            from server.sitok import wall_manual
+            from server.sitok import bridge_manual, wall_manual
             wf = db.get(SitokFacility, r.facility_id)
-            form = wall_manual.form_of(((wf.ledger or {}).get("wall") or {}).get("form") or "", wf.name, wf.kind or "")
-            final["grade"] = wall_manual.score(final["items"], form)["grade"] or final.get("grade")
+            manual = bridge_manual if _kinds.is_bridge(wf) else wall_manual
+            form = manual.form_of(((wf.ledger or {}).get("wall") or {}).get("form") or "", wf.name, wf.kind or "")
+            final["grade"] = manual.score(final["items"], form)["grade"] or final.get("grade")
         else:
             final["grade"] = rb.eval_score(final["items"])["grade"] or final.get("grade")
     from server.sitok import ai_draft as _AD

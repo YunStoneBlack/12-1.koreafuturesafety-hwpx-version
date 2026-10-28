@@ -24,7 +24,7 @@
   const partValue = (v) => (parts().includes(v) ? v : parts()[parts().length - 1]);
   const DEPTH_RE = /박리|박락|층분리/; // 깊이(mm) 칸 — 정밀 상태평가 기준(박리 0.5/1.0/2.5, 박락·층분리 15/20/25mm, 10/13)
   const WALL_DEPTH_RE = /박리|박락|층분리|파손|재료분리/; // 옹벽은 파손도(10/21 형 "박리 박락 파손 등은 깊이"), 재료분리도(10/22 민재형 견본 "재료분리(D=0.9mm)")
-  const isWall = () => !!(data && data.fam === "wall");
+  const isWall = () => !!(data && ["wall", "bridge"].includes(data.fam)); // 옹벽·교량(10/29) — 부위 탭·주요/일반/부대시설
   const depthOf = (dtype) => !!dtype && (isWall() ? WALL_DEPTH_RE : DEPTH_RE).test(dtype);
   const needDepth = (d) => depthOf(d.dtype) && !String(d.depth || "").trim() && d.check !== "repaired" && d.mark !== "보수"; // 깊이 빠진 박리·박락(10/22)
   // 크기 칸 이름(10/21 형): 옹벽 면적 결함(식생·파손·백태 등) = 가로·세로(m) 점검자 입력, 균열 등 = 폭(mm, AI 추천)·길이(m), 개수 = 개소
@@ -152,7 +152,7 @@
   const FLOOR_RE = /\d|옥상|옥탑|지붕|지하|지상|층$/; // 이 글자가 없으면 사람이 [＋]로 만든 탭(외부·정면·배면…, 서버 is_custom_unit)
   const floorKey = (f) => { // 옥상 → 지상 위층부터 → 지하 → 만든 탭(서버 floor_key와 같은 순서), 옹벽 부위는 서버 목록 순
     const i = (data.floors || []).indexOf(f);
-    if (data.fam === "wall" && i >= 0) return [-1, i];
+    if (isWall() && i >= 0) return [-1, i];
     if (!FLOOR_RE.test(f)) return [3, i >= 0 ? i : 999];
     const n = Number((String(f).match(/\d+/) || [0])[0]);
     if (/옥상|옥탑/.test(f)) return [0, -n];
@@ -355,7 +355,7 @@
   function nextFloors(map) { // [＋ ____] 고르기 목록 — 고르기 탭 + 빠진 층(맨 위 다음 층·맨 아래 다음 지하층)
     const names = [...map.keys()];
     const out = (data.tab_presets || []).filter((p) => !map.has(p));
-    if (data.fam !== "wall") {
+    if (!isWall()) {
       const top = Math.max(0, ...names.map((f) => Number((f.match(/^지상(\d+)층$/) || [0, 0])[1])));
       const low = Math.max(0, ...names.map((f) => Number((f.match(/^지하(\d+)층$/) || [0, 0])[1])));
       if (!map.has("옥상층")) out.push("옥상층");
@@ -401,7 +401,7 @@
     box.innerHTML = `<div class="sf-floor-row"><div class="sf-floor-scroll${trashMode ? " trash" : ""}">${[...map.entries()].map(([f, c]) =>
       `<button type="button" class="sf-floor${f === floor ? " on" : ""}${trashMode && c.total ? " locked" : ""}" data-f="${esc(f)}" draggable="true">${esc(f)}<small>${!c.total ? "-" : c.left ? `${c.left} 남음` : "✓"}</small></button>`).join("")}</div>
       <div class="sf-floor-tools">
-        <button type="button" class="sf-unit-btn sf-unit-add${adding ? " on" : ""}" title="${esc(unit())} 탭 추가 — 외부·정면·배면처럼 ${data.fam === "wall" ? "부위가 아닌 곳" : "층이 아닌 곳이나 빠진 층"}">＋</button>
+        <button type="button" class="sf-unit-btn sf-unit-add${adding ? " on" : ""}" title="${esc(unit())} 탭 추가 — 외부·정면·배면처럼 ${isWall() ? "부위가 아닌 곳" : "층이 아닌 곳이나 빠진 층"}">＋</button>
         ${adding ? `<span class="sf-unit-new">＋<input id="sf-unit-in" list="sf-unit-list" placeholder="탭 이름" maxlength="30" enterkeyhint="done" /><button type="button" class="sf-unit-ok">추가</button></span>
           <datalist id="sf-unit-list">${sug.map((x) => `<option value="${esc(x)}">`).join("")}</datalist>` : ""}
         <button type="button" class="sf-unit-btn sf-unit-trash${trashMode ? " on" : ""}" title="탭 지우기 — 누른 뒤 지울 탭을 누르거나, 탭을 여기로 끌어 놓기(결함이 있는 탭은 못 지움)">🗑</button>
@@ -905,7 +905,7 @@
       if (empty) {
         const pdfIn = document.getElementById("sf-pdf");
         const review = document.getElementById("sf-wall-review");
-        if (data.fam === "wall") { // 옹벽: PDF·한글 파일 → 부록 사진첩 읽기 → 확인 창(10/20)
+        if (isWall()) { // 옹벽·교량(10/29): PDF·한글 파일 → 부록 사진첩 읽기 → 확인 창(10/20)
           pdfIn.accept = "application/pdf,.pdf,.hwp,.hwpx";
           pdfIn.closest(".sk-drop").querySelector("b").textContent = "📄 지난 보고서 PDF·한글 파일에서 가져오기";
           if (!data.importing) document.getElementById("sf-pdf-msg").textContent = "부록 사진첩의 사진·설명을 읽어 AI가 부위·결함유형을 추천하고, 확인 창에서 고친 뒤 넣습니다(한글 파일은 변환 1~3분)";

@@ -189,6 +189,10 @@ def _check(field: str, value, allowed) -> None:
 
 LEDGER_KEYS = ("base_wall", "base_slab", "land_area", "coverage_ratio", "floor_area_ratio", "holder")  # 표 열 없이 ledger JSON에 두는 시설물 칸
 WALL_KEYS = ("form", "material", "length", "height", "base_width", "route", "surround", "builder", "attached", "project")  # ledger["wall"] — 시설물 칸 wall_*
+# 교량 제원(10/29 — 교량 원본 1.2.1 시설물 현황표 칸): 설계하중·노선명(이정)·연장·경간 구성·폭·차로·상부/하부 형식·교대/교각 기초·받침·신축이음·교차시설물·통과 높이·부착시설.
+# 옹벽과 같은 ledger["wall"](토목 제원 칸)에 담음 — 화면은 wall_<키>로 주고받음(겹치는 length·route·attached는 같이 씀).
+BRIDGE_KEYS = ("load", "route", "length", "spans", "width", "lanes", "super_type", "sub_type", "abut_found", "pier_found", "bearing", "joint", "crossing", "clearance", "attached")
+CIVIL_KEYS = tuple(dict.fromkeys(WALL_KEYS + BRIDGE_KEYS))
 BASE_WALL, BASE_SLAB = 24.5, 49.0  # 기준 면적 기본값 — 벽 한 면 = 기둥간격 7m × 층고 3.5m, 슬래브 한 칸 = 7m × 7m
 
 
@@ -215,7 +219,7 @@ def _apply_facility(row: SitokFacility, body: FacilityIn) -> None:
     bases = {k: data.pop(k) for k in LEDGER_KEYS if k in data}
     if bases:
         row.ledger = {**(row.ledger or {}), **bases}
-    wall = {k: (data.pop(f"wall_{k}") or "").strip() for k in WALL_KEYS if f"wall_{k}" in data}
+    wall = {k: (data.pop(f"wall_{k}") or "").strip() for k in CIVIL_KEYS if f"wall_{k}" in data}
     if wall:
         row.ledger = {**(row.ledger or {}), "wall": {**((row.ledger or {}).get("wall") or {}), **wall}}
     for k, v in data.items():
@@ -295,8 +299,8 @@ def _facility_out(db: Session, f: SitokFacility, with_contracts: bool = True) ->
     out = {"id": f.id, **{k: _iso(getattr(f, k)) for k in FAC_FIELDS}, "ledger": f.ledger or {},
            "has_ledger_pdf": bool(f.ledger_pdf and Path(f.ledger_pdf).exists()), "has_register": register_path(f).exists(),
            **{k: (f.ledger or {}).get(k) for k in LEDGER_KEYS},
-           "is_wall": _kinds.is_wall(f), **{f"wall_{k}": ((f.ledger or {}).get("wall") or {}).get(k) or "" for k in WALL_KEYS},  # 옹벽 칸(10/21)
-           **({"wall_kind_text": _wall_kind_text(f), "use_type": _wall_kind_text(f)} if _kinds.is_wall(f) else {}),
+           "is_wall": _kinds.is_wall(f), "is_bridge": _kinds.is_bridge(f), **{f"wall_{k}": ((f.ledger or {}).get("wall") or {}).get(k) or "" for k in CIVIL_KEYS},  # 옹벽·교량 칸(10/21·10/29)
+           **({"wall_kind_text": _wall_kind_text(f), "use_type": _wall_kind_text(f)} if _kinds.is_civil(f) else {}),
            "civil_kind": _kinds.civil_kind(f), "template_block": _kinds.template_block(f),  # 보고서 틀 종류별(10/21 형)  # 옹벽 "종류" 칸 = use_type(비면 관리대장 세분류 → FMS 시설물종류)
            "latest": _contract_out(contracts[0]) if contracts else None, "contract_count": len(contracts)}
     from server.api.routers.sitok_groups import group_out

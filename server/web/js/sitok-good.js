@@ -194,6 +194,9 @@
     if (data.fam === "wall") { // 옹벽(10/20): 1.4 현장조사 결과 절마다 사진 표
       const intro = document.querySelector("#sf-good .pt-intro");
       if (intro) intro.textContent = "보고서 1.4 현장조사 결과(지반 및 기초부 / 옹벽 전면부 / 기타) 사진 표 — 결함이 없거나 적은 절은 상태가 양호한 모습을 찍어 두세요. 결함 사진 다음 빈 칸에 들어가고 [🤖 AI 초안]이 \"양호\"로 씁니다.";
+    } else if (data.fam === "bridge") { // 교량(10/29): 1.4.1~1.4.6 절마다 사진 표
+      const intro = document.querySelector("#sf-good .pt-intro");
+      if (intro) intro.textContent = "보고서 1.4 현장조사 결과(상부구조 / 하부구조 / 받침 / 케이블 / 2차부재 / 기타부재) 사진 표 — 결함이 없거나 적은 절은 상태가 양호한 모습을 찍어 두세요. 결함 사진 다음 빈 칸에 들어가고 [🤖 AI 초안]이 \"양호\"로 씁니다.";
     }
     drawGood();
     const tab = document.querySelector('.sf-tab[data-tab="seismic"]');

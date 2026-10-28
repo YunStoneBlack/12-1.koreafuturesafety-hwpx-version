@@ -44,7 +44,7 @@ def _out(db: Session, r: SitokReport) -> dict:
              for k, name in P.OTHER]
     from server.sitok import kinds
 
-    return {"public": pub, "other": other, "wall": kinds.is_wall(db.get(SitokFacility, r.facility_id))}  # 옹벽은 기타시설 탭 숨김(10/20)
+    return {"public": pub, "other": other, "wall": kinds.is_civil(db.get(SitokFacility, r.facility_id))}  # 옹벽·교량은 기타시설 탭 숨김(10/20·10/29)
 
 
 def _path(db: Session, r: SitokReport, group: str, key: str, slot: int, which: str = "now") -> Path | None:

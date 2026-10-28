@@ -161,17 +161,17 @@ async function openSitokAi(reportId, title, onSaved) {
         <label>점검 주요결과 <span class="sk-help">한 줄에 글머리 하나</span><textarea data-k="findings" data-lines rows="7">${lines(f.findings)}</textarea></label>
         <label>주요 보수·보강 <span class="sk-help">한 줄에 하나</span><textarea data-k="repairs" data-lines rows="4">${lines(f.repairs)}</textarea></label>
         <label>차기 정기점검 시 중점 점검부위<input data-k="next_focus" value="${esc(f.next_focus)}" /></label>
-        ${(f.items || []).length ? `<div class="ai-grade3">안전등급 <b class="ai-calc"></b> <span class="sk-help">3종 — 아래 18항목 평가로 자동 계산(평가를 바꾸면 바로 바뀜)</span></div>`
+        ${(f.items || []).length ? `<div class="ai-grade3">안전등급 <b class="ai-calc"></b> <span class="sk-help">3종 — 아래 ${f.items.length}항목 평가로 자동 계산(평가를 바꾸면 바로 바뀜)</span></div>`
           : `<label>${two ? "점검결과 등급 <small>(2종 — 양호·보통·미흡·불량)</small>" : "안전등급"} <span class="sk-help">AI 추천 ${esc(GR[two && d.grade === "A" ? "B" : d.grade] || "-")} — ${esc(d.grade_reason || "")}</span>
           <select data-k="grade"><option value="">바꾸지 않음(지난 보고서 그대로)</option>${Object.entries(GR).map(([k, v]) => `<option value="${k}"${curGrade === k ? " selected" : ""}>${v}</option>`).join("")}</select></label>`}
-        <div class="ai-regrade"><span class="sk-help">등급이 맞지 않다고 보면 — AI가 그 등급에 맞게 등급 근거·결과표·종합결론${(f.items || []).length ? "·18항목 평가" : ""}를 다시 씁니다</span>
+        <div class="ai-regrade"><span class="sk-help">등급이 맞지 않다고 보면 — AI가 그 등급에 맞게 등급 근거·결과표·종합결론${(f.items || []).length ? `·${f.items.length}항목 평가` : ""}를 다시 씁니다</span>
           <button type="button" class="secondary btn-sm ai-regrade-btn" data-g="up">▲ 한 단계 올려 다시 쓰기</button>
           <button type="button" class="secondary btn-sm ai-regrade-btn" data-g="down">▼ 한 단계 내려 다시 쓰기</button>
           ${d.requested_grade ? `<span class="sk-help">요청 ${esc(GR[d.requested_grade] || d.requested_grade)} → 나온 등급 ${esc(GR[curGrade] || curGrade || "-")}</span>` : ""}</div>
         <h4>${wall ? "1.4 현장조사 결과(절마다 서술)" : "1.3 외관조사 실시결과(항목별 서술 — 결과의 분석 표에도 같은 글)"}</h4>
         ${SECS.map(([k, label]) => `<label>${label} ${wall ? "" : `<span class="sk-help">결함 ${st[k]?.count ?? 0}건${st[k]?.grew ? ` · 진행 ${st[k].grew}` : ""}${st[k]?.new ? ` · 신규 ${st[k].new}` : ""}${st[k]?.repaired ? ` · 보수 ${st[k].repaired}` : ""}</span>`}
           <textarea data-k="sections.${k}" rows="3">${esc((f.sections || {})[k])}</textarea></label>`).join("")}
-        ${wall ? `<h4>1.4.5 정기점검 실시결과 요약표 <span class="sk-help">부위마다 전회·금회·조치(줄마다 ⦁) — ${esc(prevNote(f))}</span></h4>
+        ${wall ? `<h4>${esc(ai.summary_label || "1.4.5")} 정기점검 실시결과 요약표 <span class="sk-help">부위마다 전회·금회·조치(줄마다 ⦁) — ${esc(prevNote(f))}</span></h4>
           <div class="ai-wsum">${(f.summary_rows || []).map((row, i) => `<div class="ai-wsum-row"><b>${esc(row.name)}</b>
             <textarea data-k="summary_rows.${i}.prev" rows="2" placeholder="전회 결과">${esc(row.prev)}</textarea>
             <textarea data-k="summary_rows.${i}.now" rows="2" placeholder="금회 결과">${esc(row.now)}</textarea>
@@ -183,7 +183,7 @@ async function openSitokAi(reportId, title, onSaved) {
           <div class="ai-fac">${f.parts.map((it, i) => `<div class="ai-fac-row ai-part" data-i="${i}"><span class="ai-name"><small>${it.group === "public" ? "공중이용" : "기타시설"}</small>${esc(it.name)}</span>
             <select class="ai-pgrade">${["", "a", "b", "c", "d", "e", "해당없음"].map((g) => `<option value="${g}"${it.grade === g ? " selected" : ""}>${g || "-"}</option>`).join("")}</select>
             <input class="ai-pnote" value="${esc(it.note)}" placeholder="상태 한 줄" /></div>`).join("")}</div>` : ""}
-        ${(f.items || []).length ? `<h4>안전등급 평가(3종, 18항목)</h4>
+        ${(f.items || []).length ? `<h4>안전등급 평가(3종, ${f.items.length}항목)</h4>
           <div class="ai-items">${f.items.map((it, i) => `<div class="ai-item" data-i="${i}"><span class="ai-no">${it.no}</span>
             <span class="ai-name"><small>${esc(it.group)}</small>${esc(it.name)}${it.basis ? `<em class="ai-basis">근거: ${esc(it.basis)}</em>` : ""}</span>
             <select class="ai-rating">${SITOK_RATINGS.map(([n]) => `<option${it.rating === n ? " selected" : ""}>${n}</option>`).join("")}</select>
@@ -238,7 +238,7 @@ async function openSitokAi(reportId, title, onSaved) {
     box.querySelector(".ai-redo").addEventListener("click", () => { if (confirm("AI가 처음부터 다시 씁니다. 고친 글은 사라집니다. 할까요?")) makeDraft(); });
     box.querySelectorAll(".ai-regrade-btn").forEach((b) => b.addEventListener("click", () => { // 등급 재산정 요청(10/19 형 "한 단계 상향·하향 요청")
       const up = b.dataset.g === "up";
-      if (!confirm(`등급을 한 단계 ${up ? "올려(좋게)" : "내려(낮게)"} AI가 등급 근거·결과표·종합결론${(f.items || []).length ? "·18항목 평가" : ""}를 다시 씁니다(1~5분). 고친 글은 사라집니다. 할까요?`)) return;
+      if (!confirm(`등급을 한 단계 ${up ? "올려(좋게)" : "내려(낮게)"} AI가 등급 근거·결과표·종합결론${(f.items || []).length ? `·${f.items.length}항목 평가` : ""}를 다시 씁니다(1~5분). 고친 글은 사라집니다. 할까요?`)) return;
       makeDraft({ grade: up ? "up" : "down" });
     }));
     attachRewrite(); // 글 칸마다 덧붙일 내용 + 🤖 반영해 다시 쓰기(10/28)

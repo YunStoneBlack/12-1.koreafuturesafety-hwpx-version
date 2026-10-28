@@ -13,6 +13,9 @@ from pathlib import Path
 CATS = [("crack", "콘크리트 구조체 균열"), ("leak", "누수 및 백화"), ("spall", "박리·박락 및 철근노출"), ("steel", "강재구조"), ("nonstruct", "비구조체")]
 # 옹벽(10/20) — 보고서 1.4 현장조사 결과 3절(지반 및 기초부 / 옹벽 전면부 / 기타)마다 사진 표 2×2 → 결함 사진이 모자란 칸에 상태양호 사진
 WALL_CATS = [("found", "지반 및 기초부"), ("front", "옹벽 전면부"), ("etc", "기타(배수시설·사면·점검로)")]
+# 교량(10/29) — 원본 1.4.1~1.4.6 절마다 사진 표(4장), 공중이용은 1.4.7(공중이용 탭)
+BRIDGE_CATS = [("super", "상부구조(바닥판·거더)"), ("sub", "하부구조(교대·교각·기초)"), ("bearing", "받침(교량받침)"), ("cable", "케이블(정착구·행어·새들)"),
+               ("second", "2차부재(가로보·세로보)"), ("etc", "기타부재(신축이음·배수·난간·교면포장)")]
 PER = 4  # 항목마다 상태양호 사진(1.3 대표사진 칸 4개)
 # 3종학교만(10/23 사용자) — 1.7 외부 치장벽돌 안전점검 특이사항: 치장벽돌 결함이 있으면 그 결함으로, 없으면 이 상태양호 사진을 AI가 보고 씀(1.3 사진표에는 안 들어감)
 SCHOOL_CATS = [("brick", "외부 치장벽돌")]
@@ -21,7 +24,7 @@ BRICK_WORDS = ("치장", "벽돌")  # 결함 구분·부재·결함유형·비�
 
 def cats_for(fam: str = "", school: bool = False) -> list:
     """상태양호 항목 — 옹벽 3절, 건축물 1.3 5항목(+ 3종학교면 외부 치장벽돌)."""
-    return WALL_CATS if fam == "wall" else CATS + (SCHOOL_CATS if school else [])
+    return WALL_CATS if fam == "wall" else BRIDGE_CATS if fam == "bridge" else CATS + (SCHOOL_CATS if school else [])
 
 
 def is_brick(d: dict) -> bool:

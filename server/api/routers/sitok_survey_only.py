@@ -77,7 +77,7 @@ def create_survey(body: SurveyIn, user: User = Depends(get_current_user), db: Se
     kind = body.kind if body.kind in KINDS else "기타"
     above, below = max(int(body.floors_above or 0), 0), max(int(body.floors_below or 0), 0)
     units = [u.strip() for u in (body.units or []) if u and u.strip()]
-    if not above and not below and not units and kind != "옹벽":
+    if not above and not below and not units and kind not in ("옹벽", "교량"):  # 옹벽·교량(10/29)은 부위 탭이 기본
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "층수(지상·지하)나 탭(외부·정면 등)을 하나 이상 넣으세요.")
     led: dict = {"units_extra": list(dict.fromkeys(units))}
     if not body.roof and (above or below):

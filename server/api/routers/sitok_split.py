@@ -84,7 +84,7 @@ def _is_wall(db: Session, lead: SitokReport) -> bool:
     from server.sitok import kinds
 
     f = db.get(SitokFacility, lead.facility_id)
-    return bool(f) and kinds.is_wall(f)
+    return bool(f) and kinds.is_civil(f)  # 옹벽·교량(10/29) — 묶음 한 권은 wall_build.build_many
 
 
 def _why_not(db: Session, lead: SitokReport, pairs: list) -> str:

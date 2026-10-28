@@ -12,6 +12,9 @@
 - 서두: 제출문·참여기술자 명단 + 결과표(1개) + 전경사진(1개) — 견본의 위치도 4장·결과표 17개·전경 17개 중 첫 것만 남기고 지움(안 쓰는 BinData도 지움).
 - 시설물편: 1.1 결과표·1.2.1 현황표(관리대장 제원 wall_ledger)·1.2.2 위치도(locmap)·1.2.3 전경 6장·1.3.2 점검 이력·1.4.1~1.4.4 글(AI wall_ai)·사진 표 4장씩·
   1.4.5 요약표·1.5 이름·개략공사비·종합결론. 3종 1.6 안전등급 평가 표는 아직 견본 값 그대로(5단계).
+- 교량(10/29 형 "옹벽편 → 교량편 추가, 기능은 옹벽과 동일"): 원본 master.master_path("교량") = 정기안전점검_교량_원본.hwpx(구역 짝은 옹벽 원본과 같음 — 공통편은
+  교량·옹벽·터널·절토사면 같이, 시설물편 교량편). Data.fam = "bridge"면 AI·평가는 bridge_ai·bridge_manual, 시설물편 1.2.1 현황표 11×6(교량 제원)·1.4.1~1.4.7 절·
+  1.4.8 요약표 10×4·1.5 평가표 19×10(15항목), 요약문·과업 표·총괄표는 높이 대신 폭·형식 대신 상부 형식, 요약문 "(옹벽)"·"옹벽 총"은 "교량"으로(교량 원본 요약문이 옹벽 견본 그대로라).
 - 부록: 간지만 남기고(견본 사진 쪽 지움) 관리대장 PDF·사진첩 PDF(pymupdf로 그림 — 전경 6 + 주요 손상 및 현황 사진 2×3 + 전회차 비교, 설명은 그림 바로 아래 →
   다음 회차 wall_album.read_pdf가 읽음)·계약서 PDF를 간지 뒤에 끼움.
 """
@@ -30,7 +33,7 @@ from lxml import etree
 
 from core.stored_path import to_full
 
-from server.sitok import civil, wall_ai, wall_collect, wall_ledger, wall_manual
+from server.sitok import bridge_ai, bridge_manual, civil, kinds, wall_ai, wall_collect, wall_ledger, wall_manual
 from server.sitok import report_build as rb
 from server.sitok.report_build import HP, T
 
@@ -41,15 +44,21 @@ HC = "http://www.hancom.co.kr/hwpml/2011/core"
 PDF_WAIT = 900  # 한 파일 PDF(형 합본 그대로 139쪽 61초 — 10/21)
 
 
-def master_path() -> Path:
+def master_path(fam: str = "wall") -> Path:
+    """원본 — 옹벽 정기안전점검_옹벽_원본.hwpx · 교량 정기안전점검_교량_원본.hwpx(10/29)."""
     from server.sitok import master
-    return master.master_path("옹벽")
+    return master.master_path("교량" if fam == "bridge" else "옹벽")
 
 
-def ready() -> list[str]:
+def ready(fam: str = "wall") -> list[str]:
     """없는 원본 파일 이름(있으면 빈 목록)."""
-    p = master_path()
+    p = master_path(fam)
     return [] if p.exists() else [p.name]
+
+
+def fam_mods(fam: str):
+    """(AI 모듈, 평가 모듈) — 옹벽 wall_ai·wall_manual · 교량 bridge_ai·bridge_manual."""
+    return (bridge_ai, bridge_manual) if fam == "bridge" else (wall_ai, wall_manual)
 
 
 # ---------- 원본 hwpx(구역 여럿) ----------
@@ -556,6 +565,7 @@ class Data:
     joint: str = "단독수급"
     bid: str = "수의계약"
     kind_text: str = "기타옹벽"
+    fam: str = "wall"  # 옹벽 "wall" · 교량 "bridge"(10/29 — kinds.family_of)
     class_no: str = "2"
     completion: datetime.date | None = None
     amount_k: str = "-"
@@ -608,12 +618,24 @@ class Data:
     @property
     def grade_cell(self) -> str:
         """결과표 "등급" 칸 — 3종은 글자(A~E, 견본 "B"), 2종은 말(양호)."""
-        return wall_ai.letter3(self.ai.get("grade") or self.grade, self.ai.get("items"), self.form) if self.template3 else self.grade
+        return fam_mods(self.fam)[0].letter3(self.ai.get("grade") or self.grade, self.ai.get("items"), self.form) if self.template3 else self.grade
 
     @property
     def size(self) -> str:
+        if self.fam == "bridge":  # 교량 — 연장·폭(10/29)
+            return f"L={self.spec.get('length') or '-'}m, B={self.spec.get('width') or '-'}m"
         h, ln = self.spec.get("height") or "-", self.spec.get("length") or "-"
         return f"H={h}m, L={ln}m"
+
+    @property
+    def dim2(self) -> str:
+        """요약문·과업 표·총괄표 둘째 치수 — 옹벽 높이 · 교량 폭."""
+        return (self.spec.get("width") if self.fam == "bridge" else self.spec.get("height")) or "-"
+
+    @property
+    def form_text(self) -> str:
+        """요약문·과업 표 "형식" 칸 — 옹벽 형식 · 교량 상부 형식."""
+        return (self.spec.get("super_type") if self.fam == "bridge" else self.spec.get("form")) or "-"
 
     @property
     def completion_text(self) -> str:
@@ -650,6 +672,8 @@ def gather(db, r, f) -> Data:
     from server.sitok import parts as P
 
     d = Data(name=f.name, year=r.year, half=r.half)
+    d.fam = "bridge" if kinds.is_bridge(f) else "wall"
+    ai_mod, manual = fam_mods(d.fam)
     c = db.get(SitokContract, r.contract_id) if r.contract_id else None
     d.title = (c.title if c and c.title else f"{r.year}년 {r.half} {f.name} 정기안전점검 용역").strip()
     d.period_start, d.period_end = r.period_start, r.period_end
@@ -677,7 +701,7 @@ def gather(db, r, f) -> Data:
     # 제원 — 관리대장 글자(없으면 전에 읽어 둔 것)
     led = dict(f.ledger or {})
     spec = dict(led.get("wall") or {})
-    if not spec.get("length") or not spec.get("fms_no"):
+    if d.fam == "wall" and (not spec.get("length") or not spec.get("fms_no")):  # 옹벽 관리대장 글자 읽기(교량은 시설물 칸 교량 제원)
         got = wall_ledger.read(f.ledger_pdf)
         if got:
             spec = {**got, **{k: v for k, v in spec.items() if v}}
@@ -685,8 +709,10 @@ def gather(db, r, f) -> Data:
     d.spec = spec
     d.kind_text = wall_ledger.facility_kind_text(f, spec)  # 시설물 칸 "종류" > 관리대장(세분류 → FMS 시설물종류, 10/21)
     d.class_no = (f.class_no or spec.get("class_no") or "2").strip()
+    if d.fam == "bridge":  # 교량(10/29) — 종별 비면 틀(3종일반 → 3종). 종류는 facility_kind_text가 교량 몫으로
+        d.class_no = (f.class_no or spec.get("class_no") or ("3" if (f.template or "").startswith("3종") else "2")).strip()
     d.template3 = (f.template or "").startswith("3종")
-    d.form = wall_manual.form_of(spec.get("form") or "", f.name, f.kind or "")
+    d.form = manual.form_of(spec.get("form") or "", f.name, f.kind or "")
     # 사람
     ids = [x for x in [r.chief_id, *(r.participant_ids or [])] if x]
     people = {p.id: p for p in db.query(TechPerson).filter(TechPerson.id.in_(ids))} if ids else {}
@@ -723,7 +749,7 @@ def gather(db, r, f) -> Data:
     except Exception:  # noqa: BLE001
         d.locmap = None
     rows = SD._rows(db, r.id)
-    sec: dict[str, list] = {"found": [], "front": [], "etc": [], "public": []}
+    sec: dict[str, list] = {k: [] for k, _ in ai_mod.SECTIONS}  # 옹벽 found·front·etc·public · 교량 super·sub·bearing·cable·second·etc·public
     shots: list[tuple] = []
     for x in rows:
         photo = Path(x.photo) if x.photo and Path(x.photo).exists() else (Path(x.prev_photo) if x.prev_photo and Path(x.prev_photo).exists() else None)
@@ -735,13 +761,13 @@ def gather(db, r, f) -> Data:
                 cap += f"({'0.3mm이상' if float(x.width) >= 0.3 else '0.3mm미만'})"
             except ValueError:
                 pass
-        key = wall_category(x.floor)
-        sec[key].append((photo, cap))
+        key = wall_category(x.floor, d.fam)
+        sec.setdefault(key, []).append((photo, cap))
         shots.append((photo, cap))
         if x.photo and Path(x.photo).exists() and x.prev_photo and Path(x.prev_photo).exists():
             d.compare.append((Path(x.prev_photo), photo, f"{x.floor} {x.seq}번 {cap}"))
-    g = G.norm(r.survey, "wall")
-    for key, _ in G.WALL_CATS:
+    g = G.norm(r.survey, d.fam)
+    for key, _ in G.cats_for(d.fam):
         gl = [x for x in g["good"][key] if not x.get("prev")] or [x for x in g["good"][key] if x.get("prev")]  # 이번 사진, 없으면 전회차
         for x in gl:
             p = rdir / x["file"]
@@ -768,16 +794,17 @@ def gather(db, r, f) -> Data:
     fin = (r.ai or {}).get("final") or {}
     defects = [{k: getattr(x, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause", "cause_note")} for x in rows]
     d.prev_grade = wall_ai.word(f.safety_grade or "") or "양호"
-    eval_items = wall_manual.items_for(d.form) if d.template3 else None
-    d.ai = dict(fin) if wall_ai.is_wall_ai(fin) else wall_ai.fallback(defects, d.prev_grade, d.public_names, eval_items, d.form)
-    if not wall_ai.is_wall_ai(fin):
+    eval_items = manual.items_for(d.form) if d.template3 else None
+    n_items = len(eval_items or []) or (15 if d.fam == "bridge" else 18)
+    d.ai = dict(fin) if ai_mod.is_wall_ai(fin) else ai_mod.fallback(defects, d.prev_grade, d.public_names, eval_items, d.form)
+    if not ai_mod.is_wall_ai(fin):
         d.warn.append("AI 초안이 없어 결함 목록으로 만든 기본 글로 채웠습니다 — [🤖 AI 초안]을 먼저 쓰면 좋습니다")
-    elif eval_items and not d.ai.get("items"):  # 5단계 전에 만든 3종 초안 — 18항목은 결함으로 어림(저장 안 함)
-        d.ai = wall_ai._with_items(d.ai, None, eval_items, d.form, defects)
-        d.warn.append("AI 초안에 18항목 안전등급 평가가 없어 결함으로 어림했습니다 — [🤖 AI 초안]을 다시 쓰면 AI가 매깁니다")
+    elif eval_items and not d.ai.get("items"):  # 5단계 전에 만든 3종 초안 — 평가 항목은 결함으로 어림(저장 안 함)
+        d.ai = ai_mod._with_items(d.ai, None, eval_items, d.form, defects)
+        d.warn.append(f"AI 초안에 {n_items}항목 안전등급 평가가 없어 결함으로 어림했습니다 — [🤖 AI 초안]을 다시 쓰면 AI가 매깁니다")
     if not d.ai.get("summary_prev_src"):  # 요약표 전회 칸(⑫) — 초안에 없으면(옛 초안·기본 글) 자료(전회차 회차 > 전회차 PDF)로, 저장은 안 함
         try:
-            d.ai = wall_ai.apply_prev(dict(d.ai), wall_collect.prev_summary(db, r, f))
+            d.ai = ai_mod.apply_prev(dict(d.ai), wall_collect.prev_summary(db, r, f))
         except Exception:  # noqa: BLE001
             pass
     if d.ai.get("summary_prev_grade"):
@@ -916,17 +943,27 @@ def fill_summary(doc: Hwpx, d: Data) -> None:
         _set(rb._cells(t31), (0, 0), d.owner)
     replace_text(root, "어쩌구에 대한 2026년 상반기 정기안전점검", f"{d.name}에 대한 {d.year}년 {d.half} 정기안전점검")
     sites = d.many
-    replace_text(root, "총 옹벽 17개소", f"옹벽 {len(sites)}개소")
+    word = "교량" if d.fam == "bridge" else "옹벽"  # 교량 원본 요약문은 옹벽 견본 글 그대로(10/29) — 시설물 낱말을 바꿈
+    replace_text(root, "총 옹벽 17개소", f"{word} {len(sites)}개소")
+    if d.fam == "bridge":
+        replace_text(root, "시설물별 정기안전점검 결과 (옹벽)", "시설물별 정기안전점검 결과 (교량)")
     replace_text(root, "2026년 04월 13일 ~ 2026년 07월 11일", f"{_date(d.period_start, False)} ~ {_date(d.period_end, False)}")
     for p in _tops(root):
         if _ptext(p).startswith("※ 옹벽 총"):
-            rb._set_para(p, f"※ 옹벽 총 {len(sites)}개소({_grade_summary(sites)})")
+            rb._set_para(p, f"※ {word} 총 {len(sites)}개소({_grade_summary(sites)})")
     t = _tbl(root, 18, 11)
     if t is not None:
+        if d.fam == "bridge":  # 머리 줄 "높이(m)" → "폭(m)", "길이(m)" → "연장(m)"
+            for tc in t.iter(f"{{{HP}}}tc"):
+                tx = rb._n(rb._cell_text(tc))
+                if tx == "높이(m)":
+                    rb._set_lines(tc, ["폭(m)"])
+                elif tx == "길이(m)":
+                    rb._set_lines(tc, ["연장(m)"])
         _resize(t, len(sites), 1, 1, doc)
         cells = rb._cells(t)
         for i, s in enumerate(sites, 1):
-            vals = [str(i), s.name, f"{s.class_no}종", s.year_month, s.spec.get("form") or "-", s.spec.get("length") or "-", s.spec.get("height") or "-",
+            vals = [str(i), s.name, f"{s.class_no}종", s.year_month, s.form_text, s.spec.get("length") or "-", s.dim2,
                     s.prev_grade, s.grade, "\n".join(s.ai.get("findings") or []), "\n".join(s.ai.get("repairs") or [])]
             for c, v in enumerate(vals):
                 _set(cells, (i, c), v)
@@ -984,6 +1021,8 @@ def _fill_result_table(tbl, d: Data) -> None:
     _set(cells, (2, 6), d.owner_rep)
     _set(cells, (3, 2), d.joint)
     _set(cells, (3, 6), d.bid)
+    if d.fam == "bridge":
+        _set(cells, (4, 2), "교량")  # 시설물 구분(원본은 옹벽 견본 글 — 10/29)
     _set(cells, (4, 6), d.kind_text)
     _set(cells, (4, 8), f"{d.class_no}종")
     _set(cells, (5, 2), d.completion_text)
@@ -1322,7 +1361,7 @@ def _fill_target_table(t, d: Data, doc=None) -> None:
     _resize(t, len(d.many), 1, 1, doc)
     cells = rb._cells(t)
     for i, s in enumerate(d.many, 1):
-        for c, v in enumerate([str(i), s.name, s.spec.get("form") or "-", f"{s.class_no}종", s.spec.get("length") or "-", s.spec.get("height") or "-", s.year_month, "정기점검", ""]):
+        for c, v in enumerate([str(i), s.name, s.form_text, f"{s.class_no}종", s.spec.get("length") or "-", s.dim2, s.year_month, "정기점검", ""]):
             _set(cells, (i, c), v)
 
 
@@ -1334,8 +1373,8 @@ def _fill_status_table(t, d: Data, doc=None) -> None:
     cells = rb._cells(t)
     for i, s in enumerate(d.many, 1):
         done = f"{s.completion.year}년 {s.completion.month}월" if s.completion else "-"
-        for c, v in enumerate([str(i), s.name, s.address if s.address != "-" else "-", s.spec.get("length") or "-", s.spec.get("height") or "-", done,
-                               s.spec.get("form") or wall_ledger.form_text(s.spec, "") or "-", f"{s.class_no}종"]):
+        for c, v in enumerate([str(i), s.name, s.address if s.address != "-" else "-", s.spec.get("length") or "-", s.dim2, done,
+                               (s.form_text if s.fam == "bridge" else (s.spec.get("form") or wall_ledger.form_text(s.spec, "") or "-")), f"{s.class_no}종"]):
             _set(cells, (i, c), v)
 
 
@@ -1999,6 +2038,41 @@ def _renumber_chapter(doc: Hwpx, k: int) -> None:
                     pc.text = ""
 
 
+def _fill_bridge_status(root, d: Data) -> None:
+    """교량 1.2.1 시설물 현황 표(11×6 — 원본 칸 그대로): 시설물명·시설물번호 / 준공년월일·관리번호 / 위치 / 설계하중·노선명(이정) /
+    연장 "L＝○○(경간 구성)" / 폭 "B＝○○(차로)" / 상부·하부 형식, 교대·교각 기초 / 받침·신축이음 / 교차시설물·통과 높이 / 부착시설. 값 = 시설물 칸 교량 제원(ledger.wall)."""
+    st = _tbl(root, 11, 6, "시설물명")
+    if st is None:
+        return
+    cells = rb._cells(st)
+    for rc in ((4, 2), (5, 2)):  # 연장·폭 칸의 단위 "m"는 수식 개체(원본) — 지우고 글자로 씀(값이 없을 때 "L＝- m m"처럼 남던 것)
+        if rc in cells:
+            for eq in list(cells[rc].iter(f"{{{HP}}}equation")):
+                eq.getparent().remove(eq)
+    sp = d.spec
+    v = lambda k: (sp.get(k) or "").strip() or "-"  # noqa: E731
+    ln = (sp.get("length") or "").strip()
+    wd = (sp.get("width") or "").strip()
+    _set(cells, (0, 2), d.name)
+    _set(cells, (0, 5), v("fms_no"))
+    _set(cells, (1, 2), d.completion_text)
+    _set(cells, (1, 5), v("mgmt_no"))
+    _set(cells, (2, 2), d.address)
+    _set(cells, (3, 2), v("load"))
+    _set(cells, (3, 5), v("route"))
+    _set(cells, (4, 2), (f"L＝{ln}m" if ln else "L＝-") + (f", ({sp['spans'].strip()})" if (sp.get("spans") or "").strip() else ""))
+    _set(cells, (5, 2), (f"B＝{wd}m" if wd else "B＝-") + (f", {sp['lanes'].strip()}" if (sp.get("lanes") or "").strip() else ""))
+    _set(cells, (6, 2), v("super_type"))
+    _set(cells, (6, 5), v("abut_found"))
+    _set(cells, (7, 2), v("sub_type"))
+    _set(cells, (7, 5), v("pier_found"))
+    _set(cells, (8, 2), v("bearing"))
+    _set(cells, (8, 5), v("joint"))
+    _set(cells, (9, 2), v("crossing"))
+    _set(cells, (9, 5), v("clearance"))
+    _set(cells, (10, 2), v("attached"))
+
+
 def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
     root = doc.root
     # 원본은 3종 — 본문 1.5 안전등급 평가·1.6 유지관리방안·1.7 개략공사비·1.8 종합결론(장 표지 소목차는 1.5 유지관리방안·1.6 안전등급 평가로 어긋나 있어 본문에 맞춤)
@@ -2034,7 +2108,9 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
     if res is not None:
         _fill_result_table(res, d)
     _fit_chapter_title(doc, root, d, res)
-    st = _tbl(root, 12, 8, "시설물 번호")
+    if d.fam == "bridge":
+        _fill_bridge_status(root, d)
+    st = _tbl(root, 12, 8, "시설물 번호") if d.fam == "wall" else None
     if st is not None:
         cells = rb._cells(st)
         s = d.spec
@@ -2069,7 +2145,8 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
     ov = _tbl(root, 6, 2)
     if ov is not None:
         _fill_photo_table(ov, d.overview[:6], tpl, doc.add_image, "")
-    for tt in (_tbl(root, 7, 4, "보존대상 목록"), _tbl(root, 3, 6, "구분"), _tbl(root, 8, 4, "부재명"), _tbl(root, 2, 2, "구"), _tbl(root, 6, 8, "구 분")):
+    sum_rc = (10, 4) if d.fam == "bridge" else (8, 4)  # 1.4.8(교량)·1.4.5(옹벽) 요약표
+    for tt in (_tbl(root, 7, 4, "보존대상 목록"), _tbl(root, 3, 6, "구분"), _tbl(root, *sum_rc, "부재명"), _tbl(root, 2, 2, "구"), _tbl(root, 6, 8, "구 분")):
         if tt is not None:  # 1.3.1·1.3.4·1.4.5·1.5·1.6 — 제목이 표와 같이 다음 쪽으로
             _keep_heading(tt, doc)
     t71 = _tbl(root, 7, 4, "보존대상 목록")
@@ -2110,11 +2187,12 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
                 _set(cells, (i, 5), x.get("note") or "")
     # 1.4 글·사진 표
     tops = _tops(root)
-    sec_keys = {"1.4.1": "found", "1.4.2": "front", "1.4.3": "etc", "1.4.4": "public"}
+    sec_keys = ({f"1.4.{n}": k for n, (k, _) in enumerate(bridge_ai.SECTIONS, 1)} if d.fam == "bridge"
+                else {"1.4.1": "found", "1.4.2": "front", "1.4.3": "etc", "1.4.4": "public"})
     i = 0
     while i < len(tops):
         t = _ptext(tops[i])
-        m = re.match(r"(1\.4\.[1-4])\s", t)
+        m = re.match(r"(1\.4\.[1-9])\s", t)
         if m and m[1] in sec_keys and "요약표" not in t:
             key = sec_keys[m[1]]
             j = i + 1
@@ -2136,10 +2214,11 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
             i = i + 1
             continue
         i += 1
-    tsum = _tbl(root, 8, 4, "부재명")
+    tsum = _tbl(root, *sum_rc, "부재명")
+    n_sum = len(fam_mods(d.fam)[0].SUMMARY_ROWS)  # 옹벽 5줄 · 교량 7줄(그다음 안전등급·종합의견 줄)
     if tsum is not None:  # 1.4.5 요약표(형 10/21) — 전회 칸 = 전회차 회차 > 전회차 PDF > 점검자 글, 첫 회차(없음·빈 칸)면 머리 "(전회차 없음)"
         cells = rb._cells(tsum)
-        rows_ = (d.ai.get("summary_rows") or [])[:5]
+        rows_ = (d.ai.get("summary_rows") or [])[:n_sum]
         none = (d.ai.get("summary_prev_src") or "") == "none" and all(not str(x.get("prev") or "").strip("⦁ -") for x in rows_)
         prev_h = d.ai.get("summary_prev_label") or f"{d.year - 1 if d.half == '상반기' else d.year}년 {'하반기' if d.half == '상반기' else '상반기'}"
         _set(cells, (0, 1), "전회 정기점검 결과\n(전회차 없음)" if none else f"전회 정기점검 결과\n({prev_h})")
@@ -2148,9 +2227,9 @@ def _fill_chapter_body(doc: Hwpx, d: Data) -> None:
             _set(cells, (i, 1), "-" if none else (row.get("prev") or "⦁-"))
             _set(cells, (i, 2), row.get("now") or "⦁-")
             _set(cells, (i, 3), row.get("action") or "⦁주의관찰")
-        _set(cells, (6, 1), "-" if none else f"⦁{d.prev_grade}")
-        _set(cells, (6, 2), f"⦁{d.grade}")
-        _set(cells, (7, 1), d.ai.get("summary_opinion") or "")
+        _set(cells, (n_sum + 1, 1), "-" if none else f"⦁{d.prev_grade}")
+        _set(cells, (n_sum + 1, 2), f"⦁{d.grade}")
+        _set(cells, (n_sum + 2, 1), d.ai.get("summary_opinion") or "")
     if d.template3:
         _fill_eval_table(doc, d)
     t22 = _tbl(root, 2, 2, "구")
@@ -2195,10 +2274,11 @@ def _para_center(doc, pid: str) -> str:
 
 
 def _fill_eval_table(doc, d: Data) -> None:
-    """k.5 안전등급 평가 표(22×10 — 줄 2~19 = 1~18항목, 칸 2 점검자 의견·3 보수필요·4~8 a~e·9 해당없음, 줄 20 평가결과, 줄 21 종합의견) — AI 초안 items로.
-    a~e·해당없음 칸 ○는 가운데 정렬(견본 칸 문단은 양쪽 정렬이라 왼쪽에 붙음 — 형 10/21)."""
+    """k.5 안전등급 평가 표(옹벽 22×10 — 줄 2~19 = 1~18항목 / 교량 19×10 — 줄 2~16 = 1~15항목, 칸 2 점검자 의견·3 보수필요·4~8 a~e·9 해당없음,
+    그다음 줄 평가결과·종합의견) — AI 초안 items로. a~e·해당없음 칸 ○와 보수필요 ○·×는 가운데 정렬(견본 칸 문단은 양쪽 정렬이라 왼쪽에 붙음 — 형 10/21·10/29)."""
     root = doc.root
-    t = _tbl(root, 22, 10, "구분")
+    n_items = 15 if d.fam == "bridge" else 18
+    t = _tbl(root, n_items + 4, 10, "구분")
     if t is None:
         return
     items = d.ai.get("items") or []
@@ -2207,7 +2287,7 @@ def _fill_eval_table(doc, d: Data) -> None:
     cells = rb._cells(t)
     by_no = {int(it.get("no", 0)): it for it in items}
     cols = {"우수": 4, "양호": 5, "보통": 6, "미흡": 7, "불량": 8, "해당없음": 9}
-    for r in range(2, 20):
+    for r in range(2, 2 + n_items):
         name = rb._cell_text(cells[(r, 1)]) if (r, 1) in cells else ""
         m = re.match(r"\s*(\d+)\.", name)
         it = by_no.get(int(m[1])) if m else None
@@ -2219,14 +2299,16 @@ def _fill_eval_table(doc, d: Data) -> None:
                 q.set("paraPrIDRef", _para_center(doc, q.get("paraPrIDRef") or "0"))
         _set(cells, (r, 2), it.get("opinion") or "-")
         _set(cells, (r, 3), it.get("repair") or "×")
-    res = wall_manual.score(items, d.form)
+        for q in cells[(r, 3)].iter(f"{{{HP}}}p"):  # 보수필요 ○·×도 가운데(원본 칸은 양쪽 정렬 — 형 10/29 "x 가운데정렬", 건축물 원본은 칸부터 가운데)
+            q.set("paraPrIDRef", _para_center(doc, q.get("paraPrIDRef") or "0"))
+    res = fam_mods(d.fam)[1].score(items, d.form)
     letter = res.get("grade") or ""
     for (r, c), tc in cells.items():
-        if r == 20 and "안전등급" in rb._cell_text(tc):
+        if r == 2 + n_items and "안전등급" in rb._cell_text(tc):
             serious = letter in ("D", "E")
             rb._set_lines(tc, ["안전등급 : " + "   ".join(("■" if g == letter else "□") + g for g in "ABCDE"),
                                f"긴급점검·진단 필요성 : {'■있음 □없음' if serious else '□있음 ■없음'}", f"안전조치 필요성 : {'■있음 □없음' if serious else '□있음 ■없음'}"])
-        elif r == 21 and c > 0:
+        elif r == 3 + n_items and c > 0:
             rb._set_lines(tc, [f"◦ {d.ai.get('eval_opinion') or '-'}"] + ([f"◦ {res['forced']}"] if res.get("forced") else []))
 
 
@@ -2264,7 +2346,7 @@ def fill_conclusion(doc: Hwpx, d: Data) -> None:
             _set(cells, (r0, 3), f"{s.completion.year}년" if s.completion else "-")
             _set(cells, (r0, 4), "\n".join(s.ai.get("findings") or []))
             _set(cells, (r0, 5), "\n".join(s.ai.get("repairs") or []) or "\n".join(scon.get("repair") or []))
-            _set(cells, (r0 + 1, 3), s.spec.get("height") or "-")
+            _set(cells, (r0 + 1, 3), s.dim2)  # 옹벽 H · 교량 W(원본 머리 W(m))
             _set(cells, (r0 + 2, 3), s.spec.get("length") or "-")
             _set(cells, (r0 + 3, 3), s.grade)
 
@@ -2447,9 +2529,14 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     from server.contract_docs import hwp_queue
 
     say = say or (lambda m: None)
-    missing = ready()
+    fams = {"bridge" if kinds.is_bridge(f) else "wall" for f, _r in pairs}
+    if len(fams) > 1:
+        raise RuntimeError("옹벽과 교량은 한 권으로 만들 수 없습니다 — 묶음을 나누거나 분권으로 만드세요(원본이 달라서).")
+    fam = next(iter(fams))
+    missing = ready(fam)
     if missing:
-        raise RuntimeError("옹벽 원본이 없습니다(시특법 설정 → 옹벽 정기안전점검 원본 올리기): " + ", ".join(missing))
+        what = "교량" if fam == "bridge" else "옹벽"
+        raise RuntimeError(f"{what} 원본이 없습니다(시특법 설정 → {what} 정기안전점검 원본 올리기): " + ", ".join(missing))
     sites = []
     for i, (f, r) in enumerate(pairs, 1):
         say(f"값 모으는 중 — {i}/{len(pairs)}곳…")
@@ -2463,7 +2550,9 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     hwpx_out, pdf_out, pdf1 = _free(folder / f"{base}.hwpx"), _free(folder / f"{base}.pdf"), _free(folder / f"{base}.1차.pdf")
     locked = pdf_out.name != f"{base}.pdf" or hwpx_out.name != f"{base}.hwpx"
     say("원본 여는 중…")
-    doc = Hwpx(master_path())
+    doc = Hwpx(master_path(fam))
+    if fam == "bridge":  # 교량 원본에 남은 옹벽 견본 제목(1.2 과업대상 시설물 개요 "- 옹벽시설물 현황", 10/29)
+        doc.replace_all("옹벽시설물 현황", "교량시설물 현황")
     loc = locate(doc)
     doc.pic_tpl = _pic_tpl(doc.roots[loc["chapter"]])
     changed = 0

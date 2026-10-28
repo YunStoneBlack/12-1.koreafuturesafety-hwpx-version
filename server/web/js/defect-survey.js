@@ -8,16 +8,17 @@
   const $ = (id) => document.getElementById(id);
   const PRESETS = ["외부", "정면", "배면", "좌측면", "우측면", "측면", "내부"];
   const WALL_PARTS = ["지반 및 기초부", "전면부", "상부", "배수시설", "기타"]; // 서버 kinds.WALL_PARTS
+  const BRIDGE_PARTS = ["상부구조", "하부구조", "받침", "케이블", "2차부재", "기타부재"]; // 서버 kinds.BRIDGE_PARTS(10/29)
   const picked = new Set();
   const custom = [];
 
   const say = (text, ok) => { const m = $("ds-msg"); m.hidden = !text; m.className = `mail-msg${ok ? "" : " bad"}`; m.textContent = text || ""; };
-  const isWall = () => $("ds-kind").value === "옹벽";
+  const isWall = () => ["옹벽", "교량"].includes($("ds-kind").value); // 층 대신 부위 탭(교량 10/29)
   const num = (el) => Math.max(0, Math.min(Number(el.max) || 99, Math.floor(Number(el.value) || 0)));
 
   function units() { // 서버 facility_floors와 같은 순서 — 옥상 → 지상 위층부터 → 지하 → 추가 탭
     const extra = [...PRESETS.filter((p) => picked.has(p)), ...custom.filter((c) => picked.has(c))];
-    if (isWall()) return [...WALL_PARTS, ...extra];
+    if (isWall()) return [...($("ds-kind").value === "교량" ? BRIDGE_PARTS : WALL_PARTS), ...extra];
     const a = num($("ds-above")), b = num($("ds-below"));
     const floors = [...Array(a)].map((_, i) => `지상${a - i}층`).concat([...Array(b)].map((_, i) => `지하${i + 1}층`));
     return [...(floors.length && $("ds-roof").checked ? ["옥상층"] : []), ...floors, ...extra];

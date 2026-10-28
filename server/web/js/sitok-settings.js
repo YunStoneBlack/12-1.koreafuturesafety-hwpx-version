@@ -161,7 +161,8 @@
     const all = data.master || {};
     const KINDS = [["정기", "정기안전점검 원본", "한 파일(본문 + 부록)"], ["정밀본문", "정밀안전점검 본문 원본", "결과표 + 시설물편 1~7장"],
       ["정밀부록", "정밀안전점검 부록 원본", "관리대장·성과표·상태평가 결과 자료"],
-      ["옹벽", "옹벽 정기안전점검 원본", "한 파일(3종 시설물편 포함 — 2종은 프로그램이 1.6 안전등급 평가·2.2 상태평가를 뺌)"]];
+      ["옹벽", "옹벽 정기안전점검 원본", "한 파일(3종 시설물편 포함 — 2종은 프로그램이 1.6 안전등급 평가·2.2 상태평가를 뺌)"],
+      ["교량", "교량 정기안전점검 원본", "한 파일(공통편은 교량·옹벽·터널·절토사면 같이, 시설물편 교량편 — 3종 포함, 10/29)"]];
     box.innerHTML = KINDS.map(([k, label, note]) => {
       const m = all[k] || {};
       return `<div class="ss-master" data-kind="${k}"><b>${label}</b><span class="sk-help">${note}</span>
@@ -194,10 +195,10 @@
   function drawVocab() { // 결함 부재·결함유형 회사 목록(10/12) — 칩 ✕로 빼기, 칸에 써서 추가
     const box = document.getElementById("ss-vocab");
     box.innerHTML = "";
-    for (const [fam, famLabel, store] of [["", "건축물", "vocab"], ["wall", "옹벽", "vocab_wall"]]) { // 10/20 옹벽 목록 따로
+    for (const [fam, famLabel, store] of [["", "건축물", "vocab"], ["wall", "옹벽", "vocab_wall"], ["bridge", "교량", "vocab_bridge"]]) { // 10/20 옹벽·10/29 교량 목록 따로
       const head = document.createElement("div");
       head.className = "ss-voc-fam";
-      head.innerHTML = `<b>${famLabel}</b><span class="sk-help">${fam === "wall" ? "부위(지반 및 기초부·전면부·상부·배수시설·공중이용시설·기타)는 고정 — 부재·결함유형만" : "층은 관리대장 층수로"}</span>`;
+      head.innerHTML = `<b>${famLabel}</b><span class="sk-help">${fam === "wall" ? "부위(지반 및 기초부·전면부·상부·배수시설·공중이용시설·기타)는 고정 — 부재·결함유형만" : fam === "bridge" ? "부위(상부구조·하부구조·받침·케이블·2차부재·기타부재)는 고정 — 부재·결함유형만" : "층은 관리대장 층수로"}</span>`;
       box.appendChild(head);
     for (const [kind, label] of [["member", "부재"], ["dtype", "결함유형"]]) {
       const row = document.createElement("div");

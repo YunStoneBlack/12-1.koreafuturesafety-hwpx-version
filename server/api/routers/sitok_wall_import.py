@@ -60,8 +60,8 @@ def review_state(r: SitokReport) -> dict | None:
 def _require_wall(db: Session, user: User, report_id: int) -> tuple[SitokReport, SitokFacility]:
     r = _require(db, user, report_id)
     f = db.get(SitokFacility, r.facility_id)
-    if not kinds.is_wall(f):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "옹벽 시설물에서만 쓰는 가져오기입니다.")
+    if not kinds.is_civil(f):  # 옹벽·교량(10/29)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "옹벽·교량 시설물에서만 쓰는 가져오기입니다.")
     return r, f
 
 
@@ -131,8 +131,9 @@ def _store(db: Session, r: SitokReport, album: wall_album.WallAlbum, idx: int, c
     fac = album.facilities[idx]
     for p in folder.glob("*.jpg"):
         p.unlink(missing_ok=True)
-    allowed = vocab_names(db, company_id, r.id, "wall")
-    guesses = wall_album.guess_rows([s.caption for s in fac.shots], company_id, allowed)
+    fam = _fam_of(db, r)
+    allowed = vocab_names(db, company_id, r.id, fam)
+    guesses = wall_album.guess_rows([s.caption for s in fac.shots], company_id, allowed, fam)
     overview, rows = [], []
     for i, s in enumerate(fac.overview, 1):
         (folder / f"ov_{i:02d}.jpg").write_bytes(s.jpg)
@@ -145,14 +146,23 @@ def _store(db: Session, r: SitokReport, album: wall_album.WallAlbum, idx: int, c
     db.commit()
 
 
+def _fam_of(db: Session, r: SitokReport) -> str:
+    """회차 시설물의 묶음 — 옹벽 "wall" · 교량 "bridge"(10/29)."""
+    f = db.get(SitokFacility, r.facility_id)
+    fam = kinds.family_of(f) if f is not None else ""
+    return fam if kinds.civil_fam(fam) else "wall"
+
+
 def _out(db: Session, r: SitokReport) -> dict:
     s = state_of(r)
     if not s:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "확인할 가져오기가 없습니다.")
-    allowed = vocab_names(db, r.company_id, r.id, "wall")
-    return {**s, "units": list(kinds.WALL_PARTS), "parts": list(kinds.WALL_SECTIONS), "members": allowed["member"], "types": allowed["dtype"],
-            "unit_part": kinds.WALL_PART_OF_UNIT, "part_of": kinds.part_map("wall"), "good_keys": {u: wall_category(u) for u in kinds.WALL_PARTS},
-            "good_names": dict(G.WALL_CATS), "public_items": list(P.PUBLIC)}
+    fam = _fam_of(db, r)
+    allowed = vocab_names(db, r.company_id, r.id, fam)
+    units = kinds.units_of(fam)
+    return {**s, "units": units, "parts": list(kinds.WALL_SECTIONS), "members": allowed["member"], "types": allowed["dtype"],
+            "unit_part": kinds.unit_parts(fam), "part_of": kinds.part_map(fam), "good_keys": {u: wall_category(u, fam) for u in units},
+            "good_names": dict(G.cats_for(fam)), "public_items": list(P.PUBLIC)}
 
 
 @router.get("/reports/{report_id}/defects/import/wall")
@@ -201,11 +211,13 @@ def confirm(report_id: int, body: ConfirmIn, user: User = Depends(get_current_us
     if not s:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "확인할 가져오기가 없습니다.")
     _require_empty(db, r)
-    allowed = vocab_names(db, r.company_id, r.id, "wall")
+    fam = _fam_of(db, r)
+    allowed = vocab_names(db, r.company_id, r.id, fam)
+    units = kinds.units_of(fam)
     src = _dir(db, r)
     photo_dir = _photo_dir(db, r)
     photo_dir.mkdir(parents=True, exist_ok=True)
-    g = G.norm(r.survey, "wall")
+    g = G.norm(r.survey, fam)
     pp = P.norm(r.parts)
     seq: dict[str, int] = {}
     n_def = n_good = n_skip = n_pub = 0
@@ -219,7 +231,7 @@ def confirm(report_id: int, body: ConfirmIn, user: User = Depends(get_current_us
         if use == "skip" or not (src / base["file"]).exists():
             n_skip += 1
             continue
-        if unit not in kinds.WALL_PARTS:
+        if unit not in units:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"부위가 맞지 않습니다: {base['caption']}")
         if use == "public":  # 공중이용 탭 전회차 칸(추락방지시설 등 — 민재형 10/21)
             pk = row.get("public") if row.get("public") in dict(P.PUBLIC) else (base.get("public") or "fall")
@@ -231,7 +243,7 @@ def confirm(report_id: int, body: ConfirmIn, user: User = Depends(get_current_us
             n_pub += 1
             continue
         if use == "good":
-            key = wall_category(unit)
+            key = wall_category(unit, fam)
             if sum(1 for x in g["good"][key] if x.get("prev")) >= G.PER:
                 n_skip += 1
                 continue
@@ -244,7 +256,7 @@ def confirm(report_id: int, body: ConfirmIn, user: User = Depends(get_current_us
             continue
         part, member, dtype, width = (str(row.get(k) if row.get(k) is not None else base.get(k) or "").strip() for k in ("part", "member", "dtype", "width"))
         if part not in kinds.WALL_SECTIONS:
-            part = kinds.default_part(member, "wall") or kinds.WALL_PART_OF_UNIT[unit]
+            part = kinds.default_part(member, fam) or kinds.unit_parts(fam).get(unit, "일반시설")
         if not dtype or (dtype not in allowed["dtype"] and not kinds.is_record(dtype)) or (member and member not in allowed["member"]):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"목록에 없는 이름입니다: {base['caption']} → {member} {dtype}")
         seq[unit] = seq.get(unit, 0) + 1

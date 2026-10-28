@@ -47,7 +47,7 @@ def _out(db: Session, r: SitokReport) -> dict:
     counts: dict = {}
     school = (f.template or "") == "3종학교"
     for d in _defects_for_cost(db, r.id):
-        k = wall_category(d.floor) if fam == "wall" else category_of(d.part, d.member, d.dtype)
+        k = wall_category(d.floor, fam) if kinds.civil_fam(fam) else category_of(d.part, d.member, d.dtype)
         counts[k] = counts.get(k, 0) + 1
         if school and G.is_brick({"part": d.part, "member": d.member, "dtype": d.dtype, "note": d.note}):
             counts["brick"] = counts.get("brick", 0) + 1
@@ -62,9 +62,15 @@ def _out(db: Session, r: SitokReport) -> dict:
                         "at": se["at"], "items": G.SEISMIC_ITEMS}}
 
 
-def wall_category(unit: str) -> str:
-    """옹벽 결함 부위 → 1.4 절(상태양호 항목): 지반 및 기초부 = found, 전면부 = front, 나머지(상부·배수시설·공중이용·기타) = etc."""
+def wall_category(unit: str, fam: str = "wall") -> str:
+    """옹벽 결함 부위 → 1.4 절(상태양호 항목): 지반 및 기초부 = found, 전면부 = front, 나머지(상부·배수시설·공중이용·기타) = etc.
+    교량(10/29): 상부구조 super · 하부구조 sub · 받침 bearing · 케이블 cable · 2차부재 second · 나머지(기타부재·사람이 더한 탭) etc."""
+    if fam == "bridge":
+        return BRIDGE_UNIT_CAT.get(unit or "", "etc")
     return {"지반 및 기초부": "found", "전면부": "front"}.get(unit or "", "etc")
+
+
+BRIDGE_UNIT_CAT = {"상부구조": "super", "하부구조": "sub", "받침": "bearing", "케이블": "cable", "2차부재": "second", "기타부재": "etc"}
 
 
 def _fam(db: Session, r: SitokReport) -> str:

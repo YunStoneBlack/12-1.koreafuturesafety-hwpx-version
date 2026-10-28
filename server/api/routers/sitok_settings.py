@@ -147,6 +147,7 @@ def get_settings(user: User = Depends(get_current_user), db: Session = Depends(g
         "prices": [_price_out(p) for p in prices(db, user.company_id)],
         "vocab": vocab_out(vocab_rows(db, user.company_id)),
         "vocab_wall": vocab_out(vocab_rows(db, user.company_id, fam="wall")),  # 옹벽 목록(10/20)
+        "vocab_bridge": vocab_out(vocab_rows(db, user.company_id, fam="bridge")),  # 교량 목록(10/29)
         "master": master.info_all(),
     }
 

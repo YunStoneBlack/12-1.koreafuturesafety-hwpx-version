@@ -28,18 +28,61 @@ WALL_MAJOR_MEMBERS = ("블록", "콘크리트", "기초", "뒷채움", "채움�
 WALL_GENERAL_MEMBERS = ("배수공", "배수로", "집수정", "소단", "보호콘크리트", "사면")
 WALL_MINOR_MEMBERS = ("안전펜스", "낙석방지망", "점검로")
 WALL_PART_OF_UNIT = {"지반 및 기초부": "주요시설", "전면부": "주요시설", "상부": "일반시설", "배수시설": "일반시설", "기타": "일반시설"}
-FAMILIES = {"": DEFAULTS, "wall": WALL_DEFAULTS}  # 결함 목록 묶음(SitokVocab.kind = "wall_member"처럼 앞말이 붙음)
+# ---------- 교량(2026-10-29 사용자 "정기안전점검 옹벽편 → 교량편 추가, 기능은 옹벽과 동일" — 원본 정기안전점검_교량_원본.hwpx) ----------
+# 옹벽처럼 "층" 자리에 부위(1.4.1~1.4.6 절 = 교량 원본 1.4 현장조사 결과), 구분 = 3종 매뉴얼 교량·육교 시설영역(주요: 거더·바닥판·케이블·받침·교각·교대·기초,
+# 일반: 교면포장·신축이음·가로보·세로보·배수시설·난간·연석, 부대: 옹벽·비탈면·방음벽 등 안전시설·점검로). 공중이용(난간·보도 등)은 공중이용 탭(옹벽과 같음).
+BRIDGE_PARTS = ["상부구조", "하부구조", "받침", "케이블", "2차부재", "기타부재"]
+BRIDGE_MEMBERS = ["바닥판", "거더", "가로보", "세로보", "교대", "교각", "날개벽", "주탑", "기초", "받침", "케이블", "정착구", "신축이음", "후타재", "교면포장",
+                  "배수시설", "난간", "연석", "점검로", "방음벽", "옹벽", "비탈면", "-"]
+BRIDGE_TYPES = ["균열", "망상균열", "백태", "누수", "박리", "박락", "층분리", "철근노출", "재료분리", "파손", "부식", "도장박리", "변형", "세굴", "침하",
+                "토사·이물질퇴적", "배수불량", "유간이상", "볼트이완·탈락", "잡목식생", "-", "보수완료"]
+BRIDGE_DEFAULTS = {"member": BRIDGE_MEMBERS, "dtype": BRIDGE_TYPES}
+BRIDGE_MAJOR_MEMBERS = ("바닥판", "거더", "케이블", "정착구", "받침", "교대", "교각", "날개벽", "주탑", "기초")
+BRIDGE_GENERAL_MEMBERS = ("교면포장", "신축이음", "후타재", "가로보", "세로보", "배수시설", "난간", "연석")
+BRIDGE_MINOR_MEMBERS = ("옹벽", "비탈면", "방음벽", "점검로")
+BRIDGE_PART_OF_UNIT = {"상부구조": "주요시설", "하부구조": "주요시설", "받침": "주요시설", "케이블": "주요시설", "2차부재": "일반시설", "기타부재": "일반시설"}
+FAMILIES = {"": DEFAULTS, "wall": WALL_DEFAULTS, "bridge": BRIDGE_DEFAULTS}  # 결함 목록 묶음(SitokVocab.kind = "wall_member"·"bridge_member"처럼 앞말이 붙음)
+CIVIL_FAMS = ("wall", "bridge")  # 옹벽식 토목 정기(부위 탭·주요/일반/부대시설·wall_build 한 파일 원본) — 교량은 10/29부터
+BRIDGE_WORDS = ("교량", "육교", "고가교", "교각")  # 시설물 칸 "종류" 글 — 보도육교·도로교량 등(FMS 세분류 글도)
 
 
 def family_of(facility) -> str:
-    """시설물의 결함 목록 묶음 — 옹벽이면 "wall"(관리대장 시설물구분 옹벽 또는 FMS 번호 RW…), 아니면 ""(건축물)."""
+    """시설물의 결함 목록 묶음 — 옹벽이면 "wall"(관리대장 시설물구분 옹벽 또는 FMS 번호 RW…), 교량·육교면 "bridge"(10/29), 아니면 ""(건축물)."""
     kind = (getattr(facility, "kind", "") or "")
     fms = (getattr(facility, "fms_no", "") or "").upper()
-    return "wall" if ("옹벽" in kind and not kind.startswith("건축물")) or fms.startswith("RW") else ""
+    if ("옹벽" in kind and not kind.startswith("건축물")) or fms.startswith("RW"):
+        return "wall"
+    k = kind.replace(" ", "")
+    if not k.startswith("건축물") and any(w in k for w in BRIDGE_WORDS):
+        return "bridge"
+    return ""
 
 
 def is_wall(facility) -> bool:
     return family_of(facility) == "wall"
+
+
+def is_bridge(facility) -> bool:
+    return family_of(facility) == "bridge"
+
+
+def is_civil(facility) -> bool:
+    """옹벽식 토목 정기 길(부위 탭·면담 1.3 이력·wall_build 한 파일)을 타는 시설물 — 옹벽·교량(10/29)."""
+    return family_of(facility) in CIVIL_FAMS
+
+
+def civil_fam(fam: str) -> bool:
+    return fam in CIVIL_FAMS
+
+
+def units_of(fam: str) -> list:
+    """부위 탭 기본 목록 — 옹벽 WALL_PARTS · 교량 BRIDGE_PARTS."""
+    return list(BRIDGE_PARTS if fam == "bridge" else WALL_PARTS)
+
+
+def unit_parts(fam: str) -> dict:
+    """부위 → 구분 기본값(주요·일반시설)."""
+    return BRIDGE_PART_OF_UNIT if fam == "bridge" else WALL_PART_OF_UNIT if fam == "wall" else {}
 
 
 # 토목시설물 종류(사용자 10/21 — 시특법 시설물 구분) — 시설물 묶음 타일 머리 "건물 3 · 옹벽 1"(건축물이 아니면 그 종류 이름)
@@ -55,6 +98,11 @@ def template_block(facility, kind: str = "정기") -> str:
     ck = civil_kind(facility)
     if ck == "옹벽":
         return "" if (kind or "정기") == "정기" else "옹벽 정밀안전점검 보고서 틀은 준비 중입니다."
+    if ck == "교량":  # 10/29 교량 정기(원본 정기안전점검_교량_원본.hwpx — 설정 탭에서 올림)
+        if (kind or "정기") != "정기":
+            return "교량 정밀안전점검 보고서 틀은 준비 중입니다."
+        from server.sitok import master
+        return "" if master.master_path("교량").exists() else "교량 정기안전점검 원본이 없습니다(보고서 자동화 설정 > 원본)."
     if ck:
         return f"{ck} 보고서 틀은 준비 중입니다."
     return ""
@@ -64,6 +112,8 @@ def civil_kind(facility) -> str:
     """토목시설물이면 그 종류 이름(긴 이름 먼저 — "항만외곽시설"이 "항만"보다), 건축물이면 ""."""
     if is_wall(facility):
         return "옹벽"
+    if is_bridge(facility):
+        return "교량"
     kind = (getattr(facility, "kind", "") or "").replace(" ", "")
     if kind.startswith("건축물"):
         return ""
@@ -81,11 +131,11 @@ def vocab_kind(fam: str, kind: str) -> str:
 
 
 def parts_of(fam: str) -> tuple:
-    return WALL_SECTIONS if fam == "wall" else PARTS
+    return WALL_SECTIONS if fam in CIVIL_FAMS else PARTS  # 교량도 주요·일반·부대시설(10/29)
 
 
 def unit_label(fam: str) -> str:
-    return "부위" if fam == "wall" else "층"
+    return "부위" if fam in CIVIL_FAMS else "층"
 
 
 STRUCT_MEMBERS = ("내력벽", "기둥", "큰보", "작은보", "슬라브", "강재", "계단")  # 부재를 고르면 구분 기본값(점검자가 바꿀 수 있음)
@@ -143,6 +193,9 @@ def counts_for_rating(part: str, dtype: str) -> bool:
 
 
 def default_part(member: str, fam: str = "") -> str:
+    if fam == "bridge":
+        return ("주요시설" if member in BRIDGE_MAJOR_MEMBERS else "일반시설" if member in BRIDGE_GENERAL_MEMBERS
+                else "부대시설" if member in BRIDGE_MINOR_MEMBERS else "")
     if fam == "wall":
         return ("주요시설" if member in WALL_MAJOR_MEMBERS else "일반시설" if member in WALL_GENERAL_MEMBERS
                 else "부대시설" if member in WALL_MINOR_MEMBERS else "")
@@ -151,6 +204,8 @@ def default_part(member: str, fam: str = "") -> str:
 
 def part_map(fam: str = "") -> dict:
     """부재 → 구분 기본값(화면이 부재를 고르면 구분을 바꿈)."""
+    if fam == "bridge":
+        return {**{m: "주요시설" for m in BRIDGE_MAJOR_MEMBERS}, **{m: "일반시설" for m in BRIDGE_GENERAL_MEMBERS}, **{m: "부대시설" for m in BRIDGE_MINOR_MEMBERS}}
     if fam == "wall":
         return {**{m: "주요시설" for m in WALL_MAJOR_MEMBERS}, **{m: "일반시설" for m in WALL_GENERAL_MEMBERS}, **{m: "부대시설" for m in WALL_MINOR_MEMBERS}}
     return {**{m: "구조체" for m in STRUCT_MEMBERS}, **{m: "비구조체" for m in NONSTRUCT_MEMBERS}}

@@ -93,7 +93,7 @@ def _seed_drawings(db: Session, r: SitokReport, pdf: Path) -> int:
     from server.sitok import kinds, wall_drawings
 
     f = db.get(SitokFacility, r.facility_id)
-    if f is None or not kinds.is_wall(f):
+    if f is None or not kinds.is_civil(f):  # 옹벽·교량(10/29) — 전회차 보고서 1.2.4 뒤 도면
         return 0
     try:
         return wall_drawings.seed(f, _facility_dir(f), pdf)

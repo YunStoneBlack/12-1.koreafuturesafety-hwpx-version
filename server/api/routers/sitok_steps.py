@@ -91,7 +91,7 @@ def _field(db: Session, r: SitokReport) -> _Miss:
     pub = [p["name"] for p in po["public"] if not p["has"] and not p["none"]]
     if pub:
         add("public", f"사진도 [해당없음]도 아닌 항목 — {' · '.join(pub)}")
-    if gd.get("fam") != "wall" and any(not all(o["slots"]) for o in po["other"]):  # 옹벽은 기타시설(마감재·부착물) 탭 없음(10/20)
+    if gd.get("fam") not in ("wall", "bridge") and any(not all(o["slots"]) for o in po["other"]):  # 옹벽·교량은 기타시설(마감재·부착물) 탭 없음(10/20·10/29)
         add("other", " · ".join(f"{o['name']} {sum(o['slots'])}/{len(o['slots'])}장" for o in po["other"]) + " — 빈 칸은 보고서에 \"-\"")
     if (r.kind or "정기") == "정밀":
         p = PR.norm((r.survey or {}).get("precision"))
@@ -186,7 +186,7 @@ def _survey(db: Session, r: SitokReport) -> _Miss:
     out = _Miss()
     sv = r.survey or {}
     from server.sitok import kinds as _kinds
-    if _kinds.is_wall(db.get(SitokFacility, r.facility_id)):  # 옹벽(10/21) — 1.3.2 점검 이력·1.3.3 보수 이력
+    if _kinds.is_civil(db.get(SitokFacility, r.facility_id)):  # 옹벽(10/21)·교량(10/29) — 1.3.2 점검 이력·1.3.3 보수 이력
         if "history" not in sv and "repairs" not in sv:
             out.add("면담·점검 이력 조사", "아직 저장하지 않았습니다")
         hist = sv.get("history") or []

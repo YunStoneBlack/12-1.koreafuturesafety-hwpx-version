@@ -90,18 +90,20 @@ TAB_PRESETS = ["외부", "정면", "배면", "좌측면", "우측면", "측면",
 
 
 def is_custom_unit(floor: str) -> bool:
-    """사람이 [＋ 탭]으로 만든 탭(외부·정면·배면…) — 층(옥상·지상·지하·N층)이나 옹벽 부위가 아닌 이름."""
+    """사람이 [＋ 탭]으로 만든 탭(외부·정면·배면…) — 층(옥상·지상·지하·N층)이나 옹벽·교량 부위가 아닌 이름."""
     import re
     f = (floor or "").strip()
-    return bool(f) and f not in kinds.WALL_PARTS and not re.search(r"\d|옥상|옥탑|지붕|지하|지상|층$", f)
+    return bool(f) and f not in kinds.WALL_PARTS and f not in kinds.BRIDGE_PARTS and not re.search(r"\d|옥상|옥탑|지붕|지하|지상|층$", f)
 
 
 def floor_key(floor: str) -> tuple:
-    """옥상 → 지상 높은 층 → 지하 깊은 층 순(사진첩 순서). 옹벽 부위는 kinds.WALL_PARTS 순(지반 및 기초부 → 전면부 → …).
+    """옥상 → 지상 높은 층 → 지하 깊은 층 순(사진첩 순서). 옹벽 부위는 kinds.WALL_PARTS 순(지반 및 기초부 → 전면부 → …), 교량은 BRIDGE_PARTS 순.
     사람이 만든 탭(외부·정면·배면…)은 맨 뒤(TAB_PRESETS 순, 그 밖은 이름 순)."""
     import re
     if floor in kinds.WALL_PARTS:
         return (-1, kinds.WALL_PARTS.index(floor))
+    if floor in kinds.BRIDGE_PARTS:  # 교량 부위(10/29) — 상부구조 → 하부구조 → 받침 → 케이블 → 2차부재 → 기타부재("2차부재"가 층 번호로 읽혀 맨 앞에 오던 것)
+        return (-1, kinds.BRIDGE_PARTS.index(floor))
     if is_custom_unit(floor):
         return (3, TAB_PRESETS.index(floor) if floor in TAB_PRESETS else len(TAB_PRESETS))
     m = re.search(r"(\d+)", floor or "")
@@ -396,7 +398,7 @@ def list_defects(report_id: int, user: User = Depends(get_current_user), db: Ses
             "seismic": r.half == "성능평가", "seismic_only": bool(getattr(f, "seismic_only", False)),  # 내진성능평가 회차(10/21) — 결함 조사 탭만, 전회차 가져오기 없이
             "defects": [_out(d) for d in rows], "floors": facility_floors(f), "importing": _importing(r.id) or wall_review(r),
             "fam": fam, "unit_label": kinds.unit_label(fam), "parts": list(kinds.parts_of(fam)),  # 옹벽 = 부위·주요/일반/부대시설(10/20)
-            "unit_part": kinds.WALL_PART_OF_UNIT if fam == "wall" else {},
+            "unit_part": kinds.unit_parts(fam),  # 옹벽·교량(10/29) 부위 → 구분
             "members": [v.name for v in voc if v.base_kind == "member"], "types": [v.name for v in voc if v.base_kind == "dtype"], "vocab": vocab_out(voc),
             "part_of": kinds.part_map(fam),
             "summary": {"total": len(rows), "unchecked": sum(1 for d in rows if not d.check),
@@ -411,7 +413,7 @@ def _require_empty(db: Session, r: SitokReport) -> None:
 @router.post("/reports/{report_id}/defects/import")
 def import_pdf(report_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require_report(db, user, report_id)
-    if _fam(db, r) == "wall":  # 옹벽은 부록 사진첩(사진 + 설명) 읽기 — PDF·한글 파일, 확인 창(10/20)
+    if kinds.civil_fam(_fam(db, r)):  # 옹벽·교량은 부록 사진첩(사진 + 설명) 읽기 — PDF·한글 파일, 확인 창(10/20·10/29)
         from server.api.routers.sitok_wall_import import start as start_wall
 
         return start_wall(report_id, file, user, db)
@@ -793,7 +795,7 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
             return _out(old)
     last = max((d.seq for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == body.floor.strip())), default=0)
     d = SitokDefect(report_id=r.id, seq=last + 1, check="new", mark="신규", progress="비진행성")  # 진행유무 기본(10/21 형 — 신규도 칸이 비지 않게, [진행]을 누르면 진행성)
-    _apply(d, body.model_copy(update={"check": "new"}), user, None if fam == "wall" else base_areas(f), vocab_names(db, r.company_id, r.id, fam))
+    _apply(d, body.model_copy(update={"check": "new"}), user, None if kinds.civil_fam(fam) else base_areas(f), vocab_names(db, r.company_id, r.id, fam))
     d.ai_guess = learn.guess_from(body.ai_guess)
     db.add(d)
     db.flush()
@@ -809,7 +811,7 @@ def update_defect(defect_id: int, body: DefectIn, user: User = Depends(get_curre
     d, r = _require(db, user, defect_id)
     f = db.get(SitokFacility, r.facility_id)
     fam = kinds.family_of(f)
-    _apply(d, body, user, None if fam == "wall" else base_areas(f), vocab_names(db, r.company_id, r.id, fam))  # 옹벽은 면적률 없음
+    _apply(d, body, user, None if kinds.civil_fam(fam) else base_areas(f), vocab_names(db, r.company_id, r.id, fam))  # 옹벽·교량은 면적률 없음
     learn.sync(db, d, r.company_id, user.display_name or "")  # 나중에 분류를 고쳐도 교정 기록에
     db.commit()
     return _out(d)
@@ -1103,8 +1105,8 @@ def facility_floors(f: SitokFacility) -> list[str]:
     """관리대장 층수로 층 목록(옥상 → 지상 위층부터 → 지하) — 전회차 결함이 없는 층도 고를 수 있게. 옹벽은 부위 목록(kinds.WALL_PARTS).
     + 사람이 [＋ 탭]으로 더한 탭(ledger.units_extra — 외부·정면·배면…), − 🗑로 지운 기본 탭(ledger.units_hidden). 시설물에 두어 다음 회차도 같음(10/21)."""
     led = f.ledger or {}
-    if kinds.is_wall(f):
-        base = list(kinds.WALL_PARTS)
+    if kinds.is_civil(f):  # 옹벽 WALL_PARTS · 교량 BRIDGE_PARTS(10/29)
+        base = kinds.units_of(kinds.family_of(f))
     else:
         base = ["옥상층"] + [f"지상{n}층" for n in range(int(f.floors_above or 0), 0, -1)] + [f"지하{n}층" for n in range(1, int(f.floors_below or 0) + 1)]
         if len(base) == 1:
@@ -1215,6 +1217,28 @@ ANALYZE_WALL = """옹벽(시특법 2종·3종 시설물) 정기안전점검 현�
 {cause_rule}
 폭은 사진만으로는 어림이므로 보이는 굵기로 가장 가까운 구간을 고르세요(머리카락 굵기 ≈ 0.1, 연필 선 ≈ 0.3, 뚜렷이 벌어짐 ≥ 0.5)."""
 
+ANALYZE_BRIDGE = """교량(시특법 2종·3종 시설물) 정기안전점검 현장에서 점검자가 찍은 결함 사진입니다({where}). 사진을 보고 결함 한 줄의 초안을 JSON 객체 하나로만 답하세요(설명 없이).
+{{"is_defect": 결함이면 true, 결함이 아니라 전경·상태 기록용 사진이면 false,
+ "part": "주요시설" 또는 "일반시설" 또는 "부대시설" — 부재 기준(바닥판·거더·케이블·정착구·받침·교대·교각·날개벽·주탑·기초 = 주요시설,
+   교면포장·신축이음·후타재·가로보·세로보·배수시설·난간·연석 = 일반시설, 옹벽·비탈면·방음벽·점검로 = 부대시설),
+ "member": 부재 — 반드시 이 목록 중 하나 그대로: {members},
+ "dtype": 결함유형 — 반드시 이 목록 중 하나 그대로: {types} (기록용 사진이면 "○○ 현황", 예: "교량받침 현황"),
+ "new_member": 목록에 맞는 부재가 정말 없을 때만 제안할 이름(짧게, 이때 member는 ""), 아니면 null,
+ "new_dtype": 목록에 맞는 결함유형이 정말 없을 때만 제안할 이름(짧게, 이때 dtype은 ""), 아니면 null,
+ "cause": 원인(아래 규칙), "cause_note": 근거(아래 규칙),
+ "width": 균열이면 폭 구간(mm) "0.1"·"0.2"·"0.3"·"0.5"·"1.0" 중 하나(1.0은 1mm 이상), 균열이 아니면 null,
+ "count": 사진에 보이는 같은 결함 개수(정수, 보통 1),
+ "note": "사진에서 본 것 한 줄(점검자 참고용)"}}
+결함유형 고르는 법(교량 세부지침·3종 매뉴얼 교량·육교 체크리스트 기준):
+- 균열 = 콘크리트가 한 방향으로 갈라짐, 망상균열 = 거북등처럼 그물 모양 균열(바닥판 하면·교면에 흔함), 백태 = 흰 석회 자국, 누수 = 물 흐른 자국·젖음,
+  박리 = 표면 시멘트풀이 얇게 벗겨짐, 박락 = 콘크리트 조각이 떨어져 나감, 층분리 = 들떠 두드리면 빈 소리, 철근노출 = 철근이 드러남, 재료분리 = 골재가 몰려 곰보,
+  파손 = 모서리·연석·난간이 깨짐, 부식 = 강재·받침·난간·배수관 녹, 도장박리 = 강재 도장이 벗겨짐, 변형 = 강재·난간이 휘거나 받침이 기울어짐,
+  세굴 = 하천 기초 주변이 물에 파임, 침하 = 교대 뒤·기초가 내려앉음, 토사·이물질퇴적 = 신축이음 유간·배수구·받침 주변에 흙·낙엽이 쌓임,
+  배수불량 = 배수구 막힘·물고임, 유간이상 = 신축이음 틈이 너무 좁거나 넓음, 볼트이완·탈락 = 강재 연결 볼트가 풀리거나 빠짐, 잡목식생 = 교대 주변 잡목·넝쿨.
+- 기초 세굴·침하, 교각·교대 기울음, 받침 파손·이탈, 거더 단부 균열은 구조 안전에 바로 이어지니 조금이라도 보이면 note에 "진행성 확인 필요"라고 적을 것.
+{cause_rule}
+폭은 사진만으로는 어림이므로 보이는 굵기로 가장 가까운 구간을 고르세요(머리카락 굵기 ≈ 0.1, 연필 선 ≈ 0.3, 뚜렷이 벌어짐 ≥ 0.5)."""
+
 GREW = """같은 결함 자리를 전회차와 이번에 찍은 사진입니다(첫째 = 전회차, 둘째 = 이번). 전회차 기록: {prev}.
 JSON 객체 하나로만 답하세요(설명 없이): {{"grew": 이번이 전회차보다 커졌으면(길어짐·넓어짐·개수 늘어남) true, 아니면 false,
  "width": 균열이면 이번 폭 구간 "0.1"·"0.2"·"0.3"·"0.5"·"1.0" 중 하나, 균열이 아니면 null, "note": "달라진 점 한 줄"}}"""
@@ -1225,6 +1249,8 @@ def _analyze_prompt(where: str, allowed: dict, fam: str = "") -> str:
 
     if fam == "wall":
         return ANALYZE_WALL.format(where=where, members=", ".join(allowed["member"]), types=", ".join(allowed["dtype"]), cause_rule=CAUSE_RULE)
+    if fam == "bridge":
+        return ANALYZE_BRIDGE.format(where=where, members=", ".join(allowed["member"]), types=", ".join(allowed["dtype"]), cause_rule=CAUSE_RULE)
     return ANALYZE.format(where=where, members=", ".join(allowed["member"]), types=", ".join(allowed["dtype"]), cause_rule=CAUSE_RULE, leak_rule=LEAK_RULE)
 
 

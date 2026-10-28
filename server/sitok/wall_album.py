@@ -165,6 +165,21 @@ TYPE_WORDS = [("균열", ("균열",)), ("파손", ("파손", "단부")), ("이�
               ("철망손상", ("철망",)), ("마감불량", ("마감불량", "설치불량")), ("단차", ("단차",))]
 
 
+# 교량(10/29) — 지난 교량 보고서 사진 설명 낱말(부위·부재·결함유형)
+BRIDGE_UNIT_WORDS = [("케이블", ("케이블", "정착구", "행어", "새들")), ("받침", ("받침", "교좌")), ("2차부재", ("가로보", "세로보", "격벽")),
+                     ("하부구조", ("교대", "교각", "기초", "주탑", "날개벽", "코핑", "하부", "세굴")),
+                     ("상부구조", ("바닥판", "슬래브", "거더", "상부", "캔틸레버")), ("기타부재", ("신축이음", "배수", "난간", "연석", "포장", "교면", "점검로", "방호벽"))]
+BRIDGE_MEMBER_WORDS = [("바닥판", ("바닥판", "슬래브", "캔틸레버")), ("거더", ("거더", "주형")), ("가로보", ("가로보", "격벽")), ("세로보", ("세로보",)),
+                       ("교대", ("교대",)), ("교각", ("교각", "코핑")), ("날개벽", ("날개벽",)), ("주탑", ("주탑",)), ("기초", ("기초", "확대기초")), ("받침", ("받침", "교좌")),
+                       ("케이블", ("케이블", "행어", "새들")), ("정착구", ("정착구",)), ("신축이음", ("신축이음",)), ("후타재", ("후타재",)), ("교면포장", ("포장", "교면")),
+                       ("배수시설", ("배수",)), ("난간", ("난간", "방호울타리")), ("연석", ("연석", "방호벽")), ("점검로", ("점검로",)), ("방음벽", ("방음벽",))]
+BRIDGE_TYPE_WORDS = [("망상균열", ("망상",)), ("균열", ("균열",)), ("백태", ("백태", "백화")), ("누수", ("누수",)), ("박리", ("박리",)), ("박락", ("박락",)),
+                     ("층분리", ("층분리", "들뜸")), ("철근노출", ("철근",)), ("재료분리", ("재료분리", "곰보")), ("파손", ("파손", "깨짐")), ("부식", ("부식", "녹")),
+                     ("도장박리", ("도장",)), ("변형", ("변형", "휨")), ("세굴", ("세굴",)), ("침하", ("침하",)), ("토사·이물질퇴적", ("퇴적", "이물질", "토사")),
+                     ("배수불량", ("배수불량", "막힘", "물고임")), ("유간이상", ("유간",)), ("볼트이완·탈락", ("볼트",)), ("잡목식생", ("식생", "잡목", "넝쿨", "수목"))]
+WORDS = {"wall": (UNIT_WORDS, MEMBER_WORDS, TYPE_WORDS, "기타"), "bridge": (BRIDGE_UNIT_WORDS, BRIDGE_MEMBER_WORDS, BRIDGE_TYPE_WORDS, "기타부재")}
+
+
 def _first(words: list, text: str) -> str:
     for name, keys in words:
         if any(k in text for k in keys):
@@ -172,14 +187,15 @@ def _first(words: list, text: str) -> str:
     return ""
 
 
-def keyword_guess(caption: str) -> dict:
-    """낱말 규칙(AI 없을 때·AI 실패 때) — {unit, part, member, dtype, record, width}."""
+def keyword_guess(caption: str, fam: str = "wall") -> dict:
+    """낱말 규칙(AI 없을 때·AI 실패 때) — {unit, part, member, dtype, record, width}. fam = 옹벽 "wall" · 교량 "bridge"(10/29)."""
     t = caption or ""
-    record = bool(re.search(r"(양호|현황|전경)\s*$", t)) or (any(w in t for w in RECORD_WORDS) and not _first(TYPE_WORDS, t.replace("상태", "")))
-    unit = _first(UNIT_WORDS, t) or "기타"
-    member = _first(MEMBER_WORDS, t)
-    dtype = "" if record else _first(TYPE_WORDS, t)
-    part = kinds.default_part(member, "wall") or kinds.WALL_PART_OF_UNIT.get(unit, "일반시설")
+    unit_w, member_w, type_w, other = WORDS.get(fam, WORDS["wall"])
+    record = bool(re.search(r"(양호|현황|전경)\s*$", t)) or (any(w in t for w in RECORD_WORDS) and not _first(type_w, t.replace("상태", "")))
+    unit = _first(unit_w, t) or other
+    member = _first(member_w, t)
+    dtype = "" if record else _first(type_w, t)
+    part = kinds.default_part(member, fam) or kinds.unit_parts(fam).get(unit, "일반시설")
     m = re.search(r"(\d+(?:\.\d+)?)\s*(?:mm|㎜)\s*(이상|미만|이하)?", t)
     width = ""
     if m and "균열" in t:
@@ -202,17 +218,31 @@ JSON 배열 하나로만 답하세요(설명 없이): [{{"no": 번호, "unit": "
 {rows}"""
 
 
-def guess_rows(captions: list[str], company_id: int, allowed: dict) -> list[dict]:
-    """설명 글 목록 → 분류 목록(AI 한 번, 목록 밖·실패는 낱말 규칙). allowed = {member: [...], dtype: [...]}(옹벽 목록)."""
+BRIDGE_GUESS_PROMPT = """교량 정기안전점검 지난 보고서 부록 "주요 손상 및 현황 사진"의 사진 설명 {n}개입니다. 설명마다 우리 현장 조사 칸으로 분류하세요.
+- unit(부위): 반드시 이 중 하나: {units}  (바닥판·슬래브·거더 = 상부구조, 교대·교각·주탑·기초·날개벽 = 하부구조, 교량받침 = 받침, 케이블·정착구·행어·새들 = 케이블,
+  가로보·세로보 = 2차부재, 신축이음·배수시설·난간·연석·교면포장 = 기타부재). 난간·보도·점검로·교면포장·신축이음처럼 사람이 쓰는 곳의 결함은 "공중이 이용하는 부위"이기도 해
+  public에 항목 키("fall" 추락방지시설(난간·점검로) / "road" 도로포장 / "joint" 신축이음부 / "vent" 덮개), 아니면 ""
+- part(구분): "주요시설"(바닥판·거더·케이블·받침·교대·교각·기초) / "일반시설"(교면포장·신축이음·가로보·세로보·배수시설·난간·연석) / "부대시설"(옹벽·비탈면·방음벽·점검로)
+- member(부재): 반드시 이 중 하나 그대로(모르면 ""): {members}
+- dtype(결함유형): 반드시 이 중 하나 그대로: {types} — "~양호"·"~현황"·"~전경"처럼 결함이 아닌 기록 사진이면 record=true, dtype는 "○○ 현황"(예: "교량받침 현황")
+- width: 설명에 균열 폭이 있으면 mm 숫자 글자("0.3"·"0.2"), 없으면 ""
+JSON 배열 하나로만 답하세요(설명 없이): [{{"no": 번호, "unit": "", "part": "", "member": "", "dtype": "", "record": false, "width": "", "public": ""}}]
+[설명 — 번호 | 글]
+{rows}"""
+
+
+def guess_rows(captions: list[str], company_id: int, allowed: dict, fam: str = "wall") -> list[dict]:
+    """설명 글 목록 → 분류 목록(AI 한 번, 목록 밖·실패는 낱말 규칙). allowed = {member: [...], dtype: [...]}(옹벽·교량 목록, 교량 10/29)."""
     from server.sitok import vision
 
-    base = [keyword_guess(c) for c in captions]
+    base = [keyword_guess(c, fam) for c in captions]
     if not captions:
         return base
+    units = kinds.units_of(fam)
     rows = "\n".join(f"{i} | {c}" for i, c in enumerate(captions, 1))
     try:
-        got = vision.ask_json(company_id, [], GUESS_PROMPT.format(n=len(captions), units=", ".join(kinds.WALL_PARTS), members=", ".join(allowed["member"]),
-                                                                  types=", ".join(allowed["dtype"]), rows=rows), max_tokens=6000)
+        got = vision.ask_json(company_id, [], (BRIDGE_GUESS_PROMPT if fam == "bridge" else GUESS_PROMPT).format(
+            n=len(captions), units=", ".join(units), members=", ".join(allowed["member"]), types=", ".join(allowed["dtype"]), rows=rows), max_tokens=6000)
     except Exception:  # noqa: BLE001 — AI가 안 되면 낱말 규칙
         return base
     by_no = {int(g["no"]): g for g in got if isinstance(g, dict) and str(g.get("no", "")).isdigit()} if isinstance(got, list) else {}
@@ -221,7 +251,7 @@ def guess_rows(captions: list[str], company_id: int, allowed: dict) -> list[dict
         if not g:
             continue
         unit = str(g.get("unit") or "")
-        if unit in kinds.WALL_PARTS:
+        if unit in units:
             b["unit"] = unit
         part = str(g.get("part") or "")
         if part in kinds.WALL_SECTIONS:

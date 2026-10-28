@@ -44,12 +44,13 @@ FILES = {  # 원본 종류 → 파일 이름. 정밀은 회사 관행대로 본�
     "정밀본문": "정밀안전점검_본문_원본.hwpx",
     "정밀부록": "정밀안전점검_부록_원본.hwpx",
     "옹벽": "정기안전점검_옹벽_원본.hwpx",  # 옹벽 정기 한 파일(10/21 민재형이 부분 11개를 합쳐 줌 — 3종 시설물편, 2종은 wall_build가 뺌)
+    "교량": "정기안전점검_교량_원본.hwpx",  # 교량 정기 한 파일(10/29 형 — 공통편은 교량·옹벽·터널·절토사면 같이, 시설물편 교량편, 3종 시설물편 포함)
     # 내진성능평가(10/21 형 "보고서도 만들기 시작") — 견본 삼숭초 교사동(2026.01)의 우리 몫(표지~2.5 지반 및 기초), 외주 3~7장은 회차마다 외주 한글을 붙임
     "성능평가본문": "내진성능평가_본문_원본.hwpx",
     "성능평가부록": "내진성능평가_부록_원본.hwpx",
     "성능평가수행계획서": "내진성능평가_과업수행계획서_원본.hwpx",  # 10/22 — 부록 2·서류 칸 자동 만들기(server/sitok/seismic_plan)
 }
-KIND_LABEL = {"정기": "정기안전점검 원본", "정밀본문": "정밀안전점검 본문 원본", "정밀부록": "정밀안전점검 부록 원본", "옹벽": "옹벽 정기안전점검 원본",
+KIND_LABEL = {"정기": "정기안전점검 원본", "정밀본문": "정밀안전점검 본문 원본", "정밀부록": "정밀안전점검 부록 원본", "옹벽": "옹벽 정기안전점검 원본", "교량": "교량 정기안전점검 원본",
               "성능평가본문": "내진성능평가 본문 원본(우리 1~2장)", "성능평가부록": "내진성능평가 부록 원본",
               "성능평가수행계획서": "내진성능평가 과업수행계획서 원본"}
 
@@ -263,7 +264,7 @@ def check(hwpx: Path, kind: str = "정기") -> list[str]:
     with zipfile.ZipFile(hwpx) as z:
         roots = [etree.fromstring(z.read(n)) for n in rb._sections(z)]
     tops = [rb._top_text(p).strip() for r in roots for p in r if p.tag == f"{{{HP}}}p"]
-    checks = CHECKS if kind == "정기" else WALL_CHECKS if kind == "옹벽" else PRECISION_CHECKS[kind]
+    checks = CHECKS if kind == "정기" else WALL_CHECKS if kind == "옹벽" else BRIDGE_CHECKS if kind == "교량" else PRECISION_CHECKS[kind]
     return [name for name, ok in checks if not ok(roots, tops)]
 
 
@@ -279,6 +280,15 @@ WALL_CHECKS = [  # 옹벽 원본(한 파일) — wall_build가 채우는 자리
     ("정기점검 결과표(가. 일반현황)", lambda roots, tops: _has_table(roots, 20, 9, "가. 일반현황")),
     ("1.2.1 시설물 현황표(시설물 번호)", lambda roots, tops: _has_table(roots, 12, 8, "시설물 번호")),
     ("1.4.5 실시결과 요약표(부재명)", lambda roots, tops: _has_table(roots, 8, 4, "부재명")),
+    ("1.2 점검결과 총괄표(No)", lambda roots, tops: _has_table(roots, 21, 6, "No")),
+    ("목차(제Ⅱ편)", lambda roots, tops: any(t.replace(" ", "").startswith("제Ⅱ편") for t in tops)),
+    ("부록2 간지", lambda roots, tops: any("부록2" in "".join(x.text or "" for x in r.iter(rb.T)) for r in roots)),
+]
+BRIDGE_CHECKS = [  # 교량 원본(한 파일, 10/29) — wall_build 교량판이 채우는 자리
+    ("정기점검 결과표(가. 일반현황)", lambda roots, tops: _has_table(roots, 20, 9, "가. 일반현황")),
+    ("1.2.1 시설물 현황표(시설물명 11×6)", lambda roots, tops: _has_table(roots, 11, 6, "시설물명")),
+    ("1.4.8 실시결과 요약표(부재명 10×4)", lambda roots, tops: _has_table(roots, 10, 4, "부재명")),
+    ("1.5 안전등급 평가표(19×10)", lambda roots, tops: _has_table(roots, 19, 10, "구분")),
     ("1.2 점검결과 총괄표(No)", lambda roots, tops: _has_table(roots, 21, 6, "No")),
     ("목차(제Ⅱ편)", lambda roots, tops: any(t.replace(" ", "").startswith("제Ⅱ편") for t in tops)),
     ("부록2 간지", lambda roots, tops: any("부록2" in "".join(x.text or "" for x in r.iter(rb.T)) for r in roots)),
