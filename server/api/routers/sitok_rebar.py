@@ -57,7 +57,14 @@ def _out(f: SitokFacility) -> dict:
 
 @router.get("/facilities/{facility_id}/rebar-schedule")
 def get_schedule(facility_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return _out(_require_facility(db, user, facility_id))
+    f = _require_facility(db, user, facility_id)
+    data = _data(f)
+    old = [x for x in (RS.normalize_item(y) for y in data.get("items") or []) if x]
+    new = RS.split_scopes(old)  # 층 표시가 다른 부호가 섞인 칸 나누기(10/28 사용자 "PG1은 지하, RG1은 지붕 — 항목 나눠서") — 예전에 읽은 일람표도 열 때 한 번
+    if len(new) != len(old) and (JOBS.get(f.id) or {}).get("state") != "running":
+        _put(f, {**data, "items": new})
+        db.commit()
+    return _out(f)
 
 
 @router.post("/facilities/{facility_id}/rebar-schedule/read")
@@ -103,6 +110,7 @@ def _job(facility_id: int, company_id: int, by: str) -> None:
             list(ex.map(one, range(len(pages))))
         new = [it for i in sorted(results) for raw in results[i] if (it := RS.normalize_item(raw, i))]
         RS.inherit_same(new)
+        new = RS.split_scopes(new)  # 층 표시마다 칸 나누기(10/28) — 확인한 칸 이어받기 전에(나눈 칸끼리 맞춤)
         old = _data(f)
         items = RS.merge_confirmed([RS.normalize_item(x) for x in old.get("items") or [] if RS.normalize_item(x)], new)
         won = round((usage["in"] / 1e6 * 2 + usage["out"] / 1e6 * 10) * 1400)  # claude-sonnet-5 $2·$10/백만 토큰, 1달러 1,400원 어림

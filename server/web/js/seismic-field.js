@@ -45,7 +45,9 @@
   const filledM = (x) => !!(x.mark || x.design || x.measured || x.note); // 위치는 셈 안 함(10/27 위치 칸 없앰 — 예전에 위치만 적은 칸이 입력한 칸으로 셈)
   const blankM = (n, k) => ({ floor: n, kind: k, where: "", item_id: "", mark: "", design: "", measured: "", note: "" });
   const floorName = (n) => (F.floors.find((f) => f.n === n) || {}).label || (n < 0 ? `지하${-n}층` : `지상${n}층`);
-  const itemsFor = (r) => F.schedule.filter((x) => x.kind === r.kind && (!x.range || (x.range[0] <= r.floor && r.floor <= x.range[1])));
+  const marksAt = (x, fl) => (x.at && x.at[String(fl)] !== undefined ? x.at[String(fl)] : x.marks); // 그 층 부호(10/28 — 1-5G1A는 1층 "1G1A")
+  const itemsFor = (r) => F.schedule.filter((x) => x.kind === r.kind && (x.at && x.at[String(r.floor)] !== undefined ? x.at[String(r.floor)].length > 0
+    : (!x.range || (x.range[0] <= r.floor && r.floor <= x.range[1]))));
   function memberFloors() {
     const s = new Set([...F.sample_floors, ...Object.keys(plan).map((k) => Number(k.split("|")[0])), ...Object.keys(slots).map(Number)]);
     return [...s].filter((n) => n).sort((a, b) => a - b);
@@ -129,7 +131,7 @@
     const row = (n, r, j) => {
       no += 1;
       const k = r.kind, ch = itemsFor(r), nth = (slots[n] || []).slice(0, j + 1).filter((x) => x.kind === k).length; // 그 부재 몇 번째
-      const opts = [["", ch.length ? "— 일람표 칸 —" : "맞는 칸 없음 — 직접"], ...ch.map((x) => [x.id, `${x.marks.join(",")}${x.size ? ` ${x.size}` : ""}${x.floors ? ` (${x.floors})` : ""}`])];
+      const opts = [["", ch.length ? "— 일람표 칸 —" : "맞는 칸 없음 — 직접"], ...ch.map((x) => [x.id, `${marksAt(x, n).join(",")}${x.size ? ` ${x.size}` : ""}${x.floors ? ` (${x.floors})` : ""}`])];
       const inp = (f, label, w) => `<input data-g="${n}" data-j="${j}" data-k="${f}" placeholder="${esc(label)}" title="${esc(label)}" style="flex:${w}" value="${esc(r[f] ?? "")}" />`;
       const kindSel = `<select class="sf2-mkind" data-g="${n}" data-j="${j}" data-mk="1" title="부재 — 바꾸면 이 칸은 그 부재로, 같은 층 그 부재 빈 칸 하나는 이 칸의 원래 부재로(칸 수 그대로)">${opt(kinds.map((x) => [x, x]), k)}</select>`;
       return `<div class="sf2-row${filledM(r) ? "" : " empty"}"><span class="sf2-no">${no}</span><span class="sf2-mk">${kindSel}<i>${nth}</i></span>
@@ -174,7 +176,7 @@
       if (el.dataset.k === "dir") el.classList.toggle("need", !el.value); // 벽체 방향 고르면 노란 테두리 풂
       if (el.dataset.k === "item_id") {
         const it = F.schedule.find((x) => x.id === r.item_id);
-        if (it) { r.mark = it.marks[0] || r.mark; r.design = (it.size || "").replace(/\s*[xX×*]\s*/, " x "); }
+        if (it) { r.mark = marksAt(it, Number(el.dataset.g))[0] || r.mark; r.design = (it.size || "").replace(/\s*[xX×*]\s*/, " x "); }
         if (r.match === "일치") r.measured = r.design;
         renderMembers();
       } else if (el.dataset.k === "match") {

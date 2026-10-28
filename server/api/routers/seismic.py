@@ -667,7 +667,9 @@ def _field_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "min_counts": SD.min_counts(SD.item_units(f), grade, SD.has_drawings(f)), "rebar": _rebar_done(r),
             "schedule": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"],
                           "size": x.get("size") or (f"THK={x['thickness']}" if x.get("thickness") else ""),  # 벽체 = 두께(견본 "THK=200")
-                          "range": RS.floor_range(x["floors"])} for x in sch["items"] if x["kind"] in SF.MEMBER_KINDS]}  # 층 범위 — 그 층 칸만(철근탐사처럼, 10/22)
+                          "range": RS.floor_range(x["floors"]),  # 층 범위 — 그 층 칸만(철근탐사처럼, 10/22)
+                          "at": {str(n): RS.marks_at(x, n) for n in RS.survey_floors(f.floors_below or 0, f.floors_above or 0)}}  # 층마다 그 층 부호(10/28)
+                         for x in sch["items"] if x["kind"] in SF.MEMBER_KINDS]}
 
 
 def _rebar_done(r: SitokReport) -> int:
@@ -701,7 +703,7 @@ def save_field(rid: int, body: dict = Body(...), user: User = Depends(get_curren
         it = items.get(m["item_id"])
         if it is not None:
             m["kind"] = it["kind"] if it["kind"] in SF.MEMBER_KINDS else m["kind"]
-            m["mark"] = m["mark"] or (it["marks"][0] if it["marks"] else "")
+            m["mark"] = m["mark"] or (RS.marks_at(it, m["floor"]) or it["marks"] or [""])[0]  # 그 층 부호(10/28)
             m["design"] = m["design"] or SF.size_text(it.get("size") or (f"THK={it['thickness']}" if it.get("thickness") else ""))
             if m["match"] == "일치":
                 m["measured"] = m["design"]

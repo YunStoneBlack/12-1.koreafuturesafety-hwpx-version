@@ -27,8 +27,10 @@
   function choices(row) {
     const sk = row.kind === JOINT ? "보" : row.kind; // 접합부 = 보 단부 칸
     return d.schedule.items.filter((it) => it.kind === sk && !(row.kind === JOINT && /중앙/.test(it.position || ""))
-      && (row.floor == null || !it.range || (it.range[0] <= row.floor && row.floor <= it.range[1])));
+      && (row.floor == null || (it.at && it.at[String(row.floor)] !== undefined ? it.at[String(row.floor)].length > 0  // 그 층 부호가 있는 칸만(10/28 — 1-5G1A·PG1·RG1)
+        : (!it.range || (it.range[0] <= row.floor && row.floor <= it.range[1])))));
   }
+  const marksAt = (it, fl) => (fl != null && it.at && it.at[String(fl)] !== undefined ? it.at[String(fl)] : it.marks); // 그 층 부호(1-5G1A → 1층 "1G1A")
 
   function line(row, i) {
     const lab = d.lines[row.kind][i];
@@ -50,7 +52,7 @@
   function card(row) {
     const ch = choices(row);
     const sel = ch.find((c) => c.id === row.item_id);
-    const opts = `<option value="">${ch.length ? "일람표 칸 고르기" : "맞는 일람표 칸 없음 — 부호 직접"}</option>` + ch.map((c) => `<option value="${c.id}"${c.id === row.item_id ? " selected" : ""}>${esc(c.marks.join(", "))}${c.position ? ` ${esc(c.position)}` : ""}${c.floors ? ` (${esc(c.floors)})` : ""}${c.confirmed ? "" : " ⚠미확인"}</option>`).join("");
+    const opts = `<option value="">${ch.length ? "일람표 칸 고르기" : "맞는 일람표 칸 없음 — 부호 직접"}</option>` + ch.map((c) => `<option value="${c.id}"${c.id === row.item_id ? " selected" : ""}>${esc(marksAt(c, row.floor).join(", "))}${c.position ? ` ${esc(c.position)}` : ""}${c.floors ? ` (${esc(c.floors)})` : ""}${c.confirmed ? "" : " ⚠미확인"}</option>`).join("");
     return `<div class="ss-card${hasResult(row) ? " filled" : " empty"}" data-id="${row.id}" data-floor="${row.floor ?? ""}" data-kind="${esc(row.kind)}">
       <div class="ss-card-h"><b class="ss-no">RC-${row.no}</b><span class="sk-help">${esc(floorLabel(row.floor))} · ${esc(row.kind)}${row.mark ? ` (${esc(row.mark)})` : ""}</span>
         ${blankCard(row) ? "" : '<button type="button" class="link-btn ss-del" title="이 카드 내용 비우기 — 칸은 그대로(칸 수는 위 칸 수 표에서)">비우기</button>'}</div>

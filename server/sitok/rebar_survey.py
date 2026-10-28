@@ -79,11 +79,11 @@ def choices(schedule: dict | None, floor: int | None, kind: str) -> list[dict]:
     for it in RS.view(schedule).get("items") or []:
         if it["kind"] != sched_kind(kind) or (kind == JOINT and "중앙" in (it.get("position") or "")):  # 접합부 = 보 단부 칸
             continue
-        rng = RS.floor_range(it["floors"])
-        if floor is not None and rng and not (rng[0] <= floor <= rng[1]):
+        marks = RS.marks_at(it, floor)  # 그 층 부호(1-5G1A → 1층 "1G1A", 10/28)
+        if floor is not None and not marks:
             continue
-        label = ", ".join(it["marks"]) + (f" {it['position']}" if it.get("position") else "") + f" ({it['floors']})"
-        out.append({"id": it["id"], "label": label, "mark": ", ".join(it["marks"]), "position": it.get("position") or "", "confirmed": it["confirmed"],
+        label = ", ".join(marks) + (f" {it['position']}" if it.get("position") else "") + f" ({it['floors']})"
+        out.append({"id": it["id"], "label": label, "mark": ", ".join(marks), "position": it.get("position") or "", "confirmed": it["confirmed"],
                     "check_ok": (it.get("check") or {}).get("ok")})
     return out
 
@@ -101,7 +101,7 @@ def fill_design(row: dict, schedule: dict | None) -> dict:
         row["position"] = pos
     rows = RS.design(it, pos, row.get("side") or "")["rows"]
     row["design"] = [rows[0]["value"], rows[1]["value"]]
-    row["mark"] = row.get("mark") or ", ".join(it["marks"])
+    row["mark"] = row.get("mark") or ", ".join(RS.marks_at(it, row.get("floor")) or it["marks"])  # 그 층 부호(10/28)
     return row
 
 

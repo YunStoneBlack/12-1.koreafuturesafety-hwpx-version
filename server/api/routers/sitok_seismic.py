@@ -62,6 +62,7 @@ def _out(db: Session, r: SitokReport) -> dict:
             "floors": [{"n": n, "label": RS.floor_label(n)} for n in floors],
             "schedule": {"count": len(sv["items"]), "need": sv["need"], "read_at": sv["read_at"],
                          "items": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"], "range": RS.floor_range(x["floors"]),
+                                    "at": {str(n): RS.marks_at(x, n) for n in floors + [RS.FLOOR_TOP]},  # 층마다 그 층 부호(10/28 — 1-5G1A는 1층 "1G1A", 그 층이 아니면 빈 목록)
                                     "position": x.get("position") or "", "confirmed": x["confirmed"], "check_ok": x["check"]["ok"]} for x in sv["items"]]},
             "lines": RV.LINES, "kinds": list(RV.KINDS), "seeded": data["seeded"], "rows": rows,
             "counts": RV.counts(data["rows"], SD.sample_floors(f, "rebar"))}  # 표본 층 × 4종(10/22, 철근배근 조사단위)

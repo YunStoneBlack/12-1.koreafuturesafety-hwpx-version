@@ -110,8 +110,127 @@ def floor_range(text: str) -> tuple[int, int] | None:
     return (a, FLOOR_TOP) if up else (a, a)
 
 
+def survey_floors(below: int, above: int) -> list[int]:
+    """화면에 층별 부호(at)를 줄 층 — 지하 아래층부터 지상 위층 + 지붕."""
+    return [-b for b in range(below or 0, 0, -1)] + list(range(1, (above or 0) + 1)) + [FLOOR_TOP]
+
+
 def floor_label(n: int) -> str:
     return "지붕층" if n >= FLOOR_TOP else (f"지하{-n}층" if n < 0 else f"지상{n}층")
+
+
+# ---------- 부호 앞 층 표시(10/28 사용자 "1-5G1A는 1층에선 1G1A로, PG1은 지하·RG1은 지붕으로 나눠서", "n은 모든 층 — R-nG1은 지붕과 모든 층의 G1") ----------
+_TOK = r"PHR|PH|R|P|B\d+|n|\d+"
+_SCOPED = re.compile(rf"^(?P<a>{_TOK})(?:(?P<sep>[-~])(?P<b>{_TOK}))?(?P<base>[A-Z]{{1,3}}\d.*)$")
+ALL_LO = -99  # n = 모든 층(지하 포함)
+
+
+def mark_scope(mark: str) -> dict | None:
+    """부호 앞 층 표시 → {"lo","hi","pit","top","base","label","toks"} — 층 표시가 없으면(C1·G1·B1·5nC1) None.
+    1-5G1A·4~1G1A = 범위, R~1G2 = 1층~지붕, R-nG1 = 지붕 + 모든 층, PG1 = 지하(PIT), RG1·PHRG2 = 지붕·옥탑지붕, 2G6·B1G1 = 그 층."""
+    m = _SCOPED.match(str(mark or "").strip())
+    if not m:
+        return None
+    toks = [m["a"]] + ([m["b"]] if m["b"] else [])
+    floors, pit, top, every = [], False, False, False
+    for t in toks:
+        if t == "n":
+            every = True
+        elif t == "P":
+            pit = True
+        elif t in ("R", "PH", "PHR"):
+            top = True
+        elif t.startswith("B"):
+            floors.append(-int(t[1:]))
+        else:
+            floors.append(int(t))
+    if every:
+        lo, hi = ALL_LO, FLOOR_TOP - 1
+    elif floors and m["sep"] and top and len(floors) == 1:  # R~1 = 1층~지붕
+        lo, hi = floors[0], FLOOR_TOP - 1
+    elif floors:
+        lo, hi = min(floors), max(floors)
+    else:
+        lo = hi = None
+    roof = "옥탑지붕" if "PHR" in toks else "지붕"
+    if every:
+        label = "모든 층" + (f"·{roof}" if top else "")
+    elif lo is not None:
+        lab = lambda n: f"지하{-n}" if n < 0 else str(n)  # noqa: E731
+        label = (lab(lo) if lo == hi else f"{lab(lo)}~{lab(hi) if hi < FLOOR_TOP - 1 else '지붕'}") + ("" if lo != hi or hi >= FLOOR_TOP - 1 else "층")
+        if top and hi < FLOOR_TOP - 1:
+            label += f"·{roof}"
+    else:
+        label = "·".join(x for x in (("지하" if pit else ""), (roof if top else "")) if x)
+    return {"lo": lo, "hi": hi, "pit": pit, "top": top, "base": m["base"], "label": label, "toks": toks}
+
+
+def scope_has(sc: dict, floor: int) -> bool:
+    if floor >= FLOOR_TOP:
+        return sc["top"] or (sc["hi"] is not None and sc["hi"] >= FLOOR_TOP - 1 and "R" in sc["toks"])
+    if floor < 0 and sc["pit"]:
+        return True
+    return sc["lo"] is not None and sc["lo"] <= floor <= sc["hi"] and floor != 0
+
+
+def floor_mark(mark: str, floor: int) -> str | None:
+    """그 층에서 쓸 부호 — 1-5G1A → 1층 "1G1A", R~1G2 → 지붕 "RG2", PG1 → 지하 "PG1". 층 표시가 없으면 그대로, 그 층이 아니면 None."""
+    sc = mark_scope(mark)
+    if sc is None:
+        return mark
+    if not scope_has(sc, floor):
+        return None
+    if floor >= FLOOR_TOP:
+        tok = "PHR" if "PHR" in sc["toks"] else "PH" if "PH" in sc["toks"] else "R"
+    elif floor < 0:
+        tok = "P" if sc["pit"] and not any(t.startswith("B") for t in sc["toks"]) else f"B{-floor}"
+    else:
+        tok = str(floor)
+    return tok + sc["base"]
+
+
+def _covers(sc: dict, rng: tuple[int, int]) -> bool:
+    """부호 층 표시(sc)가 칸 층 범위(rng)와 한 층이라도 겹치는지."""
+    if rng[1] >= FLOOR_TOP and scope_has(sc, FLOOR_TOP):
+        return True
+    return any(scope_has(sc, n) for n in range(max(rng[0], -20), min(rng[1], 80) + 1) if n)
+
+
+def marks_at(it: dict, floor: int | None) -> list[str]:
+    """일람표 칸의 부호 중 그 층 것(층 부호로 바꿔서). 층 표시 없는 부호는 칸의 층 범위(floors)를 따름. floor가 None이면 부호 그대로."""
+    if floor is None:
+        return list(it.get("marks") or [])
+    rng = floor_range(it.get("floors") or "")
+    out = []
+    for mk in it.get("marks") or []:
+        sc = mark_scope(mk)
+        if sc is not None and rng is not None and not _covers(sc, rng):  # 부호 층 표시와 칸 층이 전혀 안 겹치면 칸 층을 따름(RCG1 · 2층 — 2층 높이 지붕 보)
+            sc = None
+        if sc is None:
+            if rng is None or rng[0] <= floor <= rng[1]:
+                out.append(mk)
+        else:
+            fm = floor_mark(mk, floor)
+            if fm:
+                out.append(fm)
+    return list(dict.fromkeys(out))
+
+
+def split_scopes(items: list[dict]) -> list[dict]:
+    """한 칸에 층 표시가 다른 부호가 섞이면(PG1, RG1, 1-5G1 · R, 1~5) 층 표시마다 칸을 나눔 — 값(크기·철근)은 같이, 층 = 그 부호의 층 이름.
+    첫 묶음은 번호(id) 그대로(이미 고른 칸이 그대로 가리키게). 같은 층 표시끼리는 한 칸(R~1G2, R~1G3)."""
+    out = []
+    for it in items:
+        groups: dict[str, list[str]] = {}
+        for mk in it.get("marks") or []:
+            sc = mark_scope(mk)
+            groups.setdefault(sc["label"] if sc else "", []).append(mk)
+        if len(groups) <= 1:
+            out.append(it)
+            continue
+        for k, (label, ms) in enumerate(groups.items()):
+            out.append({**it, "id": it["id"] if k == 0 else f"{it['id']}{k}", "marks": ms, "floors": label or it.get("floors") or ""})
+    return out
 
 
 # ---------- 정리·검산 ----------
