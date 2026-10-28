@@ -143,7 +143,7 @@
         <button type="button" class="secondary" id="sf2-q-reset">기본 칸 수로</button></div></div>
       <div class="sf2-mnote" id="sf2-mnote"></div>
       <div class="sf2-row sf2-row-h"><span class="sf2-no">#</span><span class="sf2-mk">부재</span><span style="flex:1.5">일람표 칸(그 층·부재만)</span><span style="flex:0.7">부호</span><span style="flex:1">도면치수</span><span class="sf2-meas-h">실측치수(일치·불일치, 못 재면 □)</span><span style="flex:0.9">비고(자동)</span></div>
-      ${floorChips(floors.map((n) => ({ n, label: floorName(n), done: (slots[n] || []).filter(filledM).length, total: (slots[n] || []).length })), mFloor)}
+      <div class="sf2-mnav">${floorChips(floors.map((n) => ({ n, label: floorName(n), done: (slots[n] || []).filter(filledM).length, total: (slots[n] || []).length })), mFloor)}</div>
       ${floors.map((n) => { const rs = (slots[n] || []).map((r, j) => row(n, r, j)); const c = (slots[n] || []).filter(filledM).length;
         return rs.length && (!mFloor || String(n) === mFloor) ? `<div class="sf2-mfloor"><h4>${esc(floorName(n))} <span class="sk-help" data-fc="${n}">${c}/${rs.length}</span></h4>${rs.join("")}</div>` : ""; }).join("")}`;  // 번호는 전체 차례 그대로(다른 층도 세고 안 그림)
     const box = $("sf2-members");
@@ -415,7 +415,7 @@
     const bar = $("sf2-min");
     const bottom = bar.offsetHeight + (parseInt(getComputedStyle(bar).top, 10) || 0);
     document.documentElement.style.scrollPaddingTop = `${bottom + 8}px`;
-    $("ss-rows")?.style.setProperty("--tabs-h", `${bottom}px`); // 철근탐사 층·부재 바로가기 줄(.ss-nav sticky)을 고정 요약 줄 바로 아래에(10/28 사용자 폰 — 요약 줄 뒤에 숨던 것)
+    for (const k of ["ss-rows", "sf2-members"]) $(k)?.style.setProperty("--tabs-h", `${bottom}px`); // 철근탐사 층·부재 줄(.ss-nav)·부재 단면 층 줄(.sf2-mnav) sticky를 고정 요약 줄 바로 아래에(10/28 사용자 폰)
   }
   window.addEventListener("resize", stickPad);
 
