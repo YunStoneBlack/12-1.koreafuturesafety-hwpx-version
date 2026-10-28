@@ -1971,10 +1971,11 @@ def _cropped(path, w: int, h: int, dpi: int | None = None) -> bytes:
     else:
         nh = iw * h // w
         img = img.crop((0, (ih - nh) // 2, iw, (ih - nh) // 2 + nh))
-    pw, ph = max(int(w / 7200 * (dpi or PIC_DPI)), 1), max(int(h / 7200 * (dpi or PIC_DPI)), 1)  # 칸 크기 픽셀로(작은 사진은 작게, 큰 사진은 잘려 보이던 것 — 10/14)
-    if dpi and pw > img.width:  # 높은 해상도로 넣을 때 원본보다 크게는 안 키움(늘려도 선명해지지 않고 용량만)
+    dpi = dpi or PHOTO_DPI  # 기본 200(10/28) — 저장 직전 fit_added_pics가 크기 정보를 맞춤
+    pw, ph = max(int(w / 7200 * dpi), 1), max(int(h / 7200 * dpi), 1)  # 칸 크기 픽셀로(작은 사진은 작게, 큰 사진은 잘려 보이던 것 — 10/14)
+    if dpi > PIC_DPI and pw > img.width:  # 높은 해상도로 넣을 때 원본보다 크게는 안 키움(늘려도 선명해지지 않고 용량만)
         pw, ph = img.width, max(int(img.width * h / w), 1)
-    img = img.resize((pw, ph), Image.LANCZOS) if dpi else img.resize((pw, ph))  # 기본(산안법·시특법)은 예전 그대로
+    img = img.resize((pw, ph), Image.LANCZOS) if dpi > PIC_DPI else img.resize((pw, ph))
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=88)
     return buf.getvalue()
@@ -2001,8 +2002,9 @@ def _fit_to_pic(path, img, crop: bool = True, dpi: int | None = None):
             return _cropped(path, w, h, dpi)
         except Exception:  # noqa: BLE001
             return path
-    pw, ph = max(int(w / 7200 * (dpi or PIC_DPI)), 1), max(int(h / 7200 * (dpi or PIC_DPI)), 1)
-    if dpi and pw > im.width and ph > im.height:  # 원본보다 크게는 안 키움(내진 높은 해상도, 10/28)
+    dpi = dpi or PHOTO_DPI
+    pw, ph = max(int(w / 7200 * dpi), 1), max(int(h / 7200 * dpi), 1)
+    if dpi > PIC_DPI and pw > im.width and ph > im.height:  # 원본보다 크게는 안 키움(내진 높은 해상도, 10/28)
         k = max(im.width / pw, im.height / ph)
         pw, ph = max(int(pw * k), 1), max(int(ph * k), 1)
     im.thumbnail((pw, ph))
@@ -2011,6 +2013,61 @@ def _fit_to_pic(path, img, crop: bool = True, dpi: int | None = None):
     buf = io.BytesIO()
     canvas.save(buf, "JPEG", quality=90)
     return buf.getvalue()
+
+
+PHOTO_DPI = 200  # 시특법·내진 사진을 칸에 넣는 해상도(칸 크기 기준, 원본보다 안 키움) — 10/28 사용자 "시특도 변경, 산안법만 하지 말고"(산안법은 제출 10MB라 따로 96)
+
+
+def fit_added_pics(roots, added: list) -> int:
+    """우리가 넣은 그림(added: [(BinData 이름, 바이트)]) 중 96dpi보다 큰 것 — 그림 전체가 틀(curSz)에 보이게 크기 정보(원래 크기·imgRect·imgClip·배율)를 그림에 맞춤
+    (wall_build._size_pic). 한글은 imgClip을 그림 픽셀×75로 읽어서, 칸 크기 96dpi보다 큰 그림을 옛 정보 그대로 두면 칸에서 잘려 보임(10/14 실험).
+    96dpi 그대로인 그림·원본 비율로 넣은 그림(틀과 3% 넘게 다름)은 그대로. 돌린 틀(90·270°)은 96dpi로 되돌림. 맞춘 그림 수. 저장 직전에(_reset_pic 등 뒤)."""
+    import io
+
+    from PIL import Image
+
+    from server.sitok.wall_build import _size_pic
+
+    idx = {k: i for i, (k, _b) in enumerate(added)}
+    dims: dict = {}
+    n = 0
+    for root in roots:
+        for pic in root.iter(f"{{{HP}}}pic"):
+            img = next(pic.iter(f"{{{CORE}}}img"), None)
+            key = img.get("binaryItemIDRef") if img is not None else None
+            sz = pic.find(f"{{{HP}}}curSz")
+            if key not in idx or sz is None:
+                continue
+            w, h = int(sz.get("width") or 0), int(sz.get("height") or 0)
+            if w <= 0 or h <= 0:
+                continue
+            data = added[idx[key]][1]
+            if not isinstance(data, (bytes, bytearray)):
+                continue
+            if key not in dims:
+                try:
+                    dims[key] = Image.open(io.BytesIO(data)).size
+                except Exception:  # noqa: BLE001
+                    dims[key] = None
+            if not dims[key]:
+                continue
+            pw, ph = dims[key]
+            if abs((pw / ph) / (w / h) - 1) > 0.03:
+                continue  # 원본 비율 그대로 넣은 그림
+            base_w = max(int(w / 7200 * PIC_DPI), 1)
+            if pw <= base_w * 1.05:
+                continue  # 96dpi 그대로 — 예전과 같게
+            rot = pic.find(f"{{{HP}}}rotationInfo")
+            if rot is not None and (rot.get("angle") or "0") in ("90", "270"):
+                im = Image.open(io.BytesIO(data)).convert("RGB").resize((base_w, max(int(h / 7200 * PIC_DPI), 1)))
+                buf = io.BytesIO()
+                im.save(buf, "JPEG", quality=88)
+                added[idx[key]] = (key, buf.getvalue())
+                dims[key] = im.size
+                continue
+            _size_pic(pic, w, h, data)
+            n += 1
+    return n
 
 
 PIC_DPI = 96  # 우리 한글(2020)이 표 칸 그림을 그리는 기준 — 픽셀 = HWPUNIT/7200인치 × 96(10/14 t72_pic.py 실험: dpi 메타·orgSz 무시)
@@ -2572,6 +2629,7 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     for el in list(root.iter(f"{{{HP}}}linesegarray")):
                         el.getparent().remove(el)
                     texts.append("\r\n".join("".join(t.text or "" for t in p.iter(T)) for p in root.iter(f"{{{HP}}}p")))
+                    fit_added_pics([root], added)  # 200dpi 사진 — 그림 전체가 칸에 보이게(10/28)
                     data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
                 elif info.filename == "Preview/PrvText.txt":
                     continue

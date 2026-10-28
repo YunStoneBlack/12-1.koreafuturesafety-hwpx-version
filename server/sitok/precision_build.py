@@ -1834,6 +1834,7 @@ def _fill(src: Path, dest: Path, D: Data) -> int:
                                     + _fill_ch5_7(root, D, add_image) + _fill_maint(root, D, tpl, add_image) + _cost_inline(root) + _chapter_breaks(root))
                     for el in list(root.iter(f"{{{HP}}}linesegarray")):
                         el.getparent().remove(el)
+                    rb.fit_added_pics([root], added)  # 200dpi 사진 — 그림 전체가 칸에 보이게(10/28)
                     data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
                 elif info.filename == "Contents/content.hpf":
                     hpf = data
@@ -2272,6 +2273,7 @@ def build_appendix(db, r, dest: Path, D_body: Data | None = None) -> tuple[list[
                         changed += 1
                     for el in list(root.iter(f"{{{HP}}}linesegarray")):
                         el.getparent().remove(el)
+                    rb.fit_added_pics([root], added)  # 200dpi 사진 — 그림 전체가 칸에 보이게(10/28)
                     data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
                 elif info.filename == "Contents/content.hpf":
                     hpf = data

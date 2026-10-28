@@ -279,6 +279,7 @@ class Hwpx:
                     continue
                 data = zin.read(name)
                 if name in self.roots:
+                    rb.fit_added_pics([self.roots[name]], self.added)  # 200dpi 사진 — 그림 전체가 칸에 보이게(10/28)
                     data = self._xml(self.roots[name])
                 elif name.startswith("BinData/") and drop_unused and id_of.get(name[8:]) not in used:
                     continue
@@ -292,6 +293,7 @@ class Hwpx:
                     zout.writestr(out_name, data, compress_type=zipfile.ZIP_DEFLATED)
             for name in kept + self.new_masters:  # 복제한 구역·바탕쪽(원본 zip에 없음)
                 if name not in names:
+                    rb.fit_added_pics([self.roots[name]], self.added)
                     zout.writestr(rename.get(name, name), self._xml(self.roots[name]), compress_type=zipfile.ZIP_DEFLATED)
             text = self.hpf
             if drop_unused:
