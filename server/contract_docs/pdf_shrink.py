@@ -48,6 +48,8 @@ def shrink_doc(doc: pymupdf.Document, docs: bool = True) -> int:
             continue
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
+        if not docs and _line_art(img):  # 내진(10/28) — 로고·탐사기 캡처·지도처럼 흰 바탕 선 그림은 작게 들어가도 원본(사진만 줄임)
+            continue
         img = img.resize((target_w, max(1, round(h * target_w / w))), Image.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=quality, optimize=True)
@@ -56,6 +58,13 @@ def shrink_doc(doc: pymupdf.Document, docs: bool = True) -> int:
         doc[0].replace_image(xref, stream=buf.getvalue())  # 같은 그림을 쓰는 모든 쪽이 바뀜
         done += 1
     return done
+
+
+def _line_art(img: Image.Image) -> bool:
+    """흰 바탕이 35% 넘는 그림 = 선·글 그림(로고·캡처·지도·도면)으로 봄 — 사진은 거의 없음(하늘도 240 밑)."""
+    small = img.convert("L").resize((64, 64))
+    px = list(small.getdata())
+    return sum(1 for v in px if v >= 240) / len(px) > 0.35
 
 
 def shrink_bytes(data: bytes) -> bytes:
