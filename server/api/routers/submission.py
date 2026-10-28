@@ -1,7 +1,7 @@
 """제출 현황(탭 "제출 현황", status.html) + "직접 제출함"·"K2B 직접 제출함" 표시.
 
 - GET  /submission/overview?year=&month=&staff_id= — 그달(지도일 기준, 지도일이 없으면 만든 날) 보고서와 상태, 숫자 칸,
-  그해 월별 제출/미제출, 요원별 현황. 상태 판정은 server/api/submission.py.
+  그해 월별 제출/미제출, 요원별 현황, 현장별 그달 추진 현황(progress — 줄마다 지역 시·군), 전체 회차 부족 현장(shortage — 10/28). 상태 판정은 server/api/submission.py.
   (2026-10-01 "마지막 지도일 + 15일" 지도 기한·임박/초과·맨 위 배너는 없앰 — 실제 규칙이 아니었음. 진행은 진행 막대로 본다.)
 - POST/DELETE /reports/{id}/submit-mark — "직접 제출함" 표시/되돌리기(PDF를 만든 보고서만). 보고서 수정이 아니므로 edit_tracking에서 제외.
 - POST/DELETE /reports/{id}/k2b-mark — "K2B 직접 제출함" 표시/되돌리기(2026-10-10, K2B 사이트에 직접 넣은 보고서). 같은 조건·같은 이유로 제외.
@@ -89,6 +89,7 @@ def overview(
         "year": year, "month": month,
         "cards": cards, "months": months, "staff": sorted(by_staff.values(), key=lambda e: (e["id"] is None, e["name"])),
         "reports": rows, "progress": _site_progress(db, user.company_id, year, month, staff_id, rows, sites),
+        "shortage": _site_shortage(db, user.company_id, staff_id),
     }
 
 
@@ -98,6 +99,8 @@ def _site_progress(db: Session, company_id: int, year: int, month: int, staff_id
     덜 끝난 현장이 위로(보고서/배정 작은 순)."""
     import calendar
     import collections
+
+    from server.api.routers.calendar import short_region
 
     first = datetime.date(year, month, 1)
     last = datetime.date(year, month, calendar.monthrange(year, month)[1])
@@ -118,9 +121,47 @@ def _site_progress(db: Session, company_id: int, year: int, month: int, staff_id
         if site is None:
             continue
         reports, submitted = done.get(sid, (0, 0))
-        out.append({"site_id": sid, "site_name": site_label(site), "planned": planned.get(sid, 0), "assigned": max(planned.get(sid, 0), reports),
-                    "reports": reports, "submitted": submitted})
+        out.append({"site_id": sid, "site_name": site_label(site), "region": short_region(site.address), "planned": planned.get(sid, 0),
+                    "assigned": max(planned.get(sid, 0), reports), "reports": reports, "submitted": submitted})
     out.sort(key=lambda e: (e["reports"] / e["assigned"] if e["assigned"] else 1, e["submitted"] / e["assigned"] if e["assigned"] else 1, e["site_name"]))
+    return out
+
+
+def _site_shortage(db: Session, company_id: int, staff_id: int | None) -> list[dict]:
+    """전체 회차가 부족한 현장(10/28 사용자 "전체 회차가 많이 부족한 현장 보여주기") — 진행 중 현장마다 현장 목록 진행 막대와 같은 계산
+    (server/api/site_pace_out.pace_dict — 우리 계약기간 경과율 × 총 횟수 = 지금쯤 했어야 할 회차, 다녀온 횟수 = done_counts)에서 모자란 곳만, 많이 모자란 순.
+    요원을 고르면 그 현장 담당 요원 것만. 다음 예정·오늘 이후 예정 수(남은 횟수보다 적으면 방문 달력 [채워 넣기] 대상)·최근 지도일을 같이."""
+    from sqlalchemy import func
+
+    from server.api import contract_sites
+    from server.api.routers.calendar import short_region
+    from server.api.site_pace_out import done_counts, pace_dict
+    from server.api.site_status import is_active
+
+    today = datetime.date.today()
+    sites = [s for s in db.query(Site).filter(Site.company_id == company_id).all() if is_active(s) and (not staff_id or s.assigned_staff_id == staff_id)]
+    if not sites:
+        return []
+    ids = [s.id for s in sites]
+    done = done_counts(db, ids)
+    periods = contract_sites.our_periods(db, sites)
+    future: dict = {}
+    for sid, d in db.query(VisitPlan.site_id, VisitPlan.plan_date).filter(VisitPlan.company_id == company_id, VisitPlan.site_id.in_(ids), VisitPlan.plan_date >= today):
+        future.setdefault(sid, []).append(d)
+    last = dict(db.query(Report.site_id, func.max(Report.guidance_date)).filter(Report.site_id.in_(ids)).group_by(Report.site_id))
+    out = []
+    for s in sites:
+        p = pace_dict(s, done.get(s.id), today, periods[s.id])
+        if p["status"] != "shortage":
+            continue
+        fut = sorted(future.get(s.id) or [])
+        left = max((p["total"] or 0) - p["performed"], 0)
+        out.append({"site_id": s.id, "site_name": site_label(s), "region": short_region(s.address), "performed": p["performed"], "total": p["total"],
+                    "diff": p["diff"], "ideal": p["performed"] + p["diff"], "left": left,
+                    "monthly_needed": round(p["monthly_needed"], 1) if p.get("monthly_needed") is not None else None,
+                    "elapsed_months": p["elapsed_months"], "total_months": p["total_months"], "period_end": p["period_end"], "period_over": p["period_over"],
+                    "upcoming": len(fut), "next_plan": fut[0].isoformat() if fut else None, "last_visit": last[s.id].isoformat() if last.get(s.id) else None})
+    out.sort(key=lambda e: (-e["diff"], -(e["left"] - e["upcoming"]), e["site_name"]))
     return out
 
 

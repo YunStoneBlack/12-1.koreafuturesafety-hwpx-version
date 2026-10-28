@@ -549,7 +549,10 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .st-legend i.left { background: var(--paper); border: 1px solid var(--line); }
 .st-prog-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 20px; }
 .main button.st-prog-more { margin-top: 8px; padding: 5px 14px; font-size: 12.5px; }
-.main button.st-prog-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; margin: 0;
+.st-prog-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+/* 오른쪽 숫자 칸은 고정 폭 — 글자 길이에 따라 칸이 달라지면 줄마다 막대 시작점·길이가 달라 보였음(10/28 사용자 "바 정렬이 뒤죽박죽") */
+.st-prog-list { --num-w: 100px; } .st-prog-list.short { --num-w: 132px; }
+.main button.st-prog-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) var(--num-w, 100px); gap: 8px; align-items: center; padding: 6px 8px; margin: 0;
   border: 1px solid transparent; border-radius: 8px; background: none; box-shadow: none; text-align: left; font: inherit; font-size: 13px; font-weight: 400;
   color: var(--ink); cursor: pointer; min-width: 0; width: 100%; height: auto; }
 .main button.st-prog-row:hover { background: var(--paper); }
@@ -562,6 +565,33 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
 .st-prog-done { font-style: normal; font-size: 11px; color: #2E9E5B; font-weight: 700; margin-left: 2px; }
 .st-prog-row.full .nm { color: var(--muted); }
 .st-empty { font-size: 12.5px; color: var(--faint); }
+/* 추진 현황 보기 [N월 추진 | 회차 부족] · [📍 지역별](10/28 사용자, js/status.js) */
+.st-prog-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 2px 0 10px; }
+.st-prog-tools .site-sort { margin: 0; }
+.st-prog-tools .st-prog-mode b { font-weight: 700; color: #C0392B; margin-left: 2px; }
+.main button.st-prog-region, .main button.st-prog-fold { margin: 0; padding: 5px 12px; font-size: 12.5px; font-weight: 600; border-radius: 999px; background: var(--surface);
+  border: 1px solid var(--line); color: var(--muted); box-shadow: none; height: auto; }
+.main button.st-prog-region.on { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
+.main button.st-prog-fold { font-weight: 500; }
+.st-prog-bar { position: relative; }
+.st-prog-bar i.ideal { position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; background: #D14343; }
+.st-legend i.ideal { background: #D14343; width: 3px; }
+.st-prog-row.short .nm { display: flex; flex-direction: column; white-space: normal; line-height: 1.3; min-width: 0; }
+.st-prog-row.short .nm .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-prog-row.short .nm small { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-prog-row .warn { color: #B45309; font-weight: 600; }
+.st-prog-row .num b.lack, .st-prog-grp .num b.lack { color: #C0392B; }
+.main button.st-prog-grp { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) var(--num-w, 100px); gap: 8px; align-items: center; margin: 4px 0 0;
+  padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); box-shadow: none; text-align: left; font: inherit; font-size: 13px;
+  font-weight: 600; color: var(--ink); cursor: pointer; width: 100%; height: auto; }
+.main button.st-prog-grp:hover { border-color: var(--blue); }
+.main button.st-prog-grp.open { border-color: var(--blue); background: var(--blue-soft); }
+.st-prog-grp .nm small { font-weight: 400; color: var(--muted); font-size: 11.5px; margin-left: 2px; }
+.st-prog-grp .chev { font-style: normal; color: var(--muted); margin-right: 6px; }
+.st-prog-grp .num { white-space: nowrap; text-align: right; display: flex; flex-direction: column; line-height: 1.25; font-weight: 400; }
+.st-prog-grp .num b { font-size: 13px; } .st-prog-grp .num small { font-size: 11px; color: var(--muted); }
+.st-prog-foot { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.main .st-prog-foot button.st-short-all { margin: 0 4px 0 0; padding: 4px 12px; font-size: 12px; }
 .st-site { font-weight: 600; color: var(--ink); }
 .st-site:hover { color: var(--blue); }
 .st-sub { font-size: 12px; color: var(--muted); font-weight: 400; }
@@ -594,6 +624,8 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
   .st-prog-list { grid-template-columns: minmax(0, 1fr); }
   .main button.st-prog-row { grid-template-columns: minmax(0, 1fr) auto; }
   .st-prog-row .st-prog-bar { grid-column: 1 / -1; grid-row: 2; }
+  .main button.st-prog-grp { grid-template-columns: minmax(0, 1fr) auto; }
+  .st-prog-grp .st-prog-bar { grid-column: 1 / -1; grid-row: 2; }
   .st-bars { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
   .main button.st-bar.far { display: none; }
   .st-bar .col { height: 90px; }
@@ -679,6 +711,6 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
   .st-left { display: block; grid-column: 1; grid-row: 1; }
   .st-layout > .st-prog { grid-column: 2; grid-row: 1; position: sticky; top: calc(var(--tabs-h, 0px) + 12px); max-height: calc(100vh - var(--tabs-h, 0px) - 24px); overflow-y: auto; margin-bottom: 0; } /* 위 탭 줄(shell.js --tabs-h) 바로 아래 — 카드 띠 윗줄과 같은 높이 */
   .st-layout .st-prog-list { grid-template-columns: minmax(0, 1fr); }
-  .main .st-layout button.st-prog-row { grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr) auto; }
+  .main .st-layout button.st-prog-row, .main .st-layout button.st-prog-grp { grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr) var(--num-w, 100px); }
 }
 

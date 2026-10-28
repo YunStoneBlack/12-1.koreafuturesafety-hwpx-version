@@ -49,31 +49,124 @@ function render() {
 
 // 현장별 그달 추진 현황(10/27 사용자 "26-4 10월 배정 4회차, 4회차 중 2회차 완료 — 그래프로") — 배정 = 방문 달력 예정(없으면 보고서 수),
 // 막대 = 제출 완료(초록) · 보고서만 작성(주황) · 남은 회차(회색). 누르면 아래 목록을 그 현장만(다시 누르면 전체).
-function renderProgress() {
-  const box = document.getElementById("st-prog-box");
-  let list = stData.progress || [];
-  if (stView.open) list = list.filter((e) => e.submitted < e.assigned);
-  const done = list.filter((e) => e.reports >= e.assigned).length;
-  const pct = (e, n) => (e.assigned ? (n / e.assigned) * 100 : 0);
-  const SHOW = 12; // 처음엔 덜 끝난 순으로 12곳(폰에서 55곳이 다 펼쳐져 너무 길던 것), 나머지는 더 보기
-  const shown = stView.progAll || list.length <= SHOW + 2 ? list : list.slice(0, SHOW);
-  const rows = shown.map((e) => {
-    const left = Math.max(e.assigned - e.reports, 0);
-    const full = e.reports >= e.assigned;
-    const tip = `${e.site_name} — 배정 ${e.assigned}회차(달력 예정 ${e.planned}) · 보고서 ${e.reports} · 제출 완료 ${e.submitted}${left ? ` · 남음 ${left}` : ""}`;
-    return `<button type="button" class="st-prog-row${full ? " full" : ""}${stView.site === e.site_id ? " sel" : ""}" data-site="${e.site_id}" title="${h(tip)}">
+// 10/28 사용자 "지역별로 묶어서 · 전체 회차가 많이 부족한 현장": 보기 [N월 추진 | 회차 부족] + [📍 지역별](시·군마다 합계 한 줄, 누르면 펼침) — 이 기기에 기억.
+// 회차 부족 = 서버 shortage(현장 목록 진행 막대와 같은 계산 — 우리 계약기간 경과율 × 총 회차 = 지금쯤 했어야 할 회차, 빨간 선)에서 MANY회 이상 모자란 곳, 누르면 현장 화면.
+const PROG_KEY = "kfsc-report:st-prog";
+const MANY = 3; // "많이 부족" — 지금쯤 했어야 할 회차보다 3회 이상 모자람(38곳 중 1~2회는 반올림·월초 차이가 많아서)
+try { const v = JSON.parse(localStorage.getItem(PROG_KEY) || "{}"); stView.progMode = v.progMode === "short" ? "short" : "month"; stView.byRegion = !!v.byRegion; } catch { stView.progMode = "month"; }
+const openRegions = new Set(); // 펼친 지역 "month:포천"
+function saveProg() { try { localStorage.setItem(PROG_KEY, JSON.stringify({ progMode: stView.progMode, byRegion: stView.byRegion })); } catch { /* 지금만 */ } }
+
+function progBar(parts) { // parts = [[클래스, %]], 빨간 선은 ["ideal", %]
+  return `<span class="st-prog-bar">${parts.map(([c, v]) => (c === "ideal" ? `<i class="ideal" style="left:${v}%"></i>` : `<span class="${c}" style="width:${v}%"></span>`)).join("")}</span>`;
+}
+
+function monthRow(e) {
+  const left = Math.max(e.assigned - e.reports, 0);
+  const full = e.reports >= e.assigned;
+  const pct = (n) => (e.assigned ? (n / e.assigned) * 100 : 0);
+  const tip = `${e.site_name} — 배정 ${e.assigned}회차(달력 예정 ${e.planned}) · 보고서 ${e.reports} · 제출 완료 ${e.submitted}${left ? ` · 남음 ${left}` : ""}`;
+  return `<button type="button" class="st-prog-row${full ? " full" : ""}${stView.site === e.site_id ? " sel" : ""}" data-site="${e.site_id}" title="${h(tip)}">
       <span class="nm">${h(e.site_name)}</span>
-      <span class="st-prog-bar"><span class="ok" style="width:${pct(e, e.submitted)}%"></span><span class="wait" style="width:${pct(e, e.reports - e.submitted)}%"></span></span>
+      ${progBar([["ok", pct(e.submitted)], ["wait", pct(e.reports - e.submitted)]])}
       <span class="num"><b>${e.reports} / ${e.assigned}회차</b>${full ? ' <i class="st-prog-done">완료</i>' : ""}<small>제출 ${e.submitted}${left ? ` · 남음 ${left}` : ""}</small></span>
     </button>`;
+}
+
+function shortRow(e) {
+  const pct = (n) => (e.total ? Math.min((n / e.total) * 100, 100) : 0);
+  const lack = Math.max(e.left - e.upcoming, 0); // 남은 회차보다 오늘 이후 예정이 모자람 — 방문 달력 [채워 넣기]
+  const sub = [e.next_plan ? `다음 ${md(e.next_plan)}` : '<span class="warn">예정 없음</span>', lack ? `<span class="warn">예정 ${lack}회 모자람</span>` : "",
+    e.period_over ? '<span class="warn">계약기간 끝남</span>' : ""].filter(Boolean).join(" · ");
+  const tip = `${e.site_name} — 지금쯤 ${e.ideal}회 했어야 하는데 ${e.performed}회(${e.diff}회 부족) · 총 ${e.total}회 · 남은 ${e.left}회 · 오늘 이후 예정 ${e.upcoming}회`
+    + `${e.total_months && e.elapsed_months != null ? ` · 공기 ${e.elapsed_months}/${e.total_months}개월 경과` : ""}`
+    + `${e.monthly_needed != null ? ` · 남은 기간 월 ${e.monthly_needed}회 필요` : ""}${e.last_visit ? ` · 최근 지도 ${e.last_visit}` : ""} — 누르면 현장 화면`;
+  return `<button type="button" class="st-prog-row short" data-link="site.html?id=${e.site_id}" title="${h(tip)}">
+      <span class="nm"><span class="t">${h(e.site_name)}</span><small>${sub}</small></span>
+      ${progBar([["ok", pct(e.performed)], ["ideal", pct(e.ideal)]])}
+      <span class="num"><b class="lack">${e.diff}회 부족</b><small>${e.performed} / ${e.total}회${e.monthly_needed != null ? ` · 월 ${e.monthly_needed}회` : ""}</small></span>
+    </button>`;
+}
+
+// 지역(시·군)마다 합계 한 줄 — 누르면 그 지역 현장들. 차례 = 남은 회차(이달)·부족 회차(회차 부족)가 많은 지역부터.
+function regionGroups(list, mode) {
+  const groups = new Map();
+  for (const e of list) {
+    const k = e.region || "지역 모름";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(e);
+  }
+  const sum = (xs, f) => xs.reduce((a, x) => a + f(x), 0);
+  const weight = (xs) => (mode === "short" ? sum(xs, (x) => x.diff) : sum(xs, (x) => Math.max(x.assigned - x.reports, 0)));
+  return [...groups.entries()].sort((a, b) => weight(b[1]) - weight(a[1]) || b[1].length - a[1].length || a[0].localeCompare(b[0])).map(([k, xs]) => {
+    const key = `${mode}:${k}`, open = openRegions.has(key);
+    let bar, num;
+    if (mode === "short") {
+      const tot = sum(xs, (x) => x.total), perf = sum(xs, (x) => x.performed), ideal = sum(xs, (x) => x.ideal);
+      const pct = (n) => (tot ? Math.min((n / tot) * 100, 100) : 0);
+      const noPlan = xs.filter((x) => x.left > x.upcoming).length;
+      bar = progBar([["ok", pct(perf)], ["ideal", pct(ideal)]]);
+      num = `<b class="lack">${sum(xs, (x) => x.diff)}회 부족</b><small>${noPlan ? `<span class="warn">예정 모자람 ${noPlan}곳</span>` : `남은 ${sum(xs, (x) => x.left)}회`}</small>`;
+    } else {
+      const asg = sum(xs, (x) => x.assigned), rep = sum(xs, (x) => x.reports), sub = sum(xs, (x) => x.submitted);
+      const pct = (n) => (asg ? (n / asg) * 100 : 0);
+      bar = progBar([["ok", pct(sub)], ["wait", pct(rep - sub)]]);
+      num = `<b>${rep} / ${asg}회차</b><small>제출 ${sub}${asg > rep ? ` · 남음 ${asg - rep}` : ""}</small>`;
+    }
+    const rows = open ? xs.map(mode === "short" ? shortRow : monthRow).join("") : "";
+    return `<button type="button" class="st-prog-grp${open ? " open" : ""}" data-region="${h(key)}" aria-expanded="${open}">
+        <span class="nm"><i class="chev" aria-hidden="true">${open ? "▾" : "▸"}</i>${h(k)} <small>${xs.length}곳</small></span>${bar}<span class="num">${num}</span></button>${rows}`;
   }).join("");
-  box.innerHTML = `<div class="st-chart-head"><b>현장별 ${stData.month}월 추진 현황 <span class="st-hint">· ${list.length}곳 중 ${done}곳 다 다녀옴 · 배정 = 방문 달력 예정(없으면 보고서 수) · 누르면 보고서 목록을 그 현장만</span></b>
-    <div class="st-legend"><span><i class="ok"></i>제출 완료</span><span><i class="wait"></i>보고서만 작성</span><span><i class="left"></i>남은 회차</span></div></div>
-    ${rows ? `<div class="st-prog-list">${rows}</div>` : '<div class="st-empty">이달 배정·보고서가 없습니다.</div>'}
-    ${list.length > shown.length ? `<button type="button" class="secondary st-prog-more">나머지 ${list.length - shown.length}곳 더 보기 ▼</button>`
-      : stView.progAll && list.length > SHOW + 2 ? '<button type="button" class="secondary st-prog-more">접기 ▲</button>' : ""}`;
+}
+
+function renderProgress() {
+  const box = document.getElementById("st-prog-box");
+  const mode = stView.progMode === "short" ? "short" : "month";
+  const shortAll = stData.shortage || [];
+  const many = shortAll.filter((e) => e.diff >= MANY);
+  let list = mode === "short" ? (stView.shortAll ? shortAll : many) : (stData.progress || []);
+  if (mode === "month" && stView.open) list = list.filter((e) => e.submitted < e.assigned);
+  const done = (stData.progress || []).filter((e) => e.reports >= e.assigned).length;
+  const SHOW = 12; // 묶지 않을 땐 처음 12곳(폰에서 55곳이 다 펼쳐져 너무 길던 것), 나머지는 더 보기
+  const grouped = !!stView.byRegion;
+  const shown = grouped || stView.progAll || list.length <= SHOW + 2 ? list : list.slice(0, SHOW);
+  const body = grouped ? regionGroups(list, mode) : shown.map(mode === "short" ? shortRow : monthRow).join("");
+  const hint = mode === "short"
+    ? `· 진행 중 현장 중 지금쯤 했어야 할 회차(우리 계약기간 경과율 × 총 회차, 빨간 선)보다 ${MANY}회 이상 모자란 곳 · 누르면 현장 화면`
+    : `· ${(stData.progress || []).length}곳 중 ${done}곳 다 다녀옴 · 배정 = 방문 달력 예정(없으면 보고서 수) · 누르면 보고서 목록을 그 현장만`;
+  const legend = mode === "short"
+    ? '<span><i class="ok"></i>다녀온 회차</span><span><i class="ideal"></i>지금쯤 했어야 할 회차</span>'
+    : '<span><i class="ok"></i>제출 완료</span><span><i class="wait"></i>보고서만 작성</span><span><i class="left"></i>남은 회차</span>';
+  const empty = mode === "short" ? `<div class="st-empty">${MANY}회 이상 모자란 진행 중 현장이 없습니다.</div>` : '<div class="st-empty">이달 배정·보고서가 없습니다.</div>';
+  box.innerHTML = `<div class="st-chart-head"><b>현장별 ${mode === "short" ? "회차 부족" : `${stData.month}월 추진 현황`} <span class="st-hint">${hint}</span></b>
+      <div class="st-legend">${legend}</div></div>
+    <div class="st-prog-tools">
+      <span class="site-sort st-prog-mode" role="group" aria-label="보기"><button type="button" data-mode="month" class="${mode === "month" ? "on" : ""}">${stData.month}월 추진</button><button type="button" data-mode="short" class="${mode === "short" ? "on" : ""}" title="지금쯤 했어야 할 회차보다 ${MANY}회 이상 모자란 진행 중 현장">회차 부족 <b>${many.length}</b></button></span>
+      <button type="button" class="st-prog-region${grouped ? " on" : ""}" aria-pressed="${grouped}" title="시·군으로 묶어 지역마다 합계 — 누르면 그 지역 현장">📍 지역별</button>
+      ${grouped ? `<button type="button" class="st-prog-fold" title="지역을 모두 펼치기·접기">${list.some((e) => openRegions.has(`${mode}:${e.region || "지역 모름"}`)) ? "모두 접기" : "모두 펼치기"}</button>` : ""}
+    </div>
+    ${list.length ? `<div class="st-prog-list${grouped ? " grouped" : ""}${mode === "short" ? " short" : ""}">${body}</div>` : empty}
+    ${!grouped && list.length > shown.length ? `<button type="button" class="secondary st-prog-more">나머지 ${list.length - shown.length}곳 더 보기 ▼</button>`
+      : !grouped && stView.progAll && list.length > SHOW + 2 ? '<button type="button" class="secondary st-prog-more">접기 ▲</button>' : ""}
+    ${mode === "short" ? `<div class="st-prog-foot">${shortAll.length > many.length ? `<button type="button" class="secondary st-short-all">${stView.shortAll ? `${MANY}회 이상만 보기` : `1~${MANY - 1}회 부족 ${shortAll.length - many.length}곳도 보기`}</button> · ` : ""}예정이 모자란 현장은 <a href="calendar.html">방문 달력</a>의 [채워 넣기]로 채웁니다.</div>` : ""}`;
   box.querySelector(".st-prog-more")?.addEventListener("click", () => { stView.progAll = !stView.progAll; renderProgress(); });
-  box.querySelectorAll(".st-prog-row").forEach((b) => b.addEventListener("click", () => {
+  box.querySelectorAll(".st-prog-mode button").forEach((b) => b.addEventListener("click", () => { stView.progMode = b.dataset.mode; saveProg(); renderProgress(); }));
+  box.querySelector(".st-prog-region").addEventListener("click", () => { stView.byRegion = !stView.byRegion; saveProg(); renderProgress(); });
+  box.querySelector(".st-prog-fold")?.addEventListener("click", () => {
+    const keys = [...new Set(list.map((e) => `${mode}:${e.region || "지역 모름"}`))];
+    const anyOpen = keys.some((k) => openRegions.has(k));
+    keys.forEach((k) => (anyOpen ? openRegions.delete(k) : openRegions.add(k)));
+    renderProgress();
+  });
+  box.querySelector(".st-short-all")?.addEventListener("click", () => { stView.shortAll = !stView.shortAll; renderProgress(); });
+  box.querySelectorAll(".st-prog-grp").forEach((b) => b.addEventListener("click", () => {
+    const k = b.dataset.region;
+    if (openRegions.has(k)) openRegions.delete(k);
+    else openRegions.add(k);
+    renderProgress();
+  }));
+  box.querySelectorAll(".st-prog-row[data-link]").forEach((b) => b.addEventListener("click", () => { location.href = b.dataset.link; }));
+  box.querySelectorAll(".st-prog-row[data-site]").forEach((b) => b.addEventListener("click", () => {
     const id = Number(b.dataset.site);
     stView.site = stView.site === id ? null : id;
     renderProgress();
