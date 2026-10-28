@@ -23,7 +23,7 @@
 
 .ss-cards { display: flex; flex-direction: column; gap: 12px; }
 /* [저장] 줄(10/22) — 카드 목록 아래, 내려 보는 동안 화면 아래에 따라옴(판 overflow를 풀어야 붙음 — 검색 목록도 안 잘림) */
-.panel.ss-rows-panel { overflow: visible; }
+.panel.ss-rows-panel, #sf2-r-panel.panel { overflow: visible; } /* 그룹웨어 app.css .panel { overflow: hidden }이 안의 sticky(층·부재 줄)를 죽임 — 현장조사 입력의 철근탐사 접이 칸도(10/28 민재형 폰) */
 .ss-foot { position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 10px 16px;
   background: var(--surface); border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; box-shadow: 0 -4px 12px rgba(15, 23, 42, .05); }
 .ss-foot .sp-saved:empty { display: none; }
