@@ -22,10 +22,10 @@
 <div class="sp-head"><h1 id="sp-name">불러오는 중…</h1><p class="page-sub" id="sp-sub"></p></div>
 <div id="error" class="error"></div>
 
-<section class="panel">
-  <div class="panel-head"><h2>📎 서류</h2><span class="panel-count">올리면 자동으로 읽어 아래 칸과 보고서를 채웁니다 — 읽은 값은 아래에서 고치기</span></div>
+<details class="panel sk-fold" id="sp-docs-panel" open>
+  <summary class="panel-head"><h2>📎 서류</h2><span class="panel-count" id="sp-docs-sum">올리면 자동으로 읽어 아래 칸과 보고서를 채웁니다 — 읽은 값은 아래에서 고치기</span><span class="sp-need-n" id="sp-docs-need" hidden></span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body" id="sp-docs"></div>
-</section>
+</details>
 
 <details class="panel sk-fold" id="sp-c-panel">
   <summary class="panel-head"><h2>📄 용역 정보</h2><span class="panel-count" id="sp-c-sum">용역계약서에서 — 표지·제출문·결과표 가·참여기간</span><span class="sp-need-n" id="sp-c-need" hidden></span><span class="sk-fold-arrow">▾</span></summary>

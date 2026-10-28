@@ -1097,3 +1097,7 @@ button.sp-pick-it.on { border-color: var(--blue); }
 .sf2-row.sf2-flash { animation: sf2-flash 1.4s ease-out; }
 @keyframes sf2-flash { from { background: #dbeafe; } to { background: transparent; } }
 @media (min-width: 761px) { #sf2-members .sf2-mk { width: 84px; } } /* 부재 고르기 칸 들어갈 폭 */
+/* 내진 조사 화면끼리 바로가기 줄(10/28 사용자 "조사 중에도 서로 넘나들기") — 경로 표시 아래 */
+.sp-xlinks { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 12px; }
+.sp-xlinks a.secondary-link { padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 12.5px; text-decoration: none; }
+

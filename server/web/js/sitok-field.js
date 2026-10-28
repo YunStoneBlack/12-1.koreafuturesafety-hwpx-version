@@ -856,6 +856,8 @@
       rl.hidden = true;
       if (rl.nextSibling && rl.nextSibling.nodeType === 3) rl.nextSibling.textContent = " ";
       document.getElementById("sf-title").textContent = data.seismic_only && window.mountSeismicPhotos ? "외관조사" : "외관조사(결함)"; // 결함 + 현장·전경 사진 탭(10/27)
+      const xl = document.getElementById("sf-xlinks"); // 조사 중에도 서로 넘나드는 바로가기(10/28 사용자)
+      if (xl) { xl.hidden = false; xl.innerHTML = `<a class="secondary-link" href="seismic-field.html?id=${rid}">🧱 현장조사 입력 →</a><a class="secondary-link" href="seismic-field.html?id=${rid}&part=texts">🤖 보고서 AI 작성 →</a>`; }
     }
   }
 

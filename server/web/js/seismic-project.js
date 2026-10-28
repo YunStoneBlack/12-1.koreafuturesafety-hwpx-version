@@ -338,6 +338,10 @@
     const box = $("sp-docs");
     box.innerHTML = "";
     p.docs.forEach((d) => box.appendChild(docRow(d)));
+    const missing = p.docs.filter((d) => !(d.items || []).length).length; // 서류 칸 접기(10/28 사용자) — 처음엔 안 올린 서류가 있으면 펼침, 그 뒤로는 사람이 연 대로
+    const need = $("sp-docs-need");
+    if (need) { need.hidden = !missing; need.textContent = missing ? `아직 ${missing}` : ""; }
+    if (!openedOnce.docs) { $("sp-docs-panel").open = missing > 0; openedOnce.docs = true; }
     drawGround();
     drawContract();
     drawBuilding();

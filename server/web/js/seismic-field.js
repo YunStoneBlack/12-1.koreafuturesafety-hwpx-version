@@ -438,6 +438,9 @@
       : "보고서 차례로 2.2.1 부재 단면 → 2.2.2 철근탐사 → 2.2.3 코어 → 2.4.3 조적조 — 넣은 값은 보고서 표에 들어갑니다(현장·전경 사진은 외관조사)";
     $("sf2-proj").textContent = f.name;
     $("sf2-proj").href = `seismic-project.html?id=${id}`;
+    // 조사 중에도 서로 넘나드는 바로가기(10/28 사용자) — 현장조사 입력 / 외관조사 / 보고서 AI 작성, 지금 화면은 뺌
+    $("sf2-xlinks").innerHTML = [["seismic-field.html?id=" + id, "🧱 현장조사 입력", !TEXTS], ["sitok-field.html?report=" + id + "&seis=1", "📱 외관조사", false],
+      ["seismic-field.html?id=" + id + "&part=texts", "🤖 보고서 AI 작성", !!TEXTS]].filter(([, , cur]) => !cur).map(([h, t]) => `<a class="secondary-link" href="${h}">${t} →</a>`).join("");
     drawMin(); stickPad(); drawMembers(); drawCores(); drawMasonry(); drawTexts(); // 사진은 외관조사 탭(10/27, js/seismic-photos.js)
   }
 
