@@ -140,9 +140,8 @@ def fill_result_ga(root, d: dict) -> int:
 
 
 def fill_result_people(root, d: dict) -> int:
-    """결과표 "사. 책임(참여)기술자 현황"(라~사 표 안, 우리 몫) — 머리 줄(구분·성명·과업참여기간·기술등급) 칸 위치로, 남는 줄은 비움."""
-    if not d["persons"]:
-        return 0
+    """결과표 "사. 책임(참여)기술자 현황"(라~사 표 안, 우리 몫) — 머리 줄(구분·성명·과업참여기간·기술등급) 칸 위치로, 남는 줄은 비움.
+    구분 칸("사업책임기술자"·"분야별 참여기술자")은 고정 글 — 다시 써서 '우리가 쓴 칸'으로(10/28 사용자 "여긴 책임기술자 참여기술자 고정" — 견본 값 지우기가 빈칸·노랑으로 만들었음)."""
     period = f"{_date(d['period_start'])} ~ {_date(d['period_end'])}" if d["period_start"] and d["period_end"] else "-"
     for t in _tables(root):
         cells = rb._cells(t)
@@ -151,6 +150,11 @@ def fill_result_people(root, d: dict) -> int:
         head = next((r for (r, c), x in cells.items() if c == 0 and rb._n(rb._cell_text(x)) == "사업책임기술자"), None)
         if head is None:
             return 0
+        for r, c in ((head, 0), (head + 1, 0)):  # 고정 이름 칸 — 틀 글 그대로 다시
+            if (r, c) in cells and rb._cell_text(cells[(r, c)]).strip():
+                _set(cells, (r, c), rb._cell_text(cells[(r, c)]))
+        if not d["persons"]:
+            return 1
         hdr = {rb._n(rb._cell_text(x)): c for (r, c), x in cells.items() if r == head - 1}
         cn, cp, cg = hdr.get("성명"), hdr.get("과업참여기간"), hdr.get("기술등급")
         if cn is None:
