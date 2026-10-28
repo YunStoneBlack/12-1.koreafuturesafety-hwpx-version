@@ -89,7 +89,7 @@ def overview(
         "year": year, "month": month,
         "cards": cards, "months": months, "staff": sorted(by_staff.values(), key=lambda e: (e["id"] is None, e["name"])),
         "reports": rows, "progress": _site_progress(db, user.company_id, year, month, staff_id, rows, sites),
-        "shortage": _site_shortage(db, user.company_id, staff_id),
+        **dict(zip(("shortage", "ending"), _site_shortage(db, user.company_id, staff_id))),
     }
 
 
@@ -127,10 +127,16 @@ def _site_progress(db: Session, company_id: int, year: int, month: int, staff_id
     return out
 
 
-def _site_shortage(db: Session, company_id: int, staff_id: int | None) -> list[dict]:
+ENDING_DAYS = 60  # ⏰ 계약 끝 임박 — 우리 계약기간 끝까지 이 날 수 안(10/28 사용자 4번)
+ENDING_BUSY = 8.0  # 남은 기간 월 필요 횟수가 이만큼 넘으면(주 2회 넘게) 벅참
+
+
+def _site_shortage(db: Session, company_id: int, staff_id: int | None) -> tuple[list[dict], list[dict]]:
     """전체 회차가 부족한 현장(10/28 사용자 "전체 회차가 많이 부족한 현장 보여주기") — 진행 중 현장마다 현장 목록 진행 막대와 같은 계산
     (server/api/site_pace_out.pace_dict — 우리 계약기간 경과율 × 총 횟수 = 지금쯤 했어야 할 회차, 다녀온 횟수 = done_counts)에서 모자란 곳만, 많이 모자란 순.
-    요원을 고르면 그 현장 담당 요원 것만. 다음 예정·오늘 이후 예정 수(남은 횟수보다 적으면 방문 달력 [채워 넣기] 대상)·최근 지도일을 같이."""
+    요원을 고르면 그 현장 담당 요원 것만. 다음 예정·오늘 이후 예정 수(남은 횟수보다 적으면 방문 달력 [채워 넣기] 대상)·최근 지도일을 같이.
+    둘째 = ⏰ 계약 끝 임박(10/28 사용자 4번) — 우리 계약기간 끝까지 ENDING_DAYS일 안(지났으면 포함)인데 남은 회차가 있고,
+    오늘 이후 예정이 남은 회차보다 적거나 · 남은 기간 월 ENDING_BUSY회 넘게 필요하거나 · 계약기간이 이미 지난 현장(끝이 가까운 순). 부족이 아니어도 들어감."""
     from sqlalchemy import func
 
     from server.api import contract_sites
@@ -141,7 +147,7 @@ def _site_shortage(db: Session, company_id: int, staff_id: int | None) -> list[d
     today = datetime.date.today()
     sites = [s for s in db.query(Site).filter(Site.company_id == company_id).all() if is_active(s) and (not staff_id or s.assigned_staff_id == staff_id)]
     if not sites:
-        return []
+        return [], []
     ids = [s.id for s in sites]
     done = done_counts(db, ids)
     periods = contract_sites.our_periods(db, sites)
@@ -149,20 +155,30 @@ def _site_shortage(db: Session, company_id: int, staff_id: int | None) -> list[d
     for sid, d in db.query(VisitPlan.site_id, VisitPlan.plan_date).filter(VisitPlan.company_id == company_id, VisitPlan.site_id.in_(ids), VisitPlan.plan_date >= today):
         future.setdefault(sid, []).append(d)
     last = dict(db.query(Report.site_id, func.max(Report.guidance_date)).filter(Report.site_id.in_(ids)).group_by(Report.site_id))
-    out = []
+    out, ending = [], []
     for s in sites:
         p = pace_dict(s, done.get(s.id), today, periods[s.id])
-        if p["status"] != "shortage":
-            continue
         fut = sorted(future.get(s.id) or [])
         left = max((p["total"] or 0) - p["performed"], 0)
+        end = periods[s.id][1]
+        days = (end - today).days if end else None
+        if p["total"] and left and days is not None and days <= ENDING_DAYS:
+            need = p.get("monthly_needed")
+            why = [w for w, hit in (("over", days < 0), ("plan", len(fut) < left), ("busy", need is not None and need > ENDING_BUSY)) if hit]
+            if why:
+                ending.append({"site_id": s.id, "site_name": site_label(s), "region": short_region(s.address), "period_end": end.isoformat(), "days_left": days,
+                               "left": left, "upcoming": len(fut), "monthly_needed": round(need, 1) if need is not None else None,
+                               "performed": p["performed"], "total": p["total"], "diff": p["diff"] if p["status"] == "shortage" else 0, "why": why})
+        if p["status"] != "shortage":
+            continue
         out.append({"site_id": s.id, "site_name": site_label(s), "region": short_region(s.address), "performed": p["performed"], "total": p["total"],
                     "diff": p["diff"], "ideal": p["performed"] + p["diff"], "left": left,
                     "monthly_needed": round(p["monthly_needed"], 1) if p.get("monthly_needed") is not None else None,
                     "elapsed_months": p["elapsed_months"], "total_months": p["total_months"], "period_end": p["period_end"], "period_over": p["period_over"],
                     "upcoming": len(fut), "next_plan": fut[0].isoformat() if fut else None, "last_visit": last[s.id].isoformat() if last.get(s.id) else None})
     out.sort(key=lambda e: (-e["diff"], -(e["left"] - e["upcoming"]), e["site_name"]))
-    return out
+    ending.sort(key=lambda e: (e["days_left"], -(e["left"] - e["upcoming"]), e["site_name"]))
+    return out, ending
 
 
 def _require_report(db: Session, user: User, report_id: int):

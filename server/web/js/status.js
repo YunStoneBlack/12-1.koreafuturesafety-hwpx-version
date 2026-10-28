@@ -88,6 +88,25 @@ function shortRow(e) {
     </button>`;
 }
 
+// ⏰ 계약 끝 임박(10/28 사용자 4번) — 서버 ending(우리 계약기간 끝 60일 안 + 남은 회차가 있는데 예정이 모자람·월 8회 넘게 필요·기간 지남), 두 보기 모두 맨 위, 누르면 현장 화면
+function endingBox(list) {
+  if (!list.length) return "";
+  const SHOW_END = 4;
+  const shown = stView.endAll ? list : list.slice(0, SHOW_END);
+  const row = (e) => {
+    const dday = e.days_left < 0 ? `기간 ${-e.days_left}일 지남` : e.days_left === 0 ? "오늘 끝" : `D-${e.days_left}`;
+    const lack = Math.max(e.left - e.upcoming, 0);
+    const sub = [`${md(e.period_end)} 끝`, lack ? `<span class="warn">예정 ${lack}회 모자람</span>` : `예정 ${e.upcoming}회`,
+      e.monthly_needed != null && e.days_left >= 14 ? `${e.monthly_needed > 8 ? '<span class="warn">' : "<span>"}월 ${e.monthly_needed}회</span>` : ""].filter(Boolean).join(" · "); // 2주 안 남은 현장은 월 횟수가 뜻이 없어 뺌
+    return `<button type="button" class="st-end-row" data-link="site.html?id=${e.site_id}" title="${h(`${e.site_name} — 우리 계약기간 끝 ${e.period_end} · 남은 ${e.left}회 · 오늘 이후 예정 ${e.upcoming}회 — 누르면 현장 화면`)}">
+        <span class="nm"><span class="t">${h(e.site_name)}</span><small>${sub}</small></span>
+        <span class="num"><b>${dday}</b><small>남은 ${e.left}회</small></span></button>`;
+  };
+  return `<div class="st-end"><div class="st-end-h"><b>⏰ 계약 끝 임박 ${list.length}곳</b><span class="st-hint">계약 끝 60일 안인데 남은 회차를 다 하기 어렵거나(예정 모자람·월 8회 넘게) 기간이 지난 곳</span></div>
+    ${shown.map(row).join("")}
+    ${list.length > SHOW_END ? `<button type="button" class="secondary st-end-more">${stView.endAll ? "접기 ▲" : `나머지 ${list.length - SHOW_END}곳 ▼`}</button>` : ""}</div>`;
+}
+
 // 지역(시·군)마다 합계 한 줄 — 누르면 그 지역 현장들. 차례 = 남은 회차(이달)·부족 회차(회차 부족)가 많은 지역부터.
 function regionGroups(list, mode) {
   const groups = new Map();
@@ -140,6 +159,7 @@ function renderProgress() {
   const empty = mode === "short" ? `<div class="st-empty">${MANY}회 이상 모자란 진행 중 현장이 없습니다.</div>` : '<div class="st-empty">이달 배정·보고서가 없습니다.</div>';
   box.innerHTML = `<div class="st-chart-head"><b>현장별 ${mode === "short" ? "회차 부족" : `${stData.month}월 추진 현황`} <span class="st-hint">${hint}</span></b>
       <div class="st-legend">${legend}</div></div>
+    ${endingBox(stData.ending || [])}
     <div class="st-prog-tools">
       <span class="site-sort st-prog-mode" role="group" aria-label="보기"><button type="button" data-mode="month" class="${mode === "month" ? "on" : ""}">${stData.month}월 추진</button><button type="button" data-mode="short" class="${mode === "short" ? "on" : ""}" title="지금쯤 했어야 할 회차보다 ${MANY}회 이상 모자란 진행 중 현장">회차 부족 <b>${many.length}</b></button></span>
       <button type="button" class="st-prog-region${grouped ? " on" : ""}" aria-pressed="${grouped}" title="시·군으로 묶어 지역마다 합계 — 누르면 그 지역 현장">📍 지역별</button>
@@ -165,7 +185,8 @@ function renderProgress() {
     else openRegions.add(k);
     renderProgress();
   }));
-  box.querySelectorAll(".st-prog-row[data-link]").forEach((b) => b.addEventListener("click", () => { location.href = b.dataset.link; }));
+  box.querySelectorAll(".st-prog-row[data-link], .st-end-row[data-link]").forEach((b) => b.addEventListener("click", () => { location.href = b.dataset.link; }));
+  box.querySelector(".st-end-more")?.addEventListener("click", () => { stView.endAll = !stView.endAll; renderProgress(); });
   box.querySelectorAll(".st-prog-row[data-site]").forEach((b) => b.addEventListener("click", () => {
     const id = Number(b.dataset.site);
     stView.site = stView.site === id ? null : id;
