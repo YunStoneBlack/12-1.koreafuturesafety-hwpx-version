@@ -230,6 +230,73 @@ def _list_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
             "docs": have, "docs_total": len(DOCS), **{k: v for k, v in report_out(r).items() if k in ("status", "made_at", "has_pdf", "field", "seismic")}}
 
 
+# ---------- 서류 자동화 › 내진성능평가 계약과 잇기(10/28 사용자 "서류 자동화 시특법이랑 동일하게") ----------
+# 서류 계약(sitok_doc_contract, 분야 "내진")의 현장 연결 = 이 건의 숨김 건물(facility_id). 계약서를 올리고 저장하면 server/api/routers/sitok_docs.py가
+# 같은 건을 찾아(없으면 new_project) from_docs_contract로 용역 칸·용역계약서 PDF를 넣음 — 건 화면에서 고친 값은 서류 계약을 다시 저장하기 전까지 그대로.
+
+def project_of(db: Session, f: SitokFacility) -> SitokReport | None:
+    """숨김 건물의 성능평가 회차(건 하나 = 회차 하나)."""
+    return (db.query(SitokReport).filter(SitokReport.facility_id == f.id, SitokReport.half == seasons.SEISMIC)
+            .order_by(SitokReport.id).first())
+
+
+def new_project(db: Session, user: User, name: str, owner: str = "", start: datetime.date | None = None) -> tuple[SitokFacility, SitokReport]:
+    """빈 건 — 숨김 건물 + 성능평가 회차(create_project와 같은 칸, 서류는 나중에). 이름이 비면 400."""
+    nm = (name or "").strip()
+    if not nm:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "건물 이름이 없어 내진성능평가 건을 만들 수 없습니다.")
+    f = SitokFacility(company_id=user.company_id, name=nm, kind="건축물", seismic_only=True, legal=False, template="2종",
+                      contract_type="1회성", sector="관급", badge_field="건축", created_by=user.display_name or "", ledger={}, owner_name=owner or None)
+    db.add(f)
+    db.flush()
+    r = SitokReport(company_id=user.company_id, facility_id=f.id, year=(start or datetime.date.today()).year, half=seasons.SEISMIC, kind="성능평가",
+                    source_note="내진성능평가", survey={})
+    db.add(r)
+    db.flush()
+    return f, r
+
+
+def from_docs_contract(f: SitokFacility, r: SitokReport, c, src: Path | None, by: str = "") -> dict:
+    """서류 계약 c → 건 용역 칸(서류 계약에 값이 있는 칸은 그 값으로) + 용역계약서 PDF(건에 사람이 따로 올린 계약서가 없을 때·서류 계약에서 넣은 것이면 새 파일로).
+    {"fields": 용역 칸을 바꿈, "pdf": 용역계약서를 넣음, "kept": 건에 따로 올린 용역계약서가 있어 그대로 둠}. c = SitokDocContract(분야 내진)."""
+    from server.sitok import civil
+
+    client = re.sub(r"^.+?교육청\s*(?=.+교육지원청$)", "", (c.client or "").strip())  # "경기도교육청 경기도의정부교육지원청" → 지원청만(건 화면 read_contract·견본과 같게)
+    vals = {"title": c.title or civil.default_title(c), "client": client, "amount": c.amount, "contract_no": c.contract_no, "contract_date": c.contract_date,
+            "start_date": c.start_date, "end_date": c.end_date, "manager": c.client_manager, "phone": c.client_phone}
+    vals = {k: v for k, v in vals.items() if v not in (None, "")}
+    old = _sv(r).get("seismic_contract") or {}
+    out = {"fields": any(str(old.get(k) if old.get(k) is not None else "") != str(_iso(v)) for k, v in vals.items()), "pdf": False, "kept": False}
+    if out["fields"]:
+        _apply_contract(f, r, vals)
+    docs = dict(_sv(r).get("seismic_docs") or {})
+    cur = docs.get("contract") or {}
+    out["kept"] = bool(cur.get("rel")) and cur.get("from_docs") != c.id
+    if src is not None and src.exists() and not out["kept"]:
+        _, rdir = _dirs(f, r)
+        dest = rdir / "서류" / "용역계약서.pdf"
+        data = src.read_bytes()
+        if cur.get("from_docs") != c.id or not dest.exists() or dest.read_bytes() != data:
+            for x in (rdir / "서류").glob("용역계약서.*") if (rdir / "서류").exists() else []:
+                x.unlink(missing_ok=True)
+            _save_upload(data, dest)
+            docs["contract"] = {"rel": "서류/용역계약서.pdf", "name": "용역계약서.pdf", "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "by": by,
+                                "from_docs": c.id, "note": "서류 자동화 › 내진성능평가 계약에서 넣음"}
+            _put(r, seismic_docs=docs)
+            out["pdf"] = True
+    return out
+
+
+def docs_synced(r: SitokReport | None, c) -> bool:
+    """건에 이 서류 계약이 들어가 있는지 — 용역계약서를 이 계약에서 넣었거나, 건 용역 칸 계약번호가 같음(건에 따로 올린 계약서가 있던 건)."""
+    if r is None:
+        return False
+    if ((_sv(r).get("seismic_docs") or {}).get("contract") or {}).get("from_docs") == c.id:
+        return True
+    no = (c.contract_no or "").strip()
+    return bool(no) and ((_sv(r).get("seismic_contract") or {}).get("contract_no") or "") == no
+
+
 @router.get("/projects")
 def list_projects(facility: int | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     q = (db.query(SitokReport, SitokFacility).join(SitokFacility, SitokFacility.id == SitokReport.facility_id)

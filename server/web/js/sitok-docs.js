@@ -12,6 +12,11 @@
 (function () {
   const errorEl = document.getElementById("error");
   const P = "/sitok/docs";
+  // 서류 자동화 › 내진성능평가(10/28 사용자 "시특법이랑 동일하게") — 같은 화면, <body data-docs-field="seismic">면 내진 계약끼리(app.js가 요청 머리를 붙임).
+  // 카드 = 내진성능평가 건(이름 누르면 건 화면), 계약은 반기 회차 없이 금액 한 칸, 민간 양식 따로, 계약서를 올려 저장하면 같은 건(없으면 새 건)에 용역 정보·용역계약서.
+  const SEIS = document.body.dataset.docsField === "seismic";
+  const placeUrl = (id, rid) => (SEIS ? (rid ? `seismic-project.html?id=${rid}` : "seismic.html") : `sitok-facility.html?id=${id}`);
+  const PLACE_TIP = SEIS ? "보고서 자동화 · 내진성능평가 건 화면" : "보고서 자동화 · 시설물 화면";
   const view = { tab: "", q: "", field: "", kind: "" };
   let all = [];
   let cards = [];
@@ -105,7 +110,8 @@
       return `<button type="button" class="sk-badge-f b-${dim}${view[dim] === v ? " on" : ""}" data-dim="${dim}" data-v="${esc(v)}" aria-pressed="${view[dim] === v}">${esc(v)} <b>${n}</b></button>`;
     };
     const bEl = document.getElementById("sd-badges");
-    bEl.innerHTML = `<span class="sk-badge-l">분야</span>${FIELDS.map((v) => chip("field", v)).join("")}` +
+    bEl.hidden = SEIS; // 내진 건은 분야·관급 종류 뱃지 없음
+    bEl.innerHTML = SEIS ? "" : `<span class="sk-badge-l">분야</span>${FIELDS.map((v) => chip("field", v)).join("")}` +
       (view.tab === "민간" ? "" : `<span class="sk-badge-l">관급</span>${KINDS.map((v) => chip("kind", v)).join("")}`) +
       (view.field || view.kind ? '<button type="button" class="sk-badge-f sk-badge-clear" title="분야·관급 거르기 풀기">✕ 전체 보기</button>' : "");
     bEl.querySelectorAll(".sk-badge-f[data-dim]").forEach((b) => b.addEventListener("click", () => { view[b.dataset.dim] = view[b.dataset.dim] === b.dataset.v ? "" : b.dataset.v; render(); }));
@@ -128,12 +134,13 @@
       for (const c of shown) list.appendChild(row(c));
       return;
     }
-    title.textContent = "시설물 카드";
+    title.textContent = SEIS ? "내진성능평가 건" : "시설물 카드";
     const ok = TABS.find((t) => t[0] === view.tab)[3];
     const shown = sortCards(cards.filter((k) => ok(k) && badgeOk(k) && words.every((w) => cardText(k).includes(w))));
     document.getElementById("sd-count").textContent = `${shown.length}곳`;
     if (!shown.length) {
-      list.innerHTML = `<div class="empty-note">${cards.length ? "맞는 시설물 카드가 없습니다." : "아직 시설물 카드가 없습니다 — 위 [계약서 불러오기]로 시작하세요."}</div>`;
+      list.innerHTML = `<div class="empty-note">${SEIS ? (cards.length ? "맞는 내진성능평가 건이 없습니다." : "아직 내진성능평가 건이 없습니다 — 위 [나라장터 계약서 불러오기]로 시작하세요(같은 건이 없으면 새 건이 생깁니다).")
+        : cards.length ? "맞는 시설물 카드가 없습니다." : "아직 시설물 카드가 없습니다 — 위 [계약서 불러오기]로 시작하세요."}</div>`;
       return;
     }
     for (const k of shown) list.appendChild(cardEl(k));
@@ -166,7 +173,7 @@
     el.innerHTML = `
       <div class="sd-fhead"><div class="sd-fmain">
         <div class="sd-ftitle">${k.mgmt_no ? `<button type="button" class="site-no sd-no" title="번호 바꾸기">${esc(k.mgmt_no)}</button>` : ""}<span class="sd-chip ${k.sector === "관급" ? "gov" : "civil"}">${esc(k.sector)}</span>
-          ${many ? `<b>${esc(cardName(k))}</b><span class="sk-dong-n">시설물 ${us.length}곳 · 보고서 따로</span>` : `<a href="sitok-facility.html?id=${k.id}" title="보고서 자동화 · 시설물 화면"><b>${esc(cardName(k))}</b></a>`}${multi ? `<span class="sk-dong-n">${k.members.length}동</span>` : ""}
+          ${many ? `<b>${esc(cardName(k))}</b><span class="sk-dong-n">시설물 ${us.length}곳 · 보고서 따로</span>` : `<a href="${placeUrl(k.id, k.seismic_rid)}" title="${PLACE_TIP}"><b>${esc(cardName(k))}</b></a>`}${multi ? `<span class="sk-dong-n">${k.members.length}동</span>` : ""}
           ${k.badge_field ? `<span class="sk-badge b-field">${esc(k.badge_field)}</span>` : ""}${k.badge_kind ? `<span class="sk-badge b-kind">${esc(k.badge_kind)}</span>` : ""}
           <span class="sd-ftype">${esc(TYPE_SHORT[k.contract_type] || k.contract_type || "")}</span></div>
         <div class="sd-fsum">${cons.length ? `계약 ${cons.length}건 · ${esc(periodText(cons[cons.length - 1]) || cons[cons.length - 1].title || "")}` : "계약 없음"}<span class="sd-fchev" aria-hidden="true">▾</span></div>
@@ -174,14 +181,14 @@
         ${many ? `<div class="sd-units">${us.map((u, i) => `<a class="sd-unit" href="sitok-facility.html?id=${u.id}" title="보고서 자동화 · 시설물 화면"><span class="site-no">보고서 ${i + 1}</span>${esc(u.name)}${u.members.length > 1 ? ` <small>${u.members.length}동</small>` : ""}</a>`).join("")}</div>` : ""}</div>
         <div class="sd-facts">
           <button type="button" class="secondary sd-fnew">${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}</button>
-          <button type="button" class="secondary sd-fbadge" title="분야·관급 종류 뱃지 바꾸기">🏷 뱃지</button>
+          ${SEIS ? "" : '<button type="button" class="secondary sd-fbadge" title="분야·관급 종류 뱃지 바꾸기">🏷 뱃지</button>'}
         </div>
       </div>
       <div class="sd-fbody">${cons.length ? "" : `<div class="mail-note sd-fempty">아직 계약이 없습니다 — [${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}]로 넣으세요.</div>`}</div>`;
     const body = el.querySelector(".sd-fbody");
     for (const c of cons) body.appendChild(row(c, true));
     el.querySelector(".sd-fnew").addEventListener("click", () => openContract(null, k.sector, { card: k, prev: k.sector === "민간" ? latestCon(cons) : null }));
-    el.querySelector(".sd-fbadge").addEventListener("click", () => editBadges(k));
+    el.querySelector(".sd-fbadge")?.addEventListener("click", () => editBadges(k));
     const noBtn = el.querySelector(".sd-no");
     if (noBtn) noBtn.addEventListener("click", () => editNumber(k));
     const links = siteLinkButtons(k.contact_phone, k.address);
@@ -294,7 +301,8 @@
     const out = [];
     if (c.sector === "민간" && (c.made_at || !c.files["날인본.pdf"])) out.push(line("계약서", !!c.made_at, c.made_at ? `${c.made_at.slice(5)} 만듦` : "아직 안 만듦", c.files["계약서.pdf"] ? fileUrl(c, "계약서.pdf") : ""));
     out.push(line(c.sector === "민간" ? "날인본" : "계약서", c.files["날인본.pdf"], c.files["날인본.pdf"] ? "✓ 올림" : "안 올림", c.files["날인본.pdf"] ? fileUrl(c, "날인본.pdf") : ""));
-    if (c.facility) out.push(line("보고서 쪽", !!c.report_contract_id, c.report_contract_id ? "✓ 계약 넣음" : "안 넣음"));
+    if (c.facility && SEIS) out.push(line("내진 건", !!(c.seismic && c.seismic.synced), c.seismic && c.seismic.synced ? "✓ 계약 넣음" : "안 넣음"));
+    else if (c.facility) out.push(line("보고서 쪽", !!c.report_contract_id, c.report_contract_id ? "✓ 계약 넣음" : "안 넣음"));
     if (c.sector === "관급") {
       for (const [k, lab] of [["start", "착수계"], ["done", "완수계"]]) {
         const g = c.gov[k];
@@ -312,7 +320,7 @@
     const metaLine = (xs) => xs.filter((x) => x[1]).map(([cls, v]) => `<span class="${cls}">${esc(v)}</span>`).join('<span class="sd-mdot"> · </span>');
     const meta1 = metaLine([["sd-mc", c.client], ["sd-mi", c.contract_no]]), meta2 = metaLine([["sd-mi", periodText(c)], ["sd-mi", moneyText(c)]]);
     const year = c.sector === "관급" && (c.start_date || c.contract_date) ? `<span class="sd-year">${(c.start_date || c.contract_date).slice(0, 4)}년</span>` : "";
-    const half = c.half ? `<span class="sd-half${c.half === "해당없음" ? " na" : ""}" title="${c.half_tag ? "직접 고른 반기" : "용역 기간으로 자동"}">${esc(c.half)}</span>` : "";
+    const half = c.half && !SEIS ? `<span class="sd-half${c.half === "해당없음" ? " na" : ""}" title="${c.half_tag ? "직접 고른 반기" : "용역 기간으로 자동"}">${esc(c.half)}</span>` : "";
     const kc = inCard ? cardOf(c) : null;
     const dno = kc && unitsOf(kc).length > 1 && c.card_no ? `<span class="site-no sd-dno" title="서류 번호 — 계약이 시설물 여럿을 맡으면 카드 번호, 하나면 그 시설물 번호">서류 ${esc(c.card_no)}</span>` : ""; // 10/15 밤
     const chk = kc && unitsOf(kc).length > 1 && c.cover === "check" ? ' <span class="sd-cover-chk" title="건명·내역서로 맡는 건물을 못 정해 현장 전체(또는 남은 건물)로 넣었습니다 — [계약 정보]에서 확인">⚠ 맡는 건물 확인</span>' : "";
@@ -322,7 +330,7 @@
         <div class="dc-title">${inCard ? `${dno}${year}${half}` : `<span class="sd-chip ${c.sector === "민간" ? "civil" : "gov"}">${c.sector}</span>${half}`}${esc(c.title || (c.sector === "민간" && c.auto_title) || "(계약건명 없음 — 계약 정보를 채우세요)")}</div>
         ${meta1 ? `<div class="dc-meta sd-meta">${meta1}</div>` : ""}${meta2 ? `<div class="dc-meta sd-meta">${meta2}</div>` : ""}${tg}
         ${contactLine(c, "client", "계약 담당")}${contactLine(c, "site", "현장 담당")}
-        ${inCard ? "" : `<div class="dc-site">${c.facility ? `현장 <a href="sitok-facility.html?id=${c.facility.id}">${esc(c.facility.name)}</a>` : '<span class="dc-nosite">시설물 카드에 안 넣음</span>'}
+        ${inCard ? "" : `<div class="dc-site">${c.facility ? `현장 <a href="${placeUrl(c.facility.id, c.facility.seismic_rid)}">${esc(c.facility.name)}</a>` : `<span class="dc-nosite">${SEIS ? "내진성능평가 건에 안 넣음" : "시설물 카드에 안 넣음"}</span>`}
           <button type="button" class="dc-link">${c.facility ? "바꾸기" : "🔗 카드에 넣기"}</button></div>`}
       </div>
       <div class="dc-docs">${docLines(c)}</div>
@@ -374,9 +382,10 @@
     }
     const curId = c.facility ? c.facility.id : null;
     box.innerHTML = `<div class="mail-head"><b>🔗 현장 연결</b><span class="mail-sub">${esc(c.title || c.auto_title || c.facility_name || "점검 계약")}</span></div>
-      <input type="search" class="mail-input cd-pick-q" placeholder="시설물명·관리주체·주소로 찾기" autocomplete="off" />
+      <input type="search" class="mail-input cd-pick-q" placeholder="${SEIS ? "건물명·발주처·주소로 찾기" : "시설물명·관리주체·주소로 찾기"}" autocomplete="off" />
       <div class="cd-pick-list"></div>
-      <div class="mail-note">없으면 <a href="sitok-new.html">보고서 자동화 · 시특법에서 새 시설물 등록</a> 뒤 다시 연결하세요.</div>
+      <div class="mail-note">${SEIS ? '없으면 계약서를 올리고 저장할 때 새 건이 자동으로 생깁니다 — 또는 <a href="seismic.html">보고서 자동화 · 내진성능평가에서 새 건 만들기</a> 뒤 다시 연결하세요.'
+        : '없으면 <a href="sitok-new.html">보고서 자동화 · 시특법에서 새 시설물 등록</a> 뒤 다시 연결하세요.'}</div>
       <div class="mail-foot">${curId ? '<button type="button" class="cd-unlink">연결 끊기</button>' : ""}<button type="button" class="cd-pick-close">닫기</button></div>`;
     const listEl = box.querySelector(".cd-pick-list");
     const draw = (q) => {
@@ -433,7 +442,7 @@
     if (!id && intro && intro.prev && st.sector === "민간") prefill(intro.prev); // 기존 계약 내용 + 다음 반기 회차(10/20 민재형)
     if (st.facility_ids && st.facility_ids.length) st.facility_ids = st.facility_ids.slice();
     st.amounts = { ...(st.amounts || {}) };
-    if (!id && !st.rounds.length && st.sector === "민간") { // 새 민간 계약: 올해·지금 반기·정기 한 줄(관급은 회차 줄 없음 — 반기는 용역 기간으로, 10/15)
+    if (!id && !st.rounds.length && st.sector === "민간" && !SEIS) { // 새 민간 계약: 올해·지금 반기·정기 한 줄(내진은 회차 없음)(관급은 회차 줄 없음 — 반기는 용역 기간으로, 10/15)
       const now = new Date();
       st.rounds = [{ year: now.getFullYear(), half: now.getMonth() < 6 ? "상반기" : "하반기", kind: "정기", amount: null }];
     }
@@ -481,7 +490,8 @@
     }
     function body() {
       sync();
-      const b = { sector: st.sector, open_ended: !!st.open_ended, unit: st.unit || null, rounds: st.sector === "민간" ? st.rounds.filter((r) => r.year) : [], half_tag: st.half_tag || "" };
+      const b = { sector: st.sector, open_ended: SEIS ? false : !!st.open_ended, unit: SEIS ? null : st.unit || null,
+        rounds: st.sector === "민간" && !SEIS ? st.rounds.filter((r) => r.year) : [], half_tag: st.half_tag || "" };
       const ub = box.querySelector(".sd-ufac");
       if (ub) { // 이 계약의 시설물(0052)
         st.facility_ids = [...ub.querySelectorAll(".uf-chk:checked")].map((i) => Number(i.value));
@@ -493,7 +503,7 @@
       if (!st.id && st.facility_id) b.facility_id = st.facility_id;
       for (const k of TEXT) b[k] = st[k] ?? "";
       for (const k of DATES) b[k] = st[k] || null;
-      if (st.sector === "관급") b.amount = st.amount ?? null;
+      if (st.sector === "관급" || SEIS) b.amount = st.amount ?? null;
       return b;
     }
     async function ensure() { // 처음 저장·올리기 때 계약을 만듦
@@ -508,7 +518,7 @@
         else st = await api(`${P}/contracts/${st.id}`, { method: "PUT", body: JSON.stringify(b) });
         st.bldgs = (st.buildings || []).slice();
         draw(true);
-        if (st.auto_card) msg(esc(st.auto_card) + (st.report_id ? ` — 이번 반기 회차까지 만들었습니다 <a href="sitok-round.html?report=${st.report_id}">회차 화면</a>` : ""), "ok"); // 저장 = 카드(10/15)
+        if (st.auto_card) msg(esc(st.auto_card) + (st.report_id ? (SEIS ? ` — <a href="seismic-project.html?id=${st.report_id}">건 화면</a>` : ` — 이번 반기 회차까지 만들었습니다 <a href="sitok-round.html?report=${st.report_id}">회차 화면</a>`) : ""), "ok"); // 저장 = 카드(10/15)
         else if (!quiet) msg("✓ 저장했습니다.", "ok");
         return true;
       } catch (err) {
@@ -718,14 +728,16 @@
       box.innerHTML = `
         <div class="mail-head"><b>${civil ? "📝 민간 계약서" : "📑 관급 계약"}</b>
           <span class="mail-sub">${esc(st.title || (civil && st.facility_name && st.auto_title) || "새 계약")}</span>
-          <div class="cd-site-line mail-sub">현장: ${f ? `<a href="sitok-facility.html?id=${f.id}">${esc(f.name)}</a>` : '<span class="dc-nosite">연결 안 됨</span>'}
-            <button type="button" class="cd-link-btn sd-link">${f ? "다른 카드로" : "🔗 카드 고르기"}</button>
-            <span class="sd-auto-note">${f ? (st.report_contract_id ? "· 보고서 쪽 계약 ✓" : "· 계약서를 올리면 저장할 때 보고서 쪽 계약까지 자동")
+          <div class="cd-site-line mail-sub">${SEIS ? "건" : "현장"}: ${f ? `<a href="${placeUrl(f.id, f.seismic_rid)}">${esc(f.name)}</a>` : '<span class="dc-nosite">연결 안 됨</span>'}
+            <button type="button" class="cd-link-btn sd-link">${f ? (SEIS ? "다른 건으로" : "다른 카드로") : (SEIS ? "🔗 건 고르기" : "🔗 카드 고르기")}</button>
+            <span class="sd-auto-note">${SEIS ? (f ? (st.seismic && st.seismic.synced ? "· 건 용역 정보·용역계약서 ✓" : "· 계약서를 올리면 저장할 때 건 용역 정보·용역계약서까지 자동")
+                : "· 계약서를 올리면 저장할 때 내진성능평가 건에 자동으로 들어갑니다(같은 학교 건이 있으면 그 건, 없으면 새 건)")
+              : f ? (st.report_contract_id ? "· 보고서 쪽 계약 ✓" : "· 계약서를 올리면 저장할 때 보고서 쪽 계약까지 자동")
               : "· 계약서를 올리면 저장할 때 시설물 카드에 자동으로 들어갑니다(같은 시설물 카드가 있으면 그 카드로)"}</span></div></div>
         <div class="sd-sector">${["민간", "관급"].map((s) => `<label><input type="radio" name="sd-sector" value="${s}"${st.sector === s ? " checked" : ""} /> ${s === "민간" ? "민간 — 계약서를 우리가 작성" : "관급 — 나라장터 계약서"}</label>`).join("")}</div>
         <div class="mail-label">서류 올리기 <span class="mail-note">— 읽어서 빈 칸을 채웁니다(PDF·한글·사진, 끌어다 놓아도 됨)</span></div>
         <div class="sd-ups">
-          ${upChip("ledger", "시설물관리대장", "시설물관리대장.pdf", "시설물명·위치·제원·관리주체")}
+          ${SEIS ? upChip("ledger", "건축물대장", "시설물관리대장.pdf", "건물명·위치·연면적") : upChip("ledger", "시설물관리대장", "시설물관리대장.pdf", "시설물명·위치·제원·관리주체")}
           ${civil ? upChip("bizreg", "사업자등록증", "사업자등록증.pdf", "관리주체·대표자·번호·주소") : ""}
           ${civil ? upChip(st.made_at ? "signed" : "existing", "날인본(도장 찍은 계약서)", "날인본.pdf", st.made_at ? "도장 찍어 받은 계약서 보관" : "이미 만든 계약서면 계약 칸까지 읽음")
             : upChip("g2b", "나라장터 계약서", "날인본.pdf", "읽어서 계약 칸을 채움(다시 올리면 읽은 칸만 바뀜)")}
@@ -738,25 +750,25 @@
           ${civil ? field("client_rep", "대표자 줄", { em: "서명 칸", ph: "예: 관리사무소장 김춘화" }) : field("client_rep", "대표자")}
           ${field("client_biz_no", "사업자등록번호")}${field("client_address", "주소")}
         </div>
-        <div class="mail-label">시설물</div>
+        <div class="mail-label">${SEIS ? "건물" : "시설물"}</div>
         <div class="cd-grid">
-          ${field("facility_name", "시설물명")}${field("spec", "제원", { em: "비우면 줄을 뺌", ph: "예: 연면적 19,071.7m²" })}
+          ${field("facility_name", SEIS ? "건물명" : "시설물명")}${field("spec", "제원", { em: "비우면 줄을 뺌", ph: "예: 연면적 19,071.7m²" })}
           ${field("location", "위치", { wide: true })}
         </div>
-        ${civil ? `<div class="mail-label${filled.includes("rounds") || filled.includes("unit") ? " sd-ai" : ""}">계약 회차 · 금액 <span class="mail-note">— 반기마다 한 줄(VAT포함). 계약서 "계약금액"에 회차마다 한 줄 + 총 합</span></div>
+        ${civil && !SEIS ? `<div class="mail-label${filled.includes("rounds") || filled.includes("unit") ? " sd-ai" : ""}">계약 회차 · 금액 <span class="mail-note">— 반기마다 한 줄(VAT포함). 계약서 "계약금액"에 회차마다 한 줄 + 총 합</span></div>
           <label class="sd-open"><input type="checkbox" class="sd-open-chk"${st.open_ended ? " checked" : ""} /> 끝 없는 계약 — 계약기간 "~ 계약 해지 시까지", 금액은 매 반기 단가만</label>
           ${roundsBlock()}
           ${st.open_ended ? "" : `<div class="mail-label">📅 도래주기 — 실시할 점검 <span class="mail-note">시행령 별표 3 · 1종 정기~정밀안전진단, 2종 ~정밀안전점검, 3종 정기만 · 건축물·토목 주기 다름</span></div>
           <div class="sd-cycle"><div class="mail-note">계산하는 중…</div></div>`}` : ""}
         <div class="mail-label">계약</div>
         <div class="cd-grid">
-          ${civil ? "" : `${field("contract_no", "계약번호")}<label class="cd-field"><span>계약금액(원)</span><input class="sd-amount sd-won" inputmode="numeric" value="${won(st.amount)}" /></label>`}
+          ${civil && !SEIS ? "" : `${civil ? "" : field("contract_no", "계약번호")}<label class="cd-field${filled.includes("amount") ? " cd-ai" : ""}"><span>계약금액(원)${civil ? " <em>VAT포함</em>" : ""}</span><input class="sd-amount sd-won" inputmode="numeric" value="${won(st.amount)}" /></label>`}
           ${field("contract_date", "계약일", { type: "date" })}${field("start_date", "계약 시작일", { type: "date" })}
           ${civil && st.open_ended ? '<div class="cd-field"><span>계약 종료일</span><div class="cd-plain">계약 해지 시까지</div></div>' : field("end_date", "계약 종료일", { type: "date" })}
           ${civil ? field("doc_no", "문서번호", { em: "비우면 KFSC-연도-월일(계약일)", ph: st.auto_doc_no }) : ""}
           ${field("title", civil ? "계약건명" : "용역명", { wide: true, em: civil ? "비우면 자동" : "", ph: civil ? st.auto_title : "" })}
-          <label class="cd-field"><span>반기 표시 <em>시설물 카드</em></span><select data-key="half_tag">
-            <option value="">자동${st.half_auto ? `(${esc(st.half_auto)})` : ""}</option>${["상반기", "하반기", "상·하반기", "해당없음"].map((h) => `<option${st.half_tag === h ? " selected" : ""}>${h}</option>`).join("")}</select></label>
+          ${SEIS ? "" : `<label class="cd-field"><span>반기 표시 <em>시설물 카드</em></span><select data-key="half_tag">
+            <option value="">자동${st.half_auto ? `(${esc(st.half_auto)})` : ""}</option>${["상반기", "하반기", "상·하반기", "해당없음"].map((h) => `<option${st.half_tag === h ? " selected" : ""}>${h}</option>`).join("")}</select></label>`}
           ${civil ? `${field("guarantee", "계약보증액")}${field("delay_rate", "지체상금율")}` : ""}
         </div>
         <div class="mail-label">담당자 <span class="mail-note">— 계약 담당·현장 담당(관리소장 등)</span></div>
@@ -773,22 +785,22 @@
           ${civil && st.files && st.files["계약서.pdf"] ? `<a href="${fileUrl(st, "계약서.pdf")}" target="_blank" rel="noopener">PDF 보기</a>` : ""}
           <button type="button" class="sd-close">닫기</button>
           <button type="button" class="sd-save">저장</button>
-          ${st.files && st.files["대가내역서.pdf"] ? `<a href="${fileUrl(st, "대가내역서.pdf")}" target="_blank" rel="noopener">대가내역서 PDF</a>` : ""}
-          ${st.files && st.files["대가내역서.xlsx"] ? `<a href="${fileUrl(st, "대가내역서.xlsx")}">엑셀</a>` : ""}
-          <button type="button" class="sd-daega" title="계약 회차·동별 금액으로 대가내역서(형 양식) — FMS e-보고서에도 씀">📑 대가내역서</button>
+          ${!SEIS && st.files && st.files["대가내역서.pdf"] ? `<a href="${fileUrl(st, "대가내역서.pdf")}" target="_blank" rel="noopener">대가내역서 PDF</a>` : ""}
+          ${!SEIS && st.files && st.files["대가내역서.xlsx"] ? `<a href="${fileUrl(st, "대가내역서.xlsx")}">엑셀</a>` : ""}
+          ${SEIS ? "" : '<button type="button" class="sd-daega" title="계약 회차·동별 금액으로 대가내역서(형 양식) — FMS e-보고서에도 씀">📑 대가내역서</button>'}
           ${civil ? '<button type="button" class="mail-primary sd-make">📝 계약서 만들기</button>'
             : '<button type="button" class="sd-to-gov" data-kind="start">📑 착수계</button><button type="button" class="mail-primary sd-to-gov" data-kind="done">📑 완수계</button>'}
         </div>`;
       wire();
       if (clean) snapshot = JSON.stringify(body());
       if (st.prefill_note) msg(esc(st.prefill_note), "ok"); // 저장하면 st가 서버 응답으로 바뀌어 사라짐 — 그 전엔 다시 그려도 남김
-      if (civil && !st.open_ended) loadCycle(false);
+      if (civil && !st.open_ended && !SEIS) loadCycle(false);
     }
 
     function wire() {
       box.querySelector(".sd-close").addEventListener("click", close);
       box.querySelector(".sd-save").addEventListener("click", () => save(false));
-      box.querySelector(".sd-daega").addEventListener("click", async () => {
+      box.querySelector(".sd-daega")?.addEventListener("click", async () => {
         if (!(await save(true))) return;
         busy = true;
         msg("대가내역서 만드는 중…", "");
@@ -1051,7 +1063,7 @@
   enableFileDrop(document.getElementById("sd-drop-gov"), g2b);
 
   // 민간 계약서 양식 받기·올리기
-  document.getElementById("sd-tpl-get").href = `${BASE}/api${P}/template`;
+  document.getElementById("sd-tpl-get").href = `${BASE}/api${P}/template${SEIS ? "?field=seismic" : ""}`; // 링크는 요청 머리를 못 붙여 주소로
   const tpl = document.getElementById("sd-tpl-file");
   tpl.addEventListener("change", async () => {
     const file = tpl.files[0];

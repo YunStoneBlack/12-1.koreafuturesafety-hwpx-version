@@ -12,6 +12,9 @@
 - 관급(2단계, server/sitok/gov_docs.py): 올리기 g2b(나라장터 계약서 — 글자 규칙, 못 읽은 칸만 AI → 읽은 칸 덮어씀)·report_cover(결과보고서 표지),
   `GET .../{id}/gov` 착수계·완수계 창, `POST .../{id}/gov/{start|done}` 엑셀 + 합본 PDF(붙임 산출내역서·완수내역서), `GET .../{id}/gov/{kind}.{xlsx|pdf}`,
   `POST|GET|DELETE .../{id}/gov/{kind}/attach/{칸}[/{파일}]` 붙임 파일. 기술자 = 시특법 보고서 설정과 같은 명단(사용자 10/12).
+- 분야(0067, 10/28 사용자 "서류 자동화 시특법이랑 동일하게 내진성능평가"): 요청 머리 X-Docs-Field: seismic(내진 화면 — app.js) 또는 ?field=seismic이면
+  계약 분야 "내진"끼리(doc_field). 내진은 카드 = 내진성능평가 건의 숨김 건물(seismic_only), 계약서를 올리고 저장하면 같은 건(없으면 새 건)에 용역 칸·용역계약서
+  (seismic.from_docs_contract — 보고서 쪽 SitokContract는 안 만듦), 민간 = 회차 줄 없이 금액 한 칸·내진 양식(civil.TEMPLATE_NAME_SEISMIC).
 """
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -44,6 +47,17 @@ from server.sitok import seasons
 router = APIRouter(prefix="/sitok/docs", tags=["sitok"])
 ROOT = DATA_DIR / "_시특법_계약"
 SECTORS = ("민간", "관급")
+SEIS = civil.SEISMIC  # 서류 계약 분야 "내진"(0067) — 기본 "시특법"
+
+
+def doc_field(request: Request) -> str:
+    """이 요청의 계약 분야 — 머리 X-Docs-Field(내진 서류 화면이 붙임) 또는 ?field=(머리를 못 붙이는 내려받기 링크). seismic이면 "내진", 아니면 "시특법"."""
+    v = (request.headers.get("x-docs-field") or request.query_params.get("field") or "").strip().lower()
+    return SEIS if v == "seismic" else "시특법"
+
+
+def _seis(c) -> bool:
+    return getattr(c, "field", "") == SEIS
 TEXT = ("sector", "doc_no", "client", "client_rep", "client_biz_no", "client_address", "facility_name", "location", "spec", "title", "contract_no",
         "guarantee", "delay_rate", "client_manager", "client_phone", "client_email", "site_manager", "site_phone", "site_email", "memo")
 DATES = ("contract_date", "start_date", "end_date", "actual_end_date")  # actual_end_date = 실제 준공일(0063, 비면 end_date)
@@ -143,10 +157,12 @@ def covered_ids(c: SitokDocContract) -> list[int]:
     return [int(x) for x in (c.facility_ids or ([c.facility_id] if c.facility_id else []))]
 
 
-def contract_index(db: Session, company_id: int) -> list[tuple[SitokDocContract, set[int]]]:
-    """회사의 서류 계약과 맡는 시설물 — 목록·달력을 한 번 그릴 때 한 번만 읽음."""
-    return [(c, set(covered_ids(c))) for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == company_id)
-            .order_by(SitokDocContract.start_date, SitokDocContract.id)]
+def contract_index(db: Session, company_id: int, field: str | None = None) -> list[tuple[SitokDocContract, set[int]]]:
+    """회사의 서류 계약과 맡는 시설물 — 목록·달력을 한 번 그릴 때 한 번만 읽음. field를 주면 그 분야만(0067)."""
+    q = db.query(SitokDocContract).filter(SitokDocContract.company_id == company_id)
+    if field:
+        q = q.filter(SitokDocContract.field == field)
+    return [(c, set(covered_ids(c))) for c in q.order_by(SitokDocContract.start_date, SitokDocContract.id)]
 
 
 def site_contract(index: list, ids: set[int], year: int, half: str) -> SitokDocContract | None:
@@ -180,6 +196,8 @@ def card_no(db: Session, c: SitokDocContract) -> str:
     (10/19 민재형 "시설물은 관급-9 하나, 계약은 별도 계약이니 9-1·9-2" — 전엔 시설물 번호에 뒷번호를 붙였음). 카드에 안 넣었으면 ""."""
     from server.api.routers.sitok import base_no, card_facilities
 
+    if _seis(c):  # 내진성능평가 건은 번호표 없음(건 하나 = 건물 하나)
+        return ""
     fs = [x for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x is not None]
     if not fs:
         return ""
@@ -188,7 +206,7 @@ def card_no(db: Session, c: SitokDocContract) -> str:
     ids = {x.id for x in card}
     span = lambda x: (x.start_date, x.end_date or (datetime.date.max if x.open_ended else x.start_date))  # noqa: E731 — 해지 시까지 계약은 끝없음
     meets = lambda x: bool(x.start_date and c.start_date) and span(x)[0] <= span(c)[1] and span(c)[0] <= span(x)[1]  # noqa: E731
-    mates = [x for x in db.query(SitokDocContract).filter(SitokDocContract.company_id == c.company_id)
+    mates = [x for x in db.query(SitokDocContract).filter(SitokDocContract.company_id == c.company_id, SitokDocContract.field == c.field)
              if (x.id == c.id or meets(x)) and set(covered_ids(x)) & ids]
     if len(mates) < 2:
         return base
@@ -201,11 +219,18 @@ def summary(db: Session, c: SitokDocContract) -> dict:
     f = db.get(SitokFacility, c.facility_id) if c.facility_id else None
     k = civil.kinds_of(c.rounds, c.unit, c.open_ended)
     auto = half_auto(c, f)
-    return {"id": c.id, **{x: getattr(c, x) for x in TEXT}, **{x: _iso(getattr(c, x)) for x in DATES},
+    seis = None
+    if _seis(c):  # 내진 — 연결한 건(숨김 건물의 성능평가 회차)과 용역계약서를 이 계약에서 넣었는지
+        from server.api.routers import seismic as SE
+
+        r = SE.project_of(db, f) if f is not None and f.seismic_only else None
+        seis = {"rid": r.id if r else None, "synced": SE.docs_synced(r, c)}
+    return {"id": c.id, "field": c.field or "시특법", "seismic": seis, **{x: getattr(c, x) for x in TEXT}, **{x: _iso(getattr(c, x)) for x in DATES},
             "amount": c.amount, "rounds": c.rounds or [], "open_ended": c.open_ended, "unit": c.unit,
             "kind": k, "kind_word": civil.kind_word(k), "total": civil.total(c.rounds) if not c.open_ended else None,
             "auto_title": civil.default_title(c), "auto_doc_no": civil.default_doc_no(c.contract_date),
-            "facility": {"id": f.id, "name": f.name, "mgmt_no": f.mgmt_no} if f else None, "report_contract_id": c.report_contract_id,
+            "facility": {"id": f.id, "name": f.name, "mgmt_no": f.mgmt_no, "seismic_rid": (seis or {}).get("rid")} if f else None,
+            "report_contract_id": c.report_contract_id,
             "half_tag": c.half_tag or "", "half_auto": auto, "half": c.half_tag or auto,
             "facility_ids": covered_ids(c), "amounts": c.amounts or {}, "card_no": card_no(db, c), "cover": c.cover or "", "est_parts": c.est_parts or [],
             "targets": [{"id": t.id, "mgmt_no": t.mgmt_no, "name": t.name} for t in (db.get(SitokFacility, x) for x in covered_ids(c)) if t is not None],
@@ -295,7 +320,9 @@ def _apply(c: SitokDocContract, body: ContractIn, user: User, db: Session | None
         c.unit = {"kind": u.get("kind") if u.get("kind") in civil.KINDS else "정기", "amount": int(str(u.get("amount") or 0).replace(",", "") or 0)} if u else None
     if "amount" in data:
         c.amount = data["amount"]
-    if c.sector == "민간":  # 민간 금액 = 회차 합(끝 없는 계약은 비움)
+    if _seis(c):  # 내진성능평가 — 반기 회차 없음, 계약금액 한 칸(민간·관급 같음, 10/28)
+        c.rounds, c.open_ended, c.unit = [], False, None
+    elif c.sector == "민간":  # 민간 금액 = 회차 합(끝 없는 계약은 비움)
         c.amount = None if c.open_ended else (civil.total(c.rounds) or None)
         if c.open_ended:
             c.end_date = None
@@ -303,25 +330,26 @@ def _apply(c: SitokDocContract, body: ContractIn, user: User, db: Session | None
 
 
 @router.get("/contracts")
-def list_contracts(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id).order_by(SitokDocContract.id.desc()).all()
+def list_contracts(field: str = Depends(doc_field), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id, SitokDocContract.field == field)
+            .order_by(SitokDocContract.id.desc()).all())
     return {"contracts": [summary(db, c) for c in rows]}
 
 
 @router.get("/contracts/blank")
-def blank(sector: str = "민간", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def blank(sector: str = "민간", field: str = Depends(doc_field), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = SitokDocContract(id=0, company_id=user.company_id, sector=sector if sector in SECTORS else "민간", rounds=[], open_ended=False,
-                         guarantee="-", delay_rate="-")
+                         guarantee="-", delay_rate="-", field=field)
     return summary(db, c) | {"files": {}}
 
 
 @router.post("/contracts")
-def create(body: ContractIn | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    c = SitokDocContract(company_id=user.company_id, created_by=user.display_name or "", rounds=[], guarantee="-", delay_rate="-")
+def create(body: ContractIn | None = None, field: str = Depends(doc_field), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = SitokDocContract(company_id=user.company_id, created_by=user.display_name or "", rounds=[], guarantee="-", delay_rate="-", field=field)
     _apply(c, body or ContractIn(), user, db)
     db.add(c)
     db.commit()
-    if c.facility_id:  # 시설물 카드 안 [+ 계약] — 방문 달력에 반기마다 점검 날(10/15)
+    if c.facility_id and not _seis(c):  # 시설물 카드 안 [+ 계약] — 방문 달력에 반기마다 점검 날(10/15, 내진 건은 방문 달력 밖)
         from server.sitok.visit_plan import fill_quietly
         fill_quietly(db, user.company_id, user.display_name or "", [c.facility_id])
     return summary(db, c)
@@ -338,11 +366,26 @@ def card_out(f: SitokFacility, members: list[SitokFacility], viewed: str = "", p
 
 
 @router.get("/facilities")
-def list_cards(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """시설물 카드 — 시설물 하나(묶인 동은 대표 동 하나) + 계약은 /contracts의 facility(묶음 동 아무나)로 카드에 넣음(화면)."""
+def list_cards(field: str = Depends(doc_field), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """시설물 카드 — 시설물 하나(묶인 동은 대표 동 하나) + 계약은 /contracts의 facility(묶음 동 아무나)로 카드에 넣음(화면).
+    내진(10/28) = 내진성능평가 건마다 카드 하나(숨김 건물, 번호표 없음) — seismic_rid = 건 화면(seismic-project.html?id=)."""
     from core.models_web import SitokView
 
     from server.api.routers.sitok import base_no
+
+    if field == SEIS:
+        from server.api.routers import seismic as SE
+
+        seen = {k: v.isoformat(timespec="seconds") for k, v in db.query(SitokView.facility_id, SitokView.viewed_at).filter(SitokView.user_id == user.id)}
+        index = contract_index(db, user.company_id, SEIS)
+        out = []
+        for f in db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id, SitokFacility.seismic_only.is_(True)).order_by(SitokFacility.id):
+            r = SE.project_of(db, f)
+            card = card_out(f, [f], seen.get(f.id, ""), site_phone(index, {f.id}, f.owner_phone))
+            card["seismic_rid"] = r.id if r else None
+            card["units"] = [{"id": f.id, "mgmt_no": "", "name": f.name, "members": [{"id": f.id, "name": f.name}]}]
+            out.append(card)
+        return {"facilities": out}
 
     rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id, SitokFacility.survey_only.is_(False), SitokFacility.seismic_only.is_(False)).order_by(SitokFacility.group_order, SitokFacility.id).all()
     seen = {k: v.isoformat(timespec="seconds") for k, v in db.query(SitokView.facility_id, SitokView.viewed_at).filter(SitokView.user_id == user.id)}
@@ -367,7 +410,7 @@ def list_cards(user: User = Depends(get_current_user), db: Session = Depends(get
         cards.setdefault(key, []).append((members, name))
     sub = lambda u: (u[0][0].book_order or 0, u[0][0].id)  # noqa: E731 — 카드 안 보고서 순서(0054, 전엔 뒷번호 6-1·6-2)
     out = []
-    index = contract_index(db, user.company_id)
+    index = contract_index(db, user.company_id, field)
     for key, us in cards.items():
         us.sort(key=sub)
         allm = [m for members, _ in us for m in members]
@@ -712,6 +755,9 @@ def school_names(*texts: str | None) -> set[str]:
 
 def drop_report_contracts(db: Session, c: SitokDocContract, keep: set[str] | None = None) -> None:
     """이 서류 계약이 보고서 쪽에 넣은 계약(SitokContract) 중 keep(시설물 id 글자) 밖의 것을 지움 — 붙은 회차는 남고 계약 칸만 비움(10/16)."""
+    if _seis(c):  # 내진은 보고서 쪽 계약(SitokContract)을 안 만듦 — 건 용역 칸에 넣음(seismic.from_docs_contract)
+        c.report_contracts, c.report_contract_id = None, None
+        return
     rcmap = {str(k): v for k, v in (c.report_contracts or {}).items()}
     if c.report_contract_id and not rcmap and c.facility_id:
         rcmap[str(c.facility_id)] = c.report_contract_id
@@ -941,6 +987,8 @@ def match_card(db: Session, c: SitokDocContract, why: dict | None = None) -> lis
 def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
     """계약서 PDF가 있으면 저장할 때 카드에 넣고 보고서 쪽 계약까지(to_facility) — 카드가 없으면 같은 시설물 카드를 찾아 넣고, 없으면 새 카드.
     같은 계약번호 계약이 이미 있으면(중복) 안 함. 넣을 수 없으면 None(그냥 저장)."""
+    if _seis(c):
+        return seismic_auto(db, user, c)
     has_pdf = signed_pdf(c) is not None or (folder(c) / "계약서.pdf").exists()
     if not has_pdf or duplicate_of(db, c) is not None or not (c.facility_name or c.client or c.title):
         return None
@@ -993,6 +1041,99 @@ def auto_card(db: Session, user: User, c: SitokDocContract) -> dict | None:
     return summary(db, c) | {"auto_card": msg, "report_id": out.get("report_id")}
 
 
+# ---------- 내진성능평가 계약 → 건(10/28) ----------
+
+def _seis_key(s: str | None) -> str:
+    """이름 비교용 — 띄어쓰기·괄호 빼고 "○○초등학교" → "○○초"(계약 건명은 "의정부호원초 교사동"처럼 줄여 씀)."""
+    s = _norm(s)
+    for a, b in (("초등학교", "초"), ("중학교", "중"), ("고등학교", "고")):
+        s = s.replace(a, b)
+    return s
+
+
+def match_seismic(db: Session, c: SitokDocContract) -> list[SitokFacility] | None | bool:
+    """같은 내진성능평가 건 — 건 용역 칸 계약번호가 같으면 그 건, 아니면 건 이름(학교 이름 줄임 포함)이 계약 건명·건물명에 들어 있는 건.
+    없으면 None, 둘 이상이면 False(사람이 고름)."""
+    from server.api.routers import seismic as SE
+
+    fs = db.query(SitokFacility).filter(SitokFacility.company_id == c.company_id, SitokFacility.seismic_only.is_(True)).all()
+    no = (c.contract_no or "").strip()
+    if no:
+        same = [f for f in fs if (r := SE.project_of(db, f)) is not None and ((r.survey or {}).get("seismic_contract") or {}).get("contract_no") == no]
+        if len(same) == 1:
+            return same
+    text = _seis_key(" ".join(x for x in (c.title, c.facility_name) if x))
+    if not text:
+        return None
+    hits = [f for f in fs if len(_seis_key(f.name)) >= 3 and _seis_key(f.name) in text]
+    if not hits:  # "백석중학교 나동" — 학교 이름(첫 말)만
+        hits = [f for f in fs if (f.name or "").split() and len(_seis_key(f.name.split()[0])) >= 3 and _seis_key(f.name.split()[0]) in text]
+    if len(hits) == 1:
+        return hits
+    return False if hits else None
+
+
+def _seis_name(c: SitokDocContract) -> str:
+    """새 건 이름 — 건물명(발주처와 다를 때), 아니면 계약 건명에서 "2026년"·"내진성능평가 용역"을 뺀 것."""
+    if (c.facility_name or "").strip() and _norm(c.facility_name) != _norm(c.client):
+        return c.facility_name.strip()
+    t = re.sub(r"^\s*\d{4}\s*년(?:도)?\s*", "", c.title or "")
+    t = re.sub(r"\s*내진\s*성능\s*평가\s*(?:용역)?\s*$", "", t).strip()
+    return t or (c.facility_name or c.client or "").strip()
+
+
+def to_seismic(db: Session, user: User, c: SitokDocContract, src: Path) -> dict:
+    """내진 계약 → 건: 연결한 건(없으면 같은 건을 찾고, 그래도 없으면 새 건)에 용역 칸·용역계약서 PDF. to_facility와 같은 모양으로 돌려줌."""
+    from server.api.routers import seismic as SE
+
+    f = db.get(SitokFacility, c.facility_id) if c.facility_id else None
+    if f is not None and not f.seismic_only:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "내진성능평가 계약이 시특법 시설물에 연결돼 있습니다 — [다른 카드로]에서 내진성능평가 건을 고르세요.")
+    created = None
+    if f is None:
+        m = match_seismic(db, c)
+        if m is False:
+            raise HTTPException(status.HTTP_409_CONFLICT, "같은 건으로 보이는 내진성능평가 건이 여럿입니다 — [🔗 카드 고르기]에서 고르세요.")
+        if m:
+            f = m[0]
+        else:
+            f, _ = SE.new_project(db, user, _seis_name(c), c.client or "", c.start_date)
+            created = f.id
+        c.facility_id, c.facility_ids = f.id, None
+    r = SE.project_of(db, f)
+    if r is None:  # 숨김 건물만 남은 옛 건 — 회차를 새로
+        r = SitokReport(company_id=user.company_id, facility_id=f.id, year=(c.start_date or datetime.date.today()).year, half=seasons.SEISMIC,
+                        kind="성능평가", source_note="내진성능평가", survey={})
+        db.add(r)
+        db.flush()
+    put = SE.from_docs_contract(f, r, c, src, user.display_name or "")
+    db.commit()
+    return summary(db, c) | {"report_contract": None, "facility_name": f.name, "created_facility": created, "report_id": r.id,
+                             "changed": put["fields"] or put["pdf"], "put": put}
+
+
+def seismic_auto(db: Session, user: User, c: SitokDocContract) -> dict | None:
+    """내진 auto_card — 계약서 PDF가 있으면 저장할 때 건에(같은 건 → 없으면 새 건). 바뀐 것이 없거나 못 정하면 None(그냥 저장)."""
+    src = signed_pdf(c) or folder(c) / "계약서.pdf"
+    if not src.exists() or duplicate_of(db, c) is not None or not (c.facility_name or c.client or c.title):
+        return None
+    was = c.facility_id
+    try:
+        out = to_seismic(db, user, c, src)
+    except HTTPException:
+        db.rollback()
+        return None
+    if was and not out.get("changed"):
+        return None
+    put = out.get("put") or {}
+    what = "용역 정보·용역계약서" if put.get("pdf") else "용역 정보"
+    tail = " — 건에 따로 올린 용역계약서는 그대로 두었습니다" if put.get("kept") else ""
+    msg = (f"✓ 새 내진성능평가 건 {out['facility_name']}을(를) 만들어 {what}를 넣었습니다(보고서 자동화 › 내진성능평가에도 생김)" if out.get("created_facility")
+           else f"✓ 내진성능평가 건 {out['facility_name']}에 {what}를 넣었습니다{tail}" if not was
+           else f"✓ 내진성능평가 건 {out['facility_name']}의 {what}를 맞췄습니다{tail}")
+    return out | {"auto_card": msg}
+
+
 @router.delete("/contracts/{cid}")
 def delete_contract(cid: int, password: str = Body("", embed=True), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """지우기(올린·만든 파일까지, 되돌릴 수 없음) — 회사 공용 삭제 비밀번호. 이 계약이 보고서 쪽에 넣은 계약도 지움(10/16 — 붙은 회차는 남고 계약 칸만 비움)."""
@@ -1036,24 +1177,26 @@ def _pdf(file: UploadFile) -> bytes:
 
 
 @router.post("/contracts/from-existing")
-def from_existing(file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def from_existing(file: UploadFile = File(...), field: str = Depends(doc_field), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """이미 만든(날인한) 민간 계약서로 새 계약 — 파일을 못 읽으면 아무것도 안 만듦. 같은 시설물·관리주체 계약이 있으면 알려 줌."""
     pdf = _pdf(file)
-    c = SitokDocContract(company_id=user.company_id, created_by=user.display_name or "", sector="민간", rounds=[], guarantee="-", delay_rate="-")
+    c = SitokDocContract(company_id=user.company_id, created_by=user.display_name or "", sector="민간", rounds=[], guarantee="-", delay_rate="-", field=field)
     db.add(c)
     db.flush()
     out = _store(db, c, "existing", pdf, user)
     key = (c.facility_name or c.client or "").replace(" ", "")
-    dup = next((o for o in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id, SitokDocContract.id != c.id)
+    dup = next((o for o in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id, SitokDocContract.id != c.id,
+                                                             SitokDocContract.field == field)
                 if key and key in {(o.facility_name or "").replace(" ", ""), (o.client or "").replace(" ", "")}), None)
     return out | {"duplicate_of": {"id": dup.id, "title": dup.title or civil.default_title(dup)} if dup else None}
 
 
 @router.post("/contracts/from-g2b")
-def from_g2b(file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def from_g2b(file: UploadFile = File(...), field: str = Depends(doc_field), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """나라장터 계약서로 새 관급 계약(10/16 대시보드) — 파일을 PDF로 못 바꾸면 아무것도 안 만듦, 읽기는 못 해도 파일은 붙임(손으로 채움)."""
     pdf = _pdf(file)
-    c = SitokDocContract(company_id=user.company_id, created_by=user.display_name or "", sector="관급", rounds=[], guarantee="-", delay_rate="-")
+    c = SitokDocContract(company_id=user.company_id, created_by=user.display_name or "", sector="관급", rounds=[], guarantee="-", delay_rate="-",
+                         field=field)
     db.add(c)
     db.flush()
     return _store(db, c, "g2b", pdf, user)
@@ -1077,7 +1220,7 @@ def add_estimate(cid: int, file: UploadFile = File(...), user: User = Depends(ge
     if parts:
         c.est_parts = parts
         note = "읽은 건물: " + " · ".join(x["name"] + (f" {x['amount']:,}원" if x.get("amount") else "") for x in parts)
-        if redecide(db, c, force_names=True):
+        if not _seis(c) and redecide(db, c, force_names=True):
             db.flush()
             out = auto_card(db, user, c) if (c.report_contracts or c.report_contract_id) else None
             note += " → 이 계약의 시설물 " + " · ".join(x.name for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x)
@@ -1109,7 +1252,16 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
         c.contract_pdf = str(base / target)
     filled, error = [], ""
     try:
-        if kind == "ledger":
+        if kind == "ledger" and _seis(c):  # 내진 = 건축물대장(글자 PDF — 규칙으로, server/sitok/seismic_docs.read_register)
+            from server.sitok import seismic_docs as SD
+
+            d = SD.read_register(base / target)
+            if not d.get("text_ok"):
+                raise ValueError("글자가 없는 PDF(스캔)라 건축물대장 칸을 못 읽었습니다")
+            got = {"facility_name": d.get("name"), "location": d.get("address"),
+                   "spec": f"연면적 {float(d['total_area']):,.2f}m²" if d.get("total_area") else ""}
+            filled = _fill(c, got, False)
+        elif kind == "ledger":
             d = reader.read_ledger(base / target, user.company_id)
             got = {"facility_name": d.get("name"), "location": d.get("address"), "client": d.get("owner_name"),
                    "client_rep": d.get("owner_rep"), "spec": f"연면적 {d['total_area']:,.2f}m²" if d.get("total_area") else ""}
@@ -1117,13 +1269,14 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
         elif kind == "bizreg":
             filled = _fill(c, civil.read_bizreg(pdf, "사업자등록증.pdf", user.company_id), False)
         elif kind == "existing":
-            got = civil.read_existing(pdf, "계약서.pdf", user.company_id)
+            got = civil.read_existing(pdf, "계약서.pdf", user.company_id, c.field)
             c.sector = "민간"
             filled = _fill(c, got, True)
-            c.amount = None if c.open_ended else (civil.total(c.rounds) or None)
+            if not _seis(c):  # 내진은 계약금액 칸을 그대로 읽음
+                c.amount = None if c.open_ended else (civil.total(c.rounds) or None)
         elif kind == "g2b":
             c.sector = "관급"
-            got, error = _read_g2b(base / target, user.company_id)
+            got, error = _read_g2b(base / target, user.company_id, c.field)
             filled = _fill(c, got, True)
     except Exception as err:  # noqa: BLE001 — 파일은 붙이고 손으로 채우게
         error = f"자동으로 읽지 못했습니다 — 직접 넣어 주세요. ({str(err).splitlines()[0][:150]})"
@@ -1131,12 +1284,12 @@ def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) 
     folder(c)  # 이름이 바뀌었으면 폴더도
     if c.contract_pdf and not Path(c.contract_pdf).exists():
         c.contract_pdf = str(folder(c) / "날인본.pdf")
-    if kind in ("g2b", "existing") and c.facility_id:  # 카드 안 [+ 계약] — 기간·건명을 읽었으니 맡을 건물을 다시 정함(사람이 고른 계약은 그대로)
+    if kind in ("g2b", "existing") and c.facility_id and not _seis(c):  # 카드 안 [+ 계약] — 기간·건명을 읽었으니 맡을 건물을 다시 정함(사람이 고른 계약은 그대로)
         redecide(db, c)
     db.commit()
     dup = duplicate_of(db, c)
     auto = auto_card(db, user, c) if kind in ("g2b", "existing", "signed") else None  # 계약서를 올리면 바로 카드에(10/15 — 저장 = 카드)
-    if auto is None and c.facility_id and kind in ("g2b", "existing"):  # 카드 안 계약 — 기간이 생기면 방문 달력 일정(10/15)
+    if auto is None and c.facility_id and kind in ("g2b", "existing") and not _seis(c):  # 카드 안 계약 — 기간이 생기면 방문 달력 일정(10/15)
         from server.sitok.visit_plan import fill_quietly
         fill_quietly(db, user.company_id, user.display_name or "", [c.facility_id])
     return (auto or summary(db, c)) | {"filled": filled, "error": error, "duplicate_of": dup}
@@ -1147,7 +1300,7 @@ def duplicate_of(db: Session, c: SitokDocContract) -> dict | None:
     no = (c.contract_no or "").strip()
     if not no:
         return None
-    rows = db.query(SitokDocContract).filter(SitokDocContract.company_id == c.company_id, SitokDocContract.id != c.id,
+    rows = db.query(SitokDocContract).filter(SitokDocContract.company_id == c.company_id, SitokDocContract.id != c.id, SitokDocContract.field == c.field,
                                              SitokDocContract.contract_no == no).order_by(SitokDocContract.facility_id.is_(None), SitokDocContract.id).all()
     if not rows:
         return None
@@ -1158,8 +1311,8 @@ def duplicate_of(db: Session, c: SitokDocContract) -> dict | None:
 
 # ---------- 민간 계약서 만들기 ----------
 
-def _template() -> bytes:
-    p = civil.template_path()
+def _template(field: str = "") -> bytes:
+    p = civil.template_path(field)
     if not p.exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "민간 계약서 양식이 없습니다 — 화면 아래 [양식]에서 올려 주세요.")
     return p.read_bytes()
@@ -1176,9 +1329,12 @@ def make(cid: int, body: ContractIn | None = None, user: User = Depends(get_curr
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "관급은 나라장터 계약서를 받습니다 — 계약서 만들기는 민간만.")
     if not c.facility_name and not c.client:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "관리주체·시설물명을 넣어 주세요.")
-    if not c.open_ended and not c.rounds:
+    if _seis(c):
+        if not c.amount:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "계약금액을 넣어 주세요.")
+    elif not c.open_ended and not c.rounds:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "계약 회차(연도·반기·정기/정밀·금액)를 하나 이상 넣거나 [계약 해지 시까지]를 고르세요.")
-    data = civil.build(_template(), civil.values(c))  # 문서번호·계약건명이 비면 자동 값(저장은 안 함 — 회차를 고치면 따라 바뀌게)
+    data = civil.build(_template(c.field), civil.values(c))  # 문서번호·계약건명이 비면 자동 값(저장은 안 함 — 회차를 고치면 따라 바뀌게)
     base = folder(c)
     base.mkdir(parents=True, exist_ok=True)
     (base / "계약서.hwpx").write_bytes(data)
@@ -1231,7 +1387,9 @@ def candidates(cid: int, user: User = Depends(get_current_user), db: Session = D
 
     c = _require(db, user, cid)
     key = c.facility_name or c.client or c.title
-    rows = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id, SitokFacility.survey_only.is_(False), SitokFacility.seismic_only.is_(False)).all()
+    q = db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id)
+    rows = (q.filter(SitokFacility.seismic_only.is_(True)) if _seis(c)  # 내진 = 내진성능평가 건(숨김 건물)
+            else q.filter(SitokFacility.survey_only.is_(False), SitokFacility.seismic_only.is_(False))).all()
     rows.sort(key=lambda f: -max(similarity(key, f.name), similarity(key, f.owner_name or "")))
     return {"facilities": [{"id": f.id, "name": f.name, "owner": f.owner_name, "address": f.address} for f in rows]}
 
@@ -1247,6 +1405,8 @@ def link(cid: int, body: LinkIn, user: User = Depends(get_current_user), db: Ses
         f = db.get(SitokFacility, body.facility_id)
         if f is None or f.company_id != user.company_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
+        if bool(f.seismic_only) != _seis(c):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "내진성능평가 계약은 내진성능평가 건에만, 시특법 계약은 시특법 시설물에만 넣을 수 있습니다.")
     if body.facility_id != c.facility_id or c.facility_ids:  # 10/16: 예전 카드에 넣었던 보고서 쪽 계약을 지우고(회차는 남음) 새 카드로
         drop_report_contracts(db, c)
         c.facility_ids, c.amounts = None, None
@@ -1269,6 +1429,8 @@ def to_facility(cid: int, user: User = Depends(get_current_user), db: Session = 
     src = signed_pdf(c) or folder(c) / "계약서.pdf"
     if not src.exists():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "넣을 계약서가 없습니다 — 날인본을 올리거나 계약서를 만드세요.")
+    if _seis(c):
+        return to_seismic(db, user, c, src)
     f = db.get(SitokFacility, c.facility_id) if c.facility_id else None
     created = None
     if f is None:
@@ -1395,15 +1557,15 @@ def _first_report(db: Session, user: User, f: SitokFacility, rc: SitokContract) 
 # ---------- 민간 계약서 양식 ----------
 
 @router.get("/template")
-def get_template(user: User = Depends(get_current_user)):
-    p = civil.template_path()
+def get_template(field: str = Depends(doc_field), user: User = Depends(get_current_user)):
+    p = civil.template_path(field)
     if not p.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "양식이 없습니다.")
-    return FileResponse(p, media_type="application/octet-stream", filename=civil.TEMPLATE_NAME)
+    return FileResponse(p, media_type="application/octet-stream", filename=civil.template_name(field))
 
 
 @router.post("/template")
-def put_template(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+def put_template(file: UploadFile = File(...), field: str = Depends(doc_field), user: User = Depends(get_current_user)):
     """고친 양식 올리기 — 한글(hwp면 hwpx로 바꿈). 꼭 있어야 할 자리표시({시설물명} 등)가 빠지면 안 받음, 지금 양식은 _지난양식/에 보관."""
     from server.contract_docs import hwp_queue
 
@@ -1421,7 +1583,7 @@ def put_template(file: UploadFile = File(...), user: User = Depends(get_current_
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"한글 파일을 읽지 못했습니다: {err}") from err
     if missing:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "양식에 꼭 있어야 할 자리가 없습니다: " + ", ".join("{" + m + "}" for m in missing))
-    p = civil.template_path()
+    p = civil.template_path(field)
     if p.exists():
         old = p.parent / "_지난양식" / f"{p.stem}_{datetime.datetime.fromtimestamp(p.stat().st_mtime):%Y%m%d_%H%M%S}.hwpx"
         old.parent.mkdir(parents=True, exist_ok=True)
@@ -1432,7 +1594,7 @@ def put_template(file: UploadFile = File(...), user: User = Depends(get_current_
 
 # ---------- 관급 착수계·완수계(2단계, server/sitok/gov_docs.py) ----------
 
-def _read_g2b(pdf: Path, company_id: int) -> tuple[dict, str]:
+def _read_g2b(pdf: Path, company_id: int, field: str = "") -> tuple[dict, str]:
     """나라장터 계약서 → 계약 칸(글자 규칙, 못 읽은 중요한 칸만 AI — 산안법과 같음, 용역 종류만 바꾼 물음). 사업 담당(수요기관) = 현장 담당."""
     from server.contract_docs import contract_ai, contract_pdf
 
@@ -1449,7 +1611,7 @@ def _read_g2b(pdf: Path, company_id: int) -> tuple[dict, str]:
     error = ""
     if contract_ai.needs_ai(got):
         try:
-            prompt = contract_ai.PROMPT.replace("건설재해예방 기술지도 용역", "시설물 정기안전점검 용역")
+            prompt = contract_ai.PROMPT.replace("건설재해예방 기술지도 용역", "건물 내진성능평가 용역" if field == SEIS else "시설물 정기안전점검 용역")
             for k, v in contract_ai.read_with_ai(pdf, company_id, prompt).items():
                 if v and not got.get(k):
                     got[k] = v
@@ -1509,6 +1671,8 @@ def _cover_source(db: Session, c: SitokDocContract) -> tuple[Path | None, str]:
         reps = [r for r in db.query(SitokReport).filter(SitokReport.facility_id == c.facility_id).all() if r.out_pdf and Path(r.out_pdf).exists()]
         reps.sort(key=lambda r: (r.contract_id is not None and r.contract_id == c.report_contract_id, r.made_at or r.created_at), reverse=True)
         if reps:
+            if _seis(c):
+                return Path(reps[0].out_pdf), "내진성능평가 보고서 표지(연결한 건)"
             return Path(reps[0].out_pdf), f"{reps[0].year}년 {reps[0].half} 보고서 표지(연결한 시설물)"
     return None, ""
 

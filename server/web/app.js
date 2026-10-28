@@ -14,12 +14,20 @@ function apiUrl(path) {
   return `${BASE}/api${path}`;
 }
 
+// 서류 자동화 › 내진성능평가 화면(<body data-docs-field="seismic">)이면 요청마다 계약 분야를 알림(10/28 — 서버 sitok_docs.py doc_field, 계약 목록·제출 현황·일정이 내진 계약끼리).
+// 다른 화면은 머리 없음 = 시특법(예전 그대로).
+function docsFieldHeaders() {
+  const f = document.body && document.body.dataset.docsField;
+  return f ? { "X-Docs-Field": f } : {};
+}
+
 async function api(path, options = {}) {
   const url = apiUrl(path);
+  const { headers, ...rest } = options;
   const res = await fetch(url, {
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    ...options,
+    ...rest,
+    headers: { "Content-Type": "application/json", ...docsFieldHeaders(), ...(headers || {}) },
   });
   if (res.status === 401) {
     window.location.href = "index.html";
@@ -47,7 +55,7 @@ function apiPatch(path, data) {
 async function apiUpload(path, formData) {
   // 사진은 원본 그대로 올려 서버에 보관한다(사용자 결정 2026-09-29 — 고화질 원본 보관, 보고서에 넣을 때만 서버가 1400px로 줄임).
   const url = apiUrl(path);
-  const res = await fetch(url, { method: "POST", credentials: "include", body: formData });
+  const res = await fetch(url, { method: "POST", credentials: "include", headers: docsFieldHeaders(), body: formData });
   if (res.status === 401) {
     window.location.href = "index.html";
     throw new Error("로그인이 필요합니다.");
@@ -116,7 +124,7 @@ const KfUploads = (() => {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), Math.min(300000, Math.max(60000, (it.blob.size || 0) / 20))); // 약 20KB/초 기준, 1~5분
     try {
-      const res = await fetch(apiUrl(it.path), { method: "POST", credentials: "include", body: fd, signal: ctl.signal });
+      const res = await fetch(apiUrl(it.path), { method: "POST", credentials: "include", headers: docsFieldHeaders(), body: fd, signal: ctl.signal });
       if (res.status === 401) return { retry: true, login: true, error: "로그인이 풀렸습니다" };
       if (res.ok) return { ok: true, data: await res.json().catch(() => null) };
       const body = await res.json().catch(() => ({}));

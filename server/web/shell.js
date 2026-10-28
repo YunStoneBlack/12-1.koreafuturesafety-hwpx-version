@@ -31,6 +31,10 @@ const isDocsPage = () => !!document.body.dataset.docsTab;
 const pageLaw = () => (document.body.dataset.law === "sitok" ? "sitok" : "sanan");
 const SITOK_TABS = [["facilities", "시설물 목록", "sitok.html"], ["status", "제출 현황", "sitok-status.html"], ["calendar", "방문 달력", "sitok-calendar.html"]];  // 제출 현황 = 상·하반기(10/15), 설정은 왼쪽 메뉴(10/20)
 const SITOK_DOCS_TABS = [["contracts", "계약 목록", "sitok-docs.html"], ["status", "제출 현황", "sitok-docs-status.html"], ["calendar", "착수·완수 일정", "sitok-docs-calendar.html"], ["performance", "실적", "docs-performance.html"]];  // 일정 = 관급만(10/12), 실적은 산안법과 같은 화면(10/14)
+// 서류 자동화 › 내진성능평가(10/28 사용자 "시특법이랑 동일하게") — 시특법 서류 화면을 그대로 쓰고 <body data-law="sitok" data-docs-field="seismic">로 가림
+// (계약은 분야 "내진"끼리 — app.js가 요청 머리 X-Docs-Field: seismic을 붙임). 실적 탭은 시특법·산안법과 같은 화면.
+const SEISMIC_DOCS_TABS = [["contracts", "계약 목록", "seismic-docs.html"], ["status", "제출 현황", "seismic-docs-status.html"], ["calendar", "착수·완수 일정", "seismic-docs-calendar.html"], ["performance", "실적", "docs-performance.html"]];
+const isSeismicDocs = () => document.body.dataset.docsField === "seismic";
 const LAW_LABEL = { sanan: "산안법", sitok: "시특법" };
 const SIDEBAR_CACHE_KEY = "kfsc-report:gw-sidebar";
 
@@ -70,14 +74,16 @@ function renderReportHeader() {
     return;
   }
   const law = pageLaw();
-  const sub = law === "sitok"
+  const seisDocs = docs && isSeismicDocs();
+  const sub = seisDocs ? "내진성능평가 용역 계약서(민간)와 착수계·완수계(관급) 등 서류를 만듭니다."
+    : law === "sitok"
     ? (docs ? "시설물 점검 계약서(민간)와 착수계·완수계(관급) 등 서류를 만듭니다." : "시설물 정기안전점검 결과보고서를 작성하고 PDF로 만듭니다.")
     : (docs ? "용역 계약별 착수계·완수계를 만들고 제출 현황·일정을 봅니다." : "현장별 기술지도 결과보고서를 작성하고 PDF로 만듭니다.");
-  head.innerHTML = `<h1>${docs ? "서류 자동화" : "보고서 자동화"}<span class="law-badge ${law}">${LAW_LABEL[law]}</span></h1>
+  head.innerHTML = `<h1>${docs ? "서류 자동화" : "보고서 자동화"}<span class="law-badge ${seisDocs ? "common" : law}">${seisDocs ? "내진성능평가" : LAW_LABEL[law]}</span></h1>
     <p class="page-sub">${sub}</p>`;
   const nav = document.createElement("nav");
   nav.className = `report-tabs${tabsOnly ? " tabs-only" : ""}`;
-  const tabs = law === "sitok" ? (docs ? SITOK_DOCS_TABS : SITOK_TABS) : (docs ? DOCS_TABS : REPORT_TABS);
+  const tabs = seisDocs ? SEISMIC_DOCS_TABS : law === "sitok" ? (docs ? SITOK_DOCS_TABS : SITOK_TABS) : (docs ? DOCS_TABS : REPORT_TABS);
   for (const [key, label, href] of tabs) {
     const a = document.createElement("a");
     a.href = href;
@@ -126,7 +132,7 @@ function writeSidebarCache(html) {
 // 그룹웨어 조각에 아직 그 줄이 없으면 여기서 더한다(그룹웨어 appshell.html에도 같은 줄을 넣어 두었고, 그쪽이 배포되면 이미 있으니 안 더함).
 const MENU_EXTRA = {
   report: [["seismic", "seismic.html", "내진성능평가", "defect"], ["defect", "defect-survey.html", "결함조사", "set"], ["set", "settings.html", "설정"]],  // 내진성능평가·결함조사(10/21 사용자) = 시특법과 설정 사이 — 넷째 = 이 줄 앞에
-  docs: [["perf", "docs-performance.html", "실적"], ["set", "docs-settings.html", "설정"]],
+  docs: [["seismic", "seismic-docs.html", "내진성능평가", "perf"], ["perf", "docs-performance.html", "실적"], ["set", "docs-settings.html", "설정"]],  // 내진성능평가(10/28) = 시특법과 실적 사이
 };
 function addMenuItems(aside) {
   for (const [menu, items] of Object.entries(MENU_EXTRA)) {
@@ -158,7 +164,7 @@ function markSidebar(aside) {
   const subs = parent.nextElementSibling;
   if (subs && subs.classList.contains("nav-sub")) {
     const tab = document.body.dataset.docsTab || document.body.dataset.reportTab;
-    const law = { performance: "perf", settings: "set", defect: "defect", seismic: "seismic" }[tab] || pageLaw();  // 실적·설정·결함조사·내진성능평가 화면이면 그 줄
+    const law = { performance: "perf", settings: "set", defect: "defect", seismic: "seismic" }[tab] || (isDocsPage() && isSeismicDocs() ? "seismic" : pageLaw());  // 실적·설정·결함조사·내진성능평가 화면이면 그 줄
     subs.querySelector(`.nav-subitem[data-law="${law}"]`)?.classList.add("active");
   }
 }

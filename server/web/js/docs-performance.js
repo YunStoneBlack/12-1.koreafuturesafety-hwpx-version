@@ -10,12 +10,13 @@
   const $ = (id) => document.getElementById(id);
   let data = null;
   let law = "";
+  const LAW_K = { 시특법: "sitok", 산안법: "sanan", 내진성능평가: "seismic" }; // 구분 → 서버 합계 칸(내진성능평가 10/28)
   let year = Number(new URLSearchParams(location.search).get("year")) || new Date().getFullYear();
 
   // 카드 — [시특법·산안법]을 고르면 그 카드에 테두리, 전년 대비 카드는 그 구분 금액끼리 비교(10/15 민재형)
   function cards() {
     const s = data.summary;
-    const k = law === "시특법" ? "sitok" : law === "산안법" ? "sanan" : "total";
+    const k = LAW_K[law] || "total";
     const diff = s.this[k] - s.prev[k];
     const pct = s.prev[k] ? Math.round((diff / s.prev[k]) * 100) : null;
     const tone = pct === null ? "" : pct >= 0 ? "up" : "down";
@@ -24,6 +25,7 @@
       <div class="pf-card"><span class="pf-k">${data.year}년 계약 합계</span><b class="pf-v">${man(s.this.total)}원</b><span class="pf-s">${won(s.this.total)} · ${s.this.count}건</span></div>
       <div class="pf-card${sel("sitok")}"><span class="pf-k">시특법</span><b class="pf-v">${man(s.this.sitok)}원</b><span class="pf-s">${won(s.this.sitok)}</span></div>
       <div class="pf-card${sel("sanan")}"><span class="pf-k">산안법 기술지도</span><b class="pf-v">${man(s.this.sanan)}원</b><span class="pf-s">${won(s.this.sanan)}</span></div>
+      <div class="pf-card${sel("seismic")}"><span class="pf-k">내진성능평가</span><b class="pf-v">${man(s.this.seismic || 0)}원</b><span class="pf-s">${won(s.this.seismic || 0)}</span></div>
       <div class="pf-card ${tone}"><span class="pf-k">${law ? `${law} · ` : ""}전년 ${s.cutoff ? `같은 기간(~${ymd(s.cutoff).slice(5)})` : "전체"} 대비</span>
         <b class="pf-v">${pct === null ? "—" : `${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct)}%`}</b>
         <span class="pf-s">${data.year - 1}년 ${s.cutoff ? "같은 기간" : ""} ${man(s.prev[k])}원${s.cutoff ? ` · ${data.year - 1}년 전체 ${man(s.prev_full[k])}원` : ""}</span></div>`;
@@ -36,7 +38,7 @@
     $("pf-chart-title").textContent = `월별 계약금액${law ? ` · ${law}` : ""}`;
     // 범례 = 막대 순서(작년 왼쪽·올해 오른쪽) + 연도별 합계(작년 전체 · 올해 오늘까지, 구분 버튼 따라) — 10/15 사용자
     const s = data.summary;
-    const k = law === "시특법" ? "sitok" : law === "산안법" ? "sanan" : "total";
+    const k = LAW_K[law] || "total";
     const vals = [...m.this, ...m.prev];
     const max = Math.max(...vals, 1);
     const W = 760, H = 220, L = 54, B = 28, T = 16;
@@ -90,7 +92,7 @@
     $("pf-list").innerHTML = `<div class="pf-head"><span>번호</span><span>구분</span><span>용역명 · 발주처</span><span class="r">${data.year}년 금액</span><span class="r">계약 총액</span><span>계약일 · 기간</span></div>`
       + rows.map((r) => `<div class="pf-row">
         <span class="pf-no">${esc(r.no) || "-"}</span>
-        <span class="pf-kind ${r.law === "시특법" ? "sitok" : "sanan"}">${esc(r.kind)}</span>
+        <span class="pf-kind ${LAW_K[r.law] || "sanan"}">${esc(r.kind)}</span>
         <span class="pf-name"><a href="${esc(r.link)}">${esc(r.title)}</a><small>${esc([r.client, r.facility && r.facility !== r.title ? r.facility : ""].filter(Boolean).join(" · "))}</small>
           ${r.halves.length > 1 ? `<small class="pf-halves">${r.halves.map((h) => `${esc(h.label)} ${man(h.amount)}`).join(" · ")}</small>` : ""}</span>
         <span class="r pf-amt">${won(r.amount)}</span>

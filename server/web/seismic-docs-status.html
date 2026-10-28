@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>내진성능평가 - 서류 제출 현황</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/contract-docs.css" />
+<link rel="stylesheet" href="css/docs.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/sitok-docs.css" />
+<link rel="stylesheet" href="css/sitok-status.css" />
+</head>
+<!-- 서류 자동화 · 내진성능평가(10/28 사용자 "시특법이랑 동일하게" — sitok-docs-status.html과 같은 화면·같은 JS, body data-docs-field="seismic"로 내진 계약끼리). 원래 설명: 서류 자동화 · 시특법 — 제출 현황(2026-10-15 민재형 문서번호 일치화 문서 "서류 제출현황 관리"). 상·하반기로, 민간·관급·뱃지 거르기.
+     칸: 착수계(관급 — 첨부 넣고 [만들기] = 제출, 직접 제출함) / 민간 계약서(만듦·날인본) · 완수계(관급) · 계산서 발행일. js/sitok-docs-status.js, API server/api/routers/sitok_status.py /docs -->
+<body data-docs-tab="status" data-law="sitok" data-docs-field="seismic">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<div class="ss-toolbar">
+  <div class="ss-half">
+    <button type="button" id="ds-prev" aria-label="이전 반기">◀</button><b id="ds-label"></b><button type="button" id="ds-next" aria-label="다음 반기">▶</button>
+  </div>
+  <span class="site-sort ss-sector" role="group" aria-label="민간·관급"><button type="button" data-sector="">전체</button><button type="button" data-sector="민간">민간</button><button type="button" data-sector="관급">관급</button></span>
+  <input id="ds-search" type="search" placeholder="번호·시설물·계약건명 검색" autocomplete="off" />
+  <span class="site-sort ss-sort" role="group" aria-label="정렬"><button type="button" class="on" data-sort="no" title="번호순 — 한 번 더 누르면 방향이 바뀜">번호순 ▼</button></span>
+</div>
+<div class="sk-badges" id="ds-badges" role="group" aria-label="뱃지별 계약 수"></div>
+<div class="st-cards ss-cards ds-cards" id="ds-cards"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2 id="ds-title">서류 제출 현황</h2><span class="panel-count" id="ds-count"></span></div>
+  <div id="ds-list"><div class="empty-note">불러오는 중...</div></div>
+</section>
+<p class="page-sub">관급 착수계·완수계는 첨부 서류를 넣고 [만들기]까지 하면 제출로 봅니다. 프로그램 쓰기 전에 낸 것은 칸을 눌러 "직접 제출함"으로 표시하세요. 계산서는 발행한 날을 넣습니다.</p>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="mail.js"></script>
+<script src="shell.js"></script>
+<script src="js/docs-common.js"></script>
+<script src="js/sitok-docs-gov.js"></script>
+<script src="js/sitok-docs-status.js"></script>
+<script src="js/sticky-head.js"></script>
+</body>
+</html>

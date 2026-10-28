@@ -4,7 +4,7 @@
 .main .pf-year { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
 .main .pf-year select { width: auto; margin: 0; padding: 6px 8px; font-size: 13px; }
 .main .pf-toolbar .secondary-link { padding: 6px 12px; font-size: 12.5px; }
-.pf-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.pf-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; } /* 합계·시특법·산안법·내진성능평가·전년 대비(10/28) */
 .pf-card { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .pf-k { font-size: 12px; color: var(--muted); font-weight: 600; }
 .pf-v { font-size: 22px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -44,6 +44,7 @@
 @media (min-width: 761px) { .pf-row .pf-kind { justify-self: center; } .pf-row .pf-date { text-align: center; } } /* 구분·계약일 열만 표시 가운데(10/16 사용자) — 금액 등 다른 열은 그대로, 폰은 그대로 */
 .pf-kind.sitok { background: #fbeadc; color: #b4541a; }
 .pf-kind.sanan { background: var(--blue-soft); color: var(--blue); }
+.pf-kind.seismic { background: #e7f4ec; color: #1f7a45; } /* 내진성능평가(10/28) */
 .pf-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pf-name a { color: var(--ink); font-weight: 600; }
 .pf-name small, .pf-date small { display: block; font-size: 12px; color: var(--faint); }

@@ -1,5 +1,6 @@
 """실적(2026-10-14 사용자 — "실적은 내가 보기 위함, 계약 기준 얼마인지 파악해야 영업 공격성을 조절, 전년 동기 대비") — 서류 자동화 "실적" 탭.
-시특법 계약(sitok_contract) + 산안법 용역계약(service_contract)에서 자동, 직접 입력 없음(프로그램 밖 업무는 이번엔 안 넣음).
+시특법 계약(sitok_contract) + 산안법 용역계약(service_contract) + 내진성능평가 건 용역 칸(10/28 — 서류 자동화 › 내진성능평가 계약이 건에 넣은 값 또는
+건 화면에서 넣은 값)에서 자동, 직접 입력 없음(프로그램 밖 업무는 이번엔 안 넣음).
 
 - `GET /performance?year=2026` — {year, years, rows[계약 1건 = 1줄: law·kind·no·title·client·amount(그 해 몫)·date·start·end·halves], summary{this, prev(전년 같은 날짜까지), prev_full}, monthly{this[12], prev[12], law{시특법·산안법: {this, prev}}}}.
   금액 몫(portion): 시특법 민간 = 계약기간 안 반기마다 반기 금액(회차 줄이 있으면 그 금액) — 그 해에 드는 반기만 / 시특법 관급·산안법 = 계약일(없으면 착수일)이 든 해에 계약금액 전부.
@@ -14,12 +15,13 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from core.models_web import ServiceContract, SitokContract, SitokFacility, User
+from core.models_web import ServiceContract, SitokContract, SitokFacility, SitokReport, User
 from server.api.deps import get_current_user, get_db
 from server.sitok import seasons
 
 router = APIRouter(prefix="/performance", tags=["performance"])
 HALVES = ("상반기", "하반기")
+LAW_KEY = {"시특법": "sitok", "산안법": "sanan", "내진성능평가": "seismic"}  # 구분 → 합계 칸(화면 카드·[구분] 버튼)
 
 
 def _halves_between(start: datetime.date, end: datetime.date) -> list[tuple[int, str, datetime.date]]:
@@ -68,13 +70,37 @@ def _sanan_rows(db: Session, company_id: int) -> list[dict]:
     return rows
 
 
+def _day(v) -> datetime.date | None:
+    try:
+        return datetime.date.fromisoformat(str(v)[:10]) if v else None
+    except ValueError:
+        return None
+
+
+def _seismic_rows(db: Session, company_id: int) -> list[dict]:
+    """내진성능평가 건(숨김 건물 + 성능평가 회차)의 용역 칸 — 계약일(없으면 착수일)이 든 해에 계약금액 전부(관급 시특법과 같은 셈)."""
+    rows = []
+    q = (db.query(SitokReport, SitokFacility).join(SitokFacility, SitokFacility.id == SitokReport.facility_id)
+         .filter(SitokFacility.company_id == company_id, SitokFacility.seismic_only.is_(True), SitokReport.half == seasons.SEISMIC))
+    for r, f in q.all():
+        sc = (r.survey or {}).get("seismic_contract") or {}
+        start, end = _day(sc.get("start_date")) or r.period_start, _day(sc.get("end_date")) or r.period_end
+        base = _day(sc.get("contract_date")) or start
+        amount = int(sc.get("amount") or 0)
+        rows.append({"law": "내진성능평가", "kind": f"내진성능평가·{f.sector or '관급'}", "no": "", "title": sc.get("title") or f"{f.name} 내진성능평가",
+                     "client": sc.get("client") or f.owner_name or "", "facility": f.name, "date": base, "start": start, "end": end,
+                     "portions": [{"date": base, "amount": amount, "label": sc.get("title") or ""}] if amount and base else [],
+                     "link": f"seismic-project.html?id={r.id}"})
+    return rows
+
+
 def _iso(d) -> str:
     return d.isoformat() if d else ""
 
 
 def _build(db: Session, company_id: int, year: int) -> dict:
     today = datetime.date.today()
-    all_rows = _sitok_rows(db, company_id) + _sanan_rows(db, company_id)
+    all_rows = _sitok_rows(db, company_id) + _sanan_rows(db, company_id) + _seismic_rows(db, company_id)
     years = sorted({p["date"].year for r in all_rows for p in r["portions"]} | {today.year}, reverse=True)
     rows = []
     for r in all_rows:
@@ -87,14 +113,14 @@ def _build(db: Session, company_id: int, year: int) -> dict:
     rows.sort(key=lambda x: (x["date"] or "9999", x["no"]))
 
     def total(y: int, until: datetime.date | None = None) -> dict:
-        out = {"total": 0, "sitok": 0, "sanan": 0, "count": 0}
+        out = {"total": 0, "sitok": 0, "sanan": 0, "seismic": 0, "count": 0}
         seen = set()
         for r in all_rows:
             for p in r["portions"]:
                 if p["date"].year != y or (until and p["date"] > until):
                     continue
                 out["total"] += p["amount"]
-                out["sitok" if r["law"] == "시특법" else "sanan"] += p["amount"]
+                out[LAW_KEY[r["law"]]] += p["amount"]
                 seen.add(id(r))
         out["count"] = len(seen)
         return out
@@ -106,7 +132,7 @@ def _build(db: Session, company_id: int, year: int) -> dict:
         except ValueError:  # 2월 29일
             cutoff = today.replace(year=year - 1, day=28)
     # 월별 — 합계(this·prev) + 구분별(law: 시특법·산안법, 화면 [전체·시특법·산안법] 버튼이 고름, 10/15 민재형 "그래프가 안 바뀜")
-    monthly = {"this": [0] * 12, "prev": [0] * 12, "law": {k: {"this": [0] * 12, "prev": [0] * 12} for k in ("시특법", "산안법")}}
+    monthly = {"this": [0] * 12, "prev": [0] * 12, "law": {k: {"this": [0] * 12, "prev": [0] * 12} for k in LAW_KEY}}
     for r in all_rows:
         for p in r["portions"]:
             key = "this" if p["date"].year == year else "prev" if p["date"].year == year - 1 else None
@@ -143,7 +169,7 @@ def performance_xlsx(year: int | None = None, user: User = Depends(get_current_u
         ws.append([r["no"], r["kind"], r["title"], r["client"], r["amount"], r["total"], r["date"], f"{r['start']} ~ {r['end']}", " / ".join(f"{h['label']} {h['amount']:,}" for h in r["halves"])])
     s = d["summary"]
     ws.append([])
-    ws.append(["합계", "", "", "", s["this"]["total"], "", "", f"시특법 {s['this']['sitok']:,} · 산안법 {s['this']['sanan']:,}", f"전년 같은 기간 {s['prev']['total']:,}"])
+    ws.append(["합계", "", "", "", s["this"]["total"], "", "", f"시특법 {s['this']['sitok']:,} · 산안법 {s['this']['sanan']:,} · 내진성능평가 {s['this']['seismic']:,}", f"전년 같은 기간 {s['prev']['total']:,}"])
     ws[ws.max_row][0].font = Font(bold=True)
     for row in ws.iter_rows(min_row=3, max_row=ws.max_row):
         for c in (row[4], row[5]):

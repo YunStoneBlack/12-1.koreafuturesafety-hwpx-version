@@ -107,7 +107,7 @@
         <b>${mailEsc(label(c))}</b>
         ${c.client ? `<small>발주처 ${mailEsc(c.client)}${c.contract_no ? ` · 계약번호 ${mailEsc(c.contract_no)}` : ""}</small>` : ""}
         ${period ? `<small>계약기간 ${period}${c.amount ? ` · ${dcMoney(c.amount)}` : ""}</small>` : ""}
-        ${c.facility ? `<small>현장 <a href="sitok-facility.html?id=${c.facility.id}">${mailEsc(c.facility.name)}</a></small>` : '<small class="dc-nosite">현장 연결 안 됨</small>'}
+        ${c.facility ? `<small>${document.body.dataset.docsField === "seismic" ? `건 <a href="${c.facility.seismic_rid ? `seismic-project.html?id=${c.facility.seismic_rid}` : "seismic.html"}">` : `현장 <a href="sitok-facility.html?id=${c.facility.id}">`}${mailEsc(c.facility.name)}</a></small>` : '<small class="dc-nosite">현장 연결 안 됨</small>'}
         <div class="dk-item-state${s.ok ? " ok" : ""}">${mailEsc(s.text)}</div>
         <div class="dk-item-act"><button type="button" class="dk-open" data-id="${c.id}" data-kind="${k}">${name} 창 열기</button></div>
       </div>`;

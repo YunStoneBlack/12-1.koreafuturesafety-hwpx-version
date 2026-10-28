@@ -755,6 +755,8 @@ class SitokDocContract(Base):
     company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
     facility_id: Mapped[int | None] = mapped_column(ForeignKey("sitok_facility.id", ondelete="SET NULL"), default=None, index=True)  # 현장 연결
     sector: Mapped[str] = mapped_column(Text, default="민간")  # 민간 / 관급
+    # 분야(0067, 10/28) — "시특법"(기본) | "내진"(서류 자동화 › 내진성능평가 — 같은 화면·API, 요청 머리 X-Docs-Field로 가림, 현장 연결 = 내진 건의 숨김 건물)
+    field: Mapped[str] = mapped_column(Text, default="시특법", server_default="시특법")
     doc_no: Mapped[str] = mapped_column(Text, default="")  # 문서번호 — 민간 KFSC-26-0504(연도·월일), 관급 KFSC21C_계약번호_월일(산안법 규칙)
     half_tag: Mapped[str] = mapped_column(Text, default="")  # 시설물 카드의 반기 표시(0047) — 비우면 기간·회차로 자동(내진성능평가 = 해당없음)
     # 서류 제출 표시(0048) {start: {at, by}(착수계 직접 제출함), done: {...}(완료계), invoice: {"2026-하반기": "2026-12-20" | 관급 "all"}(계산서 발행일)}

@@ -113,8 +113,8 @@
     el.className = "ss-grid ss-docs ss-row";
     const f = r.facility, c = r.contract;
     el.innerHTML = `
-      <div class="ss-fac">${f ? "" : '<span class="ss-nocard">카드 없음 <button type="button" class="ss-mini ss-link">🔗 카드에 넣기</button><button type="button" class="ss-mini ss-del">🗑 지우기</button></span>'}${f ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<span class="sk-sector ${c.sector === "관급" ? "gov" : "pri"}">${esc(c.sector)}</span>
-        <b>${esc(f ? f.name : c.client || "(시설물 카드 없음)")}</b>${c.half ? `<span class="sd-half${c.half === "해당없음" ? " na" : ""}">${esc(c.half)}</span>` : ""}
+      <div class="ss-fac">${f ? "" : '<span class="ss-nocard">카드 없음 <button type="button" class="ss-mini ss-link">🔗 카드에 넣기</button><button type="button" class="ss-mini ss-del">🗑 지우기</button></span>'}${f && f.mgmt_no ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<span class="sk-sector ${c.sector === "관급" ? "gov" : "pri"}">${esc(c.sector)}</span>
+        <b>${esc(f ? f.name : c.client || "(시설물 카드 없음)")}</b>${c.half && document.body.dataset.docsField !== "seismic" ? `<span class="sd-half${c.half === "해당없음" ? " na" : ""}">${esc(c.half)}</span>` : ""}
         ${f && f.badge_field ? `<span class="sk-badge b-field">${esc(f.badge_field)}</span>` : ""}${f && f.badge_kind ? `<span class="sk-badge b-kind">${esc(f.badge_kind)}</span>` : ""}
         <span class="sub">${esc([c.title, c.period].filter(Boolean).join(" · "))}</span></div>
       <div class="ss-c" data-label="착수계 / 계약서"><button type="button" class="ss-cell" data-item="start">${startBadge(r)}</button></div>

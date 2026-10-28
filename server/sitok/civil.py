@@ -22,6 +22,18 @@ from server.sitok import seasons
 
 HP, T = rb.HP, rb.T
 TEMPLATE_NAME = "시특법_민간계약서_양식.hwpx"
+# 내진성능평가 민간 계약서(서류 자동화 › 내진성능평가, 10/28) — 시특법 양식을 바탕으로 본문 조항(시설물안전법 조항·FMS 등)을 내진성능평가에 맞게 바꾼 양식
+# (server/scripts/make_seismic_civil_template.py가 처음 한 번 만듦, 형이 한글에서 고쳐 [고친 양식 올리기]로 바꿈). 회차 줄 없이 금액 한 줄.
+SEISMIC = "내진"
+TEMPLATE_NAME_SEISMIC = "내진_민간계약서_양식.hwpx"
+SEISMIC_WORD = "내진성능평가"
+SEISMIC_PURPOSE = ("본 과업은 「지진·화산재해대책법」 제16조의2에 따른 기존 시설물의 내진성능평가로써 현장조사(외관조사·재료시험·부재조사 등)와 구조해석을 통하여 "
+                   "시설물의 내진성능을 평가하고, 필요한 경우 내진보강 방안을 제시하여 지진으로 인한 재해를 예방하고 공공의 안전을 확보하는데 그 목적이 있다.")
+
+
+def is_seismic(c) -> bool:
+    """서류 자동화 계약이 내진성능평가 분야인지(sitok_doc_contract.field, 0067)."""
+    return getattr(c, "field", "") == SEISMIC
 KINDS = ("정기", "정밀", "진단")  # 진단 = 정밀안전진단(1종, 10/20 민재형 — 도래주기 server/sitok/cycle.py)
 HALVES = seasons.ALL  # 상반기·하반기 + 연 3회 해빙기·우기·동절기(10/16)
 TOKENS = ("문서번호", "종류", "시설물명", "관리주체", "대표자", "계약건명", "계약금액", "계약보증액", "지체상금율", "계약기간", "위치", "제원", "계약일", "목적")
@@ -47,9 +59,13 @@ DIAG_ALSO = ("아울러 「시설물의 안전 및 유지관리에 관한 특별
              "결함의 원인 등을 조사·측정·평가하고 보수·보강 등의 방법을 제시한다.")
 
 
-def template_path() -> Path:
+def template_path(field: str = "") -> Path:
     from server.contract_docs.build import TEMPLATE_DIR
-    return TEMPLATE_DIR / TEMPLATE_NAME
+    return TEMPLATE_DIR / (TEMPLATE_NAME_SEISMIC if field == SEISMIC else TEMPLATE_NAME)
+
+
+def template_name(field: str = "") -> str:
+    return TEMPLATE_NAME_SEISMIC if field == SEISMIC else TEMPLATE_NAME
 
 
 # ---------- 값 ----------
@@ -187,7 +203,9 @@ def years_text(rounds: list | None, start: datetime.date | None, open_ended: boo
 
 
 def default_title(c) -> str:
-    """"청천영진아파트 2026~2027년 정기·정밀안전점검"."""
+    """"청천영진아파트 2026~2027년 정기·정밀안전점검" · 내진 = "○○초등학교 교사동 내진성능평가 용역"."""
+    if is_seismic(c):
+        return " ".join(x for x in (c.facility_name or c.client, f"{SEISMIC_WORD} 용역") if x)
     k = kinds_of(c.rounds, c.unit, c.open_ended)
     return " ".join(x for x in (c.facility_name or c.client, years_text(c.rounds, c.start_date, c.open_ended), kind_word(k)) if x)
 
@@ -217,7 +235,15 @@ def purpose(k: str, rounds: list | None) -> str:
 
 
 def values(c) -> dict[str, str]:
-    """계약(SitokDocContract) → 자리표시 값."""
+    """계약(SitokDocContract) → 자리표시 값. 내진 = 종류 "내진성능평가", 계약금액 한 줄(계약금액 칸), 목적 SEISMIC_PURPOSE."""
+    if is_seismic(c):
+        return {
+            "문서번호": c.doc_no or default_doc_no(c.contract_date),
+            "종류": SEISMIC_WORD, "시설물명": c.facility_name or "", "관리주체": c.client or "", "대표자": c.client_rep or "대 표 자",
+            "계약건명": c.title or default_title(c), "계약금액": money(c.amount),
+            "계약보증액": c.guarantee or "-", "지체상금율": c.delay_rate or "-", "계약기간": period_text(c.start_date, c.end_date, False),
+            "위치": c.location or "", "제원": c.spec or "", "계약일": f"{c.contract_date:%Y. %m. %d.}" if c.contract_date else "", "목적": SEISMIC_PURPOSE,
+        }
     k = kinds_of(c.rounds, c.unit, c.open_ended)
     return {
         "문서번호": c.doc_no or default_doc_no(c.contract_date),
@@ -380,6 +406,14 @@ JSON 객체 하나로만 답하세요(설명 없이, 없으면 "" 또는 null, �
  "guarantee": "계약보증액(없으면 -)", "delay_rate": "지체상금율(없으면 -)", "contract_date": "계약일", "start_date": "계약기간 시작", "end_date": "계약기간 끝"}"""
 
 
+SEISMIC_EXISTING_PROMPT = """건물 내진성능평가 용역 민간 계약서입니다(우리 회사 (주)한국미래안전이 "을"/계약상대자). 표와 본문에서 읽어
+JSON 객체 하나로만 답하세요(설명 없이, 없으면 "" 또는 null, 날짜는 YYYY-MM-DD):
+{"doc_no": "문서번호(예 KFSC-26-0504)", "client": "관리주체(갑) 이름 그대로", "client_rep": "서명 칸 갑의 대표자 줄",
+ "facility_name": "건물명(표지 【 】 또는 제2조)", "location": "위치", "spec": "제원(예 연면적 3,120.5m²)", "title": "계약건명",
+ "amount": 계약금액(원, 정수 — VAT포함 총액), "guarantee": "계약보증액(없으면 -)", "delay_rate": "지체상금율(없으면 -)",
+ "contract_date": "계약일", "start_date": "계약기간 시작", "end_date": "계약기간 끝"}"""
+
+
 def _pdf_of(data: bytes, filename: str) -> Path:
     """올린 파일(PDF·그림·한글·워드) → 임시 PDF 경로(AI가 읽게)."""
     import tempfile
@@ -399,10 +433,16 @@ def read_bizreg(data: bytes, filename: str, company_id: int) -> dict:
             "client_biz_no": _str(d.get("biz_no")), "client_address": _str(d.get("address"))}
 
 
-def read_existing(data: bytes, filename: str, company_id: int) -> dict:
-    """이미 만든(날인한) 민간 계약서 → 계약 칸."""
+def read_existing(data: bytes, filename: str, company_id: int, field: str = "") -> dict:
+    """이미 만든(날인한) 민간 계약서 → 계약 칸. 내진(field "내진") = 회차 줄 없이 계약금액 한 칸."""
     from server.sitok.reader import _ask, _date, _int, _str
 
+    if field == SEISMIC:
+        d = _ask(_pdf_of(data, filename), SEISMIC_EXISTING_PROMPT, company_id)
+        return {"doc_no": _str(d.get("doc_no")), "client": _str(d.get("client")), "client_rep": _str(d.get("client_rep")),
+                "facility_name": _str(d.get("facility_name")), "location": _str(d.get("location")), "spec": _str(d.get("spec")), "title": _str(d.get("title")),
+                "amount": _int(d.get("amount")) or None, "guarantee": _str(d.get("guarantee")) or "-", "delay_rate": _str(d.get("delay_rate")) or "-",
+                "contract_date": _date(d.get("contract_date")), "start_date": _date(d.get("start_date")), "end_date": _date(d.get("end_date"))}
     d = _ask(_pdf_of(data, filename), EXISTING_PROMPT, company_id)
     rounds = []
     for r in d.get("rounds") or []:

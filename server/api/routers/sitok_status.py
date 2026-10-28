@@ -16,7 +16,7 @@ from __future__ import annotations
 import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -329,14 +329,15 @@ def _doc_key(c: SitokDocContract, year: int, half: str, is_now: bool) -> str | N
 
 
 @router.get("/docs")
-def doc_rows(year: int | None = None, half: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    from server.api.routers.sitok_docs import card_no, covered_ids, folder, half_auto, signed_pdf
+def doc_rows(request: Request, year: int | None = None, half: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """분야(0067) = 요청 머리 X-Docs-Field(서류 자동화 › 내진성능평가 화면은 내진 계약만, 10/28)."""
+    from server.api.routers.sitok_docs import card_no, covered_ids, doc_field, folder, half_auto, signed_pdf
     from server.sitok import civil
 
     y0, h0 = current_half()
     year, half = year or y0, half if half in HALVES else h0
     rows = []
-    for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id).order_by(SitokDocContract.id):
+    for c in db.query(SitokDocContract).filter(SitokDocContract.company_id == user.company_id, SitokDocContract.field == doc_field(request)).order_by(SitokDocContract.id):
         key = _doc_key(c, year, half, (year, half) == (y0, h0))
         if key is None:
             continue
