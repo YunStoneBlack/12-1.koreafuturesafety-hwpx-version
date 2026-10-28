@@ -57,6 +57,18 @@ try { const v = JSON.parse(localStorage.getItem(PROG_KEY) || "{}"); stView.progM
 const openRegions = new Set(); // 펼친 지역 "month:포천"
 function saveProg() { try { localStorage.setItem(PROG_KEY, JSON.stringify({ progMode: stView.progMode, byRegion: stView.byRegion })); } catch { /* 지금만 */ } }
 
+// [📅 N회 채워 넣기](10/28 사용자 2번) — 남은 회차 > 오늘 이후 예정인 현장을 방문 달력 [채워 넣기](js/auto-plan.js openShortFill, POST /calendar/short/fill)로
+// 미리보기 → [이대로 넣기]. 서버가 세는 남은 회차·예정이 이 화면과 같음(done_counts·오늘 이후 예정). 우리 계약기간이 끝난 현장은 넣을 날이 없어 글만.
+const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`; // 현지 날짜(toISOString은 UTC라 새벽에 하루 어긋남)
+const canFill = (e) => !e.period_over && (!e.period_end || e.period_end > todayIso);
+const fillChip = (e, lack) => (lack && canFill(e) && typeof openShortFill === "function"
+  ? `<button type="button" class="st-fill" data-fill="${e.site_id}" data-name="${h(e.site_name)}" title="오늘 이후 예정이 남은 회차보다 ${lack}회 모자람 — 방문 달력에 채워 넣기(미리보기 뒤 넣음)">📅 ${lack}회 채워 넣기</button>`
+  : lack ? `<span class="warn">예정 ${lack}회 모자람</span>` : "");
+function onFilled(res) {
+  stView.progMsg = `✓ ${res.added}회를 방문 달력에 넣었습니다${res.stuck ? ` · ${res.stuck}회는 마감 전에 넣을 날이 없습니다` : ""}`;
+  loadStatus();
+}
+
 function progBar(parts) { // parts = [[클래스, %]], 빨간 선은 ["ideal", %]
   return `<span class="st-prog-bar">${parts.map(([c, v]) => (c === "ideal" ? `<i class="ideal" style="left:${v}%"></i>` : `<span class="${c}" style="width:${v}%"></span>`)).join("")}</span>`;
 }
@@ -76,16 +88,16 @@ function monthRow(e) {
 function shortRow(e) {
   const pct = (n) => (e.total ? Math.min((n / e.total) * 100, 100) : 0);
   const lack = Math.max(e.left - e.upcoming, 0); // 남은 회차보다 오늘 이후 예정이 모자람 — 방문 달력 [채워 넣기]
-  const sub = [e.next_plan ? `다음 ${md(e.next_plan)}` : '<span class="warn">예정 없음</span>', lack ? `<span class="warn">예정 ${lack}회 모자람</span>` : "",
+  const sub = [e.next_plan ? `다음 ${md(e.next_plan)}` : '<span class="warn">예정 없음</span>', fillChip(e, lack),
     e.period_over ? '<span class="warn">계약기간 끝남</span>' : ""].filter(Boolean).join(" · ");
   const tip = `${e.site_name} — 지금쯤 ${e.ideal}회 했어야 하는데 ${e.performed}회(${e.diff}회 부족) · 총 ${e.total}회 · 남은 ${e.left}회 · 오늘 이후 예정 ${e.upcoming}회`
     + `${e.total_months && e.elapsed_months != null ? ` · 공기 ${e.elapsed_months}/${e.total_months}개월 경과` : ""}`
     + `${e.monthly_needed != null ? ` · 남은 기간 월 ${e.monthly_needed}회 필요` : ""}${e.last_visit ? ` · 최근 지도 ${e.last_visit}` : ""} — 누르면 현장 화면`;
-  return `<button type="button" class="st-prog-row short" data-link="site.html?id=${e.site_id}" title="${h(tip)}">
+  return `<div class="st-prog-row short" role="link" tabindex="0" data-link="site.html?id=${e.site_id}" title="${h(tip)}">
       <span class="nm"><span class="t">${h(e.site_name)}</span><small>${sub}</small></span>
       ${progBar([["ok", pct(e.performed)], ["ideal", pct(e.ideal)]])}
       <span class="num"><b class="lack">${e.diff}회 부족</b><small>${e.performed} / ${e.total}회${e.monthly_needed != null ? ` · 월 ${e.monthly_needed}회` : ""}</small></span>
-    </button>`;
+    </div>`;
 }
 
 // ⏰ 계약 끝 임박(10/28 사용자 4번) — 서버 ending(우리 계약기간 끝 60일 안 + 남은 회차가 있는데 예정이 모자람·월 8회 넘게 필요·기간 지남), 두 보기 모두 맨 위, 누르면 현장 화면
@@ -96,13 +108,15 @@ function endingBox(list) {
   const row = (e) => {
     const dday = e.days_left < 0 ? `기간 ${-e.days_left}일 지남` : e.days_left === 0 ? "오늘 끝" : `D-${e.days_left}`;
     const lack = Math.max(e.left - e.upcoming, 0);
-    const sub = [`${md(e.period_end)} 끝`, lack ? `<span class="warn">예정 ${lack}회 모자람</span>` : `예정 ${e.upcoming}회`,
+    const sub = [`${md(e.period_end)} 끝`, lack ? fillChip({ ...e, period_over: e.days_left <= 0 }, lack) : `예정 ${e.upcoming}회`,
       e.monthly_needed != null && e.days_left >= 14 ? `${e.monthly_needed > 8 ? '<span class="warn">' : "<span>"}월 ${e.monthly_needed}회</span>` : ""].filter(Boolean).join(" · "); // 2주 안 남은 현장은 월 횟수가 뜻이 없어 뺌
-    return `<button type="button" class="st-end-row" data-link="site.html?id=${e.site_id}" title="${h(`${e.site_name} — 우리 계약기간 끝 ${e.period_end} · 남은 ${e.left}회 · 오늘 이후 예정 ${e.upcoming}회 — 누르면 현장 화면`)}">
+    return `<div class="st-end-row" role="link" tabindex="0" data-link="site.html?id=${e.site_id}" title="${h(`${e.site_name} — 우리 계약기간 끝 ${e.period_end} · 남은 ${e.left}회 · 오늘 이후 예정 ${e.upcoming}회 — 누르면 현장 화면`)}">
         <span class="nm"><span class="t">${h(e.site_name)}</span><small>${sub}</small></span>
-        <span class="num"><b>${dday}</b><small>남은 ${e.left}회</small></span></button>`;
+        <span class="num"><b>${dday}</b><small>남은 ${e.left}회</small></span></div>`;
   };
-  return `<div class="st-end"><div class="st-end-h"><b>⏰ 계약 끝 임박 ${list.length}곳</b><span class="st-hint">계약 끝 60일 안인데 남은 회차를 다 하기 어렵거나(예정 모자람·월 8회 넘게) 기간이 지난 곳</span></div>
+  const fill = list.filter((e) => e.left > e.upcoming && e.days_left > 0);
+  return `<div class="st-end"><div class="st-end-h"><b>⏰ 계약 끝 임박 ${list.length}곳</b><span class="st-hint">계약 끝 60일 안인데 남은 회차를 다 하기 어렵거나(예정 모자람·월 8회 넘게) 기간이 지난 곳</span>
+    ${fill.length > 1 && typeof openShortFill === "function" ? `<button type="button" class="st-fill-all" data-ids="${fill.map((e) => e.site_id).join(",")}" data-name="계약 끝 임박 ${fill.length}곳">📅 예정 모자란 ${fill.length}곳 모두 채워 넣기</button>` : ""}</div>
     ${shown.map(row).join("")}
     ${list.length > SHOW_END ? `<button type="button" class="secondary st-end-more">${stView.endAll ? "접기 ▲" : `나머지 ${list.length - SHOW_END}곳 ▼`}</button>` : ""}</div>`;
 }
@@ -143,6 +157,7 @@ function renderProgress() {
   const mode = stView.progMode === "short" ? "short" : "month";
   const shortAll = stData.shortage || [];
   const many = shortAll.filter((e) => e.diff >= MANY);
+  const shortFill = (stView.shortAll ? shortAll : many).filter((e) => e.left > e.upcoming && canFill(e)); // 회차 부족 목록 중 채워 넣을 수 있는 곳
   let list = mode === "short" ? (stView.shortAll ? shortAll : many) : (stData.progress || []);
   if (mode === "month" && stView.open) list = list.filter((e) => e.submitted < e.assigned);
   const done = (stData.progress || []).filter((e) => e.reports >= e.assigned).length;
@@ -168,7 +183,13 @@ function renderProgress() {
     ${list.length ? `<div class="st-prog-list${grouped ? " grouped" : ""}${mode === "short" ? " short" : ""}">${body}</div>` : empty}
     ${!grouped && list.length > shown.length ? `<button type="button" class="secondary st-prog-more">나머지 ${list.length - shown.length}곳 더 보기 ▼</button>`
       : !grouped && stView.progAll && list.length > SHOW + 2 ? '<button type="button" class="secondary st-prog-more">접기 ▲</button>' : ""}
-    ${mode === "short" ? `<div class="st-prog-foot">${shortAll.length > many.length ? `<button type="button" class="secondary st-short-all">${stView.shortAll ? `${MANY}회 이상만 보기` : `1~${MANY - 1}회 부족 ${shortAll.length - many.length}곳도 보기`}</button> · ` : ""}예정이 모자란 현장은 <a href="calendar.html">방문 달력</a>의 [채워 넣기]로 채웁니다.</div>` : ""}`;
+    ${mode === "short" ? `<div class="st-prog-foot">${shortAll.length > many.length ? `<button type="button" class="secondary st-short-all">${stView.shortAll ? `${MANY}회 이상만 보기` : `1~${MANY - 1}회 부족 ${shortAll.length - many.length}곳도 보기`}</button>` : ""}
+      ${shortFill.length > 1 && typeof openShortFill === "function" ? `<button type="button" class="st-fill-all" data-ids="${shortFill.map((e) => e.site_id).join(",")}" data-name="회차 부족 현장 중 예정 모자란 ${shortFill.length}곳">📅 예정 모자란 ${shortFill.length}곳 모두 채워 넣기</button>` : ""}
+      <span>넣은 예정은 <a href="calendar.html">방문 달력</a>에서 옮기거나 지울 수 있습니다.</span></div>` : ""}`;
+  if (stView.progMsg) { // 채워 넣은 뒤 한 번
+    box.insertAdjacentHTML("afterbegin", `<div class="status ok st-prog-msg">${h(stView.progMsg)} — <a href="calendar.html">방문 달력 보기</a></div>`);
+    stView.progMsg = "";
+  }
   box.querySelector(".st-prog-more")?.addEventListener("click", () => { stView.progAll = !stView.progAll; renderProgress(); });
   box.querySelectorAll(".st-prog-mode button").forEach((b) => b.addEventListener("click", () => { stView.progMode = b.dataset.mode; saveProg(); renderProgress(); }));
   box.querySelector(".st-prog-region").addEventListener("click", () => { stView.byRegion = !stView.byRegion; saveProg(); renderProgress(); });
@@ -185,7 +206,12 @@ function renderProgress() {
     else openRegions.add(k);
     renderProgress();
   }));
-  box.querySelectorAll(".st-prog-row[data-link], .st-end-row[data-link]").forEach((b) => b.addEventListener("click", () => { location.href = b.dataset.link; }));
+  box.querySelectorAll(".st-prog-row[data-link], .st-end-row[data-link]").forEach((b) => {
+    b.addEventListener("click", (e) => { if (!e.target.closest("button, a")) location.href = b.dataset.link; });
+    b.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === b) { e.preventDefault(); location.href = b.dataset.link; } });
+  });
+  box.querySelectorAll(".st-fill").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); openShortFill([Number(b.dataset.fill)], b.dataset.name, onFilled); }));
+  box.querySelectorAll(".st-fill-all").forEach((b) => b.addEventListener("click", () => openShortFill(b.dataset.ids.split(",").map(Number), b.dataset.name, onFilled)));
   box.querySelector(".st-end-more")?.addEventListener("click", () => { stView.endAll = !stView.endAll; renderProgress(); });
   box.querySelectorAll(".st-prog-row[data-site]").forEach((b) => b.addEventListener("click", () => {
     const id = Number(b.dataset.site);
