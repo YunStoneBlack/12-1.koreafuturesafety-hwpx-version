@@ -155,7 +155,7 @@
     const got = holes.reduce((n, h) => n + Object.keys(h.photos || {}).length, 0);
     $("sp-g-sum").textContent = `시추공 ${holes.length}개 · 사진 ${got}/${holes.length * P.ground_slots.length} · ${holes.map((h) => `${h.bh} ${h.cls || "?"} ${h.vs ?? "?"}m/s`).join(" · ")}`
       + ((g.warn || []).length ? ` · 확인할 것 ${g.warn.length}개` : " — 눌러서 사진·값 확인");
-    if ((g.warn || []).length && !openedOnce.ground) { $("sp-ground-panel").open = true; openedOnce.ground = true; }
+    // 처음엔 모두 접힘(10/28 사용자 "기본 세팅은 전부 접혀있는걸로") — 알림은 머리 표시(sp-g-need)로만
     const box = $("sp-ground");
     box.innerHTML = `${(g.warn || []).length ? `<div class="mail-msg bad">${g.warn.map(esc).join("<br>")}</div>` : ""}
       ${P.ground_sentence ? `<div class="sp-sentence"><span class="sk-help">2.5 (3) 문장</span><br>${esc(P.ground_sentence)}</div>` : ""}
@@ -182,12 +182,11 @@
   }
 
   // ---------- 용역·건물 ----------
-  const openedOnce = {}; // 처음 그릴 때만 — 빈 칸·알림이 있으면 펼침(그 뒤로는 사람이 연 대로)
+  // 칸은 처음엔 모두 접힘(10/28 사용자 "기본 세팅은 전부 접혀있는걸로" — 전엔 빈 칸·알림이 있으면 펼쳤음), 머리 표시("아직 N"·"직접 넣을 칸 N개")로 알림, 그 뒤로는 사람이 연 대로
   function drawContract() {
     const c = P.contract || {};
     $("sp-c-sum").textContent = c.title ? [c.title, c.amount ? `${won(c.amount)}원` : "", c.start_date ? `${dot(c.start_date)} ~ ${dot(c.end_date)}` : ""].filter(Boolean).join(" · ")
       : "용역계약서에서 — 표지·제출문·결과표 가·참여기간";
-    if (!openedOnce.c) { $("sp-c-panel").open = !(c.title && c.client && c.start_date && c.end_date && (P.report || {}).chief_id); openedOnce.c = true; }
     $("sp-contract").innerHTML = field("title", "용역명", c.title, { wide: true, ph: "예: 삼숭초 교사동 내진성능평가 용역" })
       + field("client", "발주처", c.client) + field("amount", "계약금액 (원)", c.amount ? won(c.amount) : "", { ph: "32,118,700" })
       + field("contract_date", "계약일", c.contract_date, { type: "date" }) + field("contract_no", "계약번호", c.contract_no)
@@ -224,7 +223,6 @@
     const b = P.building || {};
     $("sp-b-sum").textContent = b.address ? [b.structure, `지하${b.below || 0}·지상${b.above || 0}층`, b.total_area ? `연면적 ${won(b.total_area)}㎡` : "", b.approval_date ? `사용승인 ${dot(b.approval_date)}` : "", b.grade].filter(Boolean).join(" · ")
       : "건축물대장에서 — 1.1 일반사항·1.2 건물규모·1.3 내진등급·1.4 구조변경 이력";
-    if (!openedOnce.b) { $("sp-b-panel").open = !(b.address && b.structure && b.above && b.total_area && b.approval_date && b.length_x && b.length_y); openedOnce.b = true; }
     $("sp-building").innerHTML = field("name", "건물 이름", b.name, { help: "보고서 이름·폴더 이름" }) + field("use", "주용도", b.use)
       + field("address", "주소(도로명)", b.address, { wide: true }) + field("lot_address", "대지위치(지번)", b.lot_address) + field("structure", "주구조", b.structure)
       + field("below", "지하 층수", b.below, { type: "number" }) + field("above", "지상 층수", b.above, { type: "number" })
@@ -341,7 +339,6 @@
     const missing = p.docs.filter((d) => !(d.items || []).length).length; // 서류 칸 접기(10/28 사용자) — 처음엔 안 올린 서류가 있으면 펼침, 그 뒤로는 사람이 연 대로
     const need = $("sp-docs-need");
     if (need) { need.hidden = !missing; need.textContent = missing ? `아직 ${missing}` : ""; }
-    if (!openedOnce.docs) { $("sp-docs-panel").open = missing > 0; openedOnce.docs = true; }
     drawGround();
     drawContract();
     drawBuilding();

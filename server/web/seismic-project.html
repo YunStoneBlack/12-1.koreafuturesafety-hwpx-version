@@ -22,7 +22,7 @@
 <div class="sp-head"><h1 id="sp-name">불러오는 중…</h1><p class="page-sub" id="sp-sub"></p></div>
 <div id="error" class="error"></div>
 
-<details class="panel sk-fold" id="sp-docs-panel" open>
+<details class="panel sk-fold" id="sp-docs-panel">
   <summary class="panel-head"><h2>📎 서류</h2><span class="panel-count" id="sp-docs-sum">올리면 자동으로 읽어 아래 칸과 보고서를 채웁니다 — 읽은 값은 아래에서 고치기</span><span class="sp-need-n" id="sp-docs-need" hidden></span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body" id="sp-docs"></div>
 </details>
@@ -57,15 +57,15 @@
   <div class="panel-body" id="sp-ground"></div>
 </details>
 
-<section class="panel">
-  <div class="panel-head"><h2>📱 현장조사</h2><span class="panel-count" id="sp-units"></span></div>
+<details class="panel sk-fold" id="sp-f-panel">
+  <summary class="panel-head"><h2>📱 현장조사</h2><span class="panel-count" id="sp-units"></span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body">
     <div class="sp-min" id="sp-min"></div>
     <div class="rd-btns sp-links" id="sp-links"></div>
     <!-- [✓ 조사 완료](10/22 — 예전엔 외관조사(결함) 화면에만) — js/sitok-steps.js, 회차 번호는 seismic-project.js가 data-report로 -->
     <div class="sf-done" id="sp-field-done" data-step="field"></div>
   </div>
-</section>
+</details>
 
 <section class="panel">
   <div class="panel-head"><h2>📘 보고서</h2><span class="panel-count">우리 1~2장 + 외주 3~7장 — 위 📱 현장조사 칸 맨 아래 [✓ 조사 완료] 뒤에 만들기</span></div>
