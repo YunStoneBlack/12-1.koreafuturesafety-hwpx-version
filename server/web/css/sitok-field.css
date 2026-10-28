@@ -340,3 +340,7 @@
 .main .gd-kinds button { margin: 0; padding: 4px 10px; font-size: 12.5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; font-weight: 600; }
 .main .gd-kinds button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
 .gd-kind-need { margin: 4px 0 8px; padding: 6px 10px; border-radius: 8px; background: var(--warn-soft, #fff4e5); color: var(--warn, #b45309); font-size: 12.5px; font-weight: 600; }
+/* 내진 외관조사 — 고정 탭 줄 안 바로가기(10/28 사용자): PC는 오른쪽, 폰(2칸 격자)은 아래 한 줄 */
+.sf-tabs .sf-tabs-go { margin: 0 0 0 auto; align-self: center; }
+@media (max-width: 760px) { .sf-tabs .sf-tabs-go { grid-column: 1 / -1; margin: 0; } }
+
