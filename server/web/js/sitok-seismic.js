@@ -231,7 +231,11 @@
   }
 
   async function save(rows, keepFocus) { // 저장 중인 것을 saving에 — [저장]이 끝나길 기다림
-    const run = saveNow(rows, keepFocus);
+    // 보낸 값을 바로 d에 두고 앞 저장이 끝난 뒤 차례로 보냄(10/28 사용자 "주근 설계값 입력 안 됨" — 폰에서 설계 쓰고 바로 다음 칸을 고치면 앞 응답 전에
+    // 옛 d에서 복사한 줄(설계 빈칸)을 보내 방금 쓴 값을 지웠음. 응답 순서가 뒤바뀌어도 d가 옛것으로 돌아가지 않게)
+    d = { ...d, rows };
+    const prev = saving;
+    const run = (async () => { if (prev) await prev; return saveNow(rows, keepFocus); })();
     saving = run;
     const ok = await run;
     if (saving === run) saving = null;
