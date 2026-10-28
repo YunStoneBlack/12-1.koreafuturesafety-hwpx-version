@@ -119,6 +119,9 @@ def fill_appendix(doc, d: dict, r, f, rdir: Path, warn: list) -> int:
              x["boundary"], x["applied"]] for x in rows]
     tables = [t for t in SFL._outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"]
     n += SFL.fill_chunks(root, tables, vals or [[""] * 11], 60, 2, flat=True)
+    for t in SFL.masonry_tables(root):  # 부록 5 조적벽 표 — 줄 높이 본문과 같게(10/28 "부록에 표는 안 바뀜": 두 줄 글이 칸 밖으로), 층·구분 합치기는 PDF 뒤(assemble)
+        SFL.masonry_rows_fit(t)
+        t.set("pageBreak", "TABLE")  # 줄 단위로 쪽 나눔(본문과 같게 — 부록 틀은 CELL이라 쪽 끝 줄이 칸 중간에서 잘려 다음 쪽으로 이어짐)
     n += SFL.fill_cores(doc, root, field, rdir, None, quiet)
     rebar_rows = RV.report_rows(RV.normalize((r.survey or {}).get("rebar"))["rows"])  # 결과 있는 줄만(10/22)
     n += fill_rebar_blocks(doc, root, rebar_rows, rdir, warn)
@@ -166,7 +169,9 @@ def assemble(db, main_pdf: Path, appx_hwpx: Path, dest: Path, r, f, rdir: Path, 
     appx_pdf.write_bytes(hwp_queue.convert_via_worker(appx_hwpx.read_bytes(), ".hwpx", wait=1500))
     from server.sitok.seismic_build import _tidy
     _tidy(appx_hwpx, appx_pdf, sections_from=0)  # 애매한 넘침 정리(10/26)
-    from server.sitok.seismic_build import _line_check
+    from server.sitok.seismic_build import _line_check, _merge_masonry
+
+    _merge_masonry(appx_hwpx, appx_pdf, title="조적벽상태조사")  # 부록 5 조적벽 표도 층·구분 세로 합치기(10/28 — 본문만 하던 것), 쪽이 정해진 뒤
 
     warn += _line_check(appx_pdf, "부록")  # 표 선 굵기 다름(10/27) — 서류 PDF 끼우기 전
     cache = rdir / "보고서그림"

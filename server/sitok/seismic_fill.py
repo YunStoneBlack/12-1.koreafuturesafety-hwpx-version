@@ -1513,6 +1513,23 @@ def fill_masonry(root, field: dict, warn: list) -> int:
     return fill_chunks(root, tables, vals, 20, 2, flat=True, one=True)
 
 MASONRY_HEAD = 2  # 조적벽 결과표 머리 줄 수
+MASONRY_ROW_H = 2783  # 조적벽 표 데이터 줄 높이(본문 틀) — "1면/모르타르" 두 줄이 들어가는 높이. 부록 틀은 2659라 두 줄째가 칸 밖으로 넘쳤음(10/28)
+
+
+def masonry_rows_fit(tbl) -> int:
+    """조적벽 표 데이터 줄 높이를 MASONRY_ROW_H 이상으로(부록 5 — 본문과 같게). 바꾼 줄 수."""
+    from server.sitok.precision_build import _set_row_height
+
+    cur = {}
+    for (r, _c), tc in rb._cells(tbl).items():
+        if r >= MASONRY_HEAD and int(tc.find(f"{{{HP}}}cellSpan").get("rowSpan")) == 1:
+            cur[r] = max(cur.get(r, 0), int(tc.find(f"{{{HP}}}cellSz").get("height")))
+    n = 0
+    for r, h in cur.items():
+        if h < MASONRY_ROW_H:
+            _set_row_height(tbl, r, MASONRY_ROW_H)
+            n += 1
+    return n
 
 
 def masonry_tables(root) -> list:
@@ -1520,7 +1537,7 @@ def masonry_tables(root) -> list:
     return [t for t in _outer(root) if t.get("colCnt") == "11" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "층"]
 
 
-def masonry_cuts(root, pdf: Path) -> list[set] | None:
+def masonry_cuts(root, pdf: Path, title: str = "조적벽치수및상태조사결과표") -> list[set] | None:
     """조적벽 결과표가 쪽마다 몇 줄씩 들어갔는지 PDF로 세어 쪽이 바뀌는 데이터 줄 번호(표마다, 0부터) — 부재 ID(셋째 칸) 차례대로 PDF 줄과 맞춤.
     못 맞추면(ID 빈칸·글이 다름) None — 그때는 끊지 않고 합침(한글이 걸리는 층 묶음을 통째로 다음 쪽으로)."""
     import pymupdf
@@ -1539,7 +1556,7 @@ def masonry_cuts(root, pdf: Path) -> list[set] | None:
         on = False
         for pg in doc:
             if not on:
-                on = "조적벽치수및상태조사결과표" in _n(pg.get_text())
+                on = title in _n(pg.get_text())  # 부록 5는 "조적벽상태조사"(10/28)
                 if not on:
                     continue
             lines = sorted((ln["bbox"][1], ln["bbox"][0], _n("".join(s["text"] for s in ln["spans"])))

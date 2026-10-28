@@ -635,7 +635,7 @@ def _front_layout(root) -> int:
     return n
 
 
-def _merge_masonry(hwpx: Path, pdf: Path, say=None) -> int:
+def _merge_masonry(hwpx: Path, pdf: Path, say=None, title: str = "조적벽치수및상태조사결과표") -> int:
     """조적벽 결과표 층·구분 세로 합치기(10/27 사용자) — PDF로 쪽마다 줄 수를 세어 쪽 경계에서 끊고(다음 쪽 첫 줄에 층·구분 다시) 합친 뒤 다시 PDF.
     쪽 정리·제목 넘김이 끝난 뒤(합치기 전 모양 그대로 쪽이 나뉘므로 쪽 경계는 안 바뀜). 못 하면 그대로."""
     import traceback
@@ -647,7 +647,7 @@ def _merge_masonry(hwpx: Path, pdf: Path, say=None) -> int:
         doc = Hwpx(hwpx)
         if not seismic_fill.masonry_tables(doc.root):
             return 0
-        cuts = seismic_fill.masonry_cuts(doc.root, pdf)
+        cuts = seismic_fill.masonry_cuts(doc.root, pdf, title)
         with seismic_fill.borders_for(doc):
             n = seismic_fill.merge_masonry(doc.root, cuts)
         if not n:
