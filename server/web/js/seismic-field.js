@@ -134,6 +134,7 @@
       const kindSel = `<select class="sf2-mkind" data-g="${n}" data-j="${j}" data-mk="1" title="부재 — 바꾸면 이 칸은 그 부재로, 같은 층 그 부재 빈 칸 하나는 이 칸의 원래 부재로(칸 수 그대로)">${opt(kinds.map((x) => [x, x]), k)}</select>`;
       return `<div class="sf2-row${filledM(r) ? "" : " empty"}"><span class="sf2-no">${no}</span><span class="sf2-mk">${kindSel}<i>${nth}</i></span>
         <select data-g="${n}" data-j="${j}" data-k="item_id" title="일람표 칸" style="flex:1.5">${opt(opts, r.item_id)}</select>
+        ${k === "벽체" ? `<select class="sf2-mdir${r.dir ? "" : " need"}" data-g="${n}" data-j="${j}" data-k="dir" title="벽체 방향 — 체크리스트 D 1층 조사 수량(X방향·Y방향)" style="flex:0.6">${opt([["", "방향 —"], ["X", "X방향"], ["Y", "Y방향"]], r.dir || "")}</select>` : ""}
         ${inp("mark", "부호", 0.7)}${inp("design", "도면치수", 1)}${measuredCell(n, j, r, k)}<span class="sf2-auto" style="flex:0.9" title="비고 — 실측치수에서 자동(일치·일부일치·불일치)"><i>비고</i><b>${esc(autoNote(r))}</b></span></div>`; // 위치 칸 없앰(10/27 형 — 보고서 조사위치 = 층만)
     };
     $("sf2-members").innerHTML = `<div class="sf2-qty"><table class="sf2-qty-t"><thead><tr><th>층</th>${kinds.map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>
@@ -170,6 +171,7 @@
     box.querySelectorAll("[data-g][data-k]").forEach((el) => el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => {
       const r = rowOf(el);
       r[el.dataset.k] = el.value;
+      if (el.dataset.k === "dir") el.classList.toggle("need", !el.value); // 벽체 방향 고르면 노란 테두리 풂
       if (el.dataset.k === "item_id") {
         const it = F.schedule.find((x) => x.id === r.item_id);
         if (it) { r.mark = it.marks[0] || r.mark; r.design = (it.size || "").replace(/\s*[xX×*]\s*/, " x "); }

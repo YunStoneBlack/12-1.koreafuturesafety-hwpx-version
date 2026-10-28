@@ -1749,11 +1749,47 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
         n += fill_defects(root, defect_rows(db, r.id), member_tpl)
     if not front_taken:
         n += fill_result_na(root, d, reg, ground, field)
+        n += fill_checklist_counts(root, field["members"], warn)  # 체크리스트 D 1층 조사 수량(10/28) — 외주 견본 전체를 옮겼으면 외주 값 그대로
     saved = (field.get("summary") or "").strip()
     chief = d["persons"][0]["name"] if d.get("persons") else ""
     n += fill_opinion(root, saved or summary_text(d, field, f, reg, vendor_text), chief)
     if not saved:
         warn.append("요약문 종합의견은 자동 문장입니다 — 현장조사 입력 📝에서 고치거나 🤖 AI 초안")
+    return n
+
+
+def fill_checklist_counts(root, members: list[dict], warn: list) -> int:
+    """체크리스트 "D. 현장조사 · 1. 1층 주요 수직부재 치수"의 조사 수량 — 1층 부재 단면 줄 수로 기둥·벽체 X방향·벽체 Y방향, 없으면 0ea
+    (10/28 사용자 "조사수량이 없으면 0, 있으면 X방향 Y방향 몇 개인지" — 전엔 안 채워 견본 값이 지워지고 노란 빈칸). 총 수량·부재번호는 도면 값(외주 몫) 그대로. 채운 칸 수."""
+    t = next((t for t in _outer(root) if _n(rb._cell_text(rb._cells(t).get((0, 0), t))).startswith("검토항목") and "D.현장조사" in _n(_t(t))), None)
+    if t is None:
+        return 0
+    cells = rb._cells(t)
+    span = lambda tc: int(tc.find(f"{{{HP}}}cellSpan").get("rowSpan") or 1)  # noqa: E731
+    labels = []  # (시작 줄, 끝 줄, 무엇)
+    for (r, _c), tc in cells.items():
+        x = _n(rb._cell_text(tc))
+        if x in ("X방향", "Y방향"):
+            labels.append((r, r + span(tc), x[0]))
+        elif x.startswith("a.기둥"):
+            labels.append((r, r + span(tc), "기둥"))
+    one = [m for m in members if m.get("floor") == 1]
+    count = {"기둥": sum(1 for m in one if m.get("kind") == "기둥"),
+             "X": sum(1 for m in one if m.get("kind") == "벽체" and m.get("dir") == "X"),
+             "Y": sum(1 for m in one if m.get("kind") == "벽체" and m.get("dir") == "Y")}
+    n = 0
+    for (r, c), tc in sorted(cells.items()):
+        if _n(rb._cell_text(tc)) != "조사수량":
+            continue
+        hit = sorted((b - a, what) for a, b, what in labels if a <= r < b)
+        right = min((cc for (rr, cc) in cells if rr == r and cc > c), default=None)
+        if not hit or right is None:
+            continue
+        _set(cells, (r, right), f"{count[hit[0][1]]}ea")
+        n += 1
+    no_dir = sum(1 for m in one if m.get("kind") == "벽체" and not m.get("dir"))
+    if no_dir:
+        warn.append(f"1층 벽체 {no_dir}개는 방향(X·Y)을 안 골라 체크리스트 조사 수량에서 뺐습니다(현장조사 입력 부재 단면 — 벽체 줄 방향)")
     return n
 
 

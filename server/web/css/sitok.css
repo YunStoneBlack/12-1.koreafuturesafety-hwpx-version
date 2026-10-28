@@ -1116,4 +1116,7 @@ button.sp-pick-it.on { border-color: var(--blue); }
 .sf2-tn input { flex: 1; min-width: 0; font-size: 13px; }
 .main .sf2-tn button { margin: 0; flex: none; white-space: nowrap; padding: 6px 10px; font-size: 12.5px; }
 @media (max-width: 760px) { .sf2-tn { flex-wrap: wrap; } .sf2-tn input { flex-basis: 100%; } }
+/* 부재 단면 벽체 방향(10/28 사용자 — 체크리스트 D 1층 조사 수량 X·Y방향), 안 고르면 노란 테두리 */
+.sf2-row select.sf2-mdir { min-width: 84px; }
+.sf2-row select.sf2-mdir.need { border-color: #E0B000; background: #FFF8D6; }
 

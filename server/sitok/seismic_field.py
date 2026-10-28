@@ -91,7 +91,8 @@ def norm_member(row: dict) -> dict:
     measured = design if match == "일치" and design else size_text(row.get("measured"))
     return {"id": _s(row.get("id"), 12) or uuid.uuid4().hex[:8], "floor": _int(row.get("floor")) or 1, "where": _s(row.get("where"), 30),
             "kind": kind, "mark": _s(row.get("mark"), 20), "item_id": _s(row.get("item_id"), 12),
-            "design": design, "measured": measured, "match": match, "note": _s(row.get("note"), 40)}
+            "design": design, "measured": measured, "match": match, "note": _s(row.get("note"), 40),
+            "dir": row.get("dir") if kind == "벽체" and row.get("dir") in ("X", "Y") else ""}  # 벽체 방향(10/28 사용자 — 체크리스트 D 1층 조사 수량 X·Y방향)
 
 
 def norm_core(row: dict) -> dict:
