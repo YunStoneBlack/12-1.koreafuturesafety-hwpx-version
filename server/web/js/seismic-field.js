@@ -402,13 +402,16 @@
     });
   }
 
+  // 다른 조사 화면 바로가기(10/28 사용자) — 현장조사 입력 / 외관조사 / 보고서 AI 작성, 지금 화면은 뺌
+  const xlinks = () => [["seismic-field.html?id=" + id, "🧱 현장조사 입력", !TEXTS], ["sitok-field.html?report=" + id + "&seis=1", "📱 외관조사", false],
+    ["seismic-field.html?id=" + id + "&part=texts", "🤖 보고서 AI 작성", !!TEXTS]].filter(([, , cur]) => !cur).map(([h, t]) => `<a class="secondary-link" href="${h}">${t} →</a>`).join("");
   // 위쪽 수량 표시 — 스크롤해도 위에 고정, 누르면 그 칸으로(10/22 민재형 "셀고정, 해당 조사항목 누르면 그 항목으로 즉시 이동"). 철근배근은 철근탐사 화면으로.
   function drawMin() {
     const m = F.min_counts;
     const it = (label, n, min, go, href) => `<a class="sp-min-it${n >= min && n > 0 ? " ok" : ""}"${href ? ` href="${href}"` : ` href="#${go}" data-go="${go}"`}><b>${n}</b>/${min} ${esc(label)}</a>`;
-    $("sf2-min").innerHTML = it("부재 단면", F.members.length, m.member, "sf2-m-panel") + it("철근배근", F.rebar, m.rebar, "sf2-r-panel")
-      + it("코어", F.cores.length, m.core, "sf2-c-panel") + it("조적조", F.masonry.length, m.masonry, "sf2-w-panel")
-;
+    $("sf2-min").innerHTML = `<div class="sp-min-row">${it("부재 단면", F.members.length, m.member, "sf2-m-panel") + it("철근배근", F.rebar, m.rebar, "sf2-r-panel")
+      + it("코어", F.cores.length, m.core, "sf2-c-panel") + it("조적조", F.masonry.length, m.masonry, "sf2-w-panel")}</div><div class="sp-min-go">${xlinks()}</div>`; // 바로가기도 고정 줄에(10/28 사용자 "입력 중엔 안 보임 — 저기에")
+    stickPad();
     $("sf2-min-help").textContent = `조사단위 ${F.units}개 — 매뉴얼 <표 3-1> 최소 수량(지금/최소) · 부재 ${(m.how || {}).member || ""} · 철근 ${(m.how || {}).rebar || ""}`; // 고정 줄 밖
   }
 
@@ -438,9 +441,7 @@
       : "보고서 차례로 2.2.1 부재 단면 → 2.2.2 철근탐사 → 2.2.3 코어 → 2.4.3 조적조 — 넣은 값은 보고서 표에 들어갑니다(현장·전경 사진은 외관조사)";
     $("sf2-proj").textContent = f.name;
     $("sf2-proj").href = `seismic-project.html?id=${id}`;
-    // 조사 중에도 서로 넘나드는 바로가기(10/28 사용자) — 현장조사 입력 / 외관조사 / 보고서 AI 작성, 지금 화면은 뺌
-    $("sf2-xlinks").innerHTML = [["seismic-field.html?id=" + id, "🧱 현장조사 입력", !TEXTS], ["sitok-field.html?report=" + id + "&seis=1", "📱 외관조사", false],
-      ["seismic-field.html?id=" + id + "&part=texts", "🤖 보고서 AI 작성", !!TEXTS]].filter(([, , cur]) => !cur).map(([h, t]) => `<a class="secondary-link" href="${h}">${t} →</a>`).join("");
+    $("sf2-xlinks").hidden = true; // 바로가기는 고정 요약 줄 안에(drawMin, 10/28 사용자 "입력 중엔 안 보임 — 저기에") — 경로 줄 아래 자리는 비움
     drawMin(); stickPad(); drawMembers(); drawCores(); drawMasonry(); drawTexts(); // 사진은 외관조사 탭(10/27, js/seismic-photos.js)
   }
 

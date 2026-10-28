@@ -1100,4 +1100,14 @@ button.sp-pick-it.on { border-color: var(--blue); }
 /* 내진 조사 화면끼리 바로가기 줄(10/28 사용자 "조사 중에도 서로 넘나들기") — 경로 표시 아래 */
 .sp-xlinks { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 12px; }
 .sp-xlinks a.secondary-link { padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 12.5px; text-decoration: none; }
+/* 고정 요약 줄 = 수량 줄 + 바로가기(10/28 사용자 "입력 중엔 바로가기 안 보임 — 저기에 붙이기"): PC는 한 줄(바로가기 오른쪽), 폰은 두 줄 */
+.sf2-stick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.sf2-stick .sp-min-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.sf2-stick .sp-min-go { display: flex; gap: 6px; margin-left: auto; }
+.sf2-stick .sp-min-go a.secondary-link { padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 12px; text-decoration: none; white-space: nowrap; }
+@media (max-width: 760px) {
+  .sf2-stick .sp-min-row { flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; gap: 4px; scrollbar-width: none; }
+  .sf2-stick .sp-min-row::-webkit-scrollbar { display: none; }
+  .sf2-stick .sp-min-go { flex: 1 0 100%; margin-left: 0; }
+}
 
