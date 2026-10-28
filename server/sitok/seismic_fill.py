@@ -2155,6 +2155,47 @@ def _put_full(doc, pic, path: Path) -> bool:
     return True
 
 
+COMPANY_LOGO = Path(__file__).resolve().parents[1] / "web" / "img" / "logo.png"  # 한국미래안전 로고 원본(2950×732, 웹과 같은 것)
+
+
+def company_logo_cover(doc, root, head: int = 40) -> int:
+    """표지 아래 발주처·회사 칸(앞 head문단 안, 그림 둘 이상인 표) — 발주처 로고(정사각 그림) 지우고, 한국미래안전 로고(가로세로 약 4:1)는 고화질 원본으로
+    (10/28 사용자 "표시된 로고만 삭제, 한국미래안전 로고 화질이 흐려 고화질로" — 과업수행계획서 표지: 발주처 로고 160px·회사 로고 1011px JPG). 바꾼 그림 수."""
+    from PIL import Image
+
+    if not COMPANY_LOGO.exists():
+        return 0
+    n = 0
+    tops = [p for p in root if p.tag == f"{{{HP}}}p"][:head]
+    for p in tops:
+        for t in _outer(p):
+            pics = [x for x in t.iter(f"{{{HP}}}pic")]
+            if len(pics) < 2:
+                continue
+            for pic in pics:
+                sz = pic.find(f"{{{HP}}}curSz")
+                w, h = (int(sz.get("width") or 0), int(sz.get("height") or 0)) if sz is not None else (0, 0)
+                if w <= 0 or h <= 0:
+                    continue
+                if 0.8 < w / h < 1.25:  # 발주처 로고
+                    pic.getparent().remove(pic)
+                    n += 1
+                elif 3.5 < w / h < 4.6:  # 회사 로고 — 투명 바탕을 흰 바탕으로, 원본 해상도 PNG
+                    im = Image.open(COMPANY_LOGO).convert("RGBA")
+                    bg = Image.new("RGB", im.size, "white")
+                    bg.paste(im, mask=im.split()[3])
+                    buf = io.BytesIO()
+                    bg.save(buf, "PNG", optimize=True)
+                    img = next(pic.iter(f"{{{HC}}}img"), None)
+                    if img is not None:
+                        img.set("binaryItemIDRef", doc.add_image(buf.getvalue(), "png", "image/png"))
+                        _size_pic(pic, w, h, buf.getvalue())
+                        n += 1
+            if n:
+                return n
+    return n
+
+
 FULL_MAX = 3200  # 원본 해상도 그림의 긴 변 상한(px) — 폰 사진·큰 스캔이 들어와도 한 장 수 MB가 안 되게(쪽 너비 17cm에서 약 480dpi)
 
 

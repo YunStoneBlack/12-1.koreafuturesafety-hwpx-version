@@ -52,6 +52,9 @@ def _fill(doc, root, d: dict, sc: dict, reg: dict, field: dict, r, f) -> None:
     else:
         days = sc.get("days") or 71
     SB.replace_globals(doc, d)
+    m = d["month"]  # 표지 연월 — 틀은 "2026.  01."(띄어쓰기 두 칸)이라 replace_globals가 못 찾아 모든 건에 견본 연월이 남았음(10/28)
+    SFL.replace_loose(doc, re.compile(r"2026\.\s+01\.(?!\s*\d)"), f"{m.year}. {m.month:02d}.")  # 날짜(…01. 02.)는 안 건드림
+    SFL.company_logo_cover(doc, root)  # 표지 발주처 로고 지움·회사 로고 고화질(10/28 사용자)
     grade = reg.get("grade") or "특등급"
     for t in SFL._outer(root):
         cells = rb._cells(t)
