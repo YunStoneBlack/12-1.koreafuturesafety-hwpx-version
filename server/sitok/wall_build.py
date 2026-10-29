@@ -15,6 +15,9 @@
 - 교량(10/29 형 "옹벽편 → 교량편 추가, 기능은 옹벽과 동일"): 원본 master.master_path("교량") = 정기안전점검_교량_원본.hwpx(구역 짝은 옹벽 원본과 같음 — 공통편은
   교량·옹벽·터널·절토사면 같이, 시설물편 교량편). Data.fam = "bridge"면 AI·평가는 bridge_ai·bridge_manual, 시설물편 1.2.1 현황표 11×6(교량 제원)·1.4.1~1.4.7 절·
   1.4.8 요약표 10×4·1.5 평가표 19×10(15항목), 요약문·과업 표·총괄표는 높이 대신 폭·형식 대신 상부 형식, 요약문 "(옹벽)"·"옹벽 총"은 "교량"으로(교량 원본 요약문이 옹벽 견본 그대로라).
+- 옹벽·교량 섞인 묶음(10/29 민재형 — 10/29부터 옹벽 원본도 공통편·서두·부록이 교량 원본과 같음): 첫 곳 종류의 원본에 다른 종류의 시설물편 장을 서식 번호 맞춰 가져와
+  (Hwpx.import_section · hwpx_import.StyleMap) 곳 차례대로 장을 둠. 요약문·1.2·부록 서류 목록 표는 종류마다 한 벌(_per_fam, 머리 치수 칸 = 옹벽 길이·높이 / 교량 연장·폭),
+  총괄표는 한 표에 곳마다 H(m)/W(m).
 - 부록: 간지만 남기고(견본 사진 쪽 지움) 관리대장 PDF·사진첩 PDF(pymupdf로 그림 — 전경 6 + 주요 손상 및 현황 사진 2×3 + 전회차 비교, 설명은 그림 바로 아래 →
   다음 회차 wall_album.read_pdf가 읽음)·계약서 PDF를 간지 뒤에 끼움.
 """
@@ -86,6 +89,8 @@ class Hwpx:
         self.new_masters: list[str] = []  # 복제한 바탕쪽(장마다 꼬리말 "제 N 장 이름")
         self.added: list[tuple[str, bytes]] = []
         self.added_ext: dict[str, tuple[str, str]] = {}  # 그림 key → (확장자, media-type) — 없으면 jpg(외주 그림 png 옮기기, 10/21)
+        self.imported: list[tuple[str, bytes]] = []  # 다른 원본에서 가져온 구역의 그림(import_section, 10/29) — 크기 맞추기(fit_added_pics) 안 함
+        self._smaps: dict = {}  # 가져올 원본 → 서식 번호 맞추기(hwpx_import.StyleMap)
         self.run = datetime.datetime.now().strftime("%y%m%d%H%M%S") + f"{random.randint(0, 999):03d}"
 
     @property
@@ -126,6 +131,50 @@ class Hwpx:
         self.roots[new] = root
         self.sections.insert(self.sections.index(name) + n + 1, new)
         return new
+
+    def import_section(self, src: "Hwpx", name: str, after: str) -> str:
+        """다른 원본(src)의 구역 name을 서식 번호를 이 파일에 맞춰(hwpx_import.StyleMap) after 구역 바로 뒤에 끼움 → 새 이름.
+        바탕쪽도 가져와 새 번호로 가리키고, 그림은 이 파일로 옮기고, 표·그림 id는 새로(10/29 옹벽·교량 섞인 묶음 — 옹벽 원본에 교량 시설물편 장)."""
+        from server.sitok import hwpx_import
+        from server.sitok.merge import _renew_ids
+
+        smap = self._smaps.get(str(src.src))
+        if smap is None:
+            smap = self._smaps[str(src.src)] = hwpx_import.StyleMap(self.header, src.header, lambda k: self._take_bin(src, k))
+        root = copy.deepcopy(src.roots[name])
+        for mp in root.iter(f"{{{HP}}}masterPage"):
+            old = f"Contents/{mp.get('idRef')}.xml"
+            if old in src.roots:
+                mid = f"masterpage{len(self.masters) + len(self.new_masters)}"
+                mroot = copy.deepcopy(src.roots[old])
+                smap.remap_tree(mroot)
+                if mroot.get("id"):
+                    mroot.set("id", mid)
+                self.roots[f"Contents/{mid}.xml"] = mroot
+                self.new_masters.append(f"Contents/{mid}.xml")
+                mp.set("idRef", mid)
+        smap.remap_tree(root)
+        _renew_ids(root)
+        new = f"{after[:-4]}_imp{sum(1 for x in self.sections if '_imp' in x) + 1}.xml"
+        self.roots[new] = root
+        self.sections.insert(self.sections.index(after) + 1, new)
+        return new
+
+    def _take_bin(self, src: "Hwpx", key: str) -> str:
+        """src 파일의 그림 key(목록 id)를 이 파일로 → 새 key(못 찾으면 "")."""
+        item = next((m for m in re.findall(r"<opf:item [^>]*/>", src.hpf) if re.search(rf'\bid="{re.escape(key)}"', m)), "")
+        href = re.search(r'href="([^"]+)"', item)
+        if not href:
+            return ""
+        with zipfile.ZipFile(src.src) as z:
+            if href[1] not in z.namelist():
+                return ""
+            data = z.read(href[1])
+        media = re.search(r'media-type="([^"]*)"', item)
+        nk = f"imp{self.run}_{len(self.imported) + 1}"
+        self.imported.append((nk, data))
+        self.added_ext[nk] = (href[1].rsplit(".", 1)[-1].lower(), media[1] if media else "image/png")
+        return nk
 
     def clone_charpr(self, cid: str, height: int | None = None, spacing: int | None = None, ratio: int | None = None) -> str:
         """header.xml 글자 모양 cid를 복제해 크기(height, 1/100pt)·자간(spacing %)·장평(ratio %)만 바꾼 새 id — 긴 이름 표지·책등."""
@@ -315,11 +364,11 @@ class Hwpx:
             text = re.sub(r'(<opf:item id="header"[^>]*/>)', lambda m: m[1] + items, text, count=1)
             refs = "".join(f'<opf:itemref idref="section{i}" linear="yes"/>' for i in range(len(kept)))
             text = re.sub(r'(<opf:itemref idref="header"[^>]*/>)', lambda m: m[1] + refs, text, count=1)
-            new = "".join(f'<opf:item id="{k}" href="BinData/{k}.{self._ext(k)[0]}" media-type="{self._ext(k)[1]}" isEmbeded="1"/>' for k, _ in self.added)
+            new = "".join(f'<opf:item id="{k}" href="BinData/{k}.{self._ext(k)[0]}" media-type="{self._ext(k)[1]}" isEmbeded="1"/>' for k, _ in self.added + self.imported)
             zout.writestr("Contents/content.hpf", text.replace("</opf:manifest>", new + "</opf:manifest>").encode("utf-8"))
             texts = "\r\n".join("".join(t.text or "" for t in p.iter(T)) for n in kept for p in self.roots[n].iter(f"{{{HP}}}p"))
             zout.writestr("Preview/PrvText.txt", texts[:2000].encode("utf-8"))
-            for k, b in self.added:
+            for k, b in self.added + self.imported:
                 zout.writestr(f"BinData/{k}.{self._ext(k)[0]}", b, compress_type=zipfile.ZIP_STORED)
         tmp.replace(dest)
         return dest
@@ -711,6 +760,7 @@ def gather(db, r, f) -> Data:
     d.class_no = (f.class_no or spec.get("class_no") or "2").strip()
     if d.fam == "bridge":  # 교량(10/29) — 종별 비면 틀(3종일반 → 3종). 종류는 facility_kind_text가 교량 몫으로
         d.class_no = (f.class_no or spec.get("class_no") or ("3" if (f.template or "").startswith("3종") else "2")).strip()
+    d.class_no = (re.search(r"[123]", d.class_no) or ["2"])[0]  # 시설물 칸에 "2종"처럼 적힌 것 — 결과표·요약문 "2종종"(10/29)
     d.template3 = (f.template or "").startswith("3종")
     d.form = manual.form_of(spec.get("form") or "", f.name, f.kind or "")
     # 사람
@@ -943,30 +993,74 @@ def fill_summary(doc: Hwpx, d: Data) -> None:
         _set(rb._cells(t31), (0, 0), d.owner)
     replace_text(root, "어쩌구에 대한 2026년 상반기 정기안전점검", f"{d.name}에 대한 {d.year}년 {d.half} 정기안전점검")
     sites = d.many
-    word = "교량" if d.fam == "bridge" else "옹벽"  # 교량 원본 요약문은 옹벽 견본 글 그대로(10/29) — 시설물 낱말을 바꿈
-    replace_text(root, "총 옹벽 17개소", f"{word} {len(sites)}개소")
-    if d.fam == "bridge":
-        replace_text(root, "시설물별 정기안전점검 결과 (옹벽)", "시설물별 정기안전점검 결과 (교량)")
+    groups = _fam_groups(sites)  # 원본 요약문은 옹벽 견본 글(교량·옹벽 같은 공통) — 시설물 낱말을 종류대로, 섞이면 "옹벽 2개소, 교량 3개소"(10/29)
+    replace_text(root, "총 옹벽 17개소", ", ".join(f"{FAM_WORD[fm]} {len(g)}개소" for fm, g in groups))
+    replace_text(root, "시설물별 정기안전점검 결과 (옹벽)", f"시설물별 정기안전점검 결과 ({'·'.join(FAM_WORD[fm] for fm, _ in groups)})")
     replace_text(root, "2026년 04월 13일 ~ 2026년 07월 11일", f"{_date(d.period_start, False)} ~ {_date(d.period_end, False)}")
-    for p in _tops(root):
-        if _ptext(p).startswith("※ 옹벽 총"):
-            rb._set_para(p, f"※ {word} 총 {len(sites)}개소({_grade_summary(sites)})")
     t = _tbl(root, 18, 11)
-    if t is not None:
-        if d.fam == "bridge":  # 머리 줄 "높이(m)" → "폭(m)", "길이(m)" → "연장(m)"
-            for tc in t.iter(f"{{{HP}}}tc"):
-                tx = rb._n(rb._cell_text(tc))
-                if tx == "높이(m)":
-                    rb._set_lines(tc, ["폭(m)"])
-                elif tx == "길이(m)":
-                    rb._set_lines(tc, ["연장(m)"])
-        _resize(t, len(sites), 1, 1, doc)
-        cells = rb._cells(t)
-        for i, s in enumerate(sites, 1):
-            vals = [str(i), s.name, f"{s.class_no}종", s.year_month, s.form_text, s.spec.get("length") or "-", s.dim2,
-                    s.prev_grade, s.grade, "\n".join(s.ai.get("findings") or []), "\n".join(s.ai.get("repairs") or [])]
-            for c, v in enumerate(vals):
-                _set(cells, (i, c), v)
+    if t is not None:  # "※ 옹벽 총 N개소(…)" + 표 — 종류마다 한 벌(머리 길이·높이 / 연장·폭)
+        for tt, heads, fm, g in _per_fam(t, sites, 1):
+            for p in heads:
+                if _ptext(p).startswith("※"):
+                    rb._set_para(p, f"※ {FAM_WORD[fm]} 총 {len(g)}개소({_grade_summary(g)})")
+            _dim_heads(tt, fm, (5, 6))
+            _resize(tt, len(g), 1, 1, doc)
+            cells = rb._cells(tt)
+            for i, s in enumerate(g, 1):
+                vals = [str(s.index or i), s.name, f"{s.class_no}종", s.year_month, s.form_text, s.spec.get("length") or "-", s.dim2,
+                        s.prev_grade, s.grade, "\n".join(s.ai.get("findings") or []), "\n".join(s.ai.get("repairs") or [])]
+                for c, v in enumerate(vals):
+                    _set(cells, (i, c), v)
+
+
+FAM_WORD = {"wall": "옹벽", "bridge": "교량"}
+DIM_LABELS = {"wall": ("길이(m)", "높이(m)"), "bridge": ("연장(m)", "폭(m)")}  # 목록 표 둘째·셋째 치수 칸 머리(공통 원본은 교량 머리 그대로라 옹벽엔 높이로, 10/29)
+
+
+def _fam_groups(sites: list) -> list[tuple[str, list]]:
+    """[(종류, 곳들)] — 처음 나온 차례."""
+    out: dict[str, list] = {}
+    for s in sites:
+        out.setdefault(s.fam, []).append(s)
+    return list(out.items())
+
+
+def _per_fam(t, sites: list, n_head: int = 0) -> list[tuple]:
+    """목록 표 t를 종류 묶음마다 한 벌로 — [(표, 앞 제목 문단들, 종류, 곳들)]. 한 종류면 t 그대로. 섞이면(옹벽·교량 한 묶음, 10/29) 표 문단과
+    바로 앞 제목 문단 n_head개를 복사해 그 뒤에 차례로(요약문 "※ … 총", 1.2 "- 옹벽시설물 현황"). 표가 문단 안에 없으면 복사 없이 한 벌."""
+    from server.sitok.merge import _renew_ids
+
+    groups = _fam_groups(sites)
+    p = t.getparent()
+    while p is not None and p.tag != f"{{{HP}}}p":
+        p = p.getparent()
+    heads: list = []
+    q = p.getprevious() if p is not None else None
+    while q is not None and len(heads) < n_head:
+        if q.tag == f"{{{HP}}}p":
+            heads.insert(0, q)
+        q = q.getprevious()
+    if p is None or len(groups) == 1:
+        return [(t, heads, groups[0][0], sites)]
+    out = [(t, heads, *groups[0])]
+    anchor = p
+    for fm, g in groups[1:]:
+        new_heads = [copy.deepcopy(x) for x in heads]
+        new_p = copy.deepcopy(p)
+        for x in new_heads + [new_p]:
+            _renew_ids(x)
+            anchor.addnext(x)
+            anchor = x
+        out.append((next(new_p.iter(f"{{{HP}}}tbl")), new_heads, fm, g))
+    return out
+
+
+def _dim_heads(t, fam: str, cols: tuple[int, int]) -> None:
+    """목록 표 머리 줄 치수 칸 이름 — 옹벽 길이(m)·높이(m) · 교량 연장(m)·폭(m)."""
+    cells = rb._cells(t)
+    for c, label in zip(cols, DIM_LABELS.get(fam, DIM_LABELS["wall"])):
+        if (0, c) in cells:
+            rb._set_lines(cells[(0, c)], [label])
 
 
 def _grade_summary(sites: list) -> str:
@@ -1351,31 +1445,38 @@ def fill_intro(doc: Hwpx, d: Data) -> None:
                             f"{d.name}에 대한 상태를 정밀히 파악하여 안전사고 예방 및 사후 조치에 만전을 기하고, 필요시 향후 유지관리 방안을 제시하여 시설물의 안전한 관리에 목적이 있다.")
         elif t.startswith("￭ 과업기간"):
             rb._set_para(p, f"￭ 과업기간 : {d.period}")
-    _fill_target_table(_tbl(root, 18, 9, "번호"), d, doc)
+    _fill_target_table(_tbl(root, 18, 9, "번호"), d, doc, n_head=1)
 
 
-def _fill_target_table(t, d: Data, doc=None) -> None:
-    """과업대상 시설물 표(18×9: 번호·시설물명·형식별·종별·길이·높이·준공연도·점검종류·비고) — 개요 1.2·과업지시서 Ⅱ."""
+def _fill_target_table(t, d: Data, doc=None, n_head: int = 0) -> None:
+    """과업대상 시설물 표(18×9: 번호·시설물명·형식별·종별·길이·높이·준공연도·점검종류·비고) — 개요 1.2(앞 "- 옹벽시설물 현황" 제목째 종류마다)·과업지시서 Ⅱ."""
     if t is None:
         return
-    _resize(t, len(d.many), 1, 1, doc)
-    cells = rb._cells(t)
-    for i, s in enumerate(d.many, 1):
-        for c, v in enumerate([str(i), s.name, s.form_text, f"{s.class_no}종", s.spec.get("length") or "-", s.dim2, s.year_month, "정기점검", ""]):
-            _set(cells, (i, c), v)
+    for tt, heads, fm, g in _per_fam(t, d.many, n_head):
+        for p in heads:
+            if _ptext(p).endswith("시설물 현황"):
+                rb._set_para(p, f"- {FAM_WORD[fm]}시설물 현황")
+        _dim_heads(tt, fm, (4, 5))
+        _resize(tt, len(g), 1, 1, doc)
+        cells = rb._cells(tt)
+        for i, s in enumerate(g, 1):
+            for c, v in enumerate([str(s.index or i), s.name, s.form_text, f"{s.class_no}종", s.spec.get("length") or "-", s.dim2, s.year_month, "정기점검", ""]):
+                _set(cells, (i, c), v)
 
 
 def _fill_status_table(t, d: Data, doc=None) -> None:
-    """대상시설물 현황 표(18×8: 연번·시설명·위치·연장·높이·준공년도·구조형식·종별) — 과업수행계획서 라.·사전검토보고서 3."""
+    """대상시설물 현황 표(18×8: 연번·시설명·위치·연장·높이·준공년도·구조형식·종별) — 과업수행계획서 라.·사전검토보고서 3. 섞이면 종류마다 한 벌."""
     if t is None:
         return
-    _resize(t, len(d.many), 1, 1, doc)
-    cells = rb._cells(t)
-    for i, s in enumerate(d.many, 1):
-        done = f"{s.completion.year}년 {s.completion.month}월" if s.completion else "-"
-        for c, v in enumerate([str(i), s.name, s.address if s.address != "-" else "-", s.spec.get("length") or "-", s.dim2, done,
-                               (s.form_text if s.fam == "bridge" else (s.spec.get("form") or wall_ledger.form_text(s.spec, "") or "-")), f"{s.class_no}종"]):
-            _set(cells, (i, c), v)
+    for tt, _heads, fm, g in _per_fam(t, d.many):
+        _dim_heads(tt, fm, (3, 4))
+        _resize(tt, len(g), 1, 1, doc)
+        cells = rb._cells(tt)
+        for i, s in enumerate(g, 1):
+            done = f"{s.completion.year}년 {s.completion.month}월" if s.completion else "-"
+            for c, v in enumerate([str(s.index or i), s.name, s.address if s.address != "-" else "-", s.spec.get("length") or "-", s.dim2, done,
+                                   (s.form_text if s.fam == "bridge" else (s.spec.get("form") or wall_ledger.form_text(s.spec, "") or "-")), f"{s.class_no}종"]):
+                _set(cells, (i, c), v)
 
 
 def _short_owner(owner: str) -> str:
@@ -2346,7 +2447,8 @@ def fill_conclusion(doc: Hwpx, d: Data) -> None:
             _set(cells, (r0, 3), f"{s.completion.year}년" if s.completion else "-")
             _set(cells, (r0, 4), "\n".join(s.ai.get("findings") or []))
             _set(cells, (r0, 5), "\n".join(s.ai.get("repairs") or []) or "\n".join(scon.get("repair") or []))
-            _set(cells, (r0 + 1, 3), s.dim2)  # 옹벽 H · 교량 W(원본 머리 W(m))
+            _set(cells, (r0 + 1, 2), "W(m)" if s.fam == "bridge" else "H(m)")  # 곳마다 이름 칸 — 옹벽 높이 H · 교량 폭 W(섞인 묶음도 한 표, 10/29)
+            _set(cells, (r0 + 1, 3), s.dim2)
             _set(cells, (r0 + 2, 3), s.spec.get("length") or "-")
             _set(cells, (r0 + 3, 3), s.grade)
 
@@ -2529,14 +2631,16 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     from server.contract_docs import hwp_queue
 
     say = say or (lambda m: None)
-    fams = {"bridge" if kinds.is_bridge(f) else "wall" for f, _r in pairs}
-    if len(fams) > 1:
-        raise RuntimeError("옹벽과 교량은 한 권으로 만들 수 없습니다 — 묶음을 나누거나 분권으로 만드세요(원본이 달라서).")
-    fam = next(iter(fams))
-    missing = ready(fam)
-    if missing:
-        what = "교량" if fam == "bridge" else "옹벽"
-        raise RuntimeError(f"{what} 원본이 없습니다(시특법 설정 → {what} 정기안전점검 원본 올리기): " + ", ".join(missing))
+    odd = [f.name for f, _r in pairs if not kinds.is_civil(f)]
+    if odd:
+        raise RuntimeError("건축물은 옹벽·교량 보고서에 같이 묶을 수 없습니다: " + ", ".join(odd))
+    fams = list(dict.fromkeys("bridge" if kinds.is_bridge(f) else "wall" for f, _r in pairs))  # 옹벽·교량 섞인 묶음(10/29 민재형) — 첫 곳 종류의 원본에 다른 종류 시설물편을 가져와 끼움
+    fam = fams[0]
+    for fm in fams:
+        missing = ready(fm)
+        if missing:
+            what = FAM_WORD[fm]
+            raise RuntimeError(f"{what} 원본이 없습니다(시특법 설정 → {what} 정기안전점검 원본 올리기): " + ", ".join(missing))
     sites = []
     for i, (f, r) in enumerate(pairs, 1):
         say(f"값 모으는 중 — {i}/{len(pairs)}곳…")
@@ -2551,16 +2655,26 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     locked = pdf_out.name != f"{base}.pdf" or hwpx_out.name != f"{base}.hwpx"
     say("원본 여는 중…")
     doc = Hwpx(master_path(fam))
-    if fam == "bridge":  # 교량 원본에 남은 옹벽 견본 제목(1.2 과업대상 시설물 개요 "- 옹벽시설물 현황", 10/29)
-        doc.replace_all("옹벽시설물 현황", "교량시설물 현황")
     loc = locate(doc)
     doc.pic_tpl = _pic_tpl(doc.roots[loc["chapter"]])
+    tpl_of = {fam: loc["chapter"]}  # 종류 → 시설물편 장 견본 구역 — 다른 종류는 그 원본에서 서식 번호 맞춰 가져옴(10/29), 서두 채우기 전에
+    for fm in fams[1:]:             # (견본 용역명 등 파일 전체 바꾸기를 같이 받게 — 뒤에 가져오면 1장 채울 때 첫 곳 계약명으로 바뀜)
+        say(f"{FAM_WORD[fm]} 시설물편 가져오는 중…")
+        src = Hwpx(master_path(fm))
+        tpl_of[fm] = doc.import_section(src, locate(src)["chapter"], loc["chapter"])
     changed = 0
     for key, fn in (("cover", fill_cover), ("summary", fill_summary), ("front", fill_front), ("intro", fill_intro)):
         say(f"{key} 채우는 중…")
         fn(doc.view(loc[key]), d)
         changed += 1
-    chapters = [loc["chapter"]] + [doc.clone_section(loc["chapter"]) for _ in sites[1:]]  # 2장부터 구역(+바탕쪽) 복제
+    chapters, used = [], set()
+    for s in sites:  # 2장부터 구역(+바탕쪽) 복제 — 채우기 전에 다 만들어 둠(견본이 비어 있을 때)
+        t0 = tpl_of[s.fam]
+        chapters.append(doc.clone_section(t0) if t0 in used else t0)
+        used.add(t0)
+    at = doc.sections.index(loc["chapter"])  # 장 차례 = 곳 차례(종류가 번갈아 와도)
+    rest = [x for x in doc.sections if x not in chapters]
+    doc.sections = rest[:at] + chapters + rest[at:]
     for k, (sec, s) in enumerate(zip(chapters, sites), 1):
         say(f"제{k}장 {s.name} 채우는 중…")
         fill_chapter(doc.view(sec), s, k, [x.name for x in sites], doc.roots[loc["intro"]])

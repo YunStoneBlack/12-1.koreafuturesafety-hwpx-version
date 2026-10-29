@@ -1138,7 +1138,9 @@ def _run_build(report_id: int) -> None:
 
 
 def _run_wall_build(db: Session, r: SitokReport, f: SitokFacility) -> None:
-    """옹벽 한 곳 정기 보고서(server/sitok/wall_build) — 옹벽 원본 한 파일(형이 합친 것, 10/21)을 채워 한글 한 파일 + PDF(관리대장·사진첩·계약서 끼움)."""
+    """옹벽 한 곳 정기 보고서(server/sitok/wall_build) — 옹벽 원본 한 파일(형이 합친 것, 10/21)을 채워 한글 한 파일 + PDF(관리대장·사진첩·계약서 끼움).
+    교량·옹벽+교량 섞인 묶음도(10/29)."""
+    from server.sitok import kinds as _kinds
     from server.sitok import wall_build
 
     pairs: list = []
@@ -1146,7 +1148,7 @@ def _run_wall_build(db: Session, r: SitokReport, f: SitokFacility) -> None:
         if f.group_id:  # 묶음 — 곳마다 회차(없으면 만듦), 한 권(10/21 4단계 — 건축물 묶음과 같은 규칙: 표지 "첫 곳 등 N개소", 같은 계약이면 곳별 점검금액 필요)
             pairs = _group_reports(db, r)
             for _, x in pairs:
-                x.status, x.message = "running", "옹벽 묶음 보고서 만드는 중…"
+                x.status, x.message = "running", "묶음 보고서 만드는 중…"
             db.commit()
             _group_amounts(pairs, db)
             missing = [m.name for m, x in pairs if not (x.period_start and x.period_end)]
@@ -1156,10 +1158,11 @@ def _run_wall_build(db: Session, r: SitokReport, f: SitokFacility) -> None:
             pairs = [(f, r)]
         lead_f, lead_r = pairs[0]
         folder = _report_dir(lead_f, lead_r)
+        what = "·".join(dict.fromkeys("교량" if _kinds.is_bridge(m) else "옹벽" for m, _ in pairs))  # 옹벽 · 교량 · 섞이면 옹벽·교량(10/29)
 
         def say(msg: str) -> None:
             for _, x in pairs:
-                x.message = f"옹벽 보고서 — {msg}"
+                x.message = f"{what} 보고서 — {msg}"
             db.commit()
 
         name = title = ""
