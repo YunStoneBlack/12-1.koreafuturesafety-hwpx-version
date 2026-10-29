@@ -323,6 +323,8 @@ def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = For
          "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
     if sl:
         p["slot"] = slot
+        if sl in I.slots(code)["draw"]:  # 도면 칸을 현장에서 찍은 것(반출이 안 될 때, 10/30) — 도면 그림, 늘 양호
+            p["is_draw"], p["kind"] = True, "good"
     r["photos"] = [*(x for x in r.get("photos") or [] if x not in old), p]
     res[code] = r
     j.results = res
@@ -512,7 +514,7 @@ def set_slot(jid: int, code: str, n: int, body: SlotIn, user: User = Depends(get
         (folder(j) / "사진").mkdir(parents=True, exist_ok=True)
         shutil.copyfile(folder(j) / src["rel"], folder(j) / rel)
         keep.append({"id": pid, "rel": rel, "name": f"{src['name']}" + (f" {src['page']}쪽" if src.get("page") else ""), "kind": "good",
-                     "caption": (old[0].get("caption") if old else "") or sl["caption"], "slot": n, "drawing": src["id"],
+                     "caption": (old[0].get("caption") if old else "") or sl["caption"], "slot": n, "drawing": src["id"], "is_draw": True,
                      "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")})
     r["photos"] = keep
     res[code] = r

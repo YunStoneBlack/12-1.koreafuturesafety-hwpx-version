@@ -103,6 +103,13 @@
 .main .bj-slot-shot.drop-over { background: var(--blue-soft); }
 .main .bj-ph-redo { font-size: 12px; color: var(--blue); cursor: pointer; margin-left: auto; }
 .main .bj-more { font-size: 13px; font-weight: 700; color: var(--ink); }
+/* 도면 칸은 현장 사진과 따로(10/30) — 고르기 + 📷 현장에서 찍기(반출이 안 될 때) */
+.main .bj-draw-box { margin: 12px 0 4px; padding: 10px; border: 1px solid #e6ddff; border-radius: 10px; background: #fbfaff; }
+.main .bj-draw-box > .bj-slots-h { color: #5b21b6; font-weight: 600; margin-top: 0; }
+.main .bj-draw-box .bj-slot.draw { background: #fff; }
+.main .bj-slot-btns { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.main .bj-slot-btns .bj-slot-pick, .main .bj-slot-btns .bj-slot-shot { min-height: 52px; }
+.main .bj-slot-shot.cam { border-color: var(--line); color: var(--ink); font-weight: 600; }
 /* 📐 도면·서류 그림 모음 */
 .main .bj-pool { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 12px 0; }
 .main .bj-pool:empty { display: none; }

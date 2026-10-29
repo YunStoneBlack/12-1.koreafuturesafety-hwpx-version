@@ -96,7 +96,7 @@ def missing(it: dict, res: dict | None) -> list[str]:
         out.append("부적합인데 변경 유형 체크 없음")
     draw = slots(it["code"])["draw"]
     if draw and res.get("design") != "도면없음":
-        got = {p.get("slot") for p in photos if p.get("drawing")}
+        got = {p.get("slot") for p in photos if p.get("slot") is not None}  # 모음에서 고른 것·현장에서 찍은 것 둘 다(10/30)
         left = [d["caption"] for d in draw if d["n"] not in got]
         if len(left) == len(draw):
             out.append("도면·서류 그림 없음(📐 도면 칸 — 도면이 없으면 설계도서 적합여부 '도면없음')")

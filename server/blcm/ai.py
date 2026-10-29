@@ -193,10 +193,10 @@ def merge(res: dict, got: dict) -> dict:
 def photo_bytes(folder: Path, photos: list[dict]) -> list[tuple[bytes, str, str]]:
     """AI에 줄 사진 — 지적(bad) 먼저, 도면 칸 그림(10/30)은 kind "draw"로(도면과 비교했다고 쓸 수 있게)."""
     out = []
-    for p in sorted(photos or [], key=lambda x: 0 if x.get("kind") == "bad" else 2 if x.get("drawing") else 1):
+    for p in sorted(photos or [], key=lambda x: 0 if x.get("kind") == "bad" else 2 if x.get("drawing") or x.get("is_draw") else 1):
         f = folder / p["rel"]
         if f.exists():
-            out.append((f.read_bytes(), "draw" if p.get("drawing") else p.get("kind") or "good", p.get("caption") or ""))
+            out.append((f.read_bytes(), "draw" if p.get("drawing") or p.get("is_draw") else p.get("kind") or "good", p.get("caption") or ""))
     return out
 
 
