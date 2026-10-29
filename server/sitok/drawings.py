@@ -34,17 +34,51 @@ def add(f, kind: str, base: Path, data: bytes, name: str) -> None:
     elif ext not in IMAGE_EXT:
         raise ValueError("도면은 PDF 또는 그림(jpg·png 등)으로 올려 주세요.")
     did = uuid.uuid4().hex[:10]
-    rel = f"도면/{kind}_{did}{'.pdf' if ext == '.pdf' else '.jpg'}"
+    keep = ext if ext == ".pdf" else _image_ext(data)  # 도면 그림은 원본 화질 그대로(10/29 사용자 "관련도면 화질 유지" — 전엔 사진처럼 2000px로 줄여 JPG)
+    rel = f"도면/{kind}_{did}{keep or '.jpg'}"
     dest = base / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if ext == ".pdf":
+    if keep:
         dest.write_bytes(data)
     else:
-        from server.contract_docs import files
-        files.save_jpeg(data, name, dest)
+        _full_jpeg(data, dest)
     d = dict(f.drawings or {})
     d[kind] = [*(d.get(kind) or []), {"id": did, "file": rel, "name": name, "at": datetime.date.today().isoformat()}]
     f.drawings = d
+
+
+def _image_ext(data: bytes) -> str:
+    """그대로 둘 수 있는 그림이면 그 확장자(JPG는 돌림 정보가 없을 때만, PNG) — 아니면 ""(원래 크기 JPG로 바꿈)."""
+    import io
+
+    from PIL import Image
+
+    try:
+        im = Image.open(io.BytesIO(data))
+        if im.format == "JPEG" and (im.getexif() or {}).get(274, 1) == 1 and im.mode in ("RGB", "L"):
+            return ".jpg"
+        if im.format == "PNG" and im.mode in ("RGB", "L", "P", "RGBA"):
+            return ".png"
+    except Exception as err:  # noqa: BLE001
+        raise ValueError("도면 그림을 읽지 못했습니다 — PDF 또는 JPG·PNG로 올려 주세요.") from err
+    return ""
+
+
+def _full_jpeg(data: bytes, dest: Path) -> None:
+    """원래 크기 그대로 JPG(돌림 정보는 풀고, 투명은 흰 바탕) — 줄이지 않음."""
+    import io
+
+    from PIL import Image, ImageOps
+
+    try:
+        im = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+        if im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info):
+            rgba = im.convert("RGBA")
+            im = Image.new("RGB", rgba.size, "white")
+            im.paste(rgba, mask=rgba.split()[-1])
+        im.convert("RGB").save(dest, "JPEG", quality=95)
+    except Exception as err:  # noqa: BLE001
+        raise ValueError("도면 그림을 읽지 못했습니다 — PDF 또는 JPG·PNG로 올려 주세요.") from err
 
 
 def remove(f, kind: str, base: Path, did: str) -> None:

@@ -82,7 +82,8 @@ def _file(f: SitokFacility, base: Path, kind: str, did: str) -> FileResponse:
     if it is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "도면이 없습니다.")
     p = it["path"]
-    return FileResponse(p, media_type="application/pdf" if p.suffix.lower() == ".pdf" else "image/jpeg", content_disposition_type="inline",
+    media = {".pdf": "application/pdf", ".png": "image/png"}.get(p.suffix.lower(), "image/jpeg")  # 도면 PNG는 원본 그대로(10/29)
+    return FileResponse(p, media_type=media, content_disposition_type="inline",
                         filename=it["name"])
 
 

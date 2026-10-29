@@ -1884,9 +1884,13 @@ def _fit_footer(doc, name: str) -> None:
 DRAW_W, DRAW_H = 47000, 64000  # 도면 쪽 그림 최대(세로 본문 48190×68597 안)
 
 
-def _drawing_images(path: Path, prior: bool) -> list[bytes]:
-    """도면 파일 → 쪽마다 JPG. PDF는 150dpi(전회차 보고서에서 자른 쪽은 위 머리말·아래 꼬리말 띠를 잘라 — 그 보고서 꼬리말·쪽 번호가 안 나오게),
-    가로 그림은 90° 돌려 세로 쪽을 채움."""
+PRIOR_CLIP = (58, 80)  # 전회차 보고서에서 자른 도면 쪽 — 위 머리말·아래 꼬리말 띠(pt)
+
+
+def _drawing_images(path: Path, prior: bool) -> list[tuple[bytes, int | None, bool]]:
+    """도면 파일 → 쪽마다 (JPG, 원본 PDF 쪽 번호(1부터, 그림 파일이면 None), 90° 돌림). PDF는 150dpi 그림(한글 파일용 — PDF에서는 overlay_drawings가
+    원본 쪽을 벡터로 덮음, 10/29 사용자 "관련도면 화질 유지"), 전회차 보고서에서 자른 쪽은 위 머리말·아래 꼬리말 띠를 잘라(그 보고서 꼬리말·쪽 번호가 안 나오게),
+    가로 그림은 90° 돌려 세로 쪽을 채움. 그림 파일은 원래 크기 그대로(돌릴 것도 없고 JPG면 바이트 그대로)."""
     import io
 
     from PIL import Image, ImageOps
@@ -1895,26 +1899,79 @@ def _drawing_images(path: Path, prior: bool) -> list[bytes]:
     try:
         if path.suffix.lower() == ".pdf":
             with pymupdf.open(path) as pdf:
-                for pg in pdf:
+                for k, pg in enumerate(pdf, 1):
                     r = pg.rect
-                    clip = pymupdf.Rect(0, 58, r.width, r.height - 80) if prior else None
-                    out.append(pg.get_pixmap(dpi=150, clip=clip).tobytes("jpg"))
+                    clip = pymupdf.Rect(0, PRIOR_CLIP[0], r.width, r.height - PRIOR_CLIP[1]) if prior else None
+                    out.append((pg.get_pixmap(dpi=150, clip=clip).tobytes("jpg"), k))
         else:
-            out.append(path.read_bytes())
+            out.append((path.read_bytes(), None))
     except Exception:  # noqa: BLE001
         return []
     fixed = []
-    for b in out:
+    for b, page in out:
         try:
-            im = ImageOps.exif_transpose(Image.open(io.BytesIO(b))).convert("RGB")
+            raw = Image.open(io.BytesIO(b))
+            im = ImageOps.exif_transpose(raw).convert("RGB")
         except Exception:  # noqa: BLE001
             continue
-        if im.width > im.height * 1.05:
+        turn = im.width > im.height * 1.05
+        if page is None and not turn and raw.format == "JPEG" and (raw.getexif() or {}).get(274, 1) == 1:
+            fixed.append((b, None, False))  # 올린 JPG 그대로(다시 압축 안 함)
+            continue
+        if turn:
             im = im.rotate(90, expand=True)
         buf = io.BytesIO()
-        im.save(buf, "JPEG", quality=85)
-        fixed.append(buf.getvalue())
+        im.save(buf, "JPEG", quality=85 if page is not None else 95)
+        fixed.append((buf.getvalue(), page, turn))
     return fixed
+
+
+def overlay_drawings(pdf: Path, sites: list) -> int:
+    """합본 PDF의 k.2.4 시설물 주요도면 뒤 도면 쪽(쪽마다 큰 그림 한 장)에 원본 도면 PDF 쪽을 벡터로 얹음 — 흰 칸으로 그림을 덮고 원본 쪽을 비율 그대로
+    (내진 seismic_fill.overlay_plans와 같은 방식, 10/29 사용자 "관련도면 PDF 첨부할 때 화질 유지 — 내진엔 했는데 시특법 쪽도"). 돌린 쪽은 같이 90°,
+    전회차 보고서 쪽은 머리말·꼬리말 띠를 자른 채. 한글 파일은 그림 그대로(고칠 때용). 얹은 쪽 수."""
+    from server.sitok.seismic_fill import _big_image, _one_page
+
+    todo = [(k, s.drawing_marks) for k, s in enumerate(sites, 1) if getattr(s, "drawing_marks", None)]
+    if not any(any(m[1] for m in marks) for _, marks in todo):
+        return 0
+    n, ones = 0, []
+    doc = pymupdf.open(pdf)
+    try:
+        start = 0
+        for k, marks in todo:
+            frame = next((i for i in range(start, doc.page_count) if doc[i].search_for(f"{k}.2.4") and doc[i].search_for("후면첨부")), None)
+            if frame is None:
+                continue
+            i = frame + 1
+            for path, page, turn, prior in marks:
+                if i >= doc.page_count:
+                    break
+                pg = doc[i]
+                box = _big_image(pg)
+                if box is None:
+                    break
+                i += 1
+                if page is None:
+                    continue  # 그림 파일 도면은 이미 원래 크기
+                one = _one_page(Path(path), page)
+                ones.append(one)
+                r = one[0].rect
+                clip = pymupdf.Rect(0, PRIOR_CLIP[0], r.width, r.height - PRIOR_CLIP[1]) if prior else None
+                pg.draw_rect(box, color=None, fill=(1, 1, 1), overlay=True)
+                pg.show_pdf_page(box, one, 0, keep_proportion=True, clip=clip, rotate=90 if turn else 0)
+                n += 1
+            start = i
+        if n:
+            tmp = pdf.with_suffix(".overlay.pdf")
+            doc.save(tmp, garbage=3, deflate=True)
+    finally:
+        doc.close()
+        for one in ones:
+            one.close()
+    if n:
+        tmp.replace(pdf)
+    return n
 
 
 def _drawing_pages(doc, d: Data) -> None:
@@ -1935,8 +1992,10 @@ def _drawing_pages(doc, d: Data) -> None:
     center = doc.clone_parapr(frame.get("paraPrIDRef") or "0", align="CENTER")
     run0 = frame.find(f"{{{HP}}}run")
     anchor = frame
+    d.drawing_marks = []  # 쪽 차례대로 (원본 경로, 원본 쪽, 돌림, 전회차) — PDF에서 원본 쪽을 얹을 때(overlay_drawings)
     for path, prior in d.drawings:
-        for img in _drawing_images(Path(path), prior):
+        for img, page, turn in _drawing_images(Path(path), prior):
+            d.drawing_marks.append((str(path), page, turn, prior))
             p = copy.deepcopy(frame)
             for ch in list(p):
                 p.remove(ch)
@@ -2698,6 +2757,7 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
     say("PDF로 바꾸는 중(2/2)…")
     pdf_out.write_bytes(hwp_queue.convert_via_worker(hwpx_out.read_bytes(), ".hwpx", wait=PDF_WAIT))
     pdf1.unlink(missing_ok=True)
+    n_vec = overlay_drawings(pdf_out, sites)  # 1.2.4 도면 쪽 = 원본 PDF 벡터(10/29) — 부록 끼우기 전에(쪽이 안 밀릴 때)
     # 부록 끼우기 — 관리대장(곳마다 차례로)·사진첩(곳마다 간지 뒤)·계약서(계약서마다)
     merged: list[str] = []
     out = pymupdf.open(pdf_out)
@@ -2725,7 +2785,7 @@ def build_many(db, pairs: list, folder: Path, say=None, name: str = "", title: s
         a.unlink(missing_ok=True)
     n_dw = sum(len(s.drawings) for s in sites)  # 첨부 도면은 한글 본문 1.2.4 뒤 그림 쪽으로(_drawing_pages, 10/21 — 우리 꼬리말·쪽 번호)
     if n_dw:
-        merged.append(f"도면 {n_dw}개(1.2.4 뒤)")
+        merged.append(f"도면 {n_dw}개(1.2.4 뒤{f', 원본 화질 {n_vec}쪽' if n_vec else ''})")
     warn = list(d.warn)
     if locked:
         warn.append("전에 만든 보고서 파일이 열려 있어(PDF 보기·한글) 덮어쓰지 못하고 다른 이름으로 저장했습니다 — 닫고 다시 만들면 원래 이름")
