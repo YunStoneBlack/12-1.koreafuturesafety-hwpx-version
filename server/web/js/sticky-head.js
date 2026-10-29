@@ -10,7 +10,11 @@
   main.insertBefore(head, main.firstElementChild);
   while (head.nextElementSibling && head.nextElementSibling !== list) head.appendChild(head.nextElementSibling);
   if (document.body.dataset.stickyList !== undefined) list.classList.add("sticky-list");
-  const setH = () => document.documentElement.style.setProperty("--sticky-h", `${head.offsetHeight}px`);
+  const lh = list.querySelector(":scope > .panel-head"); // 목록 칸 머리줄 높이 — 그 아래 표 머리(시특법 제출 현황 .ss-head)가 붙는 높이(10/30 사용자 "스크롤할 때 고정")
+  const setH = () => {
+    document.documentElement.style.setProperty("--sticky-h", `${head.offsetHeight}px`);
+    document.documentElement.style.setProperty("--list-head-h", `${lh ? lh.offsetHeight : 0}px`);
+  };
   setH();
-  if (window.ResizeObserver) new ResizeObserver(setH).observe(head);
+  if (window.ResizeObserver) { const ro = new ResizeObserver(setH); ro.observe(head); if (lh) ro.observe(lh); }
 })();

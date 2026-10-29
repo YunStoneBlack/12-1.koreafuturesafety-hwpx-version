@@ -81,3 +81,8 @@
 
 /* 머리글 한 줄(본문 폭은 style.css — 시특법 화면 전부 1720px, 10/19 형) */
 @media (min-width: 901px) { .ss-head .ss-hf { white-space: nowrap; } }
+
+/* 표 머리 줄도 위에 붙음(10/30 사용자 "이 부분 스크롤할 때 고정" — 탭·반기·카드(sticky-head) + 표 제목(sticky-list) 아래), PC만 */
+@media (min-width: 901px) {
+  .sticky-list .ss-head { position: sticky; top: calc(var(--sticky-h, 0px) + var(--list-head-h, 0px)); z-index: 5; background: var(--surface); }
+}
