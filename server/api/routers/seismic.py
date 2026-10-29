@@ -875,8 +875,9 @@ def _summary_base(db: Session, f: SitokFacility, r: SitokReport) -> tuple[str, d
             vendor_text = " ".join(SV._text(Hwpx(SV.vendor_hwpx(Path(to_full(body)))).root).split())
         except Exception:  # noqa: BLE001 — 외주 글 없이
             vendor_text = ""
-    text = SFL.summary_text(d, field, f, reg, vendor_text)
-    facts = {"건물": d["name"], "사용승인": d["completion"].isoformat() if d.get("completion") else "", "내진등급": reg.get("grade") or "",
+    parts = SFL.summary_parts(d, field, f, reg, vendor_text)
+    text = "\n".join(t for _k, t, _y in parts)
+    facts = {"_parts": parts, "건물": d["name"], "사용승인": d["completion"].isoformat() if d.get("completion") else "", "내진등급": reg.get("grade") or "",
              "중량물": field["texts"]["heavy"], "균열": field["texts"]["crack"], "누수": field["texts"]["leak"], "철근노출": field["texts"]["rebar"],
              "노후화": field["texts"]["aging"], "코어": SF.core_stats(field["cores"]), "외주결과": SFL.vendor_results(vendor_text),
              "결함": [x[3] for x in SFL.defect_rows(db, r.id)][:40]}
@@ -893,20 +894,36 @@ def make_summary(rid: int, mode: str, body: dict | None = Body(None), user: User
         raise HTTPException(status.HTTP_404_NOT_FOUND, "template 또는 ai")
     f, r = _require(db, user, rid)
     text, facts = _summary_base(db, f, r)
+    parts = facts.pop("_parts")
     note = str((body or {}).get("note") or "").strip()[:600]
-    if mode == "ai":
+    if mode == "ai":  # 10/29 사용자 "견본과 차이가 많이 나서 — 길이 등 페이지에 맞춰서": AI는 육안조사(중량물)·외관 조사 두 문단만, 나머지는 견본 문장 그대로
         from server.sitok import vision
 
-        prompt = ("아래는 학교시설 내진성능평가 보고서 '책임기술자 종합의견' 초안과 이번 건 자료입니다. 초안의 문단 구성과 말투(…하였다, …판단됨)를 따라 "
-                  "이번 건 자료에 맞게 다듬어 주세요. 자료에 없는 수치·부재 이름은 지어내지 말고, 결함이 있으면 주된 결함 종류와 의견을 한 문장 넣으세요. "
-                  "문단마다 줄을 바꾸고, 머리말 없이 글만 주세요." + TONE_RULE
-                  + (f"\n\n[점검자가 덧붙인 내용 — 반드시 글에 반영]\n{note}" if note else "")
-                  + "\n\n[초안]\n" + text + "\n\n[자료]\n" + json.dumps(facts, ensure_ascii=False, default=str))
+        prompt = ("아래는 학교시설 내진성능평가 보고서 요약문 '책임기술자 종합의견'의 견본 두 문단과 이번 건 자료입니다. 견본과 같은 말투·길이로 이번 건 두 문단만 써 주세요.\n"
+                  "- heavy(육안조사 중량물): 한 문장, 60~90자. 견본: \"육안조사 결과, 지붕층에는 일부 실외기가 설치되어 있으며, 대체적으로 설계하중 이하로 사용중인 것으로 조사되었다.\" "
+                  "자료에 중량물 내용이 없으면 빈 문자열.\n"
+                  "- crack(외관 조사): 한 문장, 130~190자. 견본: \"외관 조사 시 전반적으로 확인된 결함은 노후화 및 이질재료 구간, 개구부 주변에서 발생되는 일반적인 균열, 이격, 시공 중이나 "
+                  "몰탈 충진 부족 또는 환경적 요인 등에 의해 발생하는 균열로 구조물의 안전성과는 무관하나 사용성 및 미관을 고려하여 유지관리계획 수립 후 보수를 실시하는 것이 바람직하다고 판단된다.\" "
+                  "주된 결함 종류(결함 목록·균열·누수·철근노출·노후화 글)와 의견. 결함 자료가 없으면 빈 문자열.\n"
+                  "자료에 없는 수치·부재 이름은 지어내지 말 것. 두 문단 밖의 내용(개요·조사 항목·코어·구조해석·종합 맺음말)은 쓰지 말 것." + TONE_RULE
+                  + (f"\n\n[점검자가 덧붙인 내용 — 반드시 반영]\n{note}" if note else "")
+                  + '\nJSON만: {"heavy": "", "crack": ""}\n\n[자료]\n' + json.dumps(facts, ensure_ascii=False, default=str))
         try:
-            got = vision.ask(user.company_id, [], prompt, max_tokens=3000, effort="low", writing=True).strip()
+            got = vision.ask_json(user.company_id, [], prompt, max_tokens=1200, effort="low", writing=True) or {}
         except Exception as err:  # noqa: BLE001
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 초안을 못 만들었습니다: {str(err).splitlines()[0][:120]}") from err
-        text = got or text
+        if not isinstance(got, dict):
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "AI 답을 읽지 못했습니다 — 다시 눌러 주세요.")
+        ai = {k: " ".join(str(got.get(k) or "").split())[:260] for k in ("heavy", "crack")}
+        if (_field(r)["texts"].get("visual_note") or "").strip():
+            ai["crack"] = ""  # 외관조사 종합 의견을 쓴 건은 그 글 그대로(견본 — 요약 결함조사 다섯째 문단과 같은 문장, 10/29)
+        keys = [k for k, _t, _y in parts]
+        out = []
+        for k, t, _y in parts:
+            if k == "survey":  # 견본 차례 — 개요 · 중량물 · 외관 · 조사 항목 …(자료로 못 만든 문단을 AI가 썼으면 그 자리에)
+                out += [ai[x] for x in ("heavy", "crack") if ai[x] and x not in keys]
+            out.append(ai[k] if k in ai and ai[k] else t)
+        text = "\n".join(out)
     sf = dict(_sv(r).get("seismic_field") or {})
     sf["summary"] = text
     if note or mode == "ai":
@@ -927,7 +944,11 @@ EQ_STYLE = """[견본 말투 예 — 내용은 이번 건 자료로만]
 콘크리트 강도 조사: 구조체의 코어채취에 의한 콘크리트 압축강도 조사결과, 15.7~17.3MPa(평균 16.6MPa)로 조사되었으며 … / 내진성능평가에는 현장조사 설계기준강도 값인 15.8MPa를 적용하였음.
 중량물: 지붕층 실외기 및 환기설비 이외에는 특기할만한 하중의 증가는 없는 것으로 조사되어 대체적으로 양호한 것으로 조사되었다.
 마감재: 마감재 조사 결과, 외부 치장벽돌, 외단열시스템 마감, 커튼월 등이 조사됨.
-조적 허리벽 및 채움벽: 허리벽 · 채움벽 조사 결과, 채움벽과 허리벽은 구조체와 밀실하게 연결되었으며, 마감 모르타르, 상단부 사춤상태 등은 양호한 것으로 조사됨."""
+조적 허리벽 및 채움벽: 허리벽 · 채움벽 조사 결과, 채움벽과 허리벽은 구조체와 밀실하게 연결되었으며, 마감 모르타르, 상단부 사춤상태 등은 양호한 것으로 조사됨.
+외관조사 균열(두 문단): 본 시설물의 주요 구조부재에 대한 균열 조사 결과, 주요 구조부재의 각 부위에서 처짐, 내력부족 등으로 인한 구조적인 균열의 발생은 조사되지 않았으며, 조사된 전반적인 균열은 건조수축 및 시공 JOINT균열 등에서 발생된 것으로 조사됨. / 개구부 및 창틀 하부에서 건조수축 및 몰탈수축으로 인한 조적벽체 수평균열이 다수 조사되어, 차후 유의 관찰하여 결함의 진행성 유무를 판단 후 보수를 실시해야 할 것으로 사료됨.
+외관조사 누수·백태: 본 시설물의 주요 구조부재에 대한 누수 및 백태에 대한 조사 결과, 대부분의 주요 구조 부재의 각 부위에서 구조체의 내구성에 영향을 미치는 누수 및 백태의 진행은 없는 것으로 조사됨.
+외관조사 콘크리트 노후화: 본 시설물의 주요 구조부재에 대한 콘크리트 노후화에 대한 상태 조사 결과, 주요 구조부재의 각 부위에서 구조체의 내구성에 영향을 미치는 박리, 박락, 층분리는 없는 것으로 조사됨.
+외관조사 종합 의견: 외관 조사 시 전반적으로 확인된 결함은 노후화 및 이질재료 구간, 개구부 주변에서 발생되는 일반적인 균열, 이격, 시공 중이나 몰탈 충진 부족 또는 환경적 요인 등에 의해 발생하는 균열로 구조물의 안전성과는 무관하나 사용성 및 미관을 고려하여 유지관리계획 수립 후 보수를 실시하는 것이 바람직하다고 판단된다."""
 
 
 def _eq_facts(db: Session, f: SitokFacility, r: SitokReport) -> dict:
@@ -969,6 +990,9 @@ def ai_eq_texts(rid: int, user: User = Depends(get_current_user), db: Session = 
               "칸마다 보고서 말투(…조사되었다, …반영하였다)로 글머리 문장 1~3개를 써 주세요(여러 개면 줄을 바꿈). 자료에 없는 수치·부재·위치는 지어내지 말고, "
               "그 칸의 자료가 없으면 빈 문자열로 두세요(예: 부재 단면 조사 개소 0이면 부재규격 빈칸, 결함 목록이 비면 외관조사 칸은 빈칸). "
               + TONE_RULE + " 중량물·마감재 칸은 입력된 관찰 내용(덧붙인 내용)이 없으면 사진이 있어도 지어내지 말고 빈 문자열. "
+              "외관조사 칸(균열·누수·백태·철근 노출·콘크리트 노후화·외관조사 종합 의견)은 견본 문장의 길이와 짜임 그대로 문단마다 한 문장 90~160자로 쓰세요"
+              "(짧게 줄이거나 결함을 한 줄씩 늘어놓지 말 것 — 이번 건 결함의 종류·위치·크기는 그 문장 안에 녹여서). 균열 칸은 두 문단까지(구조부재 균열 판단 / 조적·개구부 등 비구조 균열과 의견), "
+              "나머지는 한 문단. 외관조사 종합 의견은 결함 전체를 묶은 의견 한 문단. "
               "강재 칸(강재 접합부·부식·외관조사 강재)은 구조가 철근콘크리트조면 '본 건물은 철근콘크리트 구조로, 강재는 적용되지 않아 조사대상에서 제외하였다.'로 쓰세요.\n"
               f"JSON만: {json.dumps({k: '' for k in keys}, ensure_ascii=False)}\n칸 이름: {json.dumps(labels, ensure_ascii=False)}\n\n{EQ_STYLE}\n\n[이번 건 자료]\n"
               + json.dumps(_eq_facts(db, f, r), ensure_ascii=False, default=str))

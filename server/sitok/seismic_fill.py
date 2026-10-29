@@ -58,6 +58,23 @@ def _set(cells: dict, rc: tuple, text) -> None:
         rb._set_lines(tc, str(text if text is not None else "").split("\n"))
 
 
+def _set_spaced(cells: dict, rc: tuple, text: str) -> None:
+    """칸 글을 견본 모양으로 — 줄마다 글머리 문단, 그 사이에 견본 칸의 빈 문단(글머리 없는 모양)을 하나씩(10/29 요약 결함조사 분석 결과 — 붙어 보였음)."""
+    tc = cells.get(rc)
+    if tc is None:
+        return
+    own = lambda: [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]  # noqa: E731
+    gap = next((copy.deepcopy(q) for q in own()[1:] if not _t(q).strip()), None)
+    lines = [x for x in str(text or "").split("\n") if x.strip()]
+    rb._set_lines(tc, lines or [""])
+    if gap is None or len(lines) < 2:
+        return
+    for el in list(gap.iter(f"{{{HP}}}linesegarray")):
+        el.getparent().remove(el)
+    for q in own()[:-1]:
+        q.addnext(copy.deepcopy(gap))
+
+
 def _fmt(v, nd: int = 1) -> str:
     return f"{v:,.{nd}f}" if isinstance(v, (int, float)) else str(v or "")
 
@@ -803,7 +820,7 @@ def fill_summary(root, field: dict, ground: dict | None, drawings: bool = True, 
         if not visual_done and _n(rb._cell_text(cells.get((1, 0), t))) == "분석결과":  # 첫 "분석 결과" = 가. 결함조사 결과 — 외관조사 글들을 이어서
             visual_done = True
             joined = "\n".join(x for k in SF.VISUAL for x in (field["texts"].get(k) or "").split("\n") if x.strip())
-            _set(cells, (1, 1), joined)
+            _set_spaced(cells, (1, 1), joined)  # 견본처럼 글머리 문단 사이 빈 문단(10/29 민재형 "견본 정도의 길이로")
             if not joined:
                 _no_bullet(doc, cells[(1, 1)])
                 TD.paint(cells[(1, 1)])  # 조사결과 글이 없음 — 노랑(10/26)
@@ -1846,9 +1863,12 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
         n += fill_checklist_counts(root, field["members"], warn)  # 체크리스트 D 1층 조사 수량(10/28) — 외주 견본 전체를 옮겼으면 외주 값 그대로
     saved = (field.get("summary") or "").strip()
     chief = d["persons"][0]["name"] if d.get("persons") else ""
-    n += fill_opinion(root, saved or summary_text(d, field, f, reg, vendor_text), chief)
+    vres = vendor_results(vendor_text)
+    n += fill_opinion(root, saved or summary_text(d, field, f, reg, vendor_text), chief, vres)
     if not saved:
         warn.append("요약문 종합의견은 자동 문장입니다 — 현장조사 입력 📝에서 고치거나 🤖 AI 초안")
+    if not vres.get("before"):
+        warn.append("요약문 종합의견 선형해석·보강 문단은 외주 결과 전이라 ○○ 자리 글(노랑) — 서류 칸 외주 한글을 올린 뒤 [다시 만들기]")
     return n
 
 
@@ -1923,8 +1943,41 @@ def vendor_results(text: str) -> dict:
     return out
 
 
-def summary_text(d: dict, field: dict, f, reg: dict, vendor_text: str = "") -> str:
-    """견본 문장 그대로 값만 이번 건으로 — 우리 값(이름·사용승인·경과년수·등급·도면·중량물·결함·코어) + 외주 값(보유성능지수·보강안, 없으면 그 문장 뺌)."""
+VENDOR_PH = "○○"  # 외주 결과(구조해석 7장) 전 자리 글 — 보고서에서 노랑(10/29 사용자 "외주에 의해서 고쳐질 부분은 노란색")
+
+
+def _ro(num: str) -> str:
+    """숫자 뒤 "로/으로" — 끝 숫자 읽기에 받침(ㄹ 빼고)이 있으면 "으로": 0(영)·3(삼)·6(육) → 0.73으로·1.03으로(견본), 1·7·8(ㄹ)·2·4·5·9 → 로. ○○ → 로."""
+    d = str(num or "").strip()[-1:]
+    return "으로" if d in ("0", "3", "6") else "로"
+
+
+def vendor_lines(v: dict) -> list[tuple[str, bool]]:
+    """요약문 종합의견 마지막 두 문단(선형해석 결과·보강 후) — [(글, 노랑)]. 외주 값(vendor_results)이 있으면 그 값, 없으면 ○○ 자리 글(노랑).
+    보강 후 문단 끝은 견본 "보강 계획에 따른 선형해석평가결과 보유성능지수가 1.0을 초과하여 보강이 적절한 것으로 판단됨."(10/29)."""
+    ph = VENDOR_PH
+    before = v.get("before")
+    if before:
+        x, y = before
+        ok = min(float(x), float(y)) >= 1.0
+        out = [(f"{MANUAL}에 따른 내진성능 선형해석평가를 실시한 결과, 구조모델에 대한 선형해석평가 결과 보유성능지수가 X방향 {x}, Y방향 {y}{_ro(y)} 성능수준을 "
+                + ("만족하는 것으로 검토되어 보강이 불필요한 것으로 판단됨." if ok else "불만족하는 것으로 검토되어 보강이 필요한 것으로 판단됨."), False)]
+        if ok:
+            return out
+    else:
+        out = [(f"{MANUAL}에 따른 내진성능 선형해석평가를 실시한 결과, 구조모델에 대한 선형해석평가 결과 보유성능지수가 X방향 {ph}, Y방향 {ph}로 성능수준을 "
+                "불만족하는 것으로 검토되어 보강이 필요한 것으로 판단됨.", True)]
+    ax, ay = (v.get("after") or (ph, ph))
+    method = v.get("method") or ph
+    out.append((f"해당 건축물의 X, Y방향으로 보강하여 선형해석법을 수행하였으며, 보강안은 {method} 보강으로 보강안에 따른 선형해석평가 결과 "
+                f"보유성능지수는 X방향 {ax}, Y방향 {ay}{_ro(ay)} 산정되어 안전한 것으로 평가됨. 보강 계획에 따른 선형해석평가결과 보유성능지수가 1.0을 초과하여 보강이 적절한 것으로 판단됨.",
+                ph in (ax, ay, method)))
+    return out
+
+
+def summary_parts(d: dict, field: dict, f, reg: dict, vendor_text: str = "") -> list[tuple[str, str, bool]]:
+    """견본 문단 차례 [(key, 글, 노랑)] — intro(개요) · heavy(육안조사 중량물) · crack(외관 조사) · survey(현장조사 항목) · core(코어) · vendor(선형해석·보강 후).
+    우리 값(이름·사용승인·경과년수·등급·도면·중량물·결함·코어) + 외주 값(보유성능지수·보강안 — 없으면 ○○ 자리 글·노랑)."""
     import datetime
 
     from server.api.routers.sitok import _facility_dir
@@ -1935,40 +1988,60 @@ def summary_text(d: dict, field: dict, f, reg: dict, vendor_text: str = "") -> s
     ref = d.get("period_start") or datetime.date.today()
     grade = reg.get("grade") or ("특등급" if re.search(r"교육|학교", d.get("use") or "") else "1등급")
     has_dwg = bool(D.items(f, "struct", _facility_dir(f)) or D.items(f, "schedule", _facility_dir(f)) or (f.ledger or {}).get("rebar_schedule"))
-    lines = [f"본 내진성능평가 대상 건축물은 “{name}”으로 " + (f"{comp.year}년 최초 사용승인 되어 약 {ref.year - comp.year}년이 경과된 시설물로 " if comp else "")
-             + f"내진 등급은 {grade}이며 해당 건축물은 " + ("도면이 존재하여 도면과 현장조사를 토대로" if has_dwg else "도면이 없어 현장조사를 토대로") + " 내진성능평가를 실시하였다."]
+    out = [("intro", f"본 내진성능평가 대상 건축물은 “{name}”으로 " + (f"{comp.year}년 최초 사용승인 되어 약 {ref.year - comp.year}년이 경과된 시설물로 " if comp else "")
+            + f"내진 등급은 {grade}이며 해당 건축물은 " + ("도면이 존재하여 도면과 현장조사를 토대로" if has_dwg else "도면이 없어 현장조사를 토대로") + " 내진성능평가를 실시하였다.", False)]
     heavy = field["texts"]["heavy"].strip()
     if heavy:
-        lines.append(heavy if heavy.startswith("육안조사") else f"육안조사 결과, {heavy}")
-    crack = field["texts"]["crack"].strip()
+        out.append(("heavy", heavy if heavy.startswith("육안조사") else f"육안조사 결과, {heavy}", False))
+    note = " ".join((field["texts"].get("visual_note") or "").split())  # 견본은 결함조사 분석 결과 다섯째 문단과 같은 문장(10/29)
+    crack = note or " ".join(field["texts"]["crack"].split())
     if crack:
-        lines.append(f"외관 조사 결과, {crack}" if not crack.startswith(("외관", "본 시설물", "육안")) else crack)
-    lines.append("현장조사 필수항목 및 세부기준에 따라 조사 항목 및 수량을 선정하고, 이에 따라 부재규격조사, 구조성능 저하 및 손상조사, 중량물조사, 마감재조사, "
-                 "콘크리트 코어 시험, 철근배근상태 조사, 조적벽체 상태조사를 실시하였다.")
+        out.append(("crack", f"외관 조사 결과, {crack}" if not crack.startswith(("외관", "본 시설물", "육안")) else crack, False))
+    out.append(("survey", "현장조사 필수항목 및 세부기준에 따라 조사 항목 및 수량을 선정하고, 이에 따라 부재규격조사, 구조성능 저하 및 손상조사, 중량물조사, 마감재조사, "
+                "콘크리트 코어 시험, 철근배근상태 조사, 조적벽체 상태조사를 실시하였다.", False))
     cd = core_decided(field["cores"])
     if cd:
-        lines.append(f"평가대상 건축물에 콘크리트 코어채취를 실시한 결과 {MANUAL}에 따른 설계 기준강도 {cd[2]:g}MPa로 측정되어 이를 내진성능평가에 적용하였다.")
-    v = vendor_results(vendor_text)
-    if v.get("before"):
-        x, y = v["before"]
-        ok = min(float(x), float(y)) >= 1.0
-        lines.append(f"{MANUAL}에 따른 내진성능 선형해석평가를 실시한 결과, 구조모델에 대한 선형해석평가 결과 보유성능지수가 X방향 {x}, Y방향 {y}로 성능수준을 "
-                     + ("만족하는 것으로 검토되어 보강이 불필요한 것으로 판단됨." if ok else "불만족하는 것으로 검토되어 보강이 필요한 것으로 판단됨."))
-        if not ok and v.get("after"):
-            ax, ay = v["after"]
-            lines.append(f"해당 건축물의 X, Y방향으로 보강하여 선형해석법을 수행하였으며, 보강안은 {v.get('method') or '○○'} 보강으로 보강안에 따른 선형해석평가 결과 "
-                         f"보유성능지수는 X방향 {ax}, Y방향 {ay}로 산정되어 안전한 것으로 평가됨.")
-    return "\n".join(lines)
+        out.append(("core", f"평가대상 건축물에 콘크리트 코어채취를 실시한 결과 {MANUAL}에 따른 설계 기준강도 {cd[2]:g}MPa로 측정되어 이를 내진성능평가에 적용하였다.", False))
+    out += [("vendor", t, y) for t, y in vendor_lines(vendor_results(vendor_text))]
+    return out
 
 
-def fill_opinion(root, text: str, chief: str) -> int:
-    """요약문 표 두 곳(요약 4×3 "(인)" · 결과 요약 4×5 "(서명)") — 글과 책임기술자 이름(뒤 괄호 모양은 그대로)."""
+def summary_text(d: dict, field: dict, f, reg: dict, vendor_text: str = "") -> str:
+    """견본 문장 그대로 값만 이번 건으로(문단마다 한 줄, 빈 줄 없음) — summary_parts."""
+    return "\n".join(t for _k, t, _y in summary_parts(d, field, f, reg, vendor_text))
+
+
+def opinion_lines(text: str, vendor: dict) -> tuple[list[str], set[str]]:
+    """보고서 칸에 넣을 문단·노랑 문단 — 빈 줄은 뺌(빈 줄 = 글머리 점만 찍힘, 10/29 호원초), 선형해석·보강 후 문단이 없으면 붙이고,
+    ○○ 자리 글이면 외주 값이 왔을 때 그 값으로 바꿈. 외주 값이 없으면 그 문단은 노랑(외주 결과로 고쳐질 부분)."""
+    lines = [x.strip() for x in (text or "").split("\n") if x.strip()]
+    vl = vendor_lines(vendor)
+    idx = [i for i, x in enumerate(lines) if "보유성능지수" in x or "보강안은" in x]
+    if not idx:
+        lines += [t for t, _y in vl]
+        return lines, {t for t, y in vl if y}
+    if vendor.get("before") and any(VENDOR_PH in lines[i] for i in idx):  # 저장된 글이 자리 글 → 외주 값으로
+        at = idx[0]
+        rest = [x for i, x in enumerate(lines) if i not in idx]
+        lines = rest[:at] + [t for t, _y in vl] + rest[at:]
+        return lines, {t for t, y in vl if y}
+    return lines, {lines[i] for i in idx if VENDOR_PH in lines[i] or not vendor.get("before")}  # 외주 전이면 사람이 쓴 그 문단도 노랑
+
+
+def fill_opinion(root, text: str, chief: str, vendor: dict | None = None) -> int:
+    """요약문 표 두 곳(요약 4×3 "(인)" · 결과 요약 4×5 "(서명)") — 글과 책임기술자 이름(뒤 괄호 모양은 그대로).
+    글은 opinion_lines(빈 줄 빼기·선형해석·보강 후 문단 — 외주 전이면 노랑, 10/29)."""
     n = 0
+    lines, yellow = opinion_lines(text, vendor or {})
     for t in _outer(root):
         cells = rb._cells(t)
         if _n(rb._cell_text(cells.get((0, 0), t))) != "책임기술자종합의견":
             continue
-        _set(cells, (2, 0), text)
+        _set(cells, (2, 0), "\n".join(lines))
+        if yellow and (2, 0) in cells:
+            for q in cells[(2, 0)].iter(f"{{{HP}}}p"):
+                if _t(q).strip() in yellow:
+                    TD.mark_text(q)  # 외주 결과(구조해석 7장)로 고쳐질 부분(10/29 사용자)
         sig = next((q for q in cells[(3, 0)].iter(f"{{{HP}}}p") if _n(_t(q)).startswith("책임기술자")), None) if (3, 0) in cells else None
         m = re.match(r"(\s*책\s*임\s*기\s*술\s*자\s*:\s*)(.*?)(\s*\(.*\)\s*)$", _t(sig)) if sig is not None else None
         if chief and m:  # 서명 문단 글만 — 칸째 다시 쓰면 첫 빈 문단(붉은 작은 글자) 모양이 씌워짐(10/22 형 "검은색 글자로", "글씨 크기와 색 견본과 안 맞음")
