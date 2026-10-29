@@ -33,6 +33,36 @@
 .dk-item.s-missed { border-style: dashed; border-left-style: solid; border-color: var(--crit, #b42318); }
 .dk-item .site-no { display: inline-block; padding: 1px 7px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 11.5px; font-weight: 700; }
 .sc-links .site-links { margin-top: 4px; }
+/* 찾기(10/30 사용자) — PC는 달력 머리줄 가운데(제목·◀▶ 사이), 폰은 달력 위 한 줄. 결과 = 시설물 카드마다 점검 날 전부, 누르면 그 날로 */
+.sc-cal-body { position: relative; }
+.sc-find { position: absolute; z-index: 20; top: 20px; left: 50%; transform: translateX(-50%); width: min(380px, calc(100% - 520px)); min-width: 220px; }
+.sc-find input { width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; font-size: 13.5px; background: var(--surface); }
+.sc-find input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+.sc-find-list { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); width: max(100%, 460px); max-height: 60vh; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(27, 30, 46, .16); padding: 6px; }
+.sc-find-list[hidden] { display: none; }
+.sc-f-unit { padding: 6px 6px 8px; border-bottom: 1px solid var(--line); }
+.sc-f-unit:last-child { border-bottom: none; }
+.sc-f-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px; font-size: 13.5px; margin-bottom: 4px; }
+.sc-f-head .site-no { display: inline-block; padding: 1px 7px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 11.5px; font-weight: 700; }
+.sc-f-head small { color: var(--muted); font-size: 12px; }
+.main .sc-find-list button.sc-f-v { display: flex; align-items: center; gap: 8px; width: 100%; margin: 2px 0 0; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px;
+  background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
+.main .sc-find-list button.sc-f-v:hover, .main .sc-find-list button.sc-f-v.on { border-color: var(--blue); background: var(--blue-soft); }
+.sc-f-v .sc-k { flex: none; } .sc-f-v .sc-f-date { font-weight: 700; } .sc-f-v .sc-f-st { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.sc-f-v .sc-f-st.ok { color: var(--green); } .sc-f-v .sc-f-st.bad { color: var(--crit, #b42318); }
+.sc-f-next { padding: 0 6px; border-radius: 6px; background: #fff3d6; color: #9a5b00; font-size: 11px; font-weight: 700; }
+.sc-f-none, .sc-f-empty { padding: 6px 8px; color: var(--muted); font-size: 12.5px; }
+.main .sc-find-list button.sc-f-none { display: block; width: 100%; margin: 2px 0 0; border: 1px dashed var(--line); border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
+.fc .sc-flash { animation: sc-flash 1s ease-in-out 3; }
+@keyframes sc-flash { 50% { box-shadow: 0 0 0 4px #fbbf24; } }
+@media (max-width: 760px) {
+  .sc-find { position: relative; top: auto; left: auto; transform: none; width: auto; min-width: 0; margin-bottom: 10px; }
+  .sc-find input { font-size: 16px; } /* 폰 확대 안 되게 */
+  .sc-find-list { left: 0; right: 0; transform: none; width: auto; }
+  .main .sc-find-list button.sc-f-v { flex-wrap: wrap; gap: 4px 8px; } /* 폰은 줄 바꿈 — 날짜·딱지는 한 덩어리로 */
+  .sc-f-v .sc-f-date, .sc-f-next { white-space: nowrap; }
+}
 /* 그날 동선 짜기(10/23 — 산안법 동선 창 js/route-plan.js) */
 .sc-day-tools { display: flex; justify-content: flex-end; margin: -4px 0 8px; }
 .main .sc-day-tools button { margin: 0; }

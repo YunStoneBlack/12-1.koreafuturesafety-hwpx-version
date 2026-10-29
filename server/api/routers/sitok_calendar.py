@@ -9,12 +9,15 @@
 - `PATCH /sitok/calendar/facilities/{id}/map-address` {address} — 시설물 지도용 주소(카드 📍 지도·복사·동선만, 빈 글 = 관리대장 주소, 10/25 민재형) — 관리대장·보고서 주소는 그대로
   (10/20 민재형 "달력 전화번호는 현장 담당 번호로, 없으면 등록 버튼, 달력에서 고치면 계약 정보도 같이" — 시설물 칸 관리주체·담당자 전화는 안 씀)
 - `GET /sitok/calendar/missing` — 일정 없는 반기 목록(계약기간 안인데 날이 없음)
+- `GET /sitok/calendar/search?q=` — 찾기(10/30 사용자 "용역명·번호로 검색하면 언제인지"): 날짜 상관없이 번호·시설물 이름(묶음 안 동)·서류 계약 용역명이 맞는
+  시설물 카드와 그 점검 날 전부(일정이 없으면 빈 목록)
 - `POST /sitok/calendar/fill` {dry_run, facility_ids?} — 자동으로 잡기(미리보기 → 잡기). 이미 있는 날은 안 건드림.
 - `POST /sitok/calendar/route` {date, start?, end?, order?} — 그날 동선(10/23 — 산안법 동선 창과 같은 모양, 시설물 = 묶음 안 시설물 전부)
 """
 from __future__ import annotations
 
 import datetime
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -94,6 +97,64 @@ def calendar(start: datetime.date, end: datetime.date, user: User = Depends(get_
     return {"visits": visits, "day_load": load, "day_cap": V.DAY_CAP, "missing": len(miss), "missing_units": len({n.unit.lead.id for n in miss}),
             "missing_list": [_need_out(n) for n in miss[:30]],  # 어떤 시설물·반기인지(10/23 사용자 "어떤 건지 보여 주기")
             "facilities": [_unit_out(u) for u in {id(u): u for u in um.values()}.values()]}
+
+
+def _norm(s: str | None) -> str:
+    return re.sub(r"[\s\-_·()]", "", str(s or "")).lower()
+
+
+NO_RE = re.compile(r"(관급|민간)?-?0*(\d+)(?:-0*(\d+))?")
+
+
+def _no_hit(q: str, mgmt_no: str | None) -> bool:
+    """번호로 찾기 — "관급-22"·"관급22"·"22"(민간·관급 둘 다)·"관급-6-2"(시설물 여럿 카드). 숫자는 통째로 같아야(22 ≠ 122)."""
+    a, b = NO_RE.fullmatch(q.replace(" ", "")), NO_RE.fullmatch(str(mgmt_no or "").replace(" ", ""))
+    if not a or not b or not b.group(1):
+        return False
+    return (not a.group(1) or a.group(1) == b.group(1)) and a.group(2) == b.group(2) and (not a.group(3) or a.group(3) == b.group(3))
+
+
+@router.get("/search")
+def search(q: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """방문 달력 찾기(10/30 사용자) — 번호(관급-22·22)는 번호만, 글은 시설물 이름(묶음 안 동 이름)·서류 계약 용역명 안에서(띄어쓰기·- 무시).
+    시설물 카드 30개까지, 카드마다 점검 날 전부(날짜 순, 상태 = 달력과 같음)."""
+    q = (q or "").strip()
+    key = _norm(q)
+    if not key:
+        return {"units": [], "more": 0}
+    today = datetime.date.today()
+    um = _unit_map(db, user.company_id)
+    cons = contract_index(db, user.company_id)
+    by_no = bool(NO_RE.fullmatch(q.replace(" ", "")))
+    hits = []
+    for u in {id(u): u for u in um.values()}.values():
+        ids = set(u.ids)
+        if by_no:
+            if any(_no_hit(q, m.mgmt_no) for m in [u.lead, *u.members]):
+                hits.append((u, ""))
+            continue
+        if any(key in _norm(t) for t in (u.name, u.lead.mgmt_no, *(m.name for m in u.members))):
+            hits.append((u, ""))
+            continue
+        title = next((c.title for c, cov in reversed(cons) if cov & ids and key in _norm(c.title)), None)  # 최근 계약부터
+        if title:
+            hits.append((u, title))
+
+    def order(h):
+        m = NO_RE.fullmatch(str(h[0].lead.mgmt_no or ""))
+        return (0, m.group(1) != "관급", int(m.group(2)), int(m.group(3) or 0)) if m and m.group(1) else (1, 0, 0, 0)
+
+    hits.sort(key=order)
+    out = []
+    for u, title in hits[:30]:
+        rows = db.query(SitokVisit).filter(SitokVisit.facility_id.in_(u.ids)).order_by(SitokVisit.plan_date, SitokVisit.id).all()
+        visits = []
+        for v in rows:
+            st, _rid = _state(db, v, u, today)
+            visits.append({"id": v.id, "date": v.plan_date.isoformat(), "end": V.visit_span(v)[1].isoformat(), "year": v.year, "half": v.half,
+                           "kind": v.kind, "pinned": v.source == "manual", "state": st})
+        out.append({**_unit_out(u), "title": title, "visits": visits})
+    return {"units": out, "more": max(0, len(hits) - 30)}
 
 
 class VisitIn(BaseModel):

@@ -4,6 +4,7 @@
 // 폰: 산안법 달력처럼 달력 아래 고른 날(처음 오늘) 출장만, 날짜·막대를 누르면 그날로(10/23 사용자 — 예전엔 그달 날짜별 목록 + 작은 창).
 // 위 알림 = 계약기간 안인데 일정이 없는 반기 N곳 → [자동으로 잡기](미리보기 → 잡기).
 // 색: 정기 파랑·정밀 보라, ✓ = 그 반기 보고서 만듦(흐리게), 빨간 점선 = 지난 날인데 보고서 없음. API server/api/routers/sitok_calendar.py.
+// 🔍 찾기(10/30 사용자 "용역명·번호 검색 시 언제인지") — GET /sitok/calendar/search, 날짜 상관없이 시설물 카드마다 점검 날 전부, 누르면 그 달·그 날로(막대 깜빡임).
 
 (function () {
   const errorEl = document.getElementById("error");
@@ -18,6 +19,7 @@
   let data = { visits: [], day_load: {}, day_cap: 4, facilities: [], missing: 0 };
   let selected = ymd(new Date());
   let preFacility = null; // 일정 없는 반기 알림에서 누른 시설물 — [이 날 일정 넣기]에 골라 둠(10/23)
+  let flashId = null; // 찾기에서 고른 일정 — 그 막대를 잠깐 깜빡임(10/30)
   const holidays = {};
   const holidayYears = {};
 
@@ -331,6 +333,7 @@
     },
     eventDidMount: (info) => {
       const v = info.event.extendedProps.v;
+      if (flashId && String(v.id) === flashId) info.el.classList.add("sc-flash");
       info.el.title = `${v.facility.mgmt_no} ${v.facility.name} · ${v.kind} · ${v.year} ${v.half}${v.facility.region ? ` · ${v.facility.region}` : ""}${v.pinned ? " · 📌" : ""}`;
     },
     eventsSet: () => { decorateCells(); renderDay(); renderNotice(); },
@@ -341,4 +344,59 @@
     eventResize: (info) => setEnd(info.event.extendedProps.v, addDay(ymd(info.event.end), -1), info.revert), // 막대 끝 끌기 = 끝 날
   });
   cal.render();
+
+  // ---------- 🔍 찾기(10/30) ----------
+  const qIn = document.getElementById("sc-q"), fList = document.getElementById("sc-find-list");
+  const F_STATE = { done: ["✓ 보고서 만듦", "ok"], field: ["✓ 현장점검 완료", "ok"], missed: ["⚠ 지난 날 · 완료 안 됨", "bad"], planned: ["예정", ""] };
+  const mdw = (s) => { const x = new Date(`${s}T00:00:00`); return `${x.getFullYear() !== new Date().getFullYear() ? `${x.getFullYear()}.` : ""}${x.getMonth() + 1}.${x.getDate()}(${WEEK[x.getDay()]})`; };
+  let fTimer = null, fSeq = 0, fFirst = null;
+  function goVisit(v) {
+    fList.hidden = true;
+    flashId = String(v.id);
+    setTimeout(() => { flashId = null; }, 4000);
+    cal.gotoDate(v.date);
+    selectDay(v.date);
+    cal.getEventById(flashId)?.setProp("classNames", [...vClass(v), "sc-flash"]); // 이미 그 달이면 여기서, 다른 달이면 다시 받아 그릴 때(eventDidMount)
+    setTimeout(() => { const e = cal.getEventById(String(v.id)); if (e) e.setProp("classNames", vClass(v)); }, 3200);
+  }
+  function drawFind(d, q) {
+    const today = ymd(new Date());
+    fFirst = null;
+    const units = d.units || [];
+    fList.innerHTML = units.length ? units.map((u, ui) => {
+      const next = u.visits.findIndex((v) => endOf(v) >= today); // 다가오는 점검(오늘 이후 첫 일정)
+      if (!fFirst && u.visits.length) fFirst = u.visits[next >= 0 ? next : u.visits.length - 1];
+      return `<div class="sc-f-unit"><div class="sc-f-head"><span class="site-no">${esc(u.mgmt_no)}</span><b>${esc(u.name)}</b>${u.buildings > 1 ? `<small>(${u.buildings}동)</small>` : ""}
+          ${u.region ? `<small>${esc(u.region)}</small>` : ""}${u.title ? `<small>· 용역명 ${esc(u.title)}</small>` : ""}</div>
+        ${u.visits.length ? u.visits.map((v, vi) => `<button type="button" class="sc-f-v" data-u="${ui}" data-v="${vi}" title="누르면 그 날로">
+            <span class="sc-k ${v.kind === "정밀" ? "pre" : ""}">${esc(v.kind)}</span><span>${v.year} ${esc(v.half)}</span>
+            <span class="sc-f-date">${mdw(v.date)}${endOf(v) !== v.date ? ` ~ ${mdw(endOf(v))}` : ""}</span>${v.pinned ? "📌" : ""}${vi === next ? '<span class="sc-f-next">다가오는 점검</span>' : ""}
+            <span class="sc-f-st ${F_STATE[v.state]?.[1] || ""}">${F_STATE[v.state]?.[0] || ""}</span></button>`).join("")
+          : `<button type="button" class="sc-f-none" data-fid="${u.id}" title="누르면 오른쪽 [이 날 일정 넣기]에 이 시설물을 골라 둡니다">일정 없음 — 날짜를 고르고 [이 날 일정 넣기]로</button>`}</div>`;
+    }).join("") + (d.more ? `<div class="sc-f-empty">외 ${d.more}곳 — 더 자세히 쳐 보세요</div>` : "")
+      : `<div class="sc-f-empty">"${esc(q)}" — 맞는 시설물이 없습니다(번호 관급-22·22, 시설물 이름, 서류 계약 용역명으로 찾습니다)</div>`;
+    fList.hidden = false;
+    fList.querySelectorAll(".sc-f-v").forEach((b) => b.addEventListener("click", () => goVisit(units[Number(b.dataset.u)].visits[Number(b.dataset.v)])));
+    fList.querySelectorAll(".sc-f-none").forEach((b) => b.addEventListener("click", () => {
+      fList.hidden = true;
+      preFacility = Number(b.dataset.fid);
+      renderDay();
+    }));
+  }
+  async function runFind() {
+    const q = qIn.value.trim();
+    if (!q) { fList.hidden = true; fFirst = null; return; }
+    const my = ++fSeq;
+    try {
+      const d = await api(`/sitok/calendar/search?q=${encodeURIComponent(q)}`);
+      if (my === fSeq && qIn.value.trim() === q) drawFind(d, q); // 늦게 온 옛 응답은 버림
+    } catch (err) { showError(errorEl, err); }
+  }
+  qIn.addEventListener("input", () => { clearTimeout(fTimer); fTimer = setTimeout(runFind, 250); });
+  qIn.addEventListener("focus", () => { if (qIn.value.trim() && fList.innerHTML) fList.hidden = false; });
+  qIn.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { fList.hidden = true; qIn.blur(); }
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); clearTimeout(fTimer); if (fFirst && !fList.hidden) goVisit(fFirst); else runFind(); } // 엔터 = 첫 시설물의 다가오는 점검
+  });
+  document.addEventListener("mousedown", (e) => { if (!document.getElementById("sc-find").contains(e.target)) fList.hidden = true; });
 })();
