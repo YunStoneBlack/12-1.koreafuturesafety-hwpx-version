@@ -185,6 +185,9 @@
       <button type="button" class="secondary sf-cause-ai" title="원인이 비었거나 뭉뚱그린 낱말인 결함만 AI가 사진을 보고 구체적으로 — 카드에서 다시 고칠 수 있음">🤖 원인 추천</button>
       ${!data.defects.length && data.seismic ? `<label class="secondary-link sf-ext-import" title="성능평가 결함조사를 프로그램 밖에서 해 둔 결함 사진첩 PDF — 읽어서 이번 결함·사진으로 넣음(우리 사진첩 양식은 바로, 다른 양식은 AI 1~3분)">📎 외부 결함 사진첩 가져오기<input type="file" class="sf-ext-file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label>`
         : !data.defects.length && !data.survey_only ? '<button type="button" class="secondary sf-back-import" title="[전회차 없이 시작]을 잘못 눌렀을 때 — 지난 보고서 PDF·직전 회차에서 가져오는 화면으로">↩ 전회차 결함 가져오기</button>' : ""}
+      ${canCur() ? `<label class="secondary-link sf-cur-import" title="현장조사를 프로그램 밖에서 마친 회차 — 금회차 결함 사진첩 PDF를 읽어 층·번호가 같고 부재나 결함유형이 같은 전회차 결함에 이번 값·사진·확인을 넣음(못 맞춘 줄은 더함)">📄 금회차 결함 가져오기<input type="file" class="sf-cur-file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label>` : ""}
+      ${canPrev() ? `<label class="secondary-link sf-prev-import" title="금회차를 먼저 넣은 회차 — 지난 보고서 PDF의 전회차 결함을 층·번호가 같고 부재나 결함유형이 같은 금회차 결함에 붙임(전회차에만 있는 줄은 확인 전으로 더함)">📄 전회차 PDF 붙이기<input type="file" class="sf-prev-file" accept="application/pdf,.pdf" hidden data-kr-file="skip" /></label>
+        <button type="button" class="secondary sf-prev-carry" title="이 프로그램으로 만든 직전 회차가 있을 때 — 그 결함을 같은 방식으로 붙임">직전 회차 결함 붙이기</button>` : ""}
       ${data.defects.some((d) => d.prev) ? `<button type="button" class="secondary sf-reprev" title="이번 회차에 확인·찍은 것과 원인은 그대로 — 층·번호가 같은 결함의 전회차 값·사진만 새 PDF로">📄 전회차 PDF만 다시 올리기</button>
         <input type="file" class="sf-reprev-file" accept="application/pdf,.pdf" hidden data-kr-file="skip" />
         <button type="button" class="secondary sf-reimport" title="다른 보고서·잘못된 결함표를 가져왔을 때 — 목록을 비우고 가져오기 화면으로(이번 회차 확인·사진 연결도 지워짐)">↺ 전회차 결함 다시 가져오기</button>` : ""}
@@ -254,6 +257,13 @@
         reprevMsg = r.merged || "";
         refresh();
       } catch (e) { reprevSay(`읽지 못했습니다: ${e.message}`); rpBtn.disabled = false; rpFile.value = ""; }
+    });
+    const curFile = document.querySelector(".sf-cur-file"), pvFile = document.querySelector(".sf-prev-file"); // 금회차·전회차 붙이기(10/30 사용자 "전회차와 금회차 둘 다")
+    curFile?.addEventListener("change", () => upSide(curFile, "import-current"));
+    pvFile?.addEventListener("change", () => upSide(pvFile, "import"));
+    document.querySelector(".sf-prev-carry")?.addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      try { const r = await apiPost(`/sitok/reports/${rid}/defects/carry`); reprevMsg = r.merged || ""; refresh(); } catch (er) { reprevSay(`붙이지 못했습니다: ${er.message}`); e.target.disabled = false; }
     });
     document.querySelector(".sf-back-import")?.addEventListener("click", () => { // 10/16: [전회차 없이 시작]을 잘못 눌러도 결함이 없으면 되돌림
       started = false;
@@ -785,6 +795,24 @@
     } catch (err) { showError(errorEl, err); btn.disabled = false; btn.textContent = "🤖 원인 추천"; }
   }
 
+  function sideOk() { return data.defects.length && !data.seismic && !data.survey_only && !isWall(); }
+  // 금회차 붙이기 = 줄이 모두 가져온 전회차이고 이번 확인·사진이 없을 때, 전회차 붙이기 = 전회차 값이 없고 금회차 사진첩에서 온 기존·보수 줄이 있을 때(서버 side_block과 같게)
+  function canCur() { return sideOk() && data.defects.every((d) => d.prev && !d.check && !d.has_photo); }
+  function canPrev() { return sideOk() && !data.defects.some((d) => d.prev) && data.defects.some((d) => d.mark === "기존" || d.mark === "보수"); }
+  async function upSide(input, path) { // 금회차·전회차 PDF 붙이기(10/30) — 다른 양식은 AI(뒤에서, 4초마다 확인)
+    const f = input.files[0];
+    if (!f) return;
+    reprevSay(`${f.name} 읽는 중…`);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await apiUpload(`/sitok/reports/${rid}/defects/${path}`, fd);
+      if (r.importing) { reprevSay(`${r.importing.msg} …`); pollReprev(); return; }
+      reprevMsg = r.merged || "";
+      refresh();
+    } catch (e) { reprevSay(`읽지 못했습니다: ${e.message}`); input.value = ""; }
+  }
+
   let reprevMsg = "", reprevPoll = false; // 전회차만 다시 — 결과 글은 다시 그려도 머리줄에 남김
   function reprevSay(t) {
     const el = document.querySelector(".sf-reprev-msg");
@@ -807,16 +835,20 @@
   }
 
   let polling = false;
-  function pollImport() { // 타회사 PDF는 AI가 1~3분(옹벽 한글 파일은 변환까지) — 4초마다 확인
+  function pollImport(id = "sf-pdf-msg") { // 타회사 PDF는 AI가 1~3분(옹벽 한글 파일은 변환까지) — 4초마다 확인
     if (polling) return;
     polling = true;
-    const msg = document.getElementById("sf-pdf-msg");
+    const msg = document.getElementById(id);
     const tick = async () => {
       try {
         const d = await api(`/sitok/reports/${rid}/defects`);
         if (d.importing && d.importing.state === "running") { msg.textContent = `${d.importing.msg} …`; setTimeout(tick, 4000); return; }
         polling = false;
         if (d.importing && d.importing.state === "failed") { msg.textContent = d.importing.msg; return; }
+        if (d.importing && d.importing.state === "note") { // 금회차 결과·실패(10/30) — 이 응답이 알림을 지우므로 여기서 받음
+          if (!d.defects.length) { msg.textContent = d.importing.msg; return; }
+          reprevMsg = d.importing.msg;
+        }
         refresh();
       } catch (e) { msg.textContent = e.message; }
     };
@@ -905,6 +937,7 @@
       if (empty) {
         const pdfIn = document.getElementById("sf-pdf");
         const review = document.getElementById("sf-wall-review");
+        document.getElementById("sf-cur-box").hidden = isWall(); // 금회차 사진첩(10/30) — 건축물 사진첩 양식만
         if (isWall()) { // 옹벽·교량(10/29): PDF·한글 파일 → 부록 사진첩 읽기 → 확인 창(10/20)
           pdfIn.accept = "application/pdf,.pdf,.hwp,.hwpx";
           pdfIn.closest(".sk-drop").querySelector("b").textContent = "📄 지난 보고서 PDF·한글 파일에서 가져오기";
@@ -944,6 +977,21 @@
     } catch (e) { msg.textContent = `읽지 못했습니다: ${e.message}`; }
   });
   enableFileDrop(pdf.closest(".sk-drop"), pdf);
+  const cur = document.getElementById("sf-cur"); // 금회차 결함 사진첩(10/30 사용자 — 현장조사를 밖에서 마친 회차) → 이번 결함·사진
+  cur.addEventListener("change", async () => {
+    if (!cur.files[0]) return;
+    const msg = document.getElementById("sf-cur-msg");
+    msg.textContent = `${cur.files[0].name} 읽는 중…`;
+    try {
+      const fd = new FormData();
+      fd.append("file", cur.files[0]);
+      const r = await apiUpload(`/sitok/reports/${rid}/defects/import-current`, fd);
+      if (r.importing) { msg.textContent = r.importing.msg; pollImport("sf-cur-msg"); return; }
+      reprevMsg = r.merged || "";
+      refresh();
+    } catch (e) { msg.textContent = `읽지 못했습니다: ${e.message}`; cur.value = ""; }
+  });
+  enableFileDrop(cur.closest(".sk-drop"), cur);
   document.getElementById("sf-carry").addEventListener("click", async () => {
     try { await apiPost(`/sitok/reports/${rid}/defects/carry`); refresh(); } catch (e) { err(e); }
   });

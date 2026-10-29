@@ -57,6 +57,12 @@
       <button type="button" class="secondary" id="sf-carry">직전 회차 결함 그대로 가져오기</button>
     </div>
     <div id="sf-wall-review" class="wi-box" hidden></div>
+    <div id="sf-cur-box" class="sf-cur-box"><!-- 금회차(10/30 사용자 — 현장조사를 이미 마치고 보고서만 남은 회차), 전회차와 둘 다 넣을 수 있음 -->
+      <h3 class="sf-h">금회차 결함 가져오기 <span class="sf-h-sub">현장조사를 프로그램 밖에서 이미 마쳤을 때</span></h3>
+      <p class="page-sub">이번 회차 결함 사진첩(층별 결함 현황표·결함사진표) PDF를 읽어 이번 결함·사진으로 넣습니다. 전회차도 가져오면(순서 상관없음) 층·번호가 같고 부재나 결함유형이 같은 줄끼리 한 결함으로 맞춥니다.</p>
+      <label class="sk-drop"><input type="file" accept="application/pdf,.pdf" hidden data-kr-file="1" id="sf-cur" />
+        <b>📄 금회차 결함 사진첩 PDF에서 가져오기</b><span class="sk-drop-msg" id="sf-cur-msg">우리 사진첩 양식은 바로(10~30초), 다른 양식은 AI가 결함현황표·사진대장을 읽습니다(1~3분)</span></label>
+    </div>
     <div class="sf-fresh-row"><button type="button" id="sf-fresh">전회차 없이 시작</button>
       <span class="page-sub">처음 점검하는 시설물(신축)이거나 지난 결함 자료가 없을 때 — 층(옹벽·교량은 부위)을 골라 [+ 신규 결함]으로 사진부터 찍으면 AI가 결함 내용을 채웁니다.</span></div>
   </div>
