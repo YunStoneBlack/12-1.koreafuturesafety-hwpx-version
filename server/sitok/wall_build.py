@@ -16,8 +16,8 @@
   교량·옹벽·터널·절토사면 같이, 시설물편 교량편). Data.fam = "bridge"면 AI·평가는 bridge_ai·bridge_manual, 시설물편 1.2.1 현황표 11×6(교량 제원)·1.4.1~1.4.7 절·
   1.4.8 요약표 10×4·1.5 평가표 19×10(15항목), 요약문·과업 표·총괄표는 높이 대신 폭·형식 대신 상부 형식, 요약문 "(옹벽)"·"옹벽 총"은 "교량"으로(교량 원본 요약문이 옹벽 견본 그대로라).
 - 옹벽·교량 섞인 묶음(10/29 민재형 — 10/29부터 옹벽 원본도 공통편·서두·부록이 교량 원본과 같음): 첫 곳 종류의 원본에 다른 종류의 시설물편 장을 서식 번호 맞춰 가져와
-  (Hwpx.import_section · hwpx_import.StyleMap) 곳 차례대로 장을 둠. 요약문·1.2·부록 서류 목록 표는 종류마다 한 벌(_per_fam, 머리 치수 칸 = 옹벽 길이·높이 / 교량 연장·폭),
-  총괄표는 한 표에 곳마다 H(m)/W(m).
+  (Hwpx.import_section · hwpx_import.StyleMap) 곳 차례대로 장을 둠. 요약문·1.2·부록 서류 목록 표는 한 표에 곳 차례대로(10/29 사용자 "1~3번 교량은 연장·폭,
+  4~5번 옹벽은 연장·높이") — 줄마다 그 곳 값(옹벽 높이 · 교량 폭), 머리 = 한 종류면 연장(m)·높이(m)/폭(m), 섞이면 폭(m)/높이(m)(_dim_heads). 총괄표는 곳마다 H(m)/W(m).
 - 부록: 간지만 남기고(견본 사진 쪽 지움) 관리대장 PDF·사진첩 PDF(pymupdf로 그림 — 전경 6 + 주요 손상 및 현황 사진 2×3 + 전회차 비교, 설명은 그림 바로 아래 →
   다음 회차 wall_album.read_pdf가 읽음)·계약서 PDF를 간지 뒤에 끼움.
 """
@@ -993,28 +993,27 @@ def fill_summary(doc: Hwpx, d: Data) -> None:
         _set(rb._cells(t31), (0, 0), d.owner)
     replace_text(root, "어쩌구에 대한 2026년 상반기 정기안전점검", f"{d.name}에 대한 {d.year}년 {d.half} 정기안전점검")
     sites = d.many
-    groups = _fam_groups(sites)  # 원본 요약문은 옹벽 견본 글(교량·옹벽 같은 공통) — 시설물 낱말을 종류대로, 섞이면 "옹벽 2개소, 교량 3개소"(10/29)
+    groups = _fam_groups(sites)  # 원본 요약문은 옹벽 견본 글(교량·옹벽 같은 공통) — 시설물 낱말을 종류대로, 섞이면 "교량 3개소, 옹벽 2개소"(10/29)
     replace_text(root, "총 옹벽 17개소", ", ".join(f"{FAM_WORD[fm]} {len(g)}개소" for fm, g in groups))
     replace_text(root, "시설물별 정기안전점검 결과 (옹벽)", f"시설물별 정기안전점검 결과 ({'·'.join(FAM_WORD[fm] for fm, _ in groups)})")
     replace_text(root, "2026년 04월 13일 ~ 2026년 07월 11일", f"{_date(d.period_start, False)} ~ {_date(d.period_end, False)}")
+    for p in _tops(root):
+        if _ptext(p).startswith("※ 옹벽 총"):
+            rb._set_para(p, f"※ {_count_text(groups)}({_grade_summary(sites)})")
     t = _tbl(root, 18, 11)
-    if t is not None:  # "※ 옹벽 총 N개소(…)" + 표 — 종류마다 한 벌(머리 길이·높이 / 연장·폭)
-        for tt, heads, fm, g in _per_fam(t, sites, 1):
-            for p in heads:
-                if _ptext(p).startswith("※"):
-                    rb._set_para(p, f"※ {FAM_WORD[fm]} 총 {len(g)}개소({_grade_summary(g)})")
-            _dim_heads(tt, fm, (5, 6))
-            _resize(tt, len(g), 1, 1, doc)
-            cells = rb._cells(tt)
-            for i, s in enumerate(g, 1):
-                vals = [str(s.index or i), s.name, f"{s.class_no}종", s.year_month, s.form_text, s.spec.get("length") or "-", s.dim2,
-                        s.prev_grade, s.grade, "\n".join(s.ai.get("findings") or []), "\n".join(s.ai.get("repairs") or [])]
-                for c, v in enumerate(vals):
-                    _set(cells, (i, c), v)
+    if t is not None:  # 한 표에 곳 차례대로 — 줄마다 그 곳 제원(옹벽 연장·높이 / 교량 연장·폭, 10/29)
+        _dim_heads(t, [fm for fm, _ in groups], (5, 6))
+        _resize(t, len(sites), 1, 1, doc)
+        cells = rb._cells(t)
+        for i, s in enumerate(sites, 1):
+            vals = [str(s.index or i), s.name, f"{s.class_no}종", s.year_month, s.form_text, s.spec.get("length") or "-", s.dim2,
+                    s.prev_grade, s.grade, "\n".join(s.ai.get("findings") or []), "\n".join(s.ai.get("repairs") or [])]
+            for c, v in enumerate(vals):
+                _set(cells, (i, c), v)
 
 
 FAM_WORD = {"wall": "옹벽", "bridge": "교량"}
-DIM_LABELS = {"wall": ("길이(m)", "높이(m)"), "bridge": ("연장(m)", "폭(m)")}  # 목록 표 둘째·셋째 치수 칸 머리(공통 원본은 교량 머리 그대로라 옹벽엔 높이로, 10/29)
+DIM2_LABEL = {"wall": "높이(m)", "bridge": "폭(m)"}  # 목록 표 둘째 치수 칸 머리 — 옹벽 높이(H) · 교량 폭(W), 첫째는 둘 다 연장(m)(10/29 사용자)
 
 
 def _fam_groups(sites: list) -> list[tuple[str, list]]:
@@ -1025,42 +1024,30 @@ def _fam_groups(sites: list) -> list[tuple[str, list]]:
     return list(out.items())
 
 
-def _per_fam(t, sites: list, n_head: int = 0) -> list[tuple]:
-    """목록 표 t를 종류 묶음마다 한 벌로 — [(표, 앞 제목 문단들, 종류, 곳들)]. 한 종류면 t 그대로. 섞이면(옹벽·교량 한 묶음, 10/29) 표 문단과
-    바로 앞 제목 문단 n_head개를 복사해 그 뒤에 차례로(요약문 "※ … 총", 1.2 "- 옹벽시설물 현황"). 표가 문단 안에 없으면 복사 없이 한 벌."""
-    from server.sitok.merge import _renew_ids
-
-    groups = _fam_groups(sites)
-    p = t.getparent()
-    while p is not None and p.tag != f"{{{HP}}}p":
-        p = p.getparent()
-    heads: list = []
-    q = p.getprevious() if p is not None else None
-    while q is not None and len(heads) < n_head:
-        if q.tag == f"{{{HP}}}p":
-            heads.insert(0, q)
-        q = q.getprevious()
-    if p is None or len(groups) == 1:
-        return [(t, heads, groups[0][0], sites)]
-    out = [(t, heads, *groups[0])]
-    anchor = p
-    for fm, g in groups[1:]:
-        new_heads = [copy.deepcopy(x) for x in heads]
-        new_p = copy.deepcopy(p)
-        for x in new_heads + [new_p]:
-            _renew_ids(x)
-            anchor.addnext(x)
-            anchor = x
-        out.append((next(new_p.iter(f"{{{HP}}}tbl")), new_heads, fm, g))
-    return out
+def _count_text(groups: list) -> str:
+    """"옹벽 총 5개소" · 섞이면 "교량 3개소·옹벽 2개소 총 5개소"(요약문 ※ 줄)."""
+    n = sum(len(g) for _, g in groups)
+    if len(groups) == 1:
+        return f"{FAM_WORD[groups[0][0]]} 총 {n}개소"
+    return "·".join(f"{FAM_WORD[fm]} {len(g)}개소" for fm, g in groups) + f" 총 {n}개소"
 
 
-def _dim_heads(t, fam: str, cols: tuple[int, int]) -> None:
-    """목록 표 머리 줄 치수 칸 이름 — 옹벽 길이(m)·높이(m) · 교량 연장(m)·폭(m)."""
+def _dim_heads(t, fams: list, cols: tuple[int, int]) -> None:
+    """목록 표 머리 줄 치수 칸 — 첫째 연장(m), 둘째 = 한 종류면 옹벽 높이(m) · 교량 폭(m), 섞이면 폭(m)/높이(m)(원본 머리가 이미 둘 다 쓰면 그대로 —
+    민재형 공통 원본 "폭(m)/높이(m)"·"폭/높이(m)", 10/29). 값은 줄마다 그 곳 것(Data.dim2)."""
     cells = rb._cells(t)
-    for c, label in zip(cols, DIM_LABELS.get(fam, DIM_LABELS["wall"])):
-        if (0, c) in cells:
-            rb._set_lines(cells[(0, c)], [label])
+    c1, c2 = cols
+    if (0, c1) in cells:
+        rb._set_lines(cells[(0, c1)], ["연장(m)"])
+    if (0, c2) not in cells:
+        return
+    kinds_ = list(dict.fromkeys(fams))
+    if len(kinds_) == 1:
+        rb._set_lines(cells[(0, c2)], [DIM2_LABEL.get(kinds_[0], "높이(m)")])
+        return
+    cur = rb._n(rb._cell_text(cells[(0, c2)]))
+    if not ("폭" in cur and "높이" in cur):
+        rb._set_lines(cells[(0, c2)], ["폭(m)/", "높이(m)"])
 
 
 def _grade_summary(sites: list) -> str:
@@ -1449,34 +1436,37 @@ def fill_intro(doc: Hwpx, d: Data) -> None:
 
 
 def _fill_target_table(t, d: Data, doc=None, n_head: int = 0) -> None:
-    """과업대상 시설물 표(18×9: 번호·시설물명·형식별·종별·길이·높이·준공연도·점검종류·비고) — 개요 1.2(앞 "- 옹벽시설물 현황" 제목째 종류마다)·과업지시서 Ⅱ."""
+    """과업대상 시설물 표(18×9: 번호·시설물명·형식별·종별·연장·높이/폭·준공연도·점검종류·비고) — 개요 1.2(앞 제목 "- 옹벽시설물 현황" → 종류대로, n_head)·과업지시서 Ⅱ.
+    한 표에 곳 차례대로, 줄마다 그 곳 제원(10/29)."""
     if t is None:
         return
-    for tt, heads, fm, g in _per_fam(t, d.many, n_head):
-        for p in heads:
-            if _ptext(p).endswith("시설물 현황"):
-                rb._set_para(p, f"- {FAM_WORD[fm]}시설물 현황")
-        _dim_heads(tt, fm, (4, 5))
-        _resize(tt, len(g), 1, 1, doc)
-        cells = rb._cells(tt)
-        for i, s in enumerate(g, 1):
-            for c, v in enumerate([str(s.index or i), s.name, s.form_text, f"{s.class_no}종", s.spec.get("length") or "-", s.dim2, s.year_month, "정기점검", ""]):
-                _set(cells, (i, c), v)
+    fams = [s.fam for s in d.many]
+    p = t.getparent()
+    while p is not None and p.tag != f"{{{HP}}}p":
+        p = p.getparent()
+    q = p.getprevious() if p is not None and n_head else None
+    if q is not None and _ptext(q).endswith("시설물 현황"):
+        rb._set_para(q, f"- {'·'.join(FAM_WORD[fm] for fm in dict.fromkeys(fams))}시설물 현황")
+    _dim_heads(t, fams, (4, 5))
+    _resize(t, len(d.many), 1, 1, doc)
+    cells = rb._cells(t)
+    for i, s in enumerate(d.many, 1):
+        for c, v in enumerate([str(s.index or i), s.name, s.form_text, f"{s.class_no}종", s.spec.get("length") or "-", s.dim2, s.year_month, "정기점검", ""]):
+            _set(cells, (i, c), v)
 
 
 def _fill_status_table(t, d: Data, doc=None) -> None:
-    """대상시설물 현황 표(18×8: 연번·시설명·위치·연장·높이·준공년도·구조형식·종별) — 과업수행계획서 라.·사전검토보고서 3. 섞이면 종류마다 한 벌."""
+    """대상시설물 현황 표(18×8: 연번·시설명·위치·연장·폭/높이·준공년도·구조형식·종별) — 과업수행계획서 라.·사전검토보고서 3. 한 표, 줄마다 그 곳 제원(10/29)."""
     if t is None:
         return
-    for tt, _heads, fm, g in _per_fam(t, d.many):
-        _dim_heads(tt, fm, (3, 4))
-        _resize(tt, len(g), 1, 1, doc)
-        cells = rb._cells(tt)
-        for i, s in enumerate(g, 1):
-            done = f"{s.completion.year}년 {s.completion.month}월" if s.completion else "-"
-            for c, v in enumerate([str(s.index or i), s.name, s.address if s.address != "-" else "-", s.spec.get("length") or "-", s.dim2, done,
-                                   (s.form_text if s.fam == "bridge" else (s.spec.get("form") or wall_ledger.form_text(s.spec, "") or "-")), f"{s.class_no}종"]):
-                _set(cells, (i, c), v)
+    _dim_heads(t, [s.fam for s in d.many], (3, 4))
+    _resize(t, len(d.many), 1, 1, doc)
+    cells = rb._cells(t)
+    for i, s in enumerate(d.many, 1):
+        done = f"{s.completion.year}년 {s.completion.month}월" if s.completion else "-"
+        for c, v in enumerate([str(s.index or i), s.name, s.address if s.address != "-" else "-", s.spec.get("length") or "-", s.dim2, done,
+                               (s.form_text if s.fam == "bridge" else (s.spec.get("form") or wall_ledger.form_text(s.spec, "") or "-")), f"{s.class_no}종"]):
+            _set(cells, (i, c), v)
 
 
 def _short_owner(owner: str) -> str:
