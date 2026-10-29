@@ -2528,6 +2528,49 @@ def fill_docs_have(root, reg: dict, drawings: bool | None) -> int:
     return n
 
 
+def fix_general_table(doc, root) -> int:
+    """(2) 내진성능평가 적용 "가. 일반사항" 표(지역계수(S)…고유치해석주기) — 견본은 이 표가 앞 쪽 끝이라 몰랐는데, 한 쪽에 "나. 재료강도의 결정" 표와 같이 놓이면
+    들여 쓴 자리(문단 왼쪽 5000)·다른 너비라 어긋나 보임(10/29 민재형) → 나 표와 같은 문단 모양(가운데)·같은 너비(칸은 비율대로), 이름 칸 굵게 → 보통.
+    외주 견본 전체를 옮겨 온 표에도 같게(첫 칸 글로 찾음). 테두리 도구(borders_for) 안에서. 고친 표 수."""
+    tables = list(_outer(root))
+    ga = next((t for t in tables if _n(rb._cell_text(rb._cells(t).get((0, 0), t))).startswith("지역계수")), None)
+    na = next((t for t in tables if _n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "구분"
+               and "건설연도별" in _n(rb._cell_text(rb._cells(t).get((0, 1), t)))), None)
+    if ga is None:
+        return 0
+    pa = next(ga.iterancestors(f"{{{HP}}}p"), None)
+    pn = next(na.iterancestors(f"{{{HP}}}p"), None) if na is not None else None
+    if pa is not None and pn is not None:
+        pa.set("paraPrIDRef", pn.get("paraPrIDRef"))  # 가운데·왼쪽 들여쓰기 없음(나 표 문단과 같게)
+    sz, nsz = ga.find(f"{{{HP}}}sz"), (na.find(f"{{{HP}}}sz") if na is not None else None)
+    if sz is not None and nsz is not None and int(sz.get("width")) < int(nsz.get("width")):
+        old, new = int(sz.get("width")), int(nsz.get("width"))
+        sz.set("width", str(new))
+        rows: dict = {}
+        for (r, c), tc in rb._cells(ga).items():
+            rows.setdefault(r, []).append((c, tc))
+        for r, items in rows.items():  # 줄마다 칸 너비를 비율대로, 끝 칸에 남는 것
+            items.sort(key=lambda x: x[0])
+            ws = [int(tc.find(f"{{{HP}}}cellSz").get("width")) for _c, tc in items]
+            target = round(sum(ws) * new / old)
+            got = [round(w * new / old) for w in ws]
+            got[-1] += target - sum(got)
+            for (_c, tc), w in zip(items, got):
+                tc.find(f"{{{HP}}}cellSz").set("width", str(w))
+        for el in list(ga.iter(f"{{{HP}}}linesegarray")):  # 줄 배치 캐시(너비가 바뀜 — 한글이 다시 계산)
+            el.getparent().remove(el)
+    b = getattr(rb._TL, "borders", None)
+    if b is not None:
+        for (r, c), tc in rb._cells(ga).items():
+            if c != 0:
+                continue
+            for run in tc.iter(f"{{{HP}}}run"):
+                nid = b._char_variant(run.get("charPrIDRef"), lambda d: re.sub(r"<hh:bold\s*/>", "", d))
+                if nid:
+                    run.set("charPrIDRef", nid)
+    return 1
+
+
 # ---------- 목차 쪽 번호(첫 PDF로 세어 넣고 다시 PDF) ----------
 def fill_toc(hwpx: Path, pdf: Path) -> int:
     """우리 목차("목차" ~ "부록" 줄)의 "N.N 제목 … 쪽" 줄 끝 숫자를 본문 꼬리말 쪽 번호로(wall_build._page_map — 간지·번호 없는 쪽은 뺌). 바꾼 줄 수."""

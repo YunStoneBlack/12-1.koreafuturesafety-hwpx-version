@@ -732,6 +732,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
                 say("현장조사·서류 값 채우는 중…")
                 changed += seismic_fill.fill_all(doc, root, r, f, folder, d, warn, front_taken=front_taken, vendor_text=vendor_text)
             changed += seismic_fill.fix_confirm_layout(doc, root) + seismic_fill.fix_checklist_stamp(root)  # 확인서 두 칸·체크리스트 도장(10/22)
+            changed += seismic_fill.fix_general_table(doc, root)  # (2) 가. 일반사항 표 — 나 표와 같은 자리·너비, 이름 칸 보통 굵기(10/29 민재형)
             if todo is not None:  # 손대지 않은 견본 값 → 빈칸 + 노랑(10/26 사용자 "다 지우고 노란색으로 바뀌어야 한다는 표시")
                 changed += todo.finish(folder, warn)
             if filling:  # 도면·성적서·도해·모델링 그림 칸도 사진 칸처럼 여백 2mm(10/27) — 그림이 다 들어간 뒤
