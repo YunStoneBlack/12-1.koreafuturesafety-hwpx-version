@@ -26,7 +26,7 @@ from server.sitok import seasons
 BASE = "https://www.fms.or.kr"
 _WRITE = re.compile(r"(save|insert|update|delete|del\b|regist|reg\.do|apprv|approval|appr|request|req\b|confirm|complete|cmplt|submit|upload|send|trans)", re.I)
 _SAFE = re.compile(r"(list|form|view|search|select|popup|pop|find|sch|redirectEx|loginForm|login\.do|actionLogin|mainForm|menu|code|combo|detail|info)", re.I)
-_ERR = re.compile(r"입력하지|선택하지|일치하지|없습니다|잘못|오류|실패|초과할 수|이전이어야|이후이어야|확인하시기|필수|중복|불가능")
+_ERR = re.compile(r"입력하지|선택하지|일치하지|없습니다|잘못|오류|실패|초과할 수|이전이어야|이후이어야|확인하시기|필수|중복|불가능|주십시오|주세요")  # 주십시오 = "성명을(를) 입력하여 주십시오"(10/29 — 기술자 저장이 거부됐는데 지나감)
 GRADE_NAME = {"1": "특급기술인", "2": "고급기술인", "3": "중급기술인", "4": "초급기술인"}
 HALF_CODE = {"상반기": "0106", "하반기": "0712"}
 FOLDERS = ["계약서 및 대가내역서", "과업지시서", "결과표", "보고서", "보고서 부록"]
@@ -618,6 +618,25 @@ def _engineer_rows(ctx, pg, fr3, job: Job, engineers: list[dict], project_no: st
         if not _set(fr3, f"parti_field{idx}", e["parti_field"]):
             job.say(f"{e['name']} 직무분야 \"{e['parti_field']}\" 선택지가 없어 비워 둠")
         job.say(f"기술자 {e['name']}({'책임' if e['rep_yn'] == 'Y' else '참여'}) 줄 {idx}")
+    _drop_empty_engineers(pg, job, used)
+
+
+def _drop_empty_engineers(pg, job: Job, used: set) -> None:
+    """우리가 안 쓴 빈 기술자 줄(성명 없음)은 [삭제] — 남겨 두면 저장 때 "성명을(를) 입력하여 주십시오"로 기술자 저장이 통째로 안 됨(10/29 의정부 첫 실제 건). 아래 줄부터."""
+    for _ in range(20):
+        fr3 = _frame(pg, "any14001")
+        rows = fr3.evaluate("""(used) => { const out = []; for (let i = 0; i < 40; i++) { const e = document.getElementsByName('engineer_nm' + i)[0];
+            if (e && !e.value.trim() && !used.includes(i)) out.push(i); } return out; }""", sorted(used))
+        if not rows:
+            return
+        i = rows[-1]
+        ok = fr3.evaluate("""(i) => { const e = document.getElementsByName('engineer_nm' + i)[0]; const tr = e && e.closest('tr'); if (!tr) return false;
+            const b = [...tr.querySelectorAll('button, a, input[type=button]')].find(x => /^삭제$/.test((x.textContent || x.value || '').replace(/\\s+/g, '').trim()));
+            if (!b) return false; b.click(); return true; }""", i)
+        pg.wait_for_timeout(700)
+        if not ok:
+            raise FmsError(f"기술자 탭에 빈 줄(줄 {i})이 남았는데 [삭제] 단추를 못 찾았습니다 — FMS에서 그 줄을 지운 뒤 다시 해 주세요.")
+        job.say(f"기술자 빈 줄 {i} 지움")
 
 
 def _sign_request(pg, job: Job, detail_url: str, label: str) -> None:
@@ -669,7 +688,13 @@ def owner_approve(b, job: Job, owner_id: str, owner_pw: str, project_nm: str, ki
             raise FmsError("관리주체 결재 화면에서 [승인] 버튼을 찾지 못했습니다 — 화면을 보고 맞추겠습니다(첫 실제 건).")
         n = len(job.alerts)
         w.click("[data-fms-approve='1']")
-        w.wait_for_timeout(4000)
+        for _ in range(8):  # [승인] → "승인하시겠습니까?" [확인] → 결재 창이 스스로 닫힘(10/29 실측 — 닫힌 창을 기다리다 오류 났었음)
+            if w.is_closed():
+                break
+            try:
+                w.wait_for_timeout(500)
+            except Exception:  # noqa: BLE001
+                break
         new = job.alerts[n:]
         job.say(f"관리주체 {kind} 승인" + (f" — 알림: {' / '.join(a[:80] for a in new)}" if new else ""))
         bad = [a for a in new if _ERR.search(a) and a not in job.confirms]  # 확인 창은 막힘 아님(10/29)
@@ -677,6 +702,15 @@ def owner_approve(b, job: Job, owner_id: str, owner_pw: str, project_nm: str, ki
             raise FmsError(f"관리주체 승인에서 FMS가 막음: {bad[-1][:200]}")
         if not w.is_closed():
             job.shot(w, f"관리주체_{kind}_승인")
+        pg.wait_for_timeout(1500)
+        pg.goto(f"{BASE}/esign/sgn01001_list.do", wait_until="domcontentloaded")  # 결재대기에서 빠졌으면 승인된 것
+        pg.wait_for_timeout(2000)
+        left = pg.evaluate("""([kind, nm]) => [...document.querySelectorAll('table tbody tr')].some(t => { const x = t.innerText.replace(/\\s+/g, '');
+            return x.includes(kind) && x.includes(nm) && t.querySelector('[onclick*="goDetail"]'); })""", [kind, re.sub(r"\s", "", project_nm)[:20]])
+        if left:
+            job.shot(pg, "관리주체_결재대기_남음")
+            raise FmsError(f"관리주체 [승인]을 눌렀지만 결재대기에 \"{project_nm}\" {kind}이 그대로 있습니다 — FMS에서 확인해 주세요.")
+        job.say(f"관리주체 결재대기에서 빠짐 — {kind} 승인됨")
     finally:
         ctx.close()
 
