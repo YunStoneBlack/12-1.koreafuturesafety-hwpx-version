@@ -457,7 +457,76 @@
     } catch (err) { msg.textContent = err.message; }
     btn.disabled = false;
   });
+  // ---------- 생애이력시스템 입력(봇) ----------
+  let runTimer = null;
+  const ST = { ok: "✓", warn: "⚠", fail: "✗", skip: "·" };
+  const MODE = { list: "사이트 목록 읽기", practice: "연습(채워 보기)", save: "입력·저장" };
+  async function drawAccount() {
+    try {
+      const a = await api("/blcm/account");
+      $("bj-acc").innerHTML = a.has ? `생애이력시스템 계정 <b>${esc(a.user_id)}</b> 등록됨` : '생애이력시스템 계정이 없습니다 — <a href="blcm.html">건축물관리점검 목록</a>에서 넣으세요(관리자).';
+    } catch (err) { $("bj-acc").textContent = err.message; }
+  }
+  function addrKey(s) { return String(s || "").replace(/\s/g, ""); }
+  function drawSite() {
+    const site = job.site || {};
+    const t = site.target;
+    $("bj-target").innerHTML = t ? `<div class="bj-tg"><b>${esc(t.address)}</b><span>${esc(t.kind)} · 통보일 ${esc(t.notice)}</span><span class="bj-chip ${t.prog === "02" ? "ok" : "empty"}">${esc(t.status)}</span></div>`
+      : '<div class="mail-note">아직 안 골랐습니다 — [🔎 사이트 목록 읽기] 뒤 이 건축물 줄의 [고르기]</div>';
+    const rows = ((site.list || {}).rows || []);
+    const mine = addrKey(job.address || (job.building || {}).address);
+    $("bj-list").innerHTML = rows.length ? `<div class="mail-note">목록 ${esc(site.list.at)} 읽음 · ${rows.length}줄 — 작성중만 고를 수 있음(미실시는 사이트에서 [보고서 작성]을 먼저)</div>
+      <div class="bj-list">${rows.map((r) => {
+        const hint = mine && (addrKey(r.address).includes(mine.slice(-8)) || mine.includes(addrKey(r.address).slice(-8)));
+        return `<div class="bj-lrow${hint ? " hint" : ""}"><span>${esc(r.address)}</span><span>${esc(r.status)}</span><span>${esc(r.notice)}</span>
+          ${r.prog === "02" ? `<button type="button" class="secondary" data-op="${esc(r.oprtn)}">${t && t.oprtn === r.oprtn ? "✓ 고름" : "고르기"}</button>` : "<span></span>"}</div>`;
+      }).join("")}</div>` : "";
+    $("bj-list").querySelectorAll("button[data-op]").forEach((b) => b.addEventListener("click", async () => {
+      try { job.site = (await api(`${P}/site/target`, { method: "PUT", body: JSON.stringify({ oprtn: b.dataset.op }) })).site; drawSite(); } catch (err) { showError(errorEl, err); }
+    }));
+    drawRun();
+  }
+  function drawRun() {
+    const run = (job.site || {}).run;
+    const box = $("bj-run");
+    const busy = run && ["queued", "running"].includes(run.status);
+    ["bj-list-go", "bj-practice", "bj-save"].forEach((id) => { $(id).disabled = !!busy; });
+    if (!run) { box.innerHTML = ""; return; }
+    const r = run.result || {};
+    const items = Object.entries(r.items || {});
+    const cnt = (s) => items.filter(([, v]) => v.state === s).length;
+    const head = busy ? `⏳ ${MODE[run.mode] || run.mode} ${run.status === "queued" ? "기다리는 중" : "도는 중"}… (${esc(run.started || run.at)}) — 몇 분 걸립니다`
+      : `${run.status === "done" ? "✓" : "✗"} ${MODE[run.mode] || run.mode} ${run.status === "done" ? "끝" : "멈춤"} · ${esc(run.ended || "")} · ${esc(run.by || "")}`;
+    box.innerHTML = `<div class="bj-runbox ${busy ? "" : run.status === "done" ? "ok" : "bad"}"><b>${head}</b>
+      ${r.error ? `<div class="bj-bad" style="display:inline-block;margin-top:6px">${esc(r.error)}</div>` : ""}
+      ${run.mode === "practice" && !busy ? `<div class="mail-note">끊은 쓰기 요청 ${r.blocked || 0}개 — 사이트에 아무것도 저장하지 않았습니다</div>` : ""}
+      ${items.length ? `<div class="mail-note">항목 ✓${cnt("ok")} ⚠${cnt("warn")} ✗${cnt("fail")} ·${cnt("skip")}(안 씀)</div>
+        <table class="bj-itbl">${items.filter(([, v]) => v.state !== "skip").map(([k, v]) => `<tr class="st-${v.state}"><td>${ST[v.state] || ""} ${esc(k === "main" ? "본 화면(관리계획·그 밖의 항목·의견)" : k)}</td><td>${esc(v.msg || (v.state === "ok" ? "채움" : ""))}${v.photos ? ` · 사진 ${v.uploaded != null && run.mode === "save" ? `${v.uploaded}/` : ""}${v.photos}` : ""}</td></tr>`).join("")}</table>` : ""}
+      ${(r.alerts || []).length ? `<details><summary class="mail-note">사이트 알림 ${r.alerts.length}개</summary><div class="bj-log">${esc(r.alerts.join("\n"))}</div></details>` : ""}
+      ${(r.shots || []).length ? `<div class="bj-shots">${r.shots.map((n) => `<a class="secondary-link" target="_blank" rel="noopener" href="${BASE}/api${P}/site/shot/${encodeURIComponent(n)}">🖼 ${esc(n.replace(/\.png$/, ""))}</a>`).join("")}</div>` : ""}
+      ${(r.log || []).length ? `<details><summary class="mail-note">기록</summary><div class="bj-log">${esc(r.log.join("\n"))}</div></details>` : ""}</div>`;
+    clearTimeout(runTimer);
+    if (busy) runTimer = setTimeout(async () => { try { job.site = (await api(`${P}/site`)).site; drawSite(); } catch (_) { drawRun(); } }, 3000);
+  }
+  async function startRun(mode, msgEl) {
+    const body = { mode };
+    if (mode === "save") {
+      const t = (job.site || {}).target || {};
+      if (!confirm(`생애이력시스템 보고서(${t.address || ""})에 실제로 저장합니다.\n\n· 소항목 상세 창마다 [저장](사진 올리기 포함) + 관리계획·그 밖의 항목·의견 [전체저장]\n· [점검보고서 제출]은 누르지 않습니다 — 사이트에서 보고 직접\n· 같은 아이디로 들어가 있는 다른 화면은 끊길 수 있습니다\n\n처음 몇 번은 형이 사이트를 같이 볼 때 하세요. 계속할까요?`)) return;
+      body.confirm = true;
+    }
+    try {
+      job.site = (await apiPost(`${P}/site/run`, body)).site;
+      if (msgEl) msgEl.textContent = "";
+      drawSite();
+    } catch (err) { if (msgEl) msgEl.textContent = err.message; else showError(errorEl, err); }
+  }
+  $("bj-list-go").addEventListener("click", () => startRun("list", $("bj-list-msg")));
+  $("bj-practice").addEventListener("click", () => startRun("practice", $("bj-list-msg")));
+  $("bj-save").addEventListener("click", () => startRun("save", $("bj-list-msg")));
+
   async function loadReport() {
+    drawAccount(); drawSite();
     try { persons = (await api("/blcm/persons")).persons; } catch (err) { persons = []; }
     const c = job.contract || {};
     people = (c.people && c.people.length ? c.people : job.people_default || []).map((x) => ({ ...x }));

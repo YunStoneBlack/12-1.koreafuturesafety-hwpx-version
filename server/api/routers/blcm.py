@@ -12,6 +12,8 @@
 - `POST|DELETE /blcm/jobs/{id}/doc/{kind}` — 보고서 서류: cover(표지 사진)·contract_doc(계약서)·site_pdf(생애이력시스템 [점검보고서 출력] PDF)
 - `GET  /blcm/persons` · `POST|DELETE|GET /blcm/persons/{pid}/edu` — 참여기술자(서류 자동화 기술자)·점검교육 이수증(사람마다 한 번, 모든 건 공통)
 - `POST /blcm/jobs/{id}/report` — 최종 보고서 PDF(표지·책등·제출문·등록증·명단·목차 + 본문 + 부록 계약서·이수증, server/blcm/front.py)
+- `GET|PUT /blcm/account` — 회사 생애이력시스템 계정(app_setting 암호화, 바꾸기는 관리자) · `POST /blcm/jobs/{id}/site/run` {mode list|practice|save} ·
+  `PUT …/site/target` {oprtn} · `GET …/site` · `GET …/site/shot/{name}` — 입력 봇(10/29 4단계, server/blcm/bot.py — 제출은 안 누름)
 건 폴더 = 저장소 _건축물관리점검/NNN_건축물명(사진/·서류/·보고서/)."""
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -93,7 +95,7 @@ def _out(j: BlcmJob) -> dict:
     res = j.results or {}
     return {**_list_out(j), "building": j.building or {}, "owner": j.owner or {}, "contract": j.contract or {}, "opinion": j.opinion or {}, "memo": j.memo or "",
             "files": j.files or {}, "results": res, "eval": {code: I.evaluate(it, res.get(code)) for code, it in I.by_code().items()},
-            "recap": I.recap(res), "plan_grade": I.plan_grade((j.opinion or {}).get("plan"))}
+            "recap": I.recap(res), "plan_grade": I.plan_grade((j.opinion or {}).get("plan")), "site": _site_out(j)}
 
 
 @router.get("/items")
@@ -649,3 +651,148 @@ def make_report(jid: int, user: User = Depends(get_current_user), db: Session = 
     _touch(j, user, "files")
     db.commit()
     return _out(j) | {"people_default": default_people(db, j)}
+
+
+# ---------- 생애이력시스템 입력 봇(10/29 4단계 — server/blcm/bot.py, server/worker/blcm_worker.py) ----------
+def _setting(db: Session, company_id: int, key: str):
+    from core.models_db import AppSetting
+
+    return db.query(AppSetting).filter(AppSetting.company_id == company_id, AppSetting.key == key).first()
+
+
+def company_cred(db: Session, company_id: int) -> tuple[str, str] | None:
+    """회사 생애이력시스템 계정 — app_setting blcm_id·blcm_pw(암호화, FMS·K2B와 같은 열쇠). 메모·파일엔 안 둠."""
+    from server.api import k2b_secret
+
+    a, b = _setting(db, company_id, "blcm_id"), _setting(db, company_id, "blcm_pw")
+    if not a or not a.value or not b or not b.value:
+        return None
+    return a.value, k2b_secret.decrypt(b.value)
+
+
+@router.get("/account")
+def get_account(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    a = _setting(db, user.company_id, "blcm_id")
+    return {"has": company_cred(db, user.company_id) is not None, "user_id": a.value if a else ""}
+
+
+class CredIn(BaseModel):
+    user_id: str
+    password: str = ""
+
+
+@router.put("/account")
+def save_account(body: CredIn, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """회사 생애이력시스템 계정 넣기·바꾸기 — 그룹웨어 관리자만(FMS 계정과 같은 규칙). 비밀번호를 비우면 아이디만 바꿈."""
+    from core.models_db import AppSetting
+    from server.api import k2b_secret
+    from server.api.deps import is_groupware_admin
+
+    if not is_groupware_admin(request):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "생애이력시스템 계정은 그룹웨어 관리자만 바꿀 수 있습니다.")
+    uid = body.user_id.strip()
+    if not uid:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "아이디를 넣어 주세요.")
+    if not body.password and not _setting(db, user.company_id, "blcm_pw"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "비밀번호를 넣어 주세요.")
+    for key, val in (("blcm_id", uid), ("blcm_pw", k2b_secret.encrypt(body.password) if body.password else None)):
+        if val is None:
+            continue
+        row = _setting(db, user.company_id, key)
+        if row is None:
+            db.add(AppSetting(company_id=user.company_id, key=key, value=val))
+        else:
+            row.value = val
+    db.commit()
+    return {"has": True, "user_id": uid}
+
+
+RUN_MODES = {"list": "사이트 목록 읽기", "practice": "연습(채워 보기)", "save": "입력·저장"}
+
+
+def _busy(db: Session, company_id: int) -> BlcmJob | None:
+    """회사에 대기·도는 실행이 있으면 그 건(같은 아이디 로그인이 겹치면 서로 끊김). 30분 넘게 running이면 끊긴 것으로 봄."""
+    now = datetime.datetime.now()
+    for jj in db.query(BlcmJob).filter(BlcmJob.company_id == company_id, BlcmJob.site.isnot(None)).all():
+        r = (jj.site or {}).get("run") or {}
+        if r.get("status") == "queued":
+            return jj
+        if r.get("status") == "running":
+            try:
+                if now - datetime.datetime.strptime(r.get("started") or "", "%Y-%m-%d %H:%M:%S") < datetime.timedelta(minutes=30):
+                    return jj
+            except ValueError:
+                return jj
+    return None
+
+
+class RunIn(BaseModel):
+    mode: str
+    confirm: bool = False
+    only: list[str] | None = None
+
+
+@router.post("/jobs/{jid}/site/run")
+def site_run(jid: int, body: RunIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """봇 실행 맡기기 — list(목록 읽기) · practice(연습, 사이트에 아무것도 안 감) · save(입력·저장, confirm 필요 — 제출은 안 누름)."""
+    j = _require(db, user, jid)
+    if body.mode not in RUN_MODES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "없는 실행 방법입니다.")
+    if company_cred(db, user.company_id) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "생애이력시스템 계정이 없습니다 — 건축물관리점검 목록 화면에서 계정을 넣으세요(관리자).")
+    busy = _busy(db, user.company_id)
+    if busy is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"다른 실행이 아직 돌고 있습니다({busy.name}) — 끝난 뒤 다시 누르세요(같은 아이디 로그인이 겹치면 서로 끊김).")
+    site = dict(j.site or {})
+    if body.mode != "list" and not site.get("target"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "사이트 보고서를 먼저 고르세요([🔎 사이트 목록 읽기] → 고르기).")
+    if body.mode == "save" and not body.confirm:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "입력·저장은 확인이 필요합니다.")
+    rid = int((site.get("run") or {}).get("id") or 0) + 1
+    site["run"] = {"id": rid, "mode": body.mode, "status": "queued", "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                   "by": user.display_name or "", "only": [x for x in (body.only or []) if isinstance(x, str)][:60] or None}
+    j.site = site
+    _touch(j, user, "site")
+    db.commit()
+    return {"site": _site_out(j)}
+
+
+class TargetIn(BaseModel):
+    oprtn: str
+
+
+@router.put("/jobs/{jid}/site/target")
+def site_target(jid: int, body: TargetIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """사이트 보고서 고르기 — 마지막으로 읽은 목록의 한 줄(점검 번호 oprtn)."""
+    j = _require(db, user, jid)
+    site = dict(j.site or {})
+    row = next((r for r in ((site.get("list") or {}).get("rows") or []) if r.get("oprtn") == body.oprtn), None)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "목록에 없는 보고서입니다 — 목록을 다시 읽으세요.")
+    site["target"] = row
+    j.site = site
+    _touch(j, user, "site")
+    db.commit()
+    return {"site": _site_out(j)}
+
+
+def _site_out(j: BlcmJob) -> dict:
+    s = j.site or {}
+    return {"run": s.get("run"), "list": s.get("list"), "target": s.get("target"), "history": s.get("history") or []}
+
+
+@router.get("/jobs/{jid}/site")
+def get_site(jid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return {"site": _site_out(_require(db, user, jid))}
+
+
+@router.get("/jobs/{jid}/site/shot/{name}")
+def site_shot(jid: int, name: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.worker.blcm_worker import run_dir
+
+    j = _require(db, user, jid)
+    rid = int(((j.site or {}).get("run") or {}).get("id") or 0)
+    p = run_dir(j.id, rid) / Path(name).name
+    if not p.exists() or p.suffix.lower() != ".png":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "화면이 없습니다.")
+    return FileResponse(p, media_type="image/png", headers={"Cache-Control": "no-store"})

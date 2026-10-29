@@ -40,6 +40,19 @@
   <div class="panel-body" id="bj-list"><div class="empty-note">불러오는 중…</div></div>
 </section>
 
+<section class="panel">
+  <div class="panel-head"><h2>🔐 생애이력시스템 계정</h2><span class="panel-count" id="bj-acc-st"></span></div>
+  <div class="panel-body">
+    <div class="mail-note">blcm.go.kr 점검기관 계정 — 건 화면의 [📤 생애이력시스템 입력]이 씀. 비밀번호는 암호화해 저장하고 화면에 다시 보여 주지 않습니다(바꾸기는 그룹웨어 관리자만).</div>
+    <div class="field-grid">
+      <div class="sk-f"><label for="bj-acc-id">아이디</label><input id="bj-acc-id" autocomplete="off" maxlength="40" /></div>
+      <div class="sk-f"><label for="bj-acc-pw">비밀번호 <span class="sk-help">바꿀 때만</span></label><input id="bj-acc-pw" type="password" autocomplete="new-password" maxlength="60" /></div>
+    </div>
+    <div class="mail-msg" id="bj-acc-msg" hidden></div>
+    <div class="ds-foot"><button type="button" id="bj-acc-save">저장</button></div>
+  </div>
+</section>
+
   </main>
 </div>
 <script src="app.js"></script>

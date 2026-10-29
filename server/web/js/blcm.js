@@ -59,4 +59,25 @@
     } catch (err) { showError(errorEl, err); }
   }
   load();
+
+  // 생애이력시스템 계정(10/29 4단계) — 회사 하나, 관리자만 바꿈
+  async function loadAcc() {
+    try {
+      const a = await api("/blcm/account");
+      $("bj-acc-st").textContent = a.has ? `등록됨 — ${a.user_id}` : "없음";
+      $("bj-acc-id").value = a.user_id || "";
+    } catch (err) { $("bj-acc-st").textContent = err.message; }
+  }
+  $("bj-acc-save").addEventListener("click", async (e) => {
+    const btn = e.currentTarget, m = $("bj-acc-msg");
+    btn.disabled = true;
+    try {
+      await api("/blcm/account", { method: "PUT", body: JSON.stringify({ user_id: $("bj-acc-id").value.trim(), password: $("bj-acc-pw").value }) });
+      $("bj-acc-pw").value = "";
+      m.hidden = false; m.className = "mail-msg ok"; m.textContent = "✓ 저장했습니다.";
+      loadAcc();
+    } catch (err) { m.hidden = false; m.className = "mail-msg bad"; m.textContent = err.message; }
+    btn.disabled = false;
+  });
+  loadAcc();
 })();

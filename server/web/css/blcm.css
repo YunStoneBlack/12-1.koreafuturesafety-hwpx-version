@@ -148,3 +148,28 @@
   .main .bj-person-h { display: none; }
   .main .bj-docs { grid-template-columns: 1fr; }
 }
+
+/* 생애이력시스템 입력(10/29 4단계) */
+.main .bj-warn-line { margin-top: 6px; color: var(--warn); }
+.main .bj-tg { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: var(--surface); font-size: 14px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.main .bj-tg b { font-size: 14px; }
+.main .bj-list { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; margin-top: 8px; }
+.main .bj-lrow { display: grid; grid-template-columns: 1fr 110px 100px 80px; gap: 8px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.main .bj-lrow:last-child { border-bottom: 0; }
+.main .bj-lrow.hint { background: var(--blue-soft); }
+.main .bj-lrow button { margin: 0; padding: 4px 10px; }
+.main .bj-runbox { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); font-size: 13px; }
+.main .bj-runbox.bad { border-color: var(--crit-soft); }
+.main .bj-runbox.ok { border-color: var(--green-soft); }
+.main .bj-itbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+.main .bj-itbl td { border-top: 1px solid var(--line); padding: 4px 6px; vertical-align: top; }
+.main .bj-itbl td:first-child { white-space: nowrap; color: var(--muted); }
+.main .bj-shots { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.main .bj-shots a { font-size: 12px; }
+.main .bj-log { max-height: 180px; overflow: auto; background: var(--paper); border-radius: 8px; padding: 6px 8px; margin-top: 8px; font-size: 12px; white-space: pre-wrap; }
+@media (max-width: 760px) {
+  .main .bj-lrow { grid-template-columns: 1fr 1fr; }
+}
+.main .bj-itbl tr td { color: var(--ink); }
+.main .bj-itbl tr.st-warn td { color: var(--warn); }
+.main .bj-itbl tr.st-fail td { color: var(--crit); }
