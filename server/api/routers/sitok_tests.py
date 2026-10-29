@@ -37,7 +37,26 @@ def _view(db: Session, r: SitokReport) -> dict:
                       kind="정밀안전진단" if "진단" in (r.kind or "") else "정밀안전점검", completion=f.completion_date, when=r.period_start or r.report_date)
     v["report"] = {"id": r.id, "year": r.year, "half": r.half, "kind": r.kind or "정기", "facility_id": f.id, "facility_name": f.name, "structure": f.structure}
     v["input"] = tests.normalize(r.tests)
+    v["schedule"] = _schedule(f)
     return v
+
+
+def _schedule(f: SitokFacility) -> dict:
+    """구조 일람표 부재 목록(시설물 — sitok-schedule.html, 내진과 같은 목록) → 부재 규격 줄의 [일람표 칸] 고르기(10/29). at = 층마다 그 층 부호(보는 위층 바닥보)."""
+    from server.sitok import rebar_schedule as RS
+
+    sv = RS.view((f.ledger or {}).get("rebar_schedule"))
+    fl = tests.floor_keys(f.floors_above or 0, f.floors_below or 0)
+    return {"count": len(sv["items"]), "need": sv["need"], "read_at": sv["read_at"], "facility_id": f.id,
+            "items": [{"id": x["id"], "kind": x["kind"], "marks": x["marks"], "floors": x["floors"], "position": x.get("position") or "", "confirmed": x["confirmed"],
+                       "size": tests._dim_text(x.get("size")) if x.get("size") else "", "thickness": x.get("thickness"),
+                       "at": {str(k): RS.marks_for(x, k, f.floors_above) for k in fl}} for x in sv["items"]]}
+
+
+def _items(f: SitokFacility) -> dict:
+    from server.sitok import rebar_schedule as RS
+
+    return {x["id"]: x for x in RS.view((f.ledger or {}).get("rebar_schedule"))["items"]}
 
 
 def _prev_tests(db: Session, r: SitokReport) -> dict | None:
@@ -69,7 +88,9 @@ def get_tests(report_id: int, user: User = Depends(get_current_user), db: Sessio
 def save_tests(report_id: int, body: TestsIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     r = _require(db, user, report_id)
     data = tests.normalize(body.tests)
-    tests.sync_defaults(data)  # 표본층에 맞춰 기본 줄(모자란 것만)
+    tests.sync_defaults(data)  # 표본층에 맞춰 기본 줄(모자란 것만 — 칸 수 표를 쓰면 그 수대로)
+    f = db.get(SitokFacility, r.facility_id)
+    tests.fill_from_items(data, _items(f), f.floors_above)  # 고른 일람표 칸 → 빈 설계·위치 칸(10/29)
     r.tests = data
     db.commit()
     return _view(db, r)

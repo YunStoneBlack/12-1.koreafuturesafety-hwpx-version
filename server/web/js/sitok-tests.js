@@ -122,41 +122,172 @@
 
   // ---- 2. 부재 규격 ----
   // 치수 칸: 기둥·보 = 가로 × 세로(두 칸), 슬래브·벽체 = 두께(한 칸). 폰에선 숫자 키패드(inputmode=numeric).
-  function dimCell(path, value, member) {
+  function dimCell(path, value, member, sq = false) {
     const v = String(value || "");
+    const sqBtn = (k, cur) => (sq ? `<button type="button" class="st-sq${cur === "□" ? " on" : ""}" data-sq="${path}|${k}" title="못 잼(□ — 보고서 조사결과에 □, 비율·평가 안 냄) · 다시 누르면 지움">□</button>` : "");
     if (member === "강재") return `<span class="st-dim"><input class="w" data-dim="${path}" value="${esc(v)}" placeholder="H-400×200×8×13" title="H형강 규격 H×B×t1×t2(mm) — 단면적은 자동. 단면적(cm²)만 적어도 됩니다" /></span>`;
-    if (THICK.includes(member)) return `<span class="st-dim"><input class="n" data-dim="${path}" value="${esc(v)}" inputmode="numeric" placeholder="두께" /><small>mm</small></span>`;
-    const [a = "", b = ""] = v.split("×");
-    return `<span class="st-dim"><input class="n" data-dim="${path}" value="${esc(a)}" inputmode="numeric" placeholder="가로" /><small>×</small><input class="n" data-dim="${path}" value="${esc(b)}" inputmode="numeric" placeholder="세로" /></span>`;
+    if (THICK.includes(member)) return `<span class="st-dim"><input class="n" data-dim="${path}" value="${esc(v)}" inputmode="numeric" placeholder="두께" />${sqBtn(0, v)}<small>mm</small></span>`;
+    const [x = "", y = ""] = v.split("×");
+    return `<span class="st-dim"><input class="n" data-dim="${path}" value="${esc(x)}" inputmode="numeric" placeholder="가로" />${sqBtn(0, x)}<small>×</small><input class="n" data-dim="${path}" value="${esc(y)}" inputmode="numeric" placeholder="세로" />${sqBtn(1, y)}</span>`;
   }
+  // 2. 부재 규격(10/29 사용자 "내진 화면 기능을 정밀에도") — 구조 일람표 부재 목록에서 그 층·그 부재 칸 고르기(보 = 위층 바닥보: 1층 → 2G…, 최상층 → RG…),
+  // 층만 보기, 칸 수 표(층 × 부재, 줄이면 빈 칸만 빠짐 — 서버 tests.sync_sections), 조사결과 일치·일부 일치·불일치 + 못 잰 변 □, 부재를 바꾸면 같은 층 그 부재 빈 칸과 맞바꿈(칸 수 그대로).
+  const SK = { 기둥: "기둥", 큰보: "보", 작은보: "보", 벽체: "벽체" }; // 구조 일람표 종류 — 슬래브·강재는 목록 없음
+  const QTY_MEMBERS = ["기둥", "큰보", "작은보", "슬래브", "벽체", "강재"];
+  const MATCHES = ["일치", "일부 일치", "불일치"];
+  let sFloor = "";
+  try { sFloor = sessionStorage.getItem(`st-sf-${rid}`) || ""; } catch (_) { /* */ }
+  const sched = () => view.schedule || { items: [], count: 0, need: 0 };
+  const marksAt = (it, fl) => (fl != null && it.at && it.at[String(fl)] !== undefined ? it.at[String(fl)] : it.marks);
+  const baseMark = (m) => String(m || "").replace(/^(?:PHR|PH|R|P|B\d+|n|\d+)(?:[-~](?:PHR|PH|R|P|B\d+|n|\d+))?(?=[A-Z]{1,3}\d)/, "");
+  const girder = (it, fl) => marksAt(it, fl).some((m) => /G/.test(baseMark(m))); // 큰보 = G(Girder·WG·CG), 작은보 = B
+  function sectionChoices(r) {
+    const k = SK[r.member];
+    if (!k) return [];
+    let list = sched().items.filter((it) => it.kind === k && (r.floor == null || !it.at || it.at[String(r.floor)] === undefined || it.at[String(r.floor)].length > 0));
+    if (k === "보") { const g = list.filter((it) => girder(it, r.floor) === (r.member === "큰보")); if (g.length) list = g; }
+    return list;
+  }
+  const itemSize = (it, member) => (THICK.includes(member) ? (it.thickness ? String(it.thickness) : "") : String(it.size || "").replace(/\s*[xX×*]\s*/g, "×"));
+  const itemLabel = (it, fl) => `${(marksAt(it, fl).length ? marksAt(it, fl) : it.marks).join(",")}${it.position ? ` ${it.position}` : ""} ${it.size || (it.thickness ? `THK=${it.thickness}` : "")}${it.floors ? ` (${it.floors})` : ""}${it.confirmed ? "" : " ⚠미확인"}`;
+  const secFilled = (r) => !!(r.design || r.measured || r.position);
+  const planNow = () => ({ ...(view.section_plan || {}) });
+  const pkey = (k, m) => `${k}|${m}`;
   function drawSections() {
     const pvs = (prevIn() || {}).sections || [];
-    const rows = view.sections.map((r, i) => `<tr><td>B${i + 1}</td><td><select data-path="sections.${i}.floor">${floorOptions(r.floor)}</select></td>
+    const sc = sched();
+    const floorsS = (view.sample.floors || []).map((f) => f.floor);
+    const fl = [...new Set([...floorsS, ...view.sections.map((r) => r.floor).filter((x) => x != null)])].sort((x, y) => x - y);
+    if (sFloor && !fl.some((n) => String(n) === sFloor)) sFloor = "";
+    const flName = (n) => (n < 0 ? `지하${-n}층` : `지상${n}층`);
+    const of = (n, m) => view.sections.filter((r) => r.floor === n && r.member === m);
+    const cols = QTY_MEMBERS.filter((m) => m !== "강재" || view.sections.some((r) => r.member === "강재"));
+    const qty = floorsS.length ? `<div class="st-sqty"><table class="st-qty-t"><thead><tr><th>칸 수</th>${cols.map((m) => `<th>${esc(m)}</th>`).join("")}</tr></thead><tbody>
+        ${floorsS.map((n) => `<tr><td><button type="button" class="st-fname${String(n) === sFloor ? " on" : ""}" data-mf="${n}" title="이 층만 보기">${esc(flName(n))}</button></td>${cols.map((m) => {
+          const all = of(n, m).length, done = of(n, m).filter(secFilled).length;
+          return `<td class="${all && done >= all ? "ok" : done ? "part" : ""}"><span>${done}/</span><input type="number" min="0" max="40" inputmode="numeric" data-q="${pkey(n, m)}" value="${all}" title="${esc(flName(n))} ${esc(m)} 칸 수" /></td>`; }).join("")}</tr>`).join("")}
+        </tbody></table><div class="st-sqty-side"><span class="sk-help">입력/칸 — 표본층마다 기둥 3·큰보 3이 기본(세부지침), 숫자를 고치면 아래 줄이 늘고 줆(줄여도 값 있는 칸은 남음)</span>
+        <button type="button" class="secondary btn-sm" id="st-q-reset">기본 칸 수로</button></div></div>` : "";
+    const schedLine = `<div class="st-sched2">${sc.count ? `📏 구조 일람표 부재 목록 <b>${sc.count}칸</b>${sc.need ? ` · <span class="short">확인 필요 ${sc.need}</span>` : ""} — 줄마다 [일람표 칸]을 고르면 기호·설계 치수가 채워집니다(그 층·그 부재 칸만, <b>보 = 위층 바닥보</b>: 1층 → 2G…, 최상층 → RG…)
+        <a href="sitok-schedule.html?facility=${view.report.facility_id}">목록 보기·고치기</a>`
+      : `📏 구조 일람표 부재 목록이 아직 없습니다 — <a href="sitok-schedule.html?facility=${view.report.facility_id}">부재 목록 만들기</a>(도면 칸의 구조 일람표를 쪽마다 읽음)를 하면 줄마다 일람표 칸을 고를 수 있습니다. 목록 없이도 아래 [🤖 일람표에서 설계 치수 채우기]는 그대로`}</div>`;
+    const chips = floorChips(fl.map((n) => ({ n, label: flName(n), done: view.sections.filter((r) => r.floor === n && secFilled(r)).length, total: view.sections.filter((r) => r.floor === n).length })), sFloor);
+    const rows = view.sections.map((r, i) => {
+      if (sFloor && String(r.floor) !== sFloor) return "";
+      const ch0 = sectionChoices(r), cur = r.item_id && !ch0.some((x) => x.id === r.item_id) ? sc.items.find((x) => x.id === r.item_id) : null;
+      const ch = cur ? [...ch0, cur] : ch0;
+      const itemCell = !SK[r.member] ? '<span class="calc">—</span>' : !sc.count ? '<span class="calc">목록 없음</span>'
+        : `<select class="l st-item" data-item="${i}" title="구조 일람표 칸 — 그 층·그 부재만(보 = 위층 바닥보)"><option value="">${ch.length ? "일람표 칸" : "맞는 칸 없음 — 직접"}</option>${ch.map((x) => `<option value="${esc(x.id)}"${x.id === r.item_id ? " selected" : ""}>${esc(itemLabel(x, r.floor))}</option>`).join("")}</select>`;
+      return `<tr class="${secFilled(r) ? "" : "st-empty"}"><td>B${i + 1}</td><td><select data-floor="${i}">${floorOptions(r.floor)}</select></td>
+      <td class="st-itemcell">${itemCell}</td>
       <td><input class="l" data-path="sections.${i}.position" value="${esc(r.position)}" placeholder="C1 / X3-Y3" />${hint(pvs[i] && !r.design ? `${pvs[i].position || ""} ${pvs[i].member} ${pvs[i].design}${pvs[i].measured && pvs[i].measured !== pvs[i].design ? " → " + pvs[i].measured : ""}`.trim() : "")}</td>
-      <td><select data-path="sections.${i}.member">${opts(MEMBERS, r.member, "부재")}</select>${r.member === "강재" ? `<select data-path="sections.${i}.sub" title="강재가 어느 부재인지 — 상태평가 강재 기둥·큰보·작은보">${opts(["기둥", "큰보", "작은보"], r.sub || "기둥")}</select>` : ""}</td>
+      <td><select data-member="${i}">${opts(MEMBERS, r.member, "부재")}</select>${r.member === "강재" ? `<select data-path="sections.${i}.sub" title="강재가 어느 부재인지 — 상태평가 강재 기둥·큰보·작은보">${opts(["기둥", "큰보", "작은보"], r.sub || "기둥")}</select>` : ""}</td>
       <td>${dimCell(`sections.${i}.design`, r.design, r.member)}</td>
-      <td class="st-measured"><select data-same="${i}"><option value="1"${r.same ? " selected" : ""}>일치</option><option value="0"${r.same ? "" : " selected"}>다름</option></select>
-        ${r.same ? `<span class="calc">${esc(r.design || "-")}</span>` : dimCell(`sections.${i}.measured`, r.measured, r.member)}</td>
-      <td class="calc">${r.steel && r.area_design ? `<small>${r.area_design}${r.area_measured ? `→${r.area_measured}` : ""}cm²</small><br>` : ""}${r.ratio === null ? "-" : `${r.ratio}%`}</td><td class="calc">${r.ok === null ? "-" : r.ok ? "<b>O.K</b>" : "N.G"}</td><td>${grade(r.grade)}</td>
-      <td><button type="button" class="secondary st-del" data-del="sections.${i}">✕</button></td></tr>`).join("");
-    $("st-section-count").textContent = `${view.sections.length}개소${view.sections_grade ? ` · ${view.sections_grade.toUpperCase()}` : ""}`;
+      <td class="st-measured"><select data-match="${i}">${MATCHES.map((m) => `<option${m === (r.match || (r.same ? "일치" : "불일치")) ? " selected" : ""}>${m}</option>`).join("")}</select>
+        ${r.same ? `<span class="calc">${esc(r.design || "-")}</span>` : dimCell(`sections.${i}.measured`, r.measured, r.member, true)}</td>
+      <td class="calc">${r.steel && r.area_design ? `<small>${r.area_design}${r.area_measured ? `→${r.area_measured}` : ""}cm²</small><br>` : ""}${r.ratio === null ? (String(r.measured || "").includes("□") ? "□" : "-") : `${r.ratio}%`}</td><td class="calc">${r.ok === null ? "-" : r.ok ? "<b>O.K</b>" : "N.G"}</td><td>${grade(r.grade)}</td>
+      <td><button type="button" class="secondary st-del" data-sdel="${i}" title="이 칸 빼기(칸 수도 하나 줄임)">✕</button></td></tr>`;
+    }).join("");
+    $("st-section-count").textContent = `${view.sections.filter(secFilled).length}/${view.sections.length}개소${view.sections_grade ? ` · ${view.sections_grade.toUpperCase()}` : ""}`;
     const pv = prevIn();
-    $("st-section-tbl").innerHTML = prevBar("sections", pv ? pv.sections.length : 0, "부재 규격")
-      + `<table><thead><tr><th>NO</th><th>표본층</th><th>위치·기호</th><th>부재</th><th>설계도면(mm)</th><th>조사결과</th><th>비율</th><th>평가</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-      <button type="button" class="secondary st-add" id="st-section-add">+ 개소 추가</button>`;
-    bindPrev($("st-section-tbl"), (p) => { input.sections = p.sections.map((r) => ({ ...r })); });
-    $("st-section-add").addEventListener("click", () => {
-      const last = input.sections[input.sections.length - 1];
-      input.sections.push({ floor: last ? last.floor : (input.sample.floors[0] || {}).floor ?? null, position: "", member: last ? last.member : "기둥", design: "", measured: "", same: true, sub: "" });
+    $("st-section-tbl").innerHTML = schedLine + qty + chips + prevBar("sections", pv ? pv.sections.length : 0, "부재 규격")
+      + `<table><thead><tr><th>NO</th><th>표본층</th><th>일람표 칸</th><th>위치·기호</th><th>부재</th><th>설계도면(mm)</th><th>조사결과(못 재면 □)</th><th>비율</th><th>평가</th><th>등급</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <button type="button" class="secondary st-add" id="st-section-add">+ 개소 추가${sFloor ? ` (${esc(flName(Number(sFloor)))})` : ""}</button>`;
+    const box = $("st-section-tbl");
+    bindPrev(box, (p) => { input.sections = p.sections.map((r) => ({ ...r })); input.section_plan = {}; });
+    const sec = (el, k) => input.sections[Number(el.dataset[k])];
+    box.querySelectorAll("[data-mf]").forEach((b) => b.addEventListener("click", () => { // 층만 보기(다시 누르면 전체)
+      sFloor = b.dataset.mf === sFloor && b.classList.contains("st-fname") ? "" : b.dataset.mf;
+      try { sessionStorage.setItem(`st-sf-${rid}`, sFloor); } catch (_) { /* */ }
+      drawSections();
+      $("st-section-tbl").querySelector("table:not(.st-qty-t)")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }));
+    box.querySelectorAll("[data-q]").forEach((el) => el.addEventListener("change", () => {
+      const p = planNow();
+      p[el.dataset.q] = Math.max(0, Math.min(40, Number(el.value) || 0));
+      input.section_plan = p;
+      save("✓ 칸 수를 바꿨습니다(줄일 땐 빈 칸만 빠짐)");
+    }));
+    const reset = box.querySelector("#st-q-reset");
+    if (reset) reset.addEventListener("click", () => { input.section_plan = { ...(view.section_plan_default || {}) }; save("✓ 기본 칸 수로(값 있는 칸은 그대로)"); });
+    $("st-section-add").addEventListener("click", () => { // 칸 수 표에 하나 더(보는 층이 있으면 그 층, 아니면 마지막 줄의 층·부재)
+      const pick = sFloor ? view.sections.filter((r) => String(r.floor) === sFloor) : view.sections;
+      const last = pick[pick.length - 1];
+      const k = sFloor ? Number(sFloor) : last ? last.floor : floorsS[0];
+      if (k == null) { input.sections.push({ floor: null, position: "", member: "기둥", design: "", measured: "", same: true, match: "일치", sub: "" }); save(); return; }
+      const m = last && last.floor === k ? last.member : "기둥";
+      const p = planNow();
+      p[pkey(k, m)] = of(k, m).length + 1;
+      input.section_plan = p;
       save();
     });
-    $("st-section-tbl").querySelectorAll("[data-same]").forEach((sel) => sel.addEventListener("change", () => {
-      const r = input.sections[Number(sel.dataset.same)];
-      r.same = sel.value === "1";
-      if (r.same) r.measured = r.design;
+    box.querySelectorAll("[data-sdel]").forEach((b) => b.addEventListener("click", () => {
+      const i = Number(b.dataset.sdel), r = input.sections[i];
+      if (secFilled(r) && !confirm(`B${i + 1} 칸을 뺄까요? 적은 값도 지워집니다.`)) return;
+      if (r.floor != null && floorsS.includes(r.floor)) { const p = planNow(); p[pkey(r.floor, r.member)] = Math.max(0, of(r.floor, r.member).length - 1); input.section_plan = p; }
+      input.sections.splice(i, 1);
       save();
     }));
-    bindInputs($("st-section-tbl"));
+    box.querySelectorAll("[data-member]").forEach((el) => el.addEventListener("change", () => { // 부재 바꾸기 — 같은 층 그 부재 빈 칸과 맞바꿈(칸 수 그대로), 없으면 칸 수를 옮김
+      const i = Number(el.dataset.member), r = input.sections[i], from = r.member, to = el.value;
+      const j = input.sections.findIndex((x, n) => n !== i && x.floor === r.floor && x.member === to && !secFilled(x));
+      if (j >= 0) input.sections[j].member = from;
+      else if (r.floor != null && floorsS.includes(r.floor)) {
+        const p = planNow();
+        p[pkey(r.floor, from)] = Math.max(0, of(r.floor, from).length - 1);
+        p[pkey(r.floor, to)] = of(r.floor, to).length + 1;
+        input.section_plan = p;
+      }
+      r.member = to;
+      if (SK[from] !== SK[to]) r.item_id = ""; // 다른 종류면 고른 일람표 칸은 풂(치수는 그대로 — 고치세요)
+      if (to === "강재" && !r.sub) r.sub = "기둥";
+      save();
+    }));
+    box.querySelectorAll("[data-floor]").forEach((el) => el.addEventListener("change", () => { // 층 바꾸기 — 칸 수도 따라 옮김
+      const r = input.sections[Number(el.dataset.floor)], to = el.value === "" ? null : Number(el.value);
+      if (view.section_plan_on || Object.keys(input.section_plan || {}).length) {
+        const p = planNow();
+        if (r.floor != null) p[pkey(r.floor, r.member)] = Math.max(0, of(r.floor, r.member).length - 1);
+        if (to != null) p[pkey(to, r.member)] = of(to, r.member).length + 1;
+        input.section_plan = p;
+      }
+      r.floor = to;
+      save();
+    }));
+    box.querySelectorAll("[data-item]").forEach((el) => {
+      el.addEventListener("change", () => { // 일람표 칸 고르기 → 기호(위치 칸이 비었거나 전에 고른 칸 기호면)·설계 치수
+        const r = sec(el, "item"), old = sc.items.find((x) => x.id === r.item_id), it = sc.items.find((x) => x.id === el.value);
+        const oldMark = old ? (marksAt(old, r.floor)[0] || old.marks[0] || "") : "";
+        r.item_id = el.value;
+        if (it) {
+          const d = itemSize(it, r.member);
+          if (d) r.design = d;
+          const mk = marksAt(it, r.floor)[0] || it.marks[0] || "";
+          if (mk && (!r.position || r.position === oldMark)) r.position = mk;
+          if (r.same) r.measured = r.design;
+        }
+        save();
+      });
+      searchSelect(el, { placeholder: "일람표 칸 — 기호·치수로 검색" });
+    });
+    box.querySelectorAll("[data-match]").forEach((el) => el.addEventListener("change", () => {
+      const r = sec(el, "match");
+      r.match = el.value;
+      r.same = el.value === "일치";
+      r.measured = el.value === "불일치" ? "" : r.design || ""; // 일치 = 설계 그대로, 일부 일치 = 설계를 미리(다른 변만 고침)
+      save();
+    }));
+    box.querySelectorAll("[data-sq]").forEach((b) => b.addEventListener("click", () => { // □ = 못 잼(다시 누르면 지움)
+      const [path, k] = b.dataset.sq.split("|");
+      const r = input.sections[Number(path.split(".")[1])];
+      const n = THICK.includes(r.member) ? 1 : 2;
+      const parts = String(getAt(path.split(".")) || "").split("×");
+      while (parts.length < n) parts.push("");
+      parts[Number(k)] = parts[Number(k)] === "□" ? "" : "□";
+      setAt(path, parts.every((x) => x === "") ? "" : parts.slice(0, n).join("×"));
+      save();
+    }));
+    bindInputs(box);
   }
 
   // ---- 3. 강도 ----

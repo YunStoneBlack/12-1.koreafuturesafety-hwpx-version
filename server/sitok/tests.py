@@ -35,6 +35,8 @@ SPOTS = ("중앙부", "단부")
 THICK_MEMBERS = ("슬래브", "벽체")
 DEFAULT_STRENGTH = (("기둥", "중앙부"), ("기둥", "단부"), ("큰보", "중앙부"), ("큰보", "단부"))  # 층마다 2부재 × 2개소
 DEFAULT_SECTION = ("기둥",) * 3 + ("큰보",) * 3  # 층마다 2부재 × 3개소
+MATCH = ("일치", "일부 일치", "불일치")  # 조사결과(10/29 — 내진 부재 단면과 같게, 예전 "다름" = 불일치). 못 잰 변은 "□"(비율·평가 안 냄)
+SCHED_KIND = {"기둥": "기둥", "큰보": "보", "작은보": "보", "벽체": "벽체"}  # 구조 일람표 부재 목록(rebar_schedule) 종류 — 슬래브·강재는 목록 없음
 DEFAULT_CARB = ("기둥", "큰보")  # 층마다 2부재 × 1개소
 TILT_LABELS = tuple(f"모서리{i} {ax}" for i in (1, 2, 3, 4) for ax in ("X", "Y"))  # 기본 8줄
 SETT_DEFAULT = (("X", 1), ("X", 2), ("Y", 1), ("Y", 2))  # 기본 4구간
@@ -146,7 +148,10 @@ def steel_area(s: str) -> float | None:
 
 def _dims(s: str) -> float | None:
     """"300×600" → 180000, "300" → 300(두께·폭 하나). ×·x·X·* 다 됨."""
-    nums = [_f(p) for p in re.split(r"[×xX*]", str(s or "")) if p.strip()]
+    parts = re.split(r"[×xX*]", str(s or ""))
+    if len(parts) > 1 and any(not p.strip() for p in parts):  # 한 변이 빈 "×600"(못 잰 변 □를 지운 뒤 등)은 비교 안 함(10/29)
+        return None
+    nums = [_f(p) for p in parts if p.strip()]
     if not nums or any(n is None for n in nums):
         return None
     return math.prod(nums)
@@ -245,7 +250,7 @@ def _summary(vals: list[float | None]) -> dict:
 # ---------- 전체 ----------
 
 def empty() -> dict:
-    return {"sample": {"floors": []}, "sections": [], "strength": {"rows": [], "file": ""},
+    return {"sample": {"floors": []}, "sections": [], "section_plan": {}, "strength": {"rows": [], "file": ""},
             "carbonation": {"wc": DEFAULT_WC, "ratio": DEFAULT_R, "rows": []}, "tilt": {"rows": [], "note": ""},
             "settlement": {"floor": None, "sections": [], "note": ""}}
 
@@ -268,13 +273,23 @@ def normalize(raw: dict | None) -> dict:
     for r in raw.get("sections") or []:
         design, measured = _dim_text(r.get("design")), _dim_text(r.get("measured"))
         same = bool(r.get("same")) if "same" in r else (bool(design) and design == measured)
+        match = r.get("match") if r.get("match") in MATCH else ("일치" if same else "불일치")  # 10/29 일부 일치(한 변만 다름)
+        same = match == "일치"
         if same:
             measured = design  # 조사결과 "일치" → 설계값 그대로(10/14 형)
         member = member_of(r.get("member"))
         sub = (r.get("sub") if r.get("sub") in ("기둥", "큰보", "작은보") else "기둥") if member == "강재" else ""  # 강재 줄: 어느 부재인지(상태평가 철골조 기둥·큰보·작은보, 10/15 SafetyMan 강재 표)
         secs.append({"floor": _i(r.get("floor")), "position": str(r.get("position") or "").strip(), "member": member,
-                     "design": design, "measured": measured, "same": same, "sub": sub})
+                     "design": design, "measured": measured, "same": same, "match": match, "sub": sub,
+                     "item_id": str(r.get("item_id") or "").strip()[:40]})  # 고른 구조 일람표 칸(10/29)
     base["sections"] = secs
+    plan = {}
+    for k, v in (raw.get("section_plan") or {}).items() if isinstance(raw.get("section_plan"), dict) else []:  # 칸 수 표 {"층|부재": n}(10/29)
+        fl, _, m = str(k).partition("|")
+        n = _i(v)
+        if _i(fl) not in (None, 0) and m in MEMBERS and n is not None:
+            plan[f"{_i(fl)}|{m}"] = max(0, min(40, n))
+    base["section_plan"] = plan
     st = raw.get("strength") or {}
     base["strength"] = {"file": str(st.get("file") or ""), "rows": [
         {"floor": _i(r.get("floor")), "member": member_of(r.get("member")), "spot": spot_of(r.get("member")) or (r.get("spot") if r.get("spot") in SPOTS else ""),
@@ -344,13 +359,97 @@ def _sync_rows(rows: list[dict], floors: list[int], combos: tuple, keyf, is_empt
     return rows
 
 
+def _blank_section(k: int, m: str) -> dict:
+    return {"floor": k, "position": "", "member": m, "design": "", "measured": "", "same": True, "match": "일치", "sub": "", "item_id": ""}
+
+
+def sync_sections(rows: list[dict], floors: list[int], plan: dict) -> tuple[list[dict], dict]:
+    """부재 규격 줄 맞추기(10/29 — 내진 부재 단면처럼 칸 수 표) → (줄, 칸 수 {"층|부재": n}).
+    칸 수 표에 그 층이 있으면 그 수대로(모자라면 빈 칸 더하고, 넘치면 빈 칸만 뺌 — 값 있는 칸은 안 지움, 표에 없는 부재는 지금 수 그대로),
+    없으면 예전처럼 기준(기둥 3·큰보 3)에서 모자란 것만. 표본층에서 빠진 층의 빈 줄은 뺌."""
+    rows = [r for r in rows if not (r.get("floor") is not None and r["floor"] not in floors and _section_empty(r))]
+    for k in floors:
+        keys = {key.split("|", 1)[1]: n for key, n in plan.items() if key.split("|", 1)[0] == str(k)}
+        if not keys:
+            mine = [r for r in rows if r.get("floor") == k]
+            if len(mine) < len(DEFAULT_SECTION):
+                have = {}
+                for r in mine:
+                    have[r.get("member")] = have.get(r.get("member"), 0) + 1
+                for m in DEFAULT_SECTION:
+                    if len(mine) >= len(DEFAULT_SECTION):
+                        break
+                    if have.get(m, 0) > 0:
+                        have[m] -= 1
+                        continue
+                    row = _blank_section(k, m)
+                    rows.append(row)
+                    mine.append(row)
+            continue
+        for m, want in keys.items():
+            idx = [i for i, r in enumerate(rows) if r.get("floor") == k and r.get("member") == m]
+            want = max(want, sum(1 for i in idx if not _section_empty(rows[i])))
+            drop = []
+            for i in reversed(idx):
+                if len(idx) - len(drop) <= want:
+                    break
+                if _section_empty(rows[i]):
+                    drop.append(i)
+            rows = [r for i, r in enumerate(rows) if i not in drop]
+            cur = [i for i, r in enumerate(rows) if r.get("floor") == k and r.get("member") == m]
+            at = (cur[-1] + 1) if cur else (max([i for i, r in enumerate(rows) if r.get("floor") == k], default=len(rows) - 1) + 1)
+            for _ in range(want - len(cur)):
+                rows.insert(at, _blank_section(k, m))
+                at += 1
+    order = {k: i for i, k in enumerate(floors)}
+    rows.sort(key=lambda r: order.get(r.get("floor"), len(order)))  # 층 순서로(같은 층 안 차례는 그대로)
+    eff = {}
+    for k in floors:
+        for m in MEMBERS:
+            c = sum(1 for r in rows if r.get("floor") == k and r.get("member") == m)
+            if c or plan.get(f"{k}|{m}") == 0:
+                eff[f"{k}|{m}"] = c
+        if not any(key.startswith(f"{k}|") for key in eff):
+            eff[f"{k}|기둥"] = 0  # 그 층은 칸 수 표대로(다시 기본으로 채우지 않게)
+    return rows, eff
+
+
+def section_plan_default(floors: list[int]) -> dict:
+    """[기본 칸 수로] — 표본층마다 기둥 3·큰보 3, 나머지 0(값 있는 칸은 그대로 남음)."""
+    return {f"{k}|{m}": DEFAULT_SECTION.count(m) for k in floors for m in MEMBERS}
+
+
+def fill_from_items(data: dict, items: dict, above: int | None) -> int:
+    """고른 일람표 칸(item_id) → 빈 설계 칸·위치 칸 채우기(화면도 채우지만 서버에서 한 번 더). 보는 위층 바닥보 부호(10/29). 돌려주는 값 = 채운 줄 수."""
+    from server.sitok import rebar_schedule as RS
+
+    n = 0
+    for r in data["sections"]:
+        it = items.get(r.get("item_id") or "")
+        if it is None:
+            continue
+        if not r.get("design"):
+            d = _dim_text(it.get("size")) if r.get("member") not in THICK_MEMBERS else str(it.get("thickness") or "")
+            if d:
+                r["design"] = d
+                if r.get("same"):
+                    r["measured"] = d
+                n += 1
+        if not r.get("position"):
+            mk = RS.marks_for(it, r.get("floor"), above) or it.get("marks") or []
+            if mk:
+                r["position"] = mk[0]
+    return n
+
+
 def sync_defaults(data: dict) -> bool:
     """표본층에 맞춰 규격·강도·탄산화 기본 줄, 기울기 8줄·부등침하 4구간(비었을 때만). 바뀌었으면 True."""
     before = repr(data)
     floors = [f["floor"] for f in data["sample"]["floors"]]
     if floors:
-        data["sections"] = _sync_rows(data["sections"], floors, DEFAULT_SECTION, lambda r: r.get("member"), _section_empty,
-                                      lambda k, m: {"floor": k, "position": "", "member": m, "design": "", "measured": "", "same": True, "sub": ""})
+        data["sections"], eff = sync_sections(data["sections"], floors, data.get("section_plan") or {})
+        if data.get("section_plan"):  # 칸 수 표를 쓴 회차만 저장(예전 회차는 열기만 해선 안 바뀜)
+            data["section_plan"] = eff
         data["strength"]["rows"] = _sync_rows(data["strength"]["rows"], floors, DEFAULT_STRENGTH, lambda r: (r.get("member"), r.get("spot")), _strength_empty,
                                               lambda k, c: {"floor": k, "member": c[0], "spot": c[1], "position": "", "r0": None, "fc_mat": None, "fc_arch": None,
                                                             "est": None, "design": None, "damaged": False, "note": "건전부"})
@@ -397,6 +496,8 @@ def compute(raw: dict | None, *, above: int, below: int, area: float, kind: str,
                                 "carbonation": {"need": qty["carbonation"], "have": len(carb)}, "tilt": {"need": 8, "have": len(tilt)},
                                 "settlement": {"need": 4, "have": len(sett)}}},
         "sections": sections, "sections_grade": _worst(r["grade"] for r in sections),
+        "section_plan": sync_sections([dict(r) for r in data["sections"]], [f["floor"] for f in floors], data.get("section_plan") or {})[1],
+        "section_plan_default": section_plan_default([f["floor"] for f in floors]), "section_plan_on": bool(data.get("section_plan")),
         "strength": {"file": data["strength"]["file"], "rows": strength, "summary": _summary([r["est"] for r in strength]), "grade": _worst(r["grade"] for r in strength)},
         "carbonation": {"wc": data["carbonation"]["wc"], "ratio": data["carbonation"]["ratio"], "rows": carb,
                         "summary": _summary([r["depth"] for r in carb]), "grade": _worst(r["grade"] for r in carb)},
@@ -524,6 +625,29 @@ def _selfcheck() -> None:
     v = compute({"sample": {"floors": [{"floor": -3}, {"floor": 5}]}}, above=5, below=3, area=6882.61, kind="정밀점검",
                 completion=datetime.date(2022, 5, 31), when=datetime.date(2026, 5, 21))
     assert v["sample"]["need"] == 2 and v["sample"]["floors"][0]["range_label"] == "지하3층~지하1층" and v["sample"]["quantity"]["strength"]["need"] == 8
+    # 10/29 칸 수 표·일치/일부 일치/불일치·□
+    d1 = normalize({"sample": {"floors": [{"floor": 1}, {"floor": 3}]}, "sections": [{"floor": 1, "member": "기둥", "design": "400×500", "same": False, "measured": "□×500"}]})
+    assert d1["sections"][0]["match"] == "불일치" and section_row(d1["sections"][0])["ratio"] is None and section_row(d1["sections"][0])["ok"] is None
+    assert normalize({"sections": [{"member": "기둥", "design": "400×500", "match": "일부 일치", "measured": "400×480"}]})["sections"][0]["same"] is False
+    sync_defaults(d1)
+    assert len(d1["sections"]) == 12 and d1["section_plan"] == {}  # 칸 수 표 안 쓴 회차 = 예전대로, 저장 안 바뀜
+    d1["section_plan"] = {"1|기둥": 1, "1|큰보": 4, "3|벽체": 2}
+    sync_defaults(d1)
+    one = [r["member"] for r in d1["sections"] if r["floor"] == 1]
+    assert one.count("기둥") == 1 and one.count("큰보") == 4 and d1["sections"][0]["design"] == "400×500"  # 값 있는 기둥은 남음
+    three = [r["member"] for r in d1["sections"] if r["floor"] == 3]
+    assert three.count("벽체") == 2 and three.count("기둥") == 3 and three.count("큰보") == 3  # 표에 없는 부재는 지금 수 그대로
+    assert d1["section_plan"]["1|기둥"] == 1 and d1["section_plan"]["3|벽체"] == 2 and not sync_defaults(d1)
+    d1["section_plan"]["1|기둥"] = 0
+    sync_defaults(d1)
+    assert [r["member"] for r in d1["sections"] if r["floor"] == 1].count("기둥") == 1  # 값 있는 칸은 0으로 해도 안 지움
+    fi = fill_from_items({"sections": [{"floor": 1, "member": "큰보", "item_id": "g", "design": "", "measured": "", "same": True, "position": ""},
+                                       {"floor": 2, "member": "벽체", "item_id": "w", "design": "", "measured": "", "same": False, "position": "W1 / X1"}]},
+                         {"g": {"kind": "보", "marks": ["1-5G1"], "floors": "", "size": "400 x 600"}, "w": {"kind": "벽체", "marks": ["W1"], "floors": "", "thickness": 200}}, 5)
+    assert fi == 2 and _dims("×600") is None and _dims("300") == 300 and _dims("□×600") is None
+    fd = {"sections": [{"floor": 1, "member": "큰보", "item_id": "g", "design": "", "measured": "", "same": True, "position": ""}]}
+    fill_from_items(fd, {"g": {"kind": "보", "marks": ["1-5G1"], "floors": "", "size": "400 x 600"}}, 5)
+    assert fd["sections"][0]["design"] == "400×600" and fd["sections"][0]["measured"] == "400×600" and fd["sections"][0]["position"] == "2G1"  # 1층 보 = 2층 바닥보
     print("재료시험 계산 검증 통과 — 다산은혜교회 보고서 값과 일치")
 
 

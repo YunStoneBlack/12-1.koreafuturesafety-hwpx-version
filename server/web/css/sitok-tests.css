@@ -61,3 +61,28 @@
   .st-strength-top .sk-drop { flex-basis: 100%; }
 }
 .st-tbl td select + select { margin-top: 3px; }
+
+/* 부재 규격 — 내진 부재 단면 기능(10/29): 일람표 칸 고르기·칸 수 표·층만 보기·□ */
+.st-sched2 { font-size: 13px; color: var(--muted); background: var(--paper); border-radius: 8px; padding: 8px 12px; margin: 0 0 10px; line-height: 1.6; }
+.st-sched2 b { color: var(--ink); } .st-sched2 .short { color: var(--warn); font-weight: 600; } .st-sched2 a { white-space: nowrap; }
+.st-sqty { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 4px; }
+.st-sqty .st-qty-t { border-collapse: collapse; font-size: 13px; width: auto; min-width: 0; }
+.st-sqty .st-qty-t th, .st-sqty .st-qty-t td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: center; white-space: nowrap; }
+.st-sqty .st-qty-t th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.st-sqty .st-qty-t td span { color: var(--muted); font-size: 12px; }
+.st-sqty .st-qty-t td.ok span { color: var(--green); font-weight: 700; } .st-sqty .st-qty-t td.part span { color: var(--warn); font-weight: 600; }
+.st-sqty .st-qty-t input { width: 52px; min-width: 0; padding: 4px 4px; font-size: 13px; text-align: center; }
+.main .st-sqty button.st-fname { margin: 0; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.main .st-sqty button.st-fname.on { background: var(--ink, #1f2937); color: #fff; border-color: var(--ink, #1f2937); }
+.st-sqty-side { display: flex; flex-direction: column; gap: 6px; max-width: 320px; }
+.main .st-sqty-side button { align-self: flex-start; margin: 0; }
+.st-tbl tr.st-empty td { background: color-mix(in srgb, var(--paper) 60%, transparent); }
+.st-tbl td.st-itemcell { min-width: 190px; }
+.st-tbl .search-sel { min-width: 180px; }
+.st-tbl .search-sel > input.search-sel-in { text-align: left; }
+.main .st-tbl button.st-sq { margin: 0 2px; padding: 3px 6px; min-width: 0; font-size: 12px; line-height: 1; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--muted); cursor: pointer; }
+.main .st-tbl button.st-sq.on { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); font-weight: 700; }
+@media (max-width: 760px) {
+  .st-sqty { flex-direction: column; gap: 8px; }
+  .st-sqty .st-qty-t { display: block; overflow-x: auto; max-width: 100%; }
+}
