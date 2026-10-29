@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="css/sitok.css" />
 <link rel="stylesheet" href="css/estimate.css" />
+<link rel="stylesheet" href="css/mail.css" />
 </head>
 <!-- 견적 한 건(2026-10-29 사용자) — 머리(번호·견적일·상태·과업내용) / 발주처·대상·담당 / 금액 줄(계산 방식별 입력 → 산출 내역 → 견적 금액·네고율) / 합계(합계 맞추기) /
      견적 조건. 고치면 0.6초 뒤 저장(PATCH /estimates/{id}) → 서버가 계산해 돌려줌. 화면 js/estimate.js -->
@@ -57,7 +58,8 @@
       <div class="sk-f"><label for="es-cond">견적 조건 <span class="sk-help">한 줄에 하나</span></label><textarea id="es-cond" rows="4"></textarea></div>
       <div class="sk-f"><label for="es-note">비고(견적서 아래)</label><textarea id="es-note" rows="4"></textarea></div>
     </div>
-    <div class="es-out"><button type="button" id="es-export">📄 엑셀·PDF 만들기</button><span class="mail-note" id="es-export-msg">회사 견적서 양식 그대로(표지 + 내역서) — 고친 뒤 다시 누르면 새로 만듦</span></div>
+    <div class="es-out"><button type="button" id="es-export">📄 엑셀·PDF 만들기</button><button type="button" class="secondary" id="es-mail">📧 메일로 보내기</button>
+      <span class="mail-note" id="es-export-msg">회사 견적서 양식 그대로(표지 + 내역서) — 고친 뒤 다시 누르면 새로 만듦 · 메일은 고친 내용이 있으면 PDF를 새로 만들어 붙임</span></div>
     <div id="es-files"></div>
   </div>
 </section>

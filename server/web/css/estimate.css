@@ -157,3 +157,9 @@
   .main .es-stat-head .panel-count { margin-left: 0; }
   .main .es-stat-year { margin-left: 0; }
 }
+/* 견적서 메일로 보내기(10/29) — 창 틀은 css/mail.css */
+.mail-box.es-mailbox { width: min(560px, 100%); }
+.mail-box .es-mail-body { resize: vertical; min-height: 150px; line-height: 1.55; font-size: 14px; }
+@media (max-width: 760px) { .mail-box .es-mail-body { font-size: 16px; } }
+.main .es-mailed { margin-top: 8px; font-size: 12.5px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+.main .es-mailed b { color: var(--ink); font-weight: 600; }

@@ -53,9 +53,12 @@ def send_pdf(to_addrs: list[str], cc_addr: str, subject: str, body: str, pdf_pat
     return send_mail(to_addrs, cc_addr, subject, body, attachment=(Path(pdf_path).read_bytes(), filename))
 
 
+_SUBTYPE = {".pdf": ("application", "pdf"), ".xlsx": ("application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+
+
 def send_mail(to_addrs: list[str], cc_addr: str, subject: str, body: str,
-              attachment: tuple[bytes, str] | None = None) -> list[str]:
-    """메일 한 통(PDF 첨부 선택) — 고객사 전송용(나중에 다른 알림 메일도 이걸로)."""
+              attachment: tuple[bytes, str] | None = None, attachments: list[tuple[bytes, str]] | None = None) -> list[str]:
+    """메일 한 통(PDF 첨부 선택) — 고객사 전송용(나중에 다른 알림 메일도 이걸로). attachments = 여러 개(견적서 PDF + 엑셀, 10/29 — 형식은 파일 이름 끝으로)."""
     msg = EmailMessage()
     msg["From"] = formataddr((settings.MAIL_FROM_NAME, settings.MAIL_SMTP_USER))  # 네이버는 로그인 계정과 같은 보내는 주소만 허용
     msg["To"] = ", ".join(to_addrs)
@@ -65,6 +68,9 @@ def send_mail(to_addrs: list[str], cc_addr: str, subject: str, body: str,
     msg.set_content(body)
     if attachment is not None:
         msg.add_attachment(attachment[0], maintype="application", subtype="pdf", filename=attachment[1])
+    for data, name in attachments or []:
+        main, sub = _SUBTYPE.get(Path(name).suffix.lower(), ("application", "octet-stream"))
+        msg.add_attachment(data, maintype=main, subtype=sub, filename=name)
     try:
         # local_hostname — 기본값은 이 PC 이름인데 한글이 섞여 있으면 EHLO 단계에서 UnicodeEncodeError(ASCII만 가능)
         with smtplib.SMTP_SSL(

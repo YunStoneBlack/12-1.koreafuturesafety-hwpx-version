@@ -303,7 +303,81 @@
         <span class="es-links">${f.pdf ? `<a class="secondary-link" target="_blank" rel="noopener" href="${BASE}/api${P}/file/pdf?v=${encodeURIComponent(f.at)}">📄 PDF 보기</a>` : ""}
         <a class="secondary-link" href="${BASE}/api${P}/file/xlsx?v=${encodeURIComponent(f.at)}">📥 엑셀 받기</a></span>
         ${(f.notes || []).length ? `<ul>${f.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div>` : "";
+    const ms = (f.mails || []).slice(-3).reverse();
+    if (ms.length) $("es-files").innerHTML += `<div class="es-mailed">${ms.map((m) => `<div>📧 ${esc(m.at)} <b>${esc(m.to)}</b>에게 보냄${m.by ? ` · ${esc(m.by)}` : ""}</div>`).join("")}</div>`;
   }
+
+  // ---------- 메일로 보내기(10/29 — GET/POST /estimates/{id}/mail, 창 모양은 고객사 전송 창 css/mail.css) ----------
+  async function openMail() {
+    await new Promise((r) => setTimeout(r, 60));  // 막 친 칸의 change 저장이 먼저
+    await saving;
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = '<div class="mail-box es-mailbox" role="dialog" aria-modal="true"><div class="mail-wait">불러오는 중…</div></div>';
+    document.body.appendChild(overlay);
+    const box = overlay.querySelector(".mail-box");
+    let busy = false;
+    const close = () => { if (!busy) { overlay.remove(); document.removeEventListener("keydown", onKey); } };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    const head = `<div class="mail-head"><b>견적서 메일로 보내기</b><span class="mail-sub">${esc(est.no)} ${esc((est.project || {}).name || (est.client || {}).name || "")} · 합계 ${won(est.totals.total)}원(VAT 포함)</span></div>`;
+    let info;
+    try { info = await api(`${P}/mail`); } catch (err) {
+      box.innerHTML = `${head}<div class="mail-msg bad">${esc(err.message)}</div><div class="mail-foot"><button type="button" class="mail-cancel">닫기</button></div>`;
+      box.querySelector(".mail-cancel").addEventListener("click", close);
+      return;
+    }
+    if (!info.configured) {
+      box.innerHTML = `${head}<div class="mail-msg warn">⚠ 회사 메일 설정이 없어 보낼 수 없습니다.</div><div class="mail-foot"><button type="button" class="mail-cancel">닫기</button></div>`;
+      box.querySelector(".mail-cancel").addEventListener("click", close);
+      return;
+    }
+    const to = info.to.length ? info.to.slice() : [""];
+    const drawTo = () => {
+      box.querySelector(".mail-extras").innerHTML = to.map((a, i) => `<div class="mail-extra"><input class="mail-input" type="email" list="es-mail-recent" data-i="${i}" value="${esc(a)}" placeholder="받는 사람 메일" />
+        ${to.length > 1 ? `<button type="button" class="mail-x" data-i="${i}" title="빼기">✕</button>` : ""}</div>`).join("");
+      box.querySelectorAll(".mail-extra input").forEach((inp) => inp.addEventListener("input", () => { to[Number(inp.dataset.i)] = inp.value.trim(); }));
+      box.querySelectorAll(".mail-x").forEach((b) => b.addEventListener("click", () => { to.splice(Number(b.dataset.i), 1); drawTo(); }));
+      box.querySelector(".mail-add").hidden = to.length >= info.max;
+    };
+    const file = info.pdf ? `${esc(info.pdf)}${info.fresh ? "" : ' <span class="mail-note">— 고친 내용이 있어 보낼 때 새로 만듭니다</span>'}` : '<span class="mail-note">아직 없음 — 보낼 때 만듭니다(5~15초)</span>';
+    box.innerHTML = `${head}
+      <div class="mail-label">받는 사람 <span class="mail-note">— 여러 곳이면 한 통으로(서로 보임)</span></div>
+      <div class="mail-extras"></div><button type="button" class="mail-add">＋ 받는 사람 추가</button>
+      <datalist id="es-mail-recent">${(info.recent || []).map((a) => `<option value="${esc(a)}"></option>`).join("")}</datalist>
+      <div class="mail-label">제목</div><input class="mail-input" id="es-mail-subject" value="${esc(info.subject)}" />
+      <div class="mail-label">내용</div><textarea class="mail-input es-mail-body" id="es-mail-body" rows="11">${esc(info.body)}</textarea>
+      <div class="mail-info"><div><span>첨부</span><b>${file}</b></div></div>
+      ${info.xlsx || !info.pdf ? '<label class="mail-opt"><input type="checkbox" id="es-mail-xlsx" /><span>엑셀 파일도 같이 보내기<span class="mail-addr">받는 쪽에서 고쳐 쓰려 할 때</span></span></label>' : ""}
+      ${info.status === "draft" ? '<div class="mail-note">보내면 견적 상태가 [보냄]으로 바뀝니다.</div>' : ""}
+      ${(info.history || []).length ? `<div class="mail-label">보낸 기록</div><div class="mail-info">${info.history.map((h) => `<div><span>${esc(h.at.slice(5))}</span>${esc(h.to)}${h.by ? ` · ${esc(h.by)}` : ""}</div>`).join("")}</div>` : ""}
+      <div class="mail-msg" id="es-mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="mail-cancel">닫기</button><button type="button" class="mail-primary" id="es-mail-go">📧 보내기</button></div>`;
+    drawTo();
+    box.querySelector(".mail-add").addEventListener("click", () => { to.push(""); drawTo(); box.querySelector(`.mail-extra input[data-i="${to.length - 1}"]`).focus(); });
+    box.querySelector(".mail-cancel").addEventListener("click", close);
+    const msg = (t, tone) => { const m = $("es-mail-msg"); m.hidden = !t; m.className = `mail-msg ${tone || ""}`; m.textContent = t; };
+    $("es-mail-go").addEventListener("click", async (ev) => {
+      const list = to.map((a) => a.trim()).filter(Boolean);
+      if (!list.length) { msg("받는 사람 메일을 넣어 주세요.", "bad"); return; }
+      const btn = ev.currentTarget;
+      busy = true; btn.disabled = true;
+      msg(info.fresh ? "보내는 중…" : "견적서 PDF를 새로 만들고 보내는 중…(5~20초)", "");
+      try {
+        const out = await apiPost(`${P}/mail`, { to: list, subject: $("es-mail-subject").value, body: $("es-mail-body").value, xlsx: !!($("es-mail-xlsx") || {}).checked });
+        est = { ...est, ...out, rows: est.rows };
+        drawStatus(); drawFiles(); drawHandoff();
+        const ci = $("es-client").querySelector('input[data-k="email"]');
+        if (ci && !ci.value.trim() && (est.client || {}).email) ci.value = est.client.email;
+        msg(`✓ ${out.mail.to.join(", ")}에게 보냈습니다${out.mail.remade ? "(PDF 새로 만듦)" : ""} — 첨부 ${out.mail.files.join(", ")}`, "ok");
+        btn.hidden = true;
+        box.querySelector(".mail-cancel").textContent = "닫기";
+      } catch (err) { msg(err.message, "bad"); btn.disabled = false; }
+      busy = false;
+    });
+  }
+  $("es-mail").addEventListener("click", openMail);
   $("es-export").addEventListener("click", async (ev) => {
     const btn = ev.currentTarget;
     clearTimeout(saveTimer);

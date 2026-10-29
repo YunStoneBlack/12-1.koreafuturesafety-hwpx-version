@@ -4,6 +4,7 @@
 - `GET  /estimates` (?status·kind·q) · `POST /estimates` {kind, copy_from} · `GET|PATCH|DELETE /estimates/{id}`(지우기 = 회사 삭제 비밀번호)
 - `POST /estimates/{id}/copy` — 같은 내용으로 새 견적(새 번호·오늘·작성중) · `POST /estimates/{id}/fit` {total} — 합계(VAT 포함)를 이 금액으로
 - `POST /estimates/{id}/export` — 엑셀·PDF(회사 견적서 양식 — server/estimate/export.py) · `GET /estimates/{id}/file/{xlsx|pdf}`
+- `GET|POST /estimates/{id}/mail` — 견적서 메일로 보내기(회사 네이버 메일 — server/api/mailer, 고친 뒤면 PDF를 새로 만들어 붙임, 보내면 작성중 → 보냄, 기록은 files.mails)
 - `POST /estimates/{id}/handoff` — 수주 → 계약으로 넘기기(server/estimate/handoff — 기술지도 = 산안법 용역 계약 · 정기·정밀 = 시특법 민간 계약 · 건축물관리점검 = 건)
 - `GET  /estimates/stats` (?year) — 수주 통계(용역별·견적담당별·달별, 수주율 = 수주 ÷ 보낸 견적)
 - `POST /estimates/rates/check` — 노임단가 새 공표 지금 확인(server/estimate/rate_watch — 12·1월·8·9월엔 견적 화면을 열 때 하루 한 번 뒤에서 저절로)
@@ -560,7 +561,8 @@ def export(eid: int, user: User = Depends(get_current_user), db: Session = Depen
         pdf_err = str(err)[:200]
     e.files = {"xlsx": f"{base}.xlsx", "pdf": f"{base}.pdf" if not pdf_err else "", "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
                "by": user.display_name or "", "notes": res["notes"] + ([f"PDF를 못 만들었습니다: {pdf_err}"] if pdf_err else []), "pages": pages,
-               "sheets": res["sheets"]}
+               "sheets": res["sheets"], "made_at": datetime.datetime.now().isoformat(timespec="microseconds"),
+               "mails": list((e.files or {}).get("mails") or [])}
     flag_modified(e, "files")
     db.commit()
     return _out(db, e)
@@ -578,3 +580,136 @@ def get_file(eid: int, kind: str, user: User = Depends(get_current_user), db: Se
     media = "application/pdf" if kind == "pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     return FileResponse(p, media_type=media, filename=name, content_disposition_type="inline" if kind == "pdf" else "attachment",
                         headers={"Cache-Control": "no-store"})
+
+
+# ---------- 메일로 보내기(10/29 사용자 "필요해" — 처음 추천 "메일로 바로 보냅니다(기존 메일 기능)") ----------
+MAIL_MAX = 10
+
+
+def pdf_fresh(e: Estimate) -> bool:
+    """만든 PDF가 마지막으로 고친 뒤 것인지(예전 기록은 분까지라 그 분 끝으로 봄)."""
+    f = e.files or {}
+    if not f.get("pdf") or not (_folder(e) / f["pdf"]).exists():
+        return False
+    try:
+        made = datetime.datetime.fromisoformat(f.get("made_at") or ((f.get("at") or "").replace(" ", "T") + ":59"))
+    except ValueError:
+        return False
+    return not e.updated_at or e.updated_at <= made
+
+
+def _mail_default(e: Estimate) -> tuple[str, str]:
+    from server.api import mailer
+
+    firm = mailer.settings.MAIL_FROM_NAME
+    c, p, st_ = e.client or {}, e.project or {}, e.staff or {}
+    name = (p.get("name") or c.get("name") or "").strip()
+    label = (C.KINDS.get(e.kind) or {}).get("label", "")
+    ref = (c.get("ref") or "").strip()
+    if ref and not ref.endswith("님"):
+        ref += "님"
+    total = int((e.totals or {}).get("total") or 0)
+    sign = " ".join(x for x in ((st_.get("name") or "").strip(), (st_.get("phone") or "").strip()) if x)
+    subject = f"[{firm}] {' '.join(x for x in (name, label) if x)} 견적서"
+    body = (f"안녕하세요{(' ' + ref) if ref else ''}.\n{firm}입니다.\n\n"
+            f"{' '.join(x for x in (name, label) if x)} 견적서를 첨부하여 보내드립니다.\n"
+            f"견적 금액: 일금 {C.korean_amount(total)}원정(￦{total:,}, VAT 포함)\n\n"
+            "검토하시고 궁금하신 점은 연락 주십시오.\n\n"
+            f"{(sign + chr(10)) if sign else ''}{firm} 드림")
+    return subject, body
+
+
+def _recent_to(db: Session, e: Estimate) -> list[str]:
+    """같은 발주처(상호명)에 보냈던 주소(최근 것부터) — 창의 고르기 칸."""
+    name = ((e.client or {}).get("name") or "").strip()
+    out: list[str] = []
+    if not name:
+        return out
+    for x in db.query(Estimate).filter(Estimate.company_id == e.company_id).order_by(Estimate.id.desc()).limit(300):
+        if ((x.client or {}).get("name") or "").strip() != name:
+            continue
+        for m in (x.files or {}).get("mails") or []:
+            for a in str(m.get("to") or "").split(","):
+                a = a.strip()
+                if a and a.lower() not in (o.lower() for o in out):
+                    out.append(a)
+    return out[:8]
+
+
+@router.get("/{eid}/mail")
+def mail_info(eid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.api import mailer
+
+    e = _require(db, user, eid)
+    subject, body = _mail_default(e)
+    f = e.files or {}
+    email = ((e.client or {}).get("email") or "").strip()
+    recent = _recent_to(db, e)
+    return {"configured": mailer.is_configured(), "to": [email] if email else recent[:1], "recent": recent, "subject": subject, "body": body,
+            "pdf": f.get("pdf") or "", "xlsx": f.get("xlsx") or "", "fresh": pdf_fresh(e), "at": f.get("at") or "",
+            "history": list(reversed((f.get("mails") or [])[-10:])), "status": e.status, "max": MAIL_MAX}
+
+
+class MailIn(BaseModel):
+    to: list[str] | str
+    subject: str = ""
+    body: str = ""
+    xlsx: bool = False  # 엑셀 파일도 같이
+
+
+@router.post("/{eid}/mail")
+def send_mail(eid: int, body: MailIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """견적서 PDF(+엑셀)를 한 통으로 — 고친 뒤면 먼저 다시 만듦(몇 초). 보내면 기록(files.mails), 작성중이면 보냄, 발주처 메일이 비었으면 첫 주소를 넣음(PDF 만들기 전에)."""
+    from server.api import mailer
+
+    e = _require(db, user, eid)
+    if not mailer.is_configured():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "회사 메일 설정이 없어 보낼 수 없습니다.")
+    raw = body.to if isinstance(body.to, list) else str(body.to).replace(";", ",").split(",")
+    addrs = []
+    for a in raw:
+        a = str(a).strip()
+        if a and a.lower() not in (x.lower() for x in addrs):
+            addrs.append(a)
+    bad = [a for a in addrs if not mailer.valid_email(a)]
+    if not addrs or bad:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 메일 주소를 확인하세요{': ' + ', '.join(bad) if bad else ''}.")
+    if len(addrs) > MAIL_MAX:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"받는 사람은 {MAIL_MAX}곳까지입니다.")
+    if not int((e.totals or {}).get("total") or 0):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "견적 금액이 0원입니다 — 금액 줄을 먼저 채워 주세요.")
+    if not ((e.client or {}).get("email") or "").strip():  # 발주처 메일이 비었으면 첫 주소 — 견적서 표지 메일 칸에도 들어가게 PDF 전에
+        e.client = {**(e.client or {}), "email": addrs[0]}
+        _save(db, e, user)
+    remade = False
+    if not pdf_fresh(e):
+        export(eid, user, db)
+        db.refresh(e)
+        remade = True
+    f = e.files or {}
+    if not f.get("pdf"):
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "견적서 PDF를 만들지 못했습니다 — [📄 엑셀·PDF 만들기]의 안내를 보세요.")
+    subject0, text0 = _mail_default(e)
+    subject = (body.subject or "").strip()[:200] or subject0
+    text = (body.body or "").strip()[:5000] or text0
+    files = [((_folder(e) / f["pdf"]).read_bytes(), f["pdf"])]
+    if body.xlsx and f.get("xlsx") and (_folder(e) / f["xlsx"]).exists():
+        files.append(((_folder(e) / f["xlsx"]).read_bytes(), f["xlsx"]))
+    try:
+        refused = mailer.send_mail(addrs, mailer.cc_for(addrs), subject, text, attachments=files)
+    except mailer.MailError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    sent = [a for a in addrs if a not in refused]
+    f = dict(e.files or {})
+    f["mails"] = (list(f.get("mails") or []) + [{"at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "by": user.display_name or "",
+                                                  "to": ", ".join(sent), "subject": subject, "files": [n for _, n in files]}])[-20:]
+    e.files = f
+    flag_modified(e, "files")
+    if sent and e.status == "draft":
+        e.status = "sent"
+    db.commit()  # 보낸 기록·상태만 — PDF는 그대로 최신(updated_at 안 바꿈)
+    out = _out(db, e)
+    if refused:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"메일 서버가 거부한 주소: {', '.join(refused)} — 나머지({', '.join(sent) or '없음'})에겐 보냈습니다.")
+    return out | {"mail": {"to": sent, "remade": remade, "files": [n for _, n in files]}}
+
