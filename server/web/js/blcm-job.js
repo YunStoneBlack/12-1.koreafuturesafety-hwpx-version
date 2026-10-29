@@ -33,6 +33,14 @@
     const reg = (job.files || {}).register;
     $("bj-reg-view").hidden = !reg;
     if (reg) $("bj-reg-view").href = `${BASE}/api${P}/file/register?v=${encodeURIComponent(reg.at || "")}`;
+    drawRecap();
+  }
+
+  function drawRecap() {
+    $("bj-recap").innerHTML = (job.recap || []).map((r) => {
+      const cls = !r.text ? "empty" : (r.kind === "count" && r.value > 0) || ["D", "E"].includes(r.text) ? "bad" : r.text === "C" ? "mid" : "";
+      return `<div class="bj-rc ${cls}" title="${esc(r.label)} — 소항목 ${r.done}/${r.total}${r.value != null && r.kind === "grade" ? ` · ${r.value}점` : ""}"><small>${esc(r.label)}</small><b>${esc(r.text || "·")}</b></div>`;
+    }).join("");
   }
 
   function fieldGrid(el, fields, values, prefix) {
@@ -90,11 +98,21 @@
   });
 
   // ---------- 탭·카드 ----------
+  const EXTRA = [["_plan", "관리계획"], ["_other", "그 밖의 항목"], ["_opinion", "개선방안·종합의견"]];
+  function extraCount(k) {
+    const op = job.opinion || {};
+    if (k === "_plan") return [Object.keys(op.plan || {}).length, table.plan_rows.length];
+    if (k === "_other") return [Object.values(op.other || {}).filter((x) => x && x.v).length, table.other_rows.length];
+    return [table.opinion_keys.filter(([key]) => ((op.texts || {})[key] || "").trim()).length, table.opinion_keys.length];
+  }
   function drawTabs() {
-    if (!tab || !table.groups.some((g) => g.key === tab)) tab = table.groups[0].key;
+    if (!tab || !(table.groups.some((g) => g.key === tab) || EXTRA.some(([k]) => k === tab))) tab = table.groups[0].key;
     $("bj-tabs").innerHTML = table.groups.map((g) => {
       const done = g.items.filter((c) => ["done", "na"].includes((job.eval[c] || {}).state)).length;
       return `<button type="button" class="bj-tab${g.key === tab ? " on" : ""}" data-k="${esc(g.key)}" role="tab">${esc(g.label)} <small>${done}/${g.items.length}</small></button>`;
+    }).join("") + EXTRA.map(([k, label]) => {
+      const [n, t] = extraCount(k);
+      return `<button type="button" class="bj-tab extra${k === tab ? " on" : ""}" data-k="${k}" role="tab">${esc(label)} <small>${n}/${t}</small></button>`;
     }).join("");
     $("bj-tabs").querySelectorAll(".bj-tab").forEach((b) => b.addEventListener("click", () => {
       tab = b.dataset.k;
@@ -180,6 +198,7 @@
   }
 
   function drawItems() {
+    if (tab.startsWith("_")) { drawExtra(); return; }
     const g = table.groups.find((x) => x.key === tab);
     const box = $("bj-items");
     box.innerHTML = "";
@@ -203,18 +222,246 @@
     wire(el, it);
     drawTop();
     const done = job.done;
+    refreshTabCounts();
+    return done;
+  }
+
+  function refreshTabCounts() {
     $("bj-tabs").querySelectorAll(".bj-tab").forEach((b) => {
-      const gg = table.groups.find((x) => x.key === b.dataset.k);
+      const k = b.dataset.k;
+      if (k.startsWith("_")) { const [n, t] = extraCount(k); b.querySelector("small").textContent = `${n}/${t}`; return; }
+      const gg = table.groups.find((x) => x.key === k);
       const n = gg.items.filter((c) => ["done", "na"].includes((job.eval[c] || {}).state)).length;
       b.querySelector("small").textContent = `${n}/${gg.items.length}`;
     });
-    return done;
   }
 
   function apply(code, out) {
     job.results = { ...(job.results || {}), [code]: out.result };
     job.eval = { ...job.eval, [code]: out.eval };
     if (out.progress) Object.assign(job, out.progress);
+    if (out.recap) job.recap = out.recap;
+  }
+
+  // ---------- 관리계획·그 밖의 항목·개선방안 의견(탭 셋) ----------
+  let opTimer = null, opSaving = Promise.resolve();
+  function saveOpinion(body, now) {
+    clearTimeout(opTimer);
+    const go = () => {
+      opSaving = opSaving.then(() => api(`${P}/opinion`, { method: "PUT", body: JSON.stringify(body()) })).then((out) => {
+        job.opinion = out.opinion;
+        job.plan_grade = out.plan_grade;
+        refreshTabCounts();
+        const g = document.querySelector(".bj-plan-grade");
+        if (g) g.outerHTML = planGradeHtml();
+      }).catch((err) => showError(errorEl, err));
+    };
+    if (now) go(); else opTimer = setTimeout(go, 600);
+  }
+  const planGradeHtml = () => `<span class="bj-chip bj-plan-grade ${job.plan_grade === "적합" ? "ok" : job.plan_grade === "부적합" ? "bad" : "empty"}">${esc(job.plan_grade || "미작성")}</span>`;
+
+  function drawExtra() {
+    const box = $("bj-items");
+    const op = job.opinion || {};
+    if (tab === "_plan") {
+      const plan = op.plan || {};
+      box.innerHTML = `<div class="bj-pane"><div class="bj-pane-h">건축물관리계획의 수립 및 이행이 적합한지 여부 ${planGradeHtml()} — 하나라도 부적합이면 부적합(매뉴얼 2.5.3, 관리계획서·장기수선계획 근거)
+          <button type="button" class="secondary" id="bj-plan-all">모두 적합</button></div>
+        ${table.plan_rows.map(([code, label]) => `<div class="bj-prow"><span class="bj-lab">${esc(label)}</span>${seg(`plan:${code}`, ["적합", "부적합"], plan[code] || "")}</div>`).join("")}</div>`;
+      const body = () => ({ plan: Object.fromEntries([...box.querySelectorAll(".bj-seg")].map((s) => [s.dataset.name.slice(5), (s.querySelector("button.on") || {}).dataset?.v || ""]).filter(([, v]) => v)) });
+      box.querySelectorAll(".bj-seg button").forEach((b) => b.addEventListener("click", () => {
+        const was = b.classList.contains("on");
+        b.parentElement.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+        if (!was) b.classList.add("on");
+        saveOpinion(body, true);
+      }));
+      $("bj-plan-all").addEventListener("click", () => {
+        box.querySelectorAll(".bj-seg").forEach((s) => s.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.v === "적합")));
+        saveOpinion(body, true);
+      });
+      return;
+    }
+    if (tab === "_other") {
+      const other = op.other || {};
+      box.innerHTML = `<div class="bj-pane"><div class="bj-pane-h">그 밖의 항목에 대한 이행 여부 — 점검 당시 검사 완료 '예', 기한 내 미이행 '아니오', 진행 중·그 외 '기타'(사유), 해당없음.
+          일자 칸 = 점검·검사 받은 날 또는 사유</div>
+        ${table.other_rows.map(([code, label, hint]) => {
+          const v = other[code] || {};
+          return `<div class="bj-prow" data-code="${code}"><span class="bj-lab">${esc(label)}</span>${seg(`other:${code}`, table.other_values, v.v || "")}
+            <input class="bj-onote" maxlength="100" value="${esc(v.note || "")}" placeholder="${esc(hint || "점검·검사 일자 또는 사유")}" /></div>`;
+        }).join("")}</div>`;
+      const body = () => ({ other: Object.fromEntries([...box.querySelectorAll(".bj-prow")].map((r) => [r.dataset.code, { v: (r.querySelector("button.on") || {}).dataset?.v || "", note: r.querySelector(".bj-onote").value.trim() }])) });
+      box.querySelectorAll(".bj-seg button").forEach((b) => b.addEventListener("click", () => {
+        const was = b.classList.contains("on");
+        b.parentElement.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+        if (!was) b.classList.add("on");
+        saveOpinion(body, true);
+      }));
+      box.querySelectorAll(".bj-onote").forEach((i) => { i.addEventListener("input", () => saveOpinion(body, false)); i.addEventListener("change", () => saveOpinion(body, true)); });
+      return;
+    }
+    const tx = op.texts || {};
+    box.innerHTML = `<div class="bj-pane"><div class="bj-pane-h">주요 개선방안에 대한 의견 · 종합의견(2000자 내외) — 3장 점검 결과·관리계획·그 밖의 항목을 모아 AI가 씀(매뉴얼 2.5.4·2.5.5)</div>
+        <div class="bj-ai"><input class="bj-ai-note" id="bj-op-note" maxlength="600" placeholder="AI에 덧붙일 내용(예: 옥상 방수 보수 이력 있음, 복도 적치물 시정조치함)" />
+          <button type="button" id="bj-op-ai">🤖 AI로 의견 쓰기</button><span class="mail-note" id="bj-op-msg">${op.ai && op.ai.made_at ? `AI ${esc(op.ai.made_at)}` : "점검 결과 전부로 여섯 칸을 씀(약 50~100원)"}</span></div>
+        <div class="bj-op">${table.opinion_keys.map(([k, lab]) => `<div class="sk-f${k === "total" ? " total" : ""}"><label>${esc(lab)}</label>
+          <textarea data-op="${k}" rows="${k === "total" ? 7 : 4}" maxlength="2500">${esc(tx[k] || "")}</textarea></div>`).join("")}</div></div>`;
+    const body = () => ({ texts: Object.fromEntries([...box.querySelectorAll("[data-op]")].map((t) => [t.dataset.op, t.value])) });
+    box.querySelectorAll("[data-op]").forEach((t) => {
+      t.addEventListener("input", () => saveOpinion(body, false));
+      t.addEventListener("change", () => saveOpinion(body, true));
+      if (typeof aiRewrite === "function") aiRewrite(t, `${P}/ai/rewrite`, `주요 개선방안 의견 — ${table.opinion_keys.find((x) => x[0] === t.dataset.op)[1]}`);
+    });
+    $("bj-op-ai").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      if (Object.values(body().texts).some((v) => v.trim()) && !confirm("지금 적힌 의견 칸을 AI 글로 바꿉니다 — 계속할까요?")) return;
+      clearTimeout(opTimer);
+      await opSaving;
+      btn.disabled = true;
+      $("bj-op-msg").textContent = "AI가 점검 결과를 모아 쓰는 중…(30~60초)";
+      try {
+        await api(`${P}/opinion`, { method: "PUT", body: JSON.stringify(body()) });
+        const out = await apiPost(`${P}/opinion/ai`, { extra: $("bj-op-note").value.trim() });
+        job.opinion = out.opinion;
+        job.plan_grade = out.plan_grade;
+        drawExtra();
+        refreshTabCounts();
+        $("bj-op-msg").textContent = "✓ AI로 썼습니다 — 확인하고 고치세요";
+      } catch (err) { $("bj-op-msg").textContent = err.message; btn.disabled = false; }
+    });
+  }
+
+  // ---------- 보고서 만들기(표지·명단·서류·최종 PDF) ----------
+  let persons = [], people = [];
+  const ROLE0 = "과업 책임기술자", ROLE1 = "현장조사 및 보고서 작성";
+  function drawReportInfo() {
+    const c = job.contract || {};
+    const end = String(c.end || "");
+    const ym = c.report_ym || (/^\d{4}-\d{2}/.test(end) ? end.slice(0, 7) : "");
+    $("bj-rp-info").innerHTML = `<div class="sk-f"><label>과업명</label><input data-rk="title" value="${esc(c.title || "")}" placeholder="${esc(`${job.name} 건축물관리법 정기안전점검 용역`)}" /></div>
+      <div class="sk-f"><label>보고 연월(표지·제출문)</label><input data-rk="report_ym" type="month" value="${esc(ym)}" /></div>
+      <div class="sk-f"><label>분야(명단)</label><input data-rk="field" value="${esc(c.field || "건축")}" /></div>`;
+  }
+  function personRow(x, i) {
+    const opts = persons.map((p) => `<option value="${p.id}"${x.person_id === p.id ? " selected" : ""}>${esc(p.name)}</option>`).join("");
+    const pp = persons.find((p) => p.id === x.person_id);
+    const edu = !x.person_id ? '<span class="mail-note">기술자 목록에 없음</span>'
+      : pp && pp.edu ? `<a class="secondary-link" target="_blank" rel="noopener" href="${BASE}/api/blcm/persons/${x.person_id}/edu?v=${pp.edu_ts}">✓ 이수증</a>`
+        : `<label class="secondary bj-file-btn bad">📎 이수증<input type="file" accept="image/*,.pdf,application/pdf" hidden data-kr-file="skip" data-edu="${x.person_id}" /></label>`;
+    return `<div class="bj-person" data-i="${i}"><select data-pk="person_id"><option value="">직접 입력</option>${opts}</select>
+      <input data-pk="role" value="${esc(x.role || (i ? ROLE1 : ROLE0))}" placeholder="참여세부 과업내용" />
+      ${x.person_id ? `<input data-pk="position" value="${esc(x.position || "")}" placeholder="직위" />` : `<input data-pk="name" value="${esc(x.name || "")}" placeholder="성명" />`}
+      ${x.person_id ? `<input data-pk="grade" value="${esc(x.grade || "")}" placeholder="자격 및 등급" />` : `<input data-pk="position" value="${esc(x.position || "")}" placeholder="직위" />`}
+      ${x.person_id ? `<span class="bj-p-edu">${edu}</span>` : `<input data-pk="grade" value="${esc(x.grade || "")}" placeholder="자격 및 등급" />`}
+      <input data-pk="note" value="${esc(x.note || "-")}" placeholder="비고" />
+      <button type="button" class="secondary bj-p-del" title="빼기">✕</button></div>`;
+  }
+  function readPeople() {
+    return [...$("bj-people").querySelectorAll(".bj-person[data-i]")].map((row) => {
+      const v = (k) => { const el = row.querySelector(`[data-pk="${k}"]`); return el ? el.value.trim() : ""; };
+      const pid = Number(v("person_id")) || null;
+      const pp = persons.find((p) => p.id === pid);
+      const old = people[Number(row.dataset.i)] || {};
+      return { person_id: pid, role: v("role"), name: pp ? pp.name : (v("name") || old.name || ""), position: v("position"), grade: v("grade") || (pid ? old.grade || "" : ""), note: v("note") || "-" };
+    });
+  }
+  function drawPeople() {
+    $("bj-people").innerHTML = `<div class="bj-person bj-person-h"><span>기술자</span><span>참여세부 과업내용</span><span>직위 / 성명</span><span>자격 및 등급 / 직위</span><span>이수증 / 등급</span><span>비고</span><span></span></div>`
+      + (people.map(personRow).join("") || '<div class="mail-note">명단이 비었습니다 — [＋ 기술자 더하기]</div>');
+    $("bj-people").querySelectorAll(".bj-person[data-i]").forEach((row) => {
+      const i = Number(row.dataset.i);
+      row.querySelector('[data-pk="person_id"]').addEventListener("change", (e) => {
+        people = readPeople();
+        const pp = persons.find((p) => p.id === Number(e.target.value));
+        people[i] = pp ? { ...people[i], person_id: pp.id, name: pp.name, position: pp.position, grade: pp.grade } : { ...people[i], person_id: null };
+        drawPeople();
+      });
+      row.querySelector(".bj-p-del").addEventListener("click", () => { people = readPeople(); people.splice(i, 1); drawPeople(); });
+      const f = row.querySelector("input[data-edu]");
+      if (f) f.addEventListener("change", async () => {
+        const file = f.files[0];
+        if (!file) return;
+        const fd = new FormData();
+        fd.append("file", file);
+        try { persons = (await apiUpload(`/blcm/persons/${f.dataset.edu}/edu`, fd)).persons; people = readPeople(); drawPeople(); } catch (err) { showError(errorEl, err); }
+      });
+    });
+  }
+  $("bj-person-add").addEventListener("click", () => {
+    people = readPeople();
+    const used = new Set(people.map((x) => x.person_id));
+    const pp = persons.find((p) => !used.has(p.id));
+    people.push(pp ? { person_id: pp.id, name: pp.name, position: pp.position, grade: pp.grade, role: people.length ? ROLE1 : ROLE0, note: "-" } : { person_id: null, role: ROLE1, note: "-" });
+    drawPeople();
+  });
+  async function saveReportInfo() {
+    const vals = Object.fromEntries([...$("bj-rp-info").querySelectorAll("[data-rk]")].map((i) => [i.dataset.rk, i.value.trim()]));
+    people = readPeople();
+    job = { ...job, ...(await apiPatch(P, { contract: { ...vals, people: people.filter((x) => x.person_id || x.name) } })) };  // 이름 없는 줄은 저장 안 함
+  }
+  $("bj-rp-save").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try { await saveReportInfo(); $("bj-rp-msg").textContent = "✓ 저장했습니다"; setTimeout(() => { $("bj-rp-msg").textContent = ""; }, 2000); } catch (err) { $("bj-rp-msg").textContent = err.message; }
+    btn.disabled = false;
+  });
+
+  const DOCS = [["cover", "📷 표지 사진", "건물 전경 — 표지 사진 틀에 맞춰 가운데를 잘라 넣음", "image/*"],
+    ["contract_doc", "📄 계약서", "부록.1 — PDF 또는 사진(여러 쪽이면 PDF)", "image/*,.pdf,application/pdf"],
+    ["site_pdf", "📄 생애이력시스템 보고서", "사이트 보고서작성 → [점검보고서 출력] → PDF로 저장한 파일(본문, 목차 쪽 번호를 여기서 찾음)", ".pdf,application/pdf"]];
+  function drawDocs() {
+    const fl = job.files || {};
+    $("bj-docs").innerHTML = DOCS.map(([k, label, hint, accept]) => {
+      const f = fl[k];
+      const url = f ? `${BASE}/api${P}/file/${k}?v=${encodeURIComponent(f.at || "")}` : "";
+      const info = f ? (k === "site_pdf" && f.pages ? `${f.pages}쪽 · 목차 ${Object.keys(f.toc || {}).length}/9 찾음 · ${esc(f.at)}` : `${esc(f.name || "")} · ${esc(f.at || "")}`) : esc(hint);
+      return `<div class="bj-doc" data-k="${k}"><b>${label}</b>${f && k === "cover" ? `<img src="${url}" alt="" />` : ""}<span class="mail-note">${info}</span>
+        <div class="bj-doc-btns"><label class="secondary bj-file-btn">${f ? "바꾸기" : "올리기"}<input type="file" accept="${accept}" hidden data-kr-file="skip" /></label>
+          ${f ? `<a class="secondary-link" target="_blank" rel="noopener" href="${url}">보기</a><button type="button" class="secondary bj-doc-del">✕</button>` : ""}</div></div>`;
+    }).join("");
+    $("bj-docs").querySelectorAll(".bj-doc").forEach((d) => {
+      const k = d.dataset.k;
+      d.querySelector("input[type=file]").addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const fd = new FormData();
+        fd.append("file", file);
+        d.querySelector(".mail-note").textContent = "올리는 중…";
+        try { job = { ...job, ...(await apiUpload(`${P}/doc/${k}`, fd)) }; drawDocs(); } catch (err) { d.querySelector(".mail-note").textContent = err.message; }
+      });
+      const del = d.querySelector(".bj-doc-del");
+      if (del) del.addEventListener("click", async () => {
+        if (!confirm("이 서류를 뺄까요?")) return;
+        try { job = { ...job, ...(await api(`${P}/doc/${k}`, { method: "DELETE" })) }; drawDocs(); } catch (err) { showError(errorEl, err); }
+      });
+    });
+    drawMade();
+  }
+  function drawMade() {
+    const r = (job.files || {}).report;
+    $("bj-made").innerHTML = r ? `<div class="bj-made">✓ ${esc(r.at)} 만듦 — ${r.pages}쪽(앞부분 ${r.front} · 본문 ${r.site} · 계약서 ${r.contract} · 이수증 ${r.edu}) · ${r.mb}MB
+        <a class="secondary-link" target="_blank" rel="noopener" href="${BASE}/api${P}/file/report?v=${encodeURIComponent(r.at || "")}">📄 보고서 보기·받기</a>
+        ${(r.notes || []).length ? `<ul>${r.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div>` : "";
+  }
+  $("bj-make").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const msg = $("bj-make-msg");
+    if (!(job.files || {}).site_pdf) { msg.textContent = "생애이력시스템 보고서 PDF를 먼저 올려 주세요."; return; }
+    btn.disabled = true;
+    msg.textContent = "저장하고 만드는 중…(한글로 표지를 그려 20~60초)";
+    try {
+      await saveReportInfo();
+      job = { ...job, ...(await apiPost(`${P}/report`, {})) };
+      msg.textContent = "✓ 다 만들었습니다";
+      drawMade();
+    } catch (err) { msg.textContent = err.message; }
+    btn.disabled = false;
+  });
+  async function loadReport() {
+    try { persons = (await api("/blcm/persons")).persons; } catch (err) { persons = []; }
+    const c = job.contract || {};
+    people = (c.people && c.people.length ? c.people : job.people_default || []).map((x) => ({ ...x }));
+    drawReportInfo(); drawPeople(); drawDocs();
   }
 
   // 카드의 지금 값 → 저장 몸통
@@ -334,6 +581,7 @@
       table = { ...t, byCode: Object.fromEntries(t.items.map((x) => [x.code, x])) };
       job = j;
       drawTop(); drawInfo(); drawTabs(); drawItems();
+      loadReport();
     } catch (err) { showError(errorEl, err); }
   }
   load();

@@ -24,6 +24,7 @@
   <div class="panel-head"><h2 id="bj-title">건축물</h2><span class="panel-count" id="bj-sub"></span></div>
   <div class="panel-body">
     <div class="bj-prog"><span class="bj-bar big"><i id="bj-bar"></i></span><span id="bj-prog-t"></span></div>
+    <div class="bj-recap" id="bj-recap" title="점검결과 총괄표(매뉴얼 2.3.2 — 대지·높이형태·친환경 인증은 건수, 나머지는 등급 A~E)"></div>
     <div class="bj-top-btns">
       <label class="secondary bj-file-btn">🏢 건축물대장 올리기<input type="file" accept=".pdf,application/pdf" hidden data-kr-file="1" id="bj-reg" /></label>
       <a class="secondary-link" id="bj-reg-view" target="_blank" rel="noopener" hidden>📄 대장 보기</a>
@@ -46,11 +47,26 @@
   </div>
 </details>
 
-<section class="panel">
+<section class="panel" id="bj-items-panel">
   <div class="panel-head"><h2>점검 항목</h2><span class="panel-count">매뉴얼(국토교통부 2025.2) 소항목 50개 — 판정·사진을 넣고 🤖 AI로 채우기</span></div>
   <div class="panel-body">
     <div class="bj-tabs" id="bj-tabs" role="tablist"></div>
     <div id="bj-items"><div class="empty-note">불러오는 중…</div></div>
+  </div>
+</section>
+
+<section class="panel" id="bj-report">
+  <div class="panel-head"><h2>📕 보고서 만들기</h2><span class="panel-count">표지·제출문·참여기술자 명단·목차 + 생애이력시스템 보고서 + 부록(계약서·이수증) 한 권</span></div>
+  <div class="panel-body">
+    <div class="bj-sec-t">보고서 정보</div>
+    <div class="field-grid" id="bj-rp-info"></div>
+    <div class="bj-sec-t">참여기술자 명단 <small class="mail-note">이수증은 사람마다 한 번 올리면 모든 건에 들어갑니다</small></div>
+    <div id="bj-people"></div>
+    <div class="bj-top-btns"><button type="button" class="secondary" id="bj-person-add">＋ 기술자 더하기</button><button type="button" id="bj-rp-save">저장</button><span class="mail-note" id="bj-rp-msg"></span></div>
+    <div class="bj-sec-t">서류</div>
+    <div class="bj-docs" id="bj-docs"></div>
+    <div class="bj-make"><button type="button" id="bj-make">📕 최종 보고서 만들기</button><span class="mail-note" id="bj-make-msg"></span></div>
+    <div id="bj-made"></div>
   </div>
 </section>
 

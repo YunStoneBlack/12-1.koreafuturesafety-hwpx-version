@@ -144,3 +144,82 @@ def status_text(it: dict, res: dict) -> str:
                 parts.append(tok["v"])
         lines.append(" ".join(parts))
     return "\n".join(lines)
+
+
+# ---------- 총괄표·관리계획·그 밖의 항목·주요 개선방안 의견(10/29 2단계 나머지) ----------
+# 총괄표 중항목 14개 — (중항목 이름(띄어쓰기 없이), 표 이름, 생애이력시스템 칸 이름, 건수/등급). 매뉴얼 2.3.2: 대지·높이 및 형태 = 건수 합, 친환경 인증 = 인증·재인증 건수,
+# 나머지 = 소항목 점수 합의 백분율로 A(95 이상)·B(85 이상)·C(65 이상)·D(55 이상)·E, 해당없음뿐이면 "-".
+RECAP = (("대지", "대지", "recapTablePlat", "count"), ("높이및형태", "높이·형태", "recapTableHeitStle", "count"),
+         ("범죄예방", "범죄예방", "recapTableCrmnlPrevnt", "grade"), ("급・배수", "급·배수", "recapTableWspDrng", "grade"),
+         ("냉난방・환기", "냉난방·환기", "recapTableCdysmVentl", "grade"), ("전기설비", "전기설비", "recapTableEltl", "grade"),
+         ("열손실방지", "열손실 방지", "recapTableHeatLossPrvn", "grade"), ("친환경인증", "친환경 인증", "recapTableAuth", "cert"),
+         ("대지안전", "대지안전", "recapTablePlatSafe", "grade"), ("연직하중", "연직하중", "recapTableStaticld", "grade"),
+         ("지진하중", "지진하중", "recapTableErthqkld", "grade"), ("피난성능", "피난성능", "recapTableRefgePerf", "grade"),
+         ("화재확산", "화재확산", "recapTableFiredff", "grade"), ("내화구조", "내화구조", "recapTableFfPerf", "grade"))
+
+# 건축물관리계획의 수립 및 이행이 적합한지 여부 — 8줄 적합/부적합(사이트 칸 번호 61~68), 하나라도 부적합이면 부적합
+PLAN_ROWS = (("61", "건축물 현황"), ("62", "건축주, 설계자, 시공자, 감리자 및 관리자"), ("63", "건축물 마감재 및 건축물에 부착된 제품"), ("64", "장기 수선 계획"),
+             ("65", "건축물 화재 및 피난안전"), ("66", "건축물 구조안전 및 내진능력"), ("67", "에너지 및 친환경 성능관리"), ("68", "기타사항"))
+# 그 밖의 항목에 대한 이행 여부 — 12줄 예/아니오/기타/해당없음 + 점검·검사 등 일자(사이트 칸 번호 — 수도법이 712, 사이트 화면 차례)
+OTHER_ROWS = (("701", "「시설물의 안전 및 유지관리에 관한 특별법」 제11조에 따른 안전점검 이행 여부", "예: 대상 건축물이 아님"),
+              ("702", "「화재예방, 소방시설 설치·유지 및 안전관리에 관한 법률」 제25조에 따른 소방시설등의 자체점검 등 이행 여부", "예: 26.02.15 소방점검"),
+              ("712", "「수도법」 제33조에 따른 위생상의 조치 이행 여부", "예: 26.05.15 저수조 청소"),
+              ("703", "「승강기 안전관리법」 제28조 및 제32조에 따른 승강기 설치검사 및 안전검사 이행 여부", "예: 26.01.22 승강기 점검"),
+              ("704", "「에너지이용 합리화법」 제39조에 따른 검사대상기기의 검사 이행 여부", "예: 보일러 미사용"),
+              ("705", "「전기안전관리법」 제12조에 따른 일반용전기설비의 점검 이행 여부", "예: 26.08.03 전기점검"),
+              ("706", "「하수도법」 제39조에 따른 개인하수처리시설의 운영·관리 이행 여부", "예: 개인하수처리시설 미사용"),
+              ("707", "「공동주택관리법」 제33조 및 제34조에 따른 안전점검 및 소규모 공동주택 안전관리 이행 여부", "예: 공동주택이 아님"),
+              ("708", "「도시가스사업법」 제17조에 따른 정기검사 및 수시검사 이행 여부", "예: 지역가스업체 개별 위탁점검"),
+              ("709", "「도시 및 주거환경정비법」 제12조에 따른 안전진단 이행 여부", "예: 해당 대상이 아님"),
+              ("710", "「건축법」 제22조에 따라 사용승인을 신청할 때 제출된 설계도서의 내용대로 유지·관리되는지 여부", ""),
+              ("711", "건축물의 안전을 강화하고 에너지 절감을 위하여 보완해야 할 사항이 있는지 여부", ""))
+OTHER_VALUES = ("예", "아니오", "기타", "해당없음")
+# 주요 개선방안에 대한 의견 다섯 칸 + 종합의견(사이트 칸 bildFuncMtnImprvOpin … gnrlzImprvOpin, 종합의견 2000자 내외)
+OPINION_KEYS = (("func", "건축물 기능유지", "bildFuncMtnImprvOpin"), ("energy", "에너지 절감", "energyImprvOpin"), ("fire", "화재안전 강화", "fireSafeImprvOpin"),
+                ("struct", "구조안전 강화", "strctSafeImprvOpin"), ("etc", "그 밖의 방안(수명 연장 등)", "etcImprvOpin"), ("total", "종합의견", "gnrlzImprvOpin"))
+
+
+def grade_of(pct: float) -> str:
+    return "A" if pct >= 95 - 1e-9 else "B" if pct >= 85 - 1e-9 else "C" if pct >= 65 - 1e-9 else "D" if pct >= 55 - 1e-9 else "E"
+
+
+def recap(results: dict | None) -> list[dict]:
+    """총괄표 — [{key, label, site, kind, text("1건"·"A"·"-"·""), value}]. 아직 안 쓴 소항목만 있으면 text "" (미작성)."""
+    results = results or {}
+    by_mid: dict[str, list[tuple[dict, dict]]] = {}
+    for it in items():
+        by_mid.setdefault(_sq(it["mid"]), []).append((it, evaluate(it, results.get(it["code"]))))
+    out = []
+    for key, label, site, kind in RECAP:
+        evs = by_mid.get(key, [])
+        done = [(it, e) for it, e in evs if e["state"] in ("done", "na")]
+        live = [(it, e) for it, e in done if e["state"] != "na"]
+        text, value = "", None
+        if evs and len(done) == len(evs) and not live:
+            text = "-"
+        elif kind == "count":
+            if live:
+                value = sum(e.get("count") or 0 for _, e in live)
+                text = f"{value}건"
+        elif kind == "cert":
+            if live:
+                value = sum(1 for _, e in live for d in e.get("details") or [] if d.get("judge") in ("인증", "재인증"))
+                text = f"{value}건" if value else "-"
+        else:
+            sc = sum(e["score"] for _, e in live if e.get("score") is not None)
+            fl = sum(e["full"] for _, e in live if e.get("full"))
+            if fl:
+                value = round(100 * sc / fl, 1)
+                text = grade_of(value)
+        out.append({"key": key, "label": label, "site": site, "kind": kind, "text": text, "value": value,
+                    "done": len(done), "total": len(evs)})
+    return out
+
+
+def plan_grade(plan: dict | None) -> str:
+    """관리계획 적합 여부 — 하나라도 부적합이면 "부적합", 8줄 다 적합이면 "적합", 아니면 ""."""
+    plan = plan or {}
+    vals = [plan.get(code) for code, _ in PLAN_ROWS]
+    if "부적합" in vals:
+        return "부적합"
+    return "적합" if all(v == "적합" for v in vals) else ""

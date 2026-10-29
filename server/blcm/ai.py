@@ -173,3 +173,86 @@ def photo_bytes(folder: Path, photos: list[dict]) -> list[tuple[bytes, str, str]
 
 def dump(obj) -> str:
     return json.dumps(obj, ensure_ascii=False)
+
+
+# ---------- 주요 개선방안에 대한 의견·종합의견(10/29 2단계 나머지) ----------
+OPINION_PROMPT = """당신은 건축물관리법 정기점검 보고서를 쓰는 점검자입니다. 아래 점검 결과를 바탕으로 "주요 개선방안에 대한 의견" 다섯 칸과 "종합의견"을 쓰세요.
+
+[작성 방법 — 매뉴얼(국토교통부 2025.2) 2.5.4·2.5.5]
+- 주요 개선방안에 대한 의견: 3장 점검세부항목별 결과를 근거로 건축물 기능유지(급·배수·냉난방·전기설비·마감 등), 에너지 절감(열손실 방지·단열·친환경),
+  화재안전 강화(피난·방화구획·마감재·내화), 구조안전 강화(대지안전·구조부재·내진), 그 밖의 방안(수명 연장 등 — 관리계획·법정 점검 이행 등)을 요약.
+  칸마다 2~4문장, 부적합·미흡·보통 항목이 있으면 그 내용과 개선방안을, 없으면 양호하게 유지되고 있으며 지속적인 관리가 필요하다는 취지로.
+- 종합의견: 주요 개선방안 의견을 참조해 건축물의 안전 및 성능에 대한 문제점과 최적의 개선방안을 총괄(400~800자). 경과년수, 전반적 상태, 주의할 점, 관리계획 수립 여부를 담음.
+- 예시 말투: "본 건축물은 경과년수가 18년 이상되어 설비부분의 노후화가 진행되는 부분이 있으나 지속적인 관리 및 보수로 종합적으로 양호한 상태인 것으로 조사되었으며, …"
+- 보고서체("~임", "~함", "~것으로 조사됨", "~필요함"), 점검 결과에 없는 결함·수치·법령을 지어내지 마세요.
+
+[건축물 개요]
+{facts}
+- 경과년수: {age}
+
+[점검 결과 — 대항목별(판정 / 의견·비고)]
+{results}
+
+[총괄표] {recap}
+[건축물관리계획 수립 및 이행 적합 여부] {plan}
+[그 밖의 항목 이행 여부]
+{other}
+[지금 적힌 의견]
+{current}
+{extra}
+아래 JSON 하나로만 답하세요(설명 없이):
+{{"func": "…", "energy": "…", "fire": "…", "struct": "…", "etc": "…", "total": "…"}}"""
+
+
+def _age(building: dict | None) -> str:
+    import re as _re
+
+    m = _re.match(r"(\d{4})", str((building or {}).get("approval_date") or ""))
+    if not m:
+        return "(사용승인일 모름)"
+    return f"사용승인 {m.group(1)}년 → 약 {datetime.date.today().year - int(m.group(1))}년"
+
+
+def _results_text(results: dict | None) -> str:
+    results = results or {}
+    rows, big = [], None
+    for it in I.items():
+        res = results.get(it["code"]) or {}
+        ev = I.evaluate(it, res)
+        if it["big_key"] != big:
+            big = it["big_key"]
+            rows.append(f"■ {I.BIG_LABEL.get(big, big)}")
+        if ev["state"] == "empty":
+            continue
+        judge = "해당없음" if ev["state"] == "na" else (ev.get("summary") or "작성 중")
+        tx = res.get("texts") or {}
+        notes = [f"{lab}: {tx[k]}" for k, lab in (("ilglt", "개선사항(위법)"), ("perf", "성능개선"), ("rm", "비고")) if (tx.get(k) or "").strip() not in ("", "-")]
+        rows.append(f"- {it['code']} {it['name']}({it['mid']}): {judge}" + (" / " + " / ".join(n[:200] for n in notes) if notes else ""))
+    return "\n".join(rows)
+
+
+def opinion(job, company_id: int, extra: str = "") -> dict:
+    """주요 개선방안 의견 다섯 칸 + 종합의견 → {func, energy, fire, struct, etc, total, made_at}. 약 50~100원(글만, 사진 없음)."""
+    from server.sitok import vision
+
+    op = job.opinion or {}
+    recap = ", ".join(f"{r['label']} {r['text'] or '미작성'}" for r in I.recap(job.results))
+    plan = op.get("plan") or {}
+    plan_text = I.plan_grade(plan) or "미작성"
+    bad_plan = [lab for code, lab in I.PLAN_ROWS if plan.get(code) == "부적합"]
+    if bad_plan:
+        plan_text += " — 부적합: " + ", ".join(bad_plan)
+    other = op.get("other") or {}
+    other_text = "\n".join(f"- {lab}: {(other.get(code) or {}).get('v') or '미작성'}" + (f" ({other[code]['note']})" if (other.get(code) or {}).get("note") else "")
+                           for code, lab, _ in I.OTHER_ROWS)
+    cur = op.get("texts") or {}
+    current = "\n".join(f"- {lab}: {cur[k]}" for k, lab, _ in I.OPINION_KEYS if (cur.get(k) or "").strip()) or "(없음)"
+    prompt = OPINION_PROMPT.format(facts=B.facts(job.building), age=_age(job.building), results=_results_text(job.results)[:12000], recap=recap,
+                                   plan=plan_text, other=other_text, current=current,
+                                   extra=f"[점검자가 덧붙인 내용 — 반영할 것]\n{extra.strip()}\n" if (extra or "").strip() else "")
+    raw = vision.ask_json(company_id, [], prompt, max_tokens=4000, writing=True)
+    if not isinstance(raw, dict):
+        raise RuntimeError("AI 답을 읽지 못했습니다")
+    out = {k: str(raw.get(k) or "").strip()[:2500] for k, _, _ in I.OPINION_KEYS}
+    out["made_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    return out
