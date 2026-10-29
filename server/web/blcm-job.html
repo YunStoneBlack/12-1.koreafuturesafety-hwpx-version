@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>건축물관리점검 건 - 보고서 자동화</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/blcm.css" />
+</head>
+<!-- 건축물관리점검 건 화면(2026-10-29 사용자): 위 = 건축물 개요(대장)·관리자·점검 정보, 아래 = 대항목 탭(법규유지·기능유지·에너지 및 친환경·구조안전·화재안전)의
+     소항목 카드 50개(판정·점검현황·사진·🤖 AI·글 네 칸·매뉴얼 기준). 고치면 바로 저장(PUT /blcm/jobs/{id}/items/{code}). 화면 js/blcm-job.js -->
+<body data-report-tab="blcm" data-law="sitok" data-tabs-only>
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div class="crumb"><a href="blcm.html">건축물관리점검</a> › <span id="bj-crumb">건</span></div>
+<div id="error" class="error"></div>
+
+<section class="panel bj-top">
+  <div class="panel-head"><h2 id="bj-title">건축물</h2><span class="panel-count" id="bj-sub"></span></div>
+  <div class="panel-body">
+    <div class="bj-prog"><span class="bj-bar big"><i id="bj-bar"></i></span><span id="bj-prog-t"></span></div>
+    <div class="bj-top-btns">
+      <label class="secondary bj-file-btn">🏢 건축물대장 올리기<input type="file" accept=".pdf,application/pdf" hidden data-kr-file="1" id="bj-reg" /></label>
+      <a class="secondary-link" id="bj-reg-view" target="_blank" rel="noopener" hidden>📄 대장 보기</a>
+      <span class="mail-note" id="bj-reg-msg"></span>
+    </div>
+  </div>
+</section>
+
+<details class="panel sk-fold" id="bj-info">
+  <summary class="panel-head"><h2>🏢 건축물 개요 · 관리자 · 점검 정보</h2><span class="panel-count">대장에서 읽은 값 — AI가 기준면적·건폐율 등에 씀, 틀리면 고치고 [저장]</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body">
+    <div class="bj-sec-t">건축물 개요</div>
+    <div class="field-grid" id="bj-building"></div>
+    <div class="bj-sec-t">관리자(소유자)</div>
+    <div class="field-grid" id="bj-owner"></div>
+    <div class="bj-sec-t">점검 정보</div>
+    <div class="field-grid" id="bj-contract"></div>
+    <div class="mail-msg" id="bj-info-msg" hidden></div>
+    <div class="ds-foot"><button type="button" id="bj-info-save">저장</button></div>
+  </div>
+</details>
+
+<section class="panel">
+  <div class="panel-head"><h2>점검 항목</h2><span class="panel-count">매뉴얼(국토교통부 2025.2) 소항목 50개 — 판정·사진을 넣고 🤖 AI로 채우기</span></div>
+  <div class="panel-body">
+    <div class="bj-tabs" id="bj-tabs" role="tablist"></div>
+    <div id="bj-items"><div class="empty-note">불러오는 중…</div></div>
+  </div>
+</section>
+
+  </main>
+</div>
+<script src="app.js"></script>
+<script src="mail.js"></script>
+<script src="shell.js"></script>
+<script src="js/blcm-job.js"></script>
+</body>
+</html>

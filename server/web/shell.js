@@ -46,6 +46,15 @@ function renderReportHeader() {
   const tabsOnly = document.body.dataset.tabsOnly !== undefined;
   const head = document.createElement("div");
   head.className = "report-head";
+  if (active === "blcm") { // 건축물관리점검(10/29 사용자) — 내진처럼 탭 없이, 건 화면(tabs-only)은 경로 표시만
+    if (!tabsOnly) {
+      head.classList.add("no-tabs");
+      head.innerHTML = '<h1>보고서 자동화<span class="law-badge common">건축물관리점검</span></h1><p class="page-sub">건축물관리법 정기점검 — 항목별 판정·현장 사진을 넣으면 AI가 점검현황·개선방안·근거·비고를 채우고, 생애이력시스템 보고서로 냅니다.</p>';
+      main.prepend(head);
+    }
+    document.documentElement.style.setProperty("--tabs-h", "0px");
+    return;
+  }
   if (active === "seismic") { // 내진성능평가(10/21 사용자 "보고서 자동화 탭에 따로") — 결함조사처럼 탭 없이, 회차·현장 조사 등(tabs-only)은 경로 표시만
     if (!tabsOnly) {
       head.classList.add("no-tabs");
@@ -131,7 +140,7 @@ function writeSidebarCache(html) {
 // 서류 자동화 아래 "실적"(10/15 민재형 "서류 자동화 밑에 실적 탭")·"설정"(10/20 형), 보고서 자동화 아래 "설정"(10/20 사용자) — 산안법·시특법 공통.
 // 그룹웨어 조각에 아직 그 줄이 없으면 여기서 더한다(그룹웨어 appshell.html에도 같은 줄을 넣어 두었고, 그쪽이 배포되면 이미 있으니 안 더함).
 const MENU_EXTRA = {
-  report: [["seismic", "seismic.html", "내진성능평가", "defect"], ["defect", "defect-survey.html", "결함조사", "set"], ["set", "settings.html", "설정"]],  // 내진성능평가·결함조사(10/21 사용자) = 시특법과 설정 사이 — 넷째 = 이 줄 앞에
+  report: [["seismic", "seismic.html", "내진성능평가", "blcm"], ["blcm", "blcm.html", "건축물관리점검", "defect"], ["defect", "defect-survey.html", "결함조사", "set"], ["set", "settings.html", "설정"]],  // 건축물관리점검(10/29) = 내진성능평가와 결함조사 사이  // 내진성능평가·결함조사(10/21 사용자) = 시특법과 설정 사이 — 넷째 = 이 줄 앞에
   docs: [["seismic", "seismic-docs.html", "내진성능평가", "perf"], ["perf", "docs-performance.html", "실적"], ["set", "docs-settings.html", "설정"]],  // 내진성능평가(10/28) = 시특법과 실적 사이
 };
 function addMenuItems(aside) {
@@ -164,7 +173,7 @@ function markSidebar(aside) {
   const subs = parent.nextElementSibling;
   if (subs && subs.classList.contains("nav-sub")) {
     const tab = document.body.dataset.docsTab || document.body.dataset.reportTab;
-    const law = { performance: "perf", settings: "set", defect: "defect", seismic: "seismic" }[tab] || (isDocsPage() && isSeismicDocs() ? "seismic" : pageLaw());  // 실적·설정·결함조사·내진성능평가 화면이면 그 줄
+    const law = { performance: "perf", settings: "set", defect: "defect", seismic: "seismic", blcm: "blcm" }[tab] || (isDocsPage() && isSeismicDocs() ? "seismic" : pageLaw());  // 실적·설정·결함조사·내진성능평가 화면이면 그 줄
     subs.querySelector(`.nav-subitem[data-law="${law}"]`)?.classList.add("active");
   }
 }

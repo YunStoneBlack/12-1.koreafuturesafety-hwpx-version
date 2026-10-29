@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>건축물관리점검 - 보고서 자동화</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/blcm.css" />
+</head>
+<!-- 건축물관리점검(2026-10-29 사용자 — 건축물관리법 정기점검, 생애이력시스템 제출까지): 왼쪽 메뉴 보고서 자동화 아래 내진성능평가 다음 줄.
+     [＋ 새 건축물관리점검] = 건축물대장 PDF를 읽어 건 만들기 → 건 화면(blcm-job.html). 서버 server/api/routers/blcm.py, 화면 js/blcm.js -->
+<body data-report-tab="blcm" data-law="sitok">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div id="error" class="error"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>＋ 새 건축물관리점검</h2><span class="panel-count">건축물대장 PDF를 올리면 명칭·위치·면적·건폐율·용적률·용도·사용승인일을 읽어 건을 만듭니다 — 못 읽은 칸은 건 화면에서 직접</span></div>
+  <div class="panel-body">
+    <div class="sk-drops">
+      <label class="sk-drop" id="bj-r-drop"><b>🏢 건축물대장 PDF</b><span class="sk-drop-msg" id="bj-r-msg">정부24 발급본(일반건축물대장 갑·을) — 끌어다 놓거나 눌러 고르기</span>
+        <input type="file" accept=".pdf,application/pdf" hidden data-kr-file="1" id="bj-r" /></label>
+    </div>
+    <div class="field-grid ds-form">
+      <div class="sk-f ds-wide"><label for="bj-name">건축물 이름 <span class="sk-help">비우면 건축물대장 명칭</span></label>
+        <input id="bj-name" placeholder="예: 우리프라자" maxlength="80" /></div>
+    </div>
+    <div class="mail-msg" id="bj-msg" hidden></div>
+    <div class="ds-foot"><button type="button" id="bj-create">만들기</button></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>건축물관리점검 목록</h2><span class="panel-count" id="bj-count"></span></div>
+  <div class="panel-body" id="bj-list"><div class="empty-note">불러오는 중…</div></div>
+</section>
+
+  </main>
+</div>
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/blcm.js"></script>
+</body>
+</html>

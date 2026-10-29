@@ -860,3 +860,29 @@ class SitokUnitPrice(Base):
     source: Mapped[str] = mapped_column(Text, default="")
     note: Mapped[str] = mapped_column(Text, default="")
     sort: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class BlcmJob(Base):
+    """웹판 전용 — 건축물관리점검(건축물관리법 정기점검) 건 하나(2026-10-29 alembic 0069, 사용자 "건축물관리점검 보고서 자동화").
+    점검 항목은 매뉴얼(25.02) 3장 소항목 50개(server/blcm/items.json), 항목마다 판정·점검현황·글·사진은 results JSON {code: {...}} + 건 폴더 사진.
+    건축물 생애이력관리시스템(blcm.go.kr) 보고서작성에 넣고 제출하는 봇은 site JSON(사이트 쪽 점검 번호 등)을 씀. 시특법 시설물 표와 따로."""
+
+    __tablename__ = "blcm_job"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    name: Mapped[str] = mapped_column(Text, default="")  # 건축물 명칭
+    address: Mapped[str] = mapped_column(Text, default="")
+    building: Mapped[dict | None] = mapped_column(JSON, default=None)  # 건축물 개요(대장에서 — 대지면적·건축면적·연면적·조경면적·용도·구조·층수·사용승인일 …)
+    owner: Mapped[dict | None] = mapped_column(JSON, default=None)  # 관리자(소유자) — 성명·전화·주소·전자우편
+    contract: Mapped[dict | None] = mapped_column(JSON, default=None)  # 점검금액·점검기간·점검책임자·점검자·계약서
+    results: Mapped[dict | None] = mapped_column(JSON, default=None)  # {소항목 code: {judge, ratings, status, texts, photos, ai}}
+    opinion: Mapped[dict | None] = mapped_column(JSON, default=None)  # 주요 개선방안에 대한 의견·종합의견
+    site: Mapped[dict | None] = mapped_column(JSON, default=None)  # 생애이력시스템 연결(점검 번호·진행 상태)
+    files: Mapped[dict | None] = mapped_column(JSON, default=None)  # 올린 서류(건축물대장 등) {kind: {rel, name, at}}
+    status: Mapped[str] = mapped_column(Text, default="")
+    memo: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    updated_by: Mapped[str] = mapped_column(Text, default="")
