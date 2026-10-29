@@ -787,6 +787,7 @@ def list_persons(user: User = Depends(get_current_user), db: Session = Depends(g
         doc = lib.person_docs(db, p.id).get(EDU_KIND)
         lx = last.get(p.id, {})
         out.append({"id": p.id, "name": p.name, "position": lx.get("position") or p.position or "", "grade": lx.get("grade") or _grade_text(p),
+                    "tech_position": p.position or "", "tech_grade": p.grade or "",  # 명단 원래 값(설정 [건축물관리법] 칸 ✏️, 10/30)
                     "edu": bool(doc and doc.file and Path(doc.file).exists()), "edu_ts": int(doc.updated_at.timestamp()) if doc and doc.updated_at else 0})
     return {"persons": out}
 

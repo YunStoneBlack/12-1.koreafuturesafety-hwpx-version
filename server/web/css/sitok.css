@@ -102,6 +102,11 @@
 .ss-person:last-child { margin-bottom: 0; }
 .ss-person-head { display: flex; gap: 10px; align-items: baseline; font-size: 14px; }
 .ss-person-head span { font-size: 12.5px; color: var(--muted); }
+.main .ss-person-head .tp-edit { margin: 0 0 0 auto; padding: 3px 10px; font-size: 12px; } /* 이름·직책 고치기(10/30) */
+.tp-form { margin: 10px 0 4px; padding: 10px 12px; border-radius: 8px; background: var(--paper); }
+.main .tp-form .tp-act { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.main .tp-form .tp-act button { margin: 0; }
+.bs-last { margin: 4px 0 0; }
 .ss-person-fields { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 10px; margin: 10px 0 4px; align-items: end; }
 .ss-person-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .ss-eq { display: grid; grid-template-columns: 100px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.4fr) 110px 36px; gap: 8px; align-items: center; padding: 6px 0; }

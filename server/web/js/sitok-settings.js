@@ -64,6 +64,7 @@
       card.querySelectorAll("[data-k]").forEach((inp) => inp.addEventListener("change", async () => {
         try { await apiPatch(`/sitok/settings/persons/${p.id}`, { [inp.dataset.k]: inp.value }); flash(inp); } catch (x) { err(x); }
       }));
+      if (typeof techPersonEdit === "function") techPersonEdit(card.querySelector(".ss-person-head"), p, load); // 이름·직책·등급(10/30 — 예전엔 서류 자동화 설정에서만)
       const docs = card.querySelector(".ss-person-docs");
       p.docs.forEach((d) => docs.appendChild(docRow(d, `/sitok/settings/persons/${p.id}/docs/${d.kind}`, `/sitok/settings/persons/${p.id}/docs/${d.kind}`, load)));
       docs.appendChild(signRow(p)); // 서명 그림(10/21 형) — 옹벽 참여기술자 명단 "서명" 칸

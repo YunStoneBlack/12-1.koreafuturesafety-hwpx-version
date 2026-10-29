@@ -10,7 +10,8 @@
 <link rel="stylesheet" href="css/sitok.css" />
 <link rel="stylesheet" href="css/mail.css" />
 </head>
-<!-- 보고서 자동화 설정(10/20 사용자 — 왼쪽 메뉴 보고서 자동화 아래 '설정'): 공통(Claude API 키·삭제 비밀번호) + [산안법][시특법] 전환.
+<!-- 보고서 자동화 설정(10/20 사용자 — 왼쪽 메뉴 보고서 자동화 아래 '설정'): 공통(Claude API 키·삭제 비밀번호) + [산안법][시특법][건축물관리법] 전환(건축물관리법 10/30 —
+     교육 서류가 용역마다 달라 기술자마다 건축물관리점검 교육 이수증, js/blcm-settings.js).
      산안법 칸 = 예전 이 화면, 시특법 칸 = 예전 sitok-settings.html(지금은 settings.html?law=sitok으로 넘김, js/sitok-settings.js·sitok-learn.js).
      전환은 ?law=sanan|sitok, 마지막 고른 쪽은 이 브라우저에 기억. -->
 <body data-report-tab="settings">
@@ -54,7 +55,7 @@
   </div>
 </section>
 
-<div class="set-law-bar"><span class="site-sort set-law" role="group" aria-label="구분"><button type="button" data-law="sanan">산안법</button><button type="button" data-law="sitok">시특법</button></span></div>
+<div class="set-law-bar"><span class="site-sort set-law" role="group" aria-label="구분"><button type="button" data-law="sanan">산안법</button><button type="button" data-law="sitok">시특법</button><button type="button" data-law="blcm">건축물관리법</button></span></div>
 
 <div class="set-pane" data-pane="sanan">
 <section class="panel">
@@ -190,6 +191,15 @@
 </section>
 </div>
 
+<div class="set-pane" data-pane="blcm" hidden>
+<p class="page-sub set-pane-intro">건축물관리점검(건축물관리법 정기점검) 보고서 부록에 들어가는 서류입니다. 기술자마다 한 번 올려 두면 모든 건에 씁니다.
+  기술자 명단은 산안법·시특법과 같고(이름·직책은 [✏️ 고치기]), 교육 서류만 용역마다 따로입니다.</p>
+<section class="panel">
+  <div class="panel-head"><h2>기술자</h2><span class="panel-count">참여기술자 명단 · 부록 점검교육 이수증</span></div>
+  <div class="panel-body" id="bs-persons"></div>
+</section>
+</div>
+
   </main>
 </div>
 
@@ -200,6 +210,7 @@
 <script src="js/settings-common.js"></script>
 <script src="js/sitok-settings.js"></script>
 <script src="js/sitok-learn.js"></script>
+<script src="js/blcm-settings.js"></script>
 <script>
 const errorEl = document.getElementById("error");
 
@@ -216,8 +227,9 @@ const errorEl = document.getElementById("error");
     history.replaceState(null, "", u);
   };
   let first = new URLSearchParams(location.search).get("law");
-  if (!["sanan", "sitok"].includes(first)) { try { first = localStorage.getItem(KEY); } catch (_) { first = null; } }
-  show(["sanan", "sitok"].includes(first) ? first : "sanan");
+  const LAWS = ["sanan", "sitok", "blcm"];
+  if (!LAWS.includes(first)) { try { first = localStorage.getItem(KEY); } catch (_) { first = null; } }
+  show(LAWS.includes(first) ? first : "sanan");
   btns.forEach((b) => b.addEventListener("click", () => show(b.dataset.law)));
 })();
 
