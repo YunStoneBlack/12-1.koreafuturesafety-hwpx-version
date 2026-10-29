@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>견적 - 서류 자동화</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/estimate.css" />
+</head>
+<!-- 견적 한 건(2026-10-29 사용자) — 머리(번호·견적일·상태·과업내용) / 발주처·대상·담당 / 금액 줄(계산 방식별 입력 → 산출 내역 → 견적 금액·네고율) / 합계(합계 맞추기) /
+     견적 조건. 고치면 0.6초 뒤 저장(PATCH /estimates/{id}) → 서버가 계산해 돌려줌. 화면 js/estimate.js -->
+<body data-docs-tab="estimate" data-tabs-only>
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div class="crumb"><a href="estimates.html">견적</a> › <span id="es-crumb">견적</span></div>
+<div id="error" class="error"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2 id="es-title">견적</h2><span class="ds-kind" id="es-kind"></span><span class="panel-count" id="es-saved"></span></div>
+  <div class="panel-body">
+    <div class="field-grid es-grid4" id="es-head"></div>
+    <div class="es-row es-status-row"><span class="es-lab">상태</span><span class="es-seg" id="es-status"></span>
+      <span class="es-actions"><button type="button" class="secondary" id="es-copy">📋 복사해 새 견적</button><button type="button" class="secondary danger-link" id="es-del">🗑 지우기</button></span></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>발주처 · 대상 · 견적담당</h2></div>
+  <div class="panel-body">
+    <div class="field-grid es-grid3" id="es-client"></div>
+    <div class="field-grid es-grid3" id="es-project"></div>
+    <div class="field-grid es-grid3" id="es-staff"></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>금액</h2><span class="panel-count">산출 = 회사 견적서와 같은 계산(만원 미만 절사) · 견적 금액을 비우면 산출 그대로, 적으면 네고율 자동</span></div>
+  <div class="panel-body">
+    <div class="es-warns" id="es-warns"></div>
+    <div id="es-rows"></div>
+    <div class="es-row"><select id="es-addtype"></select><button type="button" class="secondary" id="es-add">＋ 줄 더하기</button></div>
+    <div class="es-total"><div id="es-total"></div>
+      <div class="es-row"><label class="es-f w2"><span>합계를 이 금액으로(VAT 포함)</span><input id="es-fit" inputmode="numeric" placeholder="예: 9,100,000" /></label>
+        <button type="button" class="secondary" id="es-fit-go">맞추기</button><button type="button" class="secondary" id="es-fit-clear">견적 금액 비우기(산출 그대로)</button></div></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>견적 조건 · 비고</h2></div>
+  <div class="panel-body">
+    <div class="field-grid">
+      <div class="sk-f"><label for="es-cond">견적 조건 <span class="sk-help">한 줄에 하나</span></label><textarea id="es-cond" rows="4"></textarea></div>
+      <div class="sk-f"><label for="es-note">비고(견적서 아래)</label><textarea id="es-note" rows="4"></textarea></div>
+    </div>
+    <p class="mail-note">📄 엑셀·PDF 출력(회사 견적서 양식 그대로)은 다음 단계에서 붙입니다.</p>
+  </div>
+</section>
+
+  </main>
+</div>
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/estimate.js"></script>
+</body>
+</html>

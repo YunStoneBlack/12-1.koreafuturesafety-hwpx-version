@@ -45,6 +45,7 @@ from server.api.routers import (
     sitok_seismic,
     seismic,
     blcm,
+    estimates,
     sitok_cycle,
     sitok_prev,
     sitok_overview,
@@ -146,6 +147,7 @@ web_app.include_router(sitok_rebar.router, prefix="/api")  # 구조 일람표 �
 web_app.include_router(sitok_seismic.router, prefix="/api")  # 내진성능평가 현장시험 — 철근탐사(설계값 일람표·캡처 읽기·표, 2026-10-21)
 web_app.include_router(seismic.router, prefix="/api")  # 내진성능평가 건 — 시특법과 별개 용역(계약서·건축물대장으로 만들기, 서류 칸, 사용자 2026-10-21)
 web_app.include_router(blcm.router, prefix="/api")  # 건축물관리점검(건축물관리법 정기점검) — 항목 50개·사진·AI, 생애이력시스템 제출(사용자 2026-10-29)
+web_app.include_router(estimates.router, prefix="/api")  # 통합 견적 — 용역 8가지·계산·관리(서류 자동화 › 견적, 사용자 2026-10-29)
 web_app.include_router(sitok_cycle.router, prefix="/api")  # 시특법 정밀안전점검·정밀안전진단 도래주기 — 계약 창 회차 줄(민재형 2026-10-20, 시행령 별표 3)
 web_app.include_router(sitok_overview.router, prefix="/api")  # 시특법 전경사진(10·11쪽)
 web_app.include_router(sitok_groups.router, prefix="/api")  # 시특법 동 묶음(한 계약 여러 동 — 2026-10-12)

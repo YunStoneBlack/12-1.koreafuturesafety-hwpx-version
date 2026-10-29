@@ -1,0 +1,104 @@
+/* 통합 견적(2026-10-29) — 목록(estimates.html)·견적(estimate.html). 색·선은 app.css 변수. style.css가 label·input·button을 넓혀서 선택자는 .main 아래. PC 우선 + 폰(760px 아래) */
+.main .es-kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.main .es-kind { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; min-height: 86px; }
+.main .es-kind:hover { border-color: var(--blue); background: var(--blue-soft); }
+.main .es-kind b { font-size: 15px; }
+.main .es-kind small { font-size: 12px; color: var(--muted); font-weight: 500; }
+.main .es-kind-i { font-size: 20px; }
+.main .es-filter { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.main .es-filter select, .main .es-filter input { width: auto; margin: 0; padding: 7px 10px; }
+.main .es-filter input { flex: 1; min-width: 200px; }
+.main .es-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.main .es-chip { margin: 0; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; }
+.main .es-chip small { color: var(--faint); margin-left: 2px; }
+.main .es-chip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.main .es-chip.on small { color: rgba(255, 255, 255, .8); }
+.main .es-st { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: var(--paper); color: var(--muted); }
+.main .es-st.sent { background: var(--blue-soft); color: var(--blue); }
+.main .es-st.won { background: var(--green-soft); color: var(--green); }
+.main .es-st.lost { background: var(--crit-soft); color: var(--crit); }
+.main .es-money { color: var(--ink); font-variant-numeric: tabular-nums; }
+.main .es-sec { margin-top: 16px; }
+.main .es-sec:first-child { margin-top: 0; }
+.main .es-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.main .es-row label { margin: 0; display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.main .es-row select { width: auto; margin: 0; }
+.main .es-row button { margin: 0; }
+.main .es-inline input { width: auto; margin: 0; }
+.main .es-warn { color: var(--warn); font-size: 13px; font-weight: 600; }
+.main .es-warns .es-warn { background: var(--warn-soft); padding: 7px 10px; border-radius: 8px; margin-bottom: 8px; }
+.main .es-grid4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.main .es-grid3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.main .es-bands { display: flex; flex-direction: column; gap: 6px; }
+.main .es-band { display: grid; grid-template-columns: 1.3fr 1.2fr 1.3fr 1fr; gap: 6px; }
+.main .es-band input { margin: 0; }
+
+/* 견적 화면 */
+.main .es-status-row { margin-top: 14px; }
+.main .es-lab { font-size: 13px; font-weight: 600; }
+.main .es-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.main .es-seg button { margin: 0; border: 0; border-right: 1px solid var(--line); background: var(--surface); color: var(--muted); padding: 6px 14px; font-size: 13px; cursor: pointer; }
+.main .es-seg button:last-child { border-right: 0; }
+.main .es-seg button.on { background: var(--blue); color: #fff; font-weight: 700; }
+.main .es-actions { margin-left: auto; display: flex; gap: 6px; }
+.main .es-actions button { margin: 0; }
+.main .es-rowcard { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; background: var(--surface); overflow: hidden; }
+.main .es-rowhead { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; padding: 10px 12px; background: var(--paper); border-bottom: 1px solid var(--line); }
+.main .es-no { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--blue); color: #fff; font-weight: 700; font-size: 13px;
+  display: inline-flex; align-items: center; justify-content: center; margin-bottom: 6px; }
+.main .es-type { font-size: 12px; color: var(--muted); margin: 0 0 9px auto; white-space: nowrap; }
+.main .es-x { margin: 0 0 4px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); cursor: pointer; }
+.main .es-rowbody { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; padding: 12px; }
+.main .es-fs { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 8px; }
+.main .es-f { display: flex; flex-direction: column; gap: 3px; margin: 0; width: 104px; font-weight: 500; position: relative; }
+.main .es-f.w2 { width: 210px; }
+.main .es-f.w3 { width: 280px; }
+.main .es-f > span { font-size: 11.5px; color: var(--muted); }
+.main .es-f input, .main .es-f select { margin: 0; padding: 6px 8px; width: 100%; box-sizing: border-box; font-size: 13.5px; }
+.main .es-f em { position: absolute; right: 8px; bottom: 8px; font-style: normal; font-size: 11px; color: var(--faint); pointer-events: none; }
+.main .es-f input[data-t="num"], .main .es-f input[data-t="pct"] { text-align: right; padding-right: 30px; font-variant-numeric: tabular-nums; }
+.main .es-task { border-left: 3px solid var(--blue-soft); padding-left: 10px; margin-bottom: 8px; }
+.main .es-task-h { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 6px; }
+.main .es-task-h button { margin: 0 0 2px; padding: 5px 10px; }
+.main .es-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.main .es-tbl td { border-bottom: 1px solid var(--line); padding: 5px 6px; vertical-align: top; }
+.main .es-tbl td:first-child { white-space: nowrap; font-weight: 600; color: var(--ink); width: 1%; }
+.main .es-tbl td:nth-child(2) { color: var(--muted); }
+.main .es-tbl td:last-child { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.main .es-tbl tr.es-sub td { background: var(--paper); }
+.main .es-tbl tr.es-calc td { font-weight: 700; color: var(--ink); background: var(--blue-soft); border-bottom: 0; }
+.main .es-price { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
+.main .es-nego { font-size: 13px; color: var(--warn); font-weight: 700; margin-bottom: 8px; }
+.main .es-supply { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.main .es-supply b { color: var(--ink); font-size: 15px; }
+.main .es-total { margin-top: 6px; padding: 12px 14px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); }
+.main .es-sum { display: flex; gap: 18px; flex-wrap: wrap; align-items: baseline; font-size: 13px; color: var(--muted); }
+.main .es-sum b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.main .es-grand { margin-left: auto; font-size: 15px; }
+.main .es-grand b { font-size: 19px; color: var(--blue); }
+.main .es-korean { margin-top: 4px; text-align: right; font-size: 13px; color: var(--muted); }
+.main .danger-link { color: var(--crit); }
+
+@media (max-width: 760px) {
+  .main .es-kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .main .es-grid4, .main .es-grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .main .es-band { grid-template-columns: 1fr 1fr; }
+  .main .es-rowbody { grid-template-columns: 1fr; }
+  .main .es-f { width: calc(50% - 4px); }
+  .main .es-f.w2, .main .es-f.w3 { width: 100%; }
+  .main .es-actions { margin-left: 0; width: 100%; }
+  .main .es-grand { margin-left: 0; width: 100%; }
+  .main .es-korean { text-align: left; }
+  .main .es-filter input { min-width: 0; width: 100%; }
+}
+/* 줄 입력 칸 = 4칸 격자(10/29 — 칸이 들쭉날쭉 꺾이던 것) */
+.main .es-inputs .es-fs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.main .es-inputs .es-f { width: auto; }
+.main .es-inputs .es-f.w2 { grid-column: span 2; width: auto; }
+.main .es-inputs .es-f.w3 { grid-column: span 3; width: auto; }
+.main .es-inputs .es-linedel { align-self: end; justify-self: start; }
+@media (max-width: 760px) {
+  .main .es-inputs .es-fs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .main .es-inputs .es-f.w3 { grid-column: span 2; }
+}

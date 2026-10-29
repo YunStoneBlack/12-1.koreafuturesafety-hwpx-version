@@ -886,3 +886,32 @@ class BlcmJob(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     updated_by: Mapped[str] = mapped_column(Text, default="")
+
+
+class Estimate(Base):
+    """웹판 전용 — 통합 견적(2026-10-29 alembic 0070, 사용자 "그룹웨어 통합 견적서 — 각 용역별로 선택해서 쓰고 관리"). 서류 자동화 › 견적.
+    용역 종류(kind)는 server/estimate/calc.KINDS 8가지, 금액 줄(rows)은 계산 방식(sitok·blcm·eng·visit·item)마다 입력 값 — 계산 결과는 그때그때(calc_row).
+    번호(no)는 회사 안에서 겹치지 않게(API가 확인), 상태 = draft 작성중 · sent 보냄 · won 수주 · lost 실패."""
+
+    __tablename__ = "estimate"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("company.id"), index=True)
+    no: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(Text, default="draft")
+    issued_on: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    title: Mapped[str] = mapped_column(Text, default="")  # 과업내용(표지)
+    client: Mapped[dict | None] = mapped_column(JSON, default=None)  # 상호명(발주처)·대표자·참조·연락처·메일
+    project: Mapped[dict | None] = mapped_column(JSON, default=None)  # 공사명/시설명·주소·공사금액·공사기간·층수·연면적…
+    staff: Mapped[dict | None] = mapped_column(JSON, default=None)  # 견적담당·연락처
+    rows: Mapped[list | None] = mapped_column(JSON, default=None)  # 금액 줄(계산 입력)
+    options: Mapped[dict | None] = mapped_column(JSON, default=None)  # 견적 조건 줄·비고·합계 맞추기
+    totals: Mapped[dict | None] = mapped_column(JSON, default=None)  # 마지막 계산(목록용) — 공급가·부가세·합계
+    link: Mapped[dict | None] = mapped_column(JSON, default=None)  # 수주 뒤 이어진 계약·건(다음 단계)
+    files: Mapped[dict | None] = mapped_column(JSON, default=None)  # 만든 엑셀·PDF(다음 단계)
+    memo: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
+    updated_by: Mapped[str] = mapped_column(Text, default="")
