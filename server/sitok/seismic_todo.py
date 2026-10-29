@@ -16,7 +16,9 @@ from server.sitok import report_build as rb
 from server.sitok import seismic_vendor as SV
 
 HP = rb.HP
-YELLOW = "#FFF2A8"  # 연한 노랑(인쇄해도 글이 보임)
+YELLOW = "#FFF2A8"  # 연한 노랑(인쇄해도 글이 보임) — 우리가 넣을 값인데 입력·서류가 없음
+VENDOR = "#D4E8FF"  # 연한 하늘색 — 외주 결과물(결과표 나~마·(2)~체크리스트·구조해석 문단)로 채워질 값(10/29 사용자 "색을 구분")
+LEGEND = "색 구분 — 노랑: 우리가 넣을 값(현장조사 입력·서류가 없음) · 하늘색: 외주 결과물을 받으면 채워질 값"
 LABEL = re.compile(r"^\s*(\(?[0-9]{1,2}[).](?![0-9])|[A-Za-z][.)](?![0-9])|[가-하][.)]|[①-⑳]|[■□▣◆◇※]\s*[가-힣A-Za-z])")  # 번호·기호 붙은 이름("1. 일반사항" — "0.0023"은 아님)
 PAIR = re.compile(r"^(\s*[^:：\d]{1,24}[:：])\s*\S")  # "용도: 교육연구시설"처럼 이름과 값이 한 칸
 VALUE_WORDS = {"유", "무", "○", "◎", "●", "×", "O", "X", "만족", "불만족", "적합", "부적합", "적용", "미적용", "비적용", "해당없음", "있음", "없음",
@@ -30,12 +32,12 @@ def _txt(el) -> str:
     return "".join(t.text or "" for t in el.iter(rb.T))
 
 
-def paint(tc) -> None:
-    """칸 바탕을 노랗게(테두리 그대로) — report_build.using_borders 안에서만(밖이면 그대로)."""
+def paint(tc, color: str = YELLOW) -> None:
+    """칸 바탕을 노랗게(외주 몫은 color=VENDOR 하늘색, 테두리 그대로) — report_build.using_borders 안에서만(밖이면 그대로)."""
     b = getattr(rb._TL, "borders", None)
     if b is None or tc is None:
         return
-    nid = b.fill(tc.get("borderFillIDRef"), YELLOW)
+    nid = b.fill(tc.get("borderFillIDRef"), color)
     if nid:
         tc.set("borderFillIDRef", nid)
 
@@ -49,15 +51,15 @@ def paint_empty(t, start: int) -> None:
             paint(tc)
 
 
-def mark_text(p) -> None:
-    """문단 글에 노란 형광펜(글자 모양 shadeColor) — 테두리 도구 안에서만."""
+def mark_text(p, color: str = YELLOW) -> None:
+    """문단 글에 노란 형광펜(외주 몫은 하늘색, 글자 모양 shadeColor) — 테두리 도구 안에서만."""
     b = getattr(rb._TL, "borders", None)
     if b is None:
         return
     for run in p.iter(f"{{{HP}}}run"):
         cid = run.get("charPrIDRef")
-        new = b._char_variant(cid, lambda d: re.sub(r'shadeColor="[^"]*"', f'shadeColor="{YELLOW}"', d, count=1) if "shadeColor=" in d
-                              else d.replace("<hh:charPr ", f'<hh:charPr shadeColor="{YELLOW}" ', 1))
+        new = b._char_variant(cid, lambda d: re.sub(r'shadeColor="[^"]*"', f'shadeColor="{color}"', d, count=1) if "shadeColor=" in d
+                              else d.replace("<hh:charPr ", f'<hh:charPr shadeColor="{color}" ', 1))
         if new:
             run.set("charPrIDRef", new)
 
@@ -66,7 +68,7 @@ def _gray(tc) -> bool:
     b = getattr(rb._TL, "borders", None)
     d = b.by_id.get(str(tc.get("borderFillIDRef"))) if b is not None else None
     m = re.search(r'faceColor="([^"]+)"', d or "")
-    return bool(m) and m[1].lower() not in ("none", "#ffffff", YELLOW.lower())
+    return bool(m) and m[1].lower() not in ("none", "#ffffff", YELLOW.lower(), VENDOR.lower())
 
 
 def value_like(text: str) -> bool:
@@ -107,8 +109,10 @@ class Todo:
                 a = starts[-1]
                 end = next((j for j in range(a + 1, len(tops)) if re.match(r"^제\s*3\s*장", rb._top_text(tops[j]).strip())), len(tops))
                 areas.append(tops[a + 1:end])
+        self.kind: dict = {}  # 칸·문단·그림 → "vendor"(외주 몫, 하늘색) | "ground"(지반 — 우리 서류, 노랑)
         for k, paras in enumerate(areas):
             in_ground = ground and k == len(areas) - 1
+            kind = "ground" if in_ground else "vendor"
             for p in paras:
                 tbls = [t for t in p.iter(f"{{{HP}}}tbl")]
                 if not tbls:
@@ -116,14 +120,18 @@ class Todo:
                     body = re.sub(r"^\s*(\(?[0-9]{1,2}[).]|[가-하][.)]|[①-⑳·•ㆍ-])\s*", "", t)  # 앞 번호·글머리 떼고
                     if re.search(r"\d", body) and len(body.strip()) > 12:
                         self.paras[p] = t
+                        self.kind[id(p)] = kind
                 for t in tbls:
                     if next(t.iterancestors(f"{{{HP}}}tbl"), None) is not None:
                         continue
                     for tc in rb._cells(t).values():
                         self.cells[tc] = (t, _txt(tc) + ("[수식]" if next(tc.iter(f"{{{HP}}}equation"), None) is not None else ""))
+                        self.kind[id(tc)] = kind
                     if in_ground or "모델링" in re.sub(r"\s", "", _txt(t))[:40]:
                         self.pics += [(t, pic) for pic in t.iter(f"{{{HP}}}pic")]
                         self.oles += [(t, ole) for ole in t.iter(f"{{{HP}}}ole")]
+                        for x in list(t.iter(f"{{{HP}}}pic")) + list(t.iter(f"{{{HP}}}ole")):
+                            self.kind[id(x)] = kind
         self.on = bool(areas)
         if self.on:
             rb._TL.written = set()  # report_build._set_lines가 쓴 칸을 담음
@@ -150,7 +158,7 @@ class Todo:
             head = re.match(r"^\s*[가-하]\.\s*\S", before)  # 결과표 "나. 구조물의 정보" 같은 마디 머리
             if (labeled and not head and not LABEL.match(before)) or value_like(before) or "[수식]" in before or PAIR.match(before):
                 _clear_keep_label(tc)
-                paint(tc)
+                paint(tc, self._color(tc))
                 n += 1
         for p, before in self.paras.items():
             if _txt(p) != before or self.doc.root not in p.iterancestors():
@@ -158,23 +166,30 @@ class Todo:
             ts = list(p.iter(rb.T))
             if not ts:
                 continue
-            ts[0].text = "(외주 결과물·서류를 올리면 채워집니다)"
+            vendor = self.kind.get(id(p)) == "vendor"
+            ts[0].text = "(외주 결과물을 받으면 채워집니다)" if vendor else "(지반조사보고서를 올리면 채워집니다)"
             for x in ts[1:]:
                 x.text = ""
-            mark_text(p)
+            mark_text(p, VENDOR if vendor else YELLOW)
             n += 1
         for t, ole in self.oles:  # 견본 지반 위치도(OLE) — 지우고 그 칸 노랑
             if ole.getparent() is not None and self.doc.root in ole.iterancestors():
                 tc = next(ole.iterancestors(f"{{{HP}}}tc"), None)
+                kind = self.kind.get(id(ole))
                 ole.getparent().remove(ole)
-                paint(tc)
+                paint(tc, VENDOR if kind == "vendor" else YELLOW)
                 n += 1
         if self.pics:
             from server.sitok import seismic_fill
 
-            blank = seismic_fill.blank_png(rdir)
             for t, pic in self.pics:
                 if pic.getparent() is not None and self.doc.root in pic.iterancestors():  # 사진 여러 장 표(지반 조사 현황)는 사진 칸 여백도(10/27)
+                    blank = seismic_fill.blank_png(rdir, vendor=self.kind.get(id(pic)) == "vendor")  # 모델링 그림(외주) = 하늘색 빈칸
                     seismic_fill._put(self.doc, pic, blank, crop=False, pad=len(rb._pic_slots(t)) >= 2)
                     n += 1
+        if n and LEGEND not in warn:
+            warn.append(LEGEND)
         return n
+
+    def _color(self, tc) -> str:
+        return VENDOR if self.kind.get(id(tc)) == "vendor" else YELLOW

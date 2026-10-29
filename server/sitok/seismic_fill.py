@@ -403,14 +403,14 @@ def replace_loose(doc, old, new: str) -> int:
     return n
 
 
-def blank_png(rdir: Path) -> Path:
-    """빈칸 그림(연한 노랑) — 입력이 없으면 견본 사진 대신(10/22 형 "없으면 공란이 정상", 10/26 "노란색으로 바뀌어야 한다는 표시" — 전엔 흰 바탕)."""
+def blank_png(rdir: Path, vendor: bool = False) -> Path:
+    """빈칸 그림(연한 노랑, 외주 몫은 연한 하늘색 — 10/29 색 구분) — 입력이 없으면 견본 사진 대신(10/22 형 "없으면 공란이 정상", 10/26 "노란색으로 바뀌어야 한다는 표시")."""
     from PIL import Image
 
-    p = rdir / "보고서그림" / "빈칸_노랑.png"
+    p = rdir / "보고서그림" / ("빈칸_외주.png" if vendor else "빈칸_노랑.png")
     if not p.exists():
         p.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (400, 300), (255, 242, 168)).save(p)
+        Image.new("RGB", (400, 300), (212, 232, 255) if vendor else (255, 242, 168)).save(p)
     return p
 
 
@@ -1859,7 +1859,7 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     if db is not None:
         n += fill_defects(root, defect_rows(db, r.id), member_tpl)
     if not front_taken:
-        n += fill_result_na(root, d, reg, ground, field, SD.has_drawings(f))
+        n += fill_result_na(root, d, reg, ground, field, SD.has_drawings(f), vendor_text)
         n += fill_checklist_counts(root, field["members"], warn)  # 체크리스트 D 1층 조사 수량(10/28) — 외주 견본 전체를 옮겼으면 외주 값 그대로
     saved = (field.get("summary") or "").strip()
     chief = d["persons"][0]["name"] if d.get("persons") else ""
@@ -1868,7 +1868,7 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     if not saved:
         warn.append("요약문 종합의견은 자동 문장입니다 — 현장조사 입력 📝에서 고치거나 🤖 AI 초안")
     if not vres.get("before"):
-        warn.append("요약문 종합의견 선형해석·보강 문단은 외주 결과 전이라 ○○ 자리 글(노랑) — 서류 칸 외주 한글을 올린 뒤 [다시 만들기]")
+        warn.append("요약문 종합의견 선형해석·보강 문단은 외주 결과 전이라 ○○ 자리 글(하늘색) — 서류 칸 외주 한글을 올린 뒤 [다시 만들기]")
     return n
 
 
@@ -2041,7 +2041,7 @@ def fill_opinion(root, text: str, chief: str, vendor: dict | None = None) -> int
         if yellow and (2, 0) in cells:
             for q in cells[(2, 0)].iter(f"{{{HP}}}p"):
                 if _t(q).strip() in yellow:
-                    TD.mark_text(q)  # 외주 결과(구조해석 7장)로 고쳐질 부분(10/29 사용자)
+                    TD.mark_text(q, TD.VENDOR)  # 외주 결과(구조해석 7장)로 고쳐질 부분 — 하늘색(10/29 사용자 "외주 부분은 색 구분")
         sig = next((q for q in cells[(3, 0)].iter(f"{{{HP}}}p") if _n(_t(q)).startswith("책임기술자")), None) if (3, 0) in cells else None
         m = re.match(r"(\s*책\s*임\s*기\s*술\s*자\s*:\s*)(.*?)(\s*\(.*\)\s*)$", _t(sig)) if sig is not None else None
         if chief and m:  # 서명 문단 글만 — 칸째 다시 쓰면 첫 빈 문단(붉은 작은 글자) 모양이 씌워짐(10/22 형 "검은색 글자로", "글씨 크기와 색 견본과 안 맞음")
@@ -2447,7 +2447,19 @@ def _right_of(cells: dict, r: int, c: int):
     return (r, nxt[0]) if nxt else None
 
 
-def fill_result_na(root, d: dict, reg: dict, ground: dict | None, field: dict, drawings: bool | None = None) -> int:
+def vendor_zone(vendor_text: str) -> tuple[str, str]:
+    """외주 체크리스트 "6. 지진구역 a. 지진구역 Ⅰ b. 유효지반가속도 (S, g) 0.176" → ("Ⅰ", "0.176")(10/29 민재형 — 결과표 지진구역·지진구역계수). 없으면 ""."""
+    t = re.sub(r"\s+", " ", vendor_text or "")
+    m = re.search(r"지진구역\s*(Ⅰ|Ⅱ|II|I)(?![A-Za-z])", t)
+    g = re.search(r"유효\s*지반\s*가속도\s*\(?\s*S\s*,?\s*g\s*\)?\s*([0-9]\.[0-9]+)", t)
+    zone = {"I": "Ⅰ", "II": "Ⅱ"}.get(m[1], m[1]) if m else ""
+    return zone, (g[1] if g else "")
+
+
+OURS_NA = ("건물높이", "지반종류", "내진설계여부", "콘크리트", "기초형식")  # 결과표 나 — 우리가 넣는 값(비면 노랑, 나머지 외주 몫은 견본 값 지우기가 하늘색, 10/29)
+
+
+def fill_result_na(root, d: dict, reg: dict, ground: dict | None, field: dict, drawings: bool | None = None, vendor_text: str = "") -> int:
     t = next((t for t in _outer(root) if t.get("colCnt") == "13" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))).startswith("가.일반현황")), None)
     if t is None:
         return 0
@@ -2461,6 +2473,11 @@ def fill_result_na(root, d: dict, reg: dict, ground: dict | None, field: dict, d
             "내진설계여부": reg.get("seismic_design") or None,
             "중요도/내진등급": f"{imp}/{grade}", "콘크리트": f"{cd[2]:g}MPa" if cd else None,
             "기초형식": (reg.get("foundation") or "").strip() or None}  # 기초형식 = 건물 정보 칸(10/29 민재형)
+    zone, coef = vendor_zone(vendor_text)  # 외주 체크리스트에서(없으면 견본 값 지우기가 하늘색)
+    if zone:
+        vals["지진구역"] = zone
+    if coef:
+        vals["지진구역계수"] = coef
     cells = rb._cells(t)
     n = 0
     for (r, c), x in sorted(cells.items()):
@@ -2474,6 +2491,11 @@ def fill_result_na(root, d: dict, reg: dict, ground: dict | None, field: dict, d
             if rc:
                 _set(cells, rc, vals[lab])
                 n += 1
+        elif lab in OURS_NA:  # 우리 값인데 입력이 없음 — 빈칸 + 노랑(외주 몫 하늘색과 구분)
+            rc = _right_of(cells, r, c)
+            if rc:
+                _set(cells, rc, "")
+                TD.paint(cells[rc])
     n += fill_docs_have(root, reg, drawings)
     return n
 
@@ -2494,11 +2516,14 @@ def fill_docs_have(root, reg: dict, drawings: bool | None) -> int:
             continue
         for (r, c), x in sorted(cells.items()):
             lab = _n(rb._cell_text(x))
-            if lab in vals and vals[lab] is not None:
+            if lab in vals:
                 rc = _right_of(cells, r, c)
-                if rc:
+                if rc and vals[lab] is not None:
                     _set(cells, rc, _have(vals[lab]))
                     n += 1
+                elif rc:  # 구조계산서 유무를 안 고름 — 우리 값이라 빈칸 + 노랑(10/29)
+                    _set(cells, rc, "")
+                    TD.paint(cells[rc])
         break
     return n
 

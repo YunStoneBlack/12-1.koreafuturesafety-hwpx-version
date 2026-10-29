@@ -138,6 +138,11 @@ def fill_result_ga(root, d: dict) -> int:
             vals[(2, 9)] = d["client_rep"]
         for rc, v in vals.items():
             _set(cells, rc, v)
+        if not d.get("client_rep") and (2, 9) in cells:  # 대표자 = 우리 값(용역 정보) — 비면 빈칸 + 노랑(외주 몫 하늘색과 구분, 10/29)
+            from server.sitok import seismic_todo as TD
+
+            _set(cells, (2, 9), "")
+            TD.paint(cells[(2, 9)])
         n += 1
     return n
 
