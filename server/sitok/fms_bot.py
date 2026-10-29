@@ -783,7 +783,25 @@ def _fill_result_facility(fr2, f: dict) -> bool:
         const o = [...s.options].find(o => o.value === g || o.text.trim().startsWith(g) || o.text.includes('(' + g + ')')); if (!o) return false;
         s.value = o.value; s.dispatchEvent(new Event('change', {bubbles: true})); return true; }""", f.get("overall_grade") or "")
     _set(fr2, "quake_target_yn", f.get("quake_target_yn") or "N")
+    v = f.get("vent") or {}
+    if v.get("has"):
+        f["_vent_set"] = _set_vent(fr2, v["has"], v.get("repair") or "")
     return bool(ok)
+
+
+def _set_vent(fr2, has: str, repair: str) -> bool:
+    """실적 시설물 탭 "환기구(덮개 등)" — 왼쪽 고르기 있음/없음, 오른쪽 보수필요/보수불필요/해당없음(10/29 민재형 영상: [있음]을 고르면 오른쪽이 저절로 보수필요로 바뀜 → 그 뒤에 고름).
+    칸 이름을 몰라 보기 글자로 찾음(오른쪽은 title "환기구보수필요여부"). 못 고르면 False(그 칸은 사람이 확인)."""
+    return bool(fr2.evaluate("""([has, rep]) => {
+      const all = [...document.querySelectorAll('select')];
+      const texts = (s) => [...s.options].map((o) => o.text.replace(/\\s+/g, ''));
+      const a = all.find((s) => /환기구/.test(s.title || '') && texts(s).includes('있음')) || all.find((s) => { const t = texts(s); return t.includes('있음') && t.includes('없음'); });
+      const b = all.find((s) => /환기구/.test(s.title || '') && texts(s).includes('보수불필요')) || all.find((s) => { const t = texts(s); return t.includes('보수불필요') && t.includes('해당없음'); });
+      const pick = (s, txt) => { const o = [...s.options].find((o) => o.text.replace(/\\s+/g, '') === txt); if (!o) return false;
+        s.value = o.value; ['input', 'change', 'blur'].forEach((k) => s.dispatchEvent(new Event(k, { bubbles: true }))); return true; };
+      if (!a || !pick(a, has)) return false;
+      return !rep || (!!b && pick(b, rep));
+    }""", [has, repair]))
 
 
 def _eboard_row(e, payload: dict) -> str:

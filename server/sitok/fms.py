@@ -122,6 +122,21 @@ def _k(won: int | float | None) -> int:
     return int(round((won or 0) / 1000))
 
 
+def vent_state(db, r) -> dict:
+    """FMS 실적 시설물 탭 "환기구(덮개 등)" 칸 — 이 회차 현장 [공중이용] 탭 "환기구 등의 덮개"(server/sitok/parts.py)에서(10/29 사용자):
+    해당없음 → 없음·해당없음 / 사진이 있고 환기구·덮개 결함이 없으면(상태양호) → 있음·보수불필요 / 결함이 있으면 → 있음·보수필요 / 안 적었으면 {}(FMS 칸 그대로)."""
+    from core.models_web import SitokDefect
+    from server.sitok import parts as P
+
+    it = P.norm(r.parts)["public"].get("vent") or {}
+    if it.get("none"):
+        return {"has": "없음", "repair": "해당없음"}
+    if not (it.get("file") or it.get("prev")):
+        return {}
+    bad = any(re.search(r"환기구|덮개", f"{d.member} {d.dtype} {d.part}") for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id))
+    return {"has": "있음", "repair": "보수필요" if bad else "보수불필요"}
+
+
 def payload(db, reports: list) -> dict:
     """같이 내는 회차들(묶음 동 — 같은 해·반기·종류) → FMS 계약·실적 값. reports는 SitokReport(묶음 순서대로)."""
     from core.models_web import SitokContract, SitokFacility, SitokGroup, TechPerson
@@ -168,6 +183,7 @@ def payload(db, reports: list) -> dict:
             "amend_req_yn": "Y" if rr.get("repairs") else "",
             "overall_grade": rr.get("grade", ""),
             "quake_target_yn": "N",  # 금회평가대상 — 정기·정밀은 비대상(형 PPT 13장)
+            "vent": vent_state(db, r),  # 환기구(덮개 등) 있음/없음·보수 여부(10/29)
             "opinion": rr.get("opinion", ""),
         })
         if not rr:

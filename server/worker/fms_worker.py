@@ -59,6 +59,7 @@ def _process(job_id: int) -> None:
     from server.sitok import fms, fms_bot
 
     fms_bot = importlib.reload(fms_bot)  # 봇을 고쳐도 작업 프로그램을 다시 켜지 않게 — 실행마다 새로 읽음(10/29, FMS 화면이 바뀌면 자주 고침)
+    fms = importlib.reload(fms)  # 넣을 값(payload — 환기구 등)도 같이(10/29)
 
     with SessionLocal() as db:
         job = db.get(FmsSubmission, job_id)

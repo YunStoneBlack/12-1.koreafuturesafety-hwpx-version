@@ -69,7 +69,7 @@
       ["공동수급", `${sel("divide_gbn")} ${c.financing_ratio}%`], ["입찰방식", sel("bid_method")], ["선정방식", sel("eval_method")], ["계약방식", sel("contract_method")], ["대가산출", sel("price_method")], ["수행분야", sel("tech_field")]];
     const facs = p.facilities.map((f) => `<tr><td>${esc(f.name)}</td><td>${esc(f.fms_no)}</td><td>${esc(f.dign_label)} ${esc(f.half)}</td><td class="r">${won(f.dign_amt)}</td><td>${esc(f.overall_grade || "-")}</td></tr>`).join("");
     const engs = p.engineers.map((e) => `<tr><td>${e.rep_yn === "Y" ? "책임" : "참여"}</td><td>${esc(e.name)}</td><td>${esc(e.start)} ~ ${esc(e.end)}</td><td class="r">${e.days}</td><td>${esc(e.parti_field)}</td></tr>`).join("");
-    const res = p.facilities.map((f) => `<div class="fms-res"><b>${esc(f.name)}</b> <small>안전등급 ${esc(f.overall_grade || "-")} · 중대결함 ${f.serious_defect_yn ? "있음" : "없음"}</small>
+    const res = p.facilities.map((f) => `<div class="fms-res"><b>${esc(f.name)}</b> <small>안전등급 ${esc(f.overall_grade || "-")} · 중대결함 ${f.serious_defect_yn ? "있음" : "없음"} · 환기구 ${f.vent && f.vent.has ? `${esc(f.vent.has)}·${esc(f.vent.repair)}` : "현장 [공중이용] 탭에 없음(FMS 칸 그대로)"}</small>
         <div class="fms-two"><pre>${esc(f.dign_content || "(보고서를 만들면 결과표에서 채움)")}</pre><pre>${esc(f.amend_content || "-")}</pre></div></div>`).join("");
     const furl = (x, dl) => `${BASE}/api/sitok/reports/${rid}/fms/file?folder=${encodeURIComponent(x.folder)}&name=${encodeURIComponent(x.name)}${dl ? "&dl=1" : ""}`;
     const files = info.files.map((x) => `<tr><td>${esc(x.folder)}</td><td><a href="${furl(x)}" target="_blank" rel="noopener" title="눌러서 미리보기">${esc(x.name)}.pdf</a>
