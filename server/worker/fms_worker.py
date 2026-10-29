@@ -53,8 +53,12 @@ def _result_practice_verdict(res: dict) -> tuple[str, str]:
 
 
 def _process(job_id: int) -> None:
+    import importlib
+
     from server.api.routers.sitok_fms import company_cred, owner_cred
     from server.sitok import fms, fms_bot
+
+    fms_bot = importlib.reload(fms_bot)  # 봇을 고쳐도 작업 프로그램을 다시 켜지 않게 — 실행마다 새로 읽음(10/29, FMS 화면이 바뀌면 자주 고침)
 
     with SessionLocal() as db:
         job = db.get(FmsSubmission, job_id)

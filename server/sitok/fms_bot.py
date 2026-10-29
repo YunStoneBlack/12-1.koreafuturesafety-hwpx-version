@@ -181,31 +181,84 @@ def _popup_select(ctx, opener, open_js: str, match, wait_ms: int = 10000) -> str
     return hit
 
 
-def pick_owner(ctx, fr, owner_name: str) -> dict:
-    """관리주체 찾기 팝업에서 이름이 똑같은 줄 고르기 → {ok, code, rows}."""
+def _norm_name(s: str) -> str:
+    """이름 비교용 — 빈칸·㈜/(주) 차이 무시."""
+    return re.sub(r"\s|\(주\)|㈜|주식회사", "", str(s or ""))
+
+
+def _js_args(call: str) -> list[str]:
+    """"goSelect('의정부도시공사','A1','…')" · 큰따옴표 "goSelect(\"…\")" 둘 다 → 인자 글자들."""
+    return [m[2] for m in re.finditer(r"""(['"])(.*?)\1""", call or "")]
+
+
+_OWNER_ROWS = """() => [...document.querySelectorAll('table tbody tr')].map(t => ({text: t.innerText.replace(/\\s+/g, ' ').trim(),
+    first: ((t.cells && t.cells[0] && t.cells[0].innerText) || '').replace(/\\s+/g, ' ').trim(),
+    sel: [...t.querySelectorAll('[onclick*="goSelect"], a[href*="goSelect"]')].map(a => a.getAttribute('onclick') || a.getAttribute('href'))[0] || ''})).filter(x => x.sel)"""
+
+
+def _owner_search(w, owner_name: str) -> list[dict]:
+    """검색칸에 이름 → 돋보기(검색 단추)를 눌러 검색(없으면 goSearch()) → 결과 표에 그 이름이 뜰 때까지(최대 10초) → 줄들.
+    10/29 의정부도시공사: 예전엔 goSearch()를 부르고 바로 읽어, 결과가 바뀌기 전 표를 읽었을 수 있음(민재형 "돋보기를 눌러 검색해야")."""
+    want = _norm_name(owner_name)
+    w.fill("input[name=search_val]", owner_name)
+    btn = None
+    for css in ("[onclick*='goSearch']", "a[href*='goSearch']", "button.btn_search", "a.btn_search", "img[alt*='검색']", "button:has-text('검색')", "a:has-text('검색')"):
+        try:
+            btn = w.query_selector(css)
+        except Exception:  # noqa: BLE001
+            btn = None
+        if btn is not None and btn.is_visible():
+            break
+        btn = None
+    try:
+        if btn is not None:
+            btn.click()
+        else:
+            w.evaluate("goSearch()")
+    except Exception:  # noqa: BLE001 — 누르는 순간 화면이 바뀌면(폼 전송) 여기로 — 그대로 기다림
+        pass
+    rows: list[dict] = []
+    for _ in range(20):  # 0.5초씩 — 화면이 새로 뜨는 중이면 읽기가 실패할 수 있어 다시
+        w.wait_for_timeout(500)
+        try:
+            w.wait_for_load_state("domcontentloaded", timeout=5000)
+            rows = w.evaluate(_OWNER_ROWS)
+        except Exception:  # noqa: BLE001
+            continue
+        if any(want and want in _norm_name(r["text"]) for r in rows):
+            break
+    return rows
+
+
+def pick_owner(ctx, fr, owner_name: str, job=None) -> dict:
+    """관리주체 찾기 팝업에서 이름이 똑같은 줄 고르기 → {ok, code, rows}. 못 찾으면 팝업 화면을 찍어 둠(job이 있으면)."""
     with ctx.expect_page(timeout=15000) as pop:
         fr.evaluate("document.querySelector('#btnFindMngMain').click()")
     w = pop.value
+    w.on("dialog", lambda d: d.accept())
     w.wait_for_load_state("domcontentloaded")
     w.wait_for_timeout(1200)
-    for _ in range(2):  # 결과가 늦게 뜨는 때가 있음 — 기다리고, 없으면 한 번 더 검색
-        w.fill("input[name=search_val]", owner_name)
-        w.evaluate("goSearch()")
-        if _wait_select(w, 10000):
+    want = _norm_name(owner_name)
+    hit, rows = None, []
+    for _ in range(2):  # 결과가 늦게 뜨는 때가 있음 — 없으면 한 번 더 검색
+        rows = _owner_search(w, owner_name)
+        hit = next((r for r in rows if any(_norm_name(x) == want for x in _js_args(r["sel"]))), None) \
+            or next((r for r in rows if _norm_name(r["first"]) == want), None)  # 고르기 인자에 이름이 없어도 첫 칸이 그 이름이면
+        if hit:
             break
-    w.wait_for_timeout(500)
-    rows = w.evaluate("""() => [...document.querySelectorAll('table tbody tr')].map(t => ({text: t.innerText.replace(/\\s+/g, ' ').trim(),
-        sel: [...t.querySelectorAll('[onclick^="goSelect"], a[href^="javascript:goSelect"]')].map(a => a.getAttribute('onclick') || a.getAttribute('href'))[0] || ''})).filter(x => x.sel)""")
-    hit = next((r for r in rows if re.search(rf"'{re.escape(owner_name)}'", r["sel"])), None)
     out = {"ok": False, "rows": [r["text"][:80] for r in rows]}
     if hit:
-        code = re.search(r"goSelect\('[^']*','([^']+)'", hit["sel"])
+        args = _js_args(hit["sel"])
+        code = next((x for x in args if re.fullmatch(r"[A-Z]\d{3,}", x)), args[1] if len(args) > 1 else "")
         try:  # 고르면 팝업이 스스로 닫힘
             w.evaluate(hit["sel"].replace("javascript:", ""))
         except Exception:  # noqa: BLE001
             pass
         fr.page.wait_for_timeout(1500)
-        out.update(ok=True, code=code[1] if code else "")
+        out.update(ok=True, code=code)
+    elif job is not None:
+        job.shot(w, "관리주체_찾기_결과")
+        job.say(f"관리주체 찾기 결과 {len(rows)}줄: " + (" / ".join(r["text"][:60] for r in rows[:5]) or "없음"))
     if not w.is_closed():
         w.close()
     return out
@@ -303,7 +356,7 @@ def _company_page(b, job: Job, user_id: str, pw: str):
     return ctx, pg
 
 
-def _fill_general(ctx, fr, c: dict) -> dict:
+def _fill_general(ctx, fr, c: dict, job=None) -> dict:
     """일반현황 탭 칸 채우기(계약·실적 공통) → {owner, fms_rep, fms_phone}."""
     for k in ("project_nm", "start_ymd", "end_ymd", "contract_ymd", "financing_ratio", "etc_comment"):
         if c.get(k) is not None:
@@ -315,9 +368,12 @@ def _fill_general(ctx, fr, c: dict) -> dict:
     _set(fr, "design_amt0", c["design_amt"])
     out: dict = {}
     if not fr.evaluate("(document.getElementsByName('mng_main_cd')[0] || {}).value || ''"):
-        out["owner"] = pick_owner(ctx, fr, c["mng_main_nm"])
+        out["owner"] = pick_owner(ctx, fr, c["mng_main_nm"], job)
         if not out["owner"].get("ok"):
-            raise FmsError(f"FMS 관리주체 찾기에서 \"{c['mng_main_nm']}\"를 못 찾았습니다 — 시설물의 관리주체명을 FMS와 같게 고쳐 주세요.")
+            found = out["owner"].get("rows") or []
+            raise FmsError(f"FMS 관리주체 찾기에서 \"{c['mng_main_nm']}\"를 못 찾았습니다 — "
+                           + (f"찾기 결과 {len(found)}줄: {' / '.join(x[:40] for x in found[:3])}" if found else "찾기 결과가 비었습니다")
+                           + " (찾기 창 화면을 남겼습니다). 이름이 맞으면 관리자에게 알려 주세요.")
     read = lambda i: fr.evaluate("(i) => ((document.getElementById(i) || {}).textContent || '').replace(/\\s+/g, ' ').trim()", i)  # noqa: E731
     for _ in range(10):  # 관리주체를 고르면 대표자·전화번호가 조금 뒤에 채워짐(<div id=mng_main_ceo·mng_main_tel>, 10/15 실측)
         out["fms_rep"] = read("mng_main_ceo") or _cell_after(fr, "대표자")
@@ -359,7 +415,7 @@ def practice(payload: dict, user_id: str, pw: str, shots: Path) -> dict:
         pg.wait_for_load_state("domcontentloaded")
         fr = _frame(pg, "any12001_edit")
         pg.wait_for_timeout(2000)
-        got = _fill_general(ctx, fr, c)
+        got = _fill_general(ctx, fr, c, job)
         report["owner"] = got.get("owner", {})
         report["fms_rep"], report["fms_phone"] = got.get("fms_rep", ""), got.get("fms_phone", "")
         pg.wait_for_timeout(1000)
@@ -472,7 +528,7 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
     if fr is None:
         raise FmsError("일반현황 화면이 열리지 않았습니다.")
     pg.wait_for_timeout(2000)
-    gen = _fill_general(ctx, fr, c)
+    gen = _fill_general(ctx, fr, c, job)
     job.say(f"일반현황 채움 — FMS 대표자 {gen.get('fms_rep') or '-'}")
     job.shot(pg, "계약_일반현황")
     _act(job, fr, "goSave()", "일반현황 저장", wait_ms=4000)
