@@ -852,6 +852,10 @@ def _eboard(ctx, pg, job: Job, payload: dict, files: list[dict], project_no: str
     job.watch(e)
     e.wait_for_load_state("domcontentloaded")
     e.wait_for_timeout(4000)
+    none = next((x for x in job.alerts[-4:] if "제출대상 시설물이 존재하지 않습니다" in x), "")
+    if none:  # 10/29 E02210000561(기술자 없이 승인된 계약) — 창은 그 용역 화면인데 시설물 체크 칸이 없음
+        job.shot(e, "e보고서_제출대상없음")
+        raise FmsError(f"e-보고서 창에서 FMS가 \"{none.strip()[:60]}\"라고 합니다 — 실적 시설물 저장·책임(참여)기술자를 FMS에서 확인해 주세요.")
     direct = e.evaluate("() => document.querySelectorAll('input[type=checkbox][name^=facil_no]').length") > 0  # 실적 화면 e-보고서 탭에서 열면 그 용역 화면으로 바로(10/29 영상)
     if not direct:
         inx = _eboard_row(e, payload)
