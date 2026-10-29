@@ -63,8 +63,12 @@ def _finish(jid: int, res: dict) -> None:
 
 
 def _process(jid: int) -> None:
+    import importlib
+
     from server.api.routers.blcm import company_cred, folder
     from server.blcm import bot
+
+    bot = importlib.reload(bot)  # 봇을 고쳐도 작업 프로그램을 다시 켜지 않게 — 실행마다 새로 읽음(사이트가 바뀌면 자주 고침)
 
     with SessionLocal() as db:
         j = db.get(BlcmJob, jid)

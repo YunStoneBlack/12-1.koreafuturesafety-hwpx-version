@@ -27,8 +27,9 @@ LOGIN_URL = f"{BASE}/blcm/com/uat/memb/blcmLoginCnfirm.do"
 LIST_URL = f"{BASE}/blcm/mcm/chkmgmcmmn/chkoprtntrgetbldmgm/selectFdrmchkTrgetCheInfoList.do"
 LOGOUT_URL = f"{BASE}/uat/uia/actionLogout.do"
 # 연습 때 끊는 요청 — GET 말고(POST 등) 쓰기로 보이는 것 전부 + 모르는 것 전부. 로그인·조회·창 열기만 통과.
-_WRITE = re.compile(r"(update|insert|save|delete|del[A-Z_.]|upload|file|regist|submit|apply|modify|trsct|send|remove|caption)", re.I)
-_SAFE = re.compile(r"(blcmLogin\.do|loginProc|Logout|rsa|Pswd|returnUrl|select\w*\.do|List\.do|detlItem\.do|pop/|search|getCode|cmmCode)", re.I)
+# 10/29 첫 연습: "del[A-Z]"가 selectCmmCodeList의 "deL"에 걸려 코드 조회를 막음("정보 조회에 실패") → delete만. 세션 확인(sessionCheck)은 통과.
+_WRITE = re.compile(r"(update|insert|save|delete|upload|file|regist|submit|apply|modify|trsct|send|remove|caption)", re.I)
+_SAFE = re.compile(r"(blcmLogin\.do|loginProc|Logout|rsa|Pswd|returnUrl|select\w*\.do|List\.do|detlItem\.do|pop/|search|getCode|cmmCode|sessionCheck)", re.I)
 _ERR = re.compile(r"입력|선택|필수|확인|오류|실패|잘못|없습니다|불가|초과")
 RUN_DIR = None  # 화면 저장 폴더(worker가 정함)
 
@@ -47,6 +48,7 @@ class Run:
         self.alerts: list[str] = []
         self.blocked: list[str] = []
         self.items: dict[str, dict] = {}
+        self.tried_login = False
         out.mkdir(parents=True, exist_ok=True)
 
     def say(self, msg: str) -> None:
@@ -101,17 +103,24 @@ def _dialogs(pg, run: Run, where: str = "") -> None:
 
 
 def login(ctx, pg, cdp, run: Run, user_id: str, pw: str) -> None:
-    """로그인 한 번 — 실패 답(SUCS 아님)이면 다시 시도하지 않고 멈춤(5번 틀리면 계정 잠김)."""
+    """로그인 한 번 — 실패 답(SUCS 아님)이면 다시 시도하지 않고 멈춤(5번 틀리면 계정 잠김).
+    답 본문은 길목(route)에서 받아 읽음 — response 이벤트로 읽으면 사이트가 곧바로 다음 화면으로 넘어가 본문이 사라짐(10/29 첫 연습: 성공했는데 "답 없음"으로 멈춤).
+    그래도 못 읽으면 화면으로 판정: 비밀번호 변경 안내(PswdDateChk)나 로그인 화면 밖이면 성공, 로그인 화면 그대로면 실패."""
     status: dict = {}
 
-    def on_resp(r):
-        if r.url.split("?")[0].endswith("/blcmLogin.do"):
+    def on_login(route):
+        try:
+            resp = route.fetch()
             try:
-                j = r.json()
+                j = resp.json()
                 status.update({k: j.get(k) for k in ("loginStatus", "escala", "cntOfpswdFail")})
             except Exception as e:  # noqa: BLE001
                 status["err"] = str(e)[:80]
-    pg.on("response", on_resp)
+            route.fulfill(response=resp)
+        except Exception as e:  # noqa: BLE001
+            status["err"] = str(e)[:80]
+            route.continue_()
+    ctx.route("**/blcmLogin.do*", on_login)
     pg.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
     for _ in range(20):
         _wait(pg, 500)
@@ -119,26 +128,59 @@ def login(ctx, pg, cdp, run: Run, user_id: str, pw: str) -> None:
             break
     else:
         raise BlcmError("로그인 화면을 못 열었습니다(사이트가 바뀌었거나 느림) — 로그인은 시도하지 않았습니다.")
+    run.tried_login = True
     ev(cdp, f"document.querySelector('#membId').value = {json.dumps(user_id)}; document.querySelector('#pw').value = {json.dumps(pw)}; checkIdPw(); 1")
-    for _ in range(30):
+    for _ in range(40):
         _wait(pg, 500)
-        if status:
+        if status.get("loginStatus") or "PswdDateChk" in pg.url or "LoginCnfirm" not in pg.url:
             break
+    try:
+        ctx.unroute("**/blcmLogin.do*")
+    except Exception:  # noqa: BLE001
+        pass
     st = status.get("loginStatus")
-    if st != "SUCS":
-        run.say(f"로그인 실패 답: {status or '답 없음'}")
+    moved = "PswdDateChk" in pg.url or "LoginCnfirm" not in pg.url
+    run.say(f"로그인 답: {status or '본문 못 읽음'} · 화면 {pg.url.split('/')[-1][:40]}")
+    if st and st != "SUCS" or (not st and not moved):
         raise BlcmError(f"생애이력시스템 로그인이 안 됐습니다({st or '답 없음'}{', 틀린 횟수 ' + str(status.get('cntOfpswdFail')) if status.get('cntOfpswdFail') else ''}) — "
                         "계정 잠김을 막으려고 다시 시도하지 않습니다. 설정의 아이디·비밀번호를 확인하세요.")
     if status.get("escala") == "Y":
         raise BlcmError("로그인 뒤 동의 창이 떴습니다 — 사이트에서 한 번 직접 로그인해 동의한 뒤 다시 하세요.")
-    for _ in range(30):
-        _wait(pg, 500)
-        if "PswdDateChk" in pg.url or "LoginCnfirm" not in pg.url:
-            break
-    if "PswdDateChk" in pg.url:  # 오래된 비밀번호 변경 안내 → [다음에 변경하기]
-        ev(cdp, "returnUrl(); 1")
-        _wait(pg, 3000)
+    settle(pg, cdp, run)
     run.say("로그인")
+
+
+def settle(pg, cdp, run: Run | None = None, seconds: int = 15) -> None:
+    """화면이 멈출 때까지 — 로그인 뒤 첫 화면(mainPage)이 잠깐 떴다가 "오래된 비밀번호 변경"(PswdDateChk)으로 넘어감(10/29 두 번째 연습: 첫 화면만 보고
+    넘어가 목록이 0줄). 이 안내가 보이면 [다음에 변경하기](returnUrl) — 누르기 전엔 어느 화면으로 가도 다시 이 안내로 돌아옴."""
+    last, same = "", 0
+    for _ in range(seconds * 2):
+        _wait(pg, 500)
+        url = pg.url
+        if "PswdDateChk" in url:
+            try:
+                if ev(cdp, "typeof returnUrl === 'function'"):
+                    ev(cdp, "returnUrl(); 1")
+                    if run:
+                        run.say("비밀번호 변경 안내 → 다음에 변경하기")
+                    _wait(pg, 2000)
+            except BlcmError:
+                pass
+            last, same = "", 0
+            continue
+        same = same + 1 if url == last else 0
+        last = url
+        if same >= 3:
+            break
+
+
+def goto(pg, cdp, url: str, run: Run | None = None) -> None:
+    """사이트 안 이동 — 비밀번호 변경 안내로 돌려보내지면 [다음에 변경하기] 뒤 한 번 더."""
+    pg.goto(url, wait_until="domcontentloaded", timeout=60000)
+    settle(pg, cdp, run, seconds=6)
+    if url.split("?")[0].split("/")[-1] not in pg.url:
+        pg.goto(url, wait_until="domcontentloaded", timeout=60000)
+        settle(pg, cdp, run, seconds=6)
 
 
 def logout(pg, run: Run) -> None:
@@ -158,15 +200,15 @@ LIST_JS = r"""(() => [...document.querySelectorAll('table tbody tr')].map(tr => 
 
 
 def read_list(pg, cdp, run: Run, pages: int = 8) -> list[dict]:
-    pg.goto(LIST_URL, wait_until="domcontentloaded", timeout=60000)
-    _wait(pg, 2500)
+    goto(pg, cdp, LIST_URL, run)
     rows: list[dict] = []
     for n in range(1, pages + 1):
         if n > 1:
             if not ev(cdp, f"typeof fn_search === 'function' && !!document.querySelector('[onclick*=\"fn_search({n})\"]')"):
                 break
             ev(cdp, f"fn_search({n}); 1")
-            _wait(pg, 2500)
+            _wait(pg, 1500)
+            settle(pg, cdp, run, seconds=6)  # 쪽 넘김 = 화면 새로 — 다 뜬 뒤 읽기
         got = ev(cdp, LIST_JS) or []
         for r in got:
             c = r["cells"]
@@ -183,8 +225,7 @@ def open_report(pg, cdp, run: Run, target: dict) -> None:
         raise BlcmError("미실시 보고서는 열면 새 보고서가 생겨 봇이 열지 않습니다 — 사이트에서 [보고서 작성]을 먼저 누르세요.")
     if target.get("prog") not in ("02",):
         raise BlcmError(f"작성중 보고서만 입력할 수 있습니다(지금 상태: {target.get('status') or target.get('prog')}).")
-    pg.goto(LIST_URL, wait_until="domcontentloaded", timeout=60000)
-    _wait(pg, 2500)
+    goto(pg, cdp, LIST_URL, run)
     args = ", ".join(json.dumps(target[k]) for k in ("inst", "oprtn", "trsct", "prog", "gb"))
     ev(cdp, f"fn_go_detail_view({args}); 1")
     for _ in range(30):
@@ -205,7 +246,7 @@ POPUP_SCHEMA = r"""(() => {
     (radios[e.name] = radios[e.name] || []).push({value: e.value, label: lab(e), weight: e.dataset.weight || '', checked: e.checked, disabled: e.disabled, hidden: e.style.display === 'none'});
   });
   const selects = [...document.querySelectorAll('select[name^="chklist"]')].map(s => ({name: s.name, value: s.value, options: [...s.options].map(o => [o.value, o.text.trim()])}));
-  const detl = [...document.querySelectorAll('#detlItemHtml input')].map(e => ({type: e.type, id: e.id, name: e.name, title: e.title || '', label: e.type === 'checkbox' ? lab(e) : (e.title || ''), value: e.value, checked: e.checked}));
+  const detl = [...document.querySelectorAll('#detlItemHtml input')].map((e, i) => ({idx: i, type: e.type, id: e.id, name: e.name, title: e.title || '', label: (e.type === 'checkbox' || e.type === 'radio') ? lab(e) : (e.title || ''), value: e.value, checked: e.checked}));
   const ta = {}; ['ilgltOpin', 'performncOpin', 'basisNdLaword', 'rm'].forEach(id => { const t = document.getElementById(id); ta[id] = t ? t.value : null; });
   const files = [...document.querySelectorAll('input.blcmFile')].map(e => e.dataset.fileJobCd);
   const photos = {}; document.querySelectorAll('li[data-file-job-cd][data-file-id]').forEach(li => { const c = li.dataset.fileJobCd; if (li.dataset.fileId) photos[c] = (photos[c] || 0) + 1; });
@@ -216,7 +257,8 @@ POPUP_SCHEMA = r"""(() => {
 
 
 def _norm(s: str) -> str:
-    return re.sub(r"[\s·・‧ㆍ,.()\-]", "", s or "")
+    """비교용 — 괄호 안(가중치 "양호(1)" 등) 빼고 글자·숫자·+만(가운뎃점 종류가 달라도 같게, 10/29 옹벽ㆍ석축)."""
+    return re.sub(r"[^0-9A-Za-z가-힣+]", "", re.sub(r"\([^)]*\)", "", s or ""))
 
 
 def _pick_radio(cdp, name: str, label: str) -> str:
@@ -224,7 +266,7 @@ def _pick_radio(cdp, name: str, label: str) -> str:
     js = f"""(() => {{ const want = {json.dumps(_norm(label))};
       const els = [...document.querySelectorAll('input[type=radio]')].filter(e => e.name === {json.dumps(name)});
       if (!els.length) return 'noname';
-      const norm = s => (s || '').replace(/[\\s·・‧ㆍ,.()\\-]/g, '');
+      const norm = s => (s || '').replace(/\\([^)]*\\)/g, '').replace(/[^0-9A-Za-z가-힣+]/g, '');
       const lab = e => {{ const l = e.closest('label') || (e.id && document.querySelector('label[for="' + e.id + '"]')); return norm(l ? l.innerText : e.title); }};
       const el = els.find(e => lab(e) === want);
       if (!el) return 'missing';
@@ -268,8 +310,8 @@ def plan_for(group: list[dict], results: dict) -> dict:
     """사이트 소항목 하나에 넣을 값 — group = 우리 소항목(보통 하나, 범죄예방 세부기준은 둘·셋).
     {cmp, design, details: [(판정 글, [작은 점검 판정 글…])], count, status: [(type, label, value)], texts{ilgltOpin…}, photos: [rel…], na}"""
     details, status, photos, texts = [], [], [], {"ilgltOpin": [], "performncOpin": [], "basisNdLaword": [], "rm": []}
-    cmps, designs, count, nas = [], [], None, []
-    for it in group:
+    cmps, designs, count, nas, det_items = [], [], None, [], []
+    for gi, it in enumerate(group):
         res = results.get(it["code"]) or {}
         e = I.evaluate(it, res)
         nas.append(e["state"] == "na")
@@ -277,6 +319,7 @@ def plan_for(group: list[dict], results: dict) -> dict:
         designs.append(design_of(it, res, e))
         rt = res.get("ratings") or {}
         for i, d in enumerate(it["details"]):
+            det_items.append(gi)
             if e["state"] == "na":
                 details.append(("해당없음", ["해당없음"] * len(d.get("subs") or [])))
                 continue
@@ -296,7 +339,7 @@ def plan_for(group: list[dict], results: dict) -> dict:
             for ti, tok in enumerate(ln):
                 if tok["t"] in ("check", "blank"):
                     v = st.get(f"l{li}t{ti}")
-                    status.append((tok["t"], tok.get("v", ""), v))
+                    status.append((tok["t"], tok.get("v", ""), v, gi))
         tx = res.get("texts") or {}
         for ours, theirs in (("ilglt", "ilgltOpin"), ("perf", "performncOpin"), ("basis", "basisNdLaword"), ("rm", "rm")):
             v = (tx.get(ours) or "").strip()
@@ -306,8 +349,8 @@ def plan_for(group: list[dict], results: dict) -> dict:
     na = all(nas)
     cmp = "개선필요" if "개선필요" in cmps else "해당없음"
     design = next((d for d in designs if d == "부적합"), None) or next((d for d in designs if d), "")
-    return {"cmp": cmp, "design": design, "details": details, "count": count, "status": status, "na": na, "photos": photos,
-            "texts": {k: "\n".join(v) or "-" for k, v in texts.items()}}
+    return {"cmp": cmp, "design": design, "details": details, "det_items": det_items, "count": count, "status": status, "na": na, "photos": photos,
+            "texts": {k: "\n".join(dict.fromkeys(v)) or "-" for k, v in texts.items()}}  # 합쳐진 항목(범죄예방 세부기준)의 같은 글은 한 번만
 
 
 def site_groups() -> list[tuple[str, list[dict]]]:
@@ -329,67 +372,125 @@ def site_groups() -> list[tuple[str, list[dict]]]:
     return out
 
 
+def _digits_ok(a: str, b: str) -> bool:
+    """비슷한 라벨 짝 — 양쪽에 숫자가 다 있는데 다르면 다른 칸("1등급"·"7등급")."""
+    da, db = "".join(ch for ch in a if ch.isdigit()), "".join(ch for ch in b if ch.isdigit())
+    return not (da and db and da != db)
+
+
+def status_pairs(detl: list[dict], ours: list[tuple]):
+    """점검현황 — 사이트 칸(detl)과 우리 조각(ours = [(check|blank, 라벨, 값)])을 라벨로 차례 맞춤(difflib).
+    → (사이트 칸, 우리 조각, 맞은 짝 [(i, j)], 우리가 값을 적었는데 못 맞춘 조각 라벨들)."""
+    import difflib
+
+    site_in = [x for x in detl if x["type"] in ("checkbox", "radio", "text")]
+    key_s = [("c", _norm(a["label"])) if a["type"] != "text" else ("t",) for a in site_in]
+    key_o = [("c", _norm(x[1])) if x[0] == "check" else ("t",) for x in ours]
+    pairs = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, key_s, key_o, autojunk=False).get_opcodes():
+        if tag == "equal":
+            pairs += list(zip(range(i1, i2), range(j1, j2)))
+        elif tag == "replace" and i2 - i1 == j2 - j1:  # 같은 자리·같은 수로 어긋남 — 빈칸끼리, 또는 라벨이 비슷하면(60%↑, "판단불가 2)"·"판단불가") 짝
+            for i, j in zip(range(i1, i2), range(j1, j2)):
+                if key_s[i][0] == key_o[j][0] == "t" or (key_s[i][0] == key_o[j][0] == "c" and _digits_ok(key_s[i][1], key_o[j][1])
+                                                         and difflib.SequenceMatcher(None, key_s[i][1], key_o[j][1]).ratio() >= 0.6):
+                    pairs.append((i, j))
+    matched = {j for _, j in pairs}
+    lost = [x[1] or "빈칸" for j, x in enumerate(ours) if j not in matched and x[2] not in (None, "", False)]
+    return site_in, ours, pairs, lost
+
+
 def fill_popup(cdp, run: Run, S: str, plan: dict, schema: dict) -> dict:
-    """열린 상세 창 채우기 — 결과 {ok, warn[], filled n}."""
+    """열린 상세 창 채우기 — 결과 {warn[], filled n, after(다시 읽은 칸)}.
+    판정 방식이 셋(10/29 연습): ① 작은 점검 라디오(급수성능 21111…, 방화구획 521111처럼 번호 길이가 다름) → 사이트가 세부 판정 계산
+    ② 고르기 칸 evlScore·evlCount(건수형 0건~6건, 범죄예방 세부기준·이상징후 청문점검 = 점검현황 체크 수, 인증 여부 = 인증·재인증·만료·해당없음) ③ 세부 라디오 직접."""
     warn: list[str] = []
     n = 0
     r = _pick_radio(cdp, f"chklist||{S}0|choiseItem", plan["cmp"])
     n += r in ("ok", "same")
     if r not in ("ok", "same"):
         warn.append(f"현행기준 비교 '{plan['cmp']}' {r}")
-    det_names = sorted([k for k in schema["radios"] if re.fullmatch(rf"chklist\|\|{S}[1-7]\|choiseItem", k)])
-    sub_names = sorted([k for k in schema["radios"] if re.fullmatch(rf"chklist\|\|{S}[1-7]\d\|choiseItem", k)])
+    radios = schema.get("radios") or {}
+    det_names = sorted(k for k in radios if re.fullmatch(rf"chklist\|\|{S}[1-7]\|choiseItem", k))
     if len(det_names) != len(plan["details"]):
         warn.append(f"세부항목 수가 다름(사이트 {len(det_names)} / 우리 {len(plan['details'])})")
     for i, (dj, subs) in enumerate(plan["details"]):
         d_code = f"{S}{i + 1}"
-        mine = [k for k in sub_names if k.startswith(f"chklist||{d_code}") and len(k.split("|")[2]) == len(d_code) + 1]
-        if subs and mine:
-            if len(mine) != len(subs):
-                warn.append(f"세부 {i + 1} 작은 점검 수가 다름(사이트 {len(mine)} / 우리 {len(subs)})")
-            for name, sv in zip(mine, subs):
-                if sv:
-                    r = _pick_radio(cdp, name, sv)
-                    n += r in ("ok", "same")
-                    if r not in ("ok", "same"):
-                        warn.append(f"세부 {i + 1} 작은 점검 '{sv}' {r}")
-        if dj and f"chklist||{d_code}|choiseItem" in schema["radios"]:
+        mine = sorted(k for k in radios if k.split("|")[2].startswith(d_code) and len(k.split("|")[2]) > len(d_code) and k.endswith("|choiseItem"))
+        want = subs if subs else ([dj] * len(mine) if dj else [])  # 우리에게 작은 점검이 없으면(마감재 육안점검 등) 세부 판정으로
+        if subs and mine and len(mine) != len(subs):
+            warn.append(f"세부 {i + 1} 작은 점검 수가 다름(사이트 {len(mine)} / 우리 {len(subs)})")
+        for name, sv in zip(mine, want):
+            if sv:
+                r = _pick_radio(cdp, name, sv)
+                n += r in ("ok", "same")
+                if r not in ("ok", "same", "disabled"):
+                    warn.append(f"세부 {i + 1} 작은 점검 '{sv}' {r}")
+        if dj and not mine and f"chklist||{d_code}|choiseItem" in radios:
             r = _pick_radio(cdp, f"chklist||{d_code}|choiseItem", dj)
             n += r in ("ok", "same")
             if r not in ("ok", "same", "disabled"):
                 warn.append(f"세부 {i + 1} 판정 '{dj}' {r}")
-        elif dj and not mine:
-            warn.append(f"세부 {i + 1} 판정 칸 없음")
-    if plan["count"] is not None:
-        sel = next((s for s in schema["selects"] if s["name"] == f"chklist||{S}1|evlScore"), None)
-        if sel and not _set_select_text(cdp, sel["name"], f"{plan['count']}건"):
-            warn.append(f"건수 {plan['count']}건 칸 못 고름")
     if plan["design"]:
         r = _pick_radio(cdp, f"chklist||{S}00|choiseItem", plan["design"])
         n += r in ("ok", "same")
         if r not in ("ok", "same"):
             warn.append(f"설계도서 적합여부 '{plan['design']}' {r}")
-    # 점검현황 — 차례·라벨이 같을 때만
-    site_in = [x for x in schema["detl"] if x["type"] in ("checkbox", "text")]
-    ours = plan["status"]
-    if site_in or ours:
-        same = len(site_in) == len(ours) and all(
-            (a["type"] == "checkbox") == (t == "check") and (t != "check" or _norm(a["label"]) == _norm(lab) or _norm(lab) in _norm(a["label"]))
-            for a, (t, lab, _) in zip(site_in, ours))
-        if not same:
-            warn.append(f"점검현황 칸이 다름(사이트 {len(site_in)} / 우리 {len(ours)}) — 점검현황은 직접")
-        else:
-            for a, (t, lab, v) in zip(site_in, ours):
-                if t == "check":
-                    _check(cdp, a["id"], v is True)
-                    n += v is True
-                elif v not in (None, "", True):
-                    sel = f"#{a['id']}" if a["id"] else f"#detlItemHtml input[name='{a['name']}']"
-                    n += _set_value(cdp, sel, str(v))
+    # 점검현황 — 사이트 칸과 우리 조각을 라벨로 차례 맞춤(difflib), 맞은 칸만 넣음. 체크 수(라벨 "가중치 N")는 우리 항목마다 셈 → 건수 칸
+    site_in, ours, pairs, lost = status_pairs(schema["detl"], plan["status"])
+    counts: dict[int, int] = {}
+    for i, j in pairs:
+        a, (t, lab, v, gi) = site_in[i], ours[j]
+        if t == "check":
+            if v is True or (a["type"] == "checkbox" and a["checked"]):
+                on = "true" if v is True else "false"
+                ev(cdp, "(() => { const e = document.querySelectorAll('#detlItemHtml input')[" + str(a["idx"]) + "]; if (!e) return 0;"
+                        " if (e.type === 'radio') { if (!e.checked) e.click(); return 1; } if (e.checked !== " + on + ") e.click(); return 1; })()")
+                n += v is True
+            if v is True and a["type"] == "checkbox":
+                m = re.search(r"가중치\s*(\d+)", a["label"] or "")
+                counts[gi] = counts.get(gi, 0) + (int(m.group(1)) if m else 1)
+        elif v not in (None, "", True):
+            ok = ev(cdp, "(() => { const e = document.querySelectorAll('#detlItemHtml input')[" + str(a["idx"]) + "]; if (!e) return false; e.value = "
+                    + json.dumps(str(v)) + "; ['input', 'change', 'keyup'].forEach(t => e.dispatchEvent(new Event(t, {bubbles: true}))); return true; })()")
+            n += bool(ok)
+    if lost:
+        warn.append(f"점검현황 {len(lost)}칸 못 넣음({', '.join(x[:10] for x in lost[:4])}) — 사이트에서 직접")
+    # 고르기 칸(세부마다 evlScore·evlCount)
+    sels = {x["name"]: x for x in schema.get("selects") or []}
+    for i, (dj, _) in enumerate(plan["details"]):
+        for nm in (f"chklist||{S}{i + 1}|evlScore", f"chklist||{S}{i + 1}|evlCount"):
+            sel = sels.get(nm)
+            if not sel:
+                continue
+            opts = [t for _, t in sel["options"]]
+            pick = ""
+            if dj and _norm(dj) in [_norm(o) for o in opts]:
+                pick = dj
+            elif any(o.endswith("건") for o in opts):
+                if dj == "해당없음" and any(_norm(o) == "해당없음" for o in opts):
+                    pick = "해당없음"
+                else:
+                    gi = (plan.get("det_items") or [0] * (i + 1))[i]
+                    cnt = plan["count"] if plan["count"] is not None and len(plan["details"]) == 1 else counts.get(gi, 0)
+                    top = max((int(o[:-1]) for o in opts if o.endswith("건") and o[:-1].isdigit()), default=0)
+                    pick = f"{min(int(cnt or 0), top)}건"
+            if pick:
+                if _set_select_text(cdp, nm, pick):
+                    n += 1
+                else:
+                    warn.append(f"세부 {i + 1} 고르기 '{pick}' 못 고름")
     for tid, val in plan["texts"].items():
         if schema["textareas"].get(tid) is not None:
             n += _set_value(cdp, f"#{tid}", val)
-    return {"warn": warn, "filled": n}
+    # 다시 읽어 확인 — 세부 판정은 작은 점검·건수를 고르면 사이트가 계산해 잠긴 칸에 체크함: 우리 판정과 다르면 알림(점수 계산이 다를 때)
+    after = ev(cdp, POPUP_SCHEMA) or {}
+    for i, (dj, _) in enumerate(plan["details"]):
+        grp = (after.get("radios") or {}).get(f"chklist||{S}{i + 1}|choiseItem") or []
+        got = next((o["label"] for o in grp if o["checked"]), "")
+        if dj and grp and _norm(got) != _norm(dj):
+            warn.append(f"세부 {i + 1} 사이트 판정 '{got or '비어 있음'}' / 우리 '{dj}'")
+    return {"warn": warn, "filled": n, "after": after}
 
 
 def popup_for(ctx, pg, cdp, S: str, run: Run):
@@ -465,6 +566,7 @@ def items_pass(ctx, pg, cdp, run: Run, results: dict, folder: Path, save: bool, 
                 pop.close()
                 continue
             got = fill_popup(pcdp, run, S, plan, schema)
+            schemas[S] = {**schema, "after_radios": {k: [o["label"] for o in v if o["checked"]] for k, v in (got.get("after") or {}).get("radios", {}).items()}}
             photos = [folder / r for r in plan["photos"] if (folder / r).exists()]
             n_up = 0
             if save:
@@ -552,8 +654,6 @@ def run_job(mode: str, job: dict, folder: Path, cred: tuple[str, str], out: Path
     with sync_playwright() as p:
         b = p.chromium.launch()
         ctx = b.new_context(viewport={"width": 1500, "height": 1000}, locale="ko-KR")
-        if mode != "save":
-            ctx.route("**/*", _guard(run))
         pg = ctx.new_page()
         _dialogs(pg, run)
         cdp = ctx.new_cdp_session(pg)
@@ -561,6 +661,8 @@ def run_job(mode: str, job: dict, folder: Path, cred: tuple[str, str], out: Path
         try:
             login(ctx, pg, cdp, run, *cred)
             logged = True
+            if mode != "save":  # 쓰기 막기는 로그인 뒤부터(로그인 과정 요청까지 막으면 로그인이 안 될 수 있음)
+                ctx.route("**/*", _guard(run))
             if mode == "list":
                 res["list"] = read_list(pg, cdp, run)
             else:
@@ -577,7 +679,7 @@ def run_job(mode: str, job: dict, folder: Path, cred: tuple[str, str], out: Path
             run.say(f"멈춤: {err}")
             run.shot(pg, "멈춤")
         finally:
-            if logged:
+            if logged or run.tried_login:  # 로그인을 눌렀으면 멈춰도 로그아웃(성공했는데 답만 못 읽은 때도 접속이 남지 않게)
                 logout(pg, run)
             b.close()
     res.update(run.out_dict())
