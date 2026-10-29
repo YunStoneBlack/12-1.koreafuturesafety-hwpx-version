@@ -79,7 +79,8 @@
     .sort((a, b) => (a.start_date || a.contract_date || "9999").localeCompare(b.start_date || b.contract_date || "9999") || a.id - b.id); // 차례로 쌓임(옛것 위)
   const noKey = (k) => { // "관급-3" < "민간-1"(구분끼리, 그 안에서 번호), 그 밖 번호는 맨 뒤 — "관급-6-2"는 6으로
     const m = String(k.mgmt_no || "").match(/^(관급|민간)-0*(\d+)(?:-\d+)?$/);
-    return m ? (m[1] === "관급" ? 1e8 : 2e8) + Number(m[2]) : 3e8 + k.id;
+    const y = String(k.mgmt_no || "").match(/^(\d{2})-0*(\d+)$/); // 내진성능평가 건 "26-1"(연도 → 번호, 10/29)
+    return m ? (m[1] === "관급" ? 1e8 : 2e8) + Number(m[2]) : y ? 1e8 + Number(y[1]) * 1e4 + Number(y[2]) : 3e8 + k.id;
   };
   const byNo = (a, b) => { const x = noKey(a), y = noKey(b); return Math.floor(x / 1e8) - Math.floor(y / 1e8) || (sort.desc ? y - x : x - y); };
   const sortCards = (list) => (sort.mode === "viewed" ? list.sort((a, b) => (b.viewed_at || "").localeCompare(a.viewed_at || "") || byNo(a, b)) : list.sort(byNo));
@@ -180,14 +181,16 @@
         <div class="dc-meta sd-faddr">${esc([k.address, k.owner_name].filter(Boolean).join(" · "))}${multi ? ` · ${esc(k.members.map((m) => m.name).join(", "))}` : ""}</div>
         ${many ? `<div class="sd-units">${us.map((u, i) => `<a class="sd-unit" href="sitok-facility.html?id=${u.id}" title="보고서 자동화 · 시설물 화면"><span class="site-no">보고서 ${i + 1}</span>${esc(u.name)}${u.members.length > 1 ? ` <small>${u.members.length}동</small>` : ""}</a>`).join("")}</div>` : ""}</div>
         <div class="sd-facts">
-          <button type="button" class="secondary sd-fnew">${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}</button>
+          ${SEIS ? (cons.length ? '<button type="button" class="secondary sd-fchange" title="실정보고·설계변경 등 — 착수·완수일·계약금액을 바꾸고 변경 계약서를 붙임(차수마다 기록)">📝 계약변경</button>' : "") // 내진은 단발성 — 새 계약 단추 대신(10/29 민재형)
+            : `<button type="button" class="secondary sd-fnew">${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}</button>`}
           ${SEIS ? "" : '<button type="button" class="secondary sd-fbadge" title="분야·관급 종류 뱃지 바꾸기">🏷 뱃지</button>'}
         </div>
       </div>
-      <div class="sd-fbody">${cons.length ? "" : `<div class="mail-note sd-fempty">아직 계약이 없습니다 — [${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}]로 넣으세요.</div>`}</div>`;
+      <div class="sd-fbody">${cons.length ? "" : `<div class="mail-note sd-fempty">${SEIS ? "아직 계약이 없습니다 — 위 [나라장터 계약서 불러오기]·[민간 계약서 만들기]로 넣으면 이 건에 들어갑니다." : `아직 계약이 없습니다 — [${k.sector === "민간" ? "+ 계약서" : "+ 관급 계약(착수계)"}]로 넣으세요.`}</div>`}</div>`;
     const body = el.querySelector(".sd-fbody");
     for (const c of cons) body.appendChild(row(c, true));
-    el.querySelector(".sd-fnew").addEventListener("click", () => openContract(null, k.sector, { card: k, prev: k.sector === "민간" ? latestCon(cons) : null }));
+    el.querySelector(".sd-fnew")?.addEventListener("click", () => openContract(null, k.sector, { card: k, prev: k.sector === "민간" ? latestCon(cons) : null }));
+    el.querySelector(".sd-fchange")?.addEventListener("click", () => openChange(latestCon(cons)));
     el.querySelector(".sd-fbadge")?.addEventListener("click", () => editBadges(k));
     const noBtn = el.querySelector(".sd-no");
     if (noBtn) noBtn.addEventListener("click", () => editNumber(k));
@@ -208,6 +211,7 @@
 
   // 번호 바꾸기(10/15 민재형) — 앞 글자는 구분(관급·민간), 숫자만. 겹치면 서버가 알림, 묶인 동 같이, 다음 자동 번호는 가장 큰 번호 + 1
   function editNumber(k) {
+    if (SEIS) { editSeisNumber(k); return; }
     const cur = Number((String(k.mgmt_no).match(/^(?:관급|민간)-0*(\d+)/) || [])[1]) || ""; // 앞 번호(관급-6-2 → 6)
     const overlay = document.createElement("div");
     overlay.className = "mail-overlay";
@@ -258,6 +262,125 @@
     inp.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
   }
 
+  // 내진성능평가 건 번호(10/29 민재형) — 연도 두 자리-번호 "26-1"(관급·민간 구분 없이 그 해 이어서, 공유 파일번호와 같게). 겹치면 서버가 알림
+  function editSeisNumber(k) {
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = `<div class="mail-box sd-badge-box" role="dialog" aria-modal="true">
+      <div class="mail-head"><b># 번호 바꾸기</b><span class="mail-sub">${esc(cardName(k))} — 공유 파일번호와 같게</span></div>
+      <label class="cd-field"><span>번호(연도 두 자리-번호)</span><input class="n-no" value="${esc(k.mgmt_no || "")}" placeholder="예: 26-1" maxlength="8" /></label>
+      <div class="mail-note">새 건은 그 해(계약일 기준) 가장 큰 번호 다음으로 자동으로 붙습니다 — 관급·민간 구분 없이 이어서.</div>
+      <div class="mail-msg" hidden></div>
+      <div class="mail-foot"><button type="button" class="n-close">닫기</button><button type="button" class="mail-primary n-save">저장</button></div></div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector(".n-close").addEventListener("click", close);
+    const inp = overlay.querySelector(".n-no");
+    inp.focus();
+    inp.select();
+    const save = async () => {
+      try {
+        await apiPost(`${P}/facilities/${k.id}/number`, { text: inp.value.trim() });
+        close();
+        load();
+      } catch (err) {
+        const m = overlay.querySelector(".mail-msg");
+        m.hidden = false;
+        m.className = "mail-msg bad";
+        m.textContent = err.message;
+      }
+    };
+    overlay.querySelector(".n-save").addEventListener("click", save);
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) save(); });
+  }
+
+  // [📝 계약변경] 창(10/29 민재형 — 내진성능평가는 실정보고·설계변경이 잦음, 산안법 계약변경 창과 같은 모양): 변경 계약서를 붙이면 읽어서
+  // 착수·완수일·계약금액·변경계약일·사유를 채움(저장 전 고칠 수 있음) → [변경 저장] = 바뀐 칸만 계약에(내진 건 용역 칸도 같이), 차수 기록(전·후 값, 첨부)
+  async function openChange(c) {
+    if (!c) return;
+    let v;
+    try { v = await api(`${P}/contracts/${c.id}/change`); } catch (err) { showError(errorEl, err); return; }
+    let file = null;
+    const L = v.labels;
+    const overlay = document.createElement("div");
+    overlay.className = "mail-overlay";
+    overlay.innerHTML = '<div class="mail-box cd-box dc-change-box" role="dialog" aria-modal="true"></div>';
+    document.body.appendChild(overlay);
+    const box = overlay.querySelector(".mail-box");
+    let busy = false;
+    const close = () => { if (busy) return; overlay.remove(); document.removeEventListener("keydown", onKey, true); };
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+    document.addEventListener("keydown", onKey, true);
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    const money = (x) => (x == null || x === "" ? "-" : `${won(Number(x))}원`);
+    const show = (k, x) => (k === "amount" ? money(x) : esc(x ?? "-"));
+    const field = (k, val, extra = "") => `<label class="cd-field"><span>${L[k]}</span><input data-k="${k}" ${k === "amount" ? 'inputmode="numeric"' : 'type="date"'} value="${esc(val ?? "")}" ${extra} /></label>`;
+    const hist = v.history.length ? `<details class="cg-hist"><summary>지난 계약변경 ${v.history.length}번</summary>${v.history.slice().reverse().map((h) => {
+      const rows = Object.entries(h.after || {}).map(([k, x]) => `${L[k] || k} ${show(k, (h.before || {})[k])} → <b>${show(k, x)}</b>`);
+      return `<div class="cg-h"><b>${h.no}차</b> ${esc(h.change_date ? `변경계약 ${h.change_date}` : h.at)} · ${esc(h.by)}${h.reason ? ` — ${esc(h.reason)}` : ""}<div>${rows.join("<br>") || "칸 변경 없음"}</div>
+        ${(h.files || []).map((n) => `<a href="${BASE}/api${P}/contracts/${c.id}/change/${h.no}/${encodeURIComponent(n)}" target="_blank" rel="noopener">📄 ${esc(n)}</a>`).join(" ")}</div>`;
+    }).join("")}</details>` : "";
+    box.innerHTML = `<div class="mail-head"><b>📝 계약변경 ${v.next_no}차</b><span class="mail-sub">${esc(v.label)}${v.contract_no ? ` · ${esc(v.contract_no)}` : ""} — 바꾼 칸만 계약에 들어갑니다(착수계·완수계·내진 건 용역 칸도 바뀐 값으로)</span></div>
+      ${hist}
+      <div class="mail-label">변경 계약서 <span class="mail-note">— 붙이면 읽어서 아래 칸을 채움(나라장터 용역변경계약서)</span></div>
+      <div class="cg-file"><label class="cd-add">PDF 붙이기<input type="file" accept="application/pdf,.pdf,.hwp,.hwpx,image/*" hidden data-kr-file="skip" /></label><span class="cg-fname"></span></div>
+      <label class="cd-field"><span>사유</span><input class="cg-reason" placeholder="예: 실정보고(조사 범위 추가) · 설계변경(금액 증액) · 용역기간 연장" maxlength="300" /></label>
+      <div class="cd-grid cg-grid">${["start_date", "end_date", "amount"].map((k) => field(k, v.contract[k])).join("")}${field("change_date", "", 'class="cg-cdate"')}</div>
+      <div class="mail-note">원계약일 ${esc(v.contract_date || "-")} · 지금 ${esc(v.contract.start_date || "-")} ~ ${esc(v.contract.end_date || "-")} · ${money(v.contract.amount)}</div>
+      <div class="mail-msg cg-msg" hidden></div>
+      <div class="mail-foot cd-foot"><button type="button" class="cg-close">닫기</button><button type="button" class="mail-primary cg-save">📝 변경 저장</button></div>`;
+    const msg = box.querySelector(".cg-msg");
+    const say = (t, tone) => { msg.hidden = !t; msg.className = `mail-msg cg-msg ${tone || ""}`; msg.innerHTML = t; };
+    box.querySelector(".cg-close").addEventListener("click", close);
+    const fel = box.querySelector(".cg-file");
+    const finp = fel.querySelector("input[type=file]");
+    enableFileDrop(fel, finp);
+    finp.addEventListener("change", async () => {
+      const f = finp.files[0];
+      finp.value = "";
+      if (!f) return;
+      file = f;
+      const name = `<span class="mail-note">📄 ${esc(f.name)}</span>`;
+      fel.querySelector(".cg-fname").innerHTML = `${name} <span class="mail-note">읽는 중…</span>`;
+      try {
+        const fd = new FormData();
+        fd.append("file", f);
+        const r = await apiUpload(`${P}/contracts/${c.id}/change/read`, fd);
+        let n = 0;
+        for (const [k, x] of Object.entries(r.values || {})) {
+          const t = k === "reason" ? box.querySelector(".cg-reason") : box.querySelector(`input[data-k="${k}"]`);
+          if (t && x != null && String(t.value) !== String(x)) { t.value = x; t.classList.add("sk-filled"); n += 1; }
+        }
+        fel.querySelector(".cg-fname").innerHTML = `${name} <span class="mail-note">${n ? `${n}칸 채움 — 확인하세요` : "읽은 칸 없음(직접 고치세요)"}</span>`;
+      } catch (err) {
+        fel.querySelector(".cg-fname").innerHTML = `${name} <span class="cd-bad">못 읽음: ${esc(err.message)} — 칸을 직접 고치세요(파일은 그대로 붙음)</span>`;
+      }
+    });
+    box.querySelector(".cg-save").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      const body = { reason: box.querySelector(".cg-reason").value, change_date: box.querySelector(".cg-cdate").value, contract: {} };
+      for (const k of ["start_date", "end_date", "amount"]) body.contract[k] = box.querySelector(`input[data-k="${k}"]`).value.trim().replace(/,/g, "");
+      const fd = new FormData();
+      fd.append("data", JSON.stringify(body));
+      if (file) fd.append("file", file);
+      busy = true;
+      btn.disabled = true;
+      try {
+        const out = await apiUpload(`${P}/contracts/${c.id}/change`, fd);
+        busy = false;
+        const n = Object.keys(out.saved.after || {}).length;
+        say(`✓ ${out.saved.no}차 계약변경을 저장했습니다 — 바뀐 칸 ${n}개${out.saved.files.length ? ", 변경 계약서 첨부" : ""}${out.synced ? " · 내진 건 용역 칸에도 넣었습니다" : ""}.`, "ok");
+        btn.textContent = "저장함";
+        load();
+      } catch (err) {
+        busy = false;
+        btn.disabled = false;
+        say(esc(err.message), "bad");
+      }
+    });
+  }
+
   // 뱃지 바꾸기 — 묶인 동은 같이(PATCH /sitok/facilities/{id})
   function editBadges(k) {
     const overlay = document.createElement("div");
@@ -303,6 +426,7 @@
     out.push(line(c.sector === "민간" ? "날인본" : "계약서", c.files["날인본.pdf"], c.files["날인본.pdf"] ? "✓ 올림" : "안 올림", c.files["날인본.pdf"] ? fileUrl(c, "날인본.pdf") : ""));
     if (c.facility && SEIS) out.push(line("내진 건", !!(c.seismic && c.seismic.synced), c.seismic && c.seismic.synced ? "✓ 계약 넣음" : "안 넣음"));
     else if (c.facility) out.push(line("보고서 쪽", !!c.report_contract_id, c.report_contract_id ? "✓ 계약 넣음" : "안 넣음"));
+    if (c.changes) out.push(`<span class="dc-doc dc-chg"><b>계약변경</b> ${c.changes}차</span>`); // 10/29 내진 계약변경
     if (c.sector === "관급") {
       for (const [k, lab] of [["start", "착수계"], ["done", "완수계"]]) {
         const g = c.gov[k];

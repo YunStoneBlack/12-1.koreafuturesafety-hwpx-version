@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -196,8 +196,9 @@ def card_no(db: Session, c: SitokDocContract) -> str:
     (10/19 민재형 "시설물은 관급-9 하나, 계약은 별도 계약이니 9-1·9-2" — 전엔 시설물 번호에 뒷번호를 붙였음). 카드에 안 넣었으면 ""."""
     from server.api.routers.sitok import base_no, card_facilities
 
-    if _seis(c):  # 내진성능평가 건은 번호표 없음(건 하나 = 건물 하나)
-        return ""
+    if _seis(c):  # 내진성능평가 건 = 건 번호(연도-번호 "26-1", 10/29 민재형 — 건 하나 = 건물 하나라 뒷번호 없음)
+        f = db.get(SitokFacility, c.facility_id) if c.facility_id else None
+        return (f.mgmt_no or "") if f is not None else ""
     fs = [x for x in (db.get(SitokFacility, i) for i in covered_ids(c)) if x is not None]
     if not fs:
         return ""
@@ -238,7 +239,7 @@ def summary(db: Session, c: SitokDocContract) -> dict:
             "buildings": civil.buildings(c.rounds), "group_names": _group_names(db, f),
             "files": _files(c), "estimate": [x.name for x in attachments.list_files(folder(c), "sitok_start", "calc")] if c.id else [],
             "made_at": c.made_at.strftime("%Y-%m-%d %H:%M") if c.made_at else "",
-            "gov": {k: _gov_made(c, k) for k in GOV},
+            "gov": {k: _gov_made(c, k) for k in GOV}, "changes": last_change_no(c),
             "updated": f"{c.updated_at:%Y-%m-%d %H:%M} {c.updated_by}" if c.updated_at else ""}
 
 
@@ -378,6 +379,7 @@ def list_cards(field: str = Depends(doc_field), user: User = Depends(get_current
 
         seen = {k: v.isoformat(timespec="seconds") for k, v in db.query(SitokView.facility_id, SitokView.viewed_at).filter(SitokView.user_id == user.id)}
         index = contract_index(db, user.company_id, SEIS)
+        seis_numbers(db, user.company_id, index)
         out = []
         for f in db.query(SitokFacility).filter(SitokFacility.company_id == user.company_id, SitokFacility.seismic_only.is_(True)).order_by(SitokFacility.id):
             r = SE.project_of(db, f)
@@ -680,8 +682,52 @@ def create_card(body: CardIn, user: User = Depends(get_current_user), db: Sessio
 
 
 class NumberIn(BaseModel):
-    n: int
+    n: int = 0
     merge: bool = False  # 다른 카드가 쓰는 번호면 그 카드에 시설물로 넣기(같은 발주처가 나눈 계약 — 관급-9-1·9-2, 10/15 민재형)
+    text: str = ""  # 내진성능평가 건 번호 "26-1"(연도 두 자리-번호, 10/29 민재형 — 공유 파일번호와 같게)
+
+
+SEIS_NO_RE = re.compile(r"^(\d{2})-(\d{1,4})$")
+
+
+def _seis_year(db: Session, f: SitokFacility, index: list) -> tuple[int, datetime.date]:
+    """내진 건 번호의 연도 — 서류 계약 계약일(없으면 착수일) > 건 용역 칸 계약일·착수일 > 성능평가 회차 연도 > 오늘. (연도, 차례 날짜)."""
+    from server.api.routers import seismic as SE
+
+    days = [x.contract_date or x.start_date for x, cov in index if f.id in cov and (x.contract_date or x.start_date)]
+    if days:
+        d = min(days)
+        return d.year, d
+    r = SE.project_of(db, f)
+    sc = ((r.survey or {}).get("seismic_contract") or {}) if r is not None else {}
+    for k in ("contract_date", "start_date"):
+        try:
+            d = datetime.date.fromisoformat(str(sc.get(k) or "")[:10])
+            return d.year, d
+        except ValueError:
+            pass
+    y = r.year if r is not None and r.year else datetime.date.today().year
+    return y, datetime.date(y, 12, 31)
+
+
+def seis_numbers(db: Session, company_id: int, index: list | None = None) -> int:
+    """번호가 없는 내진성능평가 건에 번호 "26-1"(10/29 민재형 — 연도별, 관급·민간 구분 없이 이어서): 그 해 가장 큰 번호 + 1, 여럿이면 계약일 차례. 붙인 수(있으면 저장)."""
+    fs = db.query(SitokFacility).filter(SitokFacility.company_id == company_id, SitokFacility.seismic_only.is_(True)).order_by(SitokFacility.id).all()
+    todo = [f for f in fs if not (f.mgmt_no or "").strip()]
+    if not todo:
+        return 0
+    index = index if index is not None else contract_index(db, company_id, SEIS)
+    top: dict[str, int] = {}
+    for f in fs:
+        m = SEIS_NO_RE.match((f.mgmt_no or "").strip())
+        if m:
+            top[m[1]] = max(top.get(m[1], 0), int(m[2]))
+    for f in sorted(todo, key=lambda x: (_seis_year(db, x, index)[1], x.id)):
+        yy = f"{_seis_year(db, f, index)[0] % 100:02d}"
+        top[yy] = top.get(yy, 0) + 1
+        f.mgmt_no = f"{yy}-{top[yy]}"
+    db.commit()
+    return len(todo)
 
 
 @router.post("/facilities/{fid}/number")
@@ -690,6 +736,19 @@ def set_number(fid: int, body: NumberIn, user: User = Depends(get_current_user),
     f = db.get(SitokFacility, fid)
     if f is None or f.company_id != user.company_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "시설물을 찾을 수 없습니다.")
+    if f.seismic_only:  # 내진성능평가 건 — "26-1" 모양, 다른 내진 건과 겹치면 409(합치기 없음)
+        no = re.sub(r"\s+", "", body.text or "")
+        m = SEIS_NO_RE.match(no)
+        if not m or int(m[2]) < 1:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "번호는 연도 두 자리-번호로 넣어 주세요(예: 26-1).")
+        no = f"{m[1]}-{int(m[2])}"
+        dup = db.query(SitokFacility).filter(SitokFacility.company_id == f.company_id, SitokFacility.seismic_only.is_(True), SitokFacility.id != f.id,
+                                             SitokFacility.mgmt_no == no).first()
+        if dup is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"{no}은(는) {dup.name}이(가) 쓰고 있습니다.")
+        f.mgmt_no = no
+        db.commit()
+        return {"ok": True, "mgmt_no": no}
     if body.n < 1 or body.n > 99999:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "번호는 1 이상 숫자로 넣어 주세요.")
     from server.api.routers.sitok import base_no, card_facilities
@@ -1364,6 +1423,152 @@ def make_daega(cid: int, body: ContractIn | None = None, user: User = Depends(ge
     except (RuntimeError, ValueError) as err:  # LibreOffice 없음·변환 실패 — 엑셀은 남음
         return summary(db, c) | {"warning": f"엑셀은 만들었지만 PDF로 바꾸지 못했습니다: {str(err)[:150]}"}
     return summary(db, c) | {"warning": ""}
+
+
+# ---------- 계약변경(10/29 민재형 — 내진성능평가는 실정보고·설계변경이 잦음, 산안법 [+ 계약변경]과 같은 모양) ----------
+CHANGE_KEYS = ("start_date", "end_date", "amount")
+CHANGE_LABEL = {"start_date": "착수일", "end_date": "완수일", "amount": "계약금액", "change_date": "변경계약일"}
+
+
+def last_change_no(c: SitokDocContract) -> int:
+    """마지막 계약변경 차수(0 = 없음) — 기록 수가 아니라 차수(중간부터 넣을 수 있음)."""
+    return max((int(x.get("no") or 0) for x in c.changes or []), default=0)
+
+
+def _change_view(c: SitokDocContract) -> dict:
+    return {"next_no": last_change_no(c) + 1, "contract": {k: _iso(getattr(c, k)) for k in CHANGE_KEYS}, "contract_date": _iso(c.contract_date),
+            "contract_no": c.contract_no or "", "history": c.changes or [], "labels": CHANGE_LABEL, "label": c.title or civil.default_title(c)}
+
+
+def read_change(data: bytes, company_id: int) -> dict:
+    """변경 계약서 PDF → 칸 {start_date, end_date, amount, change_date, reason} — 나라장터 용역변경계약서는 글자 규칙
+    (변경계약일자, [기간변경정보] 변경후착수일자·변경후(총|금차)완수일자, [계약금액변경정보] 변경후계약금액의 총부기 칸, 완수기한·계약금액 변경사유),
+    못 읽은 날짜·금액은 산안법 용역계약서 읽기(글자 규칙, 모자라면 AI — contracts._parse_service)로. 저장은 안 함."""
+    import pymupdf
+
+    out: dict = {}
+    try:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        t = re.sub(r"\s+", " ", " ".join(pg.get_text() for pg in doc))
+    except Exception:  # noqa: BLE001
+        t = ""
+    day = r"(\d{4})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{1,2})"
+
+    def find(pat: str):
+        m = re.search(pat + r"\s*" + day, t)
+        return datetime.date(int(m[1]), int(m[2]), int(m[3])) if m else None
+
+    out["change_date"] = find(r"변경\s*계약\s*일자\s*:?")  # 나라장터 용역변경계약서 머리 "변경계약일자: 2026/06/11"
+    if "기간변경정보" in t or "변경후" in t:
+        out["start_date"] = find(r"변경\s*후\s*착수일자")
+        out["end_date"] = find(r"변경\s*후\s*총\s*완수일자") or find(r"변경\s*후\s*금차\s*완수일자") or find(r"변경\s*후\s*완수일자")
+        head = re.search(r"계약금액변경정보\]?\s*-?\s*(총부기계약금액|금차계약금액)\s*(총부기계약금액|금차계약금액)", t)
+        m = re.search(r"변경\s*후\s*계약금액\s*([\d,]+)\s*원\s*([\d,]+)\s*원", t)
+        if m:
+            k = 1 if not head or head[1] == "총부기계약금액" else 2  # 총부기(계약 전체) 칸 — 머리 순서가 계약서마다 다름
+            out["amount"] = int(m[k].replace(",", ""))
+        reasons = [x.strip(" -") for x in re.findall(r"(?:완수기한|계약금액)\s*변경\s*사유\s*(.+?)\s*(?=\[|$)", t) if x.strip(" -")]
+        if reasons:
+            out["reason"] = " / ".join(dict.fromkeys(reasons))[:300]
+    if not all(out.get(k) for k in CHANGE_KEYS):
+        from server.api.routers.contracts import _parse_service
+
+        try:
+            parsed, _ai, _err = _parse_service(data, company_id)
+        except HTTPException:
+            parsed = {}
+        for k in CHANGE_KEYS:
+            if not out.get(k) and parsed.get(k):
+                out[k] = parsed[k]
+        if parsed.get("contract_date"):
+            out.setdefault("change_date", parsed["contract_date"])
+    return {k: _iso(v) for k, v in out.items() if v not in (None, "")}
+
+
+@router.get("/contracts/{cid}/change")
+def get_change(cid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _change_view(_require(db, user, cid))
+
+
+@router.post("/contracts/{cid}/change/read")
+def read_change_file(cid: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """변경 계약서 읽기만(창 칸 채우기 — 저장은 [변경 저장])."""
+    c = _require(db, user, cid)
+    vals = read_change(_pdf(file), user.company_id)
+    if vals.get("change_date") and vals["change_date"] == _iso(c.contract_date):  # 원계약일을 읽은 것 — 변경계약일 칸은 비움
+        vals.pop("change_date")
+    return {"values": vals}
+
+
+@router.post("/contracts/{cid}/change")
+def save_change(cid: int, data: str = Form(...), file: UploadFile | None = File(None), user: User = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    """[변경 저장] — data = {reason, change_date, contract: {착수일·완수일·계약금액}}(창에 보인 값 전부), file = 변경 계약서. 바뀐 칸만 계약에 넣고
+    차수 기록(전·후 값, 첨부 — 계약 폴더 계약변경/N차/변경계약서.pdf). 내진 건에 연결돼 있으면 건 용역 칸(기간·금액)도 같이(seismic.from_docs_contract)."""
+    import json
+
+    c = _require(db, user, cid)
+    try:
+        body = json.loads(data)
+    except ValueError as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "보낸 값을 읽지 못했습니다.") from err
+    want = {}  # 다 확인한 뒤에 넣음(중간에 막히면 계약은 그대로)
+    for k, v in (body.get("contract") or {}).items():
+        if k not in CHANGE_KEYS:
+            continue
+        if k == "amount":
+            try:
+                new = int(str(v).replace(",", "")) if str(v or "").strip() else None
+            except ValueError as err:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "계약금액에는 숫자만 적으세요.") from err
+        else:
+            new = _date(v)
+        if new is None and getattr(c, k) is not None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{CHANGE_LABEL[k]}을(를) 비울 수 없습니다.")
+        want[k] = new
+    start, end = want.get("start_date", c.start_date), want.get("end_date", c.end_date)
+    if start and end and end < start:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "완수일이 착수일보다 앞입니다.")
+    before, after = {}, {}
+    for k, new in want.items():
+        if new != getattr(c, k):
+            before[k], after[k] = _iso(getattr(c, k)), _iso(new)
+            setattr(c, k, new)
+    pdf = _pdf(file) if file is not None and file.filename else None
+    if not (after or pdf):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "바뀐 칸도 첨부한 변경 계약서도 없습니다.")
+    no = last_change_no(c) + 1
+    saved = []
+    if pdf:
+        d = folder(c) / "계약변경" / f"{no}차"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "변경계약서.pdf").write_bytes(pdf)
+        saved.append("변경계약서.pdf")
+    change_date = _date(body.get("change_date"))
+    entry = {"no": no, "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "by": user.display_name or "", "reason": (body.get("reason") or "").strip()[:300],
+             "change_date": _iso(change_date) if change_date else "", "before": before, "after": after, "files": saved}
+    c.changes = (c.changes or []) + [entry]
+    c.updated_at, c.updated_by = datetime.datetime.now(), user.display_name or ""
+    synced = False
+    if _seis(c) and c.facility_id and after:  # 내진 건 용역 칸(기간·금액) — 건에 따로 올린 용역계약서는 그대로
+        from server.api.routers import seismic as SE
+
+        f = db.get(SitokFacility, c.facility_id)
+        r = SE.project_of(db, f) if f is not None and f.seismic_only else None
+        if r is not None:
+            synced = SE.from_docs_contract(f, r, c, None, user.display_name or "")["fields"]
+    db.commit()
+    return _change_view(c) | {"saved": entry, "synced": synced}
+
+
+@router.get("/contracts/{cid}/change/{no}/{name}")
+def get_change_file(cid: int, no: int, name: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = _require(db, user, cid)
+    path = folder(c) / "계약변경" / f"{int(no)}차" / Path(name).name
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
+    return FileResponse(path, media_type="application/pdf", filename=f"{c.facility_name or c.client or '계약'}_{int(no)}차_{path.name}", content_disposition_type="inline",
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.get("/contracts/{cid}/file/{name}")

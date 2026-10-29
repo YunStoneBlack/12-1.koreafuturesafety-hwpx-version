@@ -803,6 +803,7 @@ class SitokDocContract(Base):
     start_made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     done_made_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, default=None)
     memo: Mapped[str] = mapped_column(Text, default="")
+    changes: Mapped[list | None] = mapped_column(JSON, default=None)  # 계약변경 기록 [{no, at, by, reason, change_date, before, after, files}](0068, 10/29 내진)
     created_by: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
     updated_by: Mapped[str] = mapped_column(Text, default="")
