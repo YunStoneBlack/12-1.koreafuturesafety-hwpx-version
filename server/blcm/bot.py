@@ -345,7 +345,7 @@ def plan_for(group: list[dict], results: dict) -> dict:
             v = (tx.get(ours) or "").strip()
             if v and v != "-":
                 texts[theirs].append(v)
-        photos += [p["rel"] for p in sorted(res.get("photos") or [], key=lambda p: 0 if p.get("kind") == "bad" else 1)]
+        photos += [p["rel"] for p in sorted(res.get("photos") or [], key=lambda p: (p.get("slot") is None, p.get("slot") or 0, 0 if p.get("kind") == "bad" else 1))]  # 견본 칸 차례, 그 밖은 지적 먼저(10/30)
     na = all(nas)
     cmp = "개선필요" if "개선필요" in cmps else "해당없음"
     design = next((d for d in designs if d == "부적합"), None) or next((d for d in designs if d), "")
@@ -570,7 +570,7 @@ def items_pass(ctx, pg, cdp, run: Run, results: dict, folder: Path, save: bool, 
             photos = [folder / r for r in plan["photos"] if (folder / r).exists()]
             n_up = 0
             if save:
-                n_up = upload_photos(pop, pcdp, photos[:10])
+                n_up = upload_photos(pop, pcdp, photos)  # 장수 제한 없음(10/30 사용자 — 예전 10장까지)
             run.shot(pop, f"{S}_{group[0]['name'][:10]}")
             state = "warn" if got["warn"] else "ok"
             msg = "; ".join(got["warn"])

@@ -18,6 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 
 FILE = Path(__file__).with_name("items.json")
+SAMPLES = Path(__file__).with_name("samples.json")  # 견본(제출한 보고서에서 — server/scripts/make_blcm_samples.py, 10/30)
 WEIGHT = {"양호": 1.0, "보통": 0.8, "미흡": 0.6, "불량": 0.4, "적합": 1.0, "부적합": 0.4}
 RATINGS = ("양호", "보통", "미흡", "불량", "해당없음")
 FITS = ("적합", "부적합", "해당없음")
@@ -25,6 +26,81 @@ CERTS = ("인증", "재인증", "만료", "해당없음")
 TEXT_KEYS = {"ilglt": "개선사항(위법)", "perf": "성능개선사항", "basis": "개선방안에 대한 근거 및 관련법령 등", "rm": "비고"}
 BIG_ORDER = ("법규유지", "기능유지", "에너지및친환경", "구조안전", "화재안전")
 BIG_LABEL = {"법규유지": "법규유지", "기능유지": "기능유지", "에너지및친환경": "에너지 및 친환경", "구조안전": "구조안전", "화재안전": "화재안전"}
+
+
+# 현장에서 찍는 자리(10/30 사용자 "옥상에 가면 조경·피뢰침 … 항목이 순차적이지 않아 위아래를 반복" → 방안1 장소별로 묶고 보고서는 원래 순서).
+# 우리프라자 보고서 현황사진 설명으로 정함(예: 급수 = 화장실·주방 급수압 + 급수펌프·저수조). 첫 자리가 주된 곳, 여러 곳이면 탭마다 나옴.
+PLACES = (("out", "외부·대지"), ("roof", "옥상"), ("in", "실내"), ("under", "지하·기계·전기실"), ("doc", "서류·면담"))
+ITEM_PLACES = {
+    "3.1.1": ["out"], "3.1.2": ["roof"], "3.1.3": ["out", "doc"], "3.1.4": ["out"], "3.1.5": ["out"], "3.1.6": ["out", "doc"], "3.1.7": ["out", "doc"],
+    "3.1.8": ["out"], "3.1.9": ["out", "doc"], "3.1.10": ["out", "doc"], "3.1.11": ["out", "doc"], "3.1.12": ["out", "in"], "3.1.13": ["out"], "3.1.14": ["out"],
+    "3.1.15": ["doc"], "3.1.16": ["doc"], "3.1.17": ["doc"], "3.1.18": ["doc"], "3.1.19": ["doc"], "3.1.20": ["doc"],
+    "3.2.1": ["in", "under"], "3.2.2": ["in", "under"], "3.2.3": ["in", "roof"], "3.2.4": ["in", "roof"], "3.2.5": ["in"], "3.2.6": ["roof"], "3.2.7": ["roof", "in"],
+    "3.2.8": ["under"], "3.2.9": ["in"], "3.3.1": ["out", "in"], "3.3.2": ["doc"],
+    "3.4.1": ["out"], "3.4.2": ["out"], "3.4.3": ["out"], "3.4.4": ["out", "under"], "3.4.5": ["in", "under"], "3.4.6": ["doc"], "3.4.7": ["out"],
+    "3.4.8": ["in", "doc"], "3.4.9": ["doc"],
+    "3.5.1": ["in"], "3.5.2": ["roof"], "3.5.3": ["doc"], "3.5.4": ["in"], "3.5.5": ["in", "out"], "3.5.6": ["in"], "3.5.7": ["in"], "3.5.8": ["out", "doc"],
+    "3.5.9": ["in"], "3.5.10": ["under"],
+}
+
+
+@lru_cache(maxsize=1)
+def samples() -> dict:
+    """견본 {code: {from, name, ilglt, perf, basis, rm, photos: [{n, file, caption}]}} — 없으면 {}."""
+    try:
+        return json.loads(SAMPLES.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+DRAW_RE = re.compile(r"도면|정면도|배면도|측면도|배치도|평면도|입면도|단면도|대장|확인원")  # 견본 사진 중 현장에서 안 찍는 그림(도면·서류) — 📐 도면 칸으로
+
+
+def slots(code: str) -> dict:
+    """견본 칸(10/30 사용자 "사진 찍을 때 우리프라자 사진을 견본으로, 전회차 느낌") — {"photo": [{n, caption, file}], "draw": [{n, caption, file}]}.
+    n = 견본 사진 번호(1부터) — 이번 사진·고른 도면은 photos[].slot = n. 견본이 없으면 둘 다 []."""
+    out = {"photo": [], "draw": []}
+    for p in (samples().get(code) or {}).get("photos") or []:
+        out["draw" if DRAW_RE.search(p.get("caption") or "") else "photo"].append({"n": p["n"], "caption": p.get("caption") or "", "file": p.get("file") or ""})
+    return out
+
+
+def _has(texts: dict, k: str) -> bool:
+    return (texts.get(k) or "").strip() not in ("", "-")
+
+
+def missing(it: dict, res: dict | None) -> list[str]:
+    """빠진 것(10/30 사용자 "조사항목이 누락되지 않도록 — 시특법 조사완료처럼") — 판정 없음·일부만, 해당없음 사유, 부적합·미흡인데 지적 사진·개선 의견·근거 없음,
+    현황사진 없음(서류·면담만인 항목은 안 봄), 건수형 부적합인데 변경 유형 체크 없음. 다 됐으면 []."""
+    res = res or {}
+    ev = evaluate(it, res)
+    if ev["state"] == "empty":
+        return ["판정 없음"]
+    out = ["세부 판정 일부만"] if ev["state"] == "part" else []
+    tx = res.get("texts") or {}
+    if ev["state"] == "na":
+        if not _has(tx, "rm"):
+            out.append("해당없음 사유(비고) 없음")
+        return out
+    bad = ev.get("judge") == "부적합" or any(d.get("judge") in ("미흡", "불량", "부적합") for d in ev.get("details") or [])
+    photos = res.get("photos") or []
+    if bad and not any(p.get("kind") == "bad" for p in photos):
+        out.append("부적합·미흡인데 지적 사진 없음")
+    elif not photos and ITEM_PLACES.get(it["code"], ["out"]) != ["doc"]:
+        out.append("현황사진 없음")
+    if bad and not (_has(tx, "ilglt") or _has(tx, "perf")):
+        out.append("부적합·미흡인데 개선방안 의견 없음")
+    if bad and not _has(tx, "basis"):
+        out.append("부적합·미흡인데 개선 근거 없음")
+    if it["kind"] == "count" and ev.get("judge") == "부적합" and not res.get("count") and not checked_count(it, res):
+        out.append("부적합인데 변경 유형 체크 없음")
+    draw = slots(it["code"])["draw"]
+    if draw and res.get("design") != "도면없음":
+        got = {p.get("slot") for p in photos if p.get("drawing")}
+        left = [d["caption"] for d in draw if d["n"] not in got]
+        if len(left) == len(draw):
+            out.append("도면·서류 그림 없음(📐 도면 칸 — 도면이 없으면 설계도서 적합여부 '도면없음')")
+    return out
 
 
 def _sq(s: str) -> str:

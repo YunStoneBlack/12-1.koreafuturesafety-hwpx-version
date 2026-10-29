@@ -47,9 +47,26 @@
   </div>
 </details>
 
-<section class="panel" id="bj-items-panel">
-  <div class="panel-head"><h2>점검 항목</h2><span class="panel-count">매뉴얼(국토교통부 2025.2) 소항목 50개 — 판정·사진을 넣고 🤖 AI로 채우기</span></div>
+<!-- 📐 도면·서류 그림(10/30 사용자 "우리프라자에서 도면 넣는 칸 — 따로 빼서 한꺼번에 넣고 해당 위치로 출력") — 여기서 PDF·그림을 한꺼번에 올리고,
+     항목마다 견본 도면 칸(정면도·배치도·조경표기도면·건축물대장 …)에 고르면 그 항목 현황사진으로 들어감 -->
+<details class="panel sk-fold" id="bj-draw">
+  <summary class="panel-head"><h2>📐 도면 · 서류 그림</h2><span class="panel-count" id="bj-draw-sub">도면 PDF를 한꺼번에 올리고 항목 자리(정면도·배치도·조경표기도면 …)에 고르기</span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body">
+    <div class="bj-top-btns"><label class="secondary bj-file-btn" id="bj-draw-drop">📐 도면 PDF·그림 올리기<input type="file" accept=".pdf,application/pdf,image/*" multiple hidden data-kr-file="skip" id="bj-draw-in" /></label>
+      <button type="button" class="secondary" id="bj-draw-reg">🏢 올린 건축물대장 쪽 넣기</button><span class="mail-note" id="bj-draw-msg">PDF는 쪽마다 나눠 원본 화질(200dpi)로 — 끌어 놓아도 됩니다</span></div>
+    <div class="bj-pool" id="bj-pool"></div>
+    <div class="bj-sec-t">항목별 도면 자리 <small class="mail-note">견본(우리프라자)에 도면·서류가 들어간 자리 — 고르면 그 항목 현황사진으로 들어갑니다</small></div>
+    <div class="bj-draw-slots" id="bj-draw-slots"></div>
+  </div>
+</details>
+
+<section class="panel" id="bj-items-panel">
+  <!-- 10/30 사용자: [장소별] = 현장에서 찍는 자리(외부·옥상·실내·지하·서류)로 묶어 보기(보고서는 항목 순서 그대로), [✓ 점검 완료] = 빠진 것 알려 주기(시특법 조사 완료처럼) -->
+  <div class="panel-head"><h2>점검 항목</h2>
+    <span class="site-sort bj-view" role="group" aria-label="보기"><button type="button" data-v="big">항목 순서</button><button type="button" data-v="place">장소별</button></span>
+    <span class="panel-count" id="bj-view-note">매뉴얼(국토교통부 2025.2) 소항목 50개 — 판정·사진을 넣고 🤖 AI로 채우기</span></div>
+  <div class="panel-body">
+    <div class="bj-done" id="bj-done"></div>
     <div class="bj-tabs" id="bj-tabs" role="tablist"></div>
     <div id="bj-items"><div class="empty-note">불러오는 중…</div></div>
   </div>

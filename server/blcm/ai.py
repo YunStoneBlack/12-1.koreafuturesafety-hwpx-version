@@ -14,13 +14,19 @@ from server.blcm import items as I
 
 RULES = """[작성 규칙 — 건축물 정기점검 매뉴얼(국토교통부 2025.2) 2.4절]
 - 점검자가 이미 정한 판정·점수는 바꾸지 마세요. 비어 있는 판정만 사진·건축물 개요로 제안(judge/ratings)하고, 판단 근거가 없으면 비워 두세요.
+  판정이 비어 있으면: 지적 사진이 있으면 건수형은 부적합, 점수형은 그 세부 점검을 미흡·불량 쪽으로, 양호 사진만 있으면 적합·양호로 제안.
 - "세부항목 점검현황"은 판정과 사진에 맞는 선택지만 체크(status에 "l줄t조각": true)하고, 빈칸은 값을 적으세요("l줄t조각": "73.21").
   기준면적·건폐율·용적률·조경면적 같은 값은 건축물 개요(대장)에 있는 값만 쓰고, 없으면 비워 두세요(지어내지 말 것).
-- 개선방안에 대한 의견: 위법(사용승인 당시 기준에 부적합·사용승인 후 무단 변경)이면 ilglt(개선사항(위법))에, 적법하나 노후·성능 저하로 개선이 필요하면 perf(성능개선사항)에
-  짧게(한두 문장) 쓰고, 없으면 "-". 판정이 적합·양호면 둘 다 "-".
+- 개선방안에 대한 의견: 부적합·미흡·불량이면 ilglt(개선사항(위법))에 조사된 현황(어디서·무엇이·얼마나 — 위치·수량·수치, 무엇과 비교해 확인했는지)을,
+  perf(성능개선사항)에 필요한 조치(무엇을 어떻게 개선)를 씀 — 아래 [견본]의 길이·구체성만큼(예: 조경 부적합 견본은 위법 칸 130자 안팎, 성능 칸 30~60자).
+  판정이 적합·양호면 둘 다 "-".
 - basis(개선방안에 대한 근거 및 관련법령 등): 의견을 냈으면 그 사유·근거·관련 조문을 구체적으로(아래 관련법규 안에서), 의견이 없으면 "-".
-- rm(비고): 점검 결과를 보고서 문장으로 한두 문장(예: "조경면적은 기준면적 이상으로 확보되어 양호하게 유지되고 있음."). 해당없음·도면없음이면 그 사유(적용 대상이 아님·
-  사용승인 시점 기준 미적용·육안 점검 불가 등)를 반드시.
+- rm(비고): 점검 결과를 보고서 문장으로. 부적합·미흡이면 의견(위법 칸)과 같은 취지로 현황까지(견본처럼), 적합·양호면 한 문장(예: "조경면적은 기준면적 이상으로 확보되어
+  양호하게 유지되고 있음."). 해당없음·도면없음이면 그 사유를 반드시 — 허가일·사용승인일과 그 기준의 신설·시행일을 견줘서(예: "본 건축물의 허가일(2007.03.30)이
+  범죄예방건축기준 시행(2014.11.29) 이전으로 점검대상에 해당되지 않음."), 적용 대상 요건(층수·면적·용도)이 안 되면 그 수치와 요건을 같이.
+  ※관련법규 줄은 사이트 양식이 비고 아래에 따로 찍으니 비고에 다시 쓰지 마세요.
+- 건축물 개요·[점검자가 덧붙인 내용]에 있는 수치(실측 면적·비율·개수·위치·도면 비교 결과)는 빠뜨리지 말고 문장에 넣으세요 — 견본의 수치는 다른 건물이니 옮기지 말 것.
+- "도면과 비교한 결과" 같은 확인 방법은 [사진]에 도면·서류 그림이 있거나 덧붙인 내용에 있을 때만 쓰세요(견본 문구를 그대로 옮기지 말 것 — 없으면 "현장 조사 결과").
 - captions: 사진마다 짧은 설명(15자 안팎, 예: "1층 조경식재 현황", "실외기 설치로 식재 훼손") — 사진 차례대로.
 - 문장은 보고서체("~임", "~함", "~요구됨"), 근거 없는 수치·법령을 지어내지 마세요."""
 
@@ -37,6 +43,7 @@ PROMPT = """당신은 건축물관리법 정기점검 점검자를 돕는 보조
 [개선방안 의견 작성 안내(매뉴얼)]
 {advice}
 [※관련법규] {laws}
+{sample}
 
 [건축물 개요(건축물대장)]
 {facts}
@@ -50,6 +57,28 @@ PROMPT = """당신은 건축물관리법 정기점검 점검자를 돕는 보조
 아래 JSON 하나로만 답하세요(설명 없이):
 {{"judge": "적합|부적합|해당없음 또는 빈 글(건수형만)", "ratings": {{"d0.s0": "양호|보통|미흡|불량|해당없음"}}, "design": "적합|부적합|도면없음|해당없음 또는 빈 글",
  "status": {{"l1t0": true, "l2t1": "값"}}, "ilglt": "…", "perf": "…", "basis": "…", "rm": "…", "captions": ["…"]}}"""
+
+
+STYLE_CODES = ("3.1.1", "3.5.1")  # 부적합 견본(위법·성능·근거·비고가 다 있는 것) — 같은 항목 견본이 적합이라 의견이 비어도 길이·나눔을 보게
+
+
+def sample_text(code: str) -> str:
+    """[견본] — 같은 항목의 우리 회사 제출 보고서 글(server/blcm/samples.json) + 부적합 견본 둘(10/30 — AI 글이 수기 보고서보다 짧고 덜 구체적이던 것)."""
+    sm = I.samples()
+
+    def one(c: str, title: str) -> str:
+        v = sm.get(c) or {}
+        rows = [f"  · {lab}: {v.get(k)}" for k, lab in I.TEXT_KEYS.items() if (v.get(k) or "").strip() not in ("", "-")]
+        if not rows:
+            return ""
+        caps = [p["caption"] for p in v.get("photos") or [] if p.get("caption")]
+        return f"- {title} ({v.get('from', '')} 보고서 {c} {v.get('name', '')})\n" + "\n".join(rows) + (f"\n  · 현황사진 설명: {' / '.join(caps)}" if caps else "")
+
+    parts = [one(code, "같은 항목")]
+    if not parts[0] or not any((sm.get(code) or {}).get(k) for k in ("ilglt", "perf")):
+        parts += [one(c, "부적합 견본") for c in STYLE_CODES if c != code]
+    body = "\n".join(p for p in parts if p)
+    return f"[견본 — 우리 회사가 낸 보고서. 다른 건물이니 사실·수치는 옮기지 말고 길이·구체성·말투·칸 나눔만 따를 것]\n{body}\n" if body else ""
 
 
 def _details(it: dict) -> str:
@@ -101,10 +130,10 @@ def ask(it: dict, res: dict, building: dict | None, photos: list[tuple[bytes, st
 
     kind_text = {"count": "건수형 — 변경 유형 체크 건수 0건 = 적합, 1건 이상 = 부적합", "cert": "인증형 — 세부항목마다 인증/재인증/만료/해당없음",
                  "score": "점수형 — 세부 점검마다 양호(1.0)·보통(0.8)·미흡(0.6)·불량(0.4)·해당없음 × 배점, 합계 백분율 90%·70%·50% 초과로 양호·보통·미흡, 그 아래 불량"}[it["kind"]]
-    ph = "\n".join(f"- 사진 {i + 1}: {'지적(부적합·결함)' if k == 'bad' else '양호'} 사진{(' — 지금 설명 ' + c) if c else ''}" for i, (_, k, c) in enumerate(photos)) or "(사진 없음)"
+    ph = "\n".join(f"- 사진 {i + 1}: {'지적(부적합·결함) 사진' if k == 'bad' else '도면·서류 그림' if k == 'draw' else '양호 사진'}{(' — 지금 설명 ' + c) if c else ''}" for i, (_, k, c) in enumerate(photos)) or "(사진 없음)"
     prompt = PROMPT.format(code=it["code"], name=it["name"], big=it["big"], mid=it["mid"], small=it["small"], kind_text=kind_text, details=_details(it),
                            status=_status_lines(it, res), criteria="\n".join(it.get("criteria") or [])[:5000], advice="\n".join(it.get("advice") or []) or "-",
-                           laws=it.get("laws") or "-", facts=B.facts(building), inspector=_inspector(it, res), photos=ph, rules=RULES,
+                           laws=it.get("laws") or "-", sample=sample_text(it["code"]), facts=B.facts(building), inspector=_inspector(it, res), photos=ph, rules=RULES,
                            extra=f"[점검자가 덧붙인 내용 — 반영할 것]\n{extra.strip()}\n" if (extra or "").strip() else "")
     raw = vision.ask_json(company_id, [b for b, _, _ in photos[:4]], prompt, max_tokens=3000, writing=True)
     if not isinstance(raw, dict):
@@ -162,12 +191,12 @@ def merge(res: dict, got: dict) -> dict:
 
 
 def photo_bytes(folder: Path, photos: list[dict]) -> list[tuple[bytes, str, str]]:
-    """AI에 줄 사진 — 지적(bad) 먼저."""
+    """AI에 줄 사진 — 지적(bad) 먼저, 도면 칸 그림(10/30)은 kind "draw"로(도면과 비교했다고 쓸 수 있게)."""
     out = []
-    for p in sorted(photos or [], key=lambda x: 0 if x.get("kind") == "bad" else 1):
+    for p in sorted(photos or [], key=lambda x: 0 if x.get("kind") == "bad" else 2 if x.get("drawing") else 1):
         f = folder / p["rel"]
         if f.exists():
-            out.append((f.read_bytes(), p.get("kind") or "good", p.get("caption") or ""))
+            out.append((f.read_bytes(), "draw" if p.get("drawing") else p.get("kind") or "good", p.get("caption") or ""))
     return out
 
 

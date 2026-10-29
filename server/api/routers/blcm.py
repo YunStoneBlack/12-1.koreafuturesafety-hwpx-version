@@ -6,6 +6,11 @@
 - `PUT  /blcm/jobs/{id}/items/{code}` — 소항목 결과 저장(판정·점검현황·글) → 판정 계산
 - `POST /blcm/jobs/{id}/items/{code}/photos`(file·kind good|bad·caption) · `PATCH|DELETE …/photos/{pid}` · `GET /blcm/jobs/{id}/photo/{pid}`
 - `POST /blcm/jobs/{id}/items/{code}/ai` {extra} — 사진·대장으로 점검현황·글 채우기(점검자 판정은 그대로, 약 30~60원)
+- `POST /blcm/jobs/{id}/drawings`(file PDF·그림 — PDF는 쪽마다) · `DELETE …/drawings/{did}` · `GET …/drawings/{did}/img` · `POST …/drawings/register`(올린 건축물대장 쪽) —
+  📐 도면·서류 그림 모음(files.drawings, 10/30 사용자 "도면 넣는 칸은 따로 빼서 한꺼번에 넣고 해당 위치로") · `PUT /blcm/jobs/{id}/items/{code}/slot/{n}` {drawing}
+  — 그 항목 견본 도면 칸에 고른 그림(현황사진으로 복사, photos[].slot·drawing). 사진 올리기 slot = 견본 칸(같은 칸 사진은 바꿈), 개수 제한 없음.
+- `GET  /blcm/samples/{file}` — 견본 참고 사진(우리프라자 보고서 현황사진, server/blcm/samples.json·저장소 _건축물관리점검/_참고사진, 10/30)
+- `GET  /blcm/jobs/{id}/check` · `POST /blcm/jobs/{id}/done` {done} — 빠진 것(소항목마다 items.missing + 관리계획·그 밖의 항목·의견)·[✓ 점검 완료](contract.field_done, 10/30)
 - `POST /blcm/jobs/{id}/ai/rewrite` {label, current, note} — 글 한 칸 덧붙인 내용 반영해 다시 쓰기(app.js aiRewrite, 약 10원)
 - `PUT  /blcm/jobs/{id}/opinion` {plan, other, texts} — 관리계획 8줄·그 밖의 항목 12줄·주요 개선방안 의견 다섯 칸·종합의견(10/29 2단계 나머지)
 - `POST /blcm/jobs/{id}/opinion/ai` {extra} — 의견·종합의견 AI(점검 결과 전부로, 약 50~100원)
@@ -39,6 +44,7 @@ from server.blcm import items as I
 
 router = APIRouter(prefix="/blcm", tags=["blcm"])
 ROOT = DATA_DIR / "_건축물관리점검"
+SAMPLE_DIR = ROOT / "_참고사진"
 
 
 def folder(j: BlcmJob) -> Path:
@@ -85,6 +91,11 @@ def progress(j: BlcmJob) -> dict:
     return {"done": done, "total": len(ev), "bad": bad, "photos": photos}
 
 
+def _ev(it: dict, r: dict | None) -> dict:
+    """판정 + 빠진 것(miss, 10/30) — 화면 카드 머리 ⚠·[✓ 점검 완료]."""
+    return {**I.evaluate(it, r), "miss": I.missing(it, r)}
+
+
 def _list_out(j: BlcmJob) -> dict:
     b = j.building or {}
     return {"id": j.id, "name": j.name, "address": j.address or b.get("address") or "", "use": b.get("use") or "", "approval_date": b.get("approval_date") or "",
@@ -94,13 +105,16 @@ def _list_out(j: BlcmJob) -> dict:
 def _out(j: BlcmJob) -> dict:
     res = j.results or {}
     return {**_list_out(j), "building": j.building or {}, "owner": j.owner or {}, "contract": j.contract or {}, "opinion": j.opinion or {}, "memo": j.memo or "",
-            "files": j.files or {}, "results": res, "eval": {code: I.evaluate(it, res.get(code)) for code, it in I.by_code().items()},
+            "files": j.files or {}, "results": res, "eval": {code: _ev(it, res.get(code)) for code, it in I.by_code().items()},
+            "field_done": (j.contract or {}).get("field_done"),  # [✓ 점검 완료](10/30)
             "recap": I.recap(res), "plan_grade": I.plan_grade((j.opinion or {}).get("plan")), "site": _site_out(j)}
 
 
 @router.get("/items")
 def get_items(user: User = Depends(get_current_user)):
     return {"groups": I.groups(), "items": [I.public(it) for it in I.items()], "text_keys": I.TEXT_KEYS,
+            "places": I.PLACES, "item_places": I.ITEM_PLACES, "samples": I.samples(),  # 장소별 묶음·견본(10/30)
+            "slots": {it["code"]: I.slots(it["code"]) for it in I.items()},  # 견본 칸 — 현장 사진·도면(10/30)
             "plan_rows": I.PLAN_ROWS, "other_rows": I.OTHER_ROWS, "other_values": I.OTHER_VALUES, "opinion_keys": [(k, lab) for k, lab, _ in I.OPINION_KEYS]}
 
 
@@ -283,13 +297,14 @@ def put_item(jid: int, code: str, body: ItemIn, user: User = Depends(get_current
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": res[code], "eval": I.evaluate(it, res[code]), "progress": progress(j), "recap": I.recap(res)}
+    return {"result": res[code], "eval": _ev(it, res[code]), "progress": progress(j), "recap": I.recap(res)}
 
 
 @router.post("/jobs/{jid}/items/{code}/photos")
-def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = Form("good"), caption: str = Form(""),
+def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = Form("good"), caption: str = Form(""), slot: int | None = Form(None),
               user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """현황사진 — 사진(폰 원본도)은 긴 변 2000px JPG로(files.save_jpeg). kind = good(양호) | bad(지적)."""
+    """현황사진 — 사진(폰 원본도)은 긴 변 2000px JPG로(files.save_jpeg). kind = good(양호) | bad(지적). 장수 제한 없음(10/30 사용자).
+    slot = 견본 칸 번호(10/30 — 그 칸에 사진이 있으면 바꿈, 설명이 비면 견본 설명)."""
     from server.contract_docs import files
 
     j = _require(db, user, jid)
@@ -299,13 +314,21 @@ def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = For
     files.save_jpeg(file.file.read(), file.filename or "사진.jpg", folder(j) / rel)
     res = dict(j.results or {})
     r = dict(res.get(code) or {})
-    r["photos"] = [*(r.get("photos") or []), {"id": pid, "rel": rel, "name": file.filename or "", "kind": "bad" if kind == "bad" else "good",
-                                               "caption": caption.strip()[:60], "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}]
+    old = [x for x in r.get("photos") or [] if slot is not None and x.get("slot") == slot]
+    for x in old:
+        (folder(j) / x["rel"]).unlink(missing_ok=True)
+    sl = next((s for s in I.slots(code)["photo"] + I.slots(code)["draw"] if s["n"] == slot), None) if slot is not None else None
+    cap = caption.strip()[:60] or (old[0].get("caption") if old else "") or (sl["caption"] if sl else "")
+    p = {"id": pid, "rel": rel, "name": file.filename or "", "kind": "bad" if kind == "bad" else "good", "caption": cap,
+         "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
+    if sl:
+        p["slot"] = slot
+    r["photos"] = [*(x for x in r.get("photos") or [] if x not in old), p]
     res[code] = r
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": r, "eval": I.evaluate(it, r), "progress": progress(j)}
+    return {"result": r, "eval": _ev(it, r), "progress": progress(j)}
 
 
 class PhotoIn(BaseModel):
@@ -332,7 +355,7 @@ def patch_photo(jid: int, code: str, pid: str, body: PhotoIn, user: User = Depen
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": r, "eval": I.evaluate(_item(code), r)}
+    return {"result": r, "eval": _ev(_item(code), r)}
 
 
 @router.delete("/jobs/{jid}/items/{code}/photos/{pid}")
@@ -345,7 +368,7 @@ def delete_photo(jid: int, code: str, pid: str, user: User = Depends(get_current
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": r, "eval": I.evaluate(_item(code), r), "progress": progress(j)}
+    return {"result": r, "eval": _ev(_item(code), r), "progress": progress(j)}
 
 
 @router.get("/jobs/{jid}/photo/{pid}")
@@ -356,6 +379,208 @@ def get_photo(jid: int, pid: str, user: User = Depends(get_current_user), db: Se
     if f is None or not f.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
     return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+# ---------- 📐 도면·서류 그림 모음(10/30 사용자) — 한꺼번에 올리고 항목 견본 도면 칸에 고름 ----------
+def _drawings(j: BlcmJob) -> list[dict]:
+    return list((j.files or {}).get("drawings") or [])
+
+
+def _save_drawings(j: BlcmJob, user: User, items: list[dict]) -> None:
+    f = dict(j.files or {})
+    f["drawings"] = items
+    j.files = f
+    _touch(j, user, "files")
+
+
+def _add_pages(j: BlcmJob, data: bytes, name: str) -> list[dict]:
+    """PDF는 쪽마다 200dpi JPG(도면은 원본 화질 규칙 — 줄이지 않음), 그림은 JPG면 그대로·아니면 JPG로. 쪽 글에서 도면 이름(정면도·배치도 …)을 찾아 label에."""
+    import io
+    import re
+
+    import pymupdf
+    from PIL import Image, ImageOps
+
+    out = []
+    d = folder(j) / "도면"
+    d.mkdir(parents=True, exist_ok=True)
+    stem = re.sub(r"\.[A-Za-z0-9]+$", "", name or "도면")[:40]
+    if data.startswith(b"%PDF"):
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        if doc.page_count > 80:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"쪽이 너무 많습니다({doc.page_count}쪽) — 필요한 도면만 80쪽 안으로 나눠 올려 주세요.")
+        for i, page in enumerate(doc):
+            did = uuid.uuid4().hex[:10]
+            (d / f"{did}.jpg").write_bytes(page.get_pixmap(dpi=200).tobytes("jpg", jpg_quality=90))
+            words = re.findall(r"[0-9가-힣]*(?:정면도|배면도|측면도|배치도|평면도|입면도|단면도|조경)[가-힣]*", re.sub(r"\s", "", page.get_text()))
+            out.append({"id": did, "rel": f"도면/{did}.jpg", "name": stem, "page": i + 1, "hint": " ".join(dict.fromkeys(words))[:80]})
+    else:
+        try:
+            im = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+        except Exception as err:  # noqa: BLE001
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF나 그림 파일(jpg·png)을 올려 주세요.") from err
+        did = uuid.uuid4().hex[:10]
+        if data[:3] == b"\xff\xd8\xff" and im.format != "MPO":
+            (d / f"{did}.jpg").write_bytes(data)
+        else:
+            im.convert("RGB").save(d / f"{did}.jpg", "JPEG", quality=92)
+        out.append({"id": did, "rel": f"도면/{did}.jpg", "name": stem, "page": None, "hint": ""})
+    return out
+
+
+def _drawings_out(j: BlcmJob) -> dict:
+    used = {}
+    for code, r in (j.results or {}).items():
+        for p in (r or {}).get("photos") or []:
+            if p.get("drawing"):
+                used.setdefault(p["drawing"], []).append(f"{code}")
+    return {"drawings": [{**x, "used": used.get(x["id"], [])} for x in _drawings(j)], "results": j.results or {},
+            "eval": {code: _ev(it, (j.results or {}).get(code)) for code, it in I.by_code().items()}}
+
+
+@router.post("/jobs/{jid}/drawings")
+def add_drawings(jid: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    j = _require(db, user, jid)
+    pages = _add_pages(j, file.file.read(), file.filename or "도면")
+    _save_drawings(j, user, _drawings(j) + pages)
+    db.commit()
+    return _drawings_out(j)
+
+
+@router.post("/jobs/{jid}/drawings/register")
+def add_register_pages(jid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """올린 건축물대장 PDF 쪽을 그림 모음에(3.1.15 등 견본 "건축물 대장" 칸)."""
+    j = _require(db, user, jid)
+    reg = (j.files or {}).get("register")
+    f = folder(j) / reg["rel"] if reg else None
+    if f is None or not f.exists():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "건축물대장을 먼저 올려 주세요(위 🏢 건축물대장 올리기).")
+    pages = [dict(x, name="건축물대장") for x in _add_pages(j, f.read_bytes(), "건축물대장")]
+    _save_drawings(j, user, _drawings(j) + pages)
+    db.commit()
+    return _drawings_out(j)
+
+
+@router.delete("/jobs/{jid}/drawings/{did}")
+def delete_drawing(jid: int, did: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """모음에서 지우기 — 항목에 넣은 것(현황사진에 복사한 것)은 그대로."""
+    j = _require(db, user, jid)
+    items = _drawings(j)
+    x = next((d for d in items if d["id"] == did), None)
+    if x is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "그림이 없습니다.")
+    (folder(j) / x["rel"]).unlink(missing_ok=True)
+    _save_drawings(j, user, [d for d in items if d["id"] != did])
+    db.commit()
+    return _drawings_out(j)
+
+
+@router.get("/jobs/{jid}/drawings/{did}/img")
+def drawing_img(jid: int, did: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    j = _require(db, user, jid)
+    x = next((d for d in _drawings(j) if d["id"] == did), None)
+    f = folder(j) / x["rel"] if x else None
+    if f is None or not f.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "그림이 없습니다.")
+    return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+class SlotIn(BaseModel):
+    drawing: str | None = None  # 모음 그림 id, 비우면 그 칸 비움
+
+
+@router.put("/jobs/{jid}/items/{code}/slot/{n}")
+def set_slot(jid: int, code: str, n: int, body: SlotIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """견본 도면 칸 n에 모음 그림 넣기(현황사진으로 복사 — 설명 = 견본 설명, 양호) / 비우기."""
+    j = _require(db, user, jid)
+    it = _item(code)
+    sl = next((s for s in I.slots(code)["draw"] + I.slots(code)["photo"] if s["n"] == n), None)
+    if sl is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "그런 견본 칸이 없습니다.")
+    res = dict(j.results or {})
+    r = dict(res.get(code) or {})
+    old = [x for x in r.get("photos") or [] if x.get("slot") == n]
+    for x in old:
+        (folder(j) / x["rel"]).unlink(missing_ok=True)
+    keep = [x for x in r.get("photos") or [] if x not in old]
+    if body.drawing:
+        src = next((d for d in _drawings(j) if d["id"] == body.drawing), None)
+        if src is None or not (folder(j) / src["rel"]).exists():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "그림이 없습니다 — 도면 모음을 다시 여세요.")
+        pid = uuid.uuid4().hex[:10]
+        rel = f"사진/{code}_{pid}.jpg"
+        (folder(j) / "사진").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(folder(j) / src["rel"], folder(j) / rel)
+        keep.append({"id": pid, "rel": rel, "name": f"{src['name']}" + (f" {src['page']}쪽" if src.get("page") else ""), "kind": "good",
+                     "caption": (old[0].get("caption") if old else "") or sl["caption"], "slot": n, "drawing": src["id"],
+                     "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")})
+    r["photos"] = keep
+    res[code] = r
+    j.results = res
+    _touch(j, user, "results")
+    db.commit()
+    return {"result": r, "eval": _ev(it, r), "progress": progress(j)}
+
+
+@router.get("/samples/{name}")
+def sample_photo(name: str, user: User = Depends(get_current_user)):
+    """견본 참고 사진(10/30 사용자 "우리프라자를 기준으로 해당 항목 샘플 참고사진") — 회사 공통."""
+    import re
+
+    if not re.fullmatch(r"3\.\d\.\d{1,2}_\d{1,2}\.jpg", name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
+    f = SAMPLE_DIR / name
+    if not f.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
+    return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+def check(j: BlcmJob) -> list[dict]:
+    """빠진 것 [{code, tab, title, text}] — 소항목(대항목 탭 차례) + 관리계획·그 밖의 항목·개선방안 의견(10/30)."""
+    res = j.results or {}
+    out = []
+    for g in I.groups():
+        for code in g["items"]:
+            it = I.by_code()[code]
+            miss = I.missing(it, res.get(code))
+            if miss:
+                out.append({"code": code, "tab": g["key"], "title": f"{code} {it['name']}", "text": " · ".join(miss)})
+    op = j.opinion or {}
+    n = len(I.PLAN_ROWS) - len(op.get("plan") or {})
+    if n:
+        out.append({"code": "", "tab": "_plan", "title": "관리계획 수립·이행", "text": f"{n}줄 안 고름"})
+    n = len(I.OTHER_ROWS) - sum(1 for v in (op.get("other") or {}).values() if v and v.get("v"))
+    if n:
+        out.append({"code": "", "tab": "_other", "title": "그 밖의 항목 이행 여부", "text": f"{n}줄 안 고름"})
+    n = sum(1 for k, _, _ in I.OPINION_KEYS if not ((op.get("texts") or {}).get(k) or "").strip())
+    if n:
+        out.append({"code": "", "tab": "_opinion", "title": "주요 개선방안 의견·종합의견", "text": f"빈 칸 {n}개"})
+    return out
+
+
+@router.get("/jobs/{jid}/check")
+def get_check(jid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    j = _require(db, user, jid)
+    return {"missing": check(j), "done": (j.contract or {}).get("field_done")}
+
+
+class DoneIn(BaseModel):
+    done: bool = True
+
+
+@router.post("/jobs/{jid}/done")
+def set_done(jid: int, body: DoneIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[✓ 점검 완료] — 빠진 것이 남아도 점검자가 완료를 누르면 완료(시특법 조사 완료와 같음), 취소하면 지움."""
+    j = _require(db, user, jid)
+    c = dict(j.contract or {})
+    if body.done:
+        c["field_done"] = {"at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "by": user.display_name or "", "left": len(check(j))}
+    else:
+        c.pop("field_done", None)
+    j.contract = c
+    _touch(j, user, "contract")
+    db.commit()
+    return {"missing": check(j), "done": c.get("field_done")}
 
 
 class AiIn(BaseModel):
@@ -381,7 +606,7 @@ def item_ai(jid: int, code: str, body: AiIn | None = None, user: User = Depends(
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": res[code], "eval": I.evaluate(it, res[code]), "progress": progress(j), "ai": got, "recap": I.recap(res)}
+    return {"result": res[code], "eval": _ev(it, res[code]), "progress": progress(j), "ai": got, "recap": I.recap(res)}
 
 
 class RewriteIn(BaseModel):
