@@ -505,12 +505,13 @@ def _practice_eboard(ctx, pg, job: Job, payload: dict) -> dict:
     job.watch(e)
     e.wait_for_load_state("domcontentloaded")
     e.wait_for_timeout(4000)
-    inx = _eboard_row(e, payload)
-    if not inx:
-        job.shot(e, "e보고서_용역없음(연습)")
-        return {"found": False}
-    e.evaluate(f"goSelect('{inx}', 'Y')")
-    e.wait_for_timeout(4000)
+    if not e.evaluate("() => document.querySelectorAll('input[type=checkbox][name^=facil_no]').length"):  # 바로 그 용역 화면이면 고르기 건너뜀(10/29 영상)
+        inx = _eboard_row(e, payload)
+        if not inx:
+            job.shot(e, "e보고서_용역없음(연습)")
+            return {"found": False}
+        e.evaluate(f"goSelect('{inx}', 'Y')")
+        e.wait_for_timeout(4000)
     names = e.evaluate("""() => [...document.querySelectorAll("[id^='divTree_'][id$='_span']")].map(x => (x.textContent || '').trim())""")
     have = {re.sub(r"\s", "", x) for x in names}
     facs = e.evaluate("() => document.querySelectorAll('input[type=checkbox][name^=facil_no]').length")
@@ -582,6 +583,7 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
     _engineer_rows(ctx, pg, fr3, job, payload["engineers"], project_no)
     job.shot(pg, "계약_기술자")
     _act(job, _frame(pg, "any14001"), "goSave()", "기술자 저장", wait_ms=4000)
+    _press_done(pg, job, "계약")  # 사람 순서 — [저장] → [작성완료] → 보기 화면 [승인요청](10/29 영상)
     return project_no
 
 
@@ -639,6 +641,36 @@ def _drop_empty_engineers(pg, job: Job, used: set) -> None:
         job.say(f"기술자 빈 줄 {i} 지움")
 
 
+_DONE_BTN = """() => { const b = [...document.querySelectorAll('a, button, input[type=button], span')].find(x => x.offsetParent !== null
+    && /^작성완료$/.test((x.textContent || x.value || '').replace(/\\s+/g, '').trim())); if (!b) return false; b.setAttribute('data-fms-done', '1'); return true; }"""
+
+
+def _press_done(pg, job: Job, label: str) -> None:
+    """[작성완료] — 사람은 마지막 탭을 [저장]한 뒤 [작성완료]를 누르고 보기 화면에서 [승인요청](10/29 민재형 영상). 보이는 프레임에서 찾아 누름."""
+    for fr in [pg.main_frame] + [f for f in pg.frames if f != pg.main_frame]:
+        try:
+            if fr.evaluate(_DONE_BTN):
+                n = len(job.alerts)
+                try:
+                    fr.click("[data-fms-done='1']", timeout=5000)
+                except Exception as e:  # noqa: BLE001 — 누르는 순간 화면이 넘어가면 정상
+                    if "Target" not in str(e) and "detached" not in str(e) and "destroyed" not in str(e):
+                        raise
+                pg.wait_for_timeout(3500)
+                new = job.alerts[n:]
+                job.say(f"{label} 작성완료" + (f" — 알림: {' / '.join(a[:80] for a in new)}" if new else ""))
+                bad = [a for a in new if _ERR.search(a) and a not in job.confirms]
+                if bad:
+                    raise FmsError(f"{label} 작성완료에서 FMS가 막음: {bad[0][:200]}")
+                return
+        except FmsError:
+            raise
+        except Exception:  # noqa: BLE001 — 그 프레임이 사라짐 등 — 다음 프레임
+            continue
+    job.shot(pg, f"{label}_작성완료없음")
+    raise FmsError(f"{label} 화면에서 [작성완료] 단추를 못 찾았습니다.")
+
+
 def _sign_request(pg, job: Job, detail_url: str, label: str) -> None:
     pg.goto(detail_url, wait_until="domcontentloaded")
     pg.wait_for_timeout(2000)
@@ -656,6 +688,7 @@ def owner_approve(b, job: Job, owner_id: str, owner_pw: str, project_nm: str, ki
     ctx = b.new_context(viewport={"width": 1500, "height": 1100}, locale="ko-KR")
     pg = ctx.new_page()
     job.watch(pg)
+    ctx.on("page", job.watch)  # 새로 뜨는 창(공지·결재·e-보고서 열람)의 알림창도 [확인]
     try:
         if not login(pg, owner_id, owner_pw):
             raise FmsError("관리주체 FMS 계정으로 로그인하지 못했습니다(시설물 카드의 관리주체 계정 확인).")
@@ -674,18 +707,34 @@ def owner_approve(b, job: Job, owner_id: str, owner_pw: str, project_nm: str, ki
             job.shot(pg, "관리주체_결재대기")
             raise FmsError(f"관리주체 결재대기에 \"{project_nm}\" {kind} 승인요청이 없습니다.")
         call = re.search(r"goDetail\([^)]*\)", hit["js"])[0]
-        with ctx.expect_page(timeout=15000) as pop:
+        before = set(ctx.pages)
+        with ctx.expect_page(timeout=15000):
             pg.evaluate(call)
-        w = pop.value
-        job.watch(w)
-        w.wait_for_load_state("domcontentloaded")
-        w.wait_for_timeout(2500)
-        job.shot(w, f"관리주체_{kind}_문서")
-        btn = w.evaluate("""() => { const b = [...document.querySelectorAll('button, a.btn, input[type=button]')].find(e => e.offsetParent !== null
+        find_btn = """() => { const b = [...document.querySelectorAll('button, a.btn, input[type=button]')].find(e => e.offsetParent !== null
             && /^승인$|^승 인$|^결재$/.test((e.textContent || e.value || '').replace(/\\s+/g, ' ').trim())); if (!b) return '';
-            b.setAttribute('data-fms-approve', '1'); return (b.textContent || b.value || '').trim(); }""")
-        if not btn:
-            raise FmsError("관리주체 결재 화면에서 [승인] 버튼을 찾지 못했습니다 — 화면을 보고 맞추겠습니다(첫 실제 건).")
+            b.setAttribute('data-fms-approve', '1'); return (b.textContent || b.value || '').trim(); }"""
+        w, btn = None, ""
+        for _ in range(16):  # 수시보고는 e-보고서 열람 창도 같이 뜸(10/29 영상 — 사람은 그 창을 닫고 승인 창에서 [승인]) → [승인] 있는 창을 고름
+            pg.wait_for_timeout(500)
+            for cand in [x for x in ctx.pages if x not in before and not x.is_closed()]:
+                try:
+                    cand.wait_for_load_state("domcontentloaded", timeout=3000)
+                    btn = cand.evaluate(find_btn)
+                except Exception:  # noqa: BLE001
+                    btn = ""
+                if btn:
+                    w = cand
+                    break
+            if w is not None:
+                break
+        if w is None:
+            for x in [x for x in ctx.pages if x not in before and not x.is_closed()]:
+                job.shot(x, f"관리주체_{kind}_창")
+            raise FmsError("관리주체 결재 화면에서 [승인] 버튼을 찾지 못했습니다 — 화면을 남겼습니다.")
+        for x in [x for x in ctx.pages if x not in before and x is not w and not x.is_closed()]:
+            x.close()  # e-보고서 열람 창 등
+        w.wait_for_timeout(1500)
+        job.shot(w, f"관리주체_{kind}_문서")
         n = len(job.alerts)
         w.click("[data-fms-approve='1']")
         for _ in range(8):  # [승인] → "승인하시겠습니까?" [확인] → 결재 창이 스스로 닫힘(10/29 실측 — 닫힌 창을 기다리다 오류 났었음)
@@ -785,11 +834,13 @@ def _eboard(ctx, pg, job: Job, payload: dict, files: list[dict], project_no: str
     job.watch(e)
     e.wait_for_load_state("domcontentloaded")
     e.wait_for_timeout(4000)
-    inx = _eboard_row(e, payload)
-    if not inx:
-        job.shot(e, "e보고서_용역없음")
-        raise FmsError("e-보고서 창에 이 용역이 없습니다(실적 일반현황 저장 확인).")
-    _act(job, e, f"goSelect('{inx}', 'Y')", "e-보고서 용역 고르기", wait_ms=4000)
+    direct = e.evaluate("() => document.querySelectorAll('input[type=checkbox][name^=facil_no]').length") > 0  # 실적 화면 e-보고서 탭에서 열면 그 용역 화면으로 바로(10/29 영상)
+    if not direct:
+        inx = _eboard_row(e, payload)
+        if not inx:
+            job.shot(e, "e보고서_용역없음")
+            raise FmsError("e-보고서 창에 이 용역이 없습니다(실적 일반현황 저장 확인).")
+        _act(job, e, f"goSelect('{inx}', 'Y')", "e-보고서 용역 고르기", wait_ms=4000)
     e.evaluate("() => document.querySelectorAll('input[type=checkbox][name^=facil_no]').forEach(c => { if (!c.checked) c.click(); })")
     by_folder: dict = {}
     for f in files:
@@ -812,11 +863,14 @@ def _eboard(ctx, pg, job: Job, payload: dict, files: list[dict], project_no: str
     _act(job, e, "goSend()", "e-보고서 전송", wait_ms=8000)
     for _ in range(120):  # 큰 파일 — 전송 끝날 때까지(최대 약 10분)
         done = e.evaluate("() => /전송\\s*완료|제출\\s*완료|완료되었습니다/.test(document.body.innerText)") if not e.is_closed() else True
-        if done or any(re.search(r"완료|전송되었습니다|제출되었습니다", a) for a in job.alerts[-3:]):
+        if done or any(re.search(r"완료|전송되었습니다|제출되었습니다|업로드되었습니다|승인요청되었습니다|승인대기", a) for a in job.alerts[-4:]):  # 실제 = "정상적으로 업로드되었습니다…"(10/29 영상)
             break
         e.wait_for_timeout(5000)
     if not e.is_closed():
         job.shot(e, "e보고서_전송")
+        e.close()  # 사람도 [X]로 닫음(전송 뒤 "승인대기 중에 있으므로 다시 제출할 수 없습니다"가 뜨는 건 정상)
+    pg.wait_for_timeout(1500)
+    _press_done(pg, job, "실적")  # 사람 순서 — e-보고서 전송 → 본 창 [작성완료] → 보기 화면 [승인요청](10/29 영상)
 
 
 def submit(stage: str, payload: dict, cred: tuple[str, str], owner: tuple[str, str] | None, shots: Path,
