@@ -45,7 +45,9 @@ class Job:
         self.log: list[str] = []
         self.shots: list[str] = []
         self.alerts: list[str] = []
+        self.confirms: set[str] = set()  # 확인/취소 창(묻는 말 — [확인]을 눌러 진행했으니 막힘이 아님, 10/29 "점검/진단 구분에 오류가 있는 경우 '취소'를…")
         self.blocked: list[str] = []
+        self.project_no = ""  # 받은 FMS 계약 번호 — 뒤에서 멈춰도 남김(다시 누르면 새 계약 말고 이어서, 10/29)
         shots.mkdir(parents=True, exist_ok=True)
 
     def say(self, msg: str) -> None:
@@ -61,7 +63,14 @@ class Job:
             pass
 
     def watch(self, pg) -> None:
-        pg.on("dialog", lambda d: (self.alerts.append(d.message.strip()[:300]), d.accept()))
+        pg.on("dialog", self._dialog)
+
+    def _dialog(self, d) -> None:
+        msg = d.message.strip()[:300]
+        self.alerts.append(msg)
+        if d.type == "confirm":
+            self.confirms.add(msg)
+        d.accept()
 
 
 def _guard(blocked: list):
@@ -151,7 +160,7 @@ def _act(job: Job, where, js: str, label: str, wait_ms: int = 3500, ok: str | No
     page.wait_for_timeout(wait_ms)
     new = job.alerts[n:]
     job.say(f"{label}" + (f" — 알림: {' / '.join(a[:80] for a in new)}" if new else ""))
-    bad = [a for a in new if _ERR.search(a) and not (ok and ok in a)]
+    bad = [a for a in new if _ERR.search(a) and not (ok and ok in a) and a not in job.confirms]  # 확인 창은 [확인]으로 진행됨 — 막힘 아님
     if bad:
         raise FmsError(f"{label}에서 FMS가 막음: {bad[0][:200]}")
 
@@ -536,6 +545,7 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
     if not project_no:
         job.shot(pg, "계약번호_못받음")
         raise FmsError("일반현황을 저장했지만 FMS 계약 번호를 못 받았습니다 — FMS 목록에서 확인해 주세요.")
+    job.project_no = project_no
     job.say(f"FMS 계약 번호 {project_no}")
     # 대상시설물
     pg.evaluate("goTabpage('2')")
@@ -662,8 +672,9 @@ def owner_approve(b, job: Job, owner_id: str, owner_pw: str, project_nm: str, ki
         w.wait_for_timeout(4000)
         new = job.alerts[n:]
         job.say(f"관리주체 {kind} 승인" + (f" — 알림: {' / '.join(a[:80] for a in new)}" if new else ""))
-        if any(_ERR.search(a) for a in new):
-            raise FmsError(f"관리주체 승인에서 FMS가 막음: {new[-1][:200]}")
+        bad = [a for a in new if _ERR.search(a) and a not in job.confirms]  # 확인 창은 막힘 아님(10/29)
+        if bad:
+            raise FmsError(f"관리주체 승인에서 FMS가 막음: {bad[-1][:200]}")
         if not w.is_closed():
             job.shot(w, f"관리주체_{kind}_승인")
     finally:
@@ -822,12 +833,14 @@ def submit(stage: str, payload: dict, cred: tuple[str, str], owner: tuple[str, s
                 raise FmsError(f"모르는 단계: {stage}")
         except FmsError as e:
             out["message"] = str(e)
+            out["project_no"] = out["project_no"] or job.project_no  # 계약 번호를 받은 뒤 멈춰도 남김 → 다시 누르면 그 계약에 이어서(10/29)
             try:
                 job.shot(pg, "멈춘_화면")  # noqa: F821 — pg가 없으면 아래 except로
             except Exception:  # noqa: BLE001
                 pass
         except Exception as e:  # noqa: BLE001
             out["message"] = f"{out['step'] or '시작'} 중 오류: {str(e)[:200]}"
+            out["project_no"] = out["project_no"] or job.project_no
         finally:
             b.close()
     out.update(log=job.log, shots=job.shots, alerts=job.alerts)
