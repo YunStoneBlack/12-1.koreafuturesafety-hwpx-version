@@ -2530,7 +2530,8 @@ def fill_docs_have(root, reg: dict, drawings: bool | None) -> int:
 
 def fix_general_table(doc, root) -> int:
     """(2) 내진성능평가 적용 "가. 일반사항" 표(지역계수(S)…고유치해석주기) — 견본은 이 표가 앞 쪽 끝이라 몰랐는데, 한 쪽에 "나. 재료강도의 결정" 표와 같이 놓이면
-    들여 쓴 자리(문단 왼쪽 5000)·다른 너비라 어긋나 보임(10/29 민재형) → 나 표와 같은 문단 모양(가운데)·같은 너비(칸은 비율대로), 이름 칸 굵게 → 보통.
+    들여 쓴 자리(문단 왼쪽 5000)·다른 너비라 어긋나 보임(10/29 민재형) → 나 표와 같은 문단 모양(가운데)·같은 너비(칸은 비율대로),
+    제목 "가. 일반사항" 굵게 → 보통("나. 재료강도의 결정"과 같게 — 번호 가.·나.는 자동 번호라 글자 모양을 따름, 10/29 민재형 "글씨 굵기 다름").
     외주 견본 전체를 옮겨 온 표에도 같게(첫 칸 글로 찾음). 테두리 도구(borders_for) 안에서. 고친 표 수."""
     tables = list(_outer(root))
     ga = next((t for t in tables if _n(rb._cell_text(rb._cells(t).get((0, 0), t))).startswith("지역계수")), None)
@@ -2560,14 +2561,15 @@ def fix_general_table(doc, root) -> int:
         for el in list(ga.iter(f"{{{HP}}}linesegarray")):  # 줄 배치 캐시(너비가 바뀜 — 한글이 다시 계산)
             el.getparent().remove(el)
     b = getattr(rb._TL, "borders", None)
-    if b is not None:
-        for (r, c), tc in rb._cells(ga).items():
-            if c != 0:
-                continue
-            for run in tc.iter(f"{{{HP}}}run"):
-                nid = b._char_variant(run.get("charPrIDRef"), lambda d: re.sub(r"<hh:bold\s*/>", "", d))
-                if nid:
-                    run.set("charPrIDRef", nid)
+    tops = [q for q in root if q.tag == f"{{{HP}}}p"]
+    top = next((q for q in tops if ga in q.iter(f"{{{HP}}}tbl")), None)
+    k = tops.index(top) if top is not None else -1
+    head = next((q for q in reversed(tops[max(0, k - 3):k]) if _n(_t(q)) == "일반사항"), None) if k > 0 else None
+    if b is not None and head is not None:
+        for run in head.iter(f"{{{HP}}}run"):
+            nid = b._char_variant(run.get("charPrIDRef"), lambda d: re.sub(r"<hh:bold\s*/>", "", d))
+            if nid:
+                run.set("charPrIDRef", nid)
     return 1
 
 
