@@ -216,6 +216,23 @@ def marks_at(it: dict, floor: int | None) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def beam_floor(n: int | None, above: int | None = None) -> int | None:
+    """조사한 층에서 재는 보의 일람표 층 — 그 층 천장 보 = 위층 바닥보(10/29 사용자 "1층이면 2층바닥보를 측정 — 1층 2G1, 2층 3G1, 최상층(5층) RG1").
+    지하1층 → 1층 바닥보(1G), 지하2층 → 지하1층(B1G), 최상층(above)·지붕층 → 지붕(RG). above를 모르면 위층만."""
+    if n is None:
+        return None
+    if n >= FLOOR_TOP or (above and n >= above):
+        return FLOOR_TOP
+    return 1 if n == -1 else n + 1
+
+
+def marks_for(it: dict, floor: int | None, above: int | None = None) -> list[str]:
+    """조사한 층(floor)에서 고를 일람표 칸 부호 — 보는 위층 바닥보(beam_floor), 기둥·벽체는 그 층(marks_at)."""
+    if floor is None:
+        return marks_at(it, None)
+    return marks_at(it, beam_floor(floor, above) if it.get("kind") == "보" else floor)
+
+
 def split_scopes(items: list[dict]) -> list[dict]:
     """한 칸에 층 표시가 다른 부호가 섞이면(PG1, RG1, 1-5G1 · R, 1~5) 층 표시마다 칸을 나눔 — 값(크기·철근)은 같이, 층 = 그 부호의 층 이름.
     첫 묶음은 번호(id) 그대로(이미 고른 칸이 그대로 가리키게). 같은 층 표시끼리는 한 칸(R~1G2, R~1G3)."""

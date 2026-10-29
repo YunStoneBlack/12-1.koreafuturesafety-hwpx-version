@@ -73,13 +73,18 @@ def items_by_id(schedule: dict | None) -> dict:
     return {x["id"]: x for x in RS.view(schedule).get("items") or []}
 
 
-def choices(schedule: dict | None, floor: int | None, kind: str) -> list[dict]:
-    """그 층·부재에 맞는 일람표 칸 [{id, label, position}] — 층 표기를 못 알아들은 칸·층을 안 고른 경우는 다 보임."""
+def is_center(position: str | None) -> bool:
+    """보 칸 위치가 중앙부인지 — 일람표 영문 표기(CEN·CEN.·CENTER·MID)도(10/29)."""
+    return bool(re.search(r"중앙|CEN|MID", str(position or ""), re.I))
+
+
+def choices(schedule: dict | None, floor: int | None, kind: str, above: int | None = None) -> list[dict]:
+    """그 층·부재에 맞는 일람표 칸 [{id, label, position}] — 층 표기를 못 알아들은 칸·층을 안 고른 경우는 다 보임. 보·접합부는 위층 바닥보(10/29, RS.marks_for)."""
     out = []
     for it in RS.view(schedule).get("items") or []:
-        if it["kind"] != sched_kind(kind) or (kind == JOINT and "중앙" in (it.get("position") or "")):  # 접합부 = 보 단부 칸
+        if it["kind"] != sched_kind(kind) or (kind == JOINT and is_center(it.get("position"))):  # 접합부 = 보 단부 칸(중앙부·CEN·MID 빼고)
             continue
-        marks = RS.marks_at(it, floor)  # 그 층 부호(1-5G1A → 1층 "1G1A", 10/28)
+        marks = RS.marks_for(it, floor, above)  # 그 층 부호(1-5G1A → 1층 "1G1A", 10/28) — 보는 위층 바닥보(1층 → 2G1, 10/29)
         if floor is not None and not marks:
             continue
         label = ", ".join(marks) + (f" {it['position']}" if it.get("position") else "") + f" ({it['floors']})"
@@ -88,7 +93,7 @@ def choices(schedule: dict | None, floor: int | None, kind: str) -> list[dict]:
     return out
 
 
-def fill_design(row: dict, schedule: dict | None) -> dict:
+def fill_design(row: dict, schedule: dict | None, above: int | None = None) -> dict:
     """설계값 자동(사람이 고친 줄은 그대로) — 기둥은 단변/장변·단부/중앙부, 보는 그 칸(위치), 벽은 수직·수평."""
     if row.get("design_manual"):
         return row
@@ -97,11 +102,11 @@ def fill_design(row: dict, schedule: dict | None) -> dict:
         return row
     pos = row.get("position") or ""
     if it["kind"] == "보" and it.get("position") and row["kind"] != JOINT:  # 접합부는 늘 단부
-        pos = "단부" if "단부" in it["position"] else "중앙부" if "중앙" in it["position"] else pos
+        pos = "단부" if re.search(r"단부|END|BOTH", it["position"], re.I) else "중앙부" if is_center(it["position"]) else pos  # 영문 BOTH·CEN도(10/29)
         row["position"] = pos
     rows = RS.design(it, pos, row.get("side") or "")["rows"]
     row["design"] = [rows[0]["value"], rows[1]["value"]]
-    row["mark"] = row.get("mark") or ", ".join(RS.marks_at(it, row.get("floor")) or it["marks"])  # 그 층 부호(10/28)
+    row["mark"] = row.get("mark") or ", ".join(RS.marks_for(it, row.get("floor"), above) or it["marks"])  # 그 층 부호(10/28) — 보는 위층 바닥보(10/29)
     return row
 
 

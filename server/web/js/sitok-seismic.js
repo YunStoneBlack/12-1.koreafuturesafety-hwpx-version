@@ -26,7 +26,7 @@
 
   function choices(row) {
     const sk = row.kind === JOINT ? "보" : row.kind; // 접합부 = 보 단부 칸
-    return d.schedule.items.filter((it) => it.kind === sk && !(row.kind === JOINT && /중앙/.test(it.position || ""))
+    return d.schedule.items.filter((it) => it.kind === sk && !(row.kind === JOINT && /중앙|CEN|MID/i.test(it.position || "")) /* 접합부 = 보 단부 칸(영문 CEN·MID도, 10/29) */
       && (row.floor == null || (it.at && it.at[String(row.floor)] !== undefined ? it.at[String(row.floor)].length > 0  // 그 층 부호가 있는 칸만(10/28 — 1-5G1A·PG1·RG1)
         : (!it.range || (it.range[0] <= row.floor && row.floor <= it.range[1])))));
   }
@@ -50,16 +50,17 @@
   }
 
   function card(row) {
-    const ch = choices(row);
+    const ch0 = choices(row), cur = row.item_id && !ch0.some((c) => c.id === row.item_id) ? d.schedule.items.find((c) => c.id === row.item_id) : null;
+    const ch = cur ? [...ch0, cur] : ch0; // 예전에 고른 칸(보 층 규칙 전)은 목록 밖이어도 남김(10/29)
     const sel = ch.find((c) => c.id === row.item_id);
-    const opts = `<option value="">${ch.length ? "일람표 칸 고르기" : "맞는 일람표 칸 없음 — 부호 직접"}</option>` + ch.map((c) => `<option value="${c.id}"${c.id === row.item_id ? " selected" : ""}>${esc(marksAt(c, row.floor).join(", "))}${c.position ? ` ${esc(c.position)}` : ""}${c.floors ? ` (${esc(c.floors)})` : ""}${c.confirmed ? "" : " ⚠미확인"}</option>`).join("");
+    const opts = `<option value="">${ch.length ? "일람표 칸 고르기" : "맞는 일람표 칸 없음 — 부호 직접"}</option>` + ch.map((c) => `<option value="${c.id}"${c.id === row.item_id ? " selected" : ""}>${esc((marksAt(c, row.floor).length ? marksAt(c, row.floor) : c.marks).join(", "))}${c.position ? ` ${esc(c.position)}` : ""}${c.floors ? ` (${esc(c.floors)})` : ""}${c.confirmed ? "" : " ⚠미확인"}</option>`).join("");
     return `<div class="ss-card${hasResult(row) ? " filled" : " empty"}" data-id="${row.id}" data-floor="${row.floor ?? ""}" data-kind="${esc(row.kind)}">
       <div class="ss-card-h"><b class="ss-no">RC-${row.no}</b><span class="sk-help">${esc(floorLabel(row.floor))} · ${esc(row.kind)}${row.mark ? ` (${esc(row.mark)})` : ""}</span>
         ${blankCard(row) ? "" : '<button type="button" class="link-btn ss-del" title="이 카드 내용 비우기 — 칸은 그대로(칸 수는 위 칸 수 표에서)">비우기</button>'}</div>
       <div class="field-grid ss-pick">
         <div class="sk-f"><label>층</label><select data-f="floor"><option value="">층 고르기</option>${d.floors.map((f) => `<option value="${f.n}"${f.n === row.floor ? " selected" : ""}>${esc(f.label)}</option>`).join("")}</select></div>
         <div class="sk-f"><label>부재</label><select data-f="kind">${KINDS.map((k) => `<option${k === row.kind ? " selected" : ""}>${k}</option>`).join("")}</select></div>
-        <div class="sk-f ss-wide"><label>일람표 칸 ${sel && !sel.confirmed ? '<a class="ss-warn-link" href="sitok-schedule.html?facility=' + d.report.facility_id + '" title="부재 목록에서 확인">⚠ 확인 안 한 칸</a>' : ""}</label><select data-f="item_id">${opts}</select></div>
+        <div class="sk-f ss-wide"><label>일람표 칸${row.kind === "기둥" || row.kind === "벽체" ? "" : ' <span class="sk-help" title="그 층 천장 보 — 1층 → 2G…, 최상층 → RG…">위층 바닥보</span>'} ${sel && !sel.confirmed ? '<a class="ss-warn-link" href="sitok-schedule.html?facility=' + d.report.facility_id + '" title="부재 목록에서 확인">⚠ 확인 안 한 칸</a>' : ""}</label><select data-f="item_id">${opts}</select></div>
         <div class="sk-f"><label>부호</label><input data-f="mark" value="${esc(row.mark)}" placeholder="예: C1" /></div>
         ${row.kind === "벽체" ? "" : row.kind === JOINT ? '<div class="sk-f"><label>위치</label><div class="ss-fixed">보 단부로 조사</div></div>' : `<div class="sk-f"><label>위치</label><select data-f="position">${["중앙부", "단부"].map((p) => `<option${p === row.position ? " selected" : ""}>${p}</option>`).join("")}</select></div>`}
         ${row.kind === "기둥" ? `<div class="sk-f"><label>잰 변</label><select data-f="side">${["단변", "장변"].map((p) => `<option${p === row.side ? " selected" : ""}>${p}</option>`).join("")}</select></div>` : ""}

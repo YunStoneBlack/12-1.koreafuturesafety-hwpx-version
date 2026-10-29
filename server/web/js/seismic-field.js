@@ -130,8 +130,9 @@
     let no = 0;
     const row = (n, r, j) => {
       no += 1;
-      const k = r.kind, ch = itemsFor(r), nth = (slots[n] || []).slice(0, j + 1).filter((x) => x.kind === k).length; // 그 부재 몇 번째
-      const opts = [["", ch.length ? "— 일람표 칸 —" : "맞는 칸 없음 — 직접"], ...ch.map((x) => [x.id, `${marksAt(x, n).join(",")}${x.size ? ` ${x.size}` : ""}${x.floors ? ` (${x.floors})` : ""}`])];
+      const k = r.kind, ch0 = itemsFor(r), cur = r.item_id && !ch0.some((x) => x.id === r.item_id) ? F.schedule.find((x) => x.id === r.item_id) : null;
+      const ch = cur ? [...ch0, cur] : ch0, nth = (slots[n] || []).slice(0, j + 1).filter((x) => x.kind === k).length; // 그 부재 몇 번째
+      const opts = [["", ch.length ? "— 일람표 칸 —" : "맞는 칸 없음 — 직접"], ...ch.map((x) => [x.id, `${(marksAt(x, n).length ? marksAt(x, n) : x.marks).join(",")}${x.size ? ` ${x.size}` : ""}${x.floors ? ` (${x.floors})` : ""}`])];
       const inp = (f, label, w) => `<input data-g="${n}" data-j="${j}" data-k="${f}" placeholder="${esc(label)}" title="${esc(label)}" style="flex:${w}" value="${esc(r[f] ?? "")}" />`;
       const kindSel = `<select class="sf2-mkind" data-g="${n}" data-j="${j}" data-mk="1" title="부재 — 바꾸면 이 칸은 그 부재로, 같은 층 그 부재 빈 칸 하나는 이 칸의 원래 부재로(칸 수 그대로)">${opt(kinds.map((x) => [x, x]), k)}</select>`;
       return `<div class="sf2-row${filledM(r) ? "" : " empty"}"><span class="sf2-no">${no}</span><span class="sf2-mk">${kindSel}<i>${nth}</i></span>
@@ -145,7 +146,7 @@
         </tbody></table><div class="sf2-qty-side"><span class="sk-help">칸 수(입력/칸) — 표본 층 × 종별 ${F.drawings ? 3 : 9}개소가 기본, 숫자를 고치면 아래 칸이 늘고 줆(줄이면 다른 부재로 옮기거나 빈 칸만 줄이기)</span>
         <button type="button" class="secondary" id="sf2-q-reset">기본 칸 수로</button></div></div>
       <div class="sf2-mnote" id="sf2-mnote"></div>
-      <div class="sf2-row sf2-row-h"><span class="sf2-no">#</span><span class="sf2-mk">부재</span><span style="flex:1.5">일람표 칸(그 층·부재만)</span><span style="flex:0.7">부호</span><span style="flex:1">도면치수</span><span class="sf2-meas-h">실측치수(일치·불일치, 못 재면 □)</span><span style="flex:0.9">비고(자동)</span></div>
+      <div class="sf2-row sf2-row-h"><span class="sf2-no">#</span><span class="sf2-mk">부재</span><span style="flex:1.5" title="보는 그 층 천장 보 = 위층 바닥보(1층 → 2G…, 최상층 → RG…)">일람표 칸(그 층·부재만, 보 = 위층 바닥보)</span><span style="flex:0.7">부호</span><span style="flex:1">도면치수</span><span class="sf2-meas-h">실측치수(일치·불일치, 못 재면 □)</span><span style="flex:0.9">비고(자동)</span></div>
       <div class="sf2-mnav">${floorChips(floors.map((n) => ({ n, label: floorName(n), done: (slots[n] || []).filter(filledM).length, total: (slots[n] || []).length })), mFloor)}</div>
       ${floors.map((n) => { const rs = (slots[n] || []).map((r, j) => row(n, r, j)); const c = (slots[n] || []).filter(filledM).length;
         return rs.length && (!mFloor || String(n) === mFloor) ? `<div class="sf2-mfloor"><h4>${esc(floorName(n))} <span class="sk-help" data-fc="${n}">${c}/${rs.length}</span></h4>${rs.join("")}</div>` : ""; }).join("")}`;  // 번호는 전체 차례 그대로(다른 층도 세고 안 그림)
