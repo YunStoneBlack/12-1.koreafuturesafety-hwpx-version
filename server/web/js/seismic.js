@@ -1,6 +1,7 @@
 // 내진성능평가(seismic.html, 2026-10-21 사용자 — 시특법과 완전히 별개 용역) — 목록 + [＋ 새 내진성능평가].
 // 만들기 = 용역계약서·건축물대장 PDF(둘 다 또는 하나) + 이름(선택) → POST /seismic/projects → 건 화면(seismic-project.html?id=).
 // 목록 카드: 건물·용역명·발주처·기간·서류 N/11·진행(결함·철근탐사·보고서) + [📂 열기] [PDF 보기].
+// 10/30 사용자 — [최신순](최근 만든 건 위, 처음 모양) [번호순 ▼▲](건 번호 26-1…, 시특법 목록과 같게 한 번 더 = 방향), 이 기기에 기억.
 
 (function () {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -53,13 +54,50 @@
     return el;
   }
 
+  // ---------- 정렬(10/30) ----------
+  const SORT_KEY = "kfsc-report:seismic-sort";
+  let sort = { mode: "new", desc: true };
+  try { sort = { ...sort, ...JSON.parse(localStorage.getItem(SORT_KEY) || "{}") }; } catch { /* 기억 못 하면 기본 */ }
+  const noKey = (p) => { // "26-3" → 26·3(해마다 1부터), 번호 없는 건은 맨 뒤
+    const m = String(p.no || "").match(/^(\d{2}|\d{4})-0*(\d+)$/);
+    return m ? Number(m[1].slice(-2)) * 1e5 + Number(m[2]) : null;
+  };
+  const byNumber = (a, b) => {
+    const x = noKey(a), y = noKey(b);
+    if (x === null || y === null) return x === null ? (y === null ? b.id - a.id : 1) : -1;
+    return (sort.desc ? y - x : x - y) || b.id - a.id;
+  };
+  const sortRows = (list) => (sort.mode === "no" ? list.sort(byNumber) : list.sort((a, b) => b.id - a.id));
+  function drawSort() {
+    document.querySelectorAll(".sv-sort button").forEach((b) => {
+      const on = b.dataset.sort === sort.mode;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on);
+      if (b.dataset.sort === "no") b.textContent = `번호순 ${on ? (sort.desc ? "▼" : "▲") : ""}`.trim();
+    });
+  }
+  document.querySelectorAll(".sv-sort button").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.sort === "no" && sort.mode === "no") sort.desc = !sort.desc; // 번호순 한 번 더 → 방향 바꿈
+    else if (b.dataset.sort === "no") sort.desc = true;
+    sort.mode = b.dataset.sort;
+    try { localStorage.setItem(SORT_KEY, JSON.stringify(sort)); } catch { /* 지금은 바뀜 */ }
+    render();
+  }));
+
+  let projects = [];
+  function render() {
+    drawSort();
+    const box = $("sv-list");
+    box.innerHTML = projects.length ? "" : '<div class="ds-empty">아직 내진성능평가가 없습니다 — 위에 용역계약서·건축물대장 PDF를 올리고 [읽어서 만들기]를 누르세요.</div>';
+    sortRows([...projects]).forEach((p) => box.appendChild(card(p)));
+  }
+
   async function load() {
     try {
       const d = await api("/seismic/projects");
-      $("sv-count").textContent = d.projects.length ? `${d.projects.length}건` : "";
-      const box = $("sv-list");
-      box.innerHTML = d.projects.length ? "" : '<div class="ds-empty">아직 내진성능평가가 없습니다 — 위에 용역계약서·건축물대장 PDF를 올리고 [읽어서 만들기]를 누르세요.</div>';
-      d.projects.forEach((p) => box.appendChild(card(p)));
+      projects = d.projects;
+      $("sv-count").textContent = projects.length ? `${projects.length}건` : "";
+      render();
     } catch (e) { showError(errorEl, e); }
   }
 

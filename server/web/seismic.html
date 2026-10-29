@@ -38,7 +38,10 @@
 </section>
 
 <section class="panel">
-  <div class="panel-head"><h2>내진성능평가 목록</h2><span class="panel-count" id="sv-count"></span></div>
+  <!-- 정렬(10/30 사용자 "번호순/최신순") — 시특법·서류 자동화 목록과 같은 단추: 최신순(최근 만든 건 위) / 번호순(26-1…, 한 번 더 누르면 ▼▲), 이 기기에 기억 -->
+  <div class="panel-head"><h2>내진성능평가 목록</h2>
+    <span class="site-sort sv-sort" role="group" aria-label="정렬"><button type="button" data-sort="new">최신순</button><button type="button" data-sort="no">번호순</button></span>
+    <span class="panel-count" id="sv-count"></span></div>
   <div class="panel-body" id="sv-list"></div>
 </section>
 
