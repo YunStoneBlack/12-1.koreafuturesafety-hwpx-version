@@ -42,7 +42,7 @@
     const el = document.createElement("div");
     el.className = "ds-card";
     el.innerHTML = `<div class="ds-card-main">
-        <div class="ds-card-title"><b>${esc(p.name)}</b>${p.start_date ? `<span class="ds-kind">${esc(p.start_date.slice(0, 4))}년</span>` : ""}${state}</div>
+        <div class="ds-card-title">${p.no ? `<span class="site-no" title="서류 자동화 › 내진성능평가 카드와 같은 번호">${esc(p.no)}</span>` : ""}<b>${esc(p.name)}</b>${p.start_date ? `<span class="ds-kind">${esc(p.start_date.slice(0, 4))}년</span>` : ""}${state}</div>
         <div class="ds-card-sub">${esc(p.title || "용역명 없음")}${p.client ? ` · ${esc(p.client)}` : ""}${p.start_date ? ` · ${dot(p.start_date)} ~ ${dot(p.end_date)}` : ""}</div>
         <div class="ds-card-meta">${bits.map(esc).join(" · ")}</div>
       </div>

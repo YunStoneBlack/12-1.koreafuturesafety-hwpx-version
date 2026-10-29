@@ -225,7 +225,7 @@ def _list_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
     docs = sv.get("seismic_docs") or {}
     have = sum(1 for k in DOC if (docs.get(k) or {}).get("rel")) + (1 if (sv.get("seismic_files") or {}).get("body") else 0) \
         + sum(1 for k in MULTI if (f.drawings or {}).get(k))
-    return {"id": r.id, "facility_id": f.id, "name": f.name, "address": f.address or "", "title": c.get("title") or "", "client": c.get("client") or "",
+    return {"id": r.id, "facility_id": f.id, "no": f.mgmt_no or "", "name": f.name, "address": f.address or "", "title": c.get("title") or "", "client": c.get("client") or "",
             "start_date": c.get("start_date") or _iso(r.period_start), "end_date": c.get("end_date") or _iso(r.period_end),
             "docs": have, "docs_total": len(DOCS), **{k: v for k, v in report_out(r).items() if k in ("status", "made_at", "has_pdf", "field", "seismic")}}
 
@@ -299,6 +299,9 @@ def docs_synced(r: SitokReport | None, c) -> bool:
 
 @router.get("/projects")
 def list_projects(facility: int | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.api.routers.sitok_docs import seis_numbers
+
+    seis_numbers(db, user.company_id)  # 번호 없는 건에 "26-1"(서류 자동화 › 내진성능평가 카드와 같은 번호, 10/29 사용자)
     q = (db.query(SitokReport, SitokFacility).join(SitokFacility, SitokFacility.id == SitokReport.facility_id)
          .filter(SitokFacility.company_id == user.company_id, SitokFacility.seismic_only.is_(True), SitokReport.half == seasons.SEISMIC))
     if facility:

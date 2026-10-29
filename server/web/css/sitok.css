@@ -69,8 +69,9 @@
 .sk-dong-chip small { color: var(--faint); }
 .sk-dong-chip:hover { border-color: var(--blue); color: var(--blue); }
 .sk-sub:empty { display: none; }
-.sk-row .site-no { display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 6px; background: var(--blue-soft); color: var(--blue);
+.sk-row .site-no, .ds-card-title .site-no { display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 6px; background: var(--blue-soft); color: var(--blue);
   font-size: 12px; font-weight: 700; vertical-align: 1px; font-variant-numeric: tabular-nums; }
+.ds-card-title .site-no { margin-right: 0; } /* 내진 목록 카드 번호 = 서류 자동화 번호(10/29) — 제목 줄 gap으로 띄움 */
 .sk-row .site-links { margin-top: 4px; }
 .sk-row.ended .sk-title b, .sk-row.ended .sk-contract { color: var(--faint); } /* 지속계약 종료 — 흐리게 */
 
