@@ -75,7 +75,20 @@
     $("es-cond").value = (o.conditions || []).join("\n");
     $("es-note").value = o.note || "";
   }
+  // 이 견적의 노임 기준(만들 때 연도·보조인부 — 새 공표가 들어와도 지난 견적은 그대로) + [노임 연도 바꾸기]
+  function drawBasis() {
+    const o = est.options || {};
+    const y = o.labor_year || meta.rates.labor_year;
+    const years = Object.keys(meta.rates.labor).sort().reverse();
+    $("es-basis").innerHTML = `노임단가 <select id="es-basis-year">${years.map((x) => `<option${x === y ? " selected" : ""}>${x}</option>`).join("")}</select>년
+      · 보조인부 ${Number(o.helper_rate || meta.rates.helper_rate).toLocaleString("ko-KR")}원${o.helper_rate && Number(o.helper_rate) !== Number(meta.rates.helper_rate)
+        ? ` <button type="button" class="secondary es-mini" id="es-helper-now">지금 단가 ${Number(meta.rates.helper_rate).toLocaleString("ko-KR")}원으로</button>` : ""}`;
+    $("es-basis-year").addEventListener("change", (e) => save({ options: { labor_year: e.target.value } }, true));
+    const hb = $("es-helper-now");
+    if (hb) hb.addEventListener("click", () => save({ options: { helper_now: true } }, true));
+  }
   function drawHeadBits() {
+    drawBasis();
     $("es-title").textContent = est.no;
     $("es-crumb").textContent = `${est.no} ${(est.project || {}).name || ""}`;
   }
@@ -104,7 +117,7 @@
       ${options.map(([k, t]) => `<option value="${esc(k)}"${String(k) === v ? " selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`;
   }
   const gradeOpts = () => meta.grades.map((g) => [g, g]);
-  const yearOpts = () => [["", `기본(${meta.rates.labor_year})`], ...Object.keys(meta.rates.labor).sort().reverse().map((y) => [y, `${y}년`])];
+  const yearOpts = () => [["", `견적 기준(${(est.options || {}).labor_year || meta.rates.labor_year})`], ...Object.keys(meta.rates.labor).sort().reverse().map((y) => [y, `${y}년`])];
 
   function rowInputs(i) {
     const r = est.rows[i];
@@ -249,6 +262,30 @@
     return base;  // 나머지 칸은 서버 기본값(clean_row)
   }
 
+  // ---------- 엑셀·PDF ----------
+  function drawFiles() {
+    const f = est.files || {};
+    $("es-files").innerHTML = f.xlsx ? `<div class="es-made">✓ ${esc(f.at)} 만듦${f.pages ? ` · PDF ${f.pages}쪽` : ""} · 시트 ${esc((f.sheets || []).join(", "))}
+        <span class="es-links">${f.pdf ? `<a class="secondary-link" target="_blank" rel="noopener" href="${BASE}/api${P}/file/pdf?v=${encodeURIComponent(f.at)}">📄 PDF 보기</a>` : ""}
+        <a class="secondary-link" href="${BASE}/api${P}/file/xlsx?v=${encodeURIComponent(f.at)}">📥 엑셀 받기</a></span>
+        ${(f.notes || []).length ? `<ul>${f.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div>` : "";
+  }
+  $("es-export").addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget;
+    clearTimeout(saveTimer);
+    btn.disabled = true;
+    $("es-export-msg").textContent = "저장하고 만드는 중…(PDF까지 5~15초)";
+    try {
+      await saving;
+      await apiPatch(P, { rows: est.rows });
+      const out = await apiPost(`${P}/export`, {});
+      est = { ...est, ...out };
+      drawFiles(); drawResults();
+      $("es-export-msg").textContent = "✓ 다 만들었습니다";
+    } catch (err) { $("es-export-msg").textContent = err.message; }
+    btn.disabled = false;
+  });
+
   $("es-copy").addEventListener("click", async (e) => {
     e.currentTarget.disabled = true;
     try { const n = await apiPost(`${P}/copy`, {}); location.href = `estimate.html?id=${n.id}`; } catch (err) { showError(errorEl, err); e.currentTarget.disabled = false; }
@@ -265,7 +302,7 @@
       [meta, est] = await Promise.all([api("/estimates/meta"), api(P)]);
       kind = meta.kinds.find((k) => k.key === est.kind) || null;
       $("es-addtype").innerHTML = meta.row_types.map((t) => `<option value="${t.key}"${kind && t.key === kind.row ? " selected" : ""}>${esc(t.label)}</option>`).join("");
-      drawHead(); drawRows();
+      drawHead(); drawRows(); drawFiles(); drawBasis();
     } catch (err) { showError(errorEl, err); }
   })();
 })();

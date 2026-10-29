@@ -38,7 +38,7 @@
 </section>
 
 <section class="panel">
-  <div class="panel-head"><h2>금액</h2><span class="panel-count">산출 = 회사 견적서와 같은 계산(만원 미만 절사) · 견적 금액을 비우면 산출 그대로, 적으면 네고율 자동</span></div>
+  <div class="panel-head"><h2>금액</h2><span class="es-basis" id="es-basis"></span><span class="panel-count">산출 = 회사 견적서와 같은 계산(만원 미만 절사) · 견적 금액을 비우면 산출 그대로, 적으면 네고율 자동</span></div>
   <div class="panel-body">
     <div class="es-warns" id="es-warns"></div>
     <div id="es-rows"></div>
@@ -56,7 +56,8 @@
       <div class="sk-f"><label for="es-cond">견적 조건 <span class="sk-help">한 줄에 하나</span></label><textarea id="es-cond" rows="4"></textarea></div>
       <div class="sk-f"><label for="es-note">비고(견적서 아래)</label><textarea id="es-note" rows="4"></textarea></div>
     </div>
-    <p class="mail-note">📄 엑셀·PDF 출력(회사 견적서 양식 그대로)은 다음 단계에서 붙입니다.</p>
+    <div class="es-out"><button type="button" id="es-export">📄 엑셀·PDF 만들기</button><span class="mail-note" id="es-export-msg">회사 견적서 양식 그대로(표지 + 내역서) — 고친 뒤 다시 누르면 새로 만듦</span></div>
+    <div id="es-files"></div>
   </div>
 </section>
 

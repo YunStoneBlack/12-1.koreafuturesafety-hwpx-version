@@ -17,10 +17,11 @@ import datetime
 import math
 
 GRADES = ("기술사", "특급기술자", "고급기술자", "중급기술자", "초급기술자", "고급숙련기술자", "중급숙련기술자", "초급숙련기술자")
-# 엔지니어링 노임단가(건설, 원/일) — 처음 값 = 회사 견적서 엑셀에 적힌 값. 2026년은 엑셀에 있던 세 등급만(나머지는 설정에서 — "확인 필요").
+# 엔지니어링 노임단가(건설부문, 원/일) — 2026 = 한국엔지니어링협회 「2025년도 엔지니어링업체 임금실태조사 보고서」(2025.12.02 공표, 2026.1.1 적용) 건설부문 표
+# (회사 견적서 엑셀의 기술사·고급·초급 값과 같음), 2019 = 회사 견적서 엑셀에 있던 표. 매년 공표 때 기준표에서 연도를 더함.
 LABOR_DEFAULT = {
-    "2026": {"기술사": 467217, "특급기술자": None, "고급기술자": 310884, "중급기술자": None, "초급기술자": 235459,
-             "고급숙련기술자": None, "중급숙련기술자": None, "초급숙련기술자": None},
+    "2026": {"기술사": 467217, "특급기술자": 373353, "고급기술자": 310884, "중급기술자": 295138, "초급기술자": 235459,
+             "고급숙련기술자": 281075, "중급숙련기술자": 250087, "초급숙련기술자": 218142},
     "2019": {"기술사": 432440, "특급기술자": 335638, "고급기술자": 282545, "중급기술자": 261571, "초급기술자": 205686,
              "고급숙련기술자": 204010, "중급숙련기술자": 174996, "초급숙련기술자": 157750},
 }
@@ -31,8 +32,9 @@ VISIT_BANDS_DEFAULT = [
     {"under": 4_000_000_000, "label": "20억 이상 40억 미만", "grade": "고급기술자(건설)", "rate": 75000},
     {"under": None, "label": "40억 이상", "grade": "특급기술자(건설)", "rate": 150000},
 ]
+# 현지보조인부 = 대한건설협회 시중노임단가 보통인부(2026.9.1 적용 172,698원 — 「2026년 하반기 적용 건설업 임금실태조사 보고서」, 회사 엑셀은 옛 133,417원)
 RATES_DEFAULT = {"labor": LABOR_DEFAULT, "labor_year": "2026", "visit_bands": VISIT_BANDS_DEFAULT, "visit_days": 15,
-                 "overhead": 1.1, "tech": 0.2, "helper_rate": 133417, "vat": 0.1}
+                 "overhead": 1.1, "tech": 0.2, "helper_rate": 172698, "vat": 0.1}
 
 # 건축물관리점검지침 7장(회사 산출근거 시트) — 연면적(㎡) 구간: 정기 책임자·점검자 / 긴급 책임자·점검자(인·일)
 BLCM_AREA = (3000, 5000, 10000, 30000, 100000)
@@ -66,8 +68,8 @@ ROW_TYPES = ("sitok", "blcm", "eng", "visit", "item")
 ROW_LABEL = {"sitok": "시설물 내역(시특법식)", "blcm": "건축물관리점검(지침 7장)", "eng": "엔지니어링(업무·등급별)", "visit": "회당 금액 × 횟수", "item": "항목 × 횟수 × 단가"}
 
 
-def rates_with(saved: dict | None) -> dict:
-    """설정에 저장된 기준표 + 처음 값(빈 칸은 처음 값)."""
+def rates_with(saved: dict | None, today: datetime.date | None = None) -> dict:
+    """설정에 저장된 기준표 + 처음 값(빈 칸은 처음 값). 자동 갱신(rate_watch)이 미리 찾아 둔 다음 값은 적용일(1월 1일·9월 1일)부터."""
     out = copy.deepcopy(RATES_DEFAULT)
     s = saved or {}
     for k, v in s.items():
@@ -77,6 +79,14 @@ def rates_with(saved: dict | None) -> dict:
                 out["labor"][str(y)].update({g: (int(x) if x not in (None, "") else None) for g, x in (t or {}).items() if g in GRADES})
         elif v not in (None, ""):
             out[k] = v
+    today = today or datetime.date.today()
+    for key, field, val in (("labor_next", "labor_year", "year"), ("helper_next", "helper_rate", "value")):
+        nx = s.get(key) or {}
+        try:
+            if nx and today >= datetime.date.fromisoformat(nx["from"]) and (field != "labor_year" or nx[val] in out["labor"]):
+                out[field] = nx[val]
+        except (KeyError, ValueError, TypeError):
+            pass
     return out
 
 

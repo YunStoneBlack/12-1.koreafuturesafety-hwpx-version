@@ -3,6 +3,8 @@
 - `GET  /estimates/meta` — 용역 8가지·줄 계산 방식·등급·건축물 용도·상태·기준표·견적담당 추천
 - `GET  /estimates` (?status·kind·q) · `POST /estimates` {kind, copy_from} · `GET|PATCH|DELETE /estimates/{id}`(지우기 = 회사 삭제 비밀번호)
 - `POST /estimates/{id}/copy` — 같은 내용으로 새 견적(새 번호·오늘·작성중) · `POST /estimates/{id}/fit` {total} — 합계(VAT 포함)를 이 금액으로
+- `POST /estimates/{id}/export` — 엑셀·PDF(회사 견적서 양식 — server/estimate/export.py) · `GET /estimates/{id}/file/{xlsx|pdf}`
+- `POST /estimates/rates/check` — 노임단가 새 공표 지금 확인(server/estimate/rate_watch — 12·1월·8·9월엔 견적 화면을 열 때 하루 한 번 뒤에서 저절로)
 - `GET|PUT /estimates/rates` — 기준표(엔지니어링 노임단가 연도별·기술지도 회당 인건비 구간·제경비·기술료율 — app_setting estimate_rates)
 계산은 server/estimate/calc.py(회사 견적서 엑셀 수식 그대로). 번호 = KFSC-연도2자리-차례(바꿀 수 있음, 회사 안에서 겹치면 409)."""
 from __future__ import annotations
@@ -25,6 +27,7 @@ from server.estimate import calc as C
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 STATUS = {"draft": "작성중", "sent": "보냄", "won": "수주", "lost": "실패"}
 RATES_KEY = "estimate_rates"
+WATCH_KEY = "estimate_rates_watch"  # {last, notices: [...]} — 자동 갱신 기록
 NO_RE = re.compile(r"^KFSC-(\d{2})-(\d{1,4})$")
 
 
@@ -35,18 +38,75 @@ def _setting(db: Session, company_id: int, key: str):
     return db.query(AppSetting).filter(AppSetting.company_id == company_id, AppSetting.key == key).first()
 
 
-def rates(db: Session, company_id: int) -> dict:
-    row = _setting(db, company_id, RATES_KEY)
+def _json(db: Session, company_id: int, key: str) -> dict:
+    row = _setting(db, company_id, key)
     try:
-        saved = json.loads(row.value) if row and row.value else None
+        return json.loads(row.value) if row and row.value else {}
     except ValueError:
-        saved = None
-    return C.rates_with(saved)
+        return {}
+
+
+def _put_json(db: Session, company_id: int, key: str, val: dict) -> None:
+    from core.models_db import AppSetting
+
+    row = _setting(db, company_id, key)
+    text = json.dumps(val, ensure_ascii=False)
+    if row is None:
+        db.add(AppSetting(company_id=company_id, key=key, value=text))
+    else:
+        row.value = text
+    db.commit()
+
+
+def rates(db: Session, company_id: int) -> dict:
+    return C.rates_with(_json(db, company_id, RATES_KEY) or None)
+
+
+def watch_run(company_id: int, force: bool = False) -> list[dict]:
+    """노임단가 새 공표 살피기 — 자기 DB 연결로(뒤에서 돌 때). 검사를 통과한 것만 기준표에, 알림은 watch에(마지막 12개)."""
+    from core.db import SessionLocal
+    from server.estimate import rate_watch as W
+
+    with SessionLocal() as db2:
+        def load():
+            return _json(db2, company_id, RATES_KEY)
+
+        def save(v):
+            _put_json(db2, company_id, RATES_KEY, v)
+
+        def notify(found):
+            w = _json(db2, company_id, WATCH_KEY)
+            w["last"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            w["notices"] = (list(w.get("notices") or []) + found)[-12:]
+            _put_json(db2, company_id, WATCH_KEY, w)
+        return W.run(load, save, notify, force=force)
+
+
+def maybe_watch(db: Session, company_id: int) -> None:
+    """살피는 달(12·1·8·9월)이고 마지막 확인이 20시간 넘었으면 뒤에서 한 번(화면은 안 기다림)."""
+    import threading
+
+    from server.estimate import rate_watch as W
+
+    if not W.in_window(datetime.date.today()):
+        return
+    last = _json(db, company_id, WATCH_KEY).get("last") or ""
+    try:
+        if last and datetime.datetime.now() - datetime.datetime.strptime(last, "%Y-%m-%d %H:%M") < datetime.timedelta(hours=20):
+            return
+    except ValueError:
+        pass
+    threading.Thread(target=watch_run, args=(company_id,), daemon=True, name="estimate_rate_watch").start()
+
+
+def watch_info(db: Session, company_id: int) -> dict:
+    w = _json(db, company_id, WATCH_KEY)
+    return {"last": w.get("last") or "", "notices": list(reversed(w.get("notices") or []))[:6]}
 
 
 @router.get("/rates")
 def get_rates(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return {"rates": rates(db, user.company_id), "grades": C.GRADES}
+    return {"rates": rates(db, user.company_id), "grades": C.GRADES, "watch": watch_info(db, user.company_id)}
 
 
 @router.put("/rates")
@@ -70,14 +130,24 @@ def put_rates(body: dict = Body(...), user: User = Depends(get_current_user), db
     for k in ("overhead", "tech", "helper_rate", "visit_days"):
         if body.get(k) not in (None, ""):
             clean[k] = float(body[k])
-    row = _setting(db, user.company_id, RATES_KEY)
-    val = json.dumps(clean, ensure_ascii=False)
-    if row is None:
-        db.add(AppSetting(company_id=user.company_id, key=RATES_KEY, value=val))
-    else:
-        row.value = val
-    db.commit()
-    return {"rates": rates(db, user.company_id), "grades": C.GRADES}
+    old, eff = _json(db, user.company_id, RATES_KEY), rates(db, user.company_id)
+    for k in ("labor_auto", "helper_key", "labor_next", "helper_next"):  # 자동 갱신 기록은 지킴
+        if old.get(k):
+            clean[k] = old[k]
+    if clean.get("labor_year") and clean["labor_year"] != eff.get("labor_year"):
+        clean.pop("labor_next", None)  # 사람이 연도를 바꿈 = 사람 결정대로
+    if clean.get("helper_rate") is not None and float(clean["helper_rate"]) != float(eff.get("helper_rate") or 0):
+        clean.pop("helper_next", None)
+    _put_json(db, user.company_id, RATES_KEY, clean)
+    return {"rates": rates(db, user.company_id), "grades": C.GRADES, "watch": watch_info(db, user.company_id)}
+
+
+@router.post("/rates/check")
+def check_rates(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """노임단가 새 공표 지금 확인(5~20초) — 검사를 통과하면 바로 기준표에(적용일부터), 아니면 알림만."""
+    found = watch_run(user.company_id, force=True)
+    db.expire_all()
+    return {"found": found, "rates": rates(db, user.company_id), "watch": watch_info(db, user.company_id), "grades": C.GRADES}
 
 
 # ---------- 메타·번호 ----------
@@ -93,7 +163,9 @@ def meta(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     for (s,) in db.query(Estimate.staff).filter(Estimate.company_id == user.company_id).order_by(Estimate.id.desc()).limit(80):
         if isinstance(s, dict) and (s.get("name") or "").strip() and all(x["name"] != s["name"] for x in staff):
             staff.append({"name": s["name"], "phone": s.get("phone") or ""})
-    return {"kinds": [{"key": k, **{x: v[x] for x in ("label", "task", "subject", "row", "check", "conditions")}} for k, v in C.KINDS.items()],
+    maybe_watch(db, user.company_id)
+    return {"watch": watch_info(db, user.company_id),
+            "kinds": [{"key": k, **{x: v[x] for x in ("label", "task", "subject", "row", "check", "conditions")}} for k, v in C.KINDS.items()],
             "row_types": [{"key": t, "label": C.ROW_LABEL[t]} for t in C.ROW_TYPES], "grades": C.GRADES, "uses": list(C.BLCM_USE),
             "status": STATUS, "rates": rates(db, user.company_id), "staff": staff[:12], "next_no": next_no(db, user.company_id)}
 
@@ -160,13 +232,27 @@ def _project(e: Estimate) -> dict:
     return p
 
 
+def pinned(e: Estimate, R: dict) -> dict:
+    """견적에 붙인 노임 연도·보조인부 단가(만들 때 값 — 새 공표가 들어와도 지난 견적 금액은 그대로). 없으면 지금 기준표."""
+    o = e.options or {}
+    out = dict(R)
+    if o.get("labor_year") and str(o["labor_year"]) in R["labor"]:
+        out["labor_year"] = str(o["labor_year"])
+    if o.get("helper_rate"):
+        out["helper_rate"] = o["helper_rate"]
+    return out
+
+
 def compute(db: Session, e: Estimate) -> tuple[list[dict], dict, list[str]]:
-    R = rates(db, e.company_id)
+    R = pinned(e, rates(db, e.company_id))
     outs = [C.calc_row(r, R, _project(e)) for r in (e.rows or [])]
     warn = []
     if any(o.get("missing_rate") for o in outs):
         yr = R.get("labor_year")
         warn.append(f"노임단가 {yr}년 표에 빈 등급이 있습니다 — 견적 목록 화면 [⚙ 기준표]에서 넣으세요(지금은 0원으로 계산)")
+    R0 = rates(db, e.company_id)
+    if R.get("labor_year") != R0.get("labor_year"):
+        warn.append(f"이 견적은 만들 때 노임단가 {R['labor_year']}년 기준입니다(지금 기준표 {R0['labor_year']}년) — 새 단가로 하려면 [노임 연도 바꾸기]")
     return outs, C.totals(outs, R), warn
 
 
@@ -205,6 +291,7 @@ def _save(db: Session, e: Estimate, user: User) -> None:
 # ---------- 목록·만들기 ----------
 @router.get("")
 def list_estimates(status_: str = Query("", alias="status"), kind: str = "", q: str = "", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    maybe_watch(db, user.company_id)
     rows = db.query(Estimate).filter(Estimate.company_id == user.company_id).order_by(Estimate.id.desc()).all()
     out = [_list_out(e) for e in rows]
     if status_:
@@ -231,12 +318,14 @@ def create(body: NewIn, user: User = Depends(get_current_user), db: Session = De
     today = datetime.date.today()
     e = Estimate(company_id=user.company_id, no=next_no(db, user.company_id, today), kind=body.kind, status="draft", issued_on=today, title=k["task"],
                  client={}, project={}, staff={"name": user.display_name or "", "phone": ""}, rows=C.default_rows(body.kind),
-                 options={"conditions": list(k["conditions"])}, created_by=user.display_name or "")
+                 options={"conditions": list(k["conditions"]), "labor_year": rates(db, user.company_id)["labor_year"],
+                          "helper_rate": rates(db, user.company_id)["helper_rate"]}, created_by=user.display_name or "")
     if body.copy_from:
         src = _require(db, user, body.copy_from)
         e.client, e.project, e.staff = dict(src.client or {}), dict(src.project or {}), dict(src.staff or {})
         if src.kind == body.kind:
-            e.rows, e.options, e.title = [dict(r) for r in src.rows or []], dict(src.options or {}), src.title
+            keep = {k: e.options[k] for k in ("labor_year", "helper_rate")}  # 복사본은 오늘 기준표로
+            e.rows, e.options, e.title = [dict(r) for r in src.rows or []], {**dict(src.options or {}), **keep}, src.title
     db.add(e)
     db.flush()
     _save(db, e, user)
@@ -300,6 +389,13 @@ def patch(eid: int, body: PatchIn, user: User = Depends(get_current_user), db: S
             o["conditions"] = [str(x).strip()[:200] for x in body.options["conditions"] if str(x).strip()][:12]
         if "note" in body.options:
             o["note"] = str(body.options.get("note") or "")[:1000]
+        if body.options.get("labor_year"):  # [노임 연도 바꾸기] — 기준표에 있는 연도만
+            y = str(body.options["labor_year"])
+            if y not in rates(db, e.company_id)["labor"]:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"기준표에 {y}년 노임단가가 없습니다.")
+            o["labor_year"] = y
+        if body.options.get("helper_now"):  # 보조인부 단가를 지금 기준표 값으로
+            o["helper_rate"] = rates(db, e.company_id)["helper_rate"]
         e.options = o
     if body.memo is not None:
         e.memo = body.memo[:2000]
@@ -339,3 +435,60 @@ def delete(eid: int, password: str = Body("", embed=True), user: User = Depends(
     db.delete(e)
     db.commit()
     return {"ok": True}
+
+
+# ---------- 엑셀·PDF(10/29 2단계) ----------
+def _folder(e: Estimate):
+    from core.db import DATA_DIR
+    from server.api import storage
+
+    return DATA_DIR / "_견적" / f"{e.id:04d}_{storage._clean(e.no or '견적')}"
+
+
+@router.post("/{eid}/export")
+def export(eid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """회사 견적서 양식 그대로 엑셀 → PDF(LibreOffice, 몇 초). 파일 이름 = 번호_발주처(또는 공사·시설명)_견적서."""
+    from server.api import storage
+    from server.contract_docs.to_pdf import office_to_pdf
+    from server.estimate import export as X
+
+    e = _require(db, user, eid)
+    out = _out(db, e)
+    R = rates(db, e.company_id)
+    who = (e.client or {}).get("name") or (e.project or {}).get("name") or ""
+    base = f"{e.no}_{storage._clean(who)[:40]}_견적서".strip("_")
+    folder = _folder(e)
+    try:
+        res = X.build(out, out["rows_out"], out["totals"], R, folder / f"{base}.xlsx")
+    except FileNotFoundError as err:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(err)) from err
+    pdf_err = ""
+    pages = None
+    try:
+        office_to_pdf(res["xlsx"], folder / f"{base}.pdf")
+        import pymupdf
+
+        with pymupdf.open(folder / f"{base}.pdf") as d:
+            pages = d.page_count
+    except Exception as err:  # noqa: BLE001 — 엑셀은 받을 수 있게
+        pdf_err = str(err)[:200]
+    e.files = {"xlsx": f"{base}.xlsx", "pdf": f"{base}.pdf" if not pdf_err else "", "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+               "by": user.display_name or "", "notes": res["notes"] + ([f"PDF를 못 만들었습니다: {pdf_err}"] if pdf_err else []), "pages": pages,
+               "sheets": res["sheets"]}
+    flag_modified(e, "files")
+    db.commit()
+    return _out(db, e)
+
+
+@router.get("/{eid}/file/{kind}")
+def get_file(eid: int, kind: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from fastapi.responses import FileResponse
+
+    e = _require(db, user, eid)
+    name = (e.files or {}).get(kind) if kind in ("xlsx", "pdf") else None
+    p = _folder(e) / name if name else None
+    if p is None or not p.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다 — [📄 엑셀·PDF 만들기]를 먼저 누르세요.")
+    media = "application/pdf" if kind == "pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return FileResponse(p, media_type=media, filename=name, content_disposition_type="inline" if kind == "pdf" else "attachment",
+                        headers={"Cache-Control": "no-store"})

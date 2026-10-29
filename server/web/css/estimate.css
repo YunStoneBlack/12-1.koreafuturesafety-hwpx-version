@@ -102,3 +102,15 @@
   .main .es-inputs .es-fs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .main .es-inputs .es-f.w3 { grid-column: span 2; }
 }
+.main .es-out { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.main .es-out button { margin: 0; }
+.main .es-made { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--green-soft); border: 1px solid var(--green-soft); font-size: 13px; }
+.main .es-links { display: inline-flex; gap: 6px; margin-left: 8px; flex-wrap: wrap; }
+.main .es-made ul { margin: 6px 0 0 18px; padding: 0; }
+/* 노임단가 자동 갱신 알림·견적 노임 기준(10/29) */
+.main .es-note { padding: 9px 12px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; }
+.main .es-note.ok { background: var(--green-soft); color: var(--ink); }
+.main .es-note.bad { background: var(--warn-soft); color: var(--ink); }
+.main .es-basis { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-left: 10px; }
+.main .es-basis select { width: auto; margin: 0; padding: 3px 6px; font-size: 12.5px; }
+.main .es-mini { margin: 0; padding: 3px 8px; font-size: 12px; }

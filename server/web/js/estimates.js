@@ -28,7 +28,13 @@
         <div class="ds-card-sub">${esc(x.client || "발주처 없음")}${x.staff ? ` · 담당 ${esc(x.staff)}` : ""}</div>
         <div class="ds-card-meta"><b class="es-money">${won(x.total)}</b> (VAT 포함) · 견적일 ${esc(x.issued_on || "-")} · 수정 ${esc(x.updated)}</div>
       </div>
-      <div class="ds-card-btns"><a class="secondary-link" href="estimate.html?id=${x.id}">📂 열기</a><button type="button" class="secondary es-copy">📋 복사</button></div>`;
+      <div class="ds-card-btns"><a class="secondary-link" href="estimate.html?id=${x.id}">📂 열기</a><button type="button" class="secondary es-copy">📋 복사</button>
+        <button type="button" class="secondary es-del" title="지우기(삭제 비밀번호)">🗑</button></div>`;
+    el.querySelector(".es-del").addEventListener("click", async () => {  // 목록에서 바로 지우기(10/29 형 — 연습 견적 지울 데가 안 보였음)
+      const pw = prompt(`견적 ${x.no} ${x.subject || x.client || ""}을(를) 지웁니다(되돌릴 수 없음) — 삭제 비밀번호`);
+      if (!pw) return;
+      try { await api(`/estimates/${x.id}`, { method: "DELETE", body: JSON.stringify({ password: pw }) }); load(); } catch (err) { showError(errorEl, err); }
+    });
     el.querySelector(".es-copy").addEventListener("click", async (ev) => {
       ev.currentTarget.disabled = true;
       try { const e = await apiPost(`/estimates/${x.id}/copy`, {}); location.href = `estimate.html?id=${e.id}`; } catch (err) { showError(errorEl, err); }
@@ -57,6 +63,18 @@
   $("es-kind").addEventListener("change", (e) => { kind = e.target.value; load(); });
   $("es-q").addEventListener("input", (e) => { clearTimeout(timer); timer = setTimeout(() => { q = e.target.value.trim(); load(); }, 300); });
 
+  // ---------- 노임단가 자동 갱신 알림(12·1월·8·9월 하루 한 번 — server/estimate/rate_watch) ----------
+  function drawNotice(watch) {
+    const recent = ((watch || {}).notices || []).filter((n) => n.kind !== "error" || true).slice(0, 3);
+    const days = (s) => (Date.now() - new Date(String(s).replace(" ", "T")).getTime()) / 86400000;
+    $("es-notice").innerHTML = recent.filter((n) => n.at && days(n.at) < 45).map((n) => {
+      const what = n.kind === "labor" ? `${n.year}년 엔지니어링 노임단가` : n.kind === "helper" ? `시중노임 보통인부(현지보조인부) ${Number(n.value || 0).toLocaleString("ko-KR")}원` : "노임단가 확인";
+      return n.applied
+        ? `<div class="es-note ok">✓ ${esc(what)} 자동 적용 — ${esc(n.from)}부터 새 견적에 · 출처 <a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a> (${esc(n.at)})</div>`
+        : `<div class="es-note bad">⚠ ${esc(what)} — 자동 적용 안 함: ${esc((n.problems || []).join(" · "))} · [⚙ 기준표]에서 직접 확인하세요 (${esc(n.at)})</div>`;
+    }).join("");
+  }
+
   // ---------- 기준표 ----------
   let R = null, year = "";
   function drawRates() {
@@ -80,8 +98,21 @@
         <div class="sk-f"><label>기술료율((인건비+제경비) ×)</label><input id="es-tech" value="${R.tech}" /></div>
         <div class="sk-f"><label>현지보조인부 노임(원/일)</label><input id="es-helper" value="${R.helper_rate}" /></div>
         <div class="sk-f"><label>기술지도 간격(일 — 공사기간 ÷)</label><input id="es-vdays" value="${R.visit_days}" /></div></div>
+      <div class="bj-sec-t es-sec">자동 갱신</div>
+      <div class="es-row"><span class="mail-note">엔지니어링 노임단가(1월 1일)·시중노임(1월 1일·9월 1일) 공표를 12·1월, 8·9월에 하루 한 번 살펴 검사를 통과하면 저절로 넣습니다 — 마지막 확인
+        <b id="es-watch-last">${esc((meta.watch || {}).last || "아직 없음")}</b></span><button type="button" class="secondary" id="es-watch-go">🔄 지금 확인</button><span class="mail-note" id="es-watch-msg"></span></div>
       <div class="ds-foot"><span class="mail-note" id="es-rates-msg"></span><button type="button" id="es-rates-save">저장</button></div>`;
     $("es-year").addEventListener("change", (e) => { readRates(); year = e.target.value; drawRates(); });
+    $("es-watch-go").addEventListener("click", async (e) => {
+      e.currentTarget.disabled = true;
+      $("es-watch-msg").textContent = "공표 사이트 확인 중…(5~20초)";
+      try {
+        const out = await apiPost("/estimates/rates/check", {});
+        R = out.rates; meta.rates = R; meta.watch = out.watch;
+        drawRates(); drawNotice(out.watch);
+        $("es-watch-msg").textContent = out.found.length ? `새 공표 ${out.found.length}건 — 위 알림을 보세요` : "✓ 새 공표 없음(지금 기준표가 최신)";
+      } catch (err) { $("es-watch-msg").textContent = err.message; e.currentTarget.disabled = false; }
+    });
     $("es-year-add").addEventListener("click", () => {
       const y = prompt("더할 연도(예: 2027)", String(new Date().getFullYear() + 1));
       if (!y || !/^\d{4}$/.test(y.trim())) return;
@@ -114,7 +145,7 @@
     try {
       meta = await api("/estimates/meta");
       R = meta.rates;
-      drawKinds(); drawRates(); load();
+      drawKinds(); drawRates(); load(); drawNotice(meta.watch);
       if (location.hash === "#rates") { $("es-rates-panel").open = true; $("es-rates-panel").scrollIntoView(); }  // 견적 화면 경고의 [기준표 열기]
     } catch (err) { showError(errorEl, err); }
   })();
