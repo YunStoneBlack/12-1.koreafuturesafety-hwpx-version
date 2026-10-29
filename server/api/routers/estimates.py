@@ -4,6 +4,8 @@
 - `GET  /estimates` (?status·kind·q) · `POST /estimates` {kind, copy_from} · `GET|PATCH|DELETE /estimates/{id}`(지우기 = 회사 삭제 비밀번호)
 - `POST /estimates/{id}/copy` — 같은 내용으로 새 견적(새 번호·오늘·작성중) · `POST /estimates/{id}/fit` {total} — 합계(VAT 포함)를 이 금액으로
 - `POST /estimates/{id}/export` — 엑셀·PDF(회사 견적서 양식 — server/estimate/export.py) · `GET /estimates/{id}/file/{xlsx|pdf}`
+- `POST /estimates/{id}/handoff` — 수주 → 계약으로 넘기기(server/estimate/handoff — 기술지도 = 산안법 용역 계약 · 정기·정밀 = 시특법 민간 계약 · 건축물관리점검 = 건)
+- `GET  /estimates/stats` (?year) — 수주 통계(용역별·견적담당별·달별, 수주율 = 수주 ÷ 보낸 견적)
 - `POST /estimates/rates/check` — 노임단가 새 공표 지금 확인(server/estimate/rate_watch — 12·1월·8·9월엔 견적 화면을 열 때 하루 한 번 뒤에서 저절로)
 - `GET|PUT /estimates/rates` — 기준표(엔지니어링 노임단가 연도별·기술지도 회당 인건비 구간·제경비·기술료율 — app_setting estimate_rates)
 계산은 server/estimate/calc.py(회사 견적서 엑셀 수식 그대로). 번호 = KFSC-연도2자리-차례(바꿀 수 있음, 회사 안에서 겹치면 409)."""
@@ -23,6 +25,7 @@ from core.models_web import Estimate, User
 from server.api.deps import get_current_user, get_db
 from server.api.security import verify_password
 from server.estimate import calc as C
+from server.estimate import handoff as H
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 STATUS = {"draft": "작성중", "sent": "보냄", "won": "수주", "lost": "실패"}
@@ -262,13 +265,40 @@ def _list_out(e: Estimate) -> dict:
             "status_label": STATUS.get(e.status, e.status), "issued_on": e.issued_on.isoformat() if e.issued_on else "",
             "client": (e.client or {}).get("name") or "", "subject": (e.project or {}).get("name") or "", "total": t.get("total"),
             "supply": t.get("supply"), "staff": (e.staff or {}).get("name") or "",
+            "link_to": (e.link or {}).get("to") or "", "link_label": (e.link or {}).get("label") or "", "can_handoff": e.kind in H.TARGETS,
             "updated": f"{e.updated_at or e.created_at:%Y-%m-%d %H:%M}"}
+
+
+LINK_URL = {"sanan": "docs.html?contract={id}", "sitok": "sitok-docs.html?contract={id}", "blcm": "blcm-job.html?id={id}"}
+
+
+def link_view(db: Session, e: Estimate) -> dict:
+    """넘긴 계약·건(지금 이름·주소) — 저쪽에서 지웠으면 gone(다시 넘길 수 있음)."""
+    from core.models_web import BlcmJob, ServiceContract, SitokDocContract
+
+    ln = e.link or {}
+    if not ln.get("to"):
+        return {}
+    model = {"sanan": ServiceContract, "sitok": SitokDocContract, "blcm": BlcmJob}.get(ln["to"])
+    row = db.get(model, ln.get("id")) if model else None
+    if row is None or row.company_id != e.company_id:
+        return {**ln, "gone": True, "where": H.TARGET_LABEL.get(ln["to"], "")}
+    if ln["to"] == "sanan":
+        from server.api.routers.contracts import contract_label
+        label = contract_label(row)
+    elif ln["to"] == "sitok":
+        from server.sitok import civil
+        label = row.title or civil.default_title(row)
+    else:
+        label = row.name
+    return {**ln, "label": label, "gone": False, "url": LINK_URL[ln["to"]].format(id=row.id), "where": H.TARGET_LABEL[ln["to"]]}
 
 
 def _out(db: Session, e: Estimate) -> dict:
     outs, tot, warn = compute(db, e)
     return {**_list_out(e), "title": e.title, "client": e.client or {}, "project": e.project or {}, "staff": e.staff or {},
-            "rows": e.rows or [], "rows_out": outs, "totals": tot, "options": e.options or {}, "memo": e.memo or "", "link": e.link or {},
+            "rows": e.rows or [], "rows_out": outs, "totals": tot, "options": e.options or {}, "memo": e.memo or "", "link": link_view(db, e),
+            "handoff": {"to": H.TARGETS.get(e.kind, ""), "where": H.TARGET_LABEL.get(H.TARGETS.get(e.kind, ""), "")},
             "files": e.files or {}, "warnings": warn, "korean": C.korean_amount(tot["total"]), "korean_supply": C.korean_amount(tot["supply"])}
 
 
@@ -303,6 +333,14 @@ def list_estimates(status_: str = Query("", alias="status"), kind: str = "", q: 
         out = [x for x in out if k in (x["no"] + x["client"] + x["subject"] + x["staff"] + x["kind_label"]).replace(" ", "")]
     counts = {s: sum(1 for e in rows if e.status == s) for s in STATUS}
     return {"estimates": out, "counts": counts}
+
+
+@router.get("/stats")
+def get_stats(year: str = "", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """수주 통계 — year 비우면 올해, "all"이면 전체."""
+    rows = db.query(Estimate).filter(Estimate.company_id == user.company_id).all()
+    y = None if year == "all" else (int(year) if year.isdigit() else datetime.date.today().year)
+    return H.stats(rows, y)
 
 
 class NewIn(BaseModel):
@@ -415,10 +453,58 @@ def fit(eid: int, total: int = Body(..., embed=True), user: User = Depends(get_c
     e = _require(db, user, eid)
     if total <= 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "금액을 넣어 주세요.")
-    R = rates(db, e.company_id)
+    R = pinned(e, rates(db, e.company_id))
     clean = [{**r, "price": None} for r in (e.rows or [])]
     outs = [C.calc_row(r, R, _project(e)) for r in clean]
     e.rows = C.fit_total(clean, outs, total, R)
+    _save(db, e, user)
+    return _out(db, e)
+
+
+@router.post("/{eid}/handoff")
+def handoff(eid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """수주 → 계약으로 넘기기: 견적 칸을 옮긴 계약·건을 만들고 견적을 수주로, 서로 이어 둠(한 번에 저장). 이미 넘겼으면 409."""
+    from core.models_web import BlcmJob, SitokDocContract
+
+    e = _require(db, user, eid)
+    to = H.TARGETS.get(e.kind)
+    label_kind = (C.KINDS.get(e.kind) or {}).get("label", e.kind)
+    if not to:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{label_kind}은(는) 넘길 계약 화면이 아직 없습니다 — 상태를 [수주]로 두면 수주 통계에 들어갑니다.")
+    cur = link_view(db, e)
+    if cur and not cur.get("gone"):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"이미 넘겼습니다 — {cur['where']} {cur['label']}")
+    if not ((e.project or {}).get("name") or (e.client or {}).get("name") or "").strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "발주처나 공사명·시설명을 먼저 넣어 주세요.")
+    outs, tot, _ = compute(db, e)
+    if not tot.get("total"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "견적 금액이 0원입니다 — 금액 줄을 먼저 채워 주세요.")
+    now = datetime.datetime.now()
+    if to == "sanan":
+        from server.api.routers import contracts as CT
+
+        row = CT._new(db, user)
+        CT._apply_contract(row, H.sanan_fields(e, tot), user)
+        db.flush()
+        tid, label = row.id, CT.contract_label(row)
+    elif to == "sitok":
+        from server.api.routers import sitok_docs as SD
+        from server.sitok import civil
+
+        R = pinned(e, rates(db, e.company_id))
+        c = SitokDocContract(company_id=user.company_id, created_by=user.display_name or "", rounds=[], guarantee="-", delay_rate="-", field="시특법")
+        SD._apply(c, SD.ContractIn(**H.sitok_fields(e, outs, float(R.get("vat") or 0.1))), user, db)
+        db.add(c)
+        db.flush()
+        tid, label = c.id, c.title or civil.default_title(c)
+    else:
+        j = BlcmJob(company_id=user.company_id, created_by=user.display_name or "", results={}, opinion={}, site={}, files={}, **H.blcm_fields(e, tot))
+        db.add(j)
+        db.flush()
+        tid, label = j.id, j.name
+    e.link = {"to": to, "id": tid, "label": label, "at": now.strftime("%Y-%m-%d %H:%M"), "by": user.display_name or ""}
+    e.status = "won"
+    flag_modified(e, "link")
     _save(db, e, user)
     return _out(db, e)
 

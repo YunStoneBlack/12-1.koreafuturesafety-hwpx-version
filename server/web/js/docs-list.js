@@ -37,10 +37,17 @@
     render();
   }));
 
+  const wantId = Number(new URLSearchParams(location.search).get("contract")) || 0;  // 견적 [계약으로 넘기기]에서 옴(10/29)
   async function load() {
     try {
       data = await dcLoad();
+      if (wantId && !load.done) { view.stage = ""; view.q = ""; }
       render();
+      if (wantId && !load.done) {
+        load.done = true;
+        const hit = document.querySelector(`.dc-row[data-id="${wantId}"]`);
+        if (hit) { hit.classList.add("dc-hit"); hit.scrollIntoView({ behavior: "smooth", block: "center" }); }
+      }
     } catch (err) {
       showError(errorEl, err);
     }
@@ -87,6 +94,7 @@
   function row(c) {
     const el = document.createElement("div");
     el.className = "row dc-row";
+    el.dataset.id = c.id;
     const meta = [c.client, c.contract_no, dcMoney(c.amount), c.start_date && `${c.start_date} ~ ${c.end_date || ""}`].filter(Boolean).join(" · ");
     const docs = DC_KINDS.map(([k, label]) => {
       const s = dcDocState(c, k);

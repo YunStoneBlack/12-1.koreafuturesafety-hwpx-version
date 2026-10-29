@@ -87,6 +87,40 @@
     const hb = $("es-helper-now");
     if (hb) hb.addEventListener("click", () => save({ options: { helper_now: true } }, true));
   }
+  // ---------- 수주 → 계약으로 넘기기(3단계 — server/estimate/handoff) ----------
+  function drawStatus() {
+    $("es-status").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.v === est.status));
+  }
+  function drawHandoff() {
+    const ln = est.link || {}, h = est.handoff || {};
+    const box = $("es-handoff");
+    if (ln.to && !ln.gone) {
+      box.innerHTML = `<div class="es-ho done"><span>✓ 계약으로 넘김 · ${esc(ln.where)} <b>${esc(ln.label)}</b> <small>${esc(ln.at)} ${esc(ln.by)}</small></span>
+        <a class="secondary-link" href="${esc(ln.url)}">📂 계약 열기</a></div>`;
+      return;
+    }
+    if (!h.to) {
+      box.innerHTML = '<div class="es-ho none">이 용역은 넘길 계약 화면이 아직 없습니다 — 수주하면 상태만 [수주]로 바꾸세요(아래 목록 화면 수주 현황에 들어감).</div>';
+      return;
+    }
+    box.innerHTML = `<div class="es-ho"><span>${ln.gone ? "⚠ 넘겼던 계약이 지워졌습니다 — 다시 넘길 수 있습니다. " : ""}수주하면 발주처·대상·금액을 옮겨 <b>${esc(h.where)}</b>을(를) 만들고 상태를 [수주]로 바꿉니다.</span>
+      <button type="button" id="es-ho-go">📑 수주 → 계약으로 넘기기</button><span class="mail-note" id="es-ho-msg"></span></div>`;
+    $("es-ho-go").addEventListener("click", async (ev) => {
+      const name = (est.project || {}).name || (est.client || {}).name || "";
+      if (!confirm(`${h.where}에 새로 만듭니다.\n\n${name} · 합계 ${won(est.totals.total)}원(VAT 포함)\n\n견적 상태는 [수주]로 바뀝니다.`)) return;
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      $("es-ho-msg").textContent = "만드는 중…";
+      try {
+        clearTimeout(saveTimer);
+        await saving;
+        await apiPatch(P, { rows: est.rows });
+        const out = await apiPost(`${P}/handoff`, {});
+        est = { ...est, ...out };
+        drawStatus(); drawHandoff();
+      } catch (err) { $("es-ho-msg").textContent = err.message; btn.disabled = false; }
+    });
+  }
   function drawHeadBits() {
     drawBasis();
     $("es-title").textContent = est.no;
@@ -302,7 +336,7 @@
       [meta, est] = await Promise.all([api("/estimates/meta"), api(P)]);
       kind = meta.kinds.find((k) => k.key === est.kind) || null;
       $("es-addtype").innerHTML = meta.row_types.map((t) => `<option value="${t.key}"${kind && t.key === kind.row ? " selected" : ""}>${esc(t.label)}</option>`).join("");
-      drawHead(); drawRows(); drawFiles(); drawBasis();
+      drawHead(); drawRows(); drawFiles(); drawBasis(); drawHandoff();
     } catch (err) { showError(errorEl, err); }
   })();
 })();

@@ -1209,5 +1209,7 @@
   load();
   // 새 점검 대상 등록 "계약서가 아직 없음"(sitok-new.html, 10/14)에서 오면 바로 민간 계약서 창
   const want = new URLSearchParams(location.search).get("new");
+  const wantId = Number(new URLSearchParams(location.search).get("contract")) || 0;  // 견적 [계약으로 넘기기]에서 옴(10/29)
+  if (wantId) openContract(wantId, "민간", { message: "견적에서 넘긴 계약입니다 — 회차 연도·반기(견적일 반기부터 넣음)와 금액을 확인하고 [📝 계약서 만들기] → [🏢 시설물 카드 만들어 넣기]로 이어 가세요.", tone: "ok" });
   if (want === "civil") openContract(null, "민간", { message: "계약서를 만들 시설물의 <b>시설물관리대장</b>과 발주처 <b>사업자등록증</b>을 올리면 칸이 채워집니다. 회차·금액을 넣고 [📝 계약서 만들기] → 위 [🏢 시설물 카드 만들어 넣기]를 누르면 시설물 카드와 이번 반기 회차가 생깁니다.", tone: "ok" });
 })();

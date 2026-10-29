@@ -741,3 +741,6 @@ a.pdf-pill:hover { border-color: currentColor; filter: brightness(0.97); }
   .main .st-layout .st-prog-row, .main .st-layout button.st-prog-grp { grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr) var(--num-w, 100px); }
 }
 
+
+/* 견적에서 넘긴 계약 카드 — 처음 열 때 한 번 눈에 띄게(10/29) */
+.dc-row.dc-hit { box-shadow: 0 0 0 2px var(--blue); border-radius: 10px; }
