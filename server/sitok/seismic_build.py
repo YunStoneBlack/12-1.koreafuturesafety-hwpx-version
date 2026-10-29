@@ -79,6 +79,7 @@ def gather(db, r, f) -> dict:
     title = (c.title if c and c.title else "") or sc.get("title") or f"{f.name} 내진성능평가 용역"
     return {"name": f.name, "title": title.strip(),
             "client": (sc.get("client") or f.owner_name or "").strip() or "-", "address": f.address or "-",
+            "client_rep": (sc.get("client_rep") or "").strip(),  # 관리주체 대표자(용역 정보, 10/29 민재형 — 칸이 없었음)
             "period_start": r.period_start, "period_end": r.period_end, "month": rd, "persons": persons, "amount_k": amount_k or "-",
             "joint": joint, "bid": (c.bid_method if c else "") or sc.get("method") or "수의계약", "use": f.use_type or f.main_use or "-", "class_no": f.class_no or "-",
             "grade": f.safety_grade or "-", "completion": f.completion_date, "above": f.floors_above or 0, "below": f.floors_below or 0,
@@ -133,6 +134,8 @@ def fill_result_ga(root, d: dict) -> int:
                 (6, 1): d["address"], (6, 9): f"{floors} (연면적: {area})"}
         if d["period_start"] and d["period_end"]:
             vals[(1, 9)] = f"{_date(d['period_start'], True)}~{_date(d['period_end'], True)}"
+        if d.get("client_rep"):
+            vals[(2, 9)] = d["client_rep"]
         for rc, v in vals.items():
             _set(cells, rc, v)
         n += 1

@@ -53,7 +53,7 @@ DOCS = [
 ]
 DOC = {k: (label, exts, fills) for k, label, exts, fills in DOCS}
 MULTI = ("schedule", "struct", "floorplan")  # 시설물 도면 칸(drawings) — 여러 장
-CONTRACT_KEYS = ("title", "client", "amount", "contract_no", "contract_date", "start_date", "end_date", "days", "method", "joint", "manager", "phone")
+CONTRACT_KEYS = ("title", "client", "client_rep", "amount", "contract_no", "contract_date", "start_date", "end_date", "days", "method", "joint", "manager", "phone")  # client_rep = 관리주체 대표자(결과표 가, 10/29)
 
 
 def _iso(v) -> str:
@@ -139,7 +139,7 @@ def _apply_building(f: SitokFacility, b: dict) -> None:
         f.completion_date = _d(b["approval_date"])
     reg = dict((f.ledger or {}).get("register") or {})
     for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "approval_date", "seismic_design", "grade", "floors", "changes", "length_x", "length_y",
-              "survey_units", "drawings"):
+              "survey_units", "drawings", "foundation", "calc_doc"):  # 기초형식·구조계산서 유무(결과표, 10/29 민재형)
         if k in b:
             reg[k] = b[k]
     f.ledger = {**(f.ledger or {}), "register": _jsonable(reg)}
@@ -186,7 +186,8 @@ def _project_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
     building = {"name": f.name, "address": f.address or "", "structure": f.structure or "", "use": f.main_use or f.use_type or "",
                 "below": f.floors_below or 0, "above": f.floors_above or 0, "height": f.max_height, "total_area": f.total_area,
                 "building_area": f.building_area, "approval_date": _iso(f.completion_date) or reg.get("approval_date", ""),
-                **{k: reg.get(k, "") for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "seismic_design", "grade", "length_x", "length_y")}}
+                **{k: reg.get(k, "") for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "seismic_design", "grade", "length_x", "length_y",
+                                               "foundation", "calc_doc")}}
     building["grade"] = building["grade"] or grade_of(building["use"])
     units = SD.survey_units(f)
     building["survey_units"] = units

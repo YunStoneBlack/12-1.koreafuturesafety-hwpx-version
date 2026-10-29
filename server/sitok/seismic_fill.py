@@ -1859,7 +1859,7 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     if db is not None:
         n += fill_defects(root, defect_rows(db, r.id), member_tpl)
     if not front_taken:
-        n += fill_result_na(root, d, reg, ground, field)
+        n += fill_result_na(root, d, reg, ground, field, SD.has_drawings(f))
         n += fill_checklist_counts(root, field["members"], warn)  # 체크리스트 D 1층 조사 수량(10/28) — 외주 견본 전체를 옮겼으면 외주 값 그대로
     saved = (field.get("summary") or "").strip()
     chief = d["persons"][0]["name"] if d.get("persons") else ""
@@ -2447,7 +2447,7 @@ def _right_of(cells: dict, r: int, c: int):
     return (r, nxt[0]) if nxt else None
 
 
-def fill_result_na(root, d: dict, reg: dict, ground: dict | None, field: dict) -> int:
+def fill_result_na(root, d: dict, reg: dict, ground: dict | None, field: dict, drawings: bool | None = None) -> int:
     t = next((t for t in _outer(root) if t.get("colCnt") == "13" and _n(rb._cell_text(rb._cells(t).get((0, 0), t))).startswith("가.일반현황")), None)
     if t is None:
         return 0
@@ -2459,18 +2459,47 @@ def fill_result_na(root, d: dict, reg: dict, ground: dict | None, field: dict) -
             "건물높이": f"{d['height']:g}m" if d.get("height") else None,
             "지반종류": holes[0].get("cls") if holes and holes[0].get("cls") else None,
             "내진설계여부": reg.get("seismic_design") or None,
-            "중요도/내진등급": f"{imp}/{grade}", "콘크리트": f"{cd[2]:g}MPa" if cd else None}
+            "중요도/내진등급": f"{imp}/{grade}", "콘크리트": f"{cd[2]:g}MPa" if cd else None,
+            "기초형식": (reg.get("foundation") or "").strip() or None}  # 기초형식 = 건물 정보 칸(10/29 민재형)
     cells = rb._cells(t)
     n = 0
     for (r, c), x in sorted(cells.items()):
         if r < 7:
             continue
         lab = _n(rb._cell_text(x))
+        if lab in ("콘크리트", "철근") and c > 0:  # 재료강도 아래 이름 칸은 고정 글(10/29 민재형 "메뉴 이름") — 다시 써서 '우리가 쓴 칸'(견본 값 지우기가 빈칸·노랑으로 만들었음)
+            _set(cells, (r, c), lab)
         if lab in vals and vals[lab]:
             rc = _right_of(cells, r, c)
             if rc:
                 _set(cells, rc, vals[lab])
                 n += 1
+    n += fill_docs_have(root, reg, drawings)
+    return n
+
+
+def _have(v) -> str:
+    return "유■ 무□" if v else "유□ 무■"
+
+
+def fill_docs_have(root, reg: dict, drawings: bool | None) -> int:
+    """결과표 "바. 주요 평가 관련 자료 유무" — 설계도면 = 건물 정보 도면 유무(비우면 자동), 구조계산서 = 건물 정보 구조계산서 유무(고르지 않으면 그대로 — 노랑)(10/29 민재형)."""
+    calc = (reg.get("calc_doc") or "").strip()
+    dw = (reg.get("drawings") or "").strip()
+    vals = {"설계도면": (dw == "보유") if dw else drawings, "구조계산서": (calc == "보유") if calc else None}
+    n = 0
+    for t in _outer(root):
+        cells = rb._cells(t)
+        if not _n(rb._cell_text(cells.get((0, 0), t))).startswith("라.내진성능"):
+            continue
+        for (r, c), x in sorted(cells.items()):
+            lab = _n(rb._cell_text(x))
+            if lab in vals and vals[lab] is not None:
+                rc = _right_of(cells, r, c)
+                if rc:
+                    _set(cells, rc, _have(vals[lab]))
+                    n += 1
+        break
     return n
 
 

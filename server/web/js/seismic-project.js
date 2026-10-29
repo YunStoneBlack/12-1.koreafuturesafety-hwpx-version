@@ -188,7 +188,8 @@
     $("sp-c-sum").textContent = c.title ? [c.title, c.amount ? `${won(c.amount)}원` : "", c.start_date ? `${dot(c.start_date)} ~ ${dot(c.end_date)}` : ""].filter(Boolean).join(" · ")
       : "용역계약서에서 — 표지·제출문·결과표 가·참여기간";
     $("sp-contract").innerHTML = field("title", "용역명", c.title, { wide: true, ph: "예: 삼숭초 교사동 내진성능평가 용역" })
-      + field("client", "발주처", c.client) + field("amount", "계약금액 (원)", c.amount ? won(c.amount) : "", { ph: "32,118,700" })
+      + field("client", "발주처", c.client) + field("client_rep", "관리주체 대표자", c.client_rep, { ph: "예: 교육장 ○○○", help: "결과표 가. 대표자", manual: true })
+      + field("amount", "계약금액 (원)", c.amount ? won(c.amount) : "", { ph: "32,118,700" })
       + field("contract_date", "계약일", c.contract_date, { type: "date" }) + field("contract_no", "계약번호", c.contract_no)
       + field("start_date", "착수일", c.start_date, { type: "date" }) + field("end_date", "완수일", c.end_date, { type: "date", help: "보고서 날짜(표지 연월)" })
       + field("method", "계약방법", c.method, { ph: "수의계약" }) + field("joint", "공동수급", c.joint, { ph: "단독계약" })
@@ -233,7 +234,9 @@
       + field("permit_date", "허가일", b.permit_date, { type: "date" }) + field("build_start", "착공일", b.build_start, { type: "date" })
       + field("seismic_design", "내진설계 적용", b.seismic_design, { options: ["", "적용", "비적용"] }) + field("grade", "내진등급", b.grade, { options: ["특등급", "1등급", "2등급"], help: "학교 = 특등급" })
       + field("survey_units", "조사단위 수", b.survey_units, { type: "number", help: "층마다 1 — 기본 지상 층수, 익스팬션조인트·증축은 따로" })
-      + field("drawings", "도면 유무", b.drawings, { options: [["", `자동 (지금 ${P.drawings_auto ? "보유" : "미보유"})`], "보유", "미보유"], optional: true, help: "구조도면·일람표 칸에 파일이 있으면 보유" });
+      + field("drawings", "도면 유무", b.drawings, { options: [["", `자동 (지금 ${P.drawings_auto ? "보유" : "미보유"})`], "보유", "미보유"], optional: true, help: "구조도면·일람표 칸에 파일이 있으면 보유 · 결과표 바. 설계도면 유/무" })
+      + field("calc_doc", "구조계산서 유무", b.calc_doc, { options: [["", "— 고르기 —"], "보유", "미보유"], help: "결과표 바. 구조계산서 유/무", manual: true })
+      + field("foundation", "기초형식", b.foundation, { ph: "예: 매트기초, 독립기초", help: "결과표 나. 기초형식", manual: true });
     floors = (P.floors || []).map((x) => ({ ...x }));
     changes = (P.changes || []).map((x) => ({ ...x }));
     rowsEditor($("sp-floors"), floors, [["kind", "구분", 0.6], ["floor", "층", 0.8], ["structure", "구조", 2], ["use", "용도", 1.6], ["area", "면적(㎡)", 1.1, "number"]], { kind: "주" });
