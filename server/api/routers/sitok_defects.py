@@ -153,6 +153,22 @@ def _save_zones(f: SitokFacility, zones: list[str]) -> None:
     flag_modified(f, "ledger")
 
 
+def _add_zones(f: SitokFacility, names: list[str]) -> None:
+    """시설물 동 차례 끝에 없는 동만 더함(새 결함·동 옮기기·사진첩 간지)."""
+    have = facility_zones(f)
+    new = [z for z in dict.fromkeys(names) if z and z not in have]
+    if new:
+        _save_zones(f, have + new)
+
+
+def _last_seq(db: Session, report_id: int, zone: str, floor: str, skip: int | None = None) -> int:
+    """동·층의 끝 번호(skip = 셈에서 뺄 결함 id — 옮기는 결함)."""
+    q = db.query(SitokDefect.seq).filter(SitokDefect.report_id == report_id, SitokDefect.zone == (zone or ""), SitokDefect.floor == floor)
+    if skip is not None:
+        q = q.filter(SitokDefect.id != skip)
+    return max((x for (x,) in q), default=0)
+
+
 def _photo_dir(db: Session, r: SitokReport) -> Path:
     return _report_dir(db.get(SitokFacility, r.facility_id), r) / "결함사진"
 
@@ -648,10 +664,7 @@ def _zoned(db: Session, r: SitokReport, album) -> str:
         for row in album.rows:
             row.zone = ""
         return f"사진첩 동 {len(zones)}개 중 '{hit}' 부분만 가져왔습니다"
-    have = facility_zones(f)
-    new = [z for z in zones if z not in have]
-    if new:
-        _save_zones(f, have + new)
+    _add_zones(f, zones)
     return f"동 {len(zones)}개({', '.join(zones)})로 나눠 가져왔습니다"
 
 
@@ -1047,10 +1060,8 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
         if old is not None and old.report_id == r.id:
             return _out(old)
     zone = (body.zone or "").strip()
-    last = max((d.seq for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == body.floor.strip(),
-                                                             SitokDefect.zone == zone)), default=0)  # 번호는 동·층마다(10/30)
-    if zone and zone not in facility_zones(f):
-        _save_zones(f, facility_zones(f) + [zone])
+    last = _last_seq(db, r.id, zone, body.floor.strip())  # 번호는 동·층마다(10/30)
+    _add_zones(f, [zone])
     d = SitokDefect(report_id=r.id, seq=last + 1, check="new", mark="신규", progress="비진행성")  # 진행유무 기본(10/21 형 — 신규도 칸이 비지 않게, [진행]을 누르면 진행성)
     _apply(d, body.model_copy(update={"check": "new"}), user, None if kinds.civil_fam(fam) else base_areas(f), vocab_names(db, r.company_id, r.id, fam))
     d.ai_guess = learn.guess_from(body.ai_guess)
@@ -1072,8 +1083,7 @@ def update_defect(defect_id: int, body: DefectIn, user: User = Depends(get_curre
     _apply(d, body, user, None if kinds.civil_fam(fam) else base_areas(f), vocab_names(db, r.company_id, r.id, fam))  # 옹벽·교량은 면적률 없음
     if (d.zone or "", d.floor) != old[:2]:  # 동(10/30)·층을 옮김 — 그 자리 끝 번호로, 사진 파일 이름도, 원래 자리 뒤 번호는 당김
         d.zone = d.zone or ""
-        d.seq = max((x.seq for x in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.zone == d.zone,
-                                                                  SitokDefect.floor == d.floor, SitokDefect.id != d.id)), default=0) + 1
+        d.seq = _last_seq(db, r.id, d.zone, d.floor, skip=d.id) + 1
         pre = _fpre(old[0], old[1], old[2])
         for attr in ("photo", "prev_photo"):
             path = getattr(d, attr)
@@ -1081,8 +1091,7 @@ def update_defect(defect_id: int, body: DefectIn, user: User = Depends(get_curre
                 dst = Path(path).with_name(_fpre(d.zone, d.floor, d.seq) + Path(path).name[len(pre):])
                 Path(path).replace(dst)
                 setattr(d, attr, str(dst))
-        if d.zone and d.zone not in facility_zones(f):
-            _save_zones(f, facility_zones(f) + [d.zone])
+        _add_zones(f, [d.zone])
         db.flush()
         renumber(db, r, old[1], old[2], old[0])
     learn.sync(db, d, r.company_id, user.display_name or "")  # 나중에 분류를 고쳐도 교정 기록에

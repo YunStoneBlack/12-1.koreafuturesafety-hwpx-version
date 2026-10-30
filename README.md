@@ -204,13 +204,15 @@
   **보고서 메일(DB 0065 `mail_job`)** — 시특법 회차 [📧 보고서 보내기](합본 내려받기 링크 `/report/share/{토큰}` 로그인 없이·30일·바로/예약·제출 현황 전송 표시,
   `server/api/mail_jobs.py`·`routers/sitok_mail.py`·`routers/share.py`, 그룹웨어 nginx 예외), 산안법 고객사 전송 예약(전송 창 첫 화면 [⏰ 예약 보내기]·목록/제출 현황 "⏰ 예약"),
   작업 프로그램 `server/worker/mail_worker.py`.
-- **219~237차(10/30)**: **건축물관리점검** — 📋 이 건물 점검 목록(법령상 적용대상 `server/blcm/applicability.py`, 실내건축은 민재형 지시)·답을 서류에서 미리 읽기(대장 승강기·인증·건축주·변동사항,
+- **219~239차(10/30)**: **건축물관리점검** — 📋 이 건물 점검 목록(법령상 적용대상 `server/blcm/applicability.py`, 실내건축은 민재형 지시)·답을 서류에서 미리 읽기(대장 승강기·인증·건축주·변동사항,
   토지이용계획확인원 지정여부 `server/blcm/doc_facts.py`)·화면 재구성(① 서류검토 ② 관리사무소 도면 ③ 현장 점검)·부적합 유형 칸(찍으면 판정 자동 `items.apply_photos`)·
   [① 서류검토 확정] 근거 그림(대장 칸·확인원·법령 조문 빨간 네모 `server/blcm/evidence.py`, `server/scripts/make_blcm_law_caps.py`)·부적합 견본 후보·고르기(`blcm-samples.html`, `scan_blcm_bad_samples.py`)·
   **개수·숫자로 정해지는 판정 자동·잠금**(`items.AUTO_RULES`·`RADIOS`·`normalize`·`ui_locks`, 설계도서 적합여부 = 사이트 fn_set_required4)·📱 현장 모드(폰 — 점검현황·사진만).
   착수계 [📊 낙찰가 적용 내역서 만들기](`server/sitok/est_adjust.py`·`est_adjust_lo.py` — LibreOffice 바뀐 칸만 계산, 원본 XML 칸만 고침), 내진 1.1 연동·철근 Fy·요약문 빈 쪽·전경 가운데,
   그룹웨어 홈 카드 단추 다섯(3322c94). 231~237: 부적합 칸 = 적합 견본 칸 틀·③ 탭 줄 고정·폰 가로 넘침(overflow-x clip)·사진과만 연동되는 체크(`items.photo_keys`)·기타 내용 칸·
   3.4.8 대장 변동사항 자동(`doc_facts.use_changes`·`blcm._doc_fill`)·장소별 견본·부적합 칸(`items.SAMPLE_PLACES`)·내진 철근 Fy = 외주 4.1 재료강도(`seismic_fill.vendor_fy`).
+  238: **시특법 결함 "동"(DB 0071 `sitok_defect.zone`)** — 시설물 1개 안 연결된 동마다 결함현황표(전회차 사진첩 간지 → `album_read.zone_of`, 열쇠 (동, 층, 번호),
+  사진첩 동 간지 `album_make._zone_page`, 현장 화면 🏢 동 칩, 묶음 건물은 그 동 부분만 `sitok_defects._zoned`).
 - **209~218차(10/30)**: 시특법 — 제출 현황 표 머리 고정(`sticky-head.js` data-sticky-list), **금회차 결함 가져오기·전회차와 둘 다**(`sitok_defects.put_album`·`_join` — 층·번호 + 부재/결함유형으로 한 결함,
   빈 회차 금회차 칸·머리줄 [금회차 결함 가져오기]·[전회차 PDF 붙이기]), 방문 달력 🔍 찾기(`GET /sitok/calendar/search`), 내진 목록 최신순·번호순.
   **건축물관리점검 우리프라자 시험 반영** — 견본(`server/blcm/samples.json` + 저장소 `_참고사진`, `server/scripts/make_blcm_samples.py`·`add_blcm_samples.py` — 제출 보고서 PDF 표 칸 단위·띄어쓰기 되살림),
