@@ -413,7 +413,7 @@ def doc_contract_for(db, reports: list):
 def contract_files(db, reports: list) -> tuple[list[dict], list[str]]:
     """e-보고서 "계약서 및 대가내역서" 폴더에 더할 대가내역서 — **계약 전체 대가내역서**(10/31 민재형 "실제 대가내역서를 제출하면 되는 거야": 계약 총액 안에 건물별 줄이 있는 서류).
     이 회차 계약과 이어진 서류 자동화 계약(보고서 쪽 계약으로 넣은 것, 없으면 같은 시설물 연결)의 폴더에서 ① 직접 올린 `대가내역서_직접.pdf`가 있으면 그것 ② 없으면 서류 자동화에서 만든 `대가내역서.pdf`
-    (없으면 한 번 만들어 둠 — 만들어 둔 것은 덮어쓰지 않음, 엑셀을 고쳐 쓰는 곳은 서류 자동화 계약 창). 10/26~10/30에는 회차 기준(동마다 결과표 점검금액)으로 새로 만들었음 → 폐기. → (파일들, 알림)."""
+    (없거나 계약을 그 뒤에 고쳤으면 다시 만듦 — 엑셀을 손으로 고친 것은 PDF로 저장해 [📤]로 올려야 씀). 10/26~10/30에는 회차 기준(동마다 결과표 점검금액)으로 새로 만들었음 → 폐기. → (파일들, 알림)."""
     from server.api.routers import sitok_docs as D
     from server.sitok import daega
 
@@ -424,7 +424,8 @@ def contract_files(db, reports: list) -> tuple[list[dict], list[str]]:
     own, auto = base / "대가내역서_직접.pdf", base / "대가내역서.pdf"
     if own.exists():
         return [{"folder": "계약서 및 대가내역서", "name": "대가내역서", "file": str(own)}], []
-    if not auto.exists():
+    stale = auto.exists() and c.updated_at is not None and datetime.datetime.fromtimestamp(auto.stat().st_mtime) < c.updated_at  # 계약(회차 줄·금액)을 그 뒤에 고쳤으면 다시 — 회차 줄을 고치면 FMS 대가내역서도 따라가게(10/31 민재형 "연동")
+    if not auto.exists() or stale:
         if not c.open_ended and not c.rounds and not c.amount:
             return [], ["대가내역서: 서류 자동화 계약에 회차(연도·반기·금액)나 계약금액을 넣고 [📑 대가내역서]를 만들거나, 실제 대가내역서 PDF를 [📤 고친 대가내역서 올리기]로 올리세요"]
         try:
