@@ -148,7 +148,9 @@ def scan(pdf: Path, hwpx: Path, limit: int = 12, skip: set[int] | None = None) -
             continue
         last_y0, _, last = lines[-1]
         nxt = pages[i + 1][0] if i + 1 < len(pages) else []
-        if HEAD.match(last) and len(last) <= 45 and last_y0 > _top() + span * 0.7 and len(lines) > 1 and nxt and _key(nxt[0][2]) not in starts:
+        # 제목이 쪽 맨 아래 30%에 있거나, 쪽 중간이어도 그 제목이 쪽의 마지막 줄이고 다음 쪽이 원본 쪽 나눔이 아닌 글로 시작(표·그림이 통째로 넘어가 제목만 남음 — 10/30 나라키움 부록 "나. 과업내용")
+        stranded = last_y0 > _top() + span * 0.7 or last_y0 > _top() + span * 0.1
+        if HEAD.match(last) and len(last) <= 45 and stranded and len(lines) > 1 and nxt and _key(nxt[0][2]) not in starts:
             out.append(f"{i + 1}쪽: 제목 '{last[:20]}'만 쪽 끝에 있음")
         if i > 0 and _key(lines[0][2]) not in starts and len(lines) <= 6 and bottom < _top() + span * 0.2:
             prev_lines, prev_bottom, prev_foot, _ = pages[i - 1]
