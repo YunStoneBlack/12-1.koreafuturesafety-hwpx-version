@@ -1764,7 +1764,8 @@ def engineer_rows(root, persons: list[tuple[str, str]]) -> int:
             continue
         _set_lines(row[1], [_spaced(name) if len(name) <= 4 else name])
         g = grade or "-"
-        _set_lines(row[-1], g.split(" ", 1) if len(g) > 10 and " " in g else [g])  # "안전관리 건축분야고급기술자" — 칸이 좁아 "기술/자"로 잘림 → 두 줄(형 10/15)
+        _set_lines(row[-1], [g])  # "안전관리 건축분야고급기술자" 한 줄 고정(10/30 사용자 "두 줄로 나오게 하지 말고 한 줄로") — 칸이 좁으면 아래에서 글자 크기를 칸에 맞게 줄임
+        _fit_one_line(row[-1])
         n += 1
     extra = rows[len(persons):]
     if extra:
@@ -1772,6 +1773,30 @@ def engineer_rows(root, persons: list[tuple[str, str]]) -> int:
         _del_rows(tbl, extra[0], len(extra))
         n += 1
     return n
+
+
+def _fit_one_line(tc) -> None:
+    """칸 글 한 줄이 칸 안쪽 폭보다 넓으면 글자 크기만 줄여(50 단위 내림) 한 줄에 — 결과표 기술등급 "안전관리 건축분야특급기술자"가 "기술/자"로 잘리거나 두 줄이 되던 것(10/15 형 → 10/30 한 줄 고정)."""
+    from server.sitok import layout_fix
+
+    b = getattr(_TL, "borders", None)
+    if b is None:
+        return
+    text = _cell_text(tc).strip()
+    w = int(tc.find(f"{{{HP}}}cellSz").get("width") or 0)
+    runs = [r for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc for r in q.findall(f"{{{HP}}}run") if r.find(T) is not None]
+    if not text or not w or not runs:
+        return
+    info = b.char_info(runs[0].get("charPrIDRef")) or {}
+    size = info.get("height") or 1000
+    fac = (info.get("ratio", 100) / 100) * (1 + info.get("spacing", 0) / 100)
+    inner = w - 566  # 칸 왼·오른 안쪽 여백(283씩)
+    need = layout_fix._em(text) * size * fac
+    if need <= inner * 0.97:
+        return
+    fit = int(size * inner * 0.97 / need) // 50 * 50
+    for r in runs:
+        r.set("charPrIDRef", b.char_height(r.get("charPrIDRef"), max(fit, 600)))
 
 
 def grade_word(grade: str) -> str:

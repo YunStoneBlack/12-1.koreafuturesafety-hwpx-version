@@ -1157,6 +1157,9 @@ def fill_front(doc: Hwpx, d: Data) -> None:
                     x.text = re.sub(r"『.*?』", f"『{d.name}에 대한 {d.year}년 {d.half} 정기안전점검』", x.text)
         elif re.fullmatch(r"\d{4}년\s+\d{2}월", t):
             rb._set_para(p, f"{d.year if not d.period_end else d.period_end.year}년  {d.month[6:8]}월")
+    from server.sitok import layout_fix
+    for sec in doc.sections:  # 제출문 "귀 시와 계약 체결한"(견본)→ 발주처에 맞게(10/30) — 교량 원본은 제출문 본문이 둘째 구역에 있음
+        layout_fix.apply_greeting(doc.roots[sec], d.owner_rep if d.owner_rep != "-" else d.owner)
     tl = _tbl(root, 4, 5)
     if tl is not None:
         cells = rb._cells(tl)

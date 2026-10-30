@@ -305,18 +305,25 @@ def greeting_particle(word: str) -> str:
 def submit_greeting(root) -> int:
     """제출문 본문 "귀 교와 계약 체결한 …" — 원본(학교 견본)의 "귀 교"가 발주처와 상관없이 남던 것을 발주처(제출문 "○○ 귀하" 수신자)에 맞춰 "귀 사와·귀 시와·귀 교와·귀 공단과 …"로
     (10/30 사용자 "귀교 아니고 귀사, 발주처에 따라 바꾸기" — 착수계·완수계 인사말과 같은 규칙: 학교면 교, 그 밖은 contract_docs.build.greeting_word). 바꿨으면 1."""
-    from server.contract_docs.build import greeting_word
-
     name = ""
     for p in root.iter(f"{{{HP}}}p"):
         t = _own_text(p).strip()
         if t.endswith("귀하") and 3 <= len(t) <= 60 and "제출" not in t:
             name = re.sub(r"[-\s]*$", "", re.sub(r"^-+", "", t[:-2])).strip()
             break
+    return apply_greeting(root, name) if name else 0
+
+
+def apply_greeting(root, name: str) -> int:
+    """제출문 본문 "귀 ○와/과 계약 체결한"을 name(발주처·건물 이름)에 맞게 — 옹벽·교량(wall_build)·건축물관리점검(blcm/front)도 같은 규칙(10/30 사용자 "여기도 다 바꾸래").
+    학교 → 교, 규칙에 없으면(민간 회사·교회·조합 …) "귀사"(착수계 인사말은 "기관"이지만 제출문은 사람이 읽는 글이라 "귀사"가 자연스러움). 바꿨으면 1."""
+    from server.contract_docs.build import greeting_word
+
+    name = (name or "").strip()
     if not name:
         return 0
     word = "교" if name.endswith("학교") else greeting_word(name)
-    if word == "기관":  # 규칙에 없는 발주처(민간 회사·교회·조합 …)는 "귀사"(착수계 인사말은 "기관" 그대로지만 제출문은 사람이 읽는 글이라 "귀사"가 자연스러움)
+    if word == "기관":
         word = "사"
     want = f"귀 {word}{greeting_particle(word)}"
     n = 0

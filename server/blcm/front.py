@@ -288,6 +288,8 @@ def fill(name: str, address: str, contract: dict | None, people: list[dict], pag
         s = "".join(t.itertext())
         new = re.sub(r"“[^”]*”", f"“{title}”", s, count=1)
         _set_t(t, new)
+        from server.sitok import layout_fix
+        layout_fix.apply_greeting(root, name)  # "귀 사와 계약 체결한" — 건물 이름에 맞게(학교 → 귀교, 시청 → 귀청, 그 밖은 귀사, 10/30)
         _drop_lineseg(body[0])
         # 본문 줄 수가 바뀌면 아래 빈 줄로 맞춤 — 날짜·회사·대표 줄이 그대로 있어야 도장(쪽에 고정)과 겹침이 원본처럼(10/29 시험: 긴 이름은 4줄)
         diff = -(-int(_em(new)) // BODY_EM) - -(-int(_em(s)) // BODY_EM)
