@@ -264,6 +264,8 @@ def _call_claude(
             }
         ],
     )
+    from core import ai_usage
+    ai_usage.log(response, company_id)
     return "".join(block.text for block in response.content if block.type == "text")
 
 
@@ -279,6 +281,8 @@ def _call_claude_text(
         system=WRITING_STYLE,  # 보고서 글 말투(10/28)
         messages=[{"role": "user", "content": prompt}],
     )
+    from core import ai_usage
+    ai_usage.log(response, company_id)
     return "".join(block.text for block in response.content if block.type == "text")
 
 

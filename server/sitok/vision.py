@@ -10,6 +10,7 @@ import re
 
 from PIL import Image, ImageOps
 
+from core import ai_usage
 from core.report_style import WRITING_STYLE, clean_text  # 보고서 글 말투(산안법 core/vision_analyzer도 같이 씀)
 
 
@@ -45,6 +46,7 @@ def ask(company_id: int, images: list[bytes], prompt: str, max_tokens: int = 800
     for attempt in range(2):
         with client.messages.stream(model=get_model_name(), max_tokens=limit, messages=[{"role": "user", "content": content}], **extra) as stream:
             resp = stream.get_final_message()
+        ai_usage.log(resp, company_id)  # 토큰 기록(10/30 민재형 "한 건당 얼마")
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
         if text or resp.stop_reason != "max_tokens":
             return clean_text(text) if writing else text

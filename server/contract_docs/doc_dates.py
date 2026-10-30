@@ -59,6 +59,8 @@ def _ask_ai(data: bytes, is_pdf: bool, jpeg: bytes, company_id: int) -> dict:
     client = Anthropic(api_key=config.get_api_key(company_id))
     res = client.messages.create(model=config.get_model_name(), max_tokens=200,
                                  messages=[{"role": "user", "content": [part, {"type": "text", "text": PROMPT}]}])
+    from core import ai_usage
+    ai_usage.log(res, company_id)
     raw = _parse_json_object("".join(b.text for b in res.content if b.type == "text"))
 
     def d(v):

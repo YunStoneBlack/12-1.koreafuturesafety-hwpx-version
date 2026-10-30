@@ -400,6 +400,8 @@ def read_page(company_id: int, path: Path, page: int) -> tuple[list[dict], dict]
     with client.messages.stream(model=get_model_name(), max_tokens=32000, messages=[{"role": "user", "content": content}],
                                 output_config={"effort": "medium"}) as stream:
         resp = stream.get_final_message()
+    from core import ai_usage
+    ai_usage.log(resp, company_id)
     answer = "".join(b.text for b in resp.content if b.type == "text").strip()
     m = re.search(r"\{.*\}", answer, re.S)
     raw = json.loads(m.group(0)) if m else {}
