@@ -59,24 +59,21 @@ def _cell(page, rect, text, size=6.5, bold=False, fill=None, max_lines=1):
         y += lh
 
 
-def empty_photo(page, rect, vals: dict, size: float = 8) -> bool:
+def empty_photo(page, rect, vals: dict, size: float = 9) -> bool:
     """사진이 없는 사진칸(10/30 민재형 "모든 결함표/사진첩에 규칙 적용") — 보수완료면 점선 X 대각선 + "보수완료", 비진행성이면 "전회차와 동일"(진행성·신규 등은 그대로 빈 칸).
-    그렸으면 True."""
+    두 글자는 같은 글꼴·굵기(보통)·크기·색(검정), 테두리 없음(10/30 사용자). 그렸으면 True."""
+    text = "보수완료" if vals.get("_rep") else "전회차와 동일" if vals.get("_same") else ""
+    if not text:
+        return False
+    f = pymupdf.Font(fontfile=FONT)
+    tw = f.text_length(text, fontsize=size)
+    cx, cy = rect.x0 + rect.width / 2, rect.y0 + rect.height / 2
     if vals.get("_rep"):
         for a, b in ((rect.tl, rect.br), (rect.tr, rect.bl)):
             page.draw_line(a, b, color=(0.45, 0.45, 0.45), width=0.6, dashes="[4 3] 0")
-        f = pymupdf.Font(fontfile=FONT_B)  # 테두리 없이 흰 바탕(선 위에 글이 읽히게) + 글자만
-        tw = f.text_length("보수완료", fontsize=size + 2)
-        cx, cy = rect.x0 + rect.width / 2, rect.y0 + rect.height / 2
-        page.draw_rect(pymupdf.Rect(cx - tw / 2 - 4, cy - (size + 2) * 0.8, cx + tw / 2 + 4, cy + (size + 2) * 0.8), color=None, fill=(1, 1, 1))
-        page.insert_text((cx - tw / 2, cy + (size + 2) * 0.35), "보수완료", fontname="mgb", fontsize=size + 2)
-        return True
-    if vals.get("_same"):
-        f = pymupdf.Font(fontfile=FONT)  # 테두리 없이 가운데 글자만
-        tw = f.text_length("전회차와 동일", fontsize=size + 2)
-        page.insert_text((rect.x0 + (rect.width - tw) / 2, rect.y0 + rect.height / 2 + (size + 2) * 0.35), "전회차와 동일", fontname="mg", fontsize=size + 2, color=(0.25, 0.25, 0.25))
-        return True
-    return False
+        page.draw_rect(pymupdf.Rect(cx - tw / 2 - 4, cy - size * 0.8, cx + tw / 2 + 4, cy + size * 0.8), color=None, fill=(1, 1, 1))  # 선 위에 글이 읽히게 흰 바탕
+    page.insert_text((cx - tw / 2, cy + size * 0.35), text, fontname="mg", fontsize=size, color=(0, 0, 0))
+    return True
 
 
 def _scale(cols, total):
