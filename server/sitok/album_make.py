@@ -59,6 +59,26 @@ def _cell(page, rect, text, size=6.5, bold=False, fill=None, max_lines=1):
         y += lh
 
 
+def empty_photo(page, rect, vals: dict, size: float = 8) -> bool:
+    """사진이 없는 사진칸(10/30 민재형 "모든 결함표/사진첩에 규칙 적용") — 보수완료면 점선 X 대각선 + "보수완료", 비진행성이면 "전회차와 동일"(진행성·신규 등은 그대로 빈 칸).
+    그렸으면 True."""
+    if vals.get("_rep"):
+        for a, b in ((rect.tl, rect.br), (rect.tr, rect.bl)):
+            page.draw_line(a, b, color=(0.45, 0.45, 0.45), width=0.6, dashes="[4 3] 0")
+        f = pymupdf.Font(fontfile=FONT_B)  # 테두리 없이 흰 바탕(선 위에 글이 읽히게) + 글자만
+        tw = f.text_length("보수완료", fontsize=size + 2)
+        cx, cy = rect.x0 + rect.width / 2, rect.y0 + rect.height / 2
+        page.draw_rect(pymupdf.Rect(cx - tw / 2 - 4, cy - (size + 2) * 0.8, cx + tw / 2 + 4, cy + (size + 2) * 0.8), color=None, fill=(1, 1, 1))
+        page.insert_text((cx - tw / 2, cy + (size + 2) * 0.35), "보수완료", fontname="mgb", fontsize=size + 2)
+        return True
+    if vals.get("_same"):
+        f = pymupdf.Font(fontfile=FONT)  # 테두리 없이 가운데 글자만
+        tw = f.text_length("전회차와 동일", fontsize=size + 2)
+        page.insert_text((rect.x0 + (rect.width - tw) / 2, rect.y0 + rect.height / 2 + (size + 2) * 0.35), "전회차와 동일", fontname="mg", fontsize=size + 2, color=(0.25, 0.25, 0.25))
+        return True
+    return False
+
+
 def _scale(cols, total):
     s = sum(w for _, w in cols)
     return [(n, w * total / s) for n, w in cols]
@@ -110,6 +130,8 @@ def photo_pages(doc, floor: str, rows: list[dict]) -> None:
             photo = vals.get("_photo")
             if photo and Path(photo).exists():
                 page.insert_image(img_rect + (1, 1, -1, -1), filename=str(photo), keep_proportion=True)
+            else:
+                empty_photo(page, img_rect, vals)  # 보수완료 X·"전회차와 동일"(10/30)
             yy = img_rect.y1 + 2
             x = x0
             for name, w in cols:
@@ -152,7 +174,7 @@ def compare_pages(doc, items: list[tuple[str, dict]]) -> None:
                 page.draw_rect(rect, color=(0.35, 0.35, 0.35), width=0.4)
                 if photo and Path(photo).exists():
                     page.insert_image(rect + (1, 1, -1, -1), filename=str(photo), keep_proportion=True)
-                else:
+                elif not (c and empty_photo(page, rect, v)):  # 금회 칸: 보수완료 X·"전회차와 동일"(10/30), 그 밖은 예전 글
                     _cell(page, rect, "이번 사진 없음" if c else "전회차 사진 없음", size=7)
             prev = v.get("_prev") or {}
             info = f"{floor} {v.get('번호')}번 · {v.get('구분')} · {v.get('부재')} · {v.get('결함유형')}"

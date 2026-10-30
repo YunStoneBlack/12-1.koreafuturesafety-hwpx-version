@@ -432,7 +432,10 @@ def album_floors(db: Session, report_id: int, zones: bool = False) -> list[tuple
             out.append((d.zone or "", d.floor, []))
         rows = out[-1][2]
         rep = d.check == "repaired" or d.mark == "보수"
-        rows.append({"번호": str(d.seq), "구분": d.part, "부재": d.member, "결함유형": "보수완료" if rep else kinds.type_with_depth(d.dtype, d.depth),  # 깊이 = "파손(D=0.9mm)"(10/22)
+        base = (d.dtype or "").strip()
+        rep_type = "보수완료" if base in ("", "-") or kinds.is_repaired_type(base) else f"{base}(보수완료)"  # 보수완료는 원래 결함유형 뒤에 붙임 "이격(보수완료)"(10/30 민재형)
+        rows.append({"번호": str(d.seq), "구분": d.part, "부재": d.member, "결함유형": rep_type if rep else kinds.type_with_depth(d.dtype, d.depth),  # 깊이 = "파손(D=0.9mm)"(10/22)
+                     "_rep": rep, "_same": (not rep) and (d.progress or "").startswith("비진행"),  # 사진 없을 때 사진칸 글(보수완료 X·"전회차와 동일")용 — album_make
                      "개수": "-" if rep else d.count, "폭": "-" if rep else d.width, "길이": "-" if rep else d.length,
                      "물량": "-" if rep else d.qty, "면적률": "-" if rep else d.area_ratio, "결함원인": "-" if rep else d.cause,
                      "진행유무": "-" if rep else d.progress, "비고": d.mark, "사진번호": f"사진{len(rows) + 1}",
