@@ -842,11 +842,14 @@
       const warn = st.cover === "check" && !st.cover_touched ? `<div class="sd-cover-warn">⚠ 건명·내역서로 맡는 건물을 못 정해 ${on.size === us.length ? "현장 전체" : "이 기간 다른 계약이 안 맡은 건물"}로 넣었습니다.
           맞으면 <button type="button" class="sd-cover-ok">✓ 맞음</button>, 아니면 아래 체크를 고치세요(내역서를 올리면 이름으로 다시 정함).</div>` : "";
       return `<div class="mail-label">이 계약의 시설물 <span class="mail-note">— 보고서가 따로 나오는 시설물마다 보고서 쪽 계약이 생깁니다. 둘 이상이면 시설물별 금액(보고서 표지·FMS)</span></div>
-        ${warn}<div class="sd-ufac">${us.map((u) => `<label class="uf-row"><input type="checkbox" class="uf-chk" value="${u.id}"${on.has(u.id) ? " checked" : ""} />
+        ${warn}<div class="sd-ufac${roundParts() ? " uf-over" : ""}"><div class="mail-note uf-over-note">아래 <b>계약 회차 · 금액</b>의 동별 금액이 결과표 점검금액에 먼저 쓰입니다 — 이 칸은 회차 줄에 그 반기 금액이 없을 때만 씁니다(회차 줄은 종류도 동마다 고를 수 있습니다).</div>${us.map((u) => `<label class="uf-row"><input type="checkbox" class="uf-chk" value="${u.id}"${on.has(u.id) ? " checked" : ""} />
             ${esc(u.name)}
             <span class="uf-amt-wrap">${on.has(u.id) && on.size > 1 ? `금 <input class="uf-amt sd-won" data-id="${u.id}" inputmode="numeric" value="${won((st.amounts || {})[u.id])}" placeholder="이 시설물 금액" /> 원` : ""}</span></label>`).join("")}
           ${on.size > 1 && total ? `<div class="mail-note${sum && sum !== total ? " uf-bad" : ""}">시설물별 금액 합 ${won(sum) || 0}원 / 계약금액 ${won(total)}원${sum && sum !== total ? " — 합이 계약금액과 다릅니다" : ""}</div>` : ""}</div>`;
     }
+
+    // 회차 줄에 동별 금액이 들어 있나(민간) — 있으면 결과표 점검금액은 그 반기 동별 금액이 우선이라 "이 계약의 시설물" 금액 칸은 보조(10/31 민재형)
+    const roundParts = () => st.sector === "민간" && (st.rounds || []).some((r) => (r.parts || []).some((p) => Number(p.amount) > 0));
 
     // clean = 서버에서 막 받은 상태(닫을 때 "고친 게 있나" 비교 기준) — 화면에서만 바꾼 뒤 다시 그릴 땐 기준을 안 바꿈
     function draw(clean) {
@@ -1038,6 +1041,7 @@
         const total = st.rounds.reduce((s, r) => s + (r.amount || 0), 0);
         box.querySelector(".sd-total").textContent = total ? `총 합 금 ${won(total)}원 (VAT포함)` : "";
         box.querySelectorAll(".sd-round").forEach((row, k) => { const el = row.querySelector(".r-sum"); if (el) el.textContent = `= ${won(st.rounds[k].amount) || 0}원`; });
+        box.querySelector(".sd-ufac")?.classList.toggle("uf-over", roundParts()); // 회차 줄 동별 금액이 생기면 시설물 금액 칸은 보조 표시(10/31)
       }));
       const multiBtn = box.querySelector(".sd-multi");
       if (multiBtn) multiBtn.addEventListener("click", () => { // 동별 금액 켜기 — 묶음 동 이름(없으면 시설물명·2동), 지금 금액은 첫 동에

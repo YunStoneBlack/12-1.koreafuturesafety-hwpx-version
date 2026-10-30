@@ -166,6 +166,9 @@
 .uf-amt-wrap { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
 .uf-amt-wrap input { width: 140px; margin: 0; }
 .uf-bad { color: var(--crit, #b42318); font-weight: 600; }
+.uf-over-note { display: none; }
+.sd-ufac.uf-over .uf-over-note { display: block; }
+.sd-ufac.uf-over .uf-amt-wrap { opacity: .5; } /* 회차 줄 동별 금액이 우선(결과표 점검금액) — 이 칸은 보조(10/31 민재형) */
 
 /* 서류 번호(10/15 밤) */
 .sd-dno { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 12px; font-weight: 700; }
