@@ -296,58 +296,6 @@ def grade_para_indent(root, keep) -> int:
     return n
 
 
-def _em_text(text: str) -> float:
-    """글 폭(글자 크기 배): 한글·한자·기호(○ㆍ등) 1, 숫자·영문·공백·: 0.5."""
-    return sum(1.0 if ord(ch) >= 0x2E80 or ch in "○●◎□■※" else 0.5 for ch in text)
-
-
-def focus_hang(root, keep, borders) -> int:
-    """결과표 "라. 참고사항" ○ 줄("○ 차기 정기점검 시 중점 점검부위 : 통계교육원 …")이 두 줄이 되면 둘째 줄을 콜론 뒤 첫 글자 아래로 — 내어쓰기 + 왼쪽 맞춤(양쪽 맞춤이면
-    첫 줄 글자 사이가 늘어나 위치가 어긋남) (10/30 사용자 "'통계교육원'의 통이랑 '중점 점검'의 중이랑 같은 위치"). 같은 칸의 ○ 줄 셋은 맨 앞 공백 한 칸을 문단 왼쪽 여백으로 옮겨(○ 자리는 그대로)
-    같이 맞춤 — 한글은 문단 여백 값이 **짝수**여야 적용하고(홀수는 무시 — 시험) 32700 정도가 한도. 값 단위 = 1/200pt(시험: 10000 → 50pt), 내어쓰기(음수 intent)는 첫 줄은 그대로·둘째 줄부터 오른쪽으로.
-    글 폭 = 글자 크기 × 장평 × 자간 어림(공백이 0.5em보다 조금 좁아 0.99배 보정). 고친 문단 수."""
-    if keep is None or borders is None:
-        return 0
-    hc = "{http://www.hancom.co.kr/hwpml/2011/core}"
-    hh = "{http://www.hancom.co.kr/hwpml/2011/head}"
-    n = 0
-    for tc in root.iter(f"{{{HP}}}tc"):
-        paras = [q for q in tc.iter(f"{{{HP}}}p") if next(q.iterancestors(f"{{{HP}}}tc"), None) is tc]
-        if not any(re.match(r"\s*○\s*[^:]*?중점\s*점검부위\s*:\s*\S", _own_text(q)) for q in paras):
-            continue
-        for p in paras:
-            full = _own_text(p)
-            if not re.match(r"\s+○", full):
-                continue
-            run = next((r for r in p.findall(f"{{{HP}}}run") if r.find(f"{{{HP}}}t") is not None), None)
-            info = borders.char_info(run.get("charPrIDRef")) if run is not None else None
-            if not info:
-                continue
-
-            def wid(txt):  # 글 폭 → 문단 여백 값(1/200pt)
-                return int(_em_text(txt) * info["height"] / 100 * info["ratio"] / 100 * (1 + info["spacing"] / 100) * 100 * 0.99) * 2  # 짝수만(한글이 홀수 값은 무시 — 시험)
-            lead = len(full) - len(full.lstrip())
-            m = re.match(r"\s*(○\s*[^:]*?중점\s*점검부위\s*:\s*)\S", full)
-            lead_w = wid(" " * lead)
-            hang_w = min(wid(m.group(1)), 32600) if m else 0
-            t0 = next(t for t in run.iter(f"{{{HP}}}t") if t.text)
-            t0.text = t0.text.lstrip()  # 앞 공백은 왼쪽 여백으로
-
-            def shape(pp, lead_w=lead_w, hang_w=hang_w):
-                al = pp.find(f"{hh}align")
-                if al is not None and hang_w:
-                    al.set("horizontal", "LEFT")
-                mg = pp.find(f"{hh}margin")
-                lf, it = mg.find(f"{hc}left"), mg.find(f"{hc}intent")
-                if lf is not None:
-                    lf.set("value", str(int(lf.get("value") or 0) + lead_w))
-                if it is not None and hang_w:
-                    it.set("value", str(-hang_w))
-            p.set("paraPrIDRef", keep.clone(p.get("paraPrIDRef"), f"focus_hang{lead_w}_{hang_w}", shape))
-            n += 1
-    return n
-
-
 def greeting_particle(word: str) -> str:
     """"귀 ○와/과" — ○ 끝 글자 받침이 있으면 과(공단·청·군·기관), 없으면 와(교·사·시·구·도·부대)."""
     last = (word or " ")[-1]

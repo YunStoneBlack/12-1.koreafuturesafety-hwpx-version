@@ -883,14 +883,34 @@ def _ai_front(root, ai: dict, template: str) -> int:
         reps = [x for x in ai["repairs"] if str(x).strip()]
         _set_lines(repair_cell, reps if reps else ["없음"]); n += 1  # noqa: E702
     if ai.get("next_focus"):
-        for tc in cells.values():
-            for q in tc.iter(f"{{{HP}}}p"):
-                t = "".join(_full(x) for x in q.iter(T))
-                if "중점 점검부위" in t and ":" in t:
-                    _set_para(q, t.split(":")[0].rstrip() + " : " + ai["next_focus"], in_table=True); n += 1  # noqa: E702
+        n += _set_focus(cells, ai["next_focus"])
     if ai.get("grade") and (5, 8) in cells:
         _set_lines(cells[(5, 8)], [grade_text_for(ai["grade"], template)[0]]); n += 1  # noqa: E702
     return n
+
+
+def _focus_value_cell(cells: dict, key: tuple):
+    """참고사항 "○ 차기 정기점검 시 중점 점검부위 :" 항목 칸(key)의 오른쪽 내용 칸 — 두 칸 양식이 아니면(한 칸에 다 든 예전 양식) None."""
+    r, c = key
+    right = [(cc, tc) for (rr, cc), tc in cells.items() if rr == r and cc > c and tc is not cells[key]]
+    return min(right, key=lambda x: x[0])[1] if right else None
+
+
+def _set_focus(cells: dict, text: str) -> int:
+    """참고사항 차기 점검 중점 부위 — 두 칸 양식(10/30 민재형)은 내용 칸에, 예전 한 칸 양식은 "○ … 중점 점검부위 : 내용" 문단에."""
+    for key, tc in cells.items():
+        if "중점점검부위" not in re.sub(r"\s", "", _cell_text(tc)):
+            continue
+        val = _focus_value_cell(cells, key)
+        if val is not None:
+            _set_lines(val, [text])
+            return 1
+        for q in tc.iter(f"{{{HP}}}p"):
+            t = "".join(_full(x) for x in q.iter(T))
+            if "중점 점검부위" in t and ":" in t:
+                _set_para(q, t.split(":")[0].rstrip() + " : " + text, in_table=True)
+                return 1
+    return 0
 
 
 def grade_text_for(letter: str, template: str) -> tuple[str, str]:
@@ -1539,8 +1559,13 @@ def read_texts(hwpx: Path) -> dict:
         for tc in cells.values():
             for q in tc.iter(f"{{{HP}}}p"):
                 t = "".join(_full(x) for x in q.iter(T))
-                if "중점 점검부위" in t and ":" in t:
-                    out["next_focus"] = t.split(":", 1)[1].strip()
+                if "중점 점검부위" in t and ":" in t and t.split(":", 1)[1].strip():
+                    out["next_focus"] = t.split(":", 1)[1].strip()  # 예전 한 칸 양식
+        for key, tc in cells.items():  # 두 칸 양식(10/30 민재형): 항목 칸 오른쪽 내용 칸
+            if "중점점검부위" in re.sub(r"\s", "", _cell_text(tc)):
+                val = _focus_value_cell(cells, key)
+                if val is not None and _cell_text(val).strip():
+                    out["next_focus"] = _cell_text(val).strip()
         out["grade"] = _letter(_value(cells, "안전등급"))
     for root in roots[1:]:
         tops = [p for p in root if p.tag == f"{{{HP}}}p"]
@@ -2609,7 +2634,6 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                         changed += layout_fix.toc_appendix(root)
                         changed += layout_fix.submit_date(root, new.report_month)
                         changed += layout_fix.submit_greeting(root)  # "귀 교와"(견본)→ 발주처에 맞게 귀 사와·귀 시와…(10/30)
-                        changed += layout_fix.focus_hang(root, keep, getattr(_TL, "borders", None))  # 참고사항 "○ 차기 … 중점 점검부위 : 통계…" 둘째 줄을 콜론 뒤 첫 글자 아래로(10/30)
                         changed += layout_fix.spine_name(root, new.name)  # 책등 괄호 안 = 시설물명(묶음은 merge가 "등 N개소")
                         for tbl in root.iter(f"{{{HP}}}tbl"):  # 정기 결과표 "점검 주요결과"가 길면 앞 쪽 몫 + (계속) 줄로(10/14)
                             c0 = _cells(tbl)
