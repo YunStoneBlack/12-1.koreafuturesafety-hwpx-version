@@ -98,10 +98,37 @@ def main() -> int:
         (our_para_parent if kind == "paraPr" else our_bf_parent).append(el)
         return nid
 
+    # 글자 모양: 고친 파일과 우리 원본의 같은 번호 정의가 다르면(정밀 원본 — 정기와 글꼴 번호가 다름) 옛 줄의 글자 모양으로(글꼴·크기가 원본 그대로)
+    up_char, our_char = _defs(up_h, "charPr"), _defs(our_h, "charPr")
+    sig = lambda el: re.sub(r'\sid="\d+"', "", etree.tostring(el, encoding="unicode")) if el is not None else None  # noqa: E731
+    used = {el.get("charPrIDRef") for tr in new_rows for el in tr.iter() if el.get("charPrIDRef") is not None}
+    old_char = next((el.get("charPrIDRef") for r in old for el in r.iter(f"{{{HP}}}run") if el.get("charPrIDRef") is not None), None)
+    char_map: dict[str, str] = {}  # 번호가 다르면: 우리 원본 옛 줄의 글꼴 정의를 복사해 크기·장평·자간만 고친 양식 값으로(정밀 원본은 글꼴 번호가 정기와 다르고 글자가 더 큼)
+    if old_char is not None:
+        char_parent = next(our_h.iter(f"{{{HH}}}charProperties"))
+        nid_char = max(int(x.get("id")) for x in char_parent) + 1
+        for i in sorted(used, key=int):
+            if sig(up_char.get(i)) == sig(our_char.get(i)):
+                continue
+            el = copy.deepcopy(our_char[old_char])
+            el.set("id", str(nid_char))
+            el.set("height", up_char[i].get("height"))
+            for tag in ("ratio", "spacing"):
+                a_el, b_el = el.find(f"{{{HH}}}{tag}"), up_char[i].find(f"{{{HH}}}{tag}")
+                if a_el is not None and b_el is not None:
+                    for k in a_el.attrib:
+                        a_el.set(k, b_el.get(k, a_el.get(k)))
+            char_parent.append(el)
+            char_map[i] = str(nid_char)
+            nid_char += 1
+        char_parent.set("itemCnt", str(len(char_parent)))
+
     ported = []
     for tr in new_rows:
         tr = copy.deepcopy(tr)
         for el in tr.iter():
+            if el.get("charPrIDRef") in char_map:
+                el.set("charPrIDRef", char_map[el.get("charPrIDRef")])
             if el.get("paraPrIDRef") is not None:
                 el.set("paraPrIDRef", port("paraPr", el.get("paraPrIDRef")))
             if el.get("borderFillIDRef") is not None and el.tag == f"{{{HP}}}tc":
