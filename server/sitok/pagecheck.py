@@ -152,7 +152,9 @@ def scan(pdf: Path, hwpx: Path, limit: int = 12, skip: set[int] | None = None) -
         stranded = last_y0 > _top() + span * 0.7 or last_y0 > _top() + span * 0.1
         # 다음 쪽이 원본 쪽 나눔으로 시작해도, 그 줄이 이 제목의 하위 제목(1.2 → 가. 위치도)이면 제목만 덩그러니 남은 것(10/30 나라키움 "1.2 대상시설물 현황")
         child = bool(nxt) and _key(nxt[0][2]) in starts and bool(PARENT_HEAD.match(last)) and bool(CHILD_HEAD.match(nxt[0][2]))
-        if HEAD.match(last) and len(last) <= 45 and stranded and len(lines) > 1 and nxt and (_key(nxt[0][2]) not in starts or child):
+        # 쪽에 그 제목 한 줄뿐(앞 쪽이 꽉 차 제목이 맨 위로 밀린 경우, 10/30 23시 나라키움)이어도 다음 쪽이 하위 제목이면 합침
+        alone = len(lines) == 1 and bool(nxt) and bool(PARENT_HEAD.match(last)) and bool(CHILD_HEAD.match(nxt[0][2]))
+        if HEAD.match(last) and len(last) <= 45 and (stranded or alone) and (len(lines) > 1 or alone) and nxt and (_key(nxt[0][2]) not in starts or child or alone):
             out.append(f"{i + 1}쪽: 제목 '{last[:20]}'만 쪽 끝에 있음")
         if i > 0 and _key(lines[0][2]) not in starts and len(lines) <= 6 and bottom < _top() + span * 0.2:
             prev_lines, prev_bottom, prev_foot, _ = pages[i - 1]
