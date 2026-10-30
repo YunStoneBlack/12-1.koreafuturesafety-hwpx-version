@@ -131,6 +131,8 @@ def _ymd(d: datetime.date | None) -> str:
     return f"{d:%Y.%m.%d}" if d else "-"
 
 
+HOUSE = r"아파트|연립|다세대|다가구|단독주택|공동주택"  # 주택법 주택(분양법 적용 제외)
+SALE_OUT = r"지식산업센터|관광숙박|노인복지|노인요양|양로"  # 분양법 제3조 제2항 적용 제외(주택 말고)
 CRIME_USES = r"오피스텔|다중생활시설|고시원|문화\s*및\s*집회|교육연구|노유자|수련|일용품|소매점|편의점|아파트|다가구|다세대|연립"
 
 
@@ -369,11 +371,21 @@ def evaluate(code: str, x: Bldg, facts: dict) -> dict:  # noqa: C901 — 항목�
         big = x.area_of(r"문화\s*및\s*집회|종교|판매|운수|종합병원|관광숙박")
         if x.above >= 16 or big >= 5000:
             return APPLY("다중이용 건축물")
+        # 분양 건축물(분양법 제3조·시행령 제2조) — 사용승인 전 분양 여부·분양 부분 면적은 대장에 없어 짐작(민재형 10/30 "짐작으로 두고, 평가 뒤 문제 되면 수정"),
+        # 적용 제외(제3조 제2항 — 주택법 주택·지식산업센터·관광숙박·노인복지시설)는 법대로 뺌
         rooms = x.hh.get("호", 0)
-        if x.has(r"오피스텔|생활숙박") and (rooms >= 30 or not rooms):
-            return APPLY("분양 건축물 용도(오피스텔·생활숙박시설)")
-        if rooms >= 2 and (x.total or 0) >= 3000:
-            return APPLY("분양 건축물(집합건축물·연면적 3천㎡ 이상)")
+        if not x.main_has(SALE_OUT):
+            if x.has(r"오피스텔") and (rooms >= 30 or not rooms):
+                return APPLY("분양 건축물 용도(오피스텔 30실 이상)")
+            lodge = x.area_of(r"생활숙박")
+            if x.has(r"생활숙박") and (rooms >= 30 or not rooms or (x.total and lodge * 3 >= x.total)):
+                return APPLY("분양 건축물 용도(생활숙박시설 30실 이상·영업장 연면적 1/3 이상)")
+            if x.has(HOUSE):
+                other = sum(float(y.get("area") or 0) for y in x.floors if y.get("use") and not re.search(HOUSE, str(y.get("use"))))
+                if other >= 3000:
+                    return APPLY("분양 건축물(주택과 함께 지은 건축물 — 주택 외 용도 3천㎡ 이상)")
+            elif rooms >= 2 and (x.total or 0) >= 3000:
+                return APPLY("분양 건축물(집합건축물·연면적 3천㎡ 이상)")
         if x.has(r"휴게음식점|제과점"):
             return APPLY("휴게음식점·제과점 용도(칸막이로 가로 구획한 곳이 대상)")
         return R("na", "실내건축 대상 용도 아님",
