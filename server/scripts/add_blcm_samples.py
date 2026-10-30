@@ -29,6 +29,7 @@ R = {  # 보고서(드롭박스 폴더 안 상대 경로) → 견본 이름
     "bucheon": ("2025/한국미래안전/14. 2025년 부천종합운동장 건축물 정기점검 용역/보고서/건출물관리점검 보고서-부천시춘의동체육공원 체육관.pdf", "부천 춘의동체육공원 체육관"),
     "pyeongtaek": ("2025/한국미래안전/16.평택그랜드메디컬타워/보고서/그랜드메디컬타워 건축물관리점검 보고서.pdf", "평택 그랜드메디컬타워"),
     "lh": ("2026/1.한국미래안전/1.건축물관리점검/3.LH행복주택청년이룸 1단지/보고서/report (6).pdf", "LH행복주택 청년이룸 1단지"),
+    "sejong": ("2024/21.세종교육센터/보고서/보고서.pdf", "세종교육센터"),
 }
 # 우리 항목 → [(보고서, 그 보고서의 항목 번호, 현황사진 차례(0부터), 설명 바꾸기 또는 None)]
 PICKS = {
@@ -45,6 +46,7 @@ PICKS = {
     "3.4.9": [("jung", "3.4.9", 0, None), ("jung", "3.4.9", 1, None)],
     "3.5.3": [("pyeongtaek", "3.5.3", 0, "건물 전경(층수·높이 확인)")],  # 준초고층·초고층이 아닌 건물 — 피난안전구역 사진은 회사 보고서에 없음
     "3.5.8": [("jung", "3.5.8", 0, None), ("jung", "3.5.8", 1, None)],
+    "3.2.7": [("sejong", "3.2.7", 0, None), ("sejong", "3.2.7", 1, None)],  # 10/30 — 우리프라자 "방송설비"는 화재수신기(P형1급) 사진이라 바꿈
 }
 
 
@@ -68,7 +70,8 @@ def main() -> None:
     keep: dict[str, list] = {}
     for code in PICKS:
         keep[code] = [(p, (src_dir / p["file"]).read_bytes()) for p in (samples.get(code) or {}).get("photos") or []
-                      if p.get("caption") and M.re.search(r"도면|대장|확인원", p["caption"]) and (src_dir / p["file"]).exists()]
+                      if p.get("caption") and M.re.search(r"확인원", p["caption"]) and (src_dir / p["file"]).exists()]
+        # 10/30 — 우리프라자 "건축물 대장"(해당없음 근거)은 뺌: 적용대상 건물에선 쓸데없이 도면 칸·"도면 없음" 경고가 생김(해당없음 근거 캡처는 따로)
     # 2) 새 사진(다른 보고서) + 서류 그림 — 번호 1부터
     for code, picks in PICKS.items():
         cur = dict(samples.get(code) or {})

@@ -9,6 +9,8 @@
 - `POST /blcm/jobs/{id}/drawings`(file PDF·그림 — PDF는 쪽마다) · `DELETE …/drawings/{did}` · `GET …/drawings/{did}/img` · `POST …/drawings/register`(올린 건축물대장 쪽) —
   📐 도면·서류 그림 모음(files.drawings, 10/30 사용자 "도면 넣는 칸은 따로 빼서 한꺼번에 넣고 해당 위치로") · `PUT /blcm/jobs/{id}/items/{code}/slot/{n}` {drawing}
   — 그 항목 견본 도면 칸에 고른 그림(현황사진으로 복사, photos[].slot·drawing). 사진 올리기 slot = 견본 칸(같은 칸 사진은 바꿈), 개수 제한 없음.
+- `GET  /blcm/jobs/{id}/plan` · `PUT …/facts` {facts} · `POST …/plan/na` {codes?} — 점검 목록(server/blcm/applicability.py — 법령상 적용대상 판정, 회사 결정 = 추천안):
+  반드시 찍을 사진 / 있으면 찍을 사진 / 면담·서류로 확인 / 해당없음(사유) / 확인 필요, 현장·면담 답은 contract.facts, 해당없음 넣기 = 손대지 않은 항목에 na + 비고 사유(10/30)
 - `GET  /blcm/samples/{file}` — 견본 참고 사진(우리프라자 보고서 현황사진, server/blcm/samples.json·저장소 _건축물관리점검/_참고사진, 10/30)
 - `GET  /blcm/jobs/{id}/check` · `POST /blcm/jobs/{id}/done` {done} — 빠진 것(소항목마다 items.missing + 관리계획·그 밖의 항목·의견)·[✓ 점검 완료](contract.field_done, 10/30)
 - `POST /blcm/jobs/{id}/ai/rewrite` {label, current, note} — 글 한 칸 덧붙인 내용 반영해 다시 쓰기(app.js aiRewrite, 약 10원)
@@ -171,6 +173,87 @@ def create_job(name: str = Form(""), address: str = Form(""), ledger: UploadFile
         j.name = "이름 없는 건축물"
     db.commit()
     return _out(j) | {"read": {"text_ok": bool((read or {}).get("text_ok"))} if read is not None else None}
+
+
+def _floors(j: BlcmJob) -> list:
+    """층별 개요 — 저장된 것보다 올린 대장을 칸 차례로 다시 읽은 것이 많으면 그것(10/30 — 두 단 표·두 줄 용도 칸을 놓치던 대장이 있음)."""
+    from server.sitok import seismic_docs as SD
+
+    stored = (j.building or {}).get("floors") or []
+    reg = (j.files or {}).get("register")
+    f = folder(j) / reg["rel"] if reg else None
+    if f is not None and f.exists():
+        try:
+            cells = SD._floor_cells(f)
+        except Exception:  # noqa: BLE001 — 못 읽으면 저장된 것
+            cells = []
+        if len(cells) > len(stored):
+            return cells
+    return stored
+
+
+def _plan(j: BlcmJob) -> dict:
+    from server.blcm import applicability as AP
+
+    return AP.plan(j.building or {}, (j.contract or {}).get("facts") or {}, j.results or {}, _floors(j))
+
+
+@router.get("/jobs/{jid}/plan")
+def get_plan(jid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _plan(_require(db, user, jid))
+
+
+class FactsIn(BaseModel):
+    facts: dict
+
+
+@router.put("/jobs/{jid}/facts")
+def put_facts(jid: int, body: FactsIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """현장·면담·서류 답(있음/없음, 빈 글 = 지움) — 점검 목록을 다시 판정해 돌려줌."""
+    from server.blcm import applicability as AP
+
+    j = _require(db, user, jid)
+    c = dict(j.contract or {})
+    facts = dict(c.get("facts") or {})
+    for k, v in body.facts.items():
+        if k not in AP.FACTS:
+            continue
+        if v in ("있음", "없음"):
+            facts[k] = v
+        else:
+            facts.pop(k, None)
+    c["facts"] = facts
+    j.contract = c
+    _touch(j, user, "contract")
+    db.commit()
+    return _plan(j)
+
+
+class NaIn(BaseModel):
+    codes: list[str] | None = None
+
+
+@router.post("/jobs/{jid}/plan/na")
+def apply_na(jid: int, body: NaIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """법령상 해당없음 항목을 한꺼번에 해당없음으로 — 비고 = 사유(비어 있을 때만). 점검자가 판정·사진을 넣은 항목은 건드리지 않음."""
+    j = _require(db, user, jid)
+    p = _plan(j)
+    res = dict(j.results or {})
+    done = []
+    for code, v in p["items"].items():
+        if v["state"] != "na" or (body.codes is not None and code not in body.codes) or v["touched"]:
+            continue
+        r = dict(res.get(code) or {})
+        tx = dict(r.get("texts") or {})
+        if not (tx.get("rm") or "").strip():
+            tx["rm"] = v["reason"]
+        r.update(na=True, texts=tx)
+        res[code] = r
+        done.append(code)
+    j.results = res
+    _touch(j, user, "results")
+    db.commit()
+    return {**_out(j), "plan": _plan(j), "applied": done}
 
 
 @router.get("/jobs/{jid}")

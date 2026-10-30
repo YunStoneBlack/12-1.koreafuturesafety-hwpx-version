@@ -300,7 +300,7 @@
     const nPh = (r.photos || []).length;
     const miss = missOf(it.code);
     const pl = ((table.item_places || {})[it.code] || []).map((k) => ((table.places || []).find((x) => x[0] === k) || [k, k])[1]);
-    return `<summary class="bj-card-h"><span class="bj-code">${esc(it.code)}</span><b>${esc(it.name)}</b><span class="bj-mid">${esc(view === "place" ? it.big : it.mid)}</span>${chip(ev)}${miss.length ? `<span class="bj-miss" title="${esc(miss.join(" · "))}">⚠ ${esc(miss[0])}${miss.length > 1 ? ` 외 ${miss.length - 1}` : ""}</span>` : ""}${nPh ? `<span class="bj-nph">📷${nPh}</span>` : ""}${r.ai ? '<span class="bj-nph" title="AI로 채움">🤖</span>' : ""}${view === "place" && pl.length > 1 ? `<span class="bj-places" title="이 항목을 찍는 자리">${esc(pl.join("·"))}</span>` : ""}<span class="sk-fold-arrow">▾</span></summary>
+    return `<summary class="bj-card-h"><span class="bj-code">${esc(it.code)}</span><b>${esc(it.name)}</b><span class="bj-mid">${esc(view === "place" ? it.big : it.mid)}</span>${chip(ev)}${planChip(it.code)}${miss.length ? `<span class="bj-miss" title="${esc(miss.join(" · "))}">⚠ ${esc(miss[0])}${miss.length > 1 ? ` 외 ${miss.length - 1}` : ""}</span>` : ""}${nPh ? `<span class="bj-nph">📷${nPh}</span>` : ""}${r.ai ? '<span class="bj-nph" title="AI로 채움">🤖</span>' : ""}${view === "place" && pl.length > 1 ? `<span class="bj-places" title="이 항목을 찍는 자리">${esc(pl.join("·"))}</span>` : ""}<span class="sk-fold-arrow">▾</span></summary>
       <div class="bj-card-b">
         <label class="bj-na"><input type="checkbox" class="bj-na-in" ${r.na ? "checked" : ""} /> 이 항목 해당없음(적용 대상 아님 — 비고에 사유)</label>
         <div class="bj-judge"${r.na ? " hidden" : ""}>${judgeHtml(it, r, ev)}
@@ -344,6 +344,7 @@
     const done = job.done;
     refreshTabCounts();
     drawDone();
+    drawPlan();
     return done;
   }
 
@@ -784,6 +785,75 @@
     });
   }
 
+  // ---------- 📋 이 건물 점검 목록(10/30 사용자 "반드시 찍을 사진 / 해당없음이지만 현장에 있으면 찍을 사진 / 면담으로 반드시 확인할 것 — 현장마다, 항목 옆에 예시 사진") ----------
+  let plan = null;
+  async function loadPlan() {
+    try { plan = await api(`${P}/plan`); drawPlan(); drawItems(); } catch (err) { $("bj-plan-body").innerHTML = `<div class="mail-msg bad">${esc(err.message)}</div>`; }
+  }
+  const groupOf = (code) => (table.groups.find((g) => g.items.includes(code)) || {}).key;
+  function drawPlan() {
+    if (!plan) return;
+    const items = plan.items, c = plan.count;
+    const nm = (code) => (table.byCode[code] || {}).name || code;
+    const nPh = (code) => (((job.results || {})[code] || {}).photos || []).length;
+    const thumb = (code) => { const s = slotsOf(code).photo[0] || slotsOf(code).draw[0]; return s && s.file ? `<img class="bj-pl-th" loading="lazy" src="${sampleSrc(s.file)}" alt="" title="견본 — ${esc(s.caption || "")}" />` : '<span class="bj-pl-th"></span>'; };
+    const row = (code) => `<button type="button" class="bj-pl-row" data-code="${esc(code)}">${thumb(code)}<span class="bj-pl-t"><b>${esc(code)} ${esc(nm(code))}</b><small>${esc(items[code].why || "")}</small></span>
+      <span class="bj-pl-n ${nPh(code) ? "ok" : ""}">${nPh(code) ? `📷${nPh(code)}` : "아직"}</span></button>`;
+    const qOf = (key) => plan.questions.find((x) => x.key === key) || { key, answer: "", label: key, items: [] };
+    const qRow = (key, withItems) => { const q = qOf(key);
+      return `<div class="bj-pl-q"><span>${esc(q.label)}${withItems && q.items.length ? ` <small>· ${esc(q.items.join(", "))}</small>` : ""}</span>
+        <span class="bj-seg bj-fact" data-key="${esc(key)}">${["있음", "없음"].map((v) => `<button type="button" data-v="${v}" class="${q.answer === v ? "on" : ""}">${v}</button>`).join("")}</span></div>`; };
+    const codes = (cat) => Object.keys(items).filter((k) => items[k].cat === cat);
+    const must = codes("must");
+    const places = (table.places || []).filter(([k]) => k !== "doc").map(([k, lab]) => [lab, must.filter((code) => ((table.item_places || {})[code] || ["out"]).includes(k))]).filter(([, l]) => l.length);
+    const present = codes("present");
+    const talkQ = plan.questions.filter((q) => q.kind === "talk"), landQ = plan.questions.filter((q) => q.kind === "land");
+    const shown = new Set(present.flatMap((code) => items[code].asks));
+    const siteRest = plan.questions.filter((q) => q.kind === "site" && !shown.has(q.key) && q.items.length); // 면담 항목에 섞인 현장 질문
+    const na = codes("na"), naLeft = na.filter((k) => !items[k].marked_na && !items[k].touched), chk = codes("check");
+    const sum = [["must", `반드시 찍을 사진 ${c.must}`], ["present", `있으면 찍을 사진 ${c.present}`], ["talk", `면담·서류 ${c.talk + c.doc + c.land}`], ["na", `해당없음 ${c.na}`], ["check", `확인 필요 ${c.check}`]];
+    $("bj-plan-sub").textContent = "건축물대장·현장 답으로 법령상 적용대상을 가름 — 항목을 누르면 그 카드로";
+    $("bj-plan-body").innerHTML = `<div class="bj-pl-sum">${sum.filter(([k]) => k !== "check" || c.check).map(([k, t]) => `<span class="${k}">${esc(t)}</span>`).join("")}</div>
+      <div class="bj-pl-sec">① 반드시 찍을 사진 <small>장소별 — 왼쪽 그림은 견본</small></div>
+      ${places.map(([lab, l]) => `<div class="bj-pl-place">${esc(lab)} ${l.length}</div><div class="bj-pl-grid">${l.map(row).join("")}</div>`).join("") || '<div class="mail-note">없음</div>'}
+      ${present.length || siteRest.length ? `<div class="bj-pl-sec">② 있으면 찍을 사진 <small>법령상 의무는 아니지만 현장에 있으면 점검 — 있음/없음을 눌러 주세요</small></div>
+        <div class="bj-pl-grid">${present.map((code) => `<div>${row(code)}${items[code].asks.map((k) => qRow(k, false)).join("")}</div>`).join("")}</div>
+        ${siteRest.map((q) => qRow(q.key, true)).join("")}` : ""}
+      ${talkQ.length || codes("talk").length ? `<div class="bj-pl-sec">③ 면담으로 확인 <small>관리자에게 물어 답을 눌러 주세요</small></div>
+        ${codes("talk").map(row).join("")}${talkQ.map((q) => qRow(q.key, true)).join("")}
+        <div class="mail-note">점검·검사 이행(소방·저수조·승강기·전기·가스 등)은 [그 밖의 항목] 탭, 관리계획 수립 여부는 [관리계획] 탭</div>` : ""}
+      ${landQ.length || codes("doc").length ? `<div class="bj-pl-sec">④ 서류로 확인 <small>토지이용계획확인원(토지이음)·건축물대장</small></div>
+        ${codes("doc").map(row).join("")}${landQ.map((q) => qRow(q.key, true)).join("")}` : ""}
+      ${chk.length ? `<div class="bj-pl-sec">확인 필요 <small>대장 값이 모자라거나 기준일 경계</small></div><div class="bj-pl-grid">${chk.map(row).join("")}</div>` : ""}
+      <div class="bj-pl-sec">⑤ 해당없음 — 안 찍어도 됨 <small>${na.length}개${naLeft.length ? ` · 아직 안 넣은 것 ${naLeft.length}` : ""}</small>
+        ${naLeft.length ? `<button type="button" class="secondary btn-sm bj-pl-na-go">해당없음 ${naLeft.length}개 넣기(비고에 사유)</button>` : ""}</div>
+      <details class="bj-pl-na"><summary>사유 보기 ▾</summary><ul>${na.map((k) => `<li><b>${esc(k)} ${esc(nm(k))}</b>${items[k].marked_na ? " ✓" : ""} — ${esc(items[k].reason)}</li>`).join("")}</ul></details>`;
+    $("bj-plan-body").querySelectorAll(".bj-pl-row").forEach((b) => b.addEventListener("click", () => jumpTo({ code: b.dataset.code, tab: groupOf(b.dataset.code) })));
+    $("bj-plan-body").querySelectorAll(".bj-fact button").forEach((b) => b.addEventListener("click", async () => {
+      const key = b.closest(".bj-fact").dataset.key;
+      const v = b.classList.contains("on") ? "" : b.dataset.v; // 한 번 더 = 지움
+      try { plan = await api(`${P}/facts`, { method: "PUT", body: JSON.stringify({ facts: { [key]: v } }) }); drawPlan(); drawItems(); } catch (err) { showError(errorEl, err); }
+    }));
+    $("bj-plan-body").querySelector(".bj-pl-na-go")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      if (!confirm(`법령상 해당없음 ${naLeft.length}개를 해당없음으로 넣고 비고에 사유를 적을까요?\n(판정·사진을 넣은 항목은 건드리지 않습니다)`)) return;
+      btn.disabled = true;
+      try {
+        const out = await apiPost(`${P}/plan/na`, {});
+        plan = out.plan;
+        job = { ...job, ...out };
+        drawTop(); drawTabs(); drawItems(); drawDone(); drawPlan();
+      } catch (err) { showError(errorEl, err); btn.disabled = false; }
+    });
+  }
+  function planChip(code) { // 카드 머리 — 법령 판정(해당없음·현장 확인·확인 필요)
+    const p = plan && plan.items[code];
+    if (!p || p.state === "apply") return "";
+    const r = (job.results || {})[code] || {};
+    if (p.state === "na") return r.na ? "" : `<span class="bj-plchip na" title="${esc(p.reason)}">법령상 해당없음</span>`;
+    return `<span class="bj-plchip ${p.state === "ask" ? "ask" : "check"}" title="${esc(p.why)}">${p.state === "ask" ? "현장·면담 확인" : "확인 필요"}</span>`;
+  }
+
   // ---------- 📐 도면·서류 그림(10/30 사용자 "도면 넣는 칸은 따로 빼서 한꺼번에 넣고 해당 위치로") ----------
   const pool = () => ((job.files || {}).drawings || []);
   const drawSrc = (d) => `${BASE}/api${P}/drawings/${encodeURIComponent(d.id)}/img`;
@@ -907,6 +977,7 @@
       table = { ...t, byCode: Object.fromEntries(t.items.map((x) => [x.code, x])) };
       job = j;
       drawTop(); drawInfo(); drawTabs(); drawItems(); drawDone(); drawPool();
+      loadPlan();
       loadReport();
     } catch (err) { showError(errorEl, err); }
   }

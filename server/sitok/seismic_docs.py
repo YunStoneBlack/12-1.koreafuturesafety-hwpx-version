@@ -66,6 +66,33 @@ def read_contract(pdf: Path) -> dict:
 # ---------- 건축물대장 ----------
 # 구분 칸은 "주"·"부" 또는 "주1"·"부2"(동 번호 — 10/26 호원초 대장은 "주1 지1층 …", 5층 증축분만 "주")
 _FLOOR_ROW = re.compile(r"^(주|부)\d*\s+(지하?\d+층?|지\d+|\d+층|옥탑\d*층?|지상\d+층)\s+(\S*구조)\s+(\S+)\s+([\d,]+(?:\.\d+)?)(?=\s|$)")
+_KIND_TOK = re.compile(r"^(주|부)\d*$")
+_FLOOR_TOK = re.compile(r"^(지하?\d+층?|지\d+|\d+층|옥탑\d*층?|지상\d+층|옥\d+)$")
+_NUM_TOK = re.compile(r"^[\d,]+(?:\.\d+)?$")
+
+
+def _floor_cells(pdf: Path) -> list[dict]:
+    """층별 표를 PDF 칸 차례로(구분 → 층 → 구조 → 용도(여러 줄) → 면적) — 표가 좌우 두 단이고 용도 칸이 두 줄로 꺾이면 줄 단위 _FLOOR_ROW가 놓침
+    (10/30 우리프라자 8개 층 중 2개만 읽던 것 — 6층 종교시설(교회)을 몰라 옥상광장 판정이 틀어짐)."""
+    import pymupdf
+
+    out = []
+    with pymupdf.open(pdf) as d:
+        for page in d:
+            toks = [x.strip() for x in page.get_text().split("\n") if x.strip()]
+            i = 0
+            while i < len(toks) - 3:
+                if _KIND_TOK.match(toks[i]) and _FLOOR_TOK.match(toks[i + 1]) and toks[i + 2].endswith("구조"):
+                    j, use = i + 3, []
+                    while j < len(toks) and not _NUM_TOK.match(toks[j]) and len(use) < 4:
+                        use.append(toks[j])
+                        j += 1
+                    if j < len(toks) and _NUM_TOK.match(toks[j]):
+                        out.append({"kind": toks[i][0], "floor": toks[i + 1], "structure": toks[i + 2], "use": "".join(use), "area": _num(toks[j])})
+                        i = j + 1
+                        continue
+                i += 1
+    return out
 
 
 def _addr(s: str) -> str:
@@ -123,6 +150,9 @@ def read_register(pdf: Path) -> dict:
         m = _FLOOR_ROW.match(ln)
         if m:
             out.setdefault("floors", []).append({"kind": m.group(1), "floor": m.group(2), "structure": m.group(3), "use": m.group(4), "area": _num(m.group(5))})
+    cells = _floor_cells(pdf)
+    if len(cells) > len(out.get("floors") or []):  # 칸 차례로 읽은 것이 더 많으면 그것으로(10/30)
+        out["floors"] = cells
     for key, label in (("permit_date", "허가일"), ("start_date", "착공일"), ("approval_date", "사용승인일")):
         i = t.find(label)
         d = _date(t[i:i + 400]) if i >= 0 else None
