@@ -98,9 +98,19 @@ def progress(j: BlcmJob) -> dict:
     return {"done": done, "total": len(ev), "bad": bad, "photos": photos}
 
 
-def _ev(it: dict, r: dict | None) -> dict:
-    """판정 + 빠진 것(miss, 10/30) — 화면 카드 머리 ⚠·[✓ 점검 완료]."""
-    return {**I.evaluate(it, r), "miss": I.missing(it, r)}
+def _ev(it: dict, r: dict | None, use: str = "") -> dict:
+    """판정 + 빠진 것(miss, 10/30) — 화면 카드 머리 ⚠·[✓ 점검 완료] + 잠금(locks — 개수·숫자로 정해지는 판정·설계도서 적합여부, items.ui_locks)."""
+    return {**I.evaluate(it, r), "miss": I.missing(it, r), "locks": I.ui_locks(it, r, use)}
+
+
+def _use(j: BlcmJob) -> str:
+    """주용도(3.5.6 반자높이 — 집회·종교·장례·위락은 다른 기준이라 손으로)."""
+    return str((j.building or {}).get("use") or "")
+
+
+def _norm(j: BlcmJob, it: dict, r: dict, prev: dict | None = None, photos: bool = False) -> dict:
+    """저장 전 정리(10/30) — 사진 → 판정(photos면) 뒤 하나만 고르는 줄·개수로 정해지는 판정·설계도서 적합여부(items.normalize)."""
+    return I.normalize(it, I.apply_photos(it, r) if photos else r, prev, _use(j))
 
 
 def _list_out(j: BlcmJob) -> dict:
@@ -110,9 +120,10 @@ def _list_out(j: BlcmJob) -> dict:
 
 
 def _out(j: BlcmJob) -> dict:
-    res = j.results or {}
+    by = I.by_code()
+    res = {c: (I.normalize(by[c], r, use=_use(j)) if c in by and r else r) for c, r in (j.results or {}).items()}  # 예전 값도 규칙대로 보여 줌(고치면 그대로 저장)
     return {**_list_out(j), "building": j.building or {}, "owner": j.owner or {}, "contract": j.contract or {}, "opinion": j.opinion or {}, "memo": j.memo or "",
-            "files": j.files or {}, "results": res, "eval": {code: _ev(it, res.get(code)) for code, it in I.by_code().items()},
+            "files": j.files or {}, "results": res, "eval": {code: _ev(it, res.get(code), _use(j)) for code, it in I.by_code().items()},
             "field_done": (j.contract or {}).get("field_done"),  # [✓ 점검 완료](10/30)
             "recap": I.recap(res), "plan_grade": I.plan_grade((j.opinion or {}).get("plan")), "site": _site_out(j)}
 
@@ -455,11 +466,12 @@ def put_item(jid: int, code: str, body: ItemIn, user: User = Depends(get_current
     j = _require(db, user, jid)
     it = _item(code)
     res = dict(j.results or {})
-    res[code] = _clean_result(it, body, res.get(code) or {})
+    prev = res.get(code) or {}
+    res[code] = _norm(j, it, _clean_result(it, body, prev), prev)
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": res[code], "eval": _ev(it, res[code]), "progress": progress(j), "recap": I.recap(res)}
+    return {"result": res[code], "eval": _ev(it, res[code], _use(j)), "progress": progress(j), "recap": I.recap(res)}
 
 
 @router.post("/jobs/{jid}/items/{code}/photos")
@@ -491,12 +503,12 @@ def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = For
     if bt:  # 부적합 칸(10/30) — 지적 사진 + 그 유형, 설명이 비면 유형 이름
         p.update(kind="bad", bad={"key": bt["key"], "label": bt["label"]}, caption=caption.strip()[:60] or bt["label"][:60])
     r["photos"] = [*keep, p]
-    r = I.apply_photos(it, r)
+    r = _norm(j, it, r, res.get(code), photos=True)
     res[code] = r
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": r, "eval": _ev(it, r), "progress": progress(j)}
+    return {"result": r, "eval": _ev(it, r, _use(j)), "progress": progress(j)}
 
 
 class PhotoIn(BaseModel):
@@ -548,12 +560,12 @@ def patch_photo(jid: int, code: str, pid: str, body: PhotoIn, user: User = Depen
         return x
 
     r["photos"] = [upd(x) if x.get("id") == pid else x for x in r["photos"]]
-    r = I.apply_photos(it, r)
+    r = _norm(j, it, r, res.get(code), photos=True)
     res[code] = r
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": r, "eval": _ev(_item(code), r)}
+    return {"result": r, "eval": _ev(it, r, _use(j))}
 
 
 @router.delete("/jobs/{jid}/items/{code}/photos/{pid}")
@@ -562,12 +574,12 @@ def delete_photo(jid: int, code: str, pid: str, user: User = Depends(get_current
     res, r, p = _photo(j, code, pid)
     (folder(j) / p["rel"]).unlink(missing_ok=True)
     r["photos"] = [x for x in r["photos"] if x.get("id") != pid]
-    r = I.apply_photos(_item(code), r)
+    r = _norm(j, _item(code), r, res.get(code), photos=True)
     res[code] = r
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": r, "eval": _ev(_item(code), r), "progress": progress(j)}
+    return {"result": r, "eval": _ev(_item(code), r, _use(j)), "progress": progress(j)}
 
 
 @router.get("/jobs/{jid}/photo/{pid}")
@@ -634,7 +646,7 @@ def _drawings_out(j: BlcmJob) -> dict:
             if p.get("drawing"):
                 used.setdefault(p["drawing"], []).append(f"{code}")
     return {"drawings": [{**x, "used": used.get(x["id"], [])} for x in _drawings(j)], "results": j.results or {},
-            "eval": {code: _ev(it, (j.results or {}).get(code)) for code, it in I.by_code().items()}}
+            "eval": {code: _ev(it, (j.results or {}).get(code), _use(j)) for code, it in I.by_code().items()}}
 
 
 @router.post("/jobs/{jid}/drawings")
@@ -715,7 +727,7 @@ def set_slot(jid: int, code: str, n: int, body: SlotIn, user: User = Depends(get
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": r, "eval": _ev(it, r), "progress": progress(j)}
+    return {"result": r, "eval": _ev(it, r, _use(j)), "progress": progress(j)}
 
 
 @router.get("/samples/{name:path}")
@@ -852,11 +864,11 @@ def item_ai(jid: int, code: str, body: AiIn | None = None, user: User = Depends(
         got = A.ask(it, cur, j.building, A.photo_bytes(folder(j), cur.get("photos") or []), user.company_id, (body.extra if body else "")[:600])
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI 분석을 못 했습니다: {str(err).splitlines()[0][:150]}") from err
-    res[code] = A.merge(cur, got)
+    res[code] = _norm(j, it, A.merge(cur, got), cur)  # AI 판정도 점검현황 규칙대로(10/30)
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {"result": res[code], "eval": _ev(it, res[code]), "progress": progress(j), "ai": got, "recap": I.recap(res)}
+    return {"result": res[code], "eval": _ev(it, res[code], _use(j)), "progress": progress(j), "ai": got, "recap": I.recap(res)}
 
 
 class RewriteIn(BaseModel):

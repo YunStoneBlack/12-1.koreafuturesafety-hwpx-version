@@ -10,6 +10,7 @@
   texts: {ilglt 개선사항(위법), perf 성능개선사항, basis 개선방안에 대한 근거 및 관련법령 등, rm 비고}
   photos: [{id, rel, name, kind "good"|"bad", caption, slot(견본 칸), bad{key, label}(부적합 칸 — bad_types), drawing·is_draw(도면)}] · ai: {made_at, ok}
   auto: 사진으로 자동으로 넣은 값 {status: [키], ratings: {키: 값}} — apply_photos가 다시 계산할 때 그대로인 것만 바꿈(10/30)
+        + 규칙으로 넣은 값 {rules: [작은 점검 키], judge: 체크로 정한 부적합, design: 판정으로 채운 설계도서 적합여부}(normalize, 10/30)
 """
 from __future__ import annotations
 
@@ -95,6 +96,10 @@ def missing(it: dict, res: dict | None) -> list[str]:
     if ev["state"] == "empty":
         return ["판정 없음"]
     out = ["세부 판정 일부만"] if ev["state"] == "part" else []
+    rt = res.get("ratings") or {}
+    need = [k for k, rule in (AUTO_RULES.get(it["code"]) or {}).items() if not rt.get(k) and rule_allow(it, res, rule)[0] == []]
+    if need and not res.get("na"):
+        out.append(f"점검현황 고르기 — {_sub_name(it, need[0])[:16]}" + (f" 외 {len(need) - 1}" if len(need) > 1 else "") + "(고르면 판정 자동)")
     tx = res.get("texts") or {}
     if ev["state"] == "na":
         if not _has(tx, "rm"):
@@ -121,6 +126,16 @@ def missing(it: dict, res: dict | None) -> list[str]:
     return out
 
 
+def _sub_name(it: dict, key: str) -> str:
+    """작은 점검 키 "d0.s1" → 이름."""
+    m = re.fullmatch(r"d(\d+)(?:\.s(\d+))?", key)
+    try:
+        d = it["details"][int(m[1])]
+        return d["subs"][int(m[2])]["name"] if m[2] is not None else _short(d["name"])
+    except (TypeError, IndexError, KeyError):
+        return key
+
+
 def _sq(s: str) -> str:
     return re.sub(r"\s", "", s or "")
 
@@ -138,8 +153,9 @@ def by_code() -> dict[str, dict]:
 
 
 def public(it: dict) -> dict:
-    """화면용 — 원문(raw) 빼고."""
-    return {k: v for k, v in it.items() if k != "raw"}
+    """화면용 — 원문(raw) 빼고. radios = 하나만 고르는 점검현황 칸 묶음, rules = 점검현황으로 정해지는 작은 점검 {키: 종류}(10/30)."""
+    return {**{k: v for k, v in it.items() if k != "raw"}, "radios": RADIOS.get(it["code"]) or [],
+            "rules": {k: r["how"] for k, r in (AUTO_RULES.get(it["code"]) or {}).items()}}
 
 
 def groups() -> list[dict]:
@@ -206,6 +222,9 @@ def bad_types(it: dict) -> list[dict]:
         ln = change_line(it)
         if ln is not None:
             out = [{"key": f"st:l{ln}t{t}", "label": tok["v"], "fit": False} for t, tok in enumerate(it["status"][ln]) if tok["t"] == "check"]
+    elif any(r["how"] == "count" for r in (AUTO_RULES.get(it["code"]) or {}).values()):  # 범죄예방 세부기준·청문점검 — 체크 수가 판정(10/30)
+        out = [{"key": f"st:l{li}t{ti}", "label": re.sub(r"\s*\(가중치\s*\d+\)", "", tok["v"]), "fit": False}
+               for li, ln in enumerate(it.get("status") or []) for ti, tok in enumerate(ln) if tok["t"] == "check"]
     elif it["kind"] != "cert":
         names = [s["name"] for d in it["details"] for s in d.get("subs") or []]
         for i, d in enumerate(it["details"]):
@@ -220,47 +239,75 @@ def bad_types(it: dict) -> list[dict]:
 
 def apply_photos(it: dict, res: dict) -> dict:
     """사진 → 판정(10/30 사용자 "지적 사진을 넣어도 적합으로 표시됨 — 판단 근거를 모르겠음"): 부적합 칸 사진(photos[].bad.key)이 있으면
-    건수형은 그 변경 유형 체크(판정·건수를 점검자가 '적합'·0으로 두었으면 비움 → 체크 수로 부적합), 점수형은 그 작은 점검을 미흡(적합/부적합 칸이면 부적합)
+    체크 칸(st:)은 그 변경·부적합 유형 체크(건수형은 판정·건수를 점검자가 '적합'·0으로 두었으면 비움 → 체크 수로 부적합), 작은 점검 칸(rt:)은 미흡(적합/부적합 칸이면 부적합)
     — 점검자가 불량으로 올려 둔 것은 그대로. 현장 사진이 있는데 판정이 빈 작은 점검은 양호(적합).
-    전에 자동으로 넣은 값(auto)이 그대로면 지우고 다시 — 점검자가 바꾼 값은 남음."""
+    개수로 정해지는 작은 점검(AUTO_RULES pick, 10/30)은 판정 대신 점검현황 선택지를 올림 — 부적합 사진이면 "0개"·빈 것 → 둘째 선택지("1~2개"), 사진만 있고 비면 "0개".
+    숫자·체크 수로 정해지는 것(num·cycle·count)은 사진으로 안 정함(count는 체크가 없으면 양호). 전에 자동으로 넣은 값(auto)이 그대로면 지우고 다시 — 점검자가 바꾼 값은 남음."""
     r = dict(res or {})
     if r.get("na") or it["kind"] == "cert":
         return r
     photos = [p for p in r.get("photos") or [] if not p.get("is_draw") and not p.get("drawing") and not p.get("evidence")]
     bad_keys = {(p.get("bad") or {}).get("key") for p in photos if p.get("kind") == "bad"} - {None}
     prev = r.get("auto") or {}
+    st = dict(r.get("status") or {})
+    for k in prev.get("status") or []:
+        if st.get(k) is True:
+            st.pop(k)
+    rt = dict(r.get("ratings") or {})
+    for k, v in (prev.get("ratings") or {}).items():
+        if rt.get(k) == v:
+            rt.pop(k)
+    new_st: list[str] = []
+    new_rt: dict[str, str] = {}
+
+    def put(k: str) -> None:
+        if st.get(k) is not True:
+            st[k] = True
+            new_st.append(k)
+
+    for key in sorted(bad_keys):
+        if key.startswith("st:"):
+            put(key[3:])
     if it["kind"] == "count":
-        st = dict(r.get("status") or {})
-        for k in prev.get("status") or []:
-            if st.get(k) is True:
-                st.pop(k)
-        new = []
-        for key in sorted(bad_keys):
-            k = key[3:]
-            if key.startswith("st:") and st.get(k) is not True:
-                st[k] = True
-                new.append(k)
         if bad_keys:
             if r.get("judge") == "적합":
                 r["judge"] = ""
             if r.get("count") in (0, "0"):
                 r["count"] = None
-        r["status"], r["auto"] = st, {"status": new}
-        return r
-    rt = dict(r.get("ratings") or {})
-    for k, v in (prev.get("ratings") or {}).items():
-        if rt.get(k) == v:
-            rt.pop(k)
-    new = {}
-    for t in bad_types(it):
-        k, cur = t["key"][3:], rt.get(t["key"][3:])
-        if t["key"] in bad_keys:
-            want = "부적합" if t["fit"] else "미흡"
-            if cur in (None, "", "양호", "보통", "적합"):
-                rt[k] = new[k] = want
-        elif photos and not cur:
-            rt[k] = new[k] = "적합" if t["fit"] else "양호"
-    r["ratings"], r["auto"] = rt, {"ratings": new}
+    else:
+        rules = AUTO_RULES.get(it["code"]) or {}
+        subs = [t for t in bad_types(it) if t["key"].startswith("rt:")]
+        if not subs:  # 체크 칸만인 소항목(범죄예방 세부기준 등) — 작은 점검 키는 규칙에서
+            subs = [{"key": f"rt:{k}", "fit": False} for k in rules]
+        ruled = set(prev.get("rules") or [])  # 규칙이 넣은 판정은 점검현황을 다시 정할 때 빈 것으로 봄
+        for t in subs:
+            k, cur = t["key"][3:], rt.get(t["key"][3:])
+            rule = rules.get(k)
+            if rule and k in ruled and cur != "해당없음":
+                cur = None
+            if rule and rule["how"] == "pick":
+                keys = rule["keys"]
+                on = next((n for n, x in enumerate(keys) if st.get(x) is True), None)
+                if t["key"] in bad_keys and cur != "해당없음" and (on is None or on == 0):
+                    if on == 0:
+                        st.pop(keys[0])
+                    put(keys[1])
+                elif photos and on is None and not cur and re.match(r"^0", _label(it, keys[0])):
+                    put(keys[0])
+                continue
+            if rule:
+                if rule["how"] == "count" and photos and not cur and rule_count(it, {"status": st}) == 0:
+                    rt[k] = new_rt[k] = LADDER[0]
+                continue
+            if t["key"] in bad_keys:
+                want = "부적합" if t["fit"] else "미흡"
+                if cur in (None, "", "양호", "보통", "적합"):
+                    rt[k] = new_rt[k] = want
+            elif photos and not cur:
+                rt[k] = new_rt[k] = "적합" if t["fit"] else "양호"
+        r["ratings"] = rt
+    r["status"] = st
+    r["auto"] = {**prev, "status": new_st, "ratings": new_rt}
     return r
 
 
@@ -315,6 +362,239 @@ def evaluate(it: dict, res: dict | None) -> dict:
     state = "done" if any_set and all(x["judge"] for x in ds) else ("part" if any_set else "empty")
     return {"state": state, "judge": "", "details": ds, "score": round(tot, 2) if full else None, "full": full or None, "count": None,
             "summary": " · ".join(f"{x['judge']}" + (f" {x['score']:g}/{x['full']:g}점" if x.get("score") is not None else "") for x in ds if x["judge"])}
+
+
+# ---------- 개수·숫자로 정해지는 판정(10/30 사용자 "방화구획 0개면 양호 — 개수에 따라 양호·보통·미흡·불량으로 정해지는 것은 손으로 못 바꾸게,
+# 사이트도 기준에서 벗어나면 클릭 자체가 안 됨 — 세부항목 점검기준대로 자동으로 점수가 매겨져야 시스템에 올릴 때 오류가 안 남") ----------
+# 사이트(10/29 연습 때 저장한 상세 창 47개 칸·화면 코드, 핵심기술 50절): 세부항목 점검판단결과는 작은 점검 점수 합으로 자동(잠김), 건수형 판정·범죄예방 세부기준·
+# 이상징후 청문점검은 건수 고르기로 자동(잠김), 설계도서 적합여부는 판정과 맞는 쪽 + 도면없음만(fn_set_required4). 작은 점검은 사이트도 손으로 고르지만
+# 우리는 매뉴얼 점검기준이 개수·거리·숫자인 것을 점검현황에서 정함(사이트보다 한 단계 더 잠금 — 보고서 앞뒤가 맞게).
+LADDER = ("양호", "보통", "미흡", "불량")
+GOOD_J = ("적합", "양호", "보통", "인증", "재인증")  # 사이트 fn_set_required4 — 이 판정이 하나라도 있으면 설계도서 "적합"
+BAD_J = ("부적합", "미흡", "불량", "만료")  # → "부적합", "해당없음"이 있으면 → "해당없음", "도면없음"은 늘
+# 하나만 고르는 점검현황 칸(사이트 라디오 — 상세 창 47개 라벨로 맞춤, 10/30). 키 = l{줄}t{조각}
+RADIOS = {
+    "3.1.12": [["l3t0", "l3t1"]], "3.2.1": [["l3t1", "l3t5"], ["l4t1", "l4t5"]], "3.2.2": [["l1t1", "l1t2", "l1t3"]],
+    "3.2.3": [["l2t1", "l2t2", "l2t3"]], "3.2.4": [["l2t1", "l2t2", "l2t3"]], "3.2.6": [["l1t1", "l1t2", "l1t3"]], "3.2.7": [["l1t1", "l1t2", "l1t3"]],
+    "3.2.8": [["l1t1", "l1t2", "l1t3"]], "3.2.9": [["l1t1", "l1t2", "l1t3"]],
+    "3.3.1": [["l0t1", "l0t2", "l0t3", "l0t4"], ["l1t1", "l1t2", "l1t3", "l1t4"]],
+    "3.3.2": [["l1t1", "l1t2", "l1t3", "l1t4", "l1t5"], ["l3t1", "l3t2", "l3t3", "l3t4", "l3t5", "l3t6", "l3t7", "l3t8", "l4t0", "l4t1"],
+              ["l6t1", "l6t2", "l6t3", "l6t4", "l6t5"], ["l8t1", "l8t2", "l8t3", "l8t4"]],
+    "3.4.3": [["l0t1", "l0t2"]], "3.4.4": [["l1t1", "l1t2"], ["l2t1", "l2t2"]], "3.4.8": [["l3t1", "l3t2", "l3t3"], ["l5t1", "l5t2", "l5t3"], ["l8t1", "l8t2", "l8t3"]],
+    "3.4.9": [["l0t1", "l0t2"], ["l3t1", "l3t2", "l3t3"]],
+    "3.5.1": [["l0t1", "l0t2", "l0t3", "l0t4"], ["l1t1", "l1t2", "l1t3", "l1t4"], ["l2t1", "l2t2", "l2t3", "l2t4"], ["l4t1", "l4t2", "l4t3", "l4t4"],
+              ["l5t1", "l5t2", "l5t3", "l5t4"]],
+    "3.5.2": [["l1t0", "l1t1", "l1t2"], ["l4t0", "l4t1", "l4t2", "l4t3"], ["l5t1", "l5t2", "l5t3", "l5t4"]],
+    "3.5.3": [["l1t0", "l1t1", "l1t2"], ["l3t1", "l3t2", "l3t3"]],
+    "3.5.4": [["l3t0", "l3t1", "l3t2", "l3t3"], ["l6t0", "l6t1", "l6t2", "l6t3"], ["l8t0", "l8t1", "l8t2", "l8t3"], ["l11t0", "l11t1", "l11t2", "l11t3"]],
+    "3.5.5": [["l3t0", "l3t1"], ["l6t1", "l6t2"], ["l8t1", "l8t2"]], "3.5.6": [["l1t0", "l1t1", "l1t2", "l2t0"], ["l4t0", "l4t1", "l4t2", "l5t0"]],
+    "3.5.7": [["l0t1", "l0t2", "l0t3", "l0t4"]], "3.5.9": [["l1t0", "l1t1"], ["l3t0", "l3t1"], ["l5t0", "l5t1"], ["l7t0", "l7t1"]],
+    "3.5.10": [["l1t0", "l1t1", "l1t2", "l1t3"]],
+}
+_STEP_H = (("<=", 12, ("양호",)), ("<=", 20, ("보통",)))  # 급수압 2리터 급수시간(초) — 20초 넘으면 미흡·불량(성능 저하 정도로 고름)
+# 작은 점검 판정 규칙 {소항목: {작은 점검 키: 규칙}} — 매뉴얼 점검기준(25.02):
+#   pick  — 점검현황 선택지(keys) 차례대로 양호·보통·미흡·불량(0개·1~2개·3~4개·5개 이상, 10m 미만·10~30m·30~50m·50m 초과 …)
+#   count — 점검현황 체크 수(라벨 "가중치 N"이면 N씩) → bands[(최소, 최대)] 차례대로 양호·보통·미흡·불량(3.1.19 2건은 미흡·불량 둘 — 사이트도 "2건(미흡)·2건(불량)")
+#   num   — 빈칸 숫자 → steps[(">=" | "<=", 기준, 판정들)] 처음 맞는 것, 없으면 rest(판정이 둘이면 그 안에서 고름). manual = 이 주용도면 손으로(매뉴얼 다른 기준)
+#   cycle — 예/아니오 + 주기(개월): 예이고 주기 ≤ max면 ok, 아니오이거나 주기 > max면 ng
+AUTO_RULES = {
+    "3.1.16": {"d0.s0": {"how": "count", "bands": ((0, 3), (4, 7), (8, 11), (12, 99))}},
+    "3.1.17": {"d0.s0": {"how": "count", "bands": ((0, 1), (2, 3), (4, 5), (6, 99))}},
+    "3.1.18": {"d0.s0": {"how": "count", "bands": ((0, 0), (1, 2), (3, 3), (4, 99))}},
+    "3.1.19": {"d0.s0": {"how": "count", "bands": ((0, 0), (1, 1), (2, 2), (2, 99))}},
+    "3.1.20": {"d0.s0": {"how": "count", "bands": ((0, 0), (1, 1), (2, 2), (3, 99))}},
+    "3.2.1": {"d0.s0": {"how": "num", "key": "l0t1", "unit": "초", "steps": _STEP_H, "rest": ("미흡", "불량")},
+              "d0.s1": {"how": "num", "key": "l1t1", "unit": "초", "steps": _STEP_H, "rest": ("미흡", "불량")},
+              "d1.s0": {"how": "cycle", "yes": "l3t1", "no": "l3t5", "num": "l3t3", "max": 6, "ok": ("양호", "보통"), "ng": ("미흡", "불량")}},
+    "3.4.6": {"d0": {"how": "count", "bands": ((0, 0), (1, 1), (2, 2), (3, 99))}},
+    "3.5.1": {"d0.s0": {"how": "pick", "keys": ["l0t1", "l0t2", "l0t3", "l0t4"]}, "d0.s1": {"how": "pick", "keys": ["l1t1", "l1t2", "l1t3", "l1t4"]},
+              "d1.s1": {"how": "pick", "keys": ["l2t1", "l2t2", "l2t3", "l2t4"]},  # d1.s0 계단출입문 닫힘 상태 = 글 기준이라 손으로
+              "d2.s0": {"how": "pick", "keys": ["l4t1", "l4t2", "l4t3", "l4t4"]}, "d2.s1": {"how": "pick", "keys": ["l5t1", "l5t2", "l5t3", "l5t4"]}},
+    "3.5.2": {"d0.s2": {"how": "pick", "keys": ["l4t0", "l4t1", "l4t2", "l4t3"]}},  # 면적 유지·난간 = 글 기준
+    "3.5.4": {"d0.s0": {"how": "pick", "keys": ["l3t0", "l3t1", "l3t2", "l3t3"]}, "d0.s1": {"how": "pick", "keys": ["l6t0", "l6t1", "l6t2", "l6t3"]},
+              "d1.s0": {"how": "pick", "keys": ["l8t0", "l8t1", "l8t2", "l8t3"]}, "d1.s1": {"how": "pick", "keys": ["l11t0", "l11t1", "l11t2", "l11t3"]}},
+    "3.5.6": {"d0.s0": {"how": "pick", "keys": ["l1t0", "l1t1", "l1t2", "l2t0"]}, "d1.s0": {"how": "pick", "keys": ["l4t0", "l4t1", "l4t2", "l5t0"]},
+              "d2.s0": {"how": "num", "key": "l6t1", "unit": "m", "steps": ((">=", 2.4, ("양호",)), (">=", 2.1, ("보통",)), (">=", 2.0, ("미흡",))), "rest": ("불량",),
+                        "manual": r"문화\s*및\s*집회|종교|장례|위락"}},  # (2-1) 관람실·집회실 200㎡ 이상은 4.5m 기준·기계환기 — 손으로
+    "3.5.7": {"d0.s0": {"how": "pick", "keys": ["l0t1", "l0t2", "l0t3", "l0t4"]}},  # 내화피복재 탈락 0개·1~5개·6~10개·10개 초과
+    "3.5.10": {"d1.s0": {"how": "pick", "keys": ["l1t0", "l1t1", "l1t2", "l1t3"]}},  # 지하층 구획 = 글 기준
+}
+
+
+def _label(it: dict, key: str) -> str:
+    m = re.fullmatch(r"l(\d+)t(\d+)", key or "")
+    try:
+        return it["status"][int(m[1])][int(m[2])].get("v", "") if m else ""
+    except (IndexError, KeyError):
+        return ""
+
+
+def _num(v) -> float | None:
+    m = re.search(r"\d+(?:\.\d+)?", "" if v is True or v is None else str(v))
+    return float(m.group()) if m else None
+
+
+def rule_count(it: dict, res: dict) -> int:
+    """점검현황 체크 수 — 라벨에 "가중치 N"이면 N씩(이상징후 청문점검)."""
+    st = res.get("status") or {}
+    n = 0
+    for li, ln in enumerate(it.get("status") or []):
+        for ti, tok in enumerate(ln):
+            if tok["t"] == "check" and st.get(f"l{li}t{ti}") is True:
+                m = re.search(r"가중치\s*(\d+)", tok["v"])
+                n += int(m.group(1)) if m else 1
+    return n
+
+
+def _rule_keys(it: dict, rule: dict) -> list[str]:
+    """규칙이 보는 점검현황 칸."""
+    if rule["how"] == "count":
+        return [f"l{li}t{ti}" for li, ln in enumerate(it.get("status") or []) for ti, tok in enumerate(ln) if tok["t"] == "check"]
+    return list(rule.get("keys") or []) + [rule[k] for k in ("key", "yes", "no", "num") if rule.get(k)]
+
+
+def rule_allow(it: dict, res: dict, rule: dict, use: str = "") -> tuple[list[str] | None, str, bool]:
+    """규칙 하나 → (고를 수 있는 판정, 까닭, 점검현황에 값이 있는지). 판정이 []면 점검현황을 먼저, None이면 이 건물은 손으로."""
+    st = res.get("status") or {}
+    how = rule["how"]
+    if how == "pick":
+        i = next((n for n, k in enumerate(rule["keys"]) if st.get(k) is True), None)
+        if i is None:
+            return [], "점검현황에서 고르면 자동", False
+        return [LADDER[i]], f"점검현황 {_label(it, rule['keys'][i])}", True
+    if how == "count":
+        n = rule_count(it, res)
+        return [LADDER[k] for k, (lo, hi) in enumerate(rule["bands"]) if lo <= n <= hi], f"부적합 유형 {n}건", n > 0
+    if how == "num":
+        if rule.get("manual") and re.search(rule["manual"], use or ""):
+            return None, "", False
+        v = _num(st.get(rule["key"]))
+        if v is None:
+            return [], f"점검현황 숫자({rule.get('unit', '')})를 넣으면 자동", False
+        for op, lim, allow in rule["steps"]:
+            if (v >= lim - 1e-9) if op == ">=" else (v <= lim + 1e-9):
+                return list(allow), f"{v:g}{rule.get('unit', '')}", True
+        return list(rule["rest"]), f"{v:g}{rule.get('unit', '')}", True
+    if how == "cycle":
+        yes, no, v = st.get(rule["yes"]) is True, st.get(rule["no"]) is True, _num(st.get(rule["num"]))
+        if no:
+            return list(rule["ng"]), "정기청소 아니오", True
+        if yes:
+            if v is not None and v > rule["max"]:
+                return list(rule["ng"]), f"주기 {v:g}개월({rule['max']}개월 넘음)", True
+            return list(rule["ok"]), "정기청소 예" + (f" {v:g}개월" if v is not None else ""), True
+        return [], "점검현황 예·아니오를 고르면 자동", False
+    return None, "", False
+
+
+def _count_state(it: dict, r: dict) -> tuple[int, bool]:
+    """건수형 — (건수, 정해졌는지): 건수를 적었거나 변경 유형 체크가 있으면 정해짐."""
+    cnt = r.get("count")
+    if cnt not in (None, ""):
+        return int(cnt), True
+    n = checked_count(it, r)
+    return n, n > 0
+
+
+def design_allow(ev: dict) -> list[str]:
+    """설계도서 적합여부로 고를 수 있는 것 — 사이트 fn_set_required4와 같게(판정·세부 판정에 적합·양호·보통·인증·재인증 → 적합,
+    부적합·미흡·불량·만료 → 부적합, 해당없음 → 해당없음, 도면없음은 늘). 판정이 아직 없으면 도면없음만."""
+    js = [ev.get("judge")] + [d.get("judge") for d in ev.get("details") or []]
+    out = []
+    if any(j in GOOD_J for j in js):
+        out.append("적합")
+    if any(j in BAD_J for j in js):
+        out.append("부적합")
+    out.append("도면없음")
+    if "해당없음" in js:
+        out.append("해당없음")
+    return out
+
+
+def normalize(it: dict, res: dict | None, prev: dict | None = None, use: str = "") -> dict:
+    """저장할 때마다(화면·사진·AI) — ① 하나만 고르는 줄은 새로 고른 것만 ② 개수·숫자로 정해지는 작은 점검·건수형 판정을 점검현황대로
+    ③ 설계도서 적합여부를 판정과 맞게(사이트 규칙, 고를 수 있는 게 하나면 그것으로). 점검자가 넣은 해당없음은 그대로(그 뒤 점검현황을 새로 고르면 그 값),
+    점검현황이 비어 정할 수 없으면 있던 값은 둠(예전 건 — 개수 선택지 규칙은 판정에 맞는 선택지를 골라 줌). prev = 고치기 전 결과, use = 주용도(3.5.6 반자높이)."""
+    r = dict(res or {})
+    if r.get("na"):
+        return r
+    prev = prev or {}
+    st = dict(r.get("status") or {})
+    pst = prev.get("status") or {}
+    for grp in RADIOS.get(it["code"]) or []:
+        on = [k for k in grp if st.get(k) is True]
+        if len(on) > 1:
+            keep = ([k for k in on if pst.get(k) is not True] or on)[-1]
+            for k in on:
+                if k != keep:
+                    st.pop(k)
+    r["status"] = st
+    auto = dict(r.get("auto") or {})
+    if it["kind"] == "count":
+        n, known = _count_state(it, r)
+        j = r.get("judge") or ""
+        if j != "해당없음":
+            if known:
+                r["judge"] = "적합" if n == 0 else "부적합"
+                auto["judge"] = n > 0 and r.get("count") in (None, "")
+            elif j == "부적합" and auto.get("judge"):
+                r["judge"], auto["judge"] = "", False
+    elif it["kind"] == "score":
+        rt = dict(r.get("ratings") or {})
+        mine = set(auto.get("rules") or [])
+        for key, rule in (AUTO_RULES.get(it["code"]) or {}).items():
+            cur = rt.get(key)
+            keys = _rule_keys(it, rule)
+            if rule["how"] == "pick" and not any(st.get(k) is True for k in keys) and cur in LADDER[:len(rule["keys"])] and key not in mine:
+                st[rule["keys"][LADDER.index(cur)]] = True  # 점검현황 없이 판정만 있던 것(예전 건·AI) → 그 선택지
+            touched = bool(prev) and any(st.get(k) != pst.get(k) for k in keys)
+            if cur == "해당없음" and not touched:
+                if rule["how"] == "pick":
+                    for k in keys:
+                        st.pop(k, None)
+                mine.discard(key)
+                continue
+            allow, _, has = rule_allow(it, r, rule, use)
+            if allow is None:
+                mine.discard(key)
+                continue
+            if len(allow) == 1 and (has or cur):
+                rt[key] = allow[0]
+                mine.add(key)
+            elif (cur and cur not in allow) or (not has and key in mine):
+                rt.pop(key, None)
+                mine.discard(key)
+        r["ratings"] = rt
+        auto["rules"] = sorted(mine)
+    ev = evaluate(it, r)
+    allow = design_allow(ev)
+    one = [x for x in allow if x != "도면없음"]
+    cur = r.get("design") or ""
+    if cur != "도면없음":
+        if cur and cur not in allow:
+            r["design"], auto["design"] = (one[0], True) if len(one) == 1 else ("", False)
+        elif not cur and len(one) == 1:
+            r["design"], auto["design"] = one[0], True
+    else:
+        auto["design"] = False
+    r["auto"] = auto
+    return r
+
+
+def ui_locks(it: dict, res: dict | None, use: str = "") -> dict:
+    """화면 잠금(10/30) — {rt: {작은 점검 키: {allow, why}}, judge: 건수형 판정으로 고를 수 있는 것, design: 설계도서 적합여부로 고를 수 있는 것}.
+    해당없음은 화면에서 늘 고를 수 있음(사유는 비고에)."""
+    r = res or {}
+    out: dict = {"rt": {}, "judge": None, "design": design_allow(evaluate(it, r))}
+    if it["kind"] == "count":
+        n, known = _count_state(it, r)
+        out["judge"] = {"allow": ["부적합" if n else "적합"] if known else ["적합"],
+                        "why": f"{n}건" if known else "변경 유형이 없으면 적합 — 있으면 아래에서 체크(부적합 자동)"}
+    for key, rule in (AUTO_RULES.get(it["code"]) or {}).items():
+        allow, why, _ = rule_allow(it, r, rule, use)
+        if allow is not None:
+            out["rt"][key] = {"allow": allow, "why": why}
+    return out
 
 
 def status_text(it: dict, res: dict) -> str:

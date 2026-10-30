@@ -648,7 +648,15 @@ def main_pass(pg, cdp, run: Run, job: dict, save: bool) -> dict:
 
 def run_job(mode: str, job: dict, folder: Path, cred: tuple[str, str], out: Path, only: list[str] | None = None) -> dict:
     """한 번 돌리기 — 결과 dict(run 기록 + list/schemas). 예외는 기록에 담아 돌려줌(로그아웃까지)."""
+    import importlib
+
     from playwright.sync_api import sync_playwright
+
+    global I
+    I = importlib.reload(I)  # 항목표·판정 규칙(10/30)도 작업 프로그램을 다시 켜지 않고 새로 — 봇처럼 실행마다
+    use = str((job.get("building") or {}).get("use") or "")
+    by = I.by_code()
+    job = {**job, "results": {c: (I.normalize(by[c], r, use=use) if c in by and r else r) for c, r in (job.get("results") or {}).items()}}  # 개수로 정해지는 판정·설계도서(10/30)
 
     run = Run(out, mode)
     res: dict = {"mode": mode}

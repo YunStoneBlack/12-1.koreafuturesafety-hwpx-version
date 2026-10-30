@@ -374,3 +374,26 @@
   .main .bs-cands { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* 개수·숫자로 정해지는 판정 잠금(10/30 사용자 — 사이트도 기준을 벗어나면 클릭이 안 됨) */
+.main .bj-seg button:disabled { opacity: .35; cursor: not-allowed; text-decoration: line-through; text-decoration-color: rgba(0, 0, 0, .25); }
+.main .bj-lock { font-size: 12px; color: var(--muted); }
+.main .bj-sub.locked .bj-seg button.on { background: #4b6cb7; }
+.main .bj-rd input[type="radio"] { width: auto; margin: 0 2px 0 0; vertical-align: middle; accent-color: var(--blue); }  /* 공통 input 폭 100%를 끔(PC에서 글자가 세로로 깨짐) */
+.main .bj-rd { white-space: nowrap; }  /* 0개·1~2개 같은 짧은 선택지만 — 긴 체크 글(범죄예방 유형)은 줄 바꿈 */
+
+/* 📱 현장 모드(10/30 사용자 "모바일에서 전체 내용이 다 나와 보기 힘들고 사진 찍기 힘듦 — 현장에서는 사진 찍기·세부현황 파악만") */
+.main .bj-mode { margin: 0 0 0 auto; padding: 6px 12px; font-size: 13px; white-space: nowrap; }
+.bj-field #bj-info, .bj-field #bj-review, .bj-field #bj-site, .bj-field #bj-report, .bj-field .bj-recap, .bj-field .bj-top .bj-top-btns,
+.bj-field #bj-view-note, .bj-field .bj-judge > .bj-row, .bj-field .bj-judge > .bj-det, .bj-field .bj-ai, .bj-field .bj-texts, .bj-field .bj-ref { display: none !important; }
+.bj-field .main .bj-status { margin-top: 4px; }
+.bj-field .main .bj-sline { gap: 6px; }
+.bj-field .main .bj-ck { padding: 7px 10px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); font-size: 14px; }
+.bj-field .main .bj-ck:has(input:checked) { border-color: var(--blue); background: var(--blue-soft); font-weight: 600; }
+.bj-field .main .bj-ck input { width: 18px; height: 18px; margin: 0; }
+.bj-field .main .bj-blank { width: 110px; padding: 7px 8px; font-size: 15px; }
+.bj-field .main .bj-slot-shot, .bj-field .main .bj-bad-shot, .bj-field .main .bj-ph-add .bj-file-btn { min-height: 44px; font-size: 15px; }
+@media (max-width: 760px) {
+  .main .bj-top .panel-head { flex-wrap: wrap; }
+  .main .bj-mode { order: -1; margin: 0 0 6px auto; }
+}
+

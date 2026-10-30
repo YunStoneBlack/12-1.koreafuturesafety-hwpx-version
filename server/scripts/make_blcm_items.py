@@ -136,7 +136,13 @@ def parse(text: str) -> list[dict]:
                 names = []  # 선택지·◦ 줄 앞 글은 다음 세부항목 이름이 아님(3.5.4 둘째 이름에 앞 세부 글이 섞이던 것)
                 continue
             names.append(x)
-        status = [tokens(x) for x in s[b + 1:next((n for n in range(b + 1, len(s)) if re.match(r"^1\)", s[n]) or sq(s[n]) in ("점검세부항목", "세부항목", "세부항목점검기준")), len(s))]] if b is not None else []
+        st0 = b + 2 if b is not None and b + 1 < len(s) and re.match(r"^1\)\s*범죄예방", s[b + 1]) else (b + 1 if b is not None else 0)  # 3.1.16은 점검현황 첫 줄이 "1) 범죄예방세부기준 부적합 유형"(10/30 — 체크 14칸이 빠졌음)
+        status = [tokens(x) for x in s[b + 1:next((n for n in range(st0, len(s)) if re.match(r"^1\)", s[n]) or sq(s[n]) in ("점검세부항목", "세부항목", "세부항목점검기준")), len(s))]] if b is not None else []
+        for ln in status:  # "□ 단지 출입구 … - 출입구 수 :" → 체크 + 글 + 빈칸(사이트 text1 "출입구 수", 10/30)
+            for ti, tok in enumerate(ln):
+                cm = re.match(r"^(.+?)\s+-\s*(\S[^-]*?수)\s*:$", tok["v"]) if tok["t"] == "check" else None
+                if cm:
+                    ln[ti:ti + 1] = [{"t": "check", "v": cm[1].strip()}, {"t": "text", "v": f"- {cm[2]} :"}, {"t": "blank"}]
         crit = s[first:next((n for n in range(first or 0, len(s)) if sq(s[n]) == "개선방안에대한의견"), len(s))] if first is not None else []
         laws_i = next((n for n, x in enumerate(s) if sq(x).startswith("※관련법규")), None)
         advice, on = [], False

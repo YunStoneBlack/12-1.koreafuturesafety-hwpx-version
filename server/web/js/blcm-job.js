@@ -5,6 +5,8 @@
 // 카드 머리 ⚠ 빠진 것(서버 items.missing)·[✓ 점검 완료](빠진 것 목록 → 누르면 그 항목), 카드마다 📎 참고(우리프라자 보고서 사진·글, server/blcm/samples.json).
 // 10/30 재구성(사용자 "서류검토 → 해당없음 분류·이유, 그대로 현장 점검 세팅, 사진 칸 = 적합 견본 + 부적합 유형별 견본, 도면은 관리사무소에서 한꺼번에"):
 // ① 서류검토(법령 판정·질문·[서류검토 확정]) ② 관리사무소 — 도면(같은 도면은 한 줄, 쓰는 항목 모두에) ③ 현장 점검(해당없음은 맨 끝 탭, 부적합 칸에 찍으면 판정 자동 — 서버 items.apply_photos).
+// 10/30 사용자 "개수에 따라 정해지는 판정은 손으로 못 바꾸게(사이트도 기준을 벗어나면 클릭이 안 됨)": 서버 items.normalize·ui_locks — 잠긴 단추는 🔒 까닭,
+// 하나만 고르는 점검현황 줄은 라디오(다시 누르면 지움), 설계도서 적합여부는 판정과 맞는 쪽 + 도면없음만. 📱 현장 모드(폰 기본) = 점검현황·사진만(판정·글·AI·서류는 PC에서).
 (function () {
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -15,6 +17,17 @@
   const openCards = new Set();
   let tab = (() => { try { return localStorage.getItem("bj-tab") || ""; } catch (_) { return ""; } })();
   let view = (() => { try { return localStorage.getItem("bj-view") === "big" ? "big" : "place"; } catch (_) { return "place"; } })(); // 장소별(기본) / 항목 순서(10/30)
+  const narrow = () => window.matchMedia("(max-width: 760px)").matches;
+  let field = (() => { try { const v = localStorage.getItem("bj-field"); return v ? v === "1" : narrow(); } catch (_) { return narrow(); } })(); // 📱 현장 모드(10/30) — 폰은 처음부터
+  function setField(on, keep) {
+    field = on;
+    document.body.classList.toggle("bj-field", on);
+    const b = $("bj-mode");
+    if (b) { b.textContent = on ? "🖥 전체 보기" : "📱 현장 모드"; b.title = on ? "판정·글·AI·서류까지 모두 보기(PC 화면)" : "현장에서 — 점검현황 고르기·사진 찍기만"; }
+    if (keep) { try { localStorage.setItem("bj-field", on ? "1" : "0"); } catch (_) { /* 저장 못 해도 이번엔 바뀜 */ } }
+  }
+  setField(field, false);
+  $("bj-mode")?.addEventListener("click", () => { setField(!field, true); window.scrollTo(0, 0); });
   const RATING = ["양호", "보통", "미흡", "불량", "해당없음"], FIT = ["적합", "부적합", "해당없음"], CERT = ["인증", "재인증", "만료", "해당없음"];
   const CMP = ["개선필요", "해당없음"], DESIGN = ["적합", "부적합", "도면없음", "해당없음"];
   const TEXTS = [["ilglt", "개선사항(위법)"], ["perf", "성능개선사항"], ["basis", "개선방안에 대한 근거 및 관련법령 등"], ["rm", "비고"]];
@@ -241,12 +254,18 @@
 
   const BAD = ["미흡", "불량", "부적합"];
   const isBadEval = (e) => !!e && (e.judge === "부적합" || (e.details || []).some((d) => BAD.includes(d.judge))); // 지적 사진 쪽(끌어 놓기·견본 칸 📷)
-  const seg = (name, opts, cur) => `<span class="bj-seg" data-name="${esc(name)}">${opts.map((o) => `<button type="button" data-v="${esc(o)}" class="${o === cur ? "on" : ""}">${esc(o)}</button>`).join("")}</span>`;
+  // allow = 고를 수 있는 것(서버 ui_locks — 없으면 다), always = 늘 고를 수 있는 것(해당없음), 지금 켜진 것은 끌 수 있게 둠
+  const seg = (name, opts, cur, allow, always = []) => `<span class="bj-seg" data-name="${esc(name)}">${opts.map((o) => {
+    const off = allow && !allow.includes(o) && !always.includes(o) && o !== cur;
+    return `<button type="button" data-v="${esc(o)}" class="${o === cur ? "on" : ""}"${off ? " disabled" : ""}>${esc(o)}</button>`;
+  }).join("")}</span>`;
+  const lockNote = (lk) => lk ? `<small class="bj-lock" title="매뉴얼 점검기준대로 점검현황에서 정해짐 — 사이트도 기준을 벗어나면 고를 수 없음">🔒 ${esc(lk.why)}</small>` : "";
 
   function judgeHtml(it, r, ev) {
+    const L = (ev && ev.locks) || { rt: {} };
     if (it.kind === "count") {
       const cnt = ev && ev.count != null ? ev.count : "";
-      return `<div class="bj-row"><span class="bj-lab">점검 판단결과</span>${seg("judge", FIT, r.judge || (ev && ev.judge) || "")}
+      return `<div class="bj-row"><span class="bj-lab">점검 판단결과</span>${seg("judge", FIT, r.judge || (ev && ev.judge) || "", L.judge && L.judge.allow, ["해당없음"])}${lockNote(L.judge)}
         <span class="bj-cnt">건수 <input class="bj-count" type="number" min="0" max="99" value="${esc(r.count ?? "")}" placeholder="${esc(cnt)}" title="비우면 아래 변경 유형 체크 수" />건</span></div>`;
     }
     if (it.kind === "cert") {
@@ -257,8 +276,9 @@
     return it.details.map((d, i) => {
       const dv = (ev && ev.details && ev.details[i]) || {};
       const opts = d.judge === "fit" ? FIT : RATING;
-      const subs = (d.subs || []).length ? d.subs.map((s, k) => `<div class="bj-sub"><span class="bj-lab">${esc(s.name)} <small>배점 ${s.points}점</small></span>${seg(`rt:d${i}.s${k}`, s.judge === "fit" ? FIT : RATING, rt[`d${i}.s${k}`] || "")}</div>`).join("")
-        : `<div class="bj-sub"><span class="bj-lab">판정 <small>배점 ${d.points}점</small></span>${seg(`rt:d${i}`, opts, rt[`d${i}`] || "")}</div>`;
+      const one = (key, lab, pts, o) => { const lk = L.rt[key]; return `<div class="bj-sub${lk ? " locked" : ""}"><span class="bj-lab">${esc(lab)} <small>배점 ${pts}점</small></span>${seg(`rt:${key}`, o, rt[key] || "", lk && lk.allow, ["해당없음"])}${lockNote(lk)}</div>`; };
+      const subs = (d.subs || []).length ? d.subs.map((s, k) => one(`d${i}.s${k}`, s.name, s.points, s.judge === "fit" ? FIT : RATING)).join("")
+        : one(`d${i}`, "판정", d.points, opts);
       return `<div class="bj-det"><div class="bj-det-h"><b>${esc(d.name)}</b> <small>(${d.points ?? ""}점)</small>${dv.judge ? ` <span class="bj-chip ${BAD.includes(dv.judge) ? "bad" : dv.judge === "보통" ? "mid" : dv.judge === "해당없음" ? "na" : "ok"}">${esc(dv.judge)}${dv.score != null ? ` ${dv.score}/${dv.full}점` : ""}</span>` : ""}</div>${subs}</div>`;
     }).join("");
   }
@@ -266,8 +286,12 @@
   function statusHtml(it, r) {
     const st = r.status || {};
     if (!(it.status || []).length) return "";
-    return `<div class="bj-status"><div class="bj-lab">세부항목 점검현황</div>${it.status.map((ln, li) => `<div class="bj-sline">${ln.map((t, ti) => {
+    const grp = {}; // 하나만 고르는 칸(사이트 라디오, 10/30) → 묶음 번호
+    (it.radios || []).forEach((g, gi) => g.forEach((k) => { grp[k] = gi; }));
+    const ruled = Object.keys(it.rules || {}).length;
+    return `<div class="bj-status"><div class="bj-lab">세부항목 점검현황${ruled ? ' <small>— 개수·거리·숫자를 고르면 판정이 자동(🔒)</small>' : ""}</div>${it.status.map((ln, li) => `<div class="bj-sline">${ln.map((t, ti) => {
       const key = `l${li}t${ti}`;
+      if (t.t === "check" && grp[key] != null) return `<label class="bj-ck bj-rd"><input type="radio" name="st-${esc(it.code)}-${grp[key]}" data-st="${key}" ${st[key] === true ? "checked" : ""} /> ${esc(t.v)}</label>`;
       if (t.t === "check") return `<label class="bj-ck"><input type="checkbox" data-st="${key}" ${st[key] === true ? "checked" : ""} /> ${esc(t.v)}</label>`;
       if (t.t === "blank") return `<input class="bj-blank" data-st="${key}" value="${esc(st[key] === true ? "" : st[key] || "")}" />${t.unit ? `<span class="bj-unit">${esc(t.unit)}</span>` : ""}`;
       return `<span class="bj-txt">${esc(t.v)}</span>`;
@@ -366,7 +390,7 @@
         <label class="bj-na"><input type="checkbox" class="bj-na-in" ${r.na ? "checked" : ""} /> 이 항목 해당없음(적용 대상 아님 — 비고에 사유)</label>
         <div class="bj-judge"${r.na ? " hidden" : ""}>${judgeHtml(it, r, ev)}
           <div class="bj-row"><span class="bj-lab">현행기준과의 비교·검토</span>${seg("cmp", CMP, r.cmp || "")}</div>
-          <div class="bj-row"><span class="bj-lab">설계도서(사용승인도면 등)와의 적합여부</span>${seg("design", DESIGN, r.design || "")}</div>
+          <div class="bj-row"><span class="bj-lab">설계도서(사용승인도면 등)와의 적합여부</span>${seg("design", DESIGN, r.design || "", ev && ev.locks && ev.locks.design)}<small class="bj-lock" title="생애이력시스템과 같은 규칙 — 판정이 적합·양호·보통이면 적합, 미흡·불량·부적합이면 부적합, 해당없음이면 해당없음, 도면없음은 늘">판정과 맞는 쪽 + 도면없음만</small></div>
           ${statusHtml(it, r)}</div>
         ${photosHtml(it, r)}
         ${refHtml(it)}
@@ -729,7 +753,7 @@
     const cnt = el.querySelector(".bj-count");
     if (cnt) body.count = cnt.value === "" ? null : Number(cnt.value);
     el.querySelectorAll("[data-st]").forEach((i) => {
-      if (i.type === "checkbox") { if (i.checked) body.status[i.dataset.st] = true; } else if (i.value.trim()) body.status[i.dataset.st] = i.value.trim();
+      if (i.type === "checkbox" || i.type === "radio") { if (i.checked) body.status[i.dataset.st] = true; } else if (i.value.trim()) body.status[i.dataset.st] = i.value.trim();
     });
     el.querySelectorAll("[data-tx]").forEach((t) => { body.texts[t.dataset.tx] = t.value; });
     return body;
@@ -744,7 +768,7 @@
         const body = collect(el, it);
         saving = saving.then(() => api(`${P}/items/${encodeURIComponent(code)}`, { method: "PUT", body: JSON.stringify(body) })).then((out) => {
           apply(code, out);
-          if (redrawAfter) { const fo = document.activeElement; const keep = fo && el.contains(fo) && (fo.matches("textarea, input:not([type=checkbox])")) ? fo : null; if (!keep) redraw(el, it); else updateHead(el, it); }
+          if (redrawAfter) { const fo = document.activeElement; const keep = fo && el.contains(fo) && (fo.matches("textarea, input:not([type=checkbox]):not([type=radio])")) ? fo : null; if (!keep) redraw(el, it); else updateHead(el, it); }
         }).catch((err) => showError(errorEl, err));
       };
       if (now) go(); else timer = setTimeout(go, 600);
@@ -757,6 +781,14 @@
     }));
     el.querySelector(".bj-na-in").addEventListener("change", () => save(true));
     el.querySelectorAll("input[type=checkbox][data-st]").forEach((i) => i.addEventListener("change", () => save(true)));
+    el.querySelectorAll("input[type=radio][data-st]").forEach((i) => { // 하나만 고르는 줄(10/30) — 고른 것을 다시 누르면 지움
+      i.dataset.was = i.checked ? "1" : "";
+      i.addEventListener("click", () => {
+        if (i.dataset.was === "1") i.checked = false;
+        el.querySelectorAll(`input[type=radio][data-st]`).forEach((x) => { if (x.name === i.name) x.dataset.was = x.checked ? "1" : ""; });
+        save(true);
+      });
+    });
     el.querySelectorAll("input.bj-blank, input.bj-count").forEach((i) => i.addEventListener("input", () => save(false, false)));
     el.querySelectorAll("input.bj-blank, input.bj-count").forEach((i) => i.addEventListener("change", () => save(true)));
     el.querySelectorAll("[data-tx]").forEach((t) => {
