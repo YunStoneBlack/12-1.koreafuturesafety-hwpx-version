@@ -139,7 +139,7 @@ def _apply_building(f: SitokFacility, b: dict) -> None:
         f.completion_date = _d(b["approval_date"])
     reg = dict((f.ledger or {}).get("register") or {})
     for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "approval_date", "seismic_design", "grade", "floors", "changes", "length_x", "length_y",
-              "survey_units", "drawings", "foundation", "calc_doc"):  # 기초형식·구조계산서 유무(결과표, 10/29 민재형)
+              "survey_units", "drawings", "foundation", "calc_doc", "rebar_fy"):  # 기초형식·구조계산서 유무(결과표, 10/29 민재형)·철근 Fy(1.1 재료강도, 10/30)
         if k in b:
             reg[k] = b[k]
     f.ledger = {**(f.ledger or {}), "register": _jsonable(reg)}
@@ -187,7 +187,7 @@ def _project_out(db: Session, f: SitokFacility, r: SitokReport) -> dict:
                 "below": f.floors_below or 0, "above": f.floors_above or 0, "height": f.max_height, "total_area": f.total_area,
                 "building_area": f.building_area, "approval_date": _iso(f.completion_date) or reg.get("approval_date", ""),
                 **{k: reg.get(k, "") for k in ("lot_address", "site_area", "roof", "permit_date", "build_start", "seismic_design", "grade", "length_x", "length_y",
-                                               "foundation", "calc_doc")}}
+                                               "foundation", "calc_doc", "rebar_fy")}}
     building["grade"] = building["grade"] or grade_of(building["use"])
     units = SD.survey_units(f)
     building["survey_units"] = units

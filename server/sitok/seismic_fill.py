@@ -1839,6 +1839,7 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     n += fill_grade(root, reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급"), warn)
     if reg:
         n += fill_history(doc, root, f, reg)
+    n += fill_ch1_general(root, reg, field)  # 1.1 (5)·(7)·(8) — 결과표와 같은 값(10/30)
     n += fill_members(root, field, d, d.get("rebar") or [], units, warn, drawings, member_total)
     filled = len(field["members"])
     if filled and filled < member_total:
@@ -1869,6 +1870,30 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
         warn.append("요약문 종합의견은 자동 문장입니다 — 현장조사 입력 📝에서 고치거나 🤖 AI 초안")
     if not vres.get("before"):
         warn.append("요약문 종합의견 선형해석·보강 문단은 외주 결과 전이라 ○○ 자리 글(하늘색) — 서류 칸 외주 한글을 올린 뒤 [다시 만들기]")
+    return n
+
+
+def fill_ch1_general(root, reg: dict, field: dict) -> int:
+    """1.1 일반사항 (5) 내진설계 여부·(7) 재료강도·(8) 기초형식 — 결과표 나와 같은 값(건물 정보 내진설계 적용·기초형식·철근 Fy, 코어시험 결정강도),
+    없으면 빈칸 + 노랑(10/30 사용자 "1.1 일반사항·1.2 건물규모 데이터 연동 안 되고 고정값" — 견본 삼숭초 fck=15.8·매트기초가 그대로 남았음). (9) 적용기준은 견본 글 그대로."""
+    t = next((x for x in _tables(root) if (x.get("rowCnt"), x.get("colCnt")) == ("9", "6") and "건물명" in _n(rb._cell_text(rb._cells(x).get((0, 1), x)))), None)
+    if t is None:
+        return 0
+    cells = rb._cells(t)
+    sd = str(reg.get("seismic_design") or "").strip()
+    fy = str(reg.get("rebar_fy") or "").strip()
+    cd = core_decided(field.get("cores") or [])
+    lines = [f"fck={cd[2]:g}MPa(코어시험)" if cd else "", (f"Fy={fy}MPa(설계도서)" if re.fullmatch(r"[\d.]+", fy) else fy) if fy else ""]
+    vals = {(4, 3): {"적용": "적용", "비적용": "미적용"}.get(sd, sd), (6, 3): "\n".join(x for x in lines if x),
+            (7, 3): str(reg.get("foundation") or "").strip()}
+    n = 0
+    for rc, v in vals.items():
+        if rc not in cells:
+            continue
+        _set(cells, rc, v)
+        if not v or (rc == (6, 3) and not all(lines)):  # 하나라도 없으면 노랑(재료강도는 fck·Fy 둘 다)
+            TD.paint(cells[rc])
+        n += 1
     return n
 
 

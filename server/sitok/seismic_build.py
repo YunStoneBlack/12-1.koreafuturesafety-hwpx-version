@@ -223,10 +223,13 @@ def fill_chapter1(root, d: dict) -> int:
         cells = rb._cells(t)
         _set(cells, (0, 3), (f"지하 {d['below']}층, " if d["below"] else "") + f"지상 {d['above']}층")
         _set(cells, (1, 3), "유" if d["below"] else "무")
-        if d["height"]:
-            _set(cells, (2, 3), f"{d['height']:g}m")
-        if d["area"]:
-            _set(cells, (5, 3), f"{d['area']:,.2f}㎡")
+        from server.sitok import seismic_todo as TD
+
+        _set(cells, (2, 3), f"{d['height']:g}m" if d["height"] else "")  # 없으면 견본 값(20.05m) 대신 빈칸 + 노랑(10/30)
+        _set(cells, (5, 3), f"{d['area']:,.2f}㎡" if d["area"] else "")
+        for rc, v in (((2, 3), d["height"]), ((5, 3), d["area"])):
+            if not v and rc in cells:
+                TD.paint(cells[rc])
         _set(cells, (7, 0), f"【 {d['name']} 】")
         n += 1
     return n

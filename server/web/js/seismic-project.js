@@ -223,7 +223,7 @@
   function drawBuilding() {
     const b = P.building || {};
     $("sp-b-sum").textContent = b.address ? [b.structure, `지하${b.below || 0}·지상${b.above || 0}층`, b.total_area ? `연면적 ${won(b.total_area)}㎡` : "", b.approval_date ? `사용승인 ${dot(b.approval_date)}` : "", b.grade].filter(Boolean).join(" · ")
-      : "건축물대장에서 — 1.1 일반사항·1.2 건물규모·1.3 내진등급·1.4 구조변경 이력";
+      : "건축물대장에서 — 1.1 일반사항·1.2 건물규모·1.3 내진등급·1.4 구조변경 이력(기초형식·철근 Fy는 직접)";
     $("sp-building").innerHTML = field("name", "건물 이름", b.name, { help: "보고서 이름·폴더 이름" }) + field("use", "주용도", b.use)
       + field("address", "주소(도로명)", b.address, { wide: true }) + field("lot_address", "대지위치(지번)", b.lot_address) + field("structure", "주구조", b.structure)
       + field("below", "지하 층수", b.below, { type: "number" }) + field("above", "지상 층수", b.above, { type: "number" })
@@ -236,7 +236,8 @@
       + field("survey_units", "조사단위 수", b.survey_units, { type: "number", help: "층마다 1 — 기본 지상 층수, 익스팬션조인트·증축은 따로" })
       + field("drawings", "도면 유무", b.drawings, { options: [["", `자동 (지금 ${P.drawings_auto ? "보유" : "미보유"})`], "보유", "미보유"], optional: true, help: "구조도면·일람표 칸에 파일이 있으면 보유 · 결과표 바. 설계도면 유/무" })
       + field("calc_doc", "구조계산서 유무", b.calc_doc, { options: [["", "— 고르기 —"], "보유", "미보유"], help: "결과표 바. 구조계산서 유/무", manual: true })
-      + field("foundation", "기초형식", b.foundation, { ph: "예: 매트기초, 독립기초", help: "결과표 나. 기초형식", manual: true });
+      + field("foundation", "기초형식", b.foundation, { ph: "예: 매트기초, 독립기초", help: "결과표 나. 기초형식 · 1.1 기초형식", manual: true })
+      + field("rebar_fy", "철근 항복강도 Fy (MPa)", b.rebar_fy, { ph: "예: 400", help: "1.1 재료강도 Fy(설계도서) — fck는 코어시험 결정강도", manual: true });
     floors = (P.floors || []).map((x) => ({ ...x }));
     changes = (P.changes || []).map((x) => ({ ...x }));
     rowsEditor($("sp-floors"), floors, [["kind", "구분", 0.6], ["floor", "층", 0.8], ["structure", "구조", 2], ["use", "용도", 1.6], ["area", "면적(㎡)", 1.1, "number"]], { kind: "주" });
