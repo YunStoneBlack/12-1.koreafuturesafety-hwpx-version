@@ -889,6 +889,23 @@ def _ai_front(root, ai: dict, template: str) -> int:
     return n
 
 
+def _focus_row_borders(root) -> list:
+    """결과표 "라. 참고사항" 아래 줄들의 칸과 그 칸의 테두리 번호 [(tc, borderFillIDRef)] — 표 선 고르게 맞추기 뒤에 되돌림."""
+    out = []
+    for tbl in root.iter(f"{{{HP}}}tbl"):
+        flat = re.sub(r"\s", "", "".join(tbl.itertext()))
+        if "가.일반현황" not in flat or "라.참고사항" not in flat or "책임" not in flat:
+            continue
+        rows = tbl.findall(f"{{{HP}}}tr")
+        k = next((i for i, tr in enumerate(rows) if re.sub(r"\s", "", "".join(tr.itertext())).startswith("라.참고사항")), None)
+        if k is None:
+            continue
+        for tr in rows[k + 1:]:
+            for tc in tr.findall(f"{{{HP}}}tc"):
+                out.append((tc, tc.get("borderFillIDRef")))
+    return out
+
+
 def _focus_value_cell(cells: dict, key: tuple):
     """참고사항 "○ 차기 정기점검 시 중점 점검부위 :" 항목 칸(key)의 오른쪽 내용 칸 — 두 칸 양식이 아니면(한 칸에 다 든 예전 양식) None."""
     r, c = key
@@ -2680,7 +2697,10 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                         keep.apply(root)
                     if getattr(_TL, "borders", None) is not None:  # 모든 표 선 경계마다 고르게(내진과 같은 도구, 10/30 민재형 "다른 걸 찾았으면 고쳐서 안 나오게") — 채우기가 다 끝난 뒤 마지막에
                         from server.sitok import seismic_fill
+                        keepers = _focus_row_borders(root)  # 결과표 "라. 참고사항" 줄(항목|내용 두 칸)은 칸 사이 선이 없는 양식 — 고르게 맞추기가 실선으로 만들지 않게 앞뒤로 원래대로(10/31 사용자 "이 부분은 선이 없어야 돼")
                         evened = seismic_fill.even_tables(root)
+                        for tc, bf in keepers:
+                            tc.set("borderFillIDRef", bf)
                         if evened:
                             print(f"[표 선 고르게] {info.filename}: {evened}칸", flush=True)
                     for el in list(root.iter(f"{{{HP}}}linesegarray")):
