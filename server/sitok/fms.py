@@ -209,6 +209,7 @@ def payload(db, reports: list) -> dict:
         "start_ymd": start.isoformat() if start else "", "end_ymd": end.isoformat() if end else "",
         "contract_ymd": c.contract_date.isoformat() if c and c.contract_date else "",
         "mng_main_nm": f0.owner_name,
+        "owner_hint": f0.address or "", "owner_fac": f0.name or "",  # FMS 관리주체 찾기에 같은 이름이 여러 개(한국자산관리공사 31건)일 때 취합기관·주소로 고르려고(10/31 민재형)
         "const_amt": total, "design_amt": total,
         "divide_gbn": JOINT.get(c.joint_type if c else "독자수행", "01"), "financing_ratio": (c.joint_pct if c else 100),
         "bid_method": BID.get(c.bid_method if c else "수의계약", "03"),

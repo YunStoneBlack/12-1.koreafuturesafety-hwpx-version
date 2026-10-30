@@ -208,11 +208,14 @@ _OWNER_ROWS = """() => [...document.querySelectorAll('table tbody tr')].map(t =>
     sel: [...t.querySelectorAll('[onclick*="goSelect"], a[href*="goSelect"]')].map(a => a.getAttribute('onclick') || a.getAttribute('href'))[0] || ''})).filter(x => x.sel)"""
 
 
-def _owner_search(w, owner_name: str) -> list[dict]:
+def _owner_search(w, owner_name: str, fac_name: str = "") -> list[dict]:
     """검색칸에 이름 → 돋보기(검색 단추)를 눌러 검색(없으면 goSearch()) → 결과 표에 그 이름이 뜰 때까지(최대 10초) → 줄들.
     10/29 의정부도시공사: 예전엔 goSearch()를 부르고 바로 읽어, 결과가 바뀌기 전 표를 읽었을 수 있음(민재형 "돋보기를 눌러 검색해야")."""
     want = _norm_name(owner_name)
-    w.fill("input[name=search_val]", owner_name)
+    if fac_name:  # 같은 이름의 관리주체가 여럿(한국자산관리공사 31건)이면 "시설물명"으로 검색 — 그 시설물의 관리주체 한 줄만 나옴(10/31 민재형)
+        w.evaluate("""() => { const s = [...document.querySelectorAll('select')].find(x => [...x.options].some(o => /시설물명/.test(o.text)));
+            if (!s) return false; const o = [...s.options].find(o => /시설물명/.test(o.text)); s.value = o.value; s.dispatchEvent(new Event('change', {bubbles: true})); return true; }""")
+    w.fill("input[name=search_val]", fac_name or owner_name)
     btn = None
     for css in ("[onclick*='goSearch']", "a[href*='goSearch']", "button.btn_search", "a.btn_search", "img[alt*='검색']", "button:has-text('검색')", "a:has-text('검색')"):
         try:
@@ -242,7 +245,18 @@ def _owner_search(w, owner_name: str) -> list[dict]:
     return rows
 
 
-def pick_owner(ctx, fr, owner_name: str, job=None) -> dict:
+def _owner_score(text: str, hint: str) -> int:
+    """관리주체 찾기 줄이 이 시설물 주소와 얼마나 맞는지(시설물명 검색이 안 될 때 보조) — 시·도(앞 두 글자)·시·군·구 이름이 줄 글에 있으면 점수."""
+    toks = [t for t in re.split(r"\s+", (hint or "").strip()) if t]
+    if not toks:
+        return 0
+    score = 2 if toks[0][:2] in text else 0
+    if len(toks) > 1 and toks[1] in text:
+        score += 3
+    return score
+
+
+def pick_owner(ctx, fr, owner_name: str, job=None, hint: str = "", keep_ceo: str = "", fac_name: str = "") -> dict:
     """관리주체 찾기 팝업에서 이름이 똑같은 줄 고르기 → {ok, code, rows}. 못 찾으면 팝업 화면을 찍어 둠(job이 있으면)."""
     with ctx.expect_page(timeout=15000) as pop:
         fr.evaluate("document.querySelector('#btnFindMngMain').click()")
@@ -252,13 +266,23 @@ def pick_owner(ctx, fr, owner_name: str, job=None) -> dict:
     w.wait_for_timeout(1200)
     want = _norm_name(owner_name)
     hit, rows = None, []
-    for _ in range(2):  # 결과가 늦게 뜨는 때가 있음 — 없으면 한 번 더 검색
-        rows = _owner_search(w, owner_name)
-        hit = next((r for r in rows if any(_norm_name(x) == want for x in _js_args(r["sel"]))), None) \
-            or next((r for r in rows if _norm_name(r["first"]) == want), None)  # 고르기 인자에 이름이 없어도 첫 칸이 그 이름이면
+    for k in range(2):  # 결과가 늦게 뜨는 때가 있음 — 없으면 한 번 더. 시설물명 검색(같은 이름 관리주체가 여럿일 때 그 시설물 것만 나옴, 10/31 민재형)을 먼저, 안 되면 관리주체 이름 + 주소 점수로
+        for by_fac in ([fac_name, ""] if fac_name else [""]):
+            rows = _owner_search(w, owner_name, by_fac)
+            cands = [r for r in rows if any(_norm_name(x) == want for x in _js_args(r["sel"]))]                 or [r for r in rows if _norm_name(r["first"]) == want]  # 고르기 인자에 이름이 없어도 첫 칸이 그 이름이면
+            hit = max(cands, key=lambda r: _owner_score(r["text"], hint), default=None)  # 여럿이면 시설물 주소와 맞는 줄(동점이면 먼저 나온 것)
+            if hit:
+                if job is not None:
+                    job.say(f"관리주체 {'시설물명' if by_fac else '이름'} 검색 {len(cands)}곳 중: {hit['text'][:70]}")
+                break
         if hit:
             break
     out = {"ok": False, "rows": [r["text"][:80] for r in rows]}
+    if hit and keep_ceo and keep_ceo in hit["text"]:  # 이어서 하는 계약 — 이미 맞는 관리주체면 다시 고르지 않음
+        out.update(ok=True, code="", kept=True)
+        if not w.is_closed():
+            w.close()
+        return out
     if hit:
         args = _js_args(hit["sel"])
         code = next((x for x in args if re.fullmatch(r"[A-Z]\d{3,}", x)), args[1] if len(args) > 1 else "")
@@ -368,7 +392,7 @@ def _company_page(b, job: Job, user_id: str, pw: str):
     return ctx, pg
 
 
-def _fill_general(ctx, fr, c: dict, job=None) -> dict:
+def _fill_general(ctx, fr, c: dict, job=None, resume: bool = False) -> dict:
     """일반현황 탭 칸 채우기(계약·실적 공통) → {owner, fms_rep, fms_phone}."""
     for k in ("project_nm", "start_ymd", "end_ymd", "contract_ymd", "financing_ratio", "etc_comment"):
         if c.get(k) is not None:
@@ -379,8 +403,10 @@ def _fill_general(ctx, fr, c: dict, job=None) -> dict:
     _set(fr, "const_amt0", c["const_amt"])
     _set(fr, "design_amt0", c["design_amt"])
     out: dict = {}
-    if not fr.evaluate("(document.getElementsByName('mng_main_cd')[0] || {}).value || ''"):
-        out["owner"] = pick_owner(ctx, fr, c["mng_main_nm"], job)
+    have_owner = fr.evaluate("(document.getElementsByName('mng_main_cd')[0] || {}).value || ''")
+    if not have_owner or (resume and c.get("owner_fac")):  # 이어서 하는 계약도 관리주체가 이 시설물 것인지 다시 봄(첫 실제 건에서 다른 지역 같은 이름을 골랐음, 10/31)
+        cur_ceo = (fr.evaluate("() => ((document.getElementById('mng_main_ceo') || {}).textContent || '').replace(/\\s+/g, ' ').trim()") if have_owner else "")
+        out["owner"] = pick_owner(ctx, fr, c["mng_main_nm"], job, hint=c.get("owner_hint", ""), keep_ceo=cur_ceo, fac_name=c.get("owner_fac", ""))
         if not out["owner"].get("ok"):
             found = out["owner"].get("rows") or []
             raise FmsError(f"FMS 관리주체 찾기에서 \"{c['mng_main_nm']}\"를 못 찾았습니다 — "
@@ -541,7 +567,7 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
     if fr is None:
         raise FmsError("일반현황 화면이 열리지 않았습니다.")
     pg.wait_for_timeout(2000)
-    gen = _fill_general(ctx, fr, c, job)
+    gen = _fill_general(ctx, fr, c, job, resume=bool(project_no))
     owner_code = fr.evaluate("(document.getElementsByName('mng_main_cd')[0] || {}).value || ''") or (gen.get("owner") or {}).get("code") or ""  # 대상시설물 찾기용 관리주체 코드
     job.say(f"일반현황 채움 — FMS 대표자 {gen.get('fms_rep') or '-'}")
     job.shot(pg, "계약_일반현황")
