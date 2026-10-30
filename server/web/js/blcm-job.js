@@ -175,9 +175,19 @@
     $("bj-tabs").querySelectorAll(".bj-tab").forEach((b) => b.addEventListener("click", () => {
       tab = b.dataset.k;
       try { localStorage.setItem("bj-tab", tab); } catch (_) { /* */ }
+      const stuck = tabsStuck();
       drawTabs(); drawItems();
+      if (stuck) { // 붙어 있는 탭 줄에서 바꾸면 새 탭 첫 카드로(아래로 내려와 있던 자리 그대로면 다른 탭 중간이 보임)
+        const bar = $("bj-tabs");
+        window.scrollTo({ top: window.scrollY + $("bj-items").getBoundingClientRect().top - bar.getBoundingClientRect().bottom - 8 });
+      }
     }));
+    const box = $("bj-tabs"), on = box.querySelector(".bj-tab.on"); // 폰은 한 줄 옆으로 넘김 — 고른 탭이 보이게(가로만)
+    if (on && box.scrollWidth > box.clientWidth) box.scrollLeft += on.getBoundingClientRect().left - box.getBoundingClientRect().left - 12;
   }
+  // ③ 탭 줄 — 스크롤해도 위에 붙음(10/30 사용자 "해당 부분 스크롤 고정"), 붙어 있을 때만 아래 그림자
+  const tabsStuck = () => { const b = $("bj-tabs"); return !!b && window.scrollY > 0 && Math.abs(b.getBoundingClientRect().top - (parseFloat(getComputedStyle(b).top) || 0)) <= 1; }; // 목록이 끝나 같이 올라가면 아님
+  window.addEventListener("scroll", () => { const b = $("bj-tabs"); if (b) b.classList.toggle("stuck", tabsStuck()); }, { passive: true });
   document.querySelectorAll(".bj-view button").forEach((b) => b.addEventListener("click", () => {
     if (view === b.dataset.v) return;
     view = b.dataset.v;
