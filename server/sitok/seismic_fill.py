@@ -1846,7 +1846,7 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     n += fill_grade(root, reg.get("grade") or ("특등급" if re.search(r"교육|학교", f.main_use or "") else "1등급"), warn)
     if reg:
         n += fill_history(doc, root, f, reg)
-    n += fill_ch1_general(root, reg, field)  # 1.1 (5)·(7)·(8) — 결과표와 같은 값(10/30)
+    n += fill_ch1_general(root, reg, field, vendor_text)  # 1.1 (5)·(7)·(8) — 결과표와 같은 값(10/30), Fy는 외주에서
     n += fill_members(root, field, d, d.get("rebar") or [], units, warn, drawings, member_total)
     filled = len(field["members"])
     if filled and filled < member_total:
@@ -1880,17 +1880,31 @@ def fill_all(doc, root, r, f, rdir: Path, d: dict, warn: list, front_taken: bool
     return n
 
 
-def fill_ch1_general(root, reg: dict, field: dict) -> int:
-    """1.1 일반사항 (5) 내진설계 여부·(7) 재료강도·(8) 기초형식 — 결과표 나와 같은 값(건물 정보 내진설계 적용·기초형식·철근 Fy, 코어시험 결정강도),
-    없으면 빈칸 + 노랑(10/30 사용자 "1.1 일반사항·1.2 건물규모 데이터 연동 안 되고 고정값" — 견본 삼숭초 fck=15.8·매트기초가 그대로 남았음). (9) 적용기준은 견본 글 그대로."""
+def vendor_fy(vendor_text: str) -> tuple[str, str]:
+    """외주 4.1 재료강도 "철 근 : fy = 400MPa (설계도서 참조)" → ("400", "설계도서")(10/30 사용자 "항복강도 값은 외주에 있음" — 외주 보고서 다섯 건 모두 이 자리).
+    외주가 앞부분까지 쓴 판의 1.1 "Fy=400MPa(설계도서)"도. 없으면 ("", "")."""
+    t = re.sub(r"\s+", " ", vendor_text or "")
+    m = re.search(r"철\s*근\s*:\s*f[yY]\s*=\s*([\d.]+)\s*MPa\s*(?:\(\s*([^)]*?)\s*\))?", t) or re.search(r"F[yY]\s*=\s*([\d.]+)\s*MPa\s*(?:\(\s*([^)]*?)\s*\))?", t)
+    if not m:
+        return "", ""
+    src = re.sub(r"\s*참조$", "", (m.group(2) or "").strip()) or "설계도서"
+    return m.group(1), src
+
+
+def fill_ch1_general(root, reg: dict, field: dict, vendor_text: str = "") -> int:
+    """1.1 일반사항 (5) 내진설계 여부·(7) 재료강도·(8) 기초형식 — 결과표 나와 같은 값(건물 정보 내진설계 적용·기초형식, 코어시험 결정강도),
+    없으면 빈칸 + 노랑(10/30 사용자 "1.1 일반사항·1.2 건물규모 데이터 연동 안 되고 고정값" — 견본 삼숭초 fck=15.8·매트기초가 그대로 남았음). (9) 적용기준은 견본 글 그대로.
+    철근 Fy = 외주 결과물(4.1 재료강도)에서(10/30 사용자 "항복강도 값은 외주에 있음") — 외주 전이면 그 칸 하늘색(외주 몫), fck가 없으면 노랑."""
     t = next((x for x in _tables(root) if (x.get("rowCnt"), x.get("colCnt")) == ("9", "6") and "건물명" in _n(rb._cell_text(rb._cells(x).get((0, 1), x)))), None)
     if t is None:
         return 0
     cells = rb._cells(t)
     sd = str(reg.get("seismic_design") or "").strip()
-    fy = str(reg.get("rebar_fy") or "").strip()
+    fy, fy_src = vendor_fy(vendor_text)
+    if not fy and str(reg.get("rebar_fy") or "").strip():  # 예전에 건물 정보에 직접 넣은 값(227차 칸) — 외주 결과물이 없을 때만
+        fy, fy_src = str(reg["rebar_fy"]).strip(), "설계도서"
     cd = core_decided(field.get("cores") or [])
-    lines = [f"fck={cd[2]:g}MPa(코어시험)" if cd else "", (f"Fy={fy}MPa(설계도서)" if re.fullmatch(r"[\d.]+", fy) else fy) if fy else ""]
+    lines = [f"fck={cd[2]:g}MPa(코어시험)" if cd else "", (f"Fy={fy}MPa({fy_src})" if re.fullmatch(r"[\d.]+", fy) else fy) if fy else ""]
     vals = {(4, 3): {"적용": "적용", "비적용": "미적용"}.get(sd, sd), (6, 3): "\n".join(x for x in lines if x),
             (7, 3): str(reg.get("foundation") or "").strip()}
     n = 0
@@ -1898,8 +1912,10 @@ def fill_ch1_general(root, reg: dict, field: dict) -> int:
         if rc not in cells:
             continue
         _set(cells, rc, v)
-        if not v or (rc == (6, 3) and not all(lines)):  # 하나라도 없으면 노랑(재료강도는 fck·Fy 둘 다)
+        if not v or (rc == (6, 3) and not lines[0]):  # 우리 값이 없으면 노랑(재료강도는 fck)
             TD.paint(cells[rc])
+        elif rc == (6, 3) and not lines[1]:  # Fy만 없음 = 외주 결과물 전 — 하늘색(외주 몫)
+            TD.paint(cells[rc], TD.VENDOR)
         n += 1
     return n
 
@@ -2506,6 +2522,9 @@ def fill_result_na(root, d: dict, reg: dict, ground: dict | None, field: dict, d
             "중요도/내진등급": f"{imp}/{grade}", "콘크리트": f"{cd[2]:g}MPa" if cd else None,
             "기초형식": (reg.get("foundation") or "").strip() or None}  # 기초형식 = 건물 정보 칸(10/29 민재형)
     zone, coef = vendor_zone(vendor_text)  # 외주 체크리스트에서(없으면 견본 값 지우기가 하늘색)
+    fy = vendor_fy(vendor_text)[0]  # 철근 = 외주 4.1 재료강도(10/30 — 없으면 견본 값 지우기가 하늘색)
+    if fy:
+        vals["철근"] = f"{fy}MPa"
     if zone:
         vals["지진구역"] = zone
     if coef:
