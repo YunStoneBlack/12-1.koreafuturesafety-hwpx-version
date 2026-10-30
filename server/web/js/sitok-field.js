@@ -43,6 +43,15 @@
   try { zone = sessionStorage.getItem(`sf-zone-${rid}`) || ""; } catch (_) { /* */ }
   const zones = () => (data && data.zones) || [];
   const inZone = (d) => !zones().length || (d.zone || "") === zone;
+  // 동이 있으면 그 동에 결함이 있는 층만 탭으로(10/30 — 통계청 8층·선관위 3층처럼 동마다 층이 달라 관리대장 층수 탭이 다 나오면 빈 탭투성이).
+  // [＋]로 더한 탭은 이 기기에서 그 동에 기억(결함을 넣기 전까지 보이게), 결함이 하나도 없는 새 동은 관리대장 층 전부.
+  let zoneTabs = {};
+  try { zoneTabs = JSON.parse(sessionStorage.getItem(`sf-zone-tabs-${rid}`) || "{}") || {}; } catch (_) { /* */ }
+  const rememberZoneTab = (name) => {
+    if (!zones().length) return;
+    zoneTabs[zone] = [...new Set([...(zoneTabs[zone] || []), name])];
+    try { sessionStorage.setItem(`sf-zone-tabs-${rid}`, JSON.stringify(zoneTabs)); } catch (_) { /* */ }
+  };
   const where = (d) => `${d.zone ? `${d.zone} ` : ""}${d.floor}`; // "통계청 지상8층"
 
   const sizeText = (v) => {
@@ -179,7 +188,8 @@
       f.left += d.check ? 0 : 1;
       map.set(d.floor, f);
     }
-    for (const f of data.floors || []) if (!map.has(f)) map.set(f, { total: 0, left: 0 });
+    const zoned = zones().length && map.size; // 동이 있고 그 동에 결함이 있으면 — 결함 있는 층 + 이 동에서 더한 탭만(10/30)
+    for (const f of zoned ? [...(zoneTabs[zone] || []), floor].filter((x) => x && (data.floors || []).includes(x)) : data.floors || []) if (!map.has(f)) map.set(f, { total: 0, left: 0 });
     return new Map([...map.entries()].sort((a, b) => {
       const x = floorKey(a[0]), y = floorKey(b[0]);
       return x[0] - y[0] || x[1] - y[1];
@@ -376,6 +386,7 @@
   function nextFloors(map) { // [＋ ____] 고르기 목록 — 고르기 탭 + 빠진 층(맨 위 다음 층·맨 아래 다음 지하층)
     const names = [...map.keys()];
     const out = (data.tab_presets || []).filter((p) => !map.has(p));
+    if (zones().length) for (const f of data.floors || []) if (!map.has(f) && !out.includes(f)) out.push(f); // 동 때문에 숨은 관리대장 층(10/30)
     if (!isWall()) {
       const top = Math.max(0, ...names.map((f) => Number((f.match(/^지상(\d+)층$/) || [0, 0])[1])));
       const low = Math.max(0, ...names.map((f) => Number((f.match(/^지하(\d+)층$/) || [0, 0])[1])));
@@ -394,6 +405,7 @@
       data.floors = r.floors;
       adding = false;
       floor = r.name;
+      rememberZoneTab(r.name); // 동이 있으면 이 동 탭으로 기억(결함 넣기 전까지 보이게, 10/30)
       try { sessionStorage.setItem(`sf-floor-${rid}`, floor); } catch (_) { /* */ }
       drawFloors();
       drawList();

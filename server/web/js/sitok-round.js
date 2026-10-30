@@ -175,8 +175,15 @@
     const mapList = $("rd-maps-list");
     if (mapList) {
       api(`/sitok/reports/${r.id}/maps`).then((m) => {
+        const zs = m.zones || []; // 동(10/30 — 시설물 1개 안 연결된 동): 파일마다 동을 고르면 사진첩처럼 "N. 동 이름" 간지 뒤에
+        const zoneSel = (x) => (zs.length ? `<select class="rd-map-zone" data-i="${x.idx}" title="이 망도가 어느 동 것인지 — 사진첩처럼 동 간지 뒤에 들어감">
+          <option value=""${x.zone ? "" : " selected"}>동 없음(맨 앞)</option>${zs.map((z) => `<option value="${esc(z)}"${x.zone === z ? " selected" : ""}>🏢 ${esc(z)}</option>`).join("")}</select>` : "");
         mapList.innerHTML = m.files.map((x) => `<div class="rd-map"><a href="${BASE}/api/sitok/reports/${r.id}/maps/${x.idx}" target="_blank" rel="noopener">📄 ${esc(x.name)}</a>
-          <span class="sk-help">${x.pages}쪽</span><button type="button" class="link-btn rd-map-del" data-i="${x.idx}">지우기</button></div>`).join("");
+          <span class="sk-help">${x.pages}쪽</span>${zoneSel(x)}<button type="button" class="link-btn rd-map-del" data-i="${x.idx}">지우기</button></div>`).join("")
+          + (zs.length && m.files.some((x) => !x.zone) ? '<div class="sk-help">동을 고르지 않은 망도는 동 간지 없이 맨 앞에 들어갑니다.</div>' : "");
+        mapList.querySelectorAll(".rd-map-zone").forEach((s) => s.addEventListener("change", async () => {
+          try { await apiPost(`/sitok/reports/${r.id}/maps/${s.dataset.i}/zone`, { zone: s.value }); } catch (e) { err(e); }
+        }));
         mapList.querySelectorAll(".rd-map-del").forEach((b) => b.addEventListener("click", async () => {
           if (!confirm("이 외관망도 파일을 지울까요?")) return;
           try { await api(`/sitok/reports/${r.id}/maps/${b.dataset.i}`, { method: "DELETE" }); load(); } catch (e) { err(e); }
