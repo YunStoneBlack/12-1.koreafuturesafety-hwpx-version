@@ -331,14 +331,14 @@
         <div class="bj-slot-now">${p ? photoOne(it, p) : `<label class="bj-slot-shot">📷 이렇게 찍기<small>${esc(s.caption || "")}</small><input type="file" accept="image/*" capture="environment" hidden data-kr-file="skip" data-slot="${s.n}" /></label>`}</div></div>`;
     };
     const goodExtra = ph.filter((p) => p.kind !== "bad" && (p.slot == null || !nums.has(p.slot)));
-    const badRow = (t) => {
+    const badRow = (t) => { // 10/30 사용자 "적합·부적합 사진 양식 맞추기 — 견본 밑에 간략 설명, 옆에 찍기 버튼 크게(적합 기준)" = 적합 견본 칸과 같은 틀
       const mine = ph.filter((p) => p.kind === "bad" && (p.bad || {}).key === t.key);
       const s0 = (t.samples || [])[0];
-      return `<div class="bj-bad-row${mine.length ? " has" : ""}" data-bad="${esc(t.key)}">
-        <div class="bj-bad-ex">${s0 ? `<a href="${sampleSrc(s0.file)}" target="_blank" rel="noopener"><img loading="lazy" src="${sampleSrc(s0.file)}" alt="" /></a>` : '<span class="bj-bad-none">견본<br>준비 중</span>'}</div>
-        <div class="bj-bad-t"><b>⚠ ${esc(t.label)}</b>${s0 ? `<small>${esc(s0.caption || "")}${s0.from ? ` · ${esc(s0.from)}` : ""}${s0.ok === false ? ' <span class="bs-st todo">견본 검토 전</span>' : ""}</small>` : ""}
-          <label class="bj-bad-shot">📷 찍기${mine.length ? ` · ${mine.length}장` : ""}<input type="file" accept="image/*" multiple hidden data-kr-file="skip" data-bad="${esc(t.key)}" /></label></div>
-        ${mine.length ? `<div class="bj-ph-grid bj-bad-ph">${mine.map((p) => photoOne(it, p)).join("")}</div>` : ""}</div>`;
+      const shot = (first) => `<label class="bj-slot-shot bad${first ? "" : " more"}">📷 ${first ? "찍기" : `더 찍기 <small>· ${mine.length}장</small>`}${first ? `<small>${esc(t.label)}</small>` : ""}<input type="file" accept="image/*" capture="environment" multiple hidden data-kr-file="skip" data-bad="${esc(t.key)}" /></label>`;
+      return `<div class="bj-slot bj-bad-row${mine.length ? " has" : ""}" data-bad="${esc(t.key)}" data-label="${esc(t.label)}">
+        <div class="bj-slot-ex">${s0 ? `<span class="bj-slot-tag bad">부적합 견본</span><a href="${sampleSrc(s0.file)}" target="_blank" rel="noopener"><img loading="lazy" src="${sampleSrc(s0.file)}" alt="" /></a>` : '<span class="bj-bad-none">견본<br>준비 중</span>'}
+          <small><b class="bj-bad-name">⚠ ${esc(t.label)}</b>${s0 ? `${esc(s0.caption || "")}${s0.from ? ` <span class="bj-slot-from">· ${esc(s0.from)}</span>` : ""}${s0.ok === false ? ' <span class="bs-st todo">견본 검토 전</span>' : ""}` : ""}</small></div>
+        <div class="bj-slot-now">${mine.length ? mine.map((p) => photoOne(it, p)).join("") + shot(false) : shot(true)}</div></div>`;
     };
     const nBad = ph.filter((p) => p.kind === "bad").length;
     const loose = ph.filter((p) => p.kind === "bad" && !(p.bad && bt.some((t) => t.key === p.bad.key)));
@@ -349,7 +349,7 @@
         <div class="bj-ph-add"><label class="secondary bj-file-btn">📷 ${sl.photo.length ? "＋ 더 찍기" : "사진 찍기"}<input type="file" accept="image/*" multiple hidden data-kr-file="skip" data-kind="good" /></label><span class="mail-note bj-ph-msg">장수 제한 없음 · 끌어 놓아도 됩니다</span></div>
         ${goodExtra.length ? `<div class="bj-ph-grid">${goodExtra.map((p) => photoOne(it, p)).join("")}</div>` : ""}</div>
       ${bt.length ? `<details class="bj-bad-box"${nBad ? " open" : ""}><summary>⚠ 부적합이 있으면 — 해당 칸에 찍으면 판정이 자동으로 <small>${bt.length}칸${nBad ? ` · 지적 ${nBad}장` : ""} ▾</small></summary>
-        <div class="bj-bad-rows">${bt.map(badRow).join("")}</div>
+        <div class="bj-slots bj-bad-rows">${bt.map(badRow).join("")}</div>
         <div class="mail-note bj-bs-link">견본 = 회사 제출 보고서 부적합 사진 · <a href="blcm-samples.html#${encodeURIComponent(it.code)}" target="_blank" rel="noopener">🖼 부적합 견본 고르기</a></div></details>` : ""}
       ${loose.length ? `<div class="bj-lab">⚠ 유형 없는 지적 사진 <small>사진 아래에서 유형을 고르면 판정에 들어갑니다</small></div><div class="bj-ph-grid">${loose.map((p) => photoOne(it, p)).join("")}</div>` : ""}
       ${nDraw ? `<div class="mail-note bj-draw-note">📐 도면 ${gotDraw}/${nDraw} — 도면은 위 [② 관리사무소 — 도면]에서 한꺼번에 넣습니다</div>` : ""}</div>`;
@@ -818,7 +818,7 @@
     el.querySelectorAll("input[type=file][data-bad]").forEach((inp) => {
       const row = inp.closest(".bj-bad-row");
       drop(row, inp);
-      inp.addEventListener("change", () => { const fs = [...inp.files]; inp.value = ""; if (fs.length) upload(fs, { kind: "bad", bad: inp.dataset.bad }, `부적합 ${row.querySelector("b").textContent.replace("⚠ ", "")}`); });
+      inp.addEventListener("change", () => { const fs = [...inp.files]; inp.value = ""; if (fs.length) upload(fs, { kind: "bad", bad: inp.dataset.bad }, `부적합 ${row.dataset.label}`); });
     });
     el.querySelectorAll("input[type=file][data-slot]").forEach((inp) => {
       drop(inp.closest(".bj-slot-shot"), inp);

@@ -294,18 +294,19 @@
 .main .bj-bad-box > summary { cursor: pointer; padding: 8px 0 4px; font-size: 13.5px; font-weight: 700; color: var(--crit); list-style: none; }
 .main .bj-bad-box > summary::-webkit-details-marker { display: none; }
 .main .bj-bad-box > summary small { font-weight: 500; color: var(--muted); font-size: 12px; }
-.main .bj-bad-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; margin-top: 6px; }
-.main .bj-bad-row { display: grid; grid-template-columns: 96px 1fr; gap: 8px; align-items: center; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-.main .bj-bad-row.has { border-color: var(--crit); }
-.main .bj-bad-row.drop-over { background: var(--crit-soft); }
-.main .bj-bad-ex img { width: 96px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 5px; display: block; border: 1px solid var(--line); }
+/* 부적합 칸 = 적합 견본 칸과 같은 틀(10/30 사용자 "양식 맞추기 — 견본 밑에 간략 설명, 옆에 찍기 버튼 크게") — .bj-slot + 빨간 점선 찍기 */
+.main .bj-bad-rows { margin-top: 6px; }
+.main .bj-slot.bj-bad-row { background: #fff; }
+.main .bj-slot.bj-bad-row.has { border-color: var(--crit); }
+.main .bj-slot.bj-bad-row.drop-over { background: var(--crit-soft); }
+.main .bj-slot-tag.bad { background: rgba(185, 28, 28, .82); }
+.main .bj-bad-name { display: block; font-size: 13px; color: var(--crit); margin-bottom: 1px; }
+.main .bj-slot-shot.bad { border-color: var(--crit); color: var(--crit); }
+.main .bj-slot-shot.bad.drop-over { background: var(--crit-soft); }
+.main .bj-slot-shot.more { flex: 0 0 auto; min-height: 46px; margin-top: 6px; flex-direction: row; }
+.main .bj-slot-now .bj-ph + .bj-ph { margin-top: 6px; }
 .main .bj-bad-none { display: flex; align-items: center; justify-content: center; width: 96px; aspect-ratio: 4 / 3; border-radius: 5px; background: var(--paper); color: var(--faint); font-size: 11px; text-align: center; line-height: 1.3; }
-.main .bj-bad-t { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.main .bj-bad-t b { font-size: 13px; color: var(--crit); }
-.main .bj-bad-t small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
-.main .bj-bad-shot { align-self: flex-start; display: inline-flex; align-items: center; padding: 5px 12px; border: 1px solid var(--crit); border-radius: 8px; background: #fff; color: var(--crit); font-size: 12.5px; font-weight: 700; cursor: pointer; }
-.main .bj-bad-shot input[type=file] { display: none; }
-.main .bj-bad-ph { grid-column: 1 / -1; }
+.main .bj-slot-ex .bj-bad-none { width: 100%; border-radius: 6px; border: 1px dashed var(--line); font-size: 12px; }
 .main .bj-ph-type { min-width: 0; max-width: 100%; flex: 1; font-size: 12px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .main .bj-ph.bad .bj-ph-type { color: var(--crit); border-color: #f3c9c3; }
 .main .bj-ph-b { gap: 6px; align-items: center; }
@@ -330,9 +331,6 @@
 .main .bj-pool-box > summary { cursor: pointer; font-size: 13px; color: var(--muted); list-style: none; padding: 4px 0; }
 .main .bj-pool-box > summary::-webkit-details-marker { display: none; }
 @media (max-width: 760px) {
-  .main .bj-bad-rows { grid-template-columns: 1fr; }
-  .main .bj-bad-row { grid-template-columns: 84px 1fr; }
-  .main .bj-bad-ex img, .main .bj-bad-none { width: 84px; }
   .main .bj-dn { grid-template-columns: 84px 1fr; }
   .main .bj-dn-ex img { width: 84px; }
   .main .bj-dn-now { grid-column: 1; }
@@ -391,7 +389,7 @@
 .bj-field .main .bj-ck:has(input:checked) { border-color: var(--blue); background: var(--blue-soft); font-weight: 600; }
 .bj-field .main .bj-ck input { width: 18px; height: 18px; margin: 0; }
 .bj-field .main .bj-blank { width: 110px; padding: 7px 8px; font-size: 15px; }
-.bj-field .main .bj-slot-shot, .bj-field .main .bj-bad-shot, .bj-field .main .bj-ph-add .bj-file-btn { min-height: 44px; font-size: 15px; }
+.bj-field .main .bj-slot-shot, .bj-field .main .bj-ph-add .bj-file-btn { min-height: 44px; font-size: 15px; }
 @media (max-width: 760px) {
   .main .bj-top .panel-head { flex-wrap: wrap; }
   .main .bj-mode { order: -1; margin: 0 0 6px auto; }
