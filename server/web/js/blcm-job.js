@@ -281,11 +281,11 @@
   function photoOne(it, p) { // 사진 한 장 — 아래 고르기 = 적합(양호)인지 어떤 부적합인지(바꾸면 판정도 바뀜)
     const bt = badTypes(it.code);
     const val = p.kind === "bad" ? ((p.bad || {}).key || "__bad") : "";
-    return `<div class="bj-ph ${p.kind === "bad" ? "bad" : "good"}" data-pid="${esc(p.id)}">
+    return `<div class="bj-ph ${p.kind === "bad" ? "bad" : "good"}${p.evidence ? " ev" : ""}" data-pid="${esc(p.id)}">
       <a href="${BASE}/api${P}/photo/${esc(p.id)}" target="_blank" rel="noopener"><img loading="lazy" src="${BASE}/api${P}/photo/${esc(p.id)}" alt="" /></a>
-      <div class="bj-ph-b"><select class="bj-ph-type" title="적합(양호) 사진인지, 어떤 부적합인지 — 바꾸면 판정도 바뀝니다">
+      <div class="bj-ph-b">${p.evidence ? `<span class="bj-ph-ev" title="① 서류검토 확정 때 넣은 해당없음 근거 그림">📄 근거·${esc(p.evidence)}</span>` : `<select class="bj-ph-type" title="적합(양호) 사진인지, 어떤 부적합인지 — 바꾸면 판정도 바뀝니다">
         <option value=""${val === "" ? " selected" : ""}>✅ 적합·양호</option>${bt.map((t) => `<option value="${esc(t.key)}"${val === t.key ? " selected" : ""}>⚠ ${esc(t.label)}</option>`).join("")}
-        ${val === "__bad" || !bt.length ? `<option value="__bad"${val === "__bad" ? " selected" : ""}>⚠ 지적(유형 없음)</option>` : ""}</select>
+        ${val === "__bad" || !bt.length ? `<option value="__bad"${val === "__bad" ? " selected" : ""}>⚠ 지적(유형 없음)</option>` : ""}</select>`}
         ${p.slot != null && p.kind !== "bad" ? `<label class="bj-ph-redo" title="다시 찍기">📷<input type="file" accept="image/*" capture="environment" hidden data-kr-file="skip" data-slot="${p.slot}" /></label>` : ""}
         <button type="button" class="bj-ph-del" title="지우기">✕</button></div>
       <input class="bj-ph-cap" value="${esc(p.caption || "")}" placeholder="사진 설명" maxlength="60" /></div>`;
@@ -293,6 +293,11 @@
   function photosHtml(it, r) { // 10/30 사용자: ✅ 적합 = 견본 칸(왼쪽 견본 | 오른쪽 이번 사진) + 더 찍기, ⚠ 부적합 = 유형 칸마다 견본 + 📷(찍으면 판정·변경 유형 체크 자동), 도면은 ②에서
     const all = r.photos || [];
     const ph = all.filter((p) => !isDrawPhoto(it.code, p));
+    if (r.na) { // 해당없음 — 견본 칸 없이 근거 그림(① 서류검토 확정)·넣은 사진만
+      return `<div class="bj-photos"><div class="bj-lab">📄 해당없음 근거 <small>① 서류검토 확정 때 넣은 그림(대장 칸·확인원·법령 조문 빨간 네모) — 보고서 현황사진으로 들어갑니다</small></div>
+        <div class="bj-ph-grid">${all.map((p) => photoOne(it, p)).join("") || '<div class="mail-note">근거 그림 없음 — 현장 조사로 해당없음이면 현장 사진을 넣어도 됩니다</div>'}</div>
+        <div class="bj-ph-add"><label class="secondary bj-file-btn">📷 사진 더하기<input type="file" accept="image/*" multiple hidden data-kr-file="skip" data-kind="good" /></label><span class="mail-note bj-ph-msg"></span></div></div>`;
+    }
     const sl = slotsOf(it.code), bt = badTypes(it.code);
     const nums = new Set(sl.photo.map((s) => s.n));
     const okSlot = (s) => {
@@ -850,7 +855,8 @@
     const qRow = (key) => { const q = qOf(key);
       return `<div class="bj-pl-q"><span>${esc(q.label)}${q.items.length ? ` <small>· ${esc(q.items.join(", "))}</small>` : ""}</span>
         <span class="bj-seg bj-fact" data-key="${esc(key)}" data-user="${esc(q.user || "")}">${["있음", "없음"].map((v) => `<button type="button" data-v="${v}" class="${q.answer === v ? "on" : ""}">${v}</button>`).join("")}</span></div>`; };
-    const na = codes((x) => x.state === "na"), naLeft = na.filter((k) => !items[k].marked_na && !items[k].touched), chk = codes((x) => x.state === "check");
+    const na = codes((x) => x.state === "na"), chk = codes((x) => x.state === "check");
+    const naLeft = na.filter((k) => (!items[k].marked_na && !items[k].touched) || (items[k].marked_na && !items[k].evidence && !items[k].ev_done)); // 아직 안 넣음 + 넣었는데 근거 그림을 아직 안 만듦
     const site = codes((x) => x.state === "ask" && x.cat === "present");
     const nSite = Object.keys(items).length - na.length;
     const docQ = plan.questions.filter((q) => (q.kind === "land" || q.kind === "talk") && !q.answer);
@@ -868,16 +874,16 @@
           <span class="bj-seg bj-fact" data-key="${esc(q.key)}" data-user="${esc(q.user || "")}">${["있음", "없음"].map((v) => `<button type="button" data-v="${v}" class="${q.answer === v ? "on" : ""}">${v}</button>`).join("")}</span></div>`).join("")}</details>` : ""}
       ${chk.length ? `<div class="bj-pl-sec">확인 필요 <small>대장 값이 모자라거나 기준일 경계 — 현장 점검 목록에 남겨 둠</small></div>${chk.map((k) => `<button type="button" class="bj-pl-row" data-code="${esc(k)}"><span class="bj-pl-t"><b>${esc(k)} ${esc(nm(k))}</b><small>${esc(items[k].why || "")}</small></span></button>`).join("")}` : ""}
       <div class="bj-pl-sec">해당없음 ${na.length}개 <small>법령상 적용대상이 아님 — 사유는 비고에 들어갑니다</small></div>
-      <details class="bj-pl-na"><summary>사유 보기 ▾</summary><ul>${na.map((k) => `<li><b>${esc(k)} ${esc(nm(k))}</b>${items[k].marked_na ? " ✓" : ""} — ${esc(items[k].reason)}</li>`).join("")}</ul></details>
-      <div class="bj-rv-go">${naLeft.length ? `<button type="button" class="bj-pl-na-go">✓ 서류검토 확정 — 해당없음 ${naLeft.length}개에 사유 넣기</button>
+      <details class="bj-pl-na"><summary>사유 보기 ▾</summary><ul>${na.map((k) => `<li><b>${esc(k)} ${esc(nm(k))}</b>${items[k].marked_na ? ` ✓${items[k].evidence ? ` · 근거 그림 ${items[k].evidence}장` : ""}` : ""} — ${esc(items[k].reason)}</li>`).join("")}</ul></details>
+      <div class="bj-rv-go">${naLeft.length ? `<button type="button" class="bj-pl-na-go">✓ 서류검토 확정 — 해당없음 ${naLeft.length}개에 사유·근거 그림 넣기</button>
         <span class="mail-note">아래 ③ 현장 점검은 이 판정대로 나옵니다(해당없음은 맨 끝 탭) · 현장 답(있음/없음)에 따라 바뀌면 다시 누르세요</span>`
-        : `<b class="bj-done-ok">✓ 서류검토 확정</b><span class="mail-note">해당없음 ${na.length}개 모두 사유를 넣었습니다</span>`}</div>`;
+        : `<b class="bj-done-ok">✓ 서류검토 확정</b><span class="mail-note">해당없음 ${na.length}개 모두 사유·근거 그림(대장 칸·확인원·법령 조문 빨간 네모)을 넣었습니다 — [해당없음] 탭 카드에서 확인</span>`}</div>`;
     const body = $("bj-review-body");
     body.querySelectorAll(".bj-pl-row").forEach((b) => b.addEventListener("click", () => jumpTo({ code: b.dataset.code, tab: groupOf(b.dataset.code) })));
     wireFacts(body);
     body.querySelector(".bj-pl-na-go")?.addEventListener("click", async (e) => {
       const btn = e.currentTarget;
-      if (!confirm(`법령상 해당없음 ${naLeft.length}개를 해당없음으로 넣고 비고에 사유를 적을까요?\n(판정·사진을 넣은 항목은 건드리지 않습니다)`)) return;
+      if (!confirm(`법령상 해당없음 ${naLeft.length}개를 해당없음으로 넣고 비고에 사유, 현황사진에 근거 그림(대장 칸·확인원·법령 조문)을 넣을까요?\n(판정·사진을 넣은 항목은 건드리지 않습니다)`)) return;
       btn.disabled = true;
       try {
         const out = await apiPost(`${P}/plan/na`, {});

@@ -10,7 +10,7 @@
 - `POST /blcm/jobs/{id}/drawings`(file PDF·그림 — PDF는 쪽마다) · `DELETE …/drawings/{did}` · `GET …/drawings/{did}/img` · `POST …/drawings/register`(올린 건축물대장 쪽) —
   📐 도면·서류 그림 모음(files.drawings, 10/30 사용자 "도면 넣는 칸은 따로 빼서 한꺼번에 넣고 해당 위치로") · `PUT /blcm/jobs/{id}/items/{code}/slot/{n}` {drawing}
   — 그 항목 견본 도면 칸에 고른 그림(현황사진으로 복사, photos[].slot·drawing). 사진 올리기 slot = 견본 칸(같은 칸 사진은 바꿈), 개수 제한 없음.
-- `GET  /blcm/jobs/{id}/plan` · `PUT …/facts` {facts} · `POST …/plan/na` {codes?} — 점검 목록(server/blcm/applicability.py — 법령상 적용대상 판정, 회사 결정 = 추천안):
+- `GET  /blcm/jobs/{id}/plan` · `PUT …/facts` {facts} · `POST …/plan/na` {codes?, evidence} — 점검 목록([① 서류검토 확정] = 해당없음·사유 + 근거 그림 — 대장 칸·확인원·법령 조문 빨간 네모, server/blcm/evidence.py)(server/blcm/applicability.py — 법령상 적용대상 판정, 회사 결정 = 추천안):
   반드시 찍을 사진 / 있으면 찍을 사진 / 면담·서류로 확인 / 해당없음(사유) / 확인 필요, 현장·면담 답은 contract.facts, 해당없음 넣기 = 손대지 않은 항목에 na + 비고 사유(10/30)
 - `POST /blcm/jobs/{id}/landuse`(토지이용계획확인원 PDF·그림) — 서류/토지이용계획확인원.pdf + 쪽을 도면 모음에(3.5.8 칸), 지정여부 칸에서 방화지구·가로구역 높이·지구단위계획을 읽어
   점검 목록 답으로(server/blcm/doc_facts.py — 대장 승강기·인증·건축주·변동사항도, 점검자 답이 이김, 10/30)
@@ -276,24 +276,56 @@ def put_facts(jid: int, body: FactsIn, user: User = Depends(get_current_user), d
 
 class NaIn(BaseModel):
     codes: list[str] | None = None
+    evidence: bool = True  # 근거 그림(대장·확인원·법령)도 넣기(10/30)
+
+
+def _evidence(j: BlcmJob, code: str, r: dict, v: dict) -> dict:
+    """해당없음 근거 그림 — 예전 근거 그림은 빼고(파일도) 새로(대장 칸·확인원·법령 조문, 빨간 네모)."""
+    from server.blcm import evidence as EV
+
+    keep = []
+    for x in r.get("photos") or []:
+        if x.get("evidence"):
+            (folder(j) / x["rel"]).unlink(missing_ok=True)
+        else:
+            keep.append(x)
+    path = lambda k: folder(j) / (j.files or {})[k]["rel"] if (j.files or {}).get(k) else None  # noqa: E731
+    try:
+        shots = EV.make(v.get("why") or "", v.get("reason") or "", path("register"), path("landuse"))
+    except Exception:  # noqa: BLE001 — 그림을 못 만들면 사유만
+        shots = []
+    (folder(j) / "사진").mkdir(parents=True, exist_ok=True)
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    for img, cap, kind in shots:
+        pid = uuid.uuid4().hex[:10]
+        rel = f"사진/{code}_{pid}.jpg"
+        (folder(j) / rel).write_bytes(img)
+        keep.append({"id": pid, "rel": rel, "name": "", "kind": "good", "caption": cap[:60], "evidence": kind, "at": now})
+    return {**r, "photos": keep, "ev_done": True}
 
 
 @router.post("/jobs/{jid}/plan/na")
 def apply_na(jid: int, body: NaIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """법령상 해당없음 항목을 한꺼번에 해당없음으로 — 비고 = 사유(비어 있을 때만). 점검자가 판정·사진을 넣은 항목은 건드리지 않음."""
+    """[① 서류검토 확정] 법령상 해당없음 항목을 한꺼번에 해당없음으로 — 비고 = 사유(비어 있을 때만) + 근거 그림(evidence).
+    점검자가 판정·사진을 넣은 항목은 건드리지 않음. 이미 해당없음으로 넣었는데 근거 그림이 없는 항목은 그림만 더함."""
     j = _require(db, user, jid)
     p = _plan(j)
     res = dict(j.results or {})
     done = []
     for code, v in p["items"].items():
-        if v["state"] != "na" or (body.codes is not None and code not in body.codes) or v["touched"]:
+        if v["state"] != "na" or (body.codes is not None and code not in body.codes):
             continue
         r = dict(res.get(code) or {})
+        if v["touched"]:
+            if body.evidence and r.get("na") and not v.get("evidence") and not v.get("ev_done"):
+                res[code] = _evidence(j, code, r, v)
+                done.append(code)
+            continue
         tx = dict(r.get("texts") or {})
         if not (tx.get("rm") or "").strip():
             tx["rm"] = v["reason"]
         r.update(na=True, texts=tx)
-        res[code] = r
+        res[code] = _evidence(j, code, r, v) if body.evidence else r
         done.append(code)
     j.results = res
     _touch(j, user, "results")

@@ -426,7 +426,9 @@ def plan(b: dict, facts: dict, results: dict, floors: list | None = None, auto: 
             cat = r["state"]
         res = (results or {}).get(code) or {}
         out[code] = {**r, "cat": cat, "photos": len(res.get("photos") or []), "marked_na": bool(res.get("na")),
-                     "touched": bool(res.get("judge") or res.get("ratings") or res.get("photos") or res.get("na") or res.get("cert"))}
+                     "touched": bool(res.get("judge") or res.get("ratings") or res.get("photos") or res.get("na") or res.get("cert")),
+                     "evidence": sum(1 for x in res.get("photos") or [] if x.get("evidence")),  # 해당없음 근거 그림 수(server/blcm/evidence.py, 10/30)
+                     "ev_done": bool(res.get("ev_done"))}  # 근거 그림을 만들어 봄(현장 답으로 해당없음이면 0장일 수 있음)
         for k in r["asks"]:
             asked.setdefault(k, []).append(code)
     qs = [{"key": k, "kind": FACTS[k][0], "label": FACTS[k][1], "answer": _fact(eff, k), "user": _fact(facts, k), "auto": auto.get(k),
