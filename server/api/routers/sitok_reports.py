@@ -924,6 +924,15 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
                 pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
         except Exception:  # noqa: BLE001
             traceback.print_exc()
+    for _ in range(3):  # 제목 넘기기가 새 제목을 홀로 남기는 연쇄("가. 위치도" 넘기면 "1.2"가 홀로 — 10/30)가 안정될 때까지 몇 번 더
+        try:
+            again = pagecheck.push_headings(hwpx, pagecheck.scan(pdf, hwpx, limit=100000))
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+            again = []
+        if not again:
+            break
+        pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
     _tidy_pages(hwpx, pdf)  # 애매한 넘침 정리(10/26) — 목차 쪽 번호 전에
     try:  # 목차 쪽 번호 = 다 고친 PDF의 실제 쪽(10/19 형 — 원본 숫자·책갈피 그대로라 묶음 2·3장이 1장 쪽으로 나왔음), 바뀌면 한 번 더
         if pagecheck.fill_toc(hwpx, pdf):
@@ -1370,7 +1379,9 @@ def _page_check(pdf: Path, hwpx: Path, skip: list[int] | None = None) -> list[st
         found = pagecheck.scan(pdf, hwpx, skip=set(skip or []))
     except Exception:  # noqa: BLE001
         found = []
-    out = [f"쪽 확인 — {' / '.join(found)}"] if found else []
+    if found:  # 쪽 모양은 만들기가 알아서 고치는 일 — 남아도 사용자 알림에는 안 띄움(10/30 민재형 "사용자가 할 수 있는 것만 알림에"), 서버 기록에만
+        print(f"[쪽 확인 — 알림 안 함] {pdf.name}: {' / '.join(found)}", flush=True)
+    out: list[str] = []
     import pymupdf
 
     with pymupdf.open(pdf) as doc:

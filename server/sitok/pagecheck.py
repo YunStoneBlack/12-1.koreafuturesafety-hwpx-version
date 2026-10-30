@@ -314,9 +314,9 @@ def line_check(pdf: Path, pages=None, label: str = "") -> list[str]:
         found = line_warnings(pdf, pages)
     except Exception:  # noqa: BLE001
         return []
-    if found:
-        print("[선 굵기]", pdf.name, found, flush=True)
-    return [f"선 굵기 확인{f'({label})' if label else ''} — " + " · ".join(found)] if found else []
+    if found:  # 표 선 굵기는 만들기가 고르게 맞추는 일 — 남아도 사용자 알림에는 안 띄우고 서버 기록에만(10/30 민재형 "알아서 고쳐야지 왜 알림에 띄워")
+        print("[선 굵기 — 알림 안 함]", pdf.name, label, found, flush=True)
+    return []
 
 
 def line_warnings(pdf: Path, pages=None, limit: int = 8) -> list[str]:

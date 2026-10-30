@@ -2678,6 +2678,11 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                                     changed += 1
                     if keep is not None and not is_front:
                         keep.apply(root)
+                    if getattr(_TL, "borders", None) is not None:  # 모든 표 선 경계마다 고르게(내진과 같은 도구, 10/30 민재형 "다른 걸 찾았으면 고쳐서 안 나오게") — 채우기가 다 끝난 뒤 마지막에
+                        from server.sitok import seismic_fill
+                        evened = seismic_fill.even_tables(root)
+                        if evened:
+                            print(f"[표 선 고르게] {info.filename}: {evened}칸", flush=True)
                     for el in list(root.iter(f"{{{HP}}}linesegarray")):
                         el.getparent().remove(el)
                     texts.append("\r\n".join("".join(t.text or "" for t in p.iter(T)) for p in root.iter(f"{{{HP}}}p")))
