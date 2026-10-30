@@ -481,6 +481,30 @@ def _appendix_terms(root, school: bool, private: bool) -> None:
                 break
 
 
+def _drop_seismic_check(roots: list) -> int:
+    """부록 "부록3-3. 내진보강시설 육안 점검표"(간지 + 점검표 쪽들) 빼고 뒤 간지 번호를 하나씩 당김 — 3종 학교만 있는 부록(10/30 사용자 "3종 학교에만 들어가는데 3종 일반에도 들어가 있음").
+    빼면 "부록3-4. 과업지시서"가 "부록3-3."이 되는 식(3-7까지). 뺀 구간 수(0 = 이 원본엔 없음)."""
+    n = 0
+    for root in roots:
+        tops = _tops(root)
+        flat = lambda p: re.sub(r"\s", "", "".join(p.itertext()))  # noqa: E731 — 간지는 표 안 글이라 itertext(공백 없이)
+        start = next((i for i, p in enumerate(tops) if re.match(r"^부록3-3\.내진보강시설", flat(p))), None)
+        end = next((i for i, p in enumerate(tops) if start is not None and i > start and re.match(r"^부록3-4\.", flat(p))), None)
+        if start is None or end is None:
+            continue
+        for p in tops[start:end]:
+            p.getparent().remove(p)
+        n += 1
+    if n:
+        for root in roots:  # 부록3-4 → 3-3 … 3-9 → 3-8 (내진 점검표 뒤 번호만)
+            for t in root.iter(rb.T):
+                for pc in rb._pieces(t):
+                    m = re.search(r"부록\s*3-(\d)(?=\D)", pc.text or "")
+                    if m and int(m[1]) >= 4:
+                        pc.text = pc.text[:m.start(1)] + str(int(m[1]) - 1) + pc.text[m.end(1):]
+    return n
+
+
 def _sub_once(p, pat: str, repl: str) -> None:
     for t in p.iter(rb.T):
         for pc in rb._pieces(t):
@@ -501,6 +525,8 @@ def prepare(src: Path, kind: str, dest: Path, private: bool = True, legal: bool 
             _appendix_terms(roots[n], kind == "3종학교", private)
             _contract_page(roots[n])
             _report_page(roots[n])
+        if kind != "3종학교":
+            _drop_seismic_check([roots[n] for n in secs[2:]])  # 내진보강시설 육안 점검표는 3종 학교만(10/30)
         body = roots[secs[2]]
         tops = _tops(body)
         stop = _appendix_start(tops)
