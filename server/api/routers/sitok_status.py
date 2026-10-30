@@ -288,12 +288,12 @@ def mark_facility(facility_id: int, body: FacMarkIn, user: User = Depends(get_cu
 
         ids = [m.id for m in (members(db, f.group_id) if f.group_id else [f])]
         c = contract_for(db, f, body.year, seasons.bucket(body.half))
-        schedule_visit(db, user, ids, body.year, body.half, kind_known(db, c, body.year, body.half) or (kind_of_title(c.title) if c is not None else "정기"), day)
+        schedule_visit(db, user, ids, body.year, body.half, kind_known(db, c, body.year, body.half, f.name) or (kind_of_title(c.title) if c is not None else "정기"), day)
         return {"ok": True, "item": body.item, "value": None, "planned": day.isoformat()}
     if r is None:
         c = contract_for(db, f, body.year, seasons.bucket(body.half))
         chief, parts = _default_people(db, user.company_id)
-        kind = kind_known(db, c, body.year, body.half) or (kind_of_title(c.title) if c is not None else "정기")
+        kind = kind_known(db, c, body.year, body.half, f.name) or (kind_of_title(c.title) if c is not None else "정기")
         r = _new_report(db, user.display_name or "", f, body.year, body.half, contract_id=c.id if c else None, chief_id=chief, participant_ids=parts, kind=kind)
         if f.group_id:
             _group_reports(db, r, user.display_name or "")

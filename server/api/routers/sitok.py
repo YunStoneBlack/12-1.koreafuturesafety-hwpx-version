@@ -240,7 +240,7 @@ def _apply_contract(row: SitokContract, body: ContractIn) -> None:
         setattr(row, k, v.strip() if isinstance(v, str) else v)
 
 
-def kind_known(db: Session, c: SitokContract | None, year: int, half: str) -> str | None:
+def kind_known(db: Session, c: SitokContract | None, year: int, half: str, name: str | None = None) -> str | None:
     """그 반기 회차 종류(정기/정밀) — ① 보고서 쪽 계약의 회차 줄 ② 그 계약을 만든 서류 자동화 계약의 회차 줄 ③ 계약건명에 정밀·정기 중 하나만 있으면 그것(10/14 형 피드백 —
     스캔 계약서라 회차 줄을 못 읽은 꿈에블리스나인 "정기(정밀)"는 둘 다 있어 못 정함) → 모르면 None(회차 만들기가 물음)."""
     from core.models_web import SitokDocContract
@@ -252,13 +252,13 @@ def kind_known(db: Session, c: SitokContract | None, year: int, half: str) -> st
         return "성능평가"
     rounds = c.rounds or []
     unit = next((r for r in rounds if r.get("open_ended")), None)
-    k = civil.kind_for(rounds, unit, unit is not None, year, half)
+    k = civil.kind_for(rounds, unit, unit is not None, year, half, name)  # name = 그 시설물(동) 이름 — 같은 반기에도 동마다 정기·정밀·진단이 다를 수 있음(10/31)
     if k is None:
         doc = db.query(SitokDocContract).filter(SitokDocContract.report_contract_id == c.id).first() or next(
             (d for d in db.query(SitokDocContract).filter(SitokDocContract.company_id == c.company_id, SitokDocContract.report_contracts.isnot(None))
              if c.id in [int(v) for v in (d.report_contracts or {}).values()]), None)  # 시설물 여럿 계약(0052) — 둘째 시설물의 보고서 쪽 계약
         if doc is not None:
-            k = civil.kind_for(doc.rounds, doc.unit, doc.open_ended, year, half)
+            k = civil.kind_for(doc.rounds, doc.unit, doc.open_ended, year, half, name)
     if k is None:
         t = (c.title or "").replace(" ", "")
         has_pre, has_reg = "정밀" in t, "정기" in t
@@ -267,9 +267,9 @@ def kind_known(db: Session, c: SitokContract | None, year: int, half: str) -> st
     return "정밀" if k == "진단" else k
 
 
-def kind_for(db: Session, c: SitokContract | None, year: int, half: str) -> str:
+def kind_for(db: Session, c: SitokContract | None, year: int, half: str, name: str | None = None) -> str:
     """kind_known, 모르면 정기(목록 기본값 표시용 — 회차 만들기는 create_report가 428로 물음)."""
-    return kind_known(db, c, year, half) or "정기"
+    return kind_known(db, c, year, half, name) or "정기"
 
 
 def _contract_out(c: SitokContract) -> dict:

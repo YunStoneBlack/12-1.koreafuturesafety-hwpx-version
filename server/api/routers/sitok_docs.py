@@ -1774,7 +1774,7 @@ def _first_report(db: Session, user: User, f: SitokFacility, rc: SitokContract) 
         return None
     chief, parts = _default_people(db, user.company_id)
     r = _new_report(db, user.display_name or "", f, today.year, half, contract_id=rc.id, chief_id=chief, participant_ids=parts,
-                    kind=kind_known(db, rc, today.year, half) or "정기")
+                    kind=kind_known(db, rc, today.year, half, f.name) or "정기")
     return r.id
 
 

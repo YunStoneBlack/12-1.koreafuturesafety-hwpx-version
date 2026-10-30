@@ -245,7 +245,7 @@ def needs_for(db: Session, u: Unit, today: datetime.date) -> list[Need]:
         if n.key in rep_kind:
             n.kind = rep_kind[n.key]
         elif n.pri < 2:
-            k = kind_known(db, contract_for(db, u.lead, n.year, n.half), n.year, n.half)
+            k = kind_known(db, contract_for(db, u.lead, n.year, n.half), n.year, n.half, u.lead.name)
             n.kind = k or n.kind
     return sorted(found.values(), key=lambda n: key_sort(n.key))
 

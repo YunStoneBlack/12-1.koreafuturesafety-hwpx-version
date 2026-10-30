@@ -76,7 +76,8 @@ def _won(v) -> int:
 
 def normalize_rounds(v) -> list[dict]:
     """회차 줄 정리 — [{year, half, kind 정기|정밀(없으면 정기), amount 원, parts?}] (연도·반기 순). 서류 자동화 계약·보고서 쪽 계약 둘 다 씀.
-    parts = 동이 여럿인 묶음 계약의 동별 금액 [{name, amount}](2026-10-15 민재형 — 대가내역서·FMS가 동별 금액을 씀), 둘 이상일 때만 두고 amount = 합."""
+    parts = 동이 여럿인 묶음 계약의 동별 금액 [{name, amount, kind?}](2026-10-15 민재형 — 대가내역서·FMS가 동별 금액을 씀), 둘 이상일 때만 두고 amount = 합.
+    parts[].kind = 그 동만 줄 종류와 다를 때의 종류(10/31 민재형 — 같은 반기에 어떤 동은 정기, 어떤 동은 정밀·진단). 없으면 줄 종류(kind)."""
     out = []
     for r in v or []:
         try:
@@ -88,7 +89,8 @@ def normalize_rounds(v) -> list[dict]:
         if r.get("half") not in HALVES:
             continue
         item = {"year": y, "half": r["half"], "kind": r.get("kind") if r.get("kind") in KINDS else "정기", "amount": _won(r.get("amount"))}
-        parts = [{"name": str(p.get("name") or "").strip(), "amount": _won(p.get("amount"))} for p in (r.get("parts") or []) if isinstance(p, dict)]
+        parts = [{"name": str(p.get("name") or "").strip(), "amount": _won(p.get("amount")),
+                  **({"kind": p["kind"]} if p.get("kind") in KINDS and p.get("kind") != item["kind"] else {})} for p in (r.get("parts") or []) if isinstance(p, dict)]
         parts = [p for p in parts if p["name"]]
         if len(parts) >= 2:
             item["parts"] = parts
@@ -115,6 +117,26 @@ def round_of(rounds: list | None, year: int, half: str) -> dict | None:
     return next((r for r in rounds or [] if r.get("year") == year and r.get("half") == half), None)
 
 
+def find_part(parts: list, name: str | None) -> dict | None:
+    """동 이름으로 동별 금액 줄 찾기(띄어쓰기 무시·포함까지)."""
+    n = _nm(name)
+    if not n:
+        return None
+    return next((p for p in parts if _nm(p.get("name")) == n), None) or next((p for p in parts if _nm(p.get("name")) in n or n in _nm(p.get("name"))), None)
+
+
+def part_kind(r: dict, name: str | None = None) -> str:
+    """그 회차 줄에서 그 동의 점검 종류 — 동별 종류가 있으면 그것, 없으면 줄 종류(10/31)."""
+    hit = find_part(r.get("parts") or [], name)
+    return (hit or {}).get("kind") if (hit or {}).get("kind") in KINDS else (r.get("kind") if r.get("kind") in KINDS else "정기")
+
+
+def round_kinds(r: dict) -> list[str]:
+    """그 회차 줄에 든 종류들(정기·정밀·진단 차례) — 동별 종류가 섞이면 둘 이상."""
+    got = {r.get("kind") if r.get("kind") in KINDS else "정기"} | {p["kind"] for p in r.get("parts") or [] if p.get("kind") in KINDS}
+    return [k for k in KINDS if k in got]
+
+
 def amount_for(rounds: list | None, year: int, half: str, name: str | None = None) -> int | None:
     """그 반기 회차 금액(원) — 동별 금액이 있으면 그 동 것(이름은 띄어쓰기 무시·포함까지), 없거나 못 찾으면 None.
     결과표 점검금액·FMS 동별 금액·대가내역서가 같은 값을 쓰게(2026-10-15 민재형)."""
@@ -126,8 +148,7 @@ def amount_for(rounds: list | None, year: int, half: str, name: str | None = Non
         return int(r.get("amount") or 0) or None
     if not name:
         return None
-    n = _nm(name)
-    hit = next((p for p in parts if _nm(p.get("name")) == n), None) or next((p for p in parts if n and (_nm(p.get("name")) in n or n in _nm(p.get("name")))), None)
+    hit = find_part(parts, name)
     return int(hit["amount"]) if hit and hit.get("amount") else None
 
 
@@ -139,11 +160,11 @@ def part_amount(r: dict, name: str) -> int | None:
     return None
 
 
-def kind_for(rounds: list | None, unit: dict | None, open_ended: bool, year: int, half: str) -> str | None:
-    """그 반기의 회차 종류 — 회차 줄에 있으면 그것, 끝 없는 계약이면 매 반기 종류, 모르면 None(화면은 정기)."""
+def kind_for(rounds: list | None, unit: dict | None, open_ended: bool, year: int, half: str, name: str | None = None) -> str | None:
+    """그 반기의 회차 종류 — 회차 줄에 있으면 그것(name을 주면 그 동의 종류, 10/31), 끝 없는 계약이면 매 반기 종류, 모르면 None(화면은 정기)."""
     for r in rounds or []:
         if r.get("year") == year and r.get("half") == half and r.get("kind") in KINDS:
-            return r["kind"]
+            return part_kind(r, name) if name else r["kind"]
     if open_ended and unit and unit.get("kind") in KINDS:
         return unit["kind"]
     return None
@@ -151,7 +172,7 @@ def kind_for(rounds: list | None, unit: dict | None, open_ended: bool, year: int
 
 def kinds_of(rounds: list | None, unit: dict | None, open_ended: bool) -> str:
     """회차 줄에 든 종류를 정기·정밀·진단 차례로 "·"로 — "정기" | "정밀" | "정기·정밀" | "진단" | "정기·진단" | "정밀·진단" | "정기·정밀·진단"(없으면 정기)."""
-    got = {r.get("kind") for r in (rounds or []) if r.get("kind") in KINDS}
+    got = {r.get("kind") for r in (rounds or []) if r.get("kind") in KINDS} | {p["kind"] for r in (rounds or []) for p in r.get("parts") or [] if p.get("kind") in KINDS}
     if open_ended and unit and unit.get("kind") in KINDS:
         got.add(unit["kind"])
     return "·".join(k for k in KINDS if k in got) or "정기"
@@ -184,9 +205,10 @@ def amount_lines(rounds: list | None, unit: dict | None, open_ended: bool) -> li
     rows = sorted(rounds or [], key=lambda r: (int(r.get("year") or 0), seasons.order(r.get("half"))))
     out = []
     for r in rows:
-        out.append(f"{r.get('year')}년 {r.get('half')}({r.get('kind') or '정기'}) : {money(r.get('amount'), vat=len(rows) == 1)}")
+        mixed = len(round_kinds(r)) > 1  # 동마다 종류가 다르면 줄 종류를 "정기·진단"으로, 동별 줄에 종류를 붙임(10/31)
+        out.append(f"{r.get('year')}년 {r.get('half')}({'·'.join(round_kinds(r)) if mixed else (r.get('kind') or '정기')}) : {money(r.get('amount'), vat=len(rows) == 1)}")
         if r.get("parts"):  # 묶음 계약 — 동별 금액을 바로 아래 줄에(대가내역서와 같은 금액)
-            out.append("    (" + " · ".join(f"{p['name']} ￦{int(p['amount']):,}" for p in r["parts"]) + ")")
+            out.append("    (" + " · ".join(f"{p['name']}{'(' + part_kind(r, p['name']) + ')' if mixed else ''} ￦{int(p['amount']):,}" for p in r["parts"]) + ")")
     if len(rows) > 1:
         out.append(f"총 합 : {money(total(rows))}")
     return out or [money(None)]

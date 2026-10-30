@@ -248,7 +248,7 @@ def get_contract_for(facility_id: int, year: int, half: str, user: User = Depend
     c = contract_for(db, f, year, half)
     last = _latest_contract(db, f.id)
     return {"contract": _contract_out(c) if c else None, "latest": _contract_out(last) if last else None,
-            "kind": kind_known(db, c, year, half)}  # 그 반기 회차 종류(정기/정밀) — 계약서 회차 줄·계약건명에서, 모르면 null(0043, 10/14)
+            "kind": kind_known(db, c, year, half, f.name)}  # 그 반기 회차 종류(정기/정밀) — 계약서 회차 줄·계약건명에서, 모르면 null(0043, 10/14)
 
 
 def _group_contracts(db: Session, f: SitokFacility) -> list[dict]:
@@ -308,7 +308,7 @@ def create_report(facility_id: int, body: ReportIn, user: User = Depends(get_cur
         c = contract_for(db, f, body.year, body.half)
         vals["contract_id"] = c.id if c else None
     if vals.get("kind") not in KINDS:  # 종류를 안 고르면 계약서 그 반기 줄·계약건명에서(정기/정밀), 모르면 428 → 화면이 정기/정밀을 물음(10/14 형 피드백)
-        k = kind_known(db, db.get(SitokContract, vals["contract_id"]) if vals["contract_id"] else None, body.year, body.half)
+        k = kind_known(db, db.get(SitokContract, vals["contract_id"]) if vals["contract_id"] else None, body.year, body.half, f.name)
         if k is None:
             raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "계약서에서 회차 종류(정기/정밀)를 못 읽었습니다 — 종류를 골라 주세요.")
         vals["kind"] = k

@@ -602,7 +602,10 @@
           const base = { year: num(r.querySelector(".r-year").value), half: r.querySelector(".r-half").value, kind: r.querySelector(".r-kind").value };
           const parts = [...r.querySelectorAll(".r-part")];
           if (!parts.length) return { ...base, amount: num(r.querySelector(".r-amt").value) };
-          const pp = parts.map((i) => ({ name: st.bldgs[Number(i.dataset.b)] || "", amount: num(i.value) }));
+          const pp = parts.map((i) => { // 동마다 종류가 다르면(같은 반기에 어떤 동은 정기·어떤 동은 정밀·진단, 10/31) 그 동만 kind를 적음
+            const pk = i.closest(".r-part-l")?.querySelector(".r-pkind")?.value;
+            return { name: st.bldgs[Number(i.dataset.b)] || "", amount: num(i.value), ...(pk && pk !== base.kind ? { kind: pk } : {}) };
+          });
           return { ...base, parts: pp, amount: pp.reduce((t, x) => t + (x.amount || 0), 0) };
         });
       }
@@ -807,11 +810,13 @@
       }
       const multi = st.bldgs.length >= 2;
       const partOf = (r, j) => { const q = (r.parts || []).find((x) => x.name === st.bldgs[j]); return q ? q.amount : (j === 0 && !r.parts ? r.amount : null); };
+      const partKindOf = (r, j) => ((r.parts || []).find((x) => x.name === st.bldgs[j]) || {}).kind || r.kind; // 동만 다른 종류(10/31)
       const rows = st.rounds.map((r, i) => `<div class="sd-round${multi ? " multi" : ""}" data-i="${i}">
           <input class="r-year" inputmode="numeric" value="${r.year || ""}" aria-label="연도" /><span>년</span>
           <select class="r-half" aria-label="반기·시기" title="연 3회(D·E등급)면 해빙기·우기·동절기">${HALF_OPTS.map((h) => `<option${r.half === h ? " selected" : ""}>${h}</option>`).join("")}</select>
           <select class="r-kind" aria-label="점검 종류" title="정밀 = 정밀안전점검 · 진단 = 정밀안전진단">${KIND_OPTS.map((k) => `<option${r.kind === k ? " selected" : ""}>${k}</option>`).join("")}</select>
-          ${multi ? `<span class="r-parts">${st.bldgs.map((b, j) => `<label class="r-part-l"><small>${esc(b || `${j + 1}동`)}</small><input class="r-part sd-won" data-b="${j}" inputmode="numeric" value="${won(partOf(r, j))}" placeholder="금액" aria-label="${esc(b)} 금액" /></label>`).join("")}
+          ${multi ? `<span class="r-parts">${st.bldgs.map((b, j) => `<label class="r-part-l"><small>${esc(b || `${j + 1}동`)}</small><input class="r-part sd-won" data-b="${j}" inputmode="numeric" value="${won(partOf(r, j))}" placeholder="금액" aria-label="${esc(b)} 금액" />
+              <select class="r-pkind" data-b="${j}" aria-label="${esc(b)} 점검 종류" title="이 동만 종류가 다를 때(같은 반기에 어떤 동은 정기, 어떤 동은 정밀·진단)">${KIND_OPTS.map((k) => `<option${partKindOf(r, j) === k ? " selected" : ""}>${k}</option>`).join("")}</select></label>`).join("")}
               <span class="r-sum">= ${won(r.amount) || 0}원</span></span>`
             : `<span class="r-amt-wrap">금 <input class="r-amt sd-won" inputmode="numeric" value="${won(r.amount)}" placeholder="금액" aria-label="금액" /> 원</span>`}
           <button type="button" class="cd-x r-del" title="이 회차 빼기">✕</button></div>`).join("");
@@ -1019,6 +1024,11 @@
       });
       box.querySelectorAll(".r-del").forEach((b) => b.addEventListener("click", () => { sync(); st.rounds.splice(Number(b.closest(".sd-round").dataset.i), 1); draw(); }));
       box.querySelectorAll(".sd-round .r-kind").forEach((i) => i.addEventListener("change", () => { // 사람이 고른 종류 — 도래주기 자동이 안 바꿈
+        const r = st.rounds[Number(i.closest(".sd-round").dataset.i)];
+        if (r) manualKind.add(`${r.year}-${r.half}`);
+        i.closest(".sd-round").querySelectorAll(".r-pkind").forEach((ps) => { if (r && ps.value === r.kind) ps.value = i.value; }); // 줄 종류를 바꾸면 따로 안 고른 동도 따라감(10/31)
+      }));
+      box.querySelectorAll(".sd-round .r-pkind").forEach((i) => i.addEventListener("change", () => { // 동 종류도 사람이 고른 것 — 도래주기 자동이 안 바꿈
         const r = st.rounds[Number(i.closest(".sd-round").dataset.i)];
         if (r) manualKind.add(`${r.year}-${r.half}`);
       }));

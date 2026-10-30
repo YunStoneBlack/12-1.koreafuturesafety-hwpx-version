@@ -159,7 +159,7 @@ def onboard(body: OnboardIn, user: User = Depends(get_current_user), db: Session
     r = db.query(SitokReport).filter(SitokReport.facility_id == lead.id, SitokReport.year == body.year, SitokReport.half == body.half).first()
     if r is None:
         from server.api.routers.sitok import kind_known
-        kind = kind_known(db, c, body.year, body.half)  # 10/14: 새 등록도 계약서 회차 줄·계약건명으로 종류, 모르면 정기 + 안내
+        kind = kind_known(db, c, body.year, body.half, lead.name)  # 10/14: 새 등록도 계약서 회차 줄·계약건명으로 종류, 모르면 정기 + 안내
         if kind is None:
             notes.append(f"{body.year}년 {body.half} 회차 종류(정기/정밀)를 계약서에서 못 읽어 정기로 만들었습니다 — 회차 줄의 배지를 눌러 바꾸세요")
         r = _new_report(db, by, lead, body.year, body.half, contract_id=c.id if c else None, chief_id=chief, participant_ids=parts, kind=kind or "정기")

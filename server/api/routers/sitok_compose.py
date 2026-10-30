@@ -235,7 +235,7 @@ def save_compose(facility_id: int, body: ComposeIn, user: User = Depends(get_cur
             rc = db.get(SitokContract, rc_id)
             chief, parts = _default_people(db, user.company_id)
             r = _new_report(db, user.display_name or "", lead, body.year, body.half, contract_id=rc_id, chief_id=chief, participant_ids=parts,
-                            kind=kind_known(db, rc, body.year, body.half) or "정기")
+                            kind=kind_known(db, rc, body.year, body.half, lead.name) or "정기")
             if lead.group_id:
                 _group_reports(db, r, user.display_name or "")
             notes.append(f"보고서 {k + 1}({lead.name})에 {body.year}년 {body.half} 회차를 만들었습니다.")

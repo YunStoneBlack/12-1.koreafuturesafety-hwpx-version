@@ -91,6 +91,7 @@
 .r-part-l { display: inline-flex; flex-direction: column; gap: 2px; margin: 0; }
 .r-part-l small { font-size: 11px; color: var(--muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cd-box.sd-box .r-part-l input.sd-won { width: 130px; }
+.cd-box.sd-box .r-part-l select.r-pkind { width: 130px; font-size: 12px; padding: 3px 6px; } /* 동마다 점검 종류(10/31) */
 .r-sum { font-weight: 700; font-size: 13px; padding-bottom: 7px; }
 
 /* 관급 착수계·완료계 창(js/sitok-docs-gov.js) — 틀은 contract-docs.css */

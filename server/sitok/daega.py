@@ -38,7 +38,7 @@ def blocks(c) -> list[tuple[str, list[tuple[str, str, int]]]]:
     if names:
         out = []
         for n in names:
-            rows = [(label(r), r["kind"], civil.part_amount(r, n)) for r in rounds]
+            rows = [(label(r), civil.part_kind(r, n), civil.part_amount(r, n)) for r in rounds]  # 동마다 종류가 다를 수 있음(10/31)
             out.append((n, [(a, k, v) for a, k, v in rows if v is not None]))
         return out
     if rounds:
