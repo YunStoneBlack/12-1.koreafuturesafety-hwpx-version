@@ -1339,6 +1339,11 @@ def _add_summary(db: Session, pairs: list, title: str, hwpx: Path, pdf: Path, wa
         except Exception:  # noqa: BLE001 — 못 고치면 그대로
             traceback.print_exc()
         _tidy_pages(out, spdf, sections_from=0)  # 결언 상자 끝 몇 줄 등 애매한 넘침(10/26)
+        try:  # 결언 상자 안 끝 빈 문단만 다음 쪽으로 넘어간 머리글뿐인 쪽(10/30 민재형 나라키움대전센터 5쪽째)
+            if S.last_page_empty(spdf) and S.trim_box_tail(out):
+                spdf.write_bytes(hwp_queue.convert_via_worker(out.read_bytes(), ".hwpx", wait=PDF_WAIT))
+        except Exception:  # noqa: BLE001 — 못 고치면 그대로
+            traceback.print_exc()
         n = S.insert_before_toc(pdf, spdf)
         if not n:
             warn.append("요약문: 보고서에서 목차 쪽을 못 찾아 끼우지 못했습니다(요약문 한글은 따로 있음)")
