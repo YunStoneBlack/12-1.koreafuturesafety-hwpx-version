@@ -36,6 +36,9 @@
     const reg = (job.files || {}).register;
     $("bj-reg-view").hidden = !reg;
     if (reg) $("bj-reg-view").href = `${BASE}/api${P}/file/register?v=${encodeURIComponent(reg.at || "")}`;
+    const land = (job.files || {}).landuse;
+    $("bj-land-view").hidden = !land;
+    if (land) $("bj-land-view").href = `${BASE}/api${P}/file/landuse?v=${encodeURIComponent(land.at || "")}`;
     drawRecap();
   }
 
@@ -97,6 +100,27 @@
       job = out;
       drawTop(); drawInfo();
       msg.textContent = out.read && out.read.text_ok ? `✓ ${out.read.keys ? out.read.keys.length : ""}칸 읽음 — 아래 [건축물 개요]에서 확인` : "읽은 칸이 없습니다 — 직접 넣으세요";
+    } catch (err) { msg.textContent = err.message; }
+  });
+
+  // 토지이용계획확인원(10/30 — 방화지구·가로구역 높이·지구단위계획을 점검 목록 답으로, 쪽은 도면 모음에)
+  const landIn = $("bj-land");
+  landIn.addEventListener("change", async () => {
+    const f = landIn.files[0];
+    landIn.value = "";
+    if (!f) return;
+    const msg = $("bj-reg-msg");
+    msg.textContent = "확인원 읽는 중…";
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const out = await apiUpload(`${P}/landuse`, fd);
+      plan = out.plan;
+      delete out.plan;
+      job = { ...job, ...out };
+      drawTop(); onDrawings(out); drawPlan(); drawItems();
+      const lu = (plan.docs || {}).landuse;
+      msg.textContent = lu && lu.text_ok ? "✓ 확인원 읽음 — 점검 목록 ④에 답이 채워졌습니다" : "확인원에 글자가 없습니다(그림) — 점검 목록 ④ 질문에 직접 답해 주세요";
     } catch (err) { msg.textContent = err.message; }
   });
 
@@ -807,7 +831,10 @@
     const must = codes("must");
     const places = (table.places || []).filter(([k]) => k !== "doc").map(([k, lab]) => [lab, must.filter((code) => ((table.item_places || {})[code] || ["out"]).includes(k))]).filter(([, l]) => l.length);
     const present = codes("present");
-    const talkQ = plan.questions.filter((q) => q.kind === "talk"), landQ = plan.questions.filter((q) => q.kind === "land");
+    const talkQ = plan.questions.filter((q) => q.kind === "talk" && !q.answer), landQ = plan.questions.filter((q) => q.kind === "land" && !q.answer);
+    const answered = plan.questions.filter((q) => q.answer); // 서류에서 읽은 답·점검자 답(10/30) — 틀리면 다른 답을 눌러 바꿈
+    const srcOf = (q) => q.user ? (q.auto && q.auto.v !== q.user ? `점검자 답(서류는 ${q.auto.v})` : "점검자 답") : q.auto ? `📄 ${q.auto.src}` : "";
+    const lu = (plan.docs || {}).landuse;
     const shown = new Set(present.flatMap((code) => items[code].asks));
     const siteRest = plan.questions.filter((q) => q.kind === "site" && !shown.has(q.key) && q.items.length); // 면담 항목에 섞인 현장 질문
     const na = codes("na"), naLeft = na.filter((k) => !items[k].marked_na && !items[k].touched), chk = codes("check");
@@ -823,15 +850,20 @@
         ${codes("talk").map(row).join("")}${talkQ.map((q) => qRow(q.key, true)).join("")}
         <div class="mail-note">점검·검사 이행(소방·저수조·승강기·전기·가스 등)은 [그 밖의 항목] 탭, 관리계획 수립 여부는 [관리계획] 탭</div>` : ""}
       ${landQ.length || codes("doc").length ? `<div class="bj-pl-sec">④ 서류로 확인 <small>토지이용계획확인원(토지이음)·건축물대장</small></div>
-        ${codes("doc").map(row).join("")}${landQ.map((q) => qRow(q.key, true)).join("")}` : ""}
+        ${codes("doc").map(row).join("")}${landQ.map((q) => qRow(q.key, true)).join("")}
+        ${landQ.length ? `<div class="mail-note">${lu ? (lu.text_ok ? "" : "올린 확인원에 글자가 없어(그림) 못 읽었습니다 — 위 질문에 답해 주세요") : "맨 위 [🗺️ 토지이용계획확인원 올리기]로 토지이음 출력 PDF를 올리면 자동으로 답이 채워집니다"}</div>` : ""}` : ""}
+      ${answered.length ? `<div class="bj-pl-sec">📄 서류에서 읽은 답·답한 것 <small>${answered.length}개 — 틀리면 다른 답을 누르세요(점검자 답이 서류보다 앞섬)</small></div>
+        ${answered.map((q) => `<div class="bj-pl-q"><span>${esc(q.label)} <small>· ${esc((q.uses || []).join(", "))}</small><br><small class="bj-pl-src">${esc(srcOf(q))}</small></span>
+          <span class="bj-seg bj-fact" data-key="${esc(q.key)}" data-user="${esc(q.user || "")}">${["있음", "없음"].map((v) => `<button type="button" data-v="${v}" class="${q.answer === v ? "on" : ""}">${v}</button>`).join("")}</span></div>`).join("")}` : ""}
       ${chk.length ? `<div class="bj-pl-sec">확인 필요 <small>대장 값이 모자라거나 기준일 경계</small></div><div class="bj-pl-grid">${chk.map(row).join("")}</div>` : ""}
       <div class="bj-pl-sec">⑤ 해당없음 — 안 찍어도 됨 <small>${na.length}개${naLeft.length ? ` · 아직 안 넣은 것 ${naLeft.length}` : ""}</small>
         ${naLeft.length ? `<button type="button" class="secondary btn-sm bj-pl-na-go">해당없음 ${naLeft.length}개 넣기(비고에 사유)</button>` : ""}</div>
       <details class="bj-pl-na"><summary>사유 보기 ▾</summary><ul>${na.map((k) => `<li><b>${esc(k)} ${esc(nm(k))}</b>${items[k].marked_na ? " ✓" : ""} — ${esc(items[k].reason)}</li>`).join("")}</ul></details>`;
     $("bj-plan-body").querySelectorAll(".bj-pl-row").forEach((b) => b.addEventListener("click", () => jumpTo({ code: b.dataset.code, tab: groupOf(b.dataset.code) })));
     $("bj-plan-body").querySelectorAll(".bj-fact button").forEach((b) => b.addEventListener("click", async () => {
-      const key = b.closest(".bj-fact").dataset.key;
-      const v = b.classList.contains("on") ? "" : b.dataset.v; // 한 번 더 = 지움
+      const seg = b.closest(".bj-fact"), key = seg.dataset.key;
+      if (b.classList.contains("on") && seg.dataset.user === "" && (plan.questions.find((q) => q.key === key) || {}).auto) return; // 서류에서 읽은 답 — 바꾸려면 다른 답
+      const v = b.classList.contains("on") ? "" : b.dataset.v; // 한 번 더 = 지움(서류 답이 있으면 그것으로 돌아감)
       try { plan = await api(`${P}/facts`, { method: "PUT", body: JSON.stringify({ facts: { [key]: v } }) }); drawPlan(); drawItems(); } catch (err) { showError(errorEl, err); }
     }));
     $("bj-plan-body").querySelector(".bj-pl-na-go")?.addEventListener("click", async (e) => {

@@ -397,14 +397,25 @@ def evaluate(code: str, x: Bldg, facts: dict) -> dict:  # noqa: C901 — 항목�
     return APPLY()
 
 
-def plan(b: dict, facts: dict, results: dict, floors: list | None = None) -> dict:
+USES = {  # 답이 바꾸는 항목(답한 것·서류에서 읽은 것 줄에 보여 줌)
+    "retaining": ["3.4.1"], "slope": ["3.4.1"], "fence": ["3.4.2"], "roof_garden": ["3.1.2"], "ac": ["3.2.3"], "heat": ["3.2.4"], "vent": ["3.2.5"],
+    "lightning": ["3.2.6"], "broadcast": ["3.2.7"], "elevator": ["3.2.9"], "roof_plaza": ["3.5.2"], "store24": ["3.1.19"], "unauth_change": ["3.4.8"],
+    "multi_use": ["3.5.5"], "certs": ["3.3.2"], "public_owner": ["3.3.2"], "fire_district": ["3.5.8"], "street_height": ["3.1.9"],
+    "district_plan": ["3.1.1", "3.1.4", "3.1.5"],
+}
+
+
+def plan(b: dict, facts: dict, results: dict, floors: list | None = None, auto: dict | None = None) -> dict:
     """건 하나의 점검 목록 — 항목마다 판정 + 갈래(must 반드시 찍을 사진 · present 있으면 찍을 사진 · talk 면담 · land 서류 · na 해당없음 · check 확인 필요),
-    물을 것(questions — 답과 영향 항목)."""
+    물을 것(questions — 답과 영향 항목). auto = 서류에서 읽은 답(doc_facts.read — {key: {v, src}}), 점검자 답(facts)이 있으면 그것이 이김."""
+    auto = {k: v for k, v in (auto or {}).items() if k in FACTS and v.get("v") in ("있음", "없음")}
+    eff = {k: v["v"] for k, v in auto.items()}
+    eff.update({k: facts[k] for k in (facts or {}) if _fact(facts, k)})
     x = Bldg(b, floors)
     out, asked = {}, {}
     for it in I.items():
         code = it["code"]
-        r = evaluate(code, x, facts)
+        r = evaluate(code, x, eff)
         places = I.ITEM_PLACES.get(code, ["out"])
         if r["state"] == "apply":
             cat = "must" if places != ["doc"] else "talk" if code == "3.4.6" else "doc"
@@ -418,7 +429,8 @@ def plan(b: dict, facts: dict, results: dict, floors: list | None = None) -> dic
                      "touched": bool(res.get("judge") or res.get("ratings") or res.get("photos") or res.get("na") or res.get("cert"))}
         for k in r["asks"]:
             asked.setdefault(k, []).append(code)
-    qs = [{"key": k, "kind": FACTS[k][0], "label": FACTS[k][1], "answer": _fact(facts, k), "items": asked.get(k, [])}
-          for k in FACTS if k in asked or _fact(facts, k)]
+    qs = [{"key": k, "kind": FACTS[k][0], "label": FACTS[k][1], "answer": _fact(eff, k), "user": _fact(facts, k), "auto": auto.get(k),
+           "items": asked.get(k, []), "uses": USES.get(k, [])}
+          for k in FACTS if k in asked or _fact(eff, k)]
     count = {c: sum(1 for v in out.values() if v["cat"] == c) for c in ("must", "present", "talk", "doc", "land", "na", "check")}
     return {"items": out, "questions": qs, "count": count}

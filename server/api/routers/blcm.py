@@ -11,6 +11,8 @@
   — 그 항목 견본 도면 칸에 고른 그림(현황사진으로 복사, photos[].slot·drawing). 사진 올리기 slot = 견본 칸(같은 칸 사진은 바꿈), 개수 제한 없음.
 - `GET  /blcm/jobs/{id}/plan` · `PUT …/facts` {facts} · `POST …/plan/na` {codes?} — 점검 목록(server/blcm/applicability.py — 법령상 적용대상 판정, 회사 결정 = 추천안):
   반드시 찍을 사진 / 있으면 찍을 사진 / 면담·서류로 확인 / 해당없음(사유) / 확인 필요, 현장·면담 답은 contract.facts, 해당없음 넣기 = 손대지 않은 항목에 na + 비고 사유(10/30)
+- `POST /blcm/jobs/{id}/landuse`(토지이용계획확인원 PDF·그림) — 서류/토지이용계획확인원.pdf + 쪽을 도면 모음에(3.5.8 칸), 지정여부 칸에서 방화지구·가로구역 높이·지구단위계획을 읽어
+  점검 목록 답으로(server/blcm/doc_facts.py — 대장 승강기·인증·건축주·변동사항도, 점검자 답이 이김, 10/30)
 - `GET  /blcm/samples/{file}` — 견본 참고 사진(우리프라자 보고서 현황사진, server/blcm/samples.json·저장소 _건축물관리점검/_참고사진, 10/30)
 - `GET  /blcm/jobs/{id}/check` · `POST /blcm/jobs/{id}/done` {done} — 빠진 것(소항목마다 items.missing + 관리계획·그 밖의 항목·의견)·[✓ 점검 완료](contract.field_done, 10/30)
 - `POST /blcm/jobs/{id}/ai/rewrite` {label, current, note} — 글 한 칸 덧붙인 내용 반영해 다시 쓰기(app.js aiRewrite, 약 10원)
@@ -192,10 +194,51 @@ def _floors(j: BlcmJob) -> list:
     return stored
 
 
+def _docs(j: BlcmJob) -> dict:
+    """서류(대장·토지이용계획확인원)에서 미리 읽은 점검 목록 답 — 파일이 바뀔 때만 다시 읽음(doc_facts 캐시)."""
+    from server.blcm import doc_facts as DF
+
+    path = lambda k: folder(j) / (j.files or {})[k]["rel"] if (j.files or {}).get(k) else None  # noqa: E731
+    return DF.read(path("register"), path("landuse"), j.building or {})
+
+
 def _plan(j: BlcmJob) -> dict:
     from server.blcm import applicability as AP
 
-    return AP.plan(j.building or {}, (j.contract or {}).get("facts") or {}, j.results or {}, _floors(j))
+    d = _docs(j)
+    b = {**(j.building or {}), "changes": d["changes"]}
+    p = AP.plan(b, (j.contract or {}).get("facts") or {}, j.results or {}, _floors(j), d["auto"])
+    land = (j.files or {}).get("landuse")
+    p["docs"] = {"landuse": ({**land, "text_ok": bool((d["land"] or {}).get("text_ok")), "section": (d["land"] or {}).get("section", "")} if land else None),
+                 "register": bool((j.files or {}).get("register"))}
+    return p
+
+
+LAND_NAME = "토지이용계획확인원"
+
+
+@router.post("/jobs/{jid}/landuse")
+def upload_landuse(jid: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """토지이용계획확인원(토지이음 출력 PDF 또는 그림) — 저장 + 쪽을 도면 모음에(예전 확인원 쪽은 빼고), 점검 목록 다시."""
+    j = _require(db, user, jid)
+    data = _pdf(file)
+    dest = folder(j) / "서류" / f"{LAND_NAME}.pdf"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    files = dict(j.files or {})
+    files["landuse"] = {"rel": f"서류/{LAND_NAME}.pdf", "name": file.filename or f"{LAND_NAME}.pdf",
+                        "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "by": user.display_name or ""}
+    j.files = files
+    keep = []
+    for d in _drawings(j):
+        if d.get("name") == LAND_NAME:
+            (folder(j) / d["rel"]).unlink(missing_ok=True)
+        else:
+            keep.append(d)
+    pages = [dict(x, name=LAND_NAME) for x in _add_pages(j, data, LAND_NAME)]
+    _save_drawings(j, user, keep + pages)
+    db.commit()
+    return {**_out(j), **_drawings_out(j), "plan": _plan(j)}
 
 
 @router.get("/jobs/{jid}/plan")

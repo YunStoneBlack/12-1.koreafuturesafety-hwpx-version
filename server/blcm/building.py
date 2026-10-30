@@ -71,6 +71,12 @@ def read(pdf: Path, company_id: int | None = None, use_ai: bool = False) -> dict
             base = SD.read_register_ai(pdf, company_id)
         return {**base, "text_ok": bool(base.get("text_ok"))}
     out = {**base, **extra(C.read_text(pdf))}
+    try:  # 변동사항 — 칸이 섞인 대장(집합 표제부)도 날짜+내용 짝으로 더 찾음(10/30, doc_facts)
+        from server.blcm import doc_facts as DF
+
+        out["changes"] = DF._merge([{**c, "date": str(c.get("date") or "")} for c in out.get("changes") or []], DF._register(*DF._key(Path(pdf)))["changes"])
+    except Exception:  # noqa: BLE001 — 못 읽으면 예전 것
+        pass
     for k in ("permit_date", "approval_date", "start_date"):
         v = out.get(k)
         out[k] = v.isoformat() if hasattr(v, "isoformat") else (v or "")
