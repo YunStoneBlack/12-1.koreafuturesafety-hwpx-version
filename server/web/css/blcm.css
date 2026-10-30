@@ -422,4 +422,5 @@
 .main .bj-etc.need .bj-etc-l { color: var(--crit); }
 .main .bj-etc.need .bj-blank { border-color: var(--crit); background: #fff8e6; }
 @media (max-width: 760px) { .main .bj-etc { flex-basis: 100%; } }
+.main .bj-doc-tag { font-size: 11px; font-weight: 700; color: #5b21b6; background: #f1ecff; border-radius: 5px; padding: 1px 5px; }  /* 대장에서 넣은 체크(3.4.8 용도변경, 10/30) */
 

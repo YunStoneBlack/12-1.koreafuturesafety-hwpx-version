@@ -191,6 +191,9 @@ def create_job(name: str = Form(""), address: str = Form(""), ledger: UploadFile
     read = None
     if data is not None:
         read = _read_register(j, data, ledger.filename or "건축물대장.pdf", user, ai)
+        res = dict(j.results or {})
+        if _doc_fill(j, res):  # 3.4.8 대장 변동사항(10/30)
+            j.results = res
     if not (j.name or "").strip():
         j.name = "이름 없는 건축물"
     db.commit()
@@ -222,6 +225,63 @@ def _docs(j: BlcmJob) -> dict:
     return DF.read(path("register"), path("landuse"), j.building or {})
 
 
+CHANGE_CODE = "3.4.8"
+
+
+def _change_sig(j: BlcmJob, uc: list, sc: list) -> str:
+    return f"{len(uc)}/{len(sc)}/{((j.files or {}).get('register') or {}).get('at', '')}"
+
+
+def _doc_fill(j: BlcmJob, res: dict) -> bool:
+    """3.4.8 구조·용도변경 — 건축물대장 변동사항으로(10/30 사용자 "용도변경은 건축물대장으로 읽어 자동으로 입력되는지?" → "시작"):
+    용도가 바뀐 변동사항이 있으면 점검현황 "용도변경" 체크(📄 대장), 비고에 변동 내역(날짜·호수·전 → 후 용도, 증축·구조변경도), 대장 변동사항 칸 그림(빨간 네모).
+    판정(양호~불량)은 현장(균열·하중 증가)이라 안 넣음. 대장이 그대로면 다시 안 함(sig), 점검자가 고친 비고는 그대로. 바꿨으면 True."""
+    from server.blcm import doc_facts as DF
+    from server.blcm import evidence as EV
+
+    r = dict(res.get(CHANGE_CODE) or {})
+    reg = (j.files or {}).get("register")
+    if r.get("na") or not reg:
+        return False
+    ch = _docs(j)["changes"]
+    uc, sc = DF.use_changes(ch), DF.struct_changes(ch)
+    old = r.get("doc") or {}
+    sig = _change_sig(j, uc, sc)
+    if not (uc or sc) or old.get("sig") == sig:
+        return False
+    st = dict(r.get("status") or {})
+    marks = []
+    if uc:
+        st["l7t1"] = True  # 용도변경(옥상층 포함) 현황 : ■용도변경
+        marks.append("l7t1")
+    tx = dict(r.get("texts") or {})
+    note = DF.change_note(uc, sc, (j.building or {}).get("approval_date") or "")
+    if not (tx.get("rm") or "").strip() or tx.get("rm") == old.get("rm"):
+        tx["rm"] = note
+    keep = []
+    for x in r.get("photos") or []:  # 전에 넣은 대장 그림은 빼고 다시
+        if x.get("doc"):
+            (folder(j) / x["rel"]).unlink(missing_ok=True)
+        else:
+            keep.append(x)
+    (folder(j) / "사진").mkdir(parents=True, exist_ok=True)
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        shots = EV.register_shots(folder(j) / reg["rel"], ["변동사항"])
+    except Exception:  # noqa: BLE001 — 그림을 못 만들면 체크·비고만
+        shots = []
+    for img, _cap in shots[:1]:
+        pid = uuid.uuid4().hex[:10]
+        rel = f"사진/{CHANGE_CODE}_{pid}.jpg"
+        (folder(j) / rel).write_bytes(img)
+        what = " · ".join(x for x in (f"용도변경 {len(uc)}건" if uc else "", f"증축·구조변경 {len(sc)}건" if sc else "") if x)
+        keep.append({"id": pid, "rel": rel, "name": "", "kind": "good", "caption": f"건축물대장 변동사항({what})"[:60], "evidence": "대장", "doc": True, "at": now})
+    r.update(status=st, texts=tx, photos=keep,
+             doc={"sig": sig, "status": marks, "rm": note if tx["rm"] == note else old.get("rm", ""), "uses": len(uc), "structs": len(sc), "at": now})
+    res[CHANGE_CODE] = I.normalize(_item(CHANGE_CODE), r, res.get(CHANGE_CODE), _use(j))
+    return True
+
+
 def _plan(j: BlcmJob) -> dict:
     from server.blcm import applicability as AP
 
@@ -231,6 +291,11 @@ def _plan(j: BlcmJob) -> dict:
     land = (j.files or {}).get("landuse")
     p["docs"] = {"landuse": ({**land, "text_ok": bool((d["land"] or {}).get("text_ok")), "section": (d["land"] or {}).get("section", "")} if land else None),
                  "register": bool((j.files or {}).get("register"))}
+    from server.blcm import doc_facts as DF  # 3.4.8 대장 변동사항(10/30) — 아직 안 넣었으면 [서류검토 확정]에
+    uc, sc = DF.use_changes(d["changes"]), DF.struct_changes(d["changes"])
+    r = (j.results or {}).get(CHANGE_CODE) or {}
+    p["doc_fill"] = {CHANGE_CODE: {"uses": len(uc), "structs": len(sc),
+                                   "done": bool(r.get("na")) or not (uc or sc) or (r.get("doc") or {}).get("sig") == _change_sig(j, uc, sc)}}
     return p
 
 
@@ -345,10 +410,11 @@ def apply_na(jid: int, body: NaIn, user: User = Depends(get_current_user), db: S
         r.update(na=True, texts=tx)
         res[code] = _evidence(j, code, r, v) if body.evidence else r
         done.append(code)
+    filled = body.codes is None and _doc_fill(j, res)  # 3.4.8 대장 변동사항(10/30) — applied(해당없음 넣은 것)와 따로
     j.results = res
     _touch(j, user, "results")
     db.commit()
-    return {**_out(j), "plan": _plan(j), "applied": done}
+    return {**_out(j), "plan": _plan(j), "applied": done, "doc_filled": [CHANGE_CODE] if filled else []}
 
 
 @router.get("/jobs/{jid}")
@@ -405,6 +471,10 @@ def delete_job(jid: int, password: str = Body("", embed=True), user: User = Depe
 def upload_register(jid: int, file: UploadFile = File(...), ai: bool = Form(False), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     j = _require(db, user, jid)
     got = _read_register(j, _pdf(file), file.filename or "건축물대장.pdf", user, ai)
+    res = dict(j.results or {})
+    if _doc_fill(j, res):  # 3.4.8 대장 변동사항(10/30)
+        j.results = res
+        _touch(j, user, "results")
     _touch(j, user, "building", "files")
     db.commit()
     return _out(j) | {"read": {"text_ok": bool(got.get("text_ok")), "keys": [k for k in B.KEYS if got.get(k) not in (None, "", [])]}}

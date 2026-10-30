@@ -299,14 +299,14 @@
     const grp = {}; // 하나만 고르는 칸(사이트 라디오, 10/30) → 묶음 번호
     (it.radios || []).forEach((g, gi) => g.forEach((k) => { grp[k] = gi; }));
     const ruled = Object.keys(it.rules || {}).length;
-    const photo = new Set(it.photo_st || []), etc = it.etc_blanks || {}; // 사진과만 연동되는 체크·기타 내용 칸(10/30 사용자 "실제로 써야 될 값이랑 사진 찍으면 선택될 값 구분")
+    const photo = new Set(it.photo_st || []), etc = it.etc_blanks || {}, docSt = new Set((r.doc || {}).status || []); // 사진과만 연동되는 체크·기타 내용 칸(10/30 사용자 "실제로 써야 될 값이랑 사진 찍으면 선택될 값 구분")
     return `<div class="bj-status"><div class="bj-lab">세부항목 점검현황${ruled ? ' <small>— 개수·거리·숫자를 고르면 판정이 자동(🔒)</small>' : ""}${photo.size ? ' <small>· 📷 표시는 아래 ⚠ 부적합 칸에 찍으면 체크(사진과만 연동)</small>' : ""}</div>${it.status.map((ln, li) => {
       const ph = ln.some((t, ti) => photo.has(`l${li}t${ti}`));
       return `<div class="bj-sline${ph ? " bj-ph-line" : ""}">${ln.map((t, ti) => {
       const key = `l${li}t${ti}`;
       if (t.t === "check" && photo.has(key)) return `<label class="bj-ck bj-ph-ck${st[key] === true ? " on" : ""}" title="⚠ 부적합 칸에 찍으면 체크 — 사진을 지우면 풀림"><input type="checkbox" disabled data-ph="${key}" ${st[key] === true ? "checked" : ""} /> ${esc(t.v)} <small>📷</small></label>`;
       if (t.t === "check" && grp[key] != null) return `<label class="bj-ck bj-rd"><input type="radio" name="st-${esc(it.code)}-${grp[key]}" data-st="${key}" ${st[key] === true ? "checked" : ""} /> ${esc(t.v)}</label>`;
-      if (t.t === "check") return `<label class="bj-ck"><input type="checkbox" data-st="${key}" ${st[key] === true ? "checked" : ""} /> ${esc(t.v)}</label>`;
+      if (t.t === "check") return `<label class="bj-ck"><input type="checkbox" data-st="${key}" ${st[key] === true ? "checked" : ""} /> ${esc(t.v)}${docSt.has(key) && st[key] === true ? ' <small class="bj-doc-tag" title="건축물대장 변동사항에서 — 비고에 내역">📄 대장</small>' : ""}</label>`;
       if (t.t === "blank" && etc[key]) { const need = st[etc[key]] === true && !String(st[key] || "").trim(); // 기타 내용 — 크게, 기타가 켜졌는데 비면 강조
         return `<span class="bj-etc${need ? " need" : ""}"><span class="bj-etc-l">기타 내용${need ? " — 적어 주세요" : ""}</span><input class="bj-blank" data-st="${key}" value="${esc(st[key] === true ? "" : st[key] || "")}" placeholder="기타가 무엇인지(예: 자전거 보관대)" /></span>`; }
       if (t.t === "blank") return `<input class="bj-blank" data-st="${key}" value="${esc(st[key] === true ? "" : st[key] || "")}" />${t.unit ? `<span class="bj-unit">${esc(t.unit)}</span>` : ""}`;
@@ -913,6 +913,8 @@
     const answered = plan.questions.filter((q) => q.answer);
     const srcOf = (q) => q.user ? (q.auto && q.auto.v !== q.user ? `점검자 답(서류는 ${q.auto.v})` : "점검자 답") : q.auto ? `📄 ${q.auto.src}` : "";
     const docs = plan.docs || {}, lu = docs.landuse;
+    const ch = (plan.doc_fill || {})["3.4.8"] || {}, chLeft = !ch.done; // 3.4.8 대장 변동사항(10/30) — 용도변경 체크·비고 내역·대장 그림
+    const chTxt = [ch.uses ? `용도변경 ${ch.uses}건` : "", ch.structs ? `증축·구조변경 ${ch.structs}건` : ""].filter(Boolean).join("·");
     $("bj-review-sub").textContent = `현장 점검 ${nSite}항목 · 해당없음 ${na.length}${naLeft.length ? ` (아직 안 넣음 ${naLeft.length})` : " ✓"}`;
     $("bj-review-body").innerHTML = `<div class="bj-pl-sum"><span class="must">현장 점검 ${nSite - site.length}</span>${site.length ? `<span class="present">있으면 찍기 ${site.length}</span>` : ""}<span class="na">해당없음 ${na.length}</span>${chk.length ? `<span class="check">확인 필요 ${chk.length}</span>` : ""}</div>
       <div class="bj-rv-docs">🏢 건축물대장 ${docs.register ? "✓" : "— 맨 위 [🏢 건축물대장 올리기]"} · 🗺️ 토지이용계획확인원 ${lu ? (lu.text_ok ? "✓" : "글자 없는 그림 — 아래 질문에 직접 답") : "— 맨 위 [🗺️ 토지이용계획확인원 올리기]로 올리면 아래 질문이 자동으로"}</div>
@@ -924,7 +926,7 @@
       ${chk.length ? `<div class="bj-pl-sec">확인 필요 <small>대장 값이 모자라거나 기준일 경계 — 현장 점검 목록에 남겨 둠</small></div>${chk.map((k) => `<button type="button" class="bj-pl-row" data-code="${esc(k)}"><span class="bj-pl-t"><b>${esc(k)} ${esc(nm(k))}</b><small>${esc(items[k].why || "")}</small></span></button>`).join("")}` : ""}
       <div class="bj-pl-sec">해당없음 ${na.length}개 <small>법령상 적용대상이 아님 — 사유는 비고에 들어갑니다</small></div>
       <details class="bj-pl-na"><summary>사유 보기 ▾</summary><ul>${na.map((k) => `<li><b>${esc(k)} ${esc(nm(k))}</b>${items[k].marked_na ? ` ✓${items[k].evidence ? ` · 근거 그림 ${items[k].evidence}장` : ""}` : ""} — ${esc(items[k].reason)}</li>`).join("")}</ul></details>
-      <div class="bj-rv-go">${naLeft.length ? `<button type="button" class="bj-pl-na-go">✓ 서류검토 확정 — 해당없음 ${naLeft.length}개에 사유·근거 그림 넣기</button>
+      <div class="bj-rv-go">${naLeft.length || chLeft ? `<button type="button" class="bj-pl-na-go">✓ 서류검토 확정 — ${[naLeft.length ? `해당없음 ${naLeft.length}개에 사유·근거 그림` : "", chLeft ? `3.4.8에 대장 ${chTxt}` : ""].filter(Boolean).join(" + ")} 넣기</button>
         <span class="mail-note">아래 ③ 현장 점검은 이 판정대로 나옵니다(해당없음은 맨 끝 탭) · 현장 답(있음/없음)에 따라 바뀌면 다시 누르세요</span>`
         : `<b class="bj-done-ok">✓ 서류검토 확정</b><span class="mail-note">해당없음 ${na.length}개 모두 사유·근거 그림(대장 칸·확인원·법령 조문 빨간 네모)을 넣었습니다 — [해당없음] 탭 카드에서 확인</span>`}</div>`;
     const body = $("bj-review-body");
@@ -932,7 +934,8 @@
     wireFacts(body);
     body.querySelector(".bj-pl-na-go")?.addEventListener("click", async (e) => {
       const btn = e.currentTarget;
-      if (!confirm(`법령상 해당없음 ${naLeft.length}개를 해당없음으로 넣고 비고에 사유, 현황사진에 근거 그림(대장 칸·확인원·법령 조문)을 넣을까요?\n(판정·사진을 넣은 항목은 건드리지 않습니다)`)) return;
+      if (!confirm([naLeft.length ? `법령상 해당없음 ${naLeft.length}개를 해당없음으로 넣고 비고에 사유, 현황사진에 근거 그림(대장 칸·확인원·법령 조문)을 넣을까요?\n(판정·사진을 넣은 항목은 건드리지 않습니다)` : "",
+        chLeft ? `3.4.8 구조·용도변경에 건축물대장 변동사항(${chTxt})을 넣을까요? — 점검현황 '용도변경' 체크·비고에 내역·대장 그림(판정은 현장에서)` : ""].filter(Boolean).join("\n\n"))) return;
       btn.disabled = true;
       try {
         const out = await apiPost(`${P}/plan/na`, {});

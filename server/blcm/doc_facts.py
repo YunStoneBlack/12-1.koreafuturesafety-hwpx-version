@@ -60,6 +60,15 @@ def _builder(ws: list) -> str:
     return ""
 
 
+def _open(t: str) -> bool:
+    """괄호가 덜 닫힘 — ( ) 와 [ ] 둘 다("용도변경[502호…" 대괄호로 적는 대장, 10/30)."""
+    return t.count("(") + t.count("[") > t.count(")") + t.count("]")
+
+
+def _closes(t: str) -> bool:
+    return t.count(")") + t.count("]") > t.count("(") + t.count("[")
+
+
 def changes(raw: str) -> list[dict]:
     """변동사항 — 날짜 줄 다음 줄이 내용(괄호가 안 닫히면 다음 줄까지). 칸이 섞인 대장(집합 표제부)도 날짜+내용 짝으로 찾음."""
     lines = [x.strip() for x in raw.splitlines() if x.strip()]
@@ -70,9 +79,13 @@ def changes(raw: str) -> list[dict]:
         if not m or not re.match(r"[가-힣\[]", nx) or LABEL_LINE.match(nx) or "인허가" in nx:
             continue
         text, k = nx, i + 2
-        while text.count("(") > text.count(")") and k < len(lines) and k < i + 5 and not DATE_LINE.fullmatch(lines[k]) and not LABEL_LINE.match(lines[k]):
+        while _open(text) and k < len(lines) and k < i + 6 and not DATE_LINE.fullmatch(lines[k]) and not LABEL_LINE.match(lines[k]):
             text += lines[k]
             k += 1
+        if _open(text):  # 쪽이 넘어가며 끊김(10/30 우리프라자 "…사무소→종" + 다음 쪽 머리글 뒤 "교시설/교회)") — 다음 날짜 줄 바로 앞 줄로 이음
+            tail = next((lines[n] for n in range(k, min(len(lines) - 1, k + 150)) if _closes(lines[n])
+                         and DATE_LINE.fullmatch(lines[n + 1]) and not LABEL_LINE.match(lines[n])), "")  # 닫는 괄호로 끝나고 다음이 날짜 줄인 줄(쪽 머리 칸의 허가일 등 날짜는 건너뜀)
+            text += tail
         try:
             day = datetime.date(int(m[1]), int(m[2]), int(m[3])).isoformat()
         except ValueError:
@@ -80,6 +93,69 @@ def changes(raw: str) -> list[dict]:
         if not any(c["date"] == day and c["text"] == text for c in out):
             out.append({"date": day, "text": text})
     return out
+
+
+CAT_RE = re.compile(r"(제\d종\s*근(?:린생활시설|생)|[가-힣]{2,}시설|공동주택|단독주택|다가구주택|다세대주택|오피스텔)(?:\s*[/(]\s*([가-힣·]+)\)?)?")
+SEP_RE = re.compile(r"→|->|▶|변경\s*후\s*:?")
+WHERE_RE = re.compile(r"^[\s\[(,]*(?:기존|변경\s*전\s*:?)?\s*((?:지하|지상)?(?:\d+층)?\s*(?:\d+(?:-\d+)?호?[,·\s]*)*\d+(?:-\d+)?호)[,\s:]*")
+ADMIN_RE = re.compile(r"[가-힣0-9]*과-\d+\s*\([\d.\s시행]+\)\s*호?(?:에\s*의거|로)?,?\s*|신청에\s*(?:따른|의거)\s*|\(\d{4}\.\d{1,2}\.\d{1,2}\.?\)")
+STRUCT_RE = re.compile(r"증축|개축|대수선|구조변경")  # 철거는 뺌(기계식주차장 철거 같은 것이 잡힘)
+
+
+def _uses(part: str) -> list[str]:
+    """글 속 용도 이름 — "제2종근린생활시설/사진관"·"제1종근생(의원)"·"위락시설(유흥주점)" → "제2종근린생활시설(사진관)"."""
+    out = []
+    for cat, sub in CAT_RE.findall(part):
+        cat = re.sub(r"\s+", "", cat).replace("근생", "근린생활시설") if "근생" in cat and "근린" not in cat else re.sub(r"\s+", "", cat)
+        out.append(f"{cat}({sub})" if sub and sub != cat else cat)
+    return list(dict.fromkeys(out))
+
+
+def use_changes(chs: list[dict]) -> list[dict]:
+    """용도가 바뀐 변동사항(10/30 사용자 "3.4.8 용도변경 — 대장으로 읽어 자동으로") — "용도변경" + 표시변경 등에서 앞뒤 용도 이름이 다른 것
+    (전유부분할처럼 면적만 바뀐 것은 뺌). [{date, where, before, after, text}] — 한 줄에 바뀜이 하나면 호수·전·후 용도, 여럿이면 before·after 빈 글(text = 행정 번호 뺀 대장 글).
+    대장마다 적는 모양이 다름(→ · -> · ▶ · [변경전: … 변경후: …], 한 줄에 여러 호) — 회사 대장 22개로 맞춤."""
+    out = []
+    for c in chs or []:
+        t = str(c.get("text") or "")
+        body = re.sub(r"\[\s*\]|\(\s*\)", "", ADMIN_RE.sub("", t)).strip()
+        k = min([i for i in (body.find("("), body.find("[")) if i >= 0] or [-1])
+        inner = body[k + 1:].rstrip(")] ") if k >= 0 else body
+        seps = SEP_RE.findall(inner)
+        named = "용도변경" in t
+        if not seps:
+            if named:
+                out.append({"date": c.get("date") or "", "where": "", "before": "", "after": "", "text": body})
+            continue
+        bef, aft = SEP_RE.split(inner, maxsplit=1)
+        m = WHERE_RE.match(bef)
+        ub, ua = _uses(bef[m.end():] if m else bef), _uses(WHERE_RE.sub("", aft, count=1))
+        if not named and (not ua or set(ub) == set(ua)):  # 면적만 바뀐 분할·용도 이름 없는 것은 뺌
+            continue
+        one = len(seps) == 1 and 0 < len(ub) <= 2 and 0 < len(ua) <= 2 and set(ub) != set(ua)
+        out.append({"date": c.get("date") or "", "where": re.sub(r"\s+", "", m.group(1)).rstrip(",·") if (m and one) else "",
+                    "before": "·".join(ub) if one else "", "after": "·".join(ua) if one else "", "text": body})
+    return out
+
+
+def struct_changes(chs: list[dict]) -> list[dict]:
+    """증축·개축·대수선·구조변경 변동사항 [{date, text}] — 구조적으로 독립되지 않은 증축인지는 현장에서."""
+    return [{"date": c.get("date") or "", "text": str(c.get("text") or "")} for c in chs or [] if STRUCT_RE.search(str(c.get("text") or "")) and "신축" not in str(c.get("text") or "")]
+
+
+def change_note(uc: list[dict], sc: list[dict], approval: str = "") -> str:
+    """3.4.8 비고 — 대장 변동사항 정리(날짜·호수·바뀌기 전 → 후 용도)."""
+    d = lambda x: (x or "").replace("-", ".")  # noqa: E731
+    lines = []
+    if uc:
+        lines.append(f"건축물대장 변동사항상 용도변경 {len(uc)}건" + (f"(사용승인 {d(approval)} 이후)" if approval else "") + ":")
+        for x in uc:
+            body = f"{x['before']} → {x['after']}" if x["before"] and x["after"] else x["text"][:200]
+            lines.append(f"- {d(x['date'])} {x['where'] + ' ' if x['where'] else ''}{body}")
+    if sc:
+        lines.append(f"건축물대장 변동사항상 증축·구조변경 등 {len(sc)}건:")
+        lines += [f"- {d(x['date'])} {x['text']}" for x in sc]
+    return "\n".join(lines)
 
 
 def _flat(doc) -> str:

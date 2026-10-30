@@ -112,7 +112,7 @@ def missing(it: dict, res: dict | None) -> list[str]:
     photos = res.get("photos") or []
     if bad and not any(p.get("kind") == "bad" for p in photos):
         out.append("부적합·미흡인데 지적 사진 없음")
-    elif not photos and ITEM_PLACES.get(it["code"], ["out"]) != ["doc"]:
+    elif not [p for p in photos if not p.get("evidence")] and ITEM_PLACES.get(it["code"], ["out"]) != ["doc"]:  # 대장 근거 그림은 현장 사진이 아님
         out.append("현황사진 없음")
     if bad and not (_has(tx, "ilglt") or _has(tx, "perf")):
         out.append("부적합·미흡인데 개선방안 의견 없음")
