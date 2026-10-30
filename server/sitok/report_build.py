@@ -889,6 +889,33 @@ def _ai_front(root, ai: dict, template: str) -> int:
     return n
 
 
+def _visible_sides(tc) -> set:
+    """칸 테두리 중 보이는(NONE 아닌) 변."""
+    b = getattr(_TL, "borders", None)
+    d = (b.by_id.get(str(tc.get("borderFillIDRef"))) if b is not None else "") or ""
+    return {sd for sd in ("topBorder", "bottomBorder", "leftBorder", "rightBorder")
+            if (m := re.search(rf"<hh:{sd} ([^>]*)/>", d)) and 'type="NONE"' not in m.group(1)}
+
+
+def _even_tables_safely(root, seismic_fill) -> int:
+    """표 선 고르게 — 단, 보이던 선을 지우는 표는 그 표만 원래대로(10/31 민재형 "조직도·과업내용 표 선이 사라짐" — 선으로 그림을 그린 표는 고르게 맞추면 깨짐).
+    굵기·모양만 맞추는 건 그대로 둠. 바꾼 칸 수."""
+    n = 0
+    for t in root.iter(f"{{{HP}}}tbl"):
+        if int(t.get("rowCnt") or 1) < 2 and int(t.get("colCnt") or 1) < 2:
+            continue
+        cells = [tc for tc in t.iter(f"{{{HP}}}tc")]
+        before = [(tc, tc.get("borderFillIDRef"), _visible_sides(tc)) for tc in cells]
+        got = seismic_fill.even_table(t)
+        if got and any(_visible_sides(tc) < vis for tc, _bf, vis in before):
+            for tc, bf, _vis in before:
+                tc.set("borderFillIDRef", bf)
+            print("[표 선 고르게] 선이 지워지는 표라 그대로 둠", flush=True)
+            continue
+        n += got
+    return n
+
+
 def _focus_row_borders(root) -> list:
     """결과표 "라. 참고사항" 아래 줄들의 칸과 그 칸의 테두리 번호 [(tc, borderFillIDRef)] — 표 선 고르게 맞추기 뒤에 되돌림."""
     out = []
@@ -2698,7 +2725,7 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                     if getattr(_TL, "borders", None) is not None:  # 모든 표 선 경계마다 고르게(내진과 같은 도구, 10/30 민재형 "다른 걸 찾았으면 고쳐서 안 나오게") — 채우기가 다 끝난 뒤 마지막에
                         from server.sitok import seismic_fill
                         keepers = _focus_row_borders(root)  # 결과표 "라. 참고사항" 줄(항목|내용 두 칸)은 칸 사이 선이 없는 양식 — 고르게 맞추기가 실선으로 만들지 않게 앞뒤로 원래대로(10/31 사용자 "이 부분은 선이 없어야 돼")
-                        evened = seismic_fill.even_tables(root)
+                        evened = _even_tables_safely(root, seismic_fill)
                         for tc, bf in keepers:
                             tc.set("borderFillIDRef", bf)
                         if evened:
