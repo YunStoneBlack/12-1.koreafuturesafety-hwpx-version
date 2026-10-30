@@ -150,7 +150,9 @@ def scan(pdf: Path, hwpx: Path, limit: int = 12, skip: set[int] | None = None) -
         nxt = pages[i + 1][0] if i + 1 < len(pages) else []
         # 제목이 쪽 맨 아래 30%에 있거나, 쪽 중간이어도 그 제목이 쪽의 마지막 줄이고 다음 쪽이 원본 쪽 나눔이 아닌 글로 시작(표·그림이 통째로 넘어가 제목만 남음 — 10/30 나라키움 부록 "나. 과업내용")
         stranded = last_y0 > _top() + span * 0.7 or last_y0 > _top() + span * 0.1
-        if HEAD.match(last) and len(last) <= 45 and stranded and len(lines) > 1 and nxt and _key(nxt[0][2]) not in starts:
+        # 다음 쪽이 원본 쪽 나눔으로 시작해도, 그 줄이 이 제목의 하위 제목(1.2 → 가. 위치도)이면 제목만 덩그러니 남은 것(10/30 나라키움 "1.2 대상시설물 현황")
+        child = bool(nxt) and _key(nxt[0][2]) in starts and bool(PARENT_HEAD.match(last)) and bool(CHILD_HEAD.match(nxt[0][2]))
+        if HEAD.match(last) and len(last) <= 45 and stranded and len(lines) > 1 and nxt and (_key(nxt[0][2]) not in starts or child):
             out.append(f"{i + 1}쪽: 제목 '{last[:20]}'만 쪽 끝에 있음")
         if i > 0 and _key(lines[0][2]) not in starts and len(lines) <= 6 and bottom < _top() + span * 0.2:
             prev_lines, prev_bottom, prev_foot, _ = pages[i - 1]
@@ -161,6 +163,8 @@ def scan(pdf: Path, hwpx: Path, limit: int = 12, skip: set[int] | None = None) -
     return out
 
 
+PARENT_HEAD = re.compile(r"^\d+\.\d+(\.\d+)?\.?\s*\S")  # "1.2 대상시설물 현황"·"2.3.1 …"
+CHILD_HEAD = re.compile(r"^([가-하]\.|\d+\)|\d+\.\d+\.\d+)\s*\S")  # "가. 위치도"·"1) …"·"1.2.1 …"
 HEAD_WARN = re.compile(r"제목 '(.+?)'만 쪽 끝에 있음")
 
 
@@ -188,6 +192,11 @@ def push_headings(hwpx: Path, found: list[str]) -> list[str]:
                 p.set("pageBreak", "1")
                 pushed.append(t[:20])
                 hit = True
+                q = p.getnext()  # 바로 아래 하위 제목이 원본 쪽 나눔이면 그 나눔은 풂 — 이 제목이 새 쪽을 열었으니(둘 다 두면 쪽이 하나 더 비어 나옴, 10/30)
+                while q is not None and q.tag == f"{{{rb.HP}}}p" and not rb._top_text(q).strip() and next(q.iter(f"{{{rb.HP}}}tbl", f"{{{rb.HP}}}pic"), None) is None:
+                    q = q.getnext()
+                if q is not None and q.tag == f"{{{rb.HP}}}p" and q.get("pageBreak") == "1" and CHILD_HEAD.match((rb._top_text(q) or "").strip()):
+                    q.set("pageBreak", "0")
         if hit:
             data[n] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
     if not pushed:
@@ -1624,7 +1633,7 @@ def issue_count(pdf: Path, hwpx: Path) -> int:
     """쪽 문제 수 — 몇 줄만 넘친 쪽 + 제목만 쪽 끝(tidy_overflow 뒤 되돌릴지 정할 때 — 늘었으면 되돌림). 꼬리(tails)는 안 셈:
     줄 단위로 넘긴 뒤의 "머리줄 + 줄 통째로"도 짧은 꼬리로 보이니까."""
     try:
-        heads = sum(1 for s in scan(pdf, hwpx, limit=200) if "만 쪽 끝에 있음" in s)
+        heads = sum(1 for s in scan(pdf, hwpx, limit=100000) if "만 쪽 끝에 있음" in s)
         return len(orphans(pdf, hwpx)) + heads + len(blank_pages(pdf))
     except Exception:  # noqa: BLE001
         return 0

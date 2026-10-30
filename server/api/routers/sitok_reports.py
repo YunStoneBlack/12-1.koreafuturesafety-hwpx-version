@@ -904,7 +904,7 @@ def _convert_pushing(hwpx: Path, pdf: Path, precision: bool = False) -> None:
             break
         pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=PDF_WAIT))
     try:
-        pushed = pagecheck.split_result_tables(hwpx, pdf) + pagecheck.push_headings(hwpx, pagecheck.scan(pdf, hwpx, limit=50))  # 결과표 넘침 → '다.'부터 새 쪽, 제목만 쪽 끝 → 새 쪽
+        pushed = pagecheck.split_result_tables(hwpx, pdf) + pagecheck.push_headings(hwpx, pagecheck.scan(pdf, hwpx, limit=100000))  # 결과표 넘침 → '다.'부터 새 쪽, 제목만 쪽 끝 → 새 쪽
     except Exception:  # noqa: BLE001 — 검사가 안 되면 그대로
         traceback.print_exc()
         pushed = []
