@@ -450,6 +450,11 @@ def _pad_photo(pic, pad: int = PHOTO_PAD) -> tuple[int, int] | None:
         cm = etree.SubElement(tc, f"{{{HP}}}cellMargin")
     for k in ("left", "right", "top", "bottom"):
         cm.set(k, str(pad))
+    pos = pic.find(f"{{{HP}}}pos")
+    if pos is not None and pos.get("treatAsChar") == "0" and len(list(tc.iter(f"{{{HP}}}pic"))) == 1:  # 떠 있는 사진은 문단 가운데 정렬을 안 따름 —
+        pos.set("horzRelTo", "PARA")  # 칸 가운데로(10/30 사용자 "전경사진 왼쪽으로 쏠림" — 요약 위치도 쪽 전경, 틀이 칸보다 5mm 좁아 오른쪽만 빔) —
+        pos.set("horzAlign", "CENTER")  # 기준이 단(COLUMN)이면 가운데가 안 먹음(렌더로 확인), 문단(PARA) = 칸 안쪽 폭
+        pos.set("horzOffset", "0")
     # 칸 크기는 그대로 — 틀을 폭은 칸 − 4mm 안으로, 높이는 늘어난 위아래 여백만큼 줄임(사진은 틀에 맞게 잘려 들어감). 칸이 커지면 1.2 전경 표가 다음 쪽으로 밀려
     # 평면도·뒤 쪽이 다 밀림(시험 65 → 66쪽, "2.5" 제목만 쪽 끝)
     if _turned(pic):  # 돌린 틀 — 틀을 새로 쓰지 않고 보이는 크기 기준 같은 비율로만 줄임(틀 크기·표시 크기가 가로세로 바뀌어 있음)
@@ -1505,6 +1510,8 @@ def fill_texts(root, field: dict, doc=None) -> int:
     for tb in _outer(root):  # 2.4.1·2.4.2 — 조사결과 글(비면 빈칸 + 노랑), 붉은 견본 글자는 검정으로(10/22)
         whole = _n(_t(tb))
         cells = rb._cells(tb)
+        if not rb._pic_slots(tb) or _n(rb._cell_text(cells.get((0, 0), tb))) == "구분":  # 사진 표만 — 요약 "라. 비구조 조사 결과"(구분·내용) 표에 AI 글
+            continue  # "건물 외 중량물에 대해…"이 들어가자 그 표 셋째 줄 구분 칸(조적 허리벽)을 중량물 글로 덮어썼음(10/30 사용자)
         if "건물외중량물" in whole and (3, 0) in cells:
             _set(cells, (3, 0), "\n".join(f"· {x.strip()}" for x in tx["heavy"].split("\n") if x.strip()))
             _blacken(cells[(3, 0)])

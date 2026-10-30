@@ -531,6 +531,50 @@ def _vendor_chapter_check(pdf: Path) -> list[str]:
     return []
 
 
+def _fit_summary(hwpx: Path, pdf: Path, say=None) -> list[str]:
+    """"요 약 문" 제목만 남은 쪽(10/30 사용자 "AI 길이 조절되면서 표 길이가 달라져 빈 페이지") — 종합의견 표(4×5)는 글자처럼 붙은 표라 쪽에서 안 나뉘고
+    글이 길면 통째로 다음 쪽 → 제목만 한 쪽. 표 머리 아래 빈 줄 칸(1,0 — 44pt)을 6pt로 줄여 다시 PDF(빈 자리만, 글·줄 간격 그대로), 쪽이 안 줄면 되돌리고 알림."""
+    import traceback
+
+    import pymupdf
+
+    from server.contract_docs import hwp_queue
+    from server.sitok import report_build as rb
+    from server.sitok.seismic_fill import _outer
+
+    try:
+        with pymupdf.open(pdf) as d:
+            texts = [re.sub(r"[\s\d]", "", pg.get_text()) for pg in d]
+        i = next((k for k in range(len(texts) - 1) if texts[k] == "요약문" and texts[k + 1].startswith("책임기술자종합의견")), None)
+        if i is None:
+            return []
+        doc = Hwpx(hwpx)
+        t = next((t for t in _outer(doc.root) if t.get("colCnt") == "5" and rb._n(rb._cell_text(rb._cells(t).get((0, 0), t))) == "책임기술자종합의견"), None)
+        cells = rb._cells(t) if t is not None else {}
+        gap = cells.get((1, 0))
+        if gap is None or rb._cell_text(gap).strip() or int(gap.find(f"{{{HP}}}cellSz").get("height") or 0) <= 600:
+            return [f"요약문 종합의견이 길어 표가 다음 쪽으로 넘어가 {i + 1}쪽에 제목만 남았습니다 — 종합의견 글을 줄여 주세요"]
+        snap = hwpx.read_bytes()
+        gap.find(f"{{{HP}}}cellSz").set("height", "600")
+        doc.save(hwpx, drop_unused=False)
+        if say:
+            say("요약문 제목만 남은 쪽 정리해서 다시 PDF로…")
+        tmp = pdf.with_name(pdf.stem + "_요약.pdf")
+        tmp.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
+        with pymupdf.open(tmp) as d:
+            n2 = len(d)
+        if n2 >= len(texts):
+            hwpx.write_bytes(snap)
+            tmp.unlink(missing_ok=True)
+            return [f"요약문 종합의견이 길어 표가 다음 쪽으로 넘어가 {i + 1}쪽에 제목만 남았습니다 — 종합의견 글을 줄여 주세요"]
+        tmp.replace(pdf)
+        print(f"[요약문 쪽 정리] {hwpx.name}: 쪽 {len(texts)}→{n2}", flush=True)
+        return []
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        return []
+
+
 def _fix_blank_pages(hwpx: Path, pdf: Path, say=None, marks: tuple[int, int] | None = None) -> list[str]:
     """꽉 찬 표 뒤 문단 끝만 다음 쪽으로 넘어가 생긴 빈 쪽(10/27 12mm 삼숭초 — 체크리스트 D 표가 외주 값으로 두 줄 칸이 늘어 쪽을 꽉 채움) →
     앞 쪽 표의 칸 빈 여백(글은 그대로)을 두 줄 남짓 줄이고 다시 PDF, 쪽이 안 줄면 되돌림. 우리 구역만(외주 장은 그대로). 고친 설명."""
@@ -762,6 +806,7 @@ def build(db, r, f, folder: Path, say=None) -> tuple[Path, Path, list[str], int]
     pdf = folder / f"{base}.pdf"
     pdf.write_bytes(hwp_queue.convert_via_worker(hwpx.read_bytes(), ".hwpx", wait=1500))
     marks = page_marks(root)  # 쪽 검사 기준 = 틀 용지 여백에서(10/27 — 12mm 틀도 맞게)
+    warn += _fit_summary(hwpx, pdf, say)  # 요약문 제목만 남은 쪽(10/30) — 1장 앞이라 아래 넘침 정리(1장부터)가 못 고침
     _tidy(hwpx, pdf, say, sections_from=0, after="제1장건물개요1.1", marks=marks)  # 애매한 넘침 정리(10/26) — 목차 쪽 번호 전에. 내진은 구역 하나 — 첫 구역부터,
     # 고치는 건 1장 간지 뒤 표만(10/27 — 전엔 둘째 구역부터라 내진 본문은 아무것도 안 고쳤음, 앞 결과표 줄 높이는 그대로)
     _push_lonely(hwpx, pdf, say, after="제1장건물개요1.1", marks=marks)  # 제목·표 이름만 쪽 끝 → 다음 쪽(10/27) — 목차 쪽 번호 전에
