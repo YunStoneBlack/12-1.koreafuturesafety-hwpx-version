@@ -93,6 +93,7 @@
 .main .bj-slot-ex img, .main .bj-slot-now img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: #fff; display: block; }
 .main .bj-slot.draw .bj-slot-ex img, .main .bj-slot.draw .bj-slot-now img { object-fit: contain; }
 .main .bj-slot-ex small { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.35; }
+.main .bj-slot-from { color: var(--faint); font-size: 11px; } /* 우리프라자 밖 견본의 출처(10/30) */
 .main .bj-slot-tag { position: absolute; top: 4px; left: 4px; z-index: 1; padding: 1px 6px; border-radius: 5px; background: rgba(27, 30, 46, .72); color: #fff; font-size: 11px; font-weight: 700; }
 .main .bj-slot-now { min-width: 0; display: flex; flex-direction: column; }
 .main .bj-slot-now .bj-ph { width: auto; margin: 0; }

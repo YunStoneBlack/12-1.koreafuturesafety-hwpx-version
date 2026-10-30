@@ -61,7 +61,8 @@ def slots(code: str) -> dict:
     n = 견본 사진 번호(1부터) — 이번 사진·고른 도면은 photos[].slot = n. 견본이 없으면 둘 다 []."""
     out = {"photo": [], "draw": []}
     for p in (samples().get(code) or {}).get("photos") or []:
-        out["draw" if DRAW_RE.search(p.get("caption") or "") else "photo"].append({"n": p["n"], "caption": p.get("caption") or "", "file": p.get("file") or ""})
+        out["draw" if DRAW_RE.search(p.get("caption") or "") else "photo"].append({"n": p["n"], "caption": p.get("caption") or "", "file": p.get("file") or "",
+                                                                               "from": p.get("from") or ""})  # 다른 회사 보고서에서 온 견본(10/30) — 어느 건물인지
     return out
 
 

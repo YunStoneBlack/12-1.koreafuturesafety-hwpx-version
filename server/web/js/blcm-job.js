@@ -257,7 +257,7 @@
     const slotRow = (s, draw) => {
       const p = ph.find((x) => x.slot === s.n);
       return `<div class="bj-slot${draw ? " draw" : ""}" data-slot="${s.n}">
-        <div class="bj-slot-ex"><span class="bj-slot-tag">견본</span>${s.file ? `<a href="${sampleSrc(s.file)}" target="_blank" rel="noopener"><img loading="lazy" src="${sampleSrc(s.file)}" alt="" /></a>` : ""}<small>${esc(s.caption || "(설명 없음)")}</small></div>
+        <div class="bj-slot-ex"><span class="bj-slot-tag">견본</span>${s.file ? `<a href="${sampleSrc(s.file)}" target="_blank" rel="noopener"><img loading="lazy" src="${sampleSrc(s.file)}" alt="" /></a>` : ""}<small>${esc(s.caption || "(설명 없음)")}${s.from ? ` <span class="bj-slot-from">· ${esc(s.from)}</span>` : ""}</small></div>
         <div class="bj-slot-now">${p ? one(p) : draw
           ? `<div class="bj-slot-btns"><button type="button" class="bj-slot-pick" data-slot="${s.n}">📐 도면 고르기<small>올린 도면에서</small></button>
               <label class="bj-slot-shot cam">📷 현장에서 찍기<small>도면 반출이 안 될 때</small><input type="file" accept="image/*" capture="environment" hidden data-kr-file="skip" data-slot="${s.n}" data-draw="1" /></label></div>`
@@ -266,7 +266,7 @@
     const extra = ph.filter((p) => p.slot == null || !nums.has(p.slot));
     const has = sl.photo.length + sl.draw.length;
     return `<div class="bj-photos"><div class="bj-lab">현황사진 <small>(적합·양호 = 양호 사진, 부적합 = 지적 사진 · 끌어 놓기 — 버튼 위 = 그 종류, 빈 곳 = 판정대로)</small></div>
-      ${sl.photo.length ? `<div class="bj-slots-h">왼쪽 견본(${esc(((table.samples || {})[it.code] || {}).from || "")} 보고서)처럼 찍으세요 — 더 찍어도, 덜 찍어도 됩니다</div>
+      ${sl.photo.length ? `<div class="bj-slots-h">왼쪽 견본(회사 제출 보고서)처럼 찍으세요 — 더 찍어도, 덜 찍어도 됩니다</div>
         <div class="bj-slots">${sl.photo.map((s) => slotRow(s, false)).join("")}</div>` : ""}
       <div class="bj-ph-add">${has ? '<span class="bj-more">＋ 더 찍기</span>' : ""}<label class="secondary bj-file-btn">📷 양호 사진<input type="file" accept="image/*" multiple hidden data-kr-file="skip" data-kind="good" /></label>
         <label class="secondary bj-file-btn bad">📷 지적 사진<input type="file" accept="image/*" multiple hidden data-kr-file="skip" data-kind="bad" /></label><span class="mail-note bj-ph-msg">${has ? "장수 제한 없음" : ""}</span></div>
