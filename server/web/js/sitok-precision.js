@@ -124,6 +124,7 @@
     $("pr-load-note").addEventListener("change", () => put({ load: { titles: titles(), note: $("pr-load-note").value } }));
     $("pr-load").querySelectorAll(".pt-card").forEach((el) => {
       const slot = el.dataset.slot;
+      if (typeof cardFileDrop === "function") cardFileDrop(el); // 카드 전체에 끌어다 놓기(10/30)
       el.querySelectorAll(".pt-shot input").forEach((inp) => inp.addEventListener("change", async () => {
         if (!inp.files[0]) return;
         el.classList.add("busy");
@@ -169,6 +170,7 @@
           ${p.has ? '<button type="button" class="pt-del">지우기</button>' : ""}</div></div>`).join("")}</div></div>`).join("");
     $("pr-survey").querySelectorAll(".pt-card").forEach((el) => {
       const { key, slot } = el.dataset;
+      if (typeof cardFileDrop === "function") cardFileDrop(el); // 카드 전체에 끌어다 놓기(10/30)
       el.querySelectorAll(".pt-shot input").forEach((inp) => inp.addEventListener("change", async () => {
         if (!inp.files[0]) return;
         el.classList.add("busy");

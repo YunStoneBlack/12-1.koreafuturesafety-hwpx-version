@@ -449,6 +449,14 @@ function enableFileDrop(zone, input) {
   });
 }
 
+// 사진 카드(현장 조사 상태양호·공중이용·내진보강·정밀 — [📷 찍기][🖼 고르기]만 있는 .pt-card) 전체를 놓는 칸으로(10/30 사용자 "드래그가 안 된대" —
+// 전경사진 탭·결함 카드만 받고 이 카드들엔 안 붙어 있었음). PC에서 끌어다 놓으면 고르기 칸(capture 없는 input)으로, 없으면 첫 사진 칸으로.
+function cardFileDrop(card) {
+  if (!card) return;
+  const input = card.querySelector(".pt-shot input:not([capture]), .ov-now input, .pt-shot input, input[type=file]");
+  if (input) enableFileDrop(card, input);
+}
+
 // 놓을 수 없는 곳에 파일을 떨어뜨려도 브라우저가 그 파일을 열어 화면을 떠나지 않게(놓는 칸은 각자 먼저 처리함)
 document.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
 document.addEventListener("drop", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });

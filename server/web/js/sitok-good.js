@@ -27,6 +27,7 @@
       el.classList.add("busy");
       await send(inp.files[0]); // send가 오류를 알림·busy 풂
     }));
+    if (typeof cardFileDrop === "function") cardFileDrop(el); // 카드 전체에 끌어다 놓기(10/30 사용자 "드래그가 안 된대")
   }
 
   // ── 👍 상태양호 ──

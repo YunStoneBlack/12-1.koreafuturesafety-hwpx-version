@@ -54,6 +54,7 @@
     document.querySelectorAll(".pt-card").forEach((el) => {
       const { group, key, slot } = el.dataset;
       const msg = group === "public" ? "pt-msg" : "pt-msg2";
+      if (typeof cardFileDrop === "function") cardFileDrop(el); // 카드 전체에 끌어다 놓기(10/30)
       el.querySelectorAll(".pt-shot input, .ov-now input").forEach((inp) => inp.addEventListener("change", async () => {
         if (!inp.files[0]) return;
         el.classList.add("busy");
