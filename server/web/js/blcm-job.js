@@ -338,15 +338,20 @@
         <div class="bj-ph-grid">${all.map((p) => photoOne(it, p)).join("") || '<div class="mail-note">근거 그림 없음 — 현장 조사로 해당없음이면 현장 사진을 넣어도 됩니다</div>'}</div>
         <div class="bj-ph-add"><label class="secondary bj-file-btn">📷 사진 더하기<input type="file" accept="image/*" multiple hidden data-kr-file="skip" data-kind="good" /></label><span class="mail-note bj-ph-msg"></span></div></div>`;
     }
-    const sl = slotsOf(it.code), bt = badTypes(it.code);
-    const nums = new Set(sl.photo.map((s) => s.n));
+    const slAll = slotsOf(it.code), btAll = badTypes(it.code);
+    const nums = new Set(slAll.photo.map((s) => s.n));
+    // 장소별 보기(10/30 사용자 "옥상 탭에는 옥상 견본만, 외부 탭에는 외부만 — 지적 사진도 장소에 맞게") — 탭 장소에 맞는 견본 칸·부적합 칸만, 더 찍은 사진은 찍은 탭에
+    const here = curPlace(), sp = (table.sample_places || {})[it.code] || { photo: {}, bad: {} };
+    const at = (list) => !here || !list || list.includes(here);
+    const sl = { ...slAll, photo: slAll.photo.filter((s) => at(sp.photo[String(s.n)])) };
+    const bt = btAll.filter((t) => at(sp.bad[t.key]) || ph.some((p) => p.kind === "bad" && (p.bad || {}).key === t.key && (!p.place || p.place === here)));
     const okSlot = (s) => {
       const p = ph.find((x) => x.slot === s.n && x.kind !== "bad");
       return `<div class="bj-slot" data-slot="${s.n}">
         <div class="bj-slot-ex"><span class="bj-slot-tag">견본</span>${s.file ? `<a href="${sampleSrc(s.file)}" target="_blank" rel="noopener"><img loading="lazy" src="${sampleSrc(s.file)}" alt="" /></a>` : ""}<small>${esc(s.caption || "(설명 없음)")}${s.from ? ` <span class="bj-slot-from">· ${esc(s.from)}</span>` : ""}</small></div>
         <div class="bj-slot-now">${p ? photoOne(it, p) : `<label class="bj-slot-shot">📷 이렇게 찍기<small>${esc(s.caption || "")}</small><input type="file" accept="image/*" capture="environment" hidden data-kr-file="skip" data-slot="${s.n}" /></label>`}</div></div>`;
     };
-    const goodExtra = ph.filter((p) => p.kind !== "bad" && (p.slot == null || !nums.has(p.slot)));
+    const goodExtra = ph.filter((p) => p.kind !== "bad" && (p.slot == null || !nums.has(p.slot)) && (!here || !p.place || p.place === here));
     const badRow = (t) => { // 10/30 사용자 "적합·부적합 사진 양식 맞추기 — 견본 밑에 간략 설명, 옆에 찍기 버튼 크게(적합 기준)" = 적합 견본 칸과 같은 틀
       const mine = ph.filter((p) => p.kind === "bad" && (p.bad || {}).key === t.key);
       const s0 = (t.samples || [])[0];
@@ -369,6 +374,10 @@
         <div class="mail-note bj-bs-link">견본 = 회사 제출 보고서 부적합 사진 · <a href="blcm-samples.html#${encodeURIComponent(it.code)}" target="_blank" rel="noopener">🖼 부적합 견본 고르기</a></div></details>` : ""}
       ${loose.length ? `<div class="bj-lab">⚠ 유형 없는 지적 사진 <small>사진 아래에서 유형을 고르면 판정에 들어갑니다</small></div><div class="bj-ph-grid">${loose.map((p) => photoOne(it, p)).join("")}</div>` : ""}
       ${nDraw ? `<div class="mail-note bj-draw-note">📐 도면 ${gotDraw}/${nDraw} — 도면은 위 [② 관리사무소 — 도면]에서 한꺼번에 넣습니다</div>` : ""}</div>`;
+  }
+
+  function curPlace() { // 장소별 보기의 지금 탭 장소(out·roof·in·under·doc) — 항목 순서 보기·해당없음 탭이면 ""
+    return view === "place" && tab.startsWith("@") && tab !== "@na" ? tab.slice(1) : "";
   }
 
   function aiNote(r, ev) { // 판정을 비워 두고 사진만 넣었으면 AI가 사진을 보고 판정까지(10/30 사용자 "사진을 보고 선택하고 AI 작성까지")
@@ -821,6 +830,7 @@
         const fd = new FormData();
         fd.append("file", f);
         Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
+        if (curPlace()) fd.append("place", curPlace()); // 찍은 탭(10/30)
         try { apply(code, await apiUploadSafe(`${P}/items/${encodeURIComponent(code)}/photos`, fd, { label: `${it.code} ${it.name} ${label}` })); n += 1; }
         catch (err) { if (msg) msg.textContent = err.message; if (!err.queued) showError(errorEl, err); }
       }

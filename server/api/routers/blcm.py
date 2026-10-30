@@ -139,6 +139,7 @@ def get_items(user: User = Depends(get_current_user)):
             "places": I.PLACES, "item_places": I.ITEM_PLACES, "samples": I.samples(),  # 장소별 묶음·견본(10/30)
             "slots": {it["code"]: I.slots(it["code"]) for it in I.items()},  # 견본 칸 — 현장 사진·도면(10/30)
             "bad_types": {it["code"]: I.bad_types(it) for it in I.items()},  # 부적합 칸 — 변경 유형·작은 점검마다(10/30)
+            "sample_places": {it["code"]: I.sample_places(it["code"]) for it in I.items()},  # 장소별 보기 — 탭마다 그 장소 견본·부적합 칸만(10/30)
             "plan_rows": I.PLAN_ROWS, "other_rows": I.OTHER_ROWS, "other_values": I.OTHER_VALUES, "opinion_keys": [(k, lab) for k, lab, _ in I.OPINION_KEYS]}
 
 
@@ -551,7 +552,7 @@ def put_item(jid: int, code: str, body: ItemIn, user: User = Depends(get_current
 
 @router.post("/jobs/{jid}/items/{code}/photos")
 def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = Form("good"), caption: str = Form(""), slot: int | None = Form(None),
-              bad: str = Form(""), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+              bad: str = Form(""), place: str = Form(""), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """현황사진 — 사진(폰 원본도)은 긴 변 2000px JPG로(files.save_jpeg). kind = good(양호) | bad(지적). 장수 제한 없음(10/30 사용자).
     slot = 견본 칸 번호(10/30 — 그 칸에 사진이 있으면 바꿈, 설명이 비면 견본 설명)."""
     from server.contract_docs import files
@@ -568,6 +569,8 @@ def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = For
     cap = caption.strip()[:60] or (old[0].get("caption") if old else "") or (sl["caption"] if sl else "")
     p = {"id": pid, "rel": rel, "name": file.filename or "", "kind": "bad" if kind == "bad" else "good", "caption": cap,
          "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
+    if place in {k for k, _ in I.PLACES}:  # 장소별 보기에서 찍은 탭(10/30) — 그 탭에만 보임(항목 순서 보기는 다)
+        p["place"] = place
     if sl:
         p["slot"] = slot
         if sl["draw"]:  # 도면 칸을 현장에서 찍은 것(반출이 안 될 때, 10/30) — 도면 그림, 늘 양호
