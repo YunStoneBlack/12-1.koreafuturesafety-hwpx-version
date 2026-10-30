@@ -2,6 +2,8 @@
 // API server/api/routers/sitok_docs.py(/sitok/docs/contracts/{id}/gov…), 엑셀 양식 채우기는 server/sitok/gov_docs.py. 산안법 착수계 창(js/contract-docs.js)과 같은 흐름:
 // 문서번호(KFSC연도_계약번호_월일 — 10/20 형 견본)·인사말·담당·도장 → (착수계) 현장대리인 1명 + 참여기술자(시특법 보고서 설정과 같은 명단) → 붙임(산출내역서 / 완수내역서)
 // → (완수계) 결과보고서 표지(연결한 시설물 보고서 첫 쪽, 없으면 올림) + 회사 서류 6장(서류 자동화 설정 — 산안법과 같은 것, 10/20 형 견본) → [만들기] = 엑셀 + 합본 PDF.
+// 10/30 사용자: 착수계 붙임 산출내역서 칸에 [📊 낙찰가 적용 내역서 만들기] — 설계(낙찰가 적용 전) 내역서 엑셀 → 계약금액에 맞게 기술자 노임단가 조정(server/sitok/est_adjust.py)
+// → 맞춘 PDF가 이 칸에 들어감, 미리보기·맞춘 엑셀·설계 엑셀 받기, PDF에 넣을 시트 고르기.
 
 async function openSitokGov(contractId, kind, onDone) {
   const P = `/sitok/docs/contracts/${contractId}/gov`;
@@ -32,6 +34,9 @@ async function openSitokGov(contractId, kind, onDone) {
     return;
   }
   if (st.agent_id == null && st.persons.length) st.agent_id = st.persons[0].id;
+  const A = `/sitok/docs/contracts/${contractId}/est-adjust`;
+  let adj = null; // 낙찰가 적용 내역서(10/30) {adjust: meta|null, amount, attachments}
+  if (kind === "start") { try { adj = await api(A); } catch (_) { adj = null; } }
   const won = (n) => (n || n === 0) ? `${Number(n).toLocaleString("ko-KR")}원` : "";
   const fileUrl = (ext, inline) => `${BASE}/api${P}/${kind}.${ext}?v=${encodeURIComponent(st.gov[kind].at)}${inline ? "&inline=true" : ""}`;
 
@@ -59,6 +64,7 @@ async function openSitokGov(contractId, kind, onDone) {
         <div class="cd-slot-head"><b>${esc(sl.label)}</b>
           <label class="cd-add">+ 파일 올리기<input type="file" multiple hidden data-kr-file="skip"
             accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.tif,.tiff,.webp,.xlsx,.xls,.xlsm,.docx,.doc,.hwp,.hwpx" /></label></div>
+        ${kind === "start" && sl.slot === "calc" ? adjBlock() : ""}
         ${sl.files.length ? sl.files.map((f) => `<div class="cd-file">
           <a href="${BASE}/api${P}/${kind}/attach/${sl.slot}/${encodeURIComponent(f.name)}" target="_blank" rel="noopener">📄 ${esc(f.title)}</a>
           <span class="mail-note">${f.pages}장</span>
@@ -66,6 +72,28 @@ async function openSitokGov(contractId, kind, onDone) {
           : '<div class="mail-note cd-none">아직 없음 — 없으면 빼고 합칩니다</div>'}
         <div class="drop-box drop-sm cd-slot-drop"><b class="drop-pc">⬇ 여기에 끌어다 놓기</b><b class="drop-touch">눌러서 파일 고르기</b></div>
         <div class="mail-note cd-slot-msg"></div></div>`).join("")}</div>`;
+  }
+
+  const UNIT = { "-4": "만원", "-3": "천원", "-2": "백원", "-1": "십원", "0": "원" };
+  const digits = (f) => ((/[;,]\s*(-?\d+)\)$/.exec(f || "") || [])[1]);
+  function adjBlock() { // 📊 낙찰가 적용 내역서(10/30 사용자 "낙찰가 적용 전 내역서를 첨부하면 계약금액에 맞게 노임단가를 조정해 착수계에 — 내려받기·미리보기")
+    const m = adj && adj.adjust;
+    const amt = adj ? adj.amount : st.amount;
+    const v = encodeURIComponent((m && (m.pdf_at || m.at)) || "");
+    const f = (w, inline) => `${BASE}/api${A}/file/${w}?v=${v}${inline ? "&inline=true" : ""}`;
+    const rnd = m && m.rounding.length ? ` · 끝자리 절사 ${[...new Set(m.rounding.map((r) => `${UNIT[digits(r.before)] || ""}→${UNIT[digits(r.after)] || ""}`))].join(", ")}` : "";
+    return `<div class="sd-adj">
+      <div class="sd-adj-h"><b>📊 낙찰가 적용 내역서 만들기</b>
+        <span class="mail-note">설계(낙찰가 적용 전) 내역서 엑셀을 올리면 계약금액 ${amt ? won(amt) : "(계약금액 없음)"}에 맞게 기술자 노임단가를 조정해 이 칸에 넣습니다 — 30초쯤</span>
+        <label class="cd-add">${m ? "다시 맞추기" : "설계 내역서 엑셀 올리기"}<input type="file" hidden data-kr-file="skip" class="sd-adj-in" accept=".xlsx,.xls,.xlsm" /></label></div>
+      ${m ? `<div class="sd-adj-r">✓ <b>${esc(m.filename)}</b> — 설계 ${won(m.before)} → <b>${won(m.after)}</b>${m.after === m.target ? " (계약금액과 같음)" : ""}
+          <br>${m.rates.map((r) => `${esc(r.label.replace(/노임단가$/, ""))} ${won(r.before)} → ${Number(r.after).toLocaleString("ko-KR", { maximumFractionDigits: 2 })}원(${esc(r.pct)}%)`).join(" · ")}${rnd}${m.texts.length ? " · 표지 한글 금액" : ""}
+          <span class="mail-note">· ${esc(m.at)} ${esc(m.by || "")}</span></div>
+        <div class="sd-adj-b"><a href="${f("pdf", true)}" target="_blank" rel="noopener">👁 미리보기(PDF ${m.pages || "?"}쪽)</a><a href="${f("xlsx")}">⬇ 맞춘 엑셀</a><a href="${f("before")}">⬇ 설계 엑셀</a>
+          <button type="button" class="sd-adj-sheets">PDF 시트 고르기 ▾</button><button type="button" class="cd-x sd-adj-del" title="맞춘 내역서 빼기">✕</button></div>
+        <div class="sd-adj-pick" hidden><div class="sd-adj-list">${m.sheets.map((x) => `<label><input type="checkbox" value="${esc(x.name)}"${m.chosen.includes(x.name) ? " checked" : ""} /> ${esc(x.name)}${x.hidden ? ' <span class="mail-note">(숨긴 시트)</span>' : ""}</label>`).join("")}</div>
+          <button type="button" class="sd-adj-go">고른 시트로 PDF 다시 만들기</button></div>` : ""}
+      <div class="mail-note sd-adj-msg"></div></div>`;
   }
 
   function coverBlock() {
@@ -189,6 +217,45 @@ async function openSitokGov(contractId, kind, onDone) {
         }
       });
     }
+    const adjBox = box.querySelector(".sd-adj");
+    if (adjBox) { // 낙찰가 적용 내역서(10/30)
+      const amsg = adjBox.querySelector(".sd-adj-msg");
+      const adjIn = adjBox.querySelector(".sd-adj-in");
+      const after = (out) => { adj = out; st.attachments.start = out.attachments; draw(); };
+      enableFileDrop(adjBox, adjIn); // 엑셀을 이 칸에 끌어 놓으면 맞추기(붙임 칸 끌어 놓기보다 먼저)
+      adjIn.addEventListener("change", async () => {
+        const file = adjIn.files[0];
+        adjIn.value = "";
+        if (!file) return;
+        remember();
+        busy = true;
+        amsg.className = "mail-note sd-adj-msg";
+        amsg.textContent = `맞추는 중 — ${file.name} (LibreOffice로 계산·PDF, 30초쯤)`;
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          after(await apiUpload(A, fd));
+        } catch (err) {
+          amsg.textContent = err.message;
+          amsg.classList.add("cd-bad");
+        } finally { busy = false; }
+      });
+      adjBox.querySelector(".sd-adj-sheets")?.addEventListener("click", () => { const p = adjBox.querySelector(".sd-adj-pick"); p.hidden = !p.hidden; });
+      adjBox.querySelector(".sd-adj-go")?.addEventListener("click", async (e) => {
+        const sheets = [...adjBox.querySelectorAll(".sd-adj-pick input:checked")].map((x) => x.value);
+        if (!sheets.length) { amsg.textContent = "시트를 하나 이상 고르세요."; return; }
+        remember();
+        busy = true;
+        e.currentTarget.disabled = true;
+        amsg.textContent = "PDF 다시 만드는 중…(20초쯤)";
+        try { after(await api(`${A}/sheets`, { method: "PUT", body: JSON.stringify({ sheets }) })); } catch (err) { amsg.textContent = err.message; amsg.classList.add("cd-bad"); e.currentTarget.disabled = false; } finally { busy = false; }
+      });
+      adjBox.querySelector(".sd-adj-del")?.addEventListener("click", async () => {
+        if (!confirm("맞춘 내역서를 뺄까요? (붙임 산출내역서 칸에서도 빠집니다)")) return;
+        remember();
+        try { after(await api(A, { method: "DELETE" })); } catch (err) { amsg.textContent = err.message; }
+      });
+    }
     box.querySelectorAll(".cd-slot").forEach((el) => {
       const slot = el.dataset.slot;
       const msg = el.querySelector(".cd-slot-msg");
@@ -218,7 +285,7 @@ async function openSitokGov(contractId, kind, onDone) {
           busy = false;
         }
       });
-      el.querySelectorAll(".cd-x").forEach((btn) => btn.addEventListener("click", async () => {
+      el.querySelectorAll(".cd-file .cd-x").forEach((btn) => btn.addEventListener("click", async () => { // 붙임 파일 줄만(낙찰가 적용 ✕는 따로)
         if (!confirm(`${btn.dataset.name.replace(/^\d+_/, "")} 파일을 뺄까요?`)) return;
         remember();
         try {

@@ -12,6 +12,8 @@
 - 관급(2단계, server/sitok/gov_docs.py): 올리기 g2b(나라장터 계약서 — 글자 규칙, 못 읽은 칸만 AI → 읽은 칸 덮어씀)·report_cover(결과보고서 표지),
   `GET .../{id}/gov` 착수계·완수계 창, `POST .../{id}/gov/{start|done}` 엑셀 + 합본 PDF(붙임 산출내역서·완수내역서), `GET .../{id}/gov/{kind}.{xlsx|pdf}`,
   `POST|GET|DELETE .../{id}/gov/{kind}/attach/{칸}[/{파일}]` 붙임 파일. 기술자 = 시특법 보고서 설정과 같은 명단(사용자 10/12).
+  `GET|POST|DELETE .../{id}/est-adjust` · `PUT .../est-adjust/sheets` · `GET .../est-adjust/file/{before|xlsx|pdf}` — 낙찰가 적용 내역서(10/30 사용자 —
+  설계 내역서 엑셀 → 계약금액에 맞게 기술자 노임단가 조정, server/sitok/est_adjust.py) → 착수계 붙임 "산출내역서" 칸에 PDF.
 - 분야(0067, 10/28 사용자 "서류 자동화 시특법이랑 동일하게 내진성능평가"): 요청 머리 X-Docs-Field: seismic(내진 화면 — app.js) 또는 ?field=seismic이면
   계약 분야 "내진"끼리(doc_field). 내진은 카드 = 내진성능평가 건의 숨김 건물(seismic_only), 계약서를 올리고 저장하면 같은 건(없으면 새 건)에 용역 칸·용역계약서
   (seismic.from_docs_contract — 보고서 쪽 SitokContract는 안 만듦), 민간 = 회차 줄 없이 금액 한 칸·내진 양식(civil.TEMPLATE_NAME_SEISMIC).
@@ -2032,6 +2034,95 @@ def gov_attach_delete(cid: int, kind: Literal["start", "done"], slot: str, name:
     c = _require(db, user, cid)
     attachments.remove_file(folder(c), _slot(kind, slot), slot, name)
     return _attach_list(c, kind)
+
+
+def _adj_out(c: SitokDocContract, m: dict | None) -> dict:
+    return {"adjust": m, "amount": c.amount, "attachments": _attach_list(c, "start")}
+
+
+def _adj_to_slot(c: SitokDocContract, m: dict) -> dict:
+    """맞춘 PDF를 착수계 붙임 "산출내역서" 칸에 — 예전에 넣은 맞춘 PDF는 빼고."""
+    from server.sitok import est_adjust as EA
+
+    if m.get("slot_file"):
+        attachments.remove_file(folder(c), "sitok_start", "calc", m["slot_file"])
+    pdf = EA.base(folder(c)) / f"{EA.OUT_NAME}.pdf"
+    m["slot_file"] = attachments.add_file(folder(c), "sitok_start", "calc", pdf.read_bytes(), f"{EA.OUT_NAME}.pdf").name
+    EA._save_meta(folder(c), m)
+    return m
+
+
+@router.get("/contracts/{cid}/est-adjust")
+def est_adjust_state(cid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.sitok import est_adjust as EA
+
+    c = _require(db, user, cid)
+    return _adj_out(c, EA.meta(folder(c)))
+
+
+@router.post("/contracts/{cid}/est-adjust")
+def est_adjust_make(cid: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """설계(낙찰가 적용 전) 내역서 엑셀 → 계약금액에 맞춘 내역서(xlsx·PDF) → 착수계 붙임 산출내역서(30초쯤 — LibreOffice로 계산)."""
+    from server.sitok import est_adjust as EA
+
+    c = _require(db, user, cid)
+    old = EA.meta(folder(c))
+    if old and old.get("slot_file"):
+        attachments.remove_file(folder(c), "sitok_start", "calc", old["slot_file"])
+    try:
+        m = EA.make(folder(c), file.file.read(), file.filename or "내역서.xlsx", int(c.amount or 0), user.display_name or "")
+        m = _adj_to_slot(c, m)
+    except (ValueError, RuntimeError) as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    return _adj_out(c, m)
+
+
+class AdjSheetsIn(BaseModel):
+    sheets: list[str]
+
+
+@router.put("/contracts/{cid}/est-adjust/sheets")
+def est_adjust_sheets(cid: int, body: AdjSheetsIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """PDF에 넣을 시트 바꾸기 — 맞춘 엑셀로 PDF 다시, 붙임도 바꿈."""
+    from server.sitok import est_adjust as EA
+
+    c = _require(db, user, cid)
+    try:
+        m = _adj_to_slot(c, EA.export(folder(c), body.sheets))
+    except (ValueError, RuntimeError) as err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err)) from err
+    return _adj_out(c, m)
+
+
+@router.delete("/contracts/{cid}/est-adjust")
+def est_adjust_delete(cid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from server.sitok import est_adjust as EA
+
+    c = _require(db, user, cid)
+    m = EA.meta(folder(c))
+    if m and m.get("slot_file"):
+        attachments.remove_file(folder(c), "sitok_start", "calc", m["slot_file"])
+    shutil.rmtree(EA.base(folder(c)), ignore_errors=True)
+    return _adj_out(c, None)
+
+
+@router.get("/contracts/{cid}/est-adjust/file/{which}")
+def est_adjust_file(cid: int, which: Literal["before", "xlsx", "pdf"], inline: bool = False, user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    from server.sitok import est_adjust as EA
+
+    c = _require(db, user, cid)
+    m = EA.meta(folder(c)) or {}
+    d = EA.base(folder(c))
+    stem = re.sub(r"\.[^.]+$", "", m.get("filename") or "내역서")
+    if which == "before":
+        f, name = d / (m.get("src") or "적용전.xlsx"), m.get("filename") or "적용전.xlsx"
+    else:
+        f, name = d / f"{EA.OUT_NAME}.{which}", f"{stem}_낙찰가적용.{which}"
+    if not f.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "파일이 없습니다.")
+    media = "application/pdf" if which == "pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return FileResponse(f, media_type=media, filename=name, content_disposition_type="inline" if inline and which == "pdf" else "attachment")
 
 
 @router.get("/contracts/{cid}/gov/{kind}/attach/{slot}/{name}")
