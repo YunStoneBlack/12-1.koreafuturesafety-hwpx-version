@@ -626,10 +626,10 @@ class TypeIn(BaseModel):
 
 @router.post("/facilities/{facility_id}/contract-type")
 def set_contract_type(facility_id: int, body: TypeIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """시설물 목록함 구분 바꾸기 — 한 보고서로 묶인 동은 계약이 하나라 같이 바꿈."""
+    """시설물 목록함 구분 바꾸기 — 한 보고서로 묶인 동은 계약이 하나라 같이 바꿈. 번호가 같은 시설물(보고서 따로)도 같은 카드라 같이(10/30 — 목록도 한 카드)."""
     _check("계약 구분", body.contract_type, CONTRACT_TYPES)
     f = _require_facility(db, user, facility_id)
-    members = db.query(SitokFacility).filter(SitokFacility.group_id == f.group_id).all() if f.group_id else [f]
+    members = card_facilities(db, f)  # 번호 없으면 자기 묶음만(없으면 자기만)
     for m in members:
         m.contract_type = body.contract_type
     db.commit()

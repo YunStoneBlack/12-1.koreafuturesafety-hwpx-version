@@ -204,6 +204,7 @@
   **보고서 메일(DB 0065 `mail_job`)** — 시특법 회차 [📧 보고서 보내기](합본 내려받기 링크 `/report/share/{토큰}` 로그인 없이·30일·바로/예약·제출 현황 전송 표시,
   `server/api/mail_jobs.py`·`routers/sitok_mail.py`·`routers/share.py`, 그룹웨어 nginx 예외), 산안법 고객사 전송 예약(전송 창 첫 화면 [⏰ 예약 보내기]·목록/제출 현황 "⏰ 예약"),
   작업 프로그램 `server/worker/mail_worker.py`.
+- **240차(10/30)**: 시특법 현장 목록 — 번호 같은 시설물(보고서 따로)을 서류 카드처럼 한 카드 "첫 시설물 등 N개소"·보고서 1·2·3 칩(`sitok.js` units/cardKey), 계약 구분은 카드 전체(`card_facilities`).
 - **219~239차(10/30)**: **건축물관리점검** — 📋 이 건물 점검 목록(법령상 적용대상 `server/blcm/applicability.py`, 실내건축은 민재형 지시)·답을 서류에서 미리 읽기(대장 승강기·인증·건축주·변동사항,
   토지이용계획확인원 지정여부 `server/blcm/doc_facts.py`)·화면 재구성(① 서류검토 ② 관리사무소 도면 ③ 현장 점검)·부적합 유형 칸(찍으면 판정 자동 `items.apply_photos`)·
   [① 서류검토 확정] 근거 그림(대장 칸·확인원·법령 조문 빨간 네모 `server/blcm/evidence.py`, `server/scripts/make_blcm_law_caps.py`)·부적합 견본 후보·고르기(`blcm-samples.html`, `scan_blcm_bad_samples.py`)·

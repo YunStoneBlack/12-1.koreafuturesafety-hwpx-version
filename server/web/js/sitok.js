@@ -7,6 +7,8 @@
 // 10/15 민재형 "전체 선택 삭제기능 없애줘": 목록의 체크 칸·[전체 선택]·[선택 삭제]를 뺌(지우기는 시설물 화면 [삭제] 하나씩).
 // 10/15 민재형 문서번호 일치화: 번호 "민간-3"·"관급-1"(서류 자동화 시설물 카드와 같은 번호), 민간·관급은 시설물 칸(sector),
 // 뱃지(분야 건축/토목/건축·토목, 관급 종류 학교/일반/내진) 줄마다 + 뱃지 칩(개수, 누르면 그것만).
+// 10/30 사용자 "서류 카드는 '캐피탈타워 등 3개소'인데 현장 카드는 '나라키움대전센터' — 이름이 다름": 번호가 같은 시설물(보고서 따로, 민간-55 세 곳)도 서류 카드처럼
+// 한 카드("첫 시설물 등 N개소" + 시설물 N곳·보고서 따로 + 보고서 1·2·3 칩 → 그 시설물 화면). 곳 수·뱃지 수도 카드 단위, 계약 구분은 카드 전체가 같이 바뀜.
 
 (function () {
   const errorEl = document.getElementById("error");
@@ -88,8 +90,10 @@
     box.querySelector(".sk-badge-clear")?.addEventListener("click", () => { badge.field = badge.kind = ""; render(); });
   }
 
-  // 묶인 동(숭의 B동)은 계약이 1번 동에 있어 — 같은 묶음의 계약을 씀(민간·관급 거르기·계약 칸)
-  const contractOf = (f) => f.latest || (f.group ? rows.find((x) => x.group && x.group.id === f.group.id && x.latest)?.latest : null) || null;
+  // 묶인 동(숭의 B동)은 계약이 1번 동에 있어 — 같은 묶음의 계약을 씀(민간·관급 거르기·계약 칸). 보고서 따로 카드는 보고서 차례로 먼저 있는 계약(10/30)
+  const contractOf = (f) => f.latest || (f.group ? rows.find((x) => x.group && x.group.id === f.group.id && x.latest)?.latest : null)
+    || (f.units ? f.units.flatMap((u) => u.members).find((x) => x.latest)?.latest : null) || null;
+  const cardKey = (f) => { const m = String(f.mgmt_no || "").match(/^(관급|민간)-0*(\d+)(?:-\d+)?$/); return m ? `${m[1]}-${m[2]}` : ""; }; // "관급-6-2" → "관급-6"(server base_no)
 
   // 목록 한 줄 = 시설물 하나 또는 묶음 하나(대표 동 값 + members, 최근 열람은 동 중 가장 최근)
   function units() {
@@ -108,9 +112,28 @@
       const lead = list[0];
       out.push({ ...lead, members: list, group_name: g.name, viewed_at: list.map((x) => x.viewed_at || "").sort().pop() });
     }
-    return out;
+    // 번호가 같은 시설물(보고서 따로 — 서류 자동화 시설물 카드와 같은 묶음, 10/30)은 한 카드: 보고서 차례(card_units book) → 첫 시설물이 대표
+    const byCard = new Map();
+    for (const u of out) {
+      const k = cardKey(u);
+      if (k) byCard.set(k, [...(byCard.get(k) || []), u]);
+    }
+    const cards = [];
+    const merged = new Set();
+    for (const list of byCard.values()) {
+      if (list.length < 2) continue;
+      const book = new Map(list.flatMap((u) => u.card_units || []).map((x) => [x.id, x.book]));
+      const bookOf = (u) => Math.min(...u.members.map((m) => book.get(m.id) ?? 999));
+      list.sort((a, b) => bookOf(a) - bookOf(b) || a.id - b.id);
+      const all = list.flatMap((u) => u.members);
+      const lead = list[0];
+      cards.push({ ...lead, units: list, card_name: `${all[0].name} 등 ${all.length}개소`, viewed_at: all.map((x) => x.viewed_at || "").sort().pop() });
+      list.forEach((u) => merged.add(u));
+    }
+    return [...out.filter((u) => !merged.has(u)), ...cards];
   }
-  const unitText = (u) => u.members.flatMap((f) => [f.name, f.address, f.owner_name, f.fms_no, f.mgmt_no, f.contact_name]).concat(u.group_name || "");
+  const allMembers = (u) => (u.units ? u.units.flatMap((x) => x.members) : u.members);
+  const unitText = (u) => allMembers(u).flatMap((f) => [f.name, f.address, f.owner_name, f.fms_no, f.mgmt_no, f.contact_name]).concat(u.group_name || "", u.card_name || "");
 
   function renderCards() {
     const box = document.getElementById("sk-cards");
@@ -145,7 +168,8 @@
         e.preventDefault(); // 줄은 링크 — 시설물 화면으로 넘어가지 않게
         e.stopPropagation();
         if (t === f.contract_type) return;
-        const group = f.group && f.group.members.length > 1 ? `\n\n한 보고서로 묶인 동(${f.group.members.map((m) => m.name).join(", ")})도 같이 바뀝니다.` : "";
+        const group = f.units ? `\n\n같은 번호의 시설물(${allMembers(f).map((m) => m.name).join(", ")})도 같이 바뀝니다.`
+          : f.group && f.group.members.length > 1 ? `\n\n한 보고서로 묶인 동(${f.group.members.map((m) => m.name).join(", ")})도 같이 바뀝니다.` : "";
         const jong = (w) => (w.charCodeAt(w.length - 1) - 0xAC00) % 28; // 마지막 글자 받침(0 = 없음, 8 = ㄹ) — 로/으로
         const to = TYPE_SHORT[t];
         if (!confirm(`${TYPE_SHORT[f.contract_type] || "?"} → ${to}${jong(to) && jong(to) !== 8 ? "으로" : "로"} 바꾸시겠습니까?${group}`)) return;
@@ -187,6 +211,7 @@
     for (const f of shown) {
       const ids = f.members.map((m) => m.id);
       const multi = ids.length > 1;
+      const many = !!f.units; // 보고서 따로 시설물 여럿 카드(10/30)
       const c = contractOf(f);
       const contract = c
         ? `${ymd(c.start_date)} ~ ${ymd(c.end_date)}` +
@@ -200,11 +225,12 @@
       // 산안법 현장 목록처럼(10/13 사용자): 번호표·이름·틀 / 주소 · 관리주체 / 시설물번호 · 종류 · 담당 / [📞][📍][주소 복사] 를 이름 칸 한 곳에
       row.innerHTML = `
         <div class="sk-main">
-          <div class="sk-title">${f.mgmt_no ? `<span class="site-no">${esc(f.mgmt_no)}</span>` : ""}<span class="sk-sector ${sectorOf(f) === "관급" ? "gov" : "pri"}">${esc(sectorOf(f))}</span><b>${esc(multi ? f.group_name : f.name)}</b>
-            ${multi ? `<span class="sk-dong-n">${ids.length}동</span>` : ""}<span class="sk-tpl t${esc(f.civil_kind && f.civil_kind !== "옹벽" ? "none" : f.template)}">${esc(f.civil_kind && f.civil_kind !== "옹벽" ? "틀 준비 중" : f.civil_kind === "옹벽" ? (f.template === "2종" ? "옹벽 2종" : "옹벽 3종") : TEMPLATE_LABEL[f.template] || f.template)}</span>
+          <div class="sk-title">${f.mgmt_no ? `<span class="site-no">${esc(many ? cardKey(f) : f.mgmt_no)}</span>` : ""}<span class="sk-sector ${sectorOf(f) === "관급" ? "gov" : "pri"}">${esc(sectorOf(f))}</span><b>${esc(many ? f.card_name : multi ? f.group_name : f.name)}</b>
+            ${many ? `<span class="sk-dong-n">시설물 ${f.units.length}곳 · 보고서 따로</span>` : multi ? `<span class="sk-dong-n">${ids.length}동</span>` : ""}${many ? "" : `<span class="sk-tpl t${esc(f.civil_kind && f.civil_kind !== "옹벽" ? "none" : f.template)}">${esc(f.civil_kind && f.civil_kind !== "옹벽" ? "틀 준비 중" : f.civil_kind === "옹벽" ? (f.template === "2종" ? "옹벽 2종" : "옹벽 3종") : TEMPLATE_LABEL[f.template] || f.template)}</span>`}
             ${f.badge_field ? `<span class="sk-badge b-field">${esc(f.badge_field)}</span>` : ""}${f.badge_kind ? `<span class="sk-badge b-kind">${esc(f.badge_kind)}</span>` : ""}</div>
           <div class="sk-sub">${esc([f.address, f.owner_name].filter(Boolean).join(" · "))}</div>
-          ${multi ? `<div class="sk-dong-chips">${f.members.map((m, i) => `<span class="sk-dong-chip" data-href="sitok-facility.html?id=${m.id}" title="${esc(m.name)} 화면">제${i + 1}장 ${esc(m.name)}${m.fms_no ? ` <small>${esc(m.fms_no)}</small>` : ""}</span>`).join("")}</div>`
+          ${many ? `<div class="sk-dong-chips">${f.units.map((u, i) => `<span class="sk-dong-chip sk-unit-chip" data-href="sitok-facility.html?id=${u.id}" title="${esc(u.members.length > 1 ? u.group_name : u.name)} 화면"><span class="site-no">보고서 ${i + 1}</span>${esc(u.members.length > 1 ? u.group_name : u.name)}${u.members.length > 1 ? ` <small>${u.members.length}동</small>` : ""}</span>`).join("")}</div>`
+            : multi ? `<div class="sk-dong-chips">${f.members.map((m, i) => `<span class="sk-dong-chip" data-href="sitok-facility.html?id=${m.id}" title="${esc(m.name)} 화면">제${i + 1}장 ${esc(m.name)}${m.fms_no ? ` <small>${esc(m.fms_no)}</small>` : ""}</span>`).join("")}</div>`
             : `<div class="sk-sub">${esc([f.fms_no, f.use_type || f.main_use, f.contact_name && `담당 ${f.contact_name}`].filter(Boolean).join(" · "))}</div>`}
         </div>
         <div class="sk-contract">${contract}${renew}</div>`;
