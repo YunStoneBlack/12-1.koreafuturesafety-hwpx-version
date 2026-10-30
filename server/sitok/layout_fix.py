@@ -296,6 +296,38 @@ def grade_para_indent(root, keep) -> int:
     return n
 
 
+def greeting_particle(word: str) -> str:
+    """"귀 ○와/과" — ○ 끝 글자 받침이 있으면 과(공단·청·군·기관), 없으면 와(교·사·시·구·도·부대)."""
+    last = (word or " ")[-1]
+    return "과" if 0xAC00 <= ord(last) <= 0xD7A3 and (ord(last) - 0xAC00) % 28 else "와"
+
+
+def submit_greeting(root) -> int:
+    """제출문 본문 "귀 교와 계약 체결한 …" — 원본(학교 견본)의 "귀 교"가 발주처와 상관없이 남던 것을 발주처(제출문 "○○ 귀하" 수신자)에 맞춰 "귀 사와·귀 시와·귀 교와·귀 공단과 …"로
+    (10/30 사용자 "귀교 아니고 귀사, 발주처에 따라 바꾸기" — 착수계·완수계 인사말과 같은 규칙: 학교면 교, 그 밖은 contract_docs.build.greeting_word). 바꿨으면 1."""
+    from server.contract_docs.build import greeting_word
+
+    name = ""
+    for p in root.iter(f"{{{HP}}}p"):
+        t = _own_text(p).strip()
+        if t.endswith("귀하") and 3 <= len(t) <= 60 and "제출" not in t:
+            name = re.sub(r"[-\s]*$", "", re.sub(r"^-+", "", t[:-2])).strip()
+            break
+    if not name:
+        return 0
+    word = "교" if name.endswith("학교") else greeting_word(name)
+    if word == "기관":  # 규칙에 없는 발주처(민간 회사·교회·조합 …)는 "귀사"(착수계 인사말은 "기관" 그대로지만 제출문은 사람이 읽는 글이라 "귀사"가 자연스러움)
+        word = "사"
+    want = f"귀 {word}{greeting_particle(word)}"
+    n = 0
+    for t in root.iter(f"{{{HP}}}t"):
+        m = re.search(r"귀\s*(교|사|시|군|구|청|도|부대|공단|기관)(와|과)(?=\s*계약\s*체결)", t.text or "")
+        if m and m.group(0) != want:
+            t.text = t.text[:m.start()] + want + t.text[m.end():]
+            n += 1
+    return 1 if n else 0
+
+
 def submit_date(root, ym) -> int:
     """제출문 날짜 "2026 년 06월"(원본 그대로 남던 것) → 보고서 연월(표지와 같음)."""
     if not ym:

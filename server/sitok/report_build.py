@@ -2583,6 +2583,7 @@ def build(src: Path, old: Values, new: Values, dest: Path, extras: Extras | None
                         changed += layout_fix.submit_dashes(root)
                         changed += layout_fix.toc_appendix(root)
                         changed += layout_fix.submit_date(root, new.report_month)
+                        changed += layout_fix.submit_greeting(root)  # "귀 교와"(견본)→ 발주처에 맞게 귀 사와·귀 시와…(10/30)
                         changed += layout_fix.spine_name(root, new.name)  # 책등 괄호 안 = 시설물명(묶음은 merge가 "등 N개소")
                         for tbl in root.iter(f"{{{HP}}}tbl"):  # 정기 결과표 "점검 주요결과"가 길면 앞 쪽 몫 + (계속) 줄로(10/14)
                             c0 = _cells(tbl)
