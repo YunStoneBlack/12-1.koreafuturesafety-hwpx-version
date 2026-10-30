@@ -395,32 +395,41 @@ def apply_engineers(payload: dict, found: dict) -> list[str]:
     return diffs
 
 
-def contract_files(db, reports: list) -> tuple[list[dict], list[str]]:
-    """e-보고서 "계약서 및 대가내역서" 폴더에 더할 대가내역서 — 이 회차 계약과 이어진 서류 자동화 계약(보고서 쪽 계약으로 넣은 것, 없으면 같은 시설물 연결)의
-    용역명·문서번호·날짜에, 줄은 이 회차 기준(동마다 결과표 점검금액, 10/26 — server/sitok/daega.py report_rows). → (파일들, 알림)."""
+def doc_contract_for(db, reports: list):
+    """이 회차들의 서류 자동화 계약 — 보고서 쪽 계약으로 이어 둔 것, 없으면 이 시설물들을 덮는 계약(시설물 여럿 카드는 대표 시설물이 아니어도 facility_ids에 들어 있으면)."""
     from core.models_web import SitokDocContract
-    from server.sitok import daega
+    from server.api.routers import sitok_docs as D
 
     r0 = reports[0]
-    q = db.query(SitokDocContract)
-    c = (q.filter(SitokDocContract.report_contract_id == r0.contract_id).order_by(SitokDocContract.id.desc()).first() if r0.contract_id else None) \
-        or q.filter(SitokDocContract.facility_id.in_([r.facility_id for r in reports])).order_by(SitokDocContract.id.desc()).first()
+    q = db.query(SitokDocContract).order_by(SitokDocContract.id.desc())
+    if r0.contract_id:
+        c = q.filter(SitokDocContract.report_contract_id == r0.contract_id).first()
+        if c is not None:
+            return c
+    ids = {r.facility_id for r in reports}
+    return next((c for c in q if ids & set(D.covered_ids(c))), None)
+
+
+def contract_files(db, reports: list) -> tuple[list[dict], list[str]]:
+    """e-보고서 "계약서 및 대가내역서" 폴더에 더할 대가내역서 — **계약 전체 대가내역서**(10/31 민재형 "실제 대가내역서를 제출하면 되는 거야": 계약 총액 안에 건물별 줄이 있는 서류).
+    이 회차 계약과 이어진 서류 자동화 계약(보고서 쪽 계약으로 넣은 것, 없으면 같은 시설물 연결)의 폴더에서 ① 직접 올린 `대가내역서_직접.pdf`가 있으면 그것 ② 없으면 서류 자동화에서 만든 `대가내역서.pdf`
+    (없으면 한 번 만들어 둠 — 만들어 둔 것은 덮어쓰지 않음, 엑셀을 고쳐 쓰는 곳은 서류 자동화 계약 창). 10/26~10/30에는 회차 기준(동마다 결과표 점검금액)으로 새로 만들었음 → 폐기. → (파일들, 알림)."""
+    from server.api.routers import sitok_docs as D
+    from server.sitok import daega
+
+    c = doc_contract_for(db, reports)
     if c is None:
         return [], ["대가내역서: 이어진 서류 자동화 계약이 없어 못 만듦 — 서류 자동화 · 시특법 계약에서 [📑 대가내역서]"]
-    # 회차 기준(10/26 민재형) — 줄 = 이 회차(묶음이면 동마다), 단가 = 결과표 점검금액. 회차 폴더에 매번 새로(결과표를 고쳐 다시 만들면 따라감)
-    from core.models_web import SitokFacility
-    from server.api.routers.sitok_reports import _report_dir
-
-    reports = sorted(reports, key=lambda r: (db.get(SitokFacility, r.facility_id).group_order, r.id))
-    facs = {r.facility_id: db.get(SitokFacility, r.facility_id) for r in reports}
-    try:
-        data = daega.report_rows(reports, facs)
-    except ValueError as e:
-        return [], [f"대가내역서: {e}"]
-    pdf = _report_dir(facs[r0.facility_id], r0) / "FMS" / "대가내역서.pdf"
-    pdf.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        daega.build_report_pdf(c, data, pdf.with_suffix(".xlsx"), pdf)
-    except Exception as e:  # noqa: BLE001
-        return [], [f"대가내역서를 만들지 못했습니다: {str(e)[:100]}"]
-    return [{"folder": "계약서 및 대가내역서", "name": "대가내역서", "file": str(pdf)}], []
+    base = D.folder(c)
+    own, auto = base / "대가내역서_직접.pdf", base / "대가내역서.pdf"
+    if own.exists():
+        return [{"folder": "계약서 및 대가내역서", "name": "대가내역서", "file": str(own)}], []
+    if not auto.exists():
+        if not c.open_ended and not c.rounds and not c.amount:
+            return [], ["대가내역서: 서류 자동화 계약에 회차(연도·반기·금액)나 계약금액을 넣고 [📑 대가내역서]를 만들거나, 실제 대가내역서 PDF를 [📤 고친 대가내역서 올리기]로 올리세요"]
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            daega.build_pdf(c, base / "대가내역서.xlsx", auto)
+        except Exception as e:  # noqa: BLE001
+            return [], [f"대가내역서를 만들지 못했습니다: {str(e)[:100]}"]
+    return [{"folder": "계약서 및 대가내역서", "name": "대가내역서", "file": str(auto)}], []

@@ -6,8 +6,7 @@
   동별 금액이 없으면 한 동(시설물명)에 회차 줄 그대로. 끝 없는 계약 = "매 반기" 한 줄(단가), 관급(회차 없음) = 계약기간 한 줄(계약금액).
 - 양식 모양 그대로: 표 머리(10행) 위·합계·비고·회사 칸은 형 양식의 글·서식을 옮기고, 가운데 줄만 개수에 맞게 다시 그림(병합·테두리 복사).
 - 엑셀 → PDF는 LibreOffice(server/contract_docs/to_pdf.py, 착수계와 같음).
-- FMS e-보고서용(report_rows·build_report_pdf, 10/26 민재형 "각 결과표에 들어간 시설물별 계약금이 맞는지 확인하는 서류"): 줄 = 그 회차(묶음이면 동마다) —
-  시설명·과업기간(상반기/하반기)·분야(정기/정밀/진단)·단가 = 만든 보고서 결과표의 점검금액(천원) × 1,000(결과표와 다를 수 없게), 날짜 = 관급 착수일·민간 계약일.
+- FMS e-보고서에는 이 계약 대가내역서(계약 전체 총액 + 건물별 줄)를 그대로 씀(10/31 민재형 "실제 대가내역서를 제출") — fms.contract_files. 10/26~10/30의 회차 기준 줄(report_rows)은 폐기.
 - 표 오른쪽 끝 굵은 선: 양식은 합계 줄만 굵고 머리·줄은 가는 선 → 오른쪽 끝에 닿는 합친 칸(비고 L:M)에 굵은 선, 끝 칸(M)까지 퍼뜨림(LibreOffice는 끝 칸 값으로 그림, 10/26).
 """
 from __future__ import annotations
@@ -57,38 +56,6 @@ def _style(cell) -> dict:
 def _put_style(cell, st: dict) -> None:
     for k, v in st.items():
         setattr(cell, k, v)
-
-
-def report_rows(reports: list, facilities: dict) -> list[tuple[str, list[tuple[str, str, int]]]]:
-    """FMS용 대가내역서 줄 — 회차마다 [(시설명, [(과업기간, 분야, 단가)])]. 단가 = 그 회차(묶음이면 n번째 동) 결과표 점검금액(천원) × 1,000 —
-    만든 보고서(out_hwpx)에서 읽음. 보고서가 없거나 점검금액을 못 읽으면 ValueError(안내 글)."""
-    import re
-
-    from server.sitok import fms
-
-    seen: dict = {}
-    out = []
-    for r in reports:
-        f = facilities[r.facility_id]
-        if not r.out_hwpx or not Path(r.out_hwpx).exists():
-            raise ValueError(f"{f.name}: 보고서를 아직 안 만들어 결과표 점검금액을 모릅니다 — 보고서를 먼저 만드세요")
-        nth = seen.get(r.out_hwpx, 0)
-        seen[r.out_hwpx] = nth + 1
-        amount_k = fms.result_fields(Path(r.out_hwpx), nth).get("amount_k", "")
-        digits = re.sub(r"[^\d]", "", amount_k.split(".")[0])
-        if not digits:
-            raise ValueError(f"{f.name}: 결과표 점검금액이 비어 있습니다(\"{amount_k}\") — 회차 정보의 동별 점검금액·계약을 확인하세요")
-        out.append((f.name, [(r.half or "", r.kind or "정기", int(digits) * 1000)]))
-    return out
-
-
-def build_report_pdf(c, data: list, xlsx: Path, pdf: Path) -> Path:
-    """FMS용 대가내역서(회차 기준 줄 data) — 날짜 = 관급 착수일·민간 계약일(10/26 민재형)."""
-    from server.contract_docs.to_pdf import office_to_pdf
-
-    day = (c.start_date if getattr(c, "sector", "") == "관급" else c.contract_date) or c.contract_date or c.start_date
-    build(c, xlsx, data=data, print_day=day)
-    return office_to_pdf(xlsx, pdf)
 
 
 def build(c, dest: Path, day: datetime.date | None = None, data: list | None = None, print_day: datetime.date | None = None) -> Path:

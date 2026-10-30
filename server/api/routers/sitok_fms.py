@@ -135,10 +135,7 @@ def fms_info(rid: int, request: Request, user: User = Depends(get_current_user),
             notes.append(f"합본 PDF를 나누지 못했습니다: {str(e)[:80]}")
     else:
         notes.append("보고서(합본 PDF)를 아직 만들지 않았습니다 — 실적 보고 전에 만드세요")
-    from core.models_web import SitokDocContract
-    q = db.query(SitokDocContract)
-    doc = (q.filter(SitokDocContract.report_contract_id == r.contract_id).first() if r.contract_id else None) \
-        or q.filter(SitokDocContract.facility_id.in_([x.facility_id for x in reps])).order_by(SitokDocContract.id.desc()).first()
+    doc = fms.doc_contract_for(db, reps)  # 서류 자동화 계약(시설물 여럿 카드는 대표 아닌 시설물도 찾음, 10/31)
     if doc is None:
         notes.append("대가내역서: 이어진 서류 자동화 계약이 없어 못 만듭니다 — 서류 자동화 · 시특법 계약에서 만드세요")
     else:

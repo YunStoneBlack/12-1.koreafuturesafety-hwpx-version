@@ -912,6 +912,8 @@
           ${!SEIS && st.files && st.files["대가내역서.pdf"] ? `<a href="${fileUrl(st, "대가내역서.pdf")}" target="_blank" rel="noopener">대가내역서 PDF</a>` : ""}
           ${!SEIS && st.files && st.files["대가내역서.xlsx"] ? `<a href="${fileUrl(st, "대가내역서.xlsx")}">엑셀</a>` : ""}
           ${SEIS ? "" : '<button type="button" class="sd-daega" title="계약 회차·동별 금액으로 대가내역서(형 양식) — FMS e-보고서에도 씀">📑 대가내역서</button>'}
+          ${SEIS ? "" : `<label class="secondary sd-daega-up" title="엑셀을 고쳐 PDF로 저장한 대가내역서를 올리면 FMS e-보고서에 이것을 씀(10/31)">📤 고친 대가내역서 올리기<input type="file" accept="application/pdf,.pdf" hidden id="sd-daega-file" /></label>`}
+          ${!SEIS && st.files && st.files["대가내역서_직접.pdf"] ? `<a href="${fileUrl(st, "대가내역서_직접.pdf")}" target="_blank" rel="noopener" title="FMS e-보고서에 이 파일을 씀">직접 올린 대가내역서 ✓</a><button type="button" class="link-btn sd-daega-del" title="지우고 자동으로 만든 대가내역서로 되돌림">↩ 자동으로</button>` : ""}
           ${civil ? '<button type="button" class="mail-primary sd-make">📝 계약서 만들기</button>'
             : '<button type="button" class="sd-to-gov" data-kind="start">📑 착수계</button><button type="button" class="mail-primary sd-to-gov" data-kind="done">📑 완수계</button>'}
         </div>`;
@@ -938,6 +940,37 @@
           msg(esc(err.message), "bad");
         } finally {
           busy = false;
+        }
+      });
+      box.querySelector("#sd-daega-file")?.addEventListener("change", async (e) => { // 고친 대가내역서(PDF) 올리기 — 있으면 FMS가 이것을 씀(10/31 민재형 "수정할 수 있는 공간")
+        const f = e.target.files[0];
+        if (!f) return;
+        busy = true;
+        msg(`${esc(f.name)} 올리는 중…`, "");
+        try {
+          const fd = new FormData();
+          fd.append("file", f);
+          const out = await apiUpload(`${P}/contracts/${st.id}/upload/daega`, fd);
+          st = out;
+          st.bldgs = (st.buildings || []).slice();
+          draw(true);
+          msg("✓ 올렸습니다 — 이제 e-보고서(FMS)에 이 대가내역서를 씁니다", "ok");
+        } catch (err) {
+          msg(esc(err.message), "bad");
+        } finally {
+          busy = false;
+        }
+      });
+      box.querySelector(".sd-daega-del")?.addEventListener("click", async () => {
+        if (!confirm("직접 올린 대가내역서를 지우고 자동으로 만든 것으로 되돌릴까요?")) return;
+        try {
+          const out = await api(`${P}/contracts/${st.id}/daega-upload`, { method: "DELETE" });
+          st = out;
+          st.bldgs = (st.buildings || []).slice();
+          draw(true);
+          msg("✓ 되돌렸습니다 — 자동으로 만든 대가내역서를 씁니다", "ok");
+        } catch (err) {
+          msg(esc(err.message), "bad");
         }
       });
       box.querySelectorAll('input[name="sd-sector"]').forEach((r) => r.addEventListener("change", () => { sync(); st.sector = r.value; filled = []; draw(); }));

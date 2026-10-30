@@ -65,7 +65,8 @@ TEXT = ("sector", "doc_no", "client", "client_rep", "client_biz_no", "client_add
 DATES = ("contract_date", "start_date", "end_date", "actual_end_date")  # actual_end_date = 실제 준공일(0063, 비면 end_date)
 FILES = {"계약서.hwpx": "application/octet-stream", "계약서.pdf": "application/pdf", "날인본.pdf": "application/pdf",
          "시설물관리대장.pdf": "application/pdf", "사업자등록증.pdf": "application/pdf", "결과보고서_표지.pdf": "application/pdf",
-         "대가내역서.pdf": "application/pdf", "대가내역서.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}  # 대가내역서(10/15 — FMS e-보고서)
+         "대가내역서.pdf": "application/pdf", "대가내역서.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+         "대가내역서_직접.pdf": "application/pdf"}  # 대가내역서(10/15 — FMS e-보고서), _직접 = 엑셀을 고쳐 PDF로 저장해 올린 것(10/31 — 있으면 FMS가 이것을 씀)
 GOV = {"start": "착수계", "done": "완수계"}  # 관급 서류 — 계약 폴더 착수계.xlsx·착수계.pdf … (완수계는 10/20까지 "완료계" — 그 파일도 찾음)
 OLD_GOV = {"done": "완료계"}
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1295,9 +1296,25 @@ def add_estimate(cid: int, file: UploadFile = File(...), user: User = Depends(ge
 @router.post("/contracts/{cid}/upload/{kind}")
 def upload(cid: int, kind: str, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _require(db, user, cid)
+    if kind == "daega":  # 고쳐서 PDF로 저장한 대가내역서 — 읽지 않고 그대로 두며 FMS e-보고서가 우선 씀(10/31 민재형 "수정할 수 있는 공간")
+        pdf = _pdf(file)
+        base = folder(c)
+        base.mkdir(parents=True, exist_ok=True)
+        (base / "대가내역서_직접.pdf").write_bytes(pdf)
+        c.updated_at, c.updated_by = datetime.datetime.now(), user.display_name or ""
+        db.commit()
+        return summary(db, c) | {"warning": ""}
     if kind not in ("ledger", "bizreg", "existing", "signed", "g2b", "report_cover"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "올릴 서류 종류가 맞지 않습니다.")
     return _store(db, c, kind, _pdf(file), user)
+
+
+@router.delete("/contracts/{cid}/daega-upload")
+def delete_daega_upload(cid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """직접 올린 대가내역서를 지워 자동으로 만든 것으로 되돌림."""
+    c = _require(db, user, cid)
+    (folder(c) / "대가내역서_직접.pdf").unlink(missing_ok=True)
+    return summary(db, c) | {"warning": ""}
 
 
 def _store(db: Session, c: SitokDocContract, kind: str, pdf: bytes, user: User) -> dict:
