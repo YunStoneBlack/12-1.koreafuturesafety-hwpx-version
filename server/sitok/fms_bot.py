@@ -165,7 +165,7 @@ def _act(job: Job, where, js: str, label: str, wait_ms: int = 3500, ok: str | No
         raise FmsError(f"{label}에서 FMS가 막음: {bad[0][:200]}")
 
 
-def _popup_select(ctx, opener, open_js: str, match, wait_ms: int = 10000) -> str:
+def _popup_select(ctx, opener, open_js: str, match, wait_ms: int = 10000, job=None) -> str:
     """찾기 팝업 열기 → goSelect 줄 중 match(인자 목록)에 맞는 것 부르기(고르면 팝업이 닫힘) → 고른 goSelect 글."""
     with ctx.expect_page(timeout=15000) as pop:
         opener.evaluate(open_js)
@@ -176,6 +176,9 @@ def _popup_select(ctx, opener, open_js: str, match, wait_ms: int = 10000) -> str
     sels = w.evaluate("() => [...document.querySelectorAll('[onclick^=\"goSelect\"], a[href^=\"javascript:goSelect\"]')].map(b => b.getAttribute('onclick') || b.getAttribute('href'))")
     hit = next((s for s in sels if match(re.findall(r"'([^']*)'", s))), None)
     if hit is None:
+        if job is not None and not w.is_closed():  # 못 찾았을 때 찾기 창 화면·줄 수를 남김(10/31 첫 실제 건 — 왜 없는지 보게)
+            job.say(f"찾기 창 결과 {len(sels)}줄: " + " / ".join(re.sub(r"[\s]+", " ", x)[:50] for x in sels[:3]))
+            job.shot(w, "찾기창_못찾음")
         if not w.is_closed():
             w.close()
         return ""
@@ -539,6 +542,7 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
         raise FmsError("일반현황 화면이 열리지 않았습니다.")
     pg.wait_for_timeout(2000)
     gen = _fill_general(ctx, fr, c, job)
+    owner_code = fr.evaluate("(document.getElementsByName('mng_main_cd')[0] || {}).value || ''") or (gen.get("owner") or {}).get("code") or ""  # 대상시설물 찾기용 관리주체 코드
     job.say(f"일반현황 채움 — FMS 대표자 {gen.get('fms_rep') or '-'}")
     job.shot(pg, "계약_일반현황")
     _act(job, fr, "goSave()", "일반현황 저장", wait_ms=4000)
@@ -560,7 +564,11 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
         fr2.evaluate("goWrite()")
         pg.wait_for_timeout(600)
         mng = fr2.evaluate("(document.getElementsByName('mng_main_cd')[0] || {}).value || ''")
-        hit = _popup_select(ctx, fr2, "document.querySelector('#imgFacilFind').click()", lambda a, no=f["fms_no"]: bool(a) and a[0] == no)
+        if not mng and owner_code:  # 이 탭 폼의 관리주체 칸이 비어 있으면 찾기 창이 관리주체 없이 열려 못 찾음(10/31 첫 실제 건) — 일반현황에서 고른 코드를 넣어 줌
+            fr2.evaluate("(c) => { const e = document.getElementsByName('mng_main_cd')[0]; if (e) e.value = c; }", owner_code)
+            mng = owner_code
+            job.say(f"시설물 찾기 관리주체 코드 채움 {owner_code}")
+        hit = _popup_select(ctx, fr2, "document.querySelector('#imgFacilFind').click()", lambda a, no=f["fms_no"]: bool(a) and a[0] == no, job=job)
         if not hit:
             raise FmsError(f"FMS 시설물 찾기에서 {f['name']}({f['fms_no']})를 못 찾았습니다{f' (관리주체 {mng})' if mng else ''}.")
         fr2 = _frame(pg, "any13001")
