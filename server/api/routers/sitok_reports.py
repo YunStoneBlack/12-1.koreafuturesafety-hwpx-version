@@ -721,7 +721,7 @@ def _insert_albums(db: Session, reps: list[SitokReport], names: list[str], pdf: 
 
     books = []
     for k, (r, name) in enumerate(zip(reps, names), 1):
-        floors = album_floors(db, r.id)
+        floors = album_floors(db, r.id, zones=True)  # 동이 있으면 동마다 간지(10/30)
         if floors:
             album = pdf.with_name(f"외관조사 사진첩_{k}.pdf" if len(reps) > 1 else "외관조사 사진첩.pdf")
             album_make.make(floors, album)
@@ -866,7 +866,7 @@ def _precision_appendix_pdf(db: Session, r: SitokReport, f: SitokFacility, pdf: 
             _replace_back_page(doc, ("2-1", "측정데이터"), to_pdf_bytes(xlsx.read_bytes(), xlsx.name), "강도 측정데이터", done, wide=True)
         except Exception:  # noqa: BLE001 — 엑셀 변환이 안 되면 빼고 감
             pass
-    floors = album_floors(db, r.id)
+    floors = album_floors(db, r.id, zones=True)
     if floors:
         album = pdf.with_name("외관조사 사진첩.pdf")
         album_make.make(floors, album)
@@ -1882,8 +1882,8 @@ def _ai_draft_work(db: Session, r: SitokReport, user: User, target: str) -> dict
         return _wall_ai_draft(db, r, f, rows, user, target)
     if not rows:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "현장 조사 결함이 없습니다 — [📱 현장 조사]에서 결함을 먼저 가져오거나 입력하세요.")
-    defects = [{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause",
-                                           "cause_note")}
+    defects = [{**{k: getattr(d, k) for k in ("part", "member", "dtype", "floor", "seq", "count", "width", "length", "qty", "check", "mark", "progress", "cause",
+                                              "cause_note")}, "floor": f"{d.zone} {d.floor}" if d.zone else d.floor}  # 동이 있으면 "통계청 지상8층"(10/30)
                for d in rows]
     prior = _prior(r)
     old = rb.old_texts(prior) if prior else ""

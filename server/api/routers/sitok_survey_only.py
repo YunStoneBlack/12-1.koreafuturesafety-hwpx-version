@@ -164,7 +164,7 @@ def download_album(facility_id: int, user: User = Depends(get_current_user), db:
     from server.sitok import album_make
 
     f, r = _require(db, user, facility_id)
-    floors = album_floors(db, r.id)
+    floors = album_floors(db, r.id, zones=True)  # 동이 있으면 동마다 간지(10/30)
     if not floors:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "아직 결함이 없습니다.")
     import pymupdf

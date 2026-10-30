@@ -715,7 +715,8 @@ class SitokDefect(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("sitok_report.id", ondelete="CASCADE"), index=True)
     floor: Mapped[str] = mapped_column(Text, default="")  # 지상2층 · 지하1층 · 옥상층
-    seq: Mapped[int] = mapped_column(Integer, default=0)  # 층 안 번호(외관망도 번호)
+    zone: Mapped[str] = mapped_column(Text, default="")  # 동(구역) — 시설물 1개 안 연결된 동마다 결함현황표(0071, 10/30), 빈 글 = 동 없음. 차례 = 시설물 ledger["zones"]
+    seq: Mapped[int] = mapped_column(Integer, default=0)  # 동·층 안 번호(외관망도 번호)
     part: Mapped[str] = mapped_column(Text, default="")  # 구조체 / 비구조체
     member: Mapped[str] = mapped_column(Text, default="")  # 부재(슬라브·조적벽…)
     dtype: Mapped[str] = mapped_column(Text, default="")  # 결함유형

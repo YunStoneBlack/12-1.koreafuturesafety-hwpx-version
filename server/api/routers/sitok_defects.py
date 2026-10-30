@@ -43,7 +43,7 @@ from server.sitok import album_read, kinds, learn
 router = APIRouter(prefix="/sitok", tags=["sitok"])
 AREA_WORDS = ("누수", "백태", "백화", "박리", "박락", "층분리", "재료분리", "철근노출", "부식", "들뜸", "탈락", "파손", "오염",
               "유출", "식생", "퇴적", "배부름", "세굴", "마감불량", "철망")  # 뒤 7개 = 옹벽(폭·길이 m로 면적)
-FIELDS = ("floor", "part", "member", "dtype", "count", "width", "length", "depth", "area_ratio", "cause", "cause_note", "progress", "note")
+FIELDS = ("floor", "part", "member", "dtype", "count", "width", "length", "depth", "area_ratio", "cause", "cause_note", "progress", "note", "zone")
 DEPTH_WORDS = ("박리", "박락", "층분리")  # 깊이(mm) 칸이 있는 결함유형 — 정밀 상태평가 기준(박리 0.5/1.0/2.5, 박락·층분리 15/20/25mm, 10/13)
 CHECKS = ("", "same", "grew", "repaired", "new")
 MARK = {"same": "기존", "grew": "기존", "repaired": "보수", "new": "신규"}
@@ -117,6 +117,42 @@ def floor_key(floor: str) -> tuple:
     return (1, -k)
 
 
+def facility_zones(f: SitokFacility | None, rows: list | None = None) -> list[str]:
+    """동(구역) 차례(10/30 사용자 "시설물은 1개인데 연결된 동으로 동이 여러 개 — 동마다 결함현황표") — 시설물 ledger["zones"] + 결함에만 있는 동. 없으면 []."""
+    out = [z for z in ((f.ledger or {}).get("zones") or [] if f is not None else []) if z]
+    for d in rows or []:
+        if getattr(d, "zone", "") and d.zone not in out:
+            out.append(d.zone)
+    return out
+
+
+def where(d) -> str:
+    """결함 자리 글 — 동이 있으면 "통계청 지상8층"."""
+    z = getattr(d, "zone", "") or ""
+    return f"{z} {d.floor}" if z else d.floor
+
+
+def _fpre(zone: str, floor: str, seq: int) -> str:
+    """결함 사진 파일 이름 앞 "층_NN_" — 동이 있으면 "동_층_NN_"(동마다 층·번호가 겹침, 10/30)."""
+    import re
+    z = re.sub(r'[\\/:*?"<>|\s]+', "", zone or "")
+    return f"{z + '_' if z else ''}{floor}_{seq:02d}_"
+
+
+def _fname(zone: str, floor: str, seq: int, tag: str) -> str:
+    """결함 사진 파일 이름 "층_NN_금회.jpg"(동이 있으면 앞에 동)."""
+    return f"{_fpre(zone, floor, seq)}{tag}.jpg"
+
+
+def _save_zones(f: SitokFacility, zones: list[str]) -> None:
+    from sqlalchemy.orm.attributes import flag_modified
+
+    led = dict(f.ledger or {})
+    led["zones"] = zones
+    f.ledger = led
+    flag_modified(f, "ledger")
+
+
 def _photo_dir(db: Session, r: SitokReport) -> Path:
     return _report_dir(db.get(SitokFacility, r.facility_id), r) / "결함사진"
 
@@ -138,8 +174,11 @@ def _out(d: SitokDefect) -> dict:
 
 
 def _rows(db: Session, report_id: int) -> list[SitokDefect]:
+    """동(시설물 차례, 동 없는 줄 먼저) → 층(옥상 → 지상 위층 → 지하) → 번호."""
     rows = db.query(SitokDefect).filter(SitokDefect.report_id == report_id).all()
-    return sorted(rows, key=lambda d: (floor_key(d.floor), d.floor, d.seq, d.id))
+    r = db.get(SitokReport, report_id)
+    zs = facility_zones(db.get(SitokFacility, r.facility_id) if r else None, rows)
+    return sorted(rows, key=lambda d: (zs.index(d.zone) if d.zone in zs else -1, floor_key(d.floor), d.floor, d.seq, d.id))
 
 
 WALL_PROGRESSIVE = ("배부름", "침하", "세굴", "전도", "활동")  # 옹벽 진행성 구조 결함 — 주의관찰이라도 우선순위 2
@@ -284,8 +323,8 @@ def missing_photo_note(db: Session, report_id: int) -> str:
     miss = [d for d in rows if not (d.photo and Path(d.photo).exists()) and not (d.check == "repaired" or d.mark == "보수")]
     if not miss:
         return ""
-    where = ", ".join(f"{d.floor} {d.seq}번" for d in miss[:3]) + (f" 외 {len(miss) - 3}건" if len(miss) > 3 else "")  # 짧게(10/15 "글자 늘어뜨리지 말고")
-    return f"결함 {len(rows)}건 중 이번 회차 사진 없음 {len(miss)}건({where}) — 사진 칸은 비움"
+    where_ = ", ".join(f"{where(d)} {d.seq}번" for d in miss[:3]) + (f" 외 {len(miss) - 3}건" if len(miss) > 3 else "")  # 짧게(10/15 "글자 늘어뜨리지 말고")
+    return f"결함 {len(rows)}건 중 이번 회차 사진 없음 {len(miss)}건({where_}) — 사진 칸은 비움"
 
 
 def _defects_for_cost(db: Session, report_id: int) -> list[SitokDefect]:
@@ -364,17 +403,18 @@ def rep_photos(db: Session, report_id: int, per: int = 4) -> dict:
             continue
         lst = out.setdefault(category_of(d.part, d.member, d.dtype), [])
         if len(lst) < per:
-            lst.append((photo, f"{d.floor} {d.member} {d.dtype}".strip() + ("(진행)" if d.check == "grew" else "(신규)" if d.check == "new" else "")))
+            lst.append((photo, f"{where(d)} {d.member} {d.dtype}".strip() + ("(진행)" if d.check == "grew" else "(신규)" if d.check == "new" else "")))
     return out
 
 
-def album_floors(db: Session, report_id: int) -> list[tuple[str, list[dict]]]:
-    """사진첩용 층별 줄(server/sitok/album_make.py) — 번호 순, 사진번호는 층마다 1부터, 보수 완료는 "보수완료"·크기 "-"."""
-    out: list[tuple[str, list[dict]]] = []
+def album_floors(db: Session, report_id: int, zones: bool = False) -> list[tuple]:
+    """사진첩용 층별 줄(server/sitok/album_make.py) — 번호 순, 사진번호는 층마다 1부터, 보수 완료는 "보수완료"·크기 "-".
+    동이 있으면 동·층마다(10/30) — zones=True면 [(동, 층, 줄)](사진첩이 동마다 간지), 아니면 [("동 층", 줄)]."""
+    out: list[tuple[str, str, list[dict]]] = []
     for d in _rows(db, report_id):
-        if not out or out[-1][0] != d.floor:
-            out.append((d.floor, []))
-        rows = out[-1][1]
+        if not out or out[-1][0] != (d.zone or "") or out[-1][1] != d.floor:
+            out.append((d.zone or "", d.floor, []))
+        rows = out[-1][2]
         rep = d.check == "repaired" or d.mark == "보수"
         rows.append({"번호": str(d.seq), "구분": d.part, "부재": d.member, "결함유형": "보수완료" if rep else kinds.type_with_depth(d.dtype, d.depth),  # 깊이 = "파손(D=0.9mm)"(10/22)
                      "개수": "-" if rep else d.count, "폭": "-" if rep else d.width, "길이": "-" if rep else d.length,
@@ -385,7 +425,7 @@ def album_floors(db: Session, report_id: int) -> list[tuple[str, list[dict]]]:
                      "_now_photo": d.photo if d.photo and Path(d.photo).exists() else "", "_prev_photo": d.prev_photo,
                      "_prev": d.prev or {}, "_check": d.check, "_compare": bool(d.prev) and not (d.dtype or "").rstrip().endswith("현황")
                      and (kinds.is_main_part(d.part) or d.check == "grew" or d.starred)})
-    return out
+    return out if zones else [((f"{z} {fl}" if z else fl), rows) for z, fl, rows in out]
 
 
 @router.get("/reports/{report_id}/defects")
@@ -399,6 +439,7 @@ def list_defects(report_id: int, user: User = Depends(get_current_user), db: Ses
             "survey_only": bool(f.survey_only), "tab_presets": TAB_PRESETS,  # 결함조사만(0061) — 화면이 결함 조사 탭만 보임
             "seismic": r.half == "성능평가", "seismic_only": bool(getattr(f, "seismic_only", False)),  # 내진성능평가 회차(10/21) — 결함 조사 탭만, 전회차 가져오기 없이
             "defects": [_out(d) for d in rows], "floors": facility_floors(f), "importing": _importing(r.id) or wall_review(r),
+            "zones": facility_zones(f, rows),  # 동(구역) — 시설물 1개 안 연결된 동(10/30), 없으면 []
             "fam": fam, "unit_label": kinds.unit_label(fam), "parts": list(kinds.parts_of(fam)),  # 옹벽 = 부위·주요/일반/부대시설(10/20)
             "unit_part": kinds.unit_parts(fam),  # 옹벽·교량(10/29) 부위 → 구분
             "members": [v.name for v in voc if v.base_kind == "member"], "types": [v.name for v in voc if v.base_kind == "dtype"], "vocab": vocab_out(voc),
@@ -539,11 +580,11 @@ def _import_foreign(report_id: int, data: bytes, company_id: int, merge: bool = 
         db.close()
 
 
-def _album_defect(r: SitokReport, floor: str, seq: int, v: dict) -> SitokDefect:
+def _album_defect(r: SitokReport, floor: str, seq: int, v: dict, zone: str = "") -> SitokDefect:
     """사진첩 한 줄 값 → 결함(전회차·금회차 가져오기·전회차 PDF만 다시 공통 — 결함유형 "파손(D=0.9mm)"은 결함유형 + 깊이, 10/22). 비고·전회차 값·확인은 부르는 쪽이."""
     dt, dep = kinds.split_depth(v.get("결함유형") or "")
     g = lambda k: v.get(k) or ""  # noqa: E731
-    return SitokDefect(report_id=r.id, floor=floor, seq=seq, part=g("구분"), member=g("부재"), dtype=kinds.norm(dt), count=g("개수"), width=g("폭"),
+    return SitokDefect(report_id=r.id, floor=floor, zone=zone or "", seq=seq, part=g("구분"), member=g("부재"), dtype=kinds.norm(dt), count=g("개수"), width=g("폭"),
                        length=g("길이"), depth=dep, qty=g("물량"), area_ratio=g("면적률"), cause=g("결함원인"), progress=g("진행유무"))
 
 
@@ -555,14 +596,14 @@ def _save_album(db: Session, r: SitokReport, album, current: bool = False) -> No
     now = datetime.datetime.now()
     for row in album.rows:
         v = row.values
-        d = _album_defect(r, row.floor, row.seq, v)
+        d = _album_defect(r, row.floor, row.seq, v, row.zone)
         d.mark, d.prev = v["비고"], None if current else dict(v)
         if current:
             d.mark = v["비고"] if v["비고"] in ("기존", "신규", "보수") else "신규"
             d.check, d.checked_at = CUR_CHECK.get(d.mark, "new"), now  # 비고 기존 = 비진행·보수 = 보수 완료(10/30 — 시특법 금회차는 기존이 많음)
             d.progress = v["진행유무"] or "비진행성"
         if row.photo_png:
-            p = folder / f"{row.floor}_{row.seq:02d}_{'금회' if current else '전회차'}.jpg"
+            p = folder / _fname(row.zone, row.floor, row.seq, "금회" if current else "전회차")
             p.write_bytes(row.photo_png)
             if current:
                 d.photo = str(p)
@@ -582,11 +623,36 @@ def put_album(db: Session, r: SitokReport, album, current: bool = False) -> str:
     why = side_block(rows, current)
     if why:
         raise ValueError(why)
+    note = _zoned(db, r, album)
     if not rows:
         _save_album(db, r, album, current=current)
-        return f"결함 사진첩에서 결함 {len(album.rows)}개를 넣었습니다 — 층·부재·결함유형·사진을 확인하세요" if current else ""
-    items = [(row.floor, row.seq, row.values, row.photo_png) for row in album.rows]
-    return join_text(_join(db, r, rows, items, current), current)
+        msg = f"결함 사진첩에서 결함 {len(album.rows)}개를 넣었습니다 — 층·부재·결함유형·사진을 확인하세요" if current else ""
+        return " · ".join(x for x in (note, msg) if x)
+    items = [(row.zone, row.floor, row.seq, row.values, row.photo_png) for row in album.rows]
+    return " · ".join(x for x in (note, join_text(_join(db, r, rows, items, current), current)) if x)
+
+
+def _zoned(db: Session, r: SitokReport, album) -> str:
+    """사진첩이 동 간지("1. 통계청" …)로 나뉘어 있으면(10/30) — 묶음(동마다 건물이 따로)이면 이 건물 이름과 맞는 동 부분만(동 칸은 비움),
+    아니면(시설물 1개 안 연결된 동) 동 차례를 시설물에 더함. 알림 글(없으면 ""). 묶음인데 맞는 동이 없으면 ValueError(섞이지 않게)."""
+    zones = list(dict.fromkeys(row.zone for row in album.rows if row.zone))
+    if not zones:
+        return ""
+    f = db.get(SitokFacility, r.facility_id)
+    if f.group_id:
+        name = _key(f.name)
+        hit = next((z for z in zones if _key(z) and (_key(z) in name or name in _key(z))), None)
+        if hit is None:
+            raise ValueError(f"사진첩이 동 {len(zones)}개({', '.join(zones)})로 나뉘어 있는데 이 건물({f.name})과 이름이 맞는 동이 없습니다 — 그 동 부분만 든 PDF를 올려 주세요.")
+        album.rows = [row for row in album.rows if row.zone == hit]
+        for row in album.rows:
+            row.zone = ""
+        return f"사진첩 동 {len(zones)}개 중 '{hit}' 부분만 가져왔습니다"
+    have = facility_zones(f)
+    new = [z for z in zones if z not in have]
+    if new:
+        _save_zones(f, have + new)
+    return f"동 {len(zones)}개({', '.join(zones)})로 나눠 가져왔습니다"
 
 
 def _key(t: str) -> str:
@@ -612,28 +678,28 @@ def _differ(a: str, b: str) -> bool:
         return a != b
 
 
-def _photo_into(folder: Path, floor: str, seq: int, photo, tag: str) -> str:
+def _photo_into(folder: Path, zone: str, floor: str, seq: int, photo, tag: str) -> str:
     """사진첩 사진(바이트) → 결함사진 폴더 파일, 직전 회차 사진(경로)은 그대로."""
     if isinstance(photo, bytes) and photo:
-        p = folder / f"{floor}_{seq:02d}_{tag}.jpg"
+        p = folder / _fname(zone, floor, seq, tag)
         p.write_bytes(photo)
         return str(p)
     return photo or ""
 
 
 def _join(db: Session, r: SitokReport, rows: list[SitokDefect], items: list, current: bool) -> dict:
-    """전회차·금회차 합치기(10/30 사용자 "전회차와 금회차 둘 다") — items = [(층, 번호, 값, 사진 바이트|경로)].
+    """전회차·금회차 합치기(10/30 사용자 "전회차와 금회차 둘 다") — items = [(동, 층, 번호, 값, 사진 바이트|경로)](동 = 시설물 안 연결된 동, 없으면 "").
     층·번호가 같고 부재나 결함유형이 같으면 한 결함: 금회차면 그 결함의 이번 값·사진·확인(비고 보수 = 보수 완료, 크기가 바뀌었거나 진행성 = 진행, 아니면 비진행),
     전회차면 그 결함의 전회차 값·사진(금회차 비고가 기존·보수인 줄만). 못 맞춘 줄은 더함 — 번호는 금회차 사진첩 번호가 먼저(겹친 전회차 줄은 그 층 끝 번호 뒤로)."""
     folder = _photo_dir(db, r)
     folder.mkdir(parents=True, exist_ok=True)
     now = datetime.datetime.now()
-    have = {(d.floor, d.seq): d for d in rows}
+    have = {(d.zone or "", d.floor, d.seq): d for d in rows}
     c = {"items": len(items), "matched": 0, "same": 0, "grew": 0, "repaired": 0, "added": 0, "left": 0, "moved": 0}
     pairs, rest, used = [], [], set()
     for it in items:
-        floor, seq, v, _photo = it
-        d = have.get((floor, seq))
+        zone, floor, seq, v, _photo = it
+        d = have.get((zone or "", floor, seq))
         ok = d is not None and d.id not in used and _same_def(d, v) and (
             (v.get("비고") or "") != "신규" if current else d.mark in ("기존", "보수"))
         if ok:
@@ -641,26 +707,26 @@ def _join(db: Session, r: SitokReport, rows: list[SitokDefect], items: list, cur
             pairs.append((d, it))
         else:
             rest.append(it)
-    last: dict[str, int] = {}
+    last: dict[tuple[str, str], int] = {}  # (동, 층) → 끝 번호
     for d in rows:
-        last[d.floor] = max(last.get(d.floor, 0), d.seq)
-    for floor, seq, _v, _p in items:
-        last[floor] = max(last.get(floor, 0), seq)
+        last[(d.zone or "", d.floor)] = max(last.get((d.zone or "", d.floor), 0), d.seq)
+    for zone, floor, seq, _v, _p in items:
+        last[(zone or "", floor)] = max(last.get((zone or "", floor), 0), seq)
 
-    def next_seq(floor: str) -> int:
-        last[floor] = last.get(floor, 0) + 1
-        return last[floor]
+    def next_seq(zone: str, floor: str) -> int:
+        last[(zone or "", floor)] = last.get((zone or "", floor), 0) + 1
+        return last[(zone or "", floor)]
 
-    taken = {(d.floor, d.seq) for d in rows}
+    taken = {(d.zone or "", d.floor, d.seq) for d in rows}
     if current:  # 금회차 번호가 먼저 — 그 번호에 맞추지 못한 전회차 줄이 있으면 뒤로
-        want = {(f, s) for f, s, _v, _p in rest}
+        want = {(z or "", f, s) for z, f, s, _v, _p in rest}
         for d in rows:
-            if d.id not in used and (d.floor, d.seq) in want:
-                taken.discard((d.floor, d.seq))
-                d.seq = next_seq(d.floor)
-                taken.add((d.floor, d.seq))
+            if d.id not in used and (d.zone or "", d.floor, d.seq) in want:
+                taken.discard((d.zone or "", d.floor, d.seq))
+                d.seq = next_seq(d.zone, d.floor)
+                taken.add((d.zone or "", d.floor, d.seq))
                 c["moved"] += 1
-    for d, (floor, seq, v, photo) in pairs:
+    for d, (_zone, floor, seq, v, photo) in pairs:
         c["matched"] += 1
         if current:
             mark = v.get("비고") or ""
@@ -680,11 +746,11 @@ def _join(db: Session, r: SitokReport, rows: list[SitokDefect], items: list, cur
                 d.check, d.mark = ("grew" if grew else "same"), "기존"
                 d.progress = v.get("진행유무") or ("진행성" if grew else "비진행성")
             d.checked_at = now
-            d.photo = _photo_into(folder, d.floor, d.seq, photo, "금회") or d.photo
+            d.photo = _photo_into(folder, d.zone, d.floor, d.seq, photo, "금회") or d.photo
             c[d.check] += 1
         else:
             d.prev = dict(v)
-            d.prev_photo = _photo_into(folder, d.floor, d.seq, photo, "전회차") or d.prev_photo
+            d.prev_photo = _photo_into(folder, d.zone, d.floor, d.seq, photo, "전회차") or d.prev_photo
             if d.check == "repaired":  # 보수 완료 줄 — 결함유형은 전회차 것으로(사진첩 "보수완료" 대신)
                 dt, _dep = kinds.split_depth(v.get("결함유형") or "")
                 if dt and kinds.norm(d.dtype or "").startswith("보수"):
@@ -692,19 +758,20 @@ def _join(db: Session, r: SitokReport, rows: list[SitokDefect], items: list, cur
             elif d.check in ("same", "grew"):
                 grew = d.progress == "진행성" or any(_differ(getattr(d, a), v.get(k)) for a, k in (("count", "개수"), ("width", "폭"), ("length", "길이")))
                 d.check = "grew" if grew else "same"
-    for floor, seq, v, photo in rest:
-        if (floor, seq) in taken:
-            seq = next_seq(floor)
-        taken.add((floor, seq))
-        d = _album_defect(r, floor, seq, v)
+    for zone, floor, seq, v, photo in rest:
+        zone = zone or ""
+        if (zone, floor, seq) in taken:
+            seq = next_seq(zone, floor)
+        taken.add((zone, floor, seq))
+        d = _album_defect(r, floor, seq, v, zone)
         if current:  # 금회차에만 있는 줄 — 비고대로(기존인데 전회차를 못 찾은 줄도 기존)
             d.mark = v.get("비고") if v.get("비고") in CUR_CHECK else "신규"
             d.check, d.checked_at = CUR_CHECK[d.mark], now
             d.progress = d.progress or "비진행성"
-            d.photo = _photo_into(folder, floor, seq, photo, "금회")
+            d.photo = _photo_into(folder, zone, floor, seq, photo, "금회")
         else:  # 전회차에만 있는 줄 — 확인 전(현장에서 보수됐는지·빠졌는지 점검자가)
             d.mark, d.prev = "기존", dict(v)
-            d.prev_photo = _photo_into(folder, floor, seq, photo, "전회차")
+            d.prev_photo = _photo_into(folder, zone, floor, seq, photo, "전회차")
         db.add(d)
         c["added"] += 1
     c["left"] = sum(1 for d in rows if d.id not in used) if current else 0
@@ -734,21 +801,22 @@ def _merge_album(db: Session, r: SitokReport, album) -> dict:
     folder = _photo_dir(db, r)
     folder.mkdir(parents=True, exist_ok=True)
     rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id).all()
-    have = {(d.floor, d.seq): d for d in rows if d.prev}
-    taken = {(d.floor, d.seq) for d in rows}
+    _zoned(db, r, album)  # 동 간지(10/30) — 묶음이면 이 건물 부분만
+    have = {(d.zone or "", d.floor, d.seq): d for d in rows if d.prev}
+    taken = {(d.zone or "", d.floor, d.seq) for d in rows}
     upd = photos = added = 0
     seen = set()
     for row in album.rows:
         v = row.values
-        key = (row.floor, row.seq)
+        key = (row.zone or "", row.floor, row.seq)
         d = have.get(key)
-        if d is None:  # 새 PDF에만 있는 줄 — 번호가 신규 결함과 겹치면 그 층 끝 번호 다음으로
-            seq = row.seq if key not in taken else max(s for f, s in taken if f == row.floor) + 1
-            taken.add((row.floor, seq))
-            d = _album_defect(r, row.floor, seq, v)
+        if d is None:  # 새 PDF에만 있는 줄 — 번호가 신규 결함과 겹치면 그 동·층 끝 번호 다음으로
+            seq = row.seq if key not in taken else max(s for z, f, s in taken if (z, f) == key[:2]) + 1
+            taken.add((key[0], row.floor, seq))
+            d = _album_defect(r, row.floor, seq, v, key[0])
             d.mark, d.prev = v["비고"], dict(v)
             if row.photo_png:
-                p = folder / f"{row.floor}_{seq:02d}_전회차.jpg"
+                p = folder / _fname(key[0], row.floor, seq, "전회차")
                 p.write_bytes(row.photo_png)
                 d.prev_photo = str(p)
             db.add(d)
@@ -771,7 +839,7 @@ def _merge_album(db: Session, r: SitokReport, album) -> dict:
             cur = Path(d.prev_photo) if d.prev_photo else None
             if not (cur and cur.exists() and cur.read_bytes() == row.photo_png):
                 photos += 1
-            p = folder / f"{row.floor}_{row.seq:02d}_전회차.jpg"
+            p = folder / _fname(row.zone, row.floor, row.seq, "전회차")
             p.write_bytes(row.photo_png)
             d.prev_photo = str(p)
         upd += 1
@@ -828,9 +896,9 @@ def carry(report_id: int, user: User = Depends(get_current_user), db: Session = 
         vals = {"번호": str(x.seq), "구분": x.part, "부재": x.member, "결함유형": x.dtype, "개수": x.count, "폭": x.width, "길이": x.length,
                 "물량": x.qty, "면적률": x.area_ratio, "결함원인": x.cause, "진행유무": x.progress, "비고": x.mark}
         if now_rows:
-            items.append((x.floor, x.seq, vals, x.photo or x.prev_photo))
+            items.append((x.zone or "", x.floor, x.seq, vals, x.photo or x.prev_photo))
             continue
-        db.add(SitokDefect(report_id=r.id, floor=x.floor, seq=x.seq, part=x.part, member=x.member, dtype=x.dtype, count=x.count,
+        db.add(SitokDefect(report_id=r.id, floor=x.floor, zone=x.zone or "", seq=x.seq, part=x.part, member=x.member, dtype=x.dtype, count=x.count,
                            width=x.width, length=x.length, depth=x.depth, qty=x.qty, area_ratio=x.area_ratio, cause=x.cause, progress=x.progress,
                            mark="기존", prev=vals, prev_photo=x.photo or x.prev_photo))
     if now_rows:  # 금회차를 먼저 넣은 회차 — 층·번호로 맞춰 붙임(10/30)
@@ -862,6 +930,7 @@ def _is_brick(d: SitokDefect) -> bool:
 
 class DefectIn(BaseModel):
     floor: str | None = None
+    zone: str | None = None  # 동(10/30) — 시설물 안 연결된 동, 빈 글 = 동 없음
     part: str | None = None
     member: str | None = None
     dtype: str | None = None
@@ -952,7 +1021,7 @@ def brick_ai(defect_id: int, user: User = Depends(get_current_user), db: Session
     path = next((Path(p) for p in (d.photo, d.prev_photo) if p and Path(p).exists()), None)
     if path is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "사진이 없습니다 — 결함 사진을 먼저 찍으세요.")
-    info = f"{d.floor} {d.seq}번 · {d.member} · {d.dtype} · 개소 {d.count or '-'} · 폭 {d.width or '-'} · 길이 {d.length or '-'}"
+    info = f"{where(d)} {d.seq}번 · {d.member} · {d.dtype} · 개소 {d.count or '-'} · 폭 {d.width or '-'} · 길이 {d.length or '-'}"
     try:
         grade, why = ai_draft.brick_grade(user.company_id, path.read_bytes(), info)
     except Exception as e:  # noqa: BLE001 — 화면에 안내(400 — 5xx면 nginx 화면)
@@ -977,7 +1046,11 @@ def add_defect(report_id: int, body: DefectIn, user: User = Depends(get_current_
         old = db.get(SitokDefect, NEW_KEYS[key][0])
         if old is not None and old.report_id == r.id:
             return _out(old)
-    last = max((d.seq for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == body.floor.strip())), default=0)
+    zone = (body.zone or "").strip()
+    last = max((d.seq for d in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == body.floor.strip(),
+                                                             SitokDefect.zone == zone)), default=0)  # 번호는 동·층마다(10/30)
+    if zone and zone not in facility_zones(f):
+        _save_zones(f, facility_zones(f) + [zone])
     d = SitokDefect(report_id=r.id, seq=last + 1, check="new", mark="신규", progress="비진행성")  # 진행유무 기본(10/21 형 — 신규도 칸이 비지 않게, [진행]을 누르면 진행성)
     _apply(d, body.model_copy(update={"check": "new"}), user, None if kinds.civil_fam(fam) else base_areas(f), vocab_names(db, r.company_id, r.id, fam))
     d.ai_guess = learn.guess_from(body.ai_guess)
@@ -995,7 +1068,23 @@ def update_defect(defect_id: int, body: DefectIn, user: User = Depends(get_curre
     d, r = _require(db, user, defect_id)
     f = db.get(SitokFacility, r.facility_id)
     fam = kinds.family_of(f)
+    old = (d.zone or "", d.floor, d.seq)
     _apply(d, body, user, None if kinds.civil_fam(fam) else base_areas(f), vocab_names(db, r.company_id, r.id, fam))  # 옹벽·교량은 면적률 없음
+    if (d.zone or "", d.floor) != old[:2]:  # 동(10/30)·층을 옮김 — 그 자리 끝 번호로, 사진 파일 이름도, 원래 자리 뒤 번호는 당김
+        d.zone = d.zone or ""
+        d.seq = max((x.seq for x in db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.zone == d.zone,
+                                                                  SitokDefect.floor == d.floor, SitokDefect.id != d.id)), default=0) + 1
+        pre = _fpre(old[0], old[1], old[2])
+        for attr in ("photo", "prev_photo"):
+            path = getattr(d, attr)
+            if path and _own_file(db, r, path) and Path(path).name.startswith(pre) and Path(path).exists():
+                dst = Path(path).with_name(_fpre(d.zone, d.floor, d.seq) + Path(path).name[len(pre):])
+                Path(path).replace(dst)
+                setattr(d, attr, str(dst))
+        if d.zone and d.zone not in facility_zones(f):
+            _save_zones(f, facility_zones(f) + [d.zone])
+        db.flush()
+        renumber(db, r, old[1], old[2], old[0])
     learn.sync(db, d, r.company_id, user.display_name or "")  # 나중에 분류를 고쳐도 교정 기록에
     db.commit()
     return _out(d)
@@ -1130,28 +1219,29 @@ def delete_defect(defect_id: int, user: User = Depends(get_current_user), db: Se
     for path in (d.photo, d.prev_photo):
         if path and _own_file(db, r, path):  # 직전 회차에서 이어 온 전회차 사진(그 회차 파일)은 안 지움
             Path(path).unlink(missing_ok=True)
-    floor, gone = d.floor, d.seq
+    floor, gone, zone = d.floor, d.seq, d.zone or ""
     db.delete(d)
     db.flush()
-    moved = renumber(db, r, floor, gone)
+    moved = renumber(db, r, floor, gone, zone)
     db.commit()
     return {"ok": True, "renumbered": moved}
 
 
-def renumber(db: Session, r: SitokReport, floor: str, gone: int) -> int:
+def renumber(db: Session, r: SitokReport, floor: str, gone: int, zone: str = "") -> int:
     """지운 번호(gone) 뒤 같은 층 결함 번호를 하나씩 당김(10/22). 사진 파일 이름(층_NN_금회·전회차.jpg — 올릴 때 번호로 지음)도 같이 바꿔
     다음에 찍은 사진이 다른 결함 사진을 덮지 않게 — 앞 번호부터 차례로(바꿀 이름 자리는 지운 결함 것이거나 방금 옮긴 것이라 비어 있음)."""
-    rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == floor, SitokDefect.seq > gone).order_by(SitokDefect.seq).all()
+    rows = db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.floor == floor, SitokDefect.zone == (zone or ""),
+                                        SitokDefect.seq > gone).order_by(SitokDefect.seq).all()  # 같은 동·층만(10/30)
     for d in rows:
         old, new = d.seq, d.seq - 1
-        pre = f"{floor}_{old:02d}_"
+        pre = _fpre(zone, floor, old)
         for attr in ("photo", "prev_photo"):
             path = getattr(d, attr)
             if not path or not _own_file(db, r, path):
                 continue
             src = Path(path)
             if src.name.startswith(pre) and src.exists():
-                dst = src.with_name(f"{floor}_{new:02d}_{src.name[len(pre):]}")
+                dst = src.with_name(_fpre(zone, floor, new) + src.name[len(pre):])
                 src.replace(dst)
                 setattr(d, attr, str(dst))
         d.seq = new
@@ -1164,7 +1254,7 @@ def upload_photo(defect_id: int, file: UploadFile = File(...), user: User = Depe
     d, r = _require(db, user, defect_id)
     folder = _photo_dir(db, r)
     folder.mkdir(parents=True, exist_ok=True)
-    p = folder / f"{d.floor}_{d.seq:02d}_금회.jpg"
+    p = folder / _fname(d.zone, d.floor, d.seq, "금회")
     p.write_bytes(files.to_jpeg(file.file.read(), file.filename or ""))
     d.photo = str(p)
     d.checked_at = datetime.datetime.now()
@@ -1186,7 +1276,7 @@ def upload_prev_photo(defect_id: int, file: UploadFile = File(...), user: User =
     d, r = _require(db, user, defect_id)
     folder = _photo_dir(db, r)
     folder.mkdir(parents=True, exist_ok=True)
-    p = folder / f"{d.floor}_{d.seq:02d}_전회차.jpg"
+    p = folder / _fname(d.zone, d.floor, d.seq, "전회차")
     p.write_bytes(files.to_jpeg(file.file.read(), file.filename or ""))
     d.prev_photo = str(p)
     db.commit()
@@ -1355,6 +1445,34 @@ def delete_unit(report_id: int, body: UnitIn, user: User = Depends(get_current_u
     _save_units(db, f, extra, hidden)
     db.commit()
     return {"floors": facility_floors(f)}
+
+
+@router.post("/reports/{report_id}/zones")
+def add_zone(report_id: int, body: UnitIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """동 [＋ 동](10/30) — 시설물 1개 안 연결된 동(통계청·선거관리위원회 …). 시설물에 두어 다음 회차도 같음."""
+    r = _require_report(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    name = _unit_name(body.name)
+    zs = facility_zones(f, _rows(db, r.id))
+    if name in zs:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"'{name}' 동은 이미 있습니다.")
+    _save_zones(f, zs + [name])
+    db.commit()
+    return {"zones": zs + [name], "name": name}
+
+
+@router.post("/reports/{report_id}/zones/delete")
+def delete_zone(report_id: int, body: UnitIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """동 지우기 — 이 회차에 그 동 결함이 하나도 없을 때만(있으면 409)."""
+    r = _require_report(db, user, report_id)
+    f = db.get(SitokFacility, r.facility_id)
+    name = _unit_name(body.name)
+    n = db.query(SitokDefect).filter(SitokDefect.report_id == r.id, SitokDefect.zone == name).count()
+    if n:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"'{name}' 동에 결함이 {n}개 있어 지울 수 없습니다 — 결함 카드를 먼저 옮기거나 지우세요.")
+    _save_zones(f, [z for z in facility_zones(f) if z != name])
+    db.commit()
+    return {"zones": facility_zones(f, _rows(db, r.id))}
 
 
 ANALYZE = """시설물 정기안전점검 현장에서 점검자가 찍은 결함 사진입니다({where}). 사진을 보고 결함현황표 한 줄의 초안을 JSON 객체 하나로만 답하세요(설명 없이).

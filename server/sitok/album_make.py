@@ -167,13 +167,31 @@ def compare_pages(doc, items: list[tuple[str, dict]]) -> None:
                 x += w
 
 
-def make(floors: list[tuple[str, list[dict]]], dest: Path) -> int:
-    """floors = [(층, [줄 값들 — 번호·구분·…·사진번호 + _photo 경로])]. 쪽 수를 돌려준다. 층별 현황표·사진표 뒤에 전회차 비교 사진대장."""
+def _zone_page(doc, text: str) -> None:
+    """동 간지 "1. 통계청"(10/30 — 시설물 1개 안 연결된 동마다, 받은 견본 사진첩 모양) — 묶음 동 간지와 같은 모양(precision_merge._dong_divider_page)."""
+    from server.sitok.precision_merge import _dong_divider_page
+
+    class _Like:
+        rect = pymupdf.Rect(0, 0, W, H)
+
+    _dong_divider_page(doc, _Like, text)
+
+
+def make(floors: list[tuple], dest: Path) -> int:
+    """floors = [(층, [줄 값들 — 번호·구분·…·사진번호 + _photo 경로])] 또는 동이 있으면 [(동, 층, 줄)](sitok_defects.album_floors(zones=True)).
+    쪽 수를 돌려준다. 층별 현황표·사진표(동이 바뀌면 "N. 동 이름" 간지) 뒤에 전회차 비교 사진대장."""
     doc = pymupdf.open()
-    for floor, rows in floors:
+    items = [(x[0], x[1], x[2]) if len(x) == 3 else ("", x[0], x[1]) for x in floors]
+    zones = list(dict.fromkeys(z for z, _f, _r in items if z))
+    prev = None
+    for zone, floor, rows in items:
+        if zones and zone != prev:
+            if zone:
+                _zone_page(doc, f"{zones.index(zone) + 1}. {zone}")
+            prev = zone
         status_pages(doc, floor, rows)
         photo_pages(doc, floor, rows)
-    compare = [(floor, v) for floor, rows in floors for v in rows if v.get("_compare")]
+    compare = [((f"{zone} {floor}" if zone else floor), v) for zone, floor, rows in items for v in rows if v.get("_compare")]
     if compare:
         compare_pages(doc, compare)
     dest.parent.mkdir(parents=True, exist_ok=True)

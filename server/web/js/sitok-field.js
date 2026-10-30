@@ -5,6 +5,7 @@
 // 10/12: 부재·결함유형은 고정 목록에서만 고름(회사 목록 + 이 보고서에만 추가한 것) — 없으면 "➕ 새로 추가…" → 이 보고서에만 / 회사 전체 목록에.
 // 원인은 목록 없이 AI가 사진마다 구체적으로 + 근거 한 줄(cause_note).
 // 10/20 옹벽: 서버가 fam="wall"·unit_label="부위"·parts=[주요·일반·부대시설]·floors=부위 목록·unit_part(부위 → 구분 기본값)를 줌 — 층 글자·구분 칸은 그것으로.
+// 10/30 동: 시설물 1개 안 연결된 동(통계청·선거관리위원회 …)마다 결함현황표 — 서버 zones(전회차 사진첩 간지에서 자동·[＋ 동]), 층 탭 위 동 칩, 번호는 동·층마다.
 
 (function () {
   const rid = Number(new URLSearchParams(location.search).get("report")) || null;
@@ -38,6 +39,11 @@
   try { started = sessionStorage.getItem(`sf-started-${rid}`) === "1"; } catch (_) { /* */ }
   let floor = "";
   try { floor = sessionStorage.getItem(`sf-floor-${rid}`) || ""; } catch (_) { /* 기억 못 해도 됨 */ }
+  let zone = ""; // 동(10/30) — 동이 없으면 ""
+  try { zone = sessionStorage.getItem(`sf-zone-${rid}`) || ""; } catch (_) { /* */ }
+  const zones = () => (data && data.zones) || [];
+  const inZone = (d) => !zones().length || (d.zone || "") === zone;
+  const where = (d) => `${d.zone ? `${d.zone} ` : ""}${d.floor}`; // "통계청 지상8층"
 
   const sizeText = (v) => {
     if (!v) return "";
@@ -102,13 +108,16 @@
   }
 
   const partOf = (m) => (data.part_of || {})[m] || "";
+  const zoneOptions = (v) => [...zones(), ...(data.defects.some((d) => !d.zone) ? [""] : [])]
+    .map((z) => `<option value="${esc(z)}"${z === v ? " selected" : ""}>${esc(z || "(동 없음)")}</option>`).join("");
 
   function editKinds(d) { // 카드 ✏️ — 구분·부재·결함유형 + 개수·폭·길이(박리·박락은 깊이)(10/23 사용자) 고치기(지난 보고서에서 온 목록 밖 이름도 여기서)
     const ov = document.createElement("div");
     ov.className = "mail-overlay";
     const sized = d.check !== "repaired"; // 보수 완료는 크기 없음
-    ov.innerHTML = `<div class="mail-box sf-new" role="dialog" aria-modal="true"><div class="mail-head"><b>${esc(d.floor)} ${d.seq}번 고치기</b>
+    ov.innerHTML = `<div class="mail-box sf-new" role="dialog" aria-modal="true"><div class="mail-head"><b>${esc(where(d))} ${d.seq}번 고치기</b>
       <span class="mail-sub">구분·부재·결함유형${sized ? "·크기" : ""} — 목록에 없으면 "➕ 새로 추가…"</span></div>
+      ${zones().length ? `<label>동 <small class="mail-note">바꾸면 그 동·층 끝 번호로</small><select class="e-zone">${zoneOptions(d.zone || "")}</select></label>` : ""}
       <div class="sf-two"><label>구분<select class="e-part">${partOptions(partValue(d.part))}</select></label>
         <label>부재<select class="e-member"></select></label></div>
       <label>결함유형<select class="e-dtype"></select></label>
@@ -136,6 +145,7 @@
     q(".mail-cancel").addEventListener("click", () => ov.remove());
     q(".e-ok").addEventListener("click", async () => {
       const body = { part: q(".e-part").value, member: q(".e-member").value, dtype: q(".e-dtype").value };
+      if (q(".e-zone")) body.zone = q(".e-zone").value;
       if (sized) {
         Object.assign(body, { count: q(".e-count").value.trim(), width: q(".e-width").value.trim(), length: q(".e-length").value.trim() });
         if (!q(".e-depth-box").hidden) body.depth = q(".e-depth").value.trim().replace(",", ".");
@@ -163,6 +173,7 @@
   function floors() { // 결함이 있는 층 + 관리대장 층수로 만든 층(전회차 결함이 없는 층에도 신규를 넣을 수 있게)
     const map = new Map();
     for (const d of data.defects) {
+      if (!inZone(d)) continue; // 지금 동의 층만(10/30)
       const f = map.get(d.floor) || { total: 0, left: 0 };
       f.total += 1;
       f.left += d.check ? 0 : 1;
@@ -282,7 +293,7 @@
     ov.innerHTML = `<div class="mail-box sf-new sf-depth-box" role="dialog" aria-modal="true"><div class="mail-head"><b>깊이 한꺼번에 넣기 — ${rows.length}건</b>
       <span class="mail-sub">파인 깊이(mm)를 넣고 [저장] — 빈칸으로 둔 줄은 그대로입니다. 카드에서 하나씩 고칠 수도 있습니다(깊이는 정밀점검 상태평가에 씀).</span></div>
       <div class="sf-depth-list">${rows.map((d) => `<div class="sf-depth-row">${pic(d)}
-        <div class="sf-depth-what"><b>${esc(d.floor)} ${d.seq}번</b> ${esc(d.member || "")} · ${esc(d.dtype || "")}
+        <div class="sf-depth-what"><b>${esc(where(d))} ${d.seq}번</b> ${esc(d.member || "")} · ${esc(d.dtype || "")}
           <small>${d.prev ? `전회차 ${esc(sizeText(d.prev)) || "-"}` : esc(sizeText(d))}</small></div>
         <label><input inputmode="decimal" data-id="${d.id}" placeholder="깊이" /> mm</label></div>`).join("")}</div>
       <div class="mail-msg" hidden></div>
@@ -403,18 +414,44 @@
     } catch (e) { alert(e.message); }
   }
 
+  function zoneRow() { // 동 칩(10/30) — 동마다 결함 수·남은 수, [＋ 동], 빈 동은 ✕
+    const zs = zones();
+    if (!zs.length) return "";
+    const list = [...zs, ...(data.defects.some((d) => !d.zone) ? [""] : [])];
+    if (!list.includes(zone)) zone = list[0];
+    const cnt = (z) => { const r = data.defects.filter((d) => (d.zone || "") === z); return [r.length, r.filter((d) => !d.check).length]; };
+    return `<div class="sf-zone-row">${list.map((z) => { const [n, left] = cnt(z);
+      return `<button type="button" class="sf-zone${z === zone ? " on" : ""}" data-z="${esc(z)}">🏢 ${esc(z || "(동 없음)")}<small>${!n ? "-" : left ? `${left} 남음` : "✓"}</small>${!n && z ? `<span class="sf-zone-x" data-z="${esc(z)}" title="빈 동 지우기">✕</span>` : ""}</button>`; }).join("")}
+      <button type="button" class="sf-unit-btn sf-zone-add" title="동 더하기 — 시설물 1개 안 연결된 동(예: 통계청·선거관리위원회)">＋ 동</button></div>`;
+  }
+
+  async function addZone() {
+    const name = (prompt("동 이름 — 시설물 1개 안 연결된 동(예: 통계청, 선거관리위원회, 지하층)") || "").trim().replace(/\s+/g, " ");
+    if (!name) return;
+    try {
+      const r = await apiPost(`/sitok/reports/${rid}/zones`, { name });
+      data.zones = r.zones;
+      zone = r.name;
+      try { sessionStorage.setItem(`sf-zone-${rid}`, zone); } catch (_) { /* */ }
+      drawFloors();
+      drawList();
+    } catch (e) { alert(e.message); }
+  }
+
   function drawFloors() {
+    const zr = zoneRow(); // 동을 먼저 정해야 층 목록이 그 동 것
     const map = floors();
     if (!map.has(floor)) floor = [...map.keys()][0] || "";
     const box = document.getElementById("sf-floors");
     const sug = adding ? nextFloors(map) : [];
-    box.innerHTML = `<div class="sf-floor-row"><div class="sf-floor-scroll${trashMode ? " trash" : ""}">${[...map.entries()].map(([f, c]) =>
+    box.innerHTML = `${zr}<div class="sf-floor-row"><div class="sf-floor-scroll${trashMode ? " trash" : ""}">${[...map.entries()].map(([f, c]) =>
       `<button type="button" class="sf-floor${f === floor ? " on" : ""}${trashMode && c.total ? " locked" : ""}" data-f="${esc(f)}" draggable="true">${esc(f)}<small>${!c.total ? "-" : c.left ? `${c.left} 남음` : "✓"}</small></button>`).join("")}</div>
       <div class="sf-floor-tools">
         <button type="button" class="sf-unit-btn sf-unit-add${adding ? " on" : ""}" title="${esc(unit())} 탭 추가 — 외부·정면·배면처럼 ${isWall() ? "부위가 아닌 곳" : "층이 아닌 곳이나 빠진 층"}">＋</button>
         ${adding ? `<span class="sf-unit-new">＋<input id="sf-unit-in" list="sf-unit-list" placeholder="탭 이름" maxlength="30" enterkeyhint="done" /><button type="button" class="sf-unit-ok">추가</button></span>
           <datalist id="sf-unit-list">${sug.map((x) => `<option value="${esc(x)}">`).join("")}</datalist>` : ""}
         <button type="button" class="sf-unit-btn sf-unit-trash${trashMode ? " on" : ""}" title="탭 지우기 — 누른 뒤 지울 탭을 누르거나, 탭을 여기로 끌어 놓기(결함이 있는 탭은 못 지움)">🗑</button>
+        ${!zones().length && !isWall() ? '<button type="button" class="sf-unit-btn sf-zone-add" title="동 나누기 — 시설물 1개 안 연결된 동마다 결함현황표(예: 통계청·선거관리위원회)">🏢 동</button>' : ""}
       </div></div>
       ${trashMode ? '<div class="sf-unit-hint">지울 탭을 누르세요 — 결함이 있는 탭(흐린 것)은 지울 수 없습니다. <button type="button" class="sf-unit-cancel">취소</button></div>' : ""}
       ${adding && sug.length ? `<div class="sf-unit-hint sf-unit-sug">${sug.slice(0, 9).map((x) => `<button type="button" class="sf-unit-pick" data-n="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}`;
@@ -430,6 +467,21 @@
       b.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/sf-unit", b.dataset.f); e.dataTransfer.effectAllowed = "move"; });
     });
     box.querySelector(".sf-unit-add").addEventListener("click", () => { adding = !adding; trashMode = false; drawFloors(); });
+    box.querySelectorAll(".sf-zone").forEach((b) => b.addEventListener("click", (e) => {
+      if (e.target.closest(".sf-zone-x")) return;
+      zone = b.dataset.z;
+      try { sessionStorage.setItem(`sf-zone-${rid}`, zone); } catch (_) { /* */ }
+      floor = "";
+      drawFloors();
+      drawList();
+      window.scrollTo({ top: 0 });
+    }));
+    box.querySelectorAll(".sf-zone-add").forEach((b) => b.addEventListener("click", addZone));
+    box.querySelectorAll(".sf-zone-x").forEach((x) => x.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`'${x.dataset.z}' 동을 지울까요? (결함이 없는 동만)`)) return;
+      try { const r = await apiPost(`/sitok/reports/${rid}/zones/delete`, { name: x.dataset.z }); data.zones = r.zones; drawFloors(); drawList(); } catch (er) { alert(er.message); }
+    }));
     const trash = box.querySelector(".sf-unit-trash");
     trash.addEventListener("click", () => { trashMode = !trashMode; adding = false; drawFloors(); });
     trash.addEventListener("dragover", (e) => {
@@ -543,7 +595,7 @@
       try {
         const fd = new FormData();
         fd.append("file", file.files[0]);
-        await apiUploadSafe(`/sitok/defects/${d.id}/photo`, fd, { key: `defect:${d.id}:now`, label: `${d.floor} ${d.seq}번 ${d.dtype} 이번 사진` }); // 신호 약하면 폰에 보관(10/22)
+        await apiUploadSafe(`/sitok/defects/${d.id}/photo`, fd, { key: `defect:${d.id}:now`, label: `${where(d)} ${d.seq}번 ${d.dtype} 이번 사진` }); // 신호 약하면 폰에 보관(10/22)
         if (!d.check) await autoCheck(d); // 10/14 형: 전회차가 있으면 사진 들어가면 바로 비교, 진행 추천이 아니면 자동 "그대로"
         if (d.is_brick && !(d.brick && d.brick.grade)) await brickAi(d).catch(() => {}); // 치장벽돌 결함 — 사진이 들어가면 AI 등급(못 하면 그냥, 10/26)
         refresh(false);
@@ -584,7 +636,7 @@
         try {
           const fd = new FormData();
           fd.append("file", prevFile.files[0]);
-          await apiUploadSafe(`/sitok/defects/${d.id}/photo/prev`, fd, { key: `defect:${d.id}:prev`, label: `${d.floor} ${d.seq}번 ${d.dtype} 전회차 사진` });
+          await apiUploadSafe(`/sitok/defects/${d.id}/photo/prev`, fd, { key: `defect:${d.id}:prev`, label: `${where(d)} ${d.seq}번 ${d.dtype} 전회차 사진` });
           refresh(false);
         } catch (e) { err(e); el.classList.remove("busy"); }
       });
@@ -630,7 +682,7 @@
   function drawList() {
     const box = document.getElementById("sf-list");
     box.innerHTML = "";
-    const rows = data.defects.filter((d) => d.floor === floor);
+    const rows = data.defects.filter((d) => d.floor === floor && inZone(d));
     if (!rows.length) box.innerHTML = `<div class="sf-none">${esc(floor || `이 ${unit()}`)}에는 아직 결함이 없습니다 — 아래 [+ 신규 결함]에서 사진을 찍으면 AI가 채웁니다.</div>`;
     rows.forEach((d) => box.appendChild(card(d)));
   }
@@ -644,6 +696,7 @@
       <label class="sf-newshot"><input type="file" accept="image/*" capture="environment" class="n-photo" hidden data-kr-file="1" />
         <span class="n-preview">📷 사진 찍기</span></label>
       <div class="n-ai" hidden></div>
+      ${zones().length ? `<label>동<select class="n-zone">${zoneOptions(zone)}</select></label>` : ""}
       <label>${esc(unit())}<input list="sf-fl" class="n-floor" value="${esc(floor)}" /></label><datalist id="sf-fl">${floorsList.map((f) => `<option value="${esc(f)}">`).join("")}</datalist>
       <div class="sf-two"><label>구분<select class="n-part">${partOptions(partValue((data.unit_part || {})[floor] || ""))}</select></label>
         <label>부재<select class="n-member"></select></label></div>
@@ -744,6 +797,7 @@
       const body = { floor: q(".n-floor").value.trim(), part: q(".n-part").value, member: q(".n-member").value, dtype: q(".n-dtype").value,
         cause: q(".n-cause").value.trim(), count: q(".n-count").value.trim(), width: q(".n-width").value.trim(), length: q(".n-length").value.trim(),
         depth: q(".n-depth").value.trim() };
+      if (q(".n-zone")) body.zone = q(".n-zone").value; // 동(10/30)
       body.cause_note = ai && ai.cause_note && body.cause === ai.cause ? ai.cause_note : ""; // 원인을 고쳤으면 AI 근거는 안 맞음
       body.ai_guess = ai && ai.guess ? ai.guess : null; // AI 첫 분류 — 다르게 넣으면 회사 교정 기록(다음 사진 분석에 씀, 10/12)
       if (!body.floor || !body.dtype) { alert(`${unit()}과(와) 결함유형을 골라 주세요.`); return; }
@@ -759,6 +813,7 @@
         return;
       }
       floor = body.floor;
+      if (body.zone !== undefined) zone = body.zone;
       started = true;
       overlay.remove();
       await refresh();
@@ -767,7 +822,7 @@
         const fd = new FormData();
         fd.append("file", f);
         try {
-          await apiUploadSafe(`/sitok/defects/${d.id}/photo`, fd, { key: `defect:${d.id}:now`, label: `${body.floor} ${d.seq}번 ${body.dtype} 사진` });
+          await apiUploadSafe(`/sitok/defects/${d.id}/photo`, fd, { key: `defect:${d.id}:now`, label: `${body.zone ? `${body.zone} ` : ""}${body.floor} ${d.seq}번 ${body.dtype} 사진` });
           refresh(false);
         } catch (e) { err(e); }
       }
@@ -957,7 +1012,7 @@
       else { // 지금 보는 카드만 다시(스크롤 유지)
         const box = document.getElementById("sf-list");
         const cards = [...box.children];
-        const rows = data.defects.filter((d) => d.floor === floor);
+        const rows = data.defects.filter((d) => d.floor === floor && inZone(d));
         if (cards.length !== rows.length) drawList();
         else rows.forEach((d, i) => box.replaceChild(card(d), cards[i]));
       }
@@ -973,7 +1028,7 @@
       const fd = new FormData();
       fd.append("file", pdf.files[0]);
       const r = await apiUpload(`/sitok/reports/${rid}/defects/import`, fd);
-      if (r.importing) { msg.textContent = r.importing.msg; pollImport(); } else refresh();
+      if (r.importing) { msg.textContent = r.importing.msg; pollImport(); } else { reprevMsg = r.merged || ""; refresh(); } // 동 나눔 알림(10/30)
     } catch (e) { msg.textContent = `읽지 못했습니다: ${e.message}`; }
   });
   enableFileDrop(pdf.closest(".sk-drop"), pdf);

@@ -7,6 +7,9 @@
 사진이 서로 바뀌었음(10/20 형 검수 — 의정부시 스포츠센터 87쪽 지상3층 사진5 569pt·사진6 568pt). 외관망도 위치와 이어지니 위치로 짝지음.
 사진 칸에 그림 대신 "보수" 글자만 있는 쪽(10/22 양주덕산초 지상1층 사진13~18)은 사진 없음 — 예전 예비 규칙(못 짝지은 칸끼리 남은 그림을 차례로)이
 쪽 아래로 거의 다 벗어난 그림을 사진13에 붙여 표 모서리를 잘라 넣었음 → 같은 열·바로 위(사이에 다른 설명 칸 없음)만, 그림은 쪽 안에 보이는 부분만.
+10/30 사용자: 시설물 1개 안 연결된 동마다 간지("1. 통계청" · "2. 선거관리위원회" …)를 넣고 동마다 층별 표 — 층 이름(지붕층·지상8층)이 동마다 겹쳐
+한 층으로 섞이고 사진이 서로 덮였음 → 간지 쪽 글("N. 이름", 묶음 "부록2-N. 이름")을 동으로(Row.zone), 사진도 (동, 층, 사진N)으로.
+사진첩 간지("…사진첩")·다른 부록 간지("부록.3 …")를 만나면 동을 비움(보고서 PDF 통째로 올려도 부록1 간지 등이 동이 되지 않게).
 """
 from __future__ import annotations
 
@@ -25,6 +28,21 @@ class Row:
     values: dict
     photo_no: str = ""
     photo_png: bytes | None = None
+    zone: str = ""  # 동 간지 이름(10/30) — 없으면 ""
+
+
+ZONE_RE = re.compile(r"(?:부록\s*\d+\s*-\s*)?\d{1,2}\s*\.\s*(\S.{0,30})")  # 동 간지 "1. 통계청" · 묶음 "부록2-1. 본관동"
+
+
+def zone_of(text: str) -> str | None:
+    """간지 쪽(글이 짧은 쪽) → 동 이름 / "" (사진첩·다른 부록 간지 — 동을 비움) / None(간지 아님)."""
+    t = re.sub(r"\s+", " ", text or "").strip()
+    if not t or len(t) > 40:
+        return None
+    if "사진첩" in t or "외관망도" in t or re.match(r"부록\s*\.?\s*\d+\s*(?!-)", t):
+        return ""
+    m = ZONE_RE.fullmatch(t)
+    return m[1].strip() if m else None
 
 
 @dataclass
@@ -74,9 +92,14 @@ def match(imgs: list, caps: list[tuple]) -> list[tuple]:
 def read(pdf_bytes: bytes) -> Album:
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     out = Album()
-    photos: dict[tuple[str, str], bytes] = {}  # (층, "사진3") → PNG
+    photos: dict[tuple[str, str, str], bytes] = {}  # (동, 층, "사진3") → PNG
+    zone = ""
     for pn, page in enumerate(doc):
         text = page.get_text()
+        z = zone_of(text)
+        if z is not None:  # 간지 — 동 바뀜(10/30)
+            zone = z
+            continue
         if "결함 현황표" not in text and "결함사진표" not in text and "결함 사진표" not in text:
             continue
         floor = _floor(text)
@@ -91,7 +114,7 @@ def read(pdf_bytes: bytes) -> Album:
                     if len(cells) < 13 or not cells[0].isdigit():
                         continue
                     vals = dict(zip(HEAD, cells[:13]))
-                    out.rows.append(Row(floor, int(cells[0]), {k: ("" if v == "-" else v) for k, v in vals.items()}, cells[12]))
+                    out.rows.append(Row(floor, int(cells[0]), {k: ("" if v == "-" else v) for k, v in vals.items()}, cells[12], zone=zone))
         else:
             caps = []  # [(설명 칸 Rect, "사진N")]
             for t in tables:
@@ -104,7 +127,7 @@ def read(pdf_bytes: bytes) -> Album:
                             caps.append((pymupdf.Rect(cell), txt.replace(" ", "")))
             imgs = [r for r in (pymupdf.Rect(i["bbox"]) & page.rect for i in page.get_image_info()) if r.width > 40 and r.height > 20]  # 쪽 안에 보이는 부분만
             for rect, no in match(imgs, caps):
-                photos[(floor, no)] = page.get_pixmap(clip=rect, dpi=150).tobytes("jpg")
+                photos[(zone, floor, no)] = page.get_pixmap(clip=rect, dpi=150).tobytes("jpg")
     for r in out.rows:
-        r.photo_png = photos.get((r.floor, r.photo_no.replace(" ", "")))
+        r.photo_png = photos.get((r.zone, r.floor, r.photo_no.replace(" ", "")))
     return out
