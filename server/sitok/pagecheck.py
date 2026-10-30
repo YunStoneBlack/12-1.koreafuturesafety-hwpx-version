@@ -135,12 +135,15 @@ def scan(pdf: Path, hwpx: Path, limit: int = 12, skip: set[int] | None = None) -
     pages = _pages(pdf)[0]
     out = []
     skip = skip or set()
+    blank_idx = {b_[0] for b_ in blank_pages(pdf)}  # 머리말·꼬리말만 있는 쪽(10/30)
     for i, (lines, bottom, foot, over) in enumerate(pages):
         if i in skip or i - 1 in skip and i + 1 in skip:
             continue
         span = foot - _top()
         if over or any(y1 > foot + 1 for _, y1, _ in lines):
             out.append(f"{i + 1}쪽: 내용이 쪽 아래(꼬리말)를 넘음 — 표가 잘렸을 수 있음")
+        if not lines and i in blank_idx:
+            out.append(f"{i + 1}쪽: 빈 쪽(머리말·꼬리말만) — 앞 쪽 끝 빈 줄이 넘어간 것일 수 있음")
         if not lines or _divider(lines):
             continue
         last_y0, _, last = lines[-1]
@@ -1030,6 +1033,98 @@ def fill_toc(hwpx: Path, pdf: Path) -> list[str]:
 MIN_MARGIN = 283  # 칸 안쪽 위아래 여백은 1mm까지만 줄임(글은 그대로)
 
 
+def blank_pages(pdf: Path) -> list[tuple[int, str, int, str, int]]:
+    """머리말·꼬리말만 있는 쪽 [(쪽 0부터, 앞 쪽 마지막 줄 글, 그 글이 PDF에서 몇 번째로 나온 것인지 0부터, 빈 쪽 다음 쪽 첫 줄 글(없으면 ""), 그 글이 몇 번째)] — 10/30 민재형 "애매한 상황 모든 보고서에서 만들지 마"
+    (요약문 결언 상자 안 끝 빈 문단만 다음 쪽으로 넘어가 머리글 + 빈 상자 줄뿐인 쪽). 본문 글줄·그림이 없고 선도 몇 개 안 되는(쪽 12% 미만 높이) 쪽만 —
+    도면(선이 많음)·사진·간지(글 있음)는 아님. 앞 쪽 마지막 줄을 알아야 고치니 앞 쪽에 글이 없으면 뺌."""
+    pages, rects, heights, pics = _pages(pdf)
+    out = []
+    for i in range(1, len(pages)):
+        lines, _, foot, _ = pages[i]
+        span = foot - _top()
+        draws = [r for r in rects[i] if _top() < r.y0 < foot - 30 and r.height < heights[i] * 0.9]  # 꼬리말 장식 막대(꼬리말 줄 바로 위)는 뺌
+        if lines or any(_top() < r.y0 < foot - 2 for r in pics[i]) or len(draws) > 8 or sum(r.height for r in draws) > span * 0.12:
+            continue
+        prev = pages[i - 1][0]
+        if not prev:
+            continue
+        last = max(prev, key=lambda x: (x[0], len(x[2])))[2]
+        k = sum(1 for j in range(i - 1) if any(_key(last) == _key(t) for _, _, t in pages[j][0]))
+        nxt = pages[i + 1][0][0][2] if i + 1 < len(pages) and pages[i + 1][0] else ""
+        nk = sum(1 for j in range(i + 1) if any(_key(nxt) == _key(t) for _, _, t in pages[j][0])) if nxt else 0
+        out.append((i, last, k, nxt, nk))
+    return out
+
+
+def _trim_blank_tail(roots: dict, first: str, nth: int, rb) -> int:
+    """앞 쪽 마지막 줄(first, nth번째)이 든 문단 끝의 빈 줄을 뺌 — ① 그 문단의 한 줄 상자 안 끝 빈 문단 ② 그 문단 바로 뒤 빈 문단들(쪽 나눔 표시는 다음 글 문단에 옮김).
+    뺀 개수(0이면 못 찾았거나 뺄 게 없음)."""
+    flat = lambda t: re.sub(r"\s", "", t or "")  # noqa: E731 — _key는 앞 12글자만 남겨서 긴 줄은 이걸로 전체 비교
+    line = flat(first)
+    if len(line) < 4:
+        return 0
+    seen = 0
+    for root in roots.values():
+        tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
+        for i, p in enumerate(tops):
+            tbls = list(p.iter(f"{{{rb.HP}}}tbl"))
+            if line not in flat(rb._top_text(p)) and not any(line in flat(rb._cell_text(c)) for t in tbls for c in rb._cells(t).values()):
+                continue
+            if seen < nth:
+                seen += 1
+                continue
+            n = 0
+            for t in tbls:  # ① 한 줄 상자 안 끝 빈 문단(첫 문단은 남김)
+                if int(t.get("rowCnt") or 1) != 1:
+                    continue
+                for tc in rb._cells(t).values():
+                    ps = [q for q in tc.iter(f"{{{rb.HP}}}p") if next(q.iterancestors(f"{{{rb.HP}}}tc"), None) is tc]
+                    while len(ps) > 1 and _blank(ps[-1], rb):
+                        ps[-1].getparent().remove(ps[-1])
+                        ps.pop()
+                        n += 1
+            carry = False  # ② 문단 뒤 빈 문단
+            j = i + 1
+            while j < len(tops) and _blank(tops[j], rb):
+                carry = carry or tops[j].get("pageBreak") == "1"
+                root.remove(tops[j])
+                n += 1
+                j += 1
+            if carry and j < len(tops):
+                tops[j].set("pageBreak", "1")
+            return n
+    return 0
+
+
+def _trim_blank_before(roots: dict, nxt: str, nth: int, rb) -> int:
+    """빈 쪽 다음 쪽 첫 줄(nxt, nth번째)이 든 문단 바로 앞의 빈 문단들을 뺌(앞 쪽 끝 빈 줄이 넘어가 빈 쪽 — 앞 쪽 마지막 줄이 짧아 못 찾을 때, 10/30 나라키움 본문 37쪽).
+    그 문단이 쪽 나눔이면 그대로(뺀 빈 문단에 쪽 나눔이 있었으면 옮김). 뺀 개수."""
+    flat = lambda t: re.sub(r"\s", "", t or "")  # noqa: E731
+    line = flat(nxt)
+    if len(line) < 4:
+        return 0
+    seen = 0
+    for root in roots.values():
+        tops = [p for p in root if p.tag == f"{{{rb.HP}}}p"]
+        for i, p in enumerate(tops):
+            tbls = list(p.iter(f"{{{rb.HP}}}tbl"))
+            if line not in flat(rb._top_text(p)) and not any(line in flat(rb._cell_text(c)) for t in tbls for c in rb._cells(t).values()):
+                continue
+            if seen < nth:
+                seen += 1
+                continue
+            n, carry, j = 0, False, i - 1
+            while j >= 0 and _blank(tops[j], rb):
+                carry = carry or tops[j].get("pageBreak") == "1"
+                root.remove(tops[j])
+                n += 1
+                j -= 1
+            if carry:
+                p.set("pageBreak", "1")
+            return n
+    return 0
+
+
 def tails(pdf: Path, hwpx: Path) -> list[tuple[int, str, float, int]]:
     """나뉜 표의 꼬리 줄만 다음 쪽 위에 오고 그 아래 다른 내용이 이어지는 곳(10/26 형 사전검토 3.1 "기타시설 두 줄만 다음 쪽" — orphans엔 안 걸림).
     [(쪽, 꼬리에서 앞 쪽에 없던 가장 긴 줄 글, 꼬리 줄 높이 pt(되풀이 머리줄 빼고), 그 글이 PDF에서 몇 번째)]. 사진 든 표·간지는 뺌."""
@@ -1375,7 +1470,8 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1, after: str | No
     from server.sitok import report_build as rb
 
     found = [("넘침", *x) for x in orphans(pdf, hwpx)] + [("꼬리", *x) for x in tails(pdf, hwpx)]
-    if not found:
+    blanks_found = blank_pages(pdf)  # 머리말·꼬리말만 있는 쪽(10/30) — 앞 쪽 끝 빈 줄을 뺌
+    if not found and not blanks_found:
         return []
     bodies, rects, heights, _ = _pages(pdf)
     firsts = [(b[0] or [(0, 0, "")])[0][2] for b in bodies]  # 쪽마다 첫 줄 글
@@ -1387,6 +1483,10 @@ def tidy_overflow(hwpx: Path, pdf: Path, sections_from: int = 1, after: str | No
         sections = rb._sections(z)
     roots = {n: etree.fromstring(data[n]) for n in sections[sections_from:]}
     done, seen = [], []
+    for page, first, nth, nxt, nk in blanks_found:
+        got = _trim_blank_tail(roots, first, nth, rb) or _trim_blank_before(roots, nxt, nk, rb)
+        if got:
+            done.append(f"빈 쪽 {page + 1}쪽 → 앞 쪽 끝 빈 줄 {got}개 뺌('{first[:14]}…')")
     for kind, page, first, h, nth in found:
         on_prev = {_key(t) for _, _, t in bodies[page - 1][0]} if page else set()
         target = _overflow_target(roots, first, nth, rb)
@@ -1523,6 +1623,6 @@ def issue_count(pdf: Path, hwpx: Path) -> int:
     줄 단위로 넘긴 뒤의 "머리줄 + 줄 통째로"도 짧은 꼬리로 보이니까."""
     try:
         heads = sum(1 for s in scan(pdf, hwpx, limit=200) if "만 쪽 끝에 있음" in s)
-        return len(orphans(pdf, hwpx)) + heads
+        return len(orphans(pdf, hwpx)) + heads + len(blank_pages(pdf))
     except Exception:  # noqa: BLE001
         return 0
