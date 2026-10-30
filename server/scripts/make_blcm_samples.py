@@ -27,7 +27,7 @@ def spaced(page: pymupdf.Page, rect: pymupdf.Rect) -> list[tuple[float, float, f
     out = []
     for b in page.get_text("rawdict", clip=rect)["blocks"]:
         for ln in b.get("lines", []):
-            s, prev, size = "", None, 9.0
+            s, prev = "", None
             for sp in ln["spans"]:
                 for c in sp["chars"]:
                     cx, cy = (c["bbox"][0] + c["bbox"][2]) / 2, (c["bbox"][1] + c["bbox"][3]) / 2
@@ -36,7 +36,7 @@ def spaced(page: pymupdf.Page, rect: pymupdf.Rect) -> list[tuple[float, float, f
                     if prev is not None and c["bbox"][0] - prev["bbox"][2] > sp["size"] * 0.18:
                         s += " "
                     s += c["c"]
-                    prev, size = c, sp["size"]
+                    prev = c
             if s.strip():
                 out.append((ln["bbox"][1], ln["bbox"][0], ln["bbox"][3], s.strip()))
     out.sort()

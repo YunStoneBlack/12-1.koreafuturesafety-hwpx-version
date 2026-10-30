@@ -66,6 +66,14 @@ def slots(code: str) -> dict:
     return out
 
 
+def slot(code: str, n: int | None) -> dict | None:
+    """견본 칸 n 하나 — slots()의 칸 + draw(도면·서류 칸이면 True), 없으면 None."""
+    if n is None:
+        return None
+    s = slots(code)
+    return next(({**x, "draw": k == "draw"} for k in ("photo", "draw") for x in s[k] if x["n"] == n), None)
+
+
 def _has(texts: dict, k: str) -> bool:
     return (texts.get(k) or "").strip() not in ("", "-")
 

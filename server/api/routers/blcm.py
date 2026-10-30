@@ -314,18 +314,16 @@ def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = For
     files.save_jpeg(file.file.read(), file.filename or "사진.jpg", folder(j) / rel)
     res = dict(j.results or {})
     r = dict(res.get(code) or {})
-    old = [x for x in r.get("photos") or [] if slot is not None and x.get("slot") == slot]
-    for x in old:
-        (folder(j) / x["rel"]).unlink(missing_ok=True)
-    sl = next((s for s in I.slots(code)["photo"] + I.slots(code)["draw"] if s["n"] == slot), None) if slot is not None else None
+    keep, old = _take_slot(j, r, slot)
+    sl = I.slot(code, slot)
     cap = caption.strip()[:60] or (old[0].get("caption") if old else "") or (sl["caption"] if sl else "")
     p = {"id": pid, "rel": rel, "name": file.filename or "", "kind": "bad" if kind == "bad" else "good", "caption": cap,
          "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
     if sl:
         p["slot"] = slot
-        if sl in I.slots(code)["draw"]:  # 도면 칸을 현장에서 찍은 것(반출이 안 될 때, 10/30) — 도면 그림, 늘 양호
+        if sl["draw"]:  # 도면 칸을 현장에서 찍은 것(반출이 안 될 때, 10/30) — 도면 그림, 늘 양호
             p["is_draw"], p["kind"] = True, "good"
-    r["photos"] = [*(x for x in r.get("photos") or [] if x not in old), p]
+    r["photos"] = [*keep, p]
     res[code] = r
     j.results = res
     _touch(j, user, "results")
@@ -336,6 +334,14 @@ def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = For
 class PhotoIn(BaseModel):
     caption: str | None = None
     kind: str | None = None
+
+
+def _take_slot(j: BlcmJob, r: dict, n: int | None) -> tuple[list, list]:
+    """견본 칸 n의 예전 사진을 빼고 파일도 지움 → (남길 사진, 뺀 예전 사진). n이 없으면(더 찍기) 그대로."""
+    old = [x for x in r.get("photos") or [] if n is not None and x.get("slot") == n]
+    for x in old:
+        (folder(j) / x["rel"]).unlink(missing_ok=True)
+    return [x for x in r.get("photos") or [] if x not in old], old
 
 
 def _photo(j: BlcmJob, code: str, pid: str) -> tuple[dict, dict, dict]:
@@ -496,15 +502,12 @@ def set_slot(jid: int, code: str, n: int, body: SlotIn, user: User = Depends(get
     """견본 도면 칸 n에 모음 그림 넣기(현황사진으로 복사 — 설명 = 견본 설명, 양호) / 비우기."""
     j = _require(db, user, jid)
     it = _item(code)
-    sl = next((s for s in I.slots(code)["draw"] + I.slots(code)["photo"] if s["n"] == n), None)
+    sl = I.slot(code, n)
     if sl is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "그런 견본 칸이 없습니다.")
     res = dict(j.results or {})
     r = dict(res.get(code) or {})
-    old = [x for x in r.get("photos") or [] if x.get("slot") == n]
-    for x in old:
-        (folder(j) / x["rel"]).unlink(missing_ok=True)
-    keep = [x for x in r.get("photos") or [] if x not in old]
+    keep, old = _take_slot(j, r, n)
     if body.drawing:
         src = next((d for d in _drawings(j) if d["id"] == body.drawing), None)
         if src is None or not (folder(j) / src["rel"]).exists():

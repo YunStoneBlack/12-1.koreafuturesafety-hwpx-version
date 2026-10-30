@@ -116,8 +116,6 @@ def get_rates(user: User = Depends(get_current_user), db: Session = Depends(get_
 @router.put("/rates")
 def put_rates(body: dict = Body(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """기준표 저장 — 노임단가는 연도 → 등급 → 원, 구간은 [{under, label, grade, rate}], 율은 숫자. 모르는 칸은 버림."""
-    from core.models_db import AppSetting
-
     clean: dict = {}
     lab = body.get("labor")
     if isinstance(lab, dict):

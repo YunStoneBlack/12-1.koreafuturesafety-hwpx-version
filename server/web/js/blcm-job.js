@@ -203,11 +203,13 @@
     if (ev.state === "na") return '<span class="bj-chip na">해당없음</span>';
     if (ev.judge) return `<span class="bj-chip ${ev.judge === "적합" ? "ok" : "bad"}">${esc(ev.summary)}</span>`;
     const worst = (ev.details || []).map((d) => d.judge).filter(Boolean);
-    const bad = worst.some((j) => ["미흡", "불량", "부적합"].includes(j));
+    const bad = worst.some((j) => BAD.includes(j));
     const mid = worst.includes("보통");
     return `<span class="bj-chip ${bad ? "bad" : mid ? "mid" : "ok"}">${esc(ev.summary || "작성 중")}</span>${ev.state === "part" ? '<span class="bj-chip empty">일부</span>' : ""}`;
   }
 
+  const BAD = ["미흡", "불량", "부적합"];
+  const isBadEval = (e) => !!e && (e.judge === "부적합" || (e.details || []).some((d) => BAD.includes(d.judge))); // 지적 사진 쪽(끌어 놓기·견본 칸 📷)
   const seg = (name, opts, cur) => `<span class="bj-seg" data-name="${esc(name)}">${opts.map((o) => `<button type="button" data-v="${esc(o)}" class="${o === cur ? "on" : ""}">${esc(o)}</button>`).join("")}</span>`;
 
   function judgeHtml(it, r, ev) {
@@ -226,7 +228,7 @@
       const opts = d.judge === "fit" ? FIT : RATING;
       const subs = (d.subs || []).length ? d.subs.map((s, k) => `<div class="bj-sub"><span class="bj-lab">${esc(s.name)} <small>배점 ${s.points}점</small></span>${seg(`rt:d${i}.s${k}`, s.judge === "fit" ? FIT : RATING, rt[`d${i}.s${k}`] || "")}</div>`).join("")
         : `<div class="bj-sub"><span class="bj-lab">판정 <small>배점 ${d.points}점</small></span>${seg(`rt:d${i}`, opts, rt[`d${i}`] || "")}</div>`;
-      return `<div class="bj-det"><div class="bj-det-h"><b>${esc(d.name)}</b> <small>(${d.points ?? ""}점)</small>${dv.judge ? ` <span class="bj-chip ${["미흡", "불량", "부적합"].includes(dv.judge) ? "bad" : dv.judge === "보통" ? "mid" : dv.judge === "해당없음" ? "na" : "ok"}">${esc(dv.judge)}${dv.score != null ? ` ${dv.score}/${dv.full}점` : ""}</span>` : ""}</div>${subs}</div>`;
+      return `<div class="bj-det"><div class="bj-det-h"><b>${esc(d.name)}</b> <small>(${d.points ?? ""}점)</small>${dv.judge ? ` <span class="bj-chip ${BAD.includes(dv.judge) ? "bad" : dv.judge === "보통" ? "mid" : dv.judge === "해당없음" ? "na" : "ok"}">${esc(dv.judge)}${dv.score != null ? ` ${dv.score}/${dv.full}점` : ""}</span>` : ""}</div>${subs}</div>`;
     }).join("");
   }
 
@@ -705,8 +707,7 @@
       const goodIn = el.querySelector('.bj-ph-add input[data-kind="good"]'), badIn = el.querySelector('.bj-ph-add input[data-kind="bad"]');
       enableFileDrop(goodIn.closest("label"), goodIn);
       enableFileDrop(badIn.closest("label"), badIn);
-      const isBad = () => { const e = job.eval[code] || {}; return e.judge === "부적합" || (e.details || []).some((d) => ["미흡", "불량", "부적합"].includes(d.judge)); };
-      enableFileDrop(el.querySelector(".bj-photos"), () => (isBad() ? badIn : goodIn));
+      enableFileDrop(el.querySelector(".bj-photos"), () => (isBadEval(job.eval[code]) ? badIn : goodIn));
     }
     el.querySelectorAll(".bj-ph-add input[type=file]").forEach((inp) => inp.addEventListener("change", async () => {
       const files = [...inp.files];
@@ -736,8 +737,7 @@
         if (!f) return;
         const msg = el.querySelector(".bj-ph-msg");
         msg.textContent = "올리는 중…";
-        const e = job.eval[code] || {};
-        const bad = e.judge === "부적합" || (e.details || []).some((d) => ["미흡", "불량", "부적합"].includes(d.judge));
+        const bad = isBadEval(job.eval[code]);
         const fd = new FormData();
         fd.append("file", f);
         fd.append("kind", bad && !inp.dataset.draw ? "bad" : "good");

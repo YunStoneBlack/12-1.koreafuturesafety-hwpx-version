@@ -168,7 +168,7 @@ def cover_items(ws, tpl: str, e: dict, outs: list[dict], totals: dict) -> list[s
     if len(rows) > len(slots):
         rest = rows[len(slots) - 1:]
         rows = rows[:len(slots) - 1] + [({"name": f"그 외 {len(rest)}건", "check": ""}, {"supply": sum(o["supply"] for _, o in rest), "times": 1, "unit": None})]
-        notes.append(f"항목이 많아 표지 마지막 칸은 '그 외' 합계입니다")
+        notes.append("항목이 많아 표지 마지막 칸은 '그 외' 합계입니다")
     for top, bot in slots:
         for rr in range(top, bot + 1):
             for col in ("D", "E", "H", "L", "P"):

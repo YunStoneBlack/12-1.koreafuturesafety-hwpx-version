@@ -204,6 +204,21 @@
   **보고서 메일(DB 0065 `mail_job`)** — 시특법 회차 [📧 보고서 보내기](합본 내려받기 링크 `/report/share/{토큰}` 로그인 없이·30일·바로/예약·제출 현황 전송 표시,
   `server/api/mail_jobs.py`·`routers/sitok_mail.py`·`routers/share.py`, 그룹웨어 nginx 예외), 산안법 고객사 전송 예약(전송 창 첫 화면 [⏰ 예약 보내기]·목록/제출 현황 "⏰ 예약"),
   작업 프로그램 `server/worker/mail_worker.py`.
+- **209~218차(10/30)**: 시특법 — 제출 현황 표 머리 고정(`sticky-head.js` data-sticky-list), **금회차 결함 가져오기·전회차와 둘 다**(`sitok_defects.put_album`·`_join` — 층·번호 + 부재/결함유형으로 한 결함,
+  빈 회차 금회차 칸·머리줄 [금회차 결함 가져오기]·[전회차 PDF 붙이기]), 방문 달력 🔍 찾기(`GET /sitok/calendar/search`), 내진 목록 최신순·번호순.
+  **건축물관리점검 우리프라자 시험 반영** — 견본(`server/blcm/samples.json` + 저장소 `_참고사진`, `server/scripts/make_blcm_samples.py`·`add_blcm_samples.py` — 제출 보고서 PDF 표 칸 단위·띄어쓰기 되살림),
+  견본 칸(견본 | 📷, photos[].slot)·＋ 더 찍기 제한 없음·📐 도면·서류 그림 모음(`/blcm/jobs/{id}/drawings`, PDF 쪽마다 200dpi, 자리 17곳·추천)·도면 칸 현장에서 찍기(is_draw),
+  장소별 보기(`items.ITEM_PLACES`)·⚠ 빠진 것(`items.missing`)·[✓ 점검 완료](`/check`·`/done`, contract.field_done)·AI 견본 규칙(`ai.sample_text` — 같은 항목 글 + 부적합 견본), 봇 사진 10장 자르기 없앰,
+  설정 [건축물관리법] 칸(기술자 교육 이수증, `js/blcm-settings.js`)·기술자 ✏️ 고치기(`settings-common.js techPersonEdit`),
+  **해당없음 판정 규칙표 초안**(`server/blcm/na_rules_draft.json` — 50항목 법령 원문·시행일, 형·민재형 검토 대기).
+- **195~208차(10/29)**: **건축물관리점검 보고서 자동화(DB 0069 `blcm_job`)** — 매뉴얼 → 항목표 50(`server/blcm/items.json`·`items.py`), 건 화면(`blcm-job.html`), 항목 AI(`server/blcm/ai.py`),
+  총괄표·관리계획·그 밖의 항목·의견 AI, 최종 보고서 합본(`server/blcm/front.py`), 생애이력시스템 입력 봇(`server/blcm/bot.py`·`server/worker/blcm_worker.py` — 연습 48/48, 제출은 사람이).
+  **통합 견적(DB 0070)** — 서류 자동화 › 견적(`server/estimate/` — 회사 엑셀 계산·PDF·노임단가 자동 갱신, 수주 → 계약 `handoff.py`, 수주 현황, 견적서 메일). 보 = 위층 바닥보(`rebar_schedule.beam_floor`),
+  정밀 부재 규격에 일람표 칸(`tests.sync_sections`). **FMS 봇 고침**(`fms_bot` 관리주체 돋보기 기다리기·확인 창·승인 창·기술자 빈 줄·환기구 `fms.vent_state`).
+  내진 — 요약문 견본 모양·AI 길이, 결과표 대표자·기초형식·구조계산서 칸, 못 채운 곳 색 둘(`seismic_todo` 노랑 우리/하늘 외주), 가. 일반사항 표(`seismic_fill.fix_general_table`).
+- **175~194차(10/28~29)**: 철근탐사 폰 부재 바꾸기, 표 선 경계마다 고르게, 도면류 원본 화질(`_put(full=True)`), AI 글 말투·덧붙일 내용 다시 쓰기(시특법·산안법), 사진 200dpi, 일람표 부호 층별,
+  산안법 제출 현황 두 기둥·카드 고정·추진 현황(지역별·회차 부족·⏰ 계약 끝 임박·📅 채워 넣기), **서류 자동화 › 내진성능평가(DB 0067)**·내진 건 번호 26-1·계약변경(DB 0068),
+  **교량 정기안전점검**(옹벽 길에 묶음 bridge)·옹벽+교량 섞인 묶음 한 권·부록 공통 원본·제원 한 표, 관련도면 칸 원본 화질(옹벽·교량 PDF 벡터 얹기).
 - **174차(10/27 밤~10/28 새벽)**: 내진 **용지 여백 12mm**(민재형) 시험 틀 완성 — `fix_seismic_master --mm 12`(여백 + 한 쪽짜리 표·그림 줄이기), 외주 3~7장은 **구역 유지**로 제 여백 그대로(`merge_vendor` keep_section=1, 외주 78쪽 1:1), 쪽 검사 기준은 틀 여백에서(`page_marks`), 주석만 넘친 쪽·꽉 찬 표 뒤 빈 쪽 정리, 외주 앞부분 쪽 나눔(`_front_layout`). 호원초 66 → 67쪽·삼숭초 134 → 136쪽, 빈 쪽 없음. 10/28 아침 운영 반영(원본 틀 ⑤·API 46700·561/515 다시 만듦, 작업내용 174차).
 - **161~173차(10/27)**: 내진 — AI 글 칸 빈칸 노랑, **쪽 나눔 원칙**(늘 새 쪽은 민재형 목록만 `fix_seismic_master`, 나머지 이어 붙임 + `pagecheck.push_lonely` 제목·표 이름만 쪽 끝 → 다음 쪽,
   `top_at(본문 시작, 꼬리말 자리)`), 조적벽 결과표 층·구분 세로 합치기(`seismic_fill.merge_masonry`·`masonry_cuts` — 쪽 경계에서 끊고 다음 쪽에 다시), 표 선 고르게(`even_head_line`·`even_col_lines`),

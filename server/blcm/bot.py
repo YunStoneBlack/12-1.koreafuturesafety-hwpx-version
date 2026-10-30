@@ -440,7 +440,8 @@ def fill_popup(cdp, run: Run, S: str, plan: dict, schema: dict) -> dict:
     site_in, ours, pairs, lost = status_pairs(schema["detl"], plan["status"])
     counts: dict[int, int] = {}
     for i, j in pairs:
-        a, (t, lab, v, gi) = site_in[i], ours[j]
+        a = site_in[i]
+        t, v, gi = ours[j][0], ours[j][2], ours[j][3]  # (종류, 라벨, 값, 줄) — 라벨은 맞춤에만 씀
         if t == "check":
             if v is True or (a["type"] == "checkbox" and a["checked"]):
                 on = "true" if v is True else "false"
