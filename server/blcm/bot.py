@@ -654,9 +654,7 @@ def run_job(mode: str, job: dict, folder: Path, cred: tuple[str, str], out: Path
 
     global I
     I = importlib.reload(I)  # 항목표·판정 규칙(10/30)도 작업 프로그램을 다시 켜지 않고 새로 — 봇처럼 실행마다
-    use = str((job.get("building") or {}).get("use") or "")
-    by = I.by_code()
-    job = {**job, "results": {c: (I.normalize(by[c], r, use=use) if c in by and r else r) for c, r in (job.get("results") or {}).items()}}  # 개수로 정해지는 판정·설계도서(10/30)
+    job = {**job, "results": I.normalize_all(job.get("results"), str((job.get("building") or {}).get("use") or ""))}  # 개수로 정해지는 판정·설계도서(10/30)
 
     run = Run(out, mode)
     res: dict = {"mode": mode}

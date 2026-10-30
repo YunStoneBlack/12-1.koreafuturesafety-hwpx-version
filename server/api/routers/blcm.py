@@ -119,13 +119,18 @@ def _list_out(j: BlcmJob) -> dict:
             "updated": f"{j.updated_at:%Y-%m-%d %H:%M}" if j.updated_at else f"{j.created_at:%Y-%m-%d %H:%M}", **progress(j)}
 
 
+def _view(j: BlcmJob) -> dict:
+    """화면에 보낼 결과·판정 — 예전 값도 규칙대로(items.normalize_all, 고치면 그대로 저장), 건 화면·도면 응답 같이 씀."""
+    res = I.normalize_all(j.results, _use(j))
+    return {"results": res, "eval": {code: _ev(it, res.get(code), _use(j)) for code, it in I.by_code().items()}}
+
+
 def _out(j: BlcmJob) -> dict:
-    by = I.by_code()
-    res = {c: (I.normalize(by[c], r, use=_use(j)) if c in by and r else r) for c, r in (j.results or {}).items()}  # 예전 값도 규칙대로 보여 줌(고치면 그대로 저장)
+    v = _view(j)
     return {**_list_out(j), "building": j.building or {}, "owner": j.owner or {}, "contract": j.contract or {}, "opinion": j.opinion or {}, "memo": j.memo or "",
-            "files": j.files or {}, "results": res, "eval": {code: _ev(it, res.get(code), _use(j)) for code, it in I.by_code().items()},
+            "files": j.files or {}, **v,
             "field_done": (j.contract or {}).get("field_done"),  # [✓ 점검 완료](10/30)
-            "recap": I.recap(res), "plan_grade": I.plan_grade((j.opinion or {}).get("plan")), "site": _site_out(j)}
+            "recap": I.recap(v["results"]), "plan_grade": I.plan_grade((j.opinion or {}).get("plan")), "site": _site_out(j)}
 
 
 @router.get("/items")
@@ -645,8 +650,7 @@ def _drawings_out(j: BlcmJob) -> dict:
         for p in (r or {}).get("photos") or []:
             if p.get("drawing"):
                 used.setdefault(p["drawing"], []).append(f"{code}")
-    return {"drawings": [{**x, "used": used.get(x["id"], [])} for x in _drawings(j)], "results": j.results or {},
-            "eval": {code: _ev(it, (j.results or {}).get(code), _use(j)) for code, it in I.by_code().items()}}
+    return {"drawings": [{**x, "used": used.get(x["id"], [])} for x in _drawings(j)], **_view(j)}
 
 
 @router.post("/jobs/{jid}/drawings")

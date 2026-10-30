@@ -322,8 +322,7 @@ def evaluate(it: dict, res: dict | None) -> dict:
     if res.get("na"):
         return {"state": "na", "judge": "해당없음", "summary": "해당없음", "details": [], "score": None, "full": None, "count": None}
     if it["kind"] == "count":
-        cnt = res.get("count")
-        cnt = checked_count(it, res) if cnt in (None, "") else int(cnt)
+        cnt = _count_state(it, res)[0]
         j = res.get("judge") or ("" if not res.get("status") and not res.get("photos") else ("적합" if cnt == 0 else "부적합"))
         if j == "해당없음":
             return {"state": "na", "judge": "해당없음", "summary": "해당없음", "details": [], "score": None, "full": None, "count": None}
@@ -579,6 +578,12 @@ def normalize(it: dict, res: dict | None, prev: dict | None = None, use: str = "
         auto["design"] = False
     r["auto"] = auto
     return r
+
+
+def normalize_all(results: dict | None, use: str = "") -> dict:
+    """건의 결과 전체를 규칙대로(건 화면 응답·봇 — 예전 값도 같게 보이고 같게 넣음, 저장은 안 함)."""
+    by = by_code()
+    return {c: (normalize(by[c], r, use=use) if c in by and r else r) for c, r in (results or {}).items()}
 
 
 def ui_locks(it: dict, res: dict | None, use: str = "") -> dict:
