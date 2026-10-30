@@ -344,3 +344,33 @@
 
 .main .bj-ph-ev { font-size: 12px; font-weight: 700; color: #5b21b6; padding: 2px 6px; border-radius: 6px; background: #f3efff; }
 .main .bj-ph.ev img { object-fit: contain; background: #fff; }
+
+/* 부적합 견본 고르기(blcm-samples.html, 10/30) */
+.main .bs-filter { margin: 10px 0; }
+.main .bs-card { margin: 8px 0; }
+.main .bs-rows { display: grid; gap: 8px; padding: 0 14px 14px; }
+.main .bs-row { display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: start; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.main .bs-row.todo { border-color: #f5dfa8; background: #fffcf2; }
+.main .bs-row.ok { border-color: #bfe3cc; }
+.main .bs-now img, .main .bs-now .bj-bad-none { width: 120px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); display: flex; }
+.main .bs-t { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.main .bs-t b { font-size: 14px; color: var(--crit); }
+.main .bs-t small { font-size: 12px; color: var(--muted); }
+.main .bs-st { align-self: flex-start; font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 6px; background: var(--paper); color: var(--muted); }
+.main .bs-st.ok { background: var(--green-soft); color: var(--green); }
+.main .bs-st.todo { background: #fff3d6; color: #9a5b00; }
+.main .bs-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.main .bs-btns button { margin: 0; padding: 5px 12px; font-size: 12.5px; }
+.main .bs-cands { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 4px; }
+.main .bs-cand { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 5px; border: 1px solid var(--line); border-radius: 8px; background: #fff; text-align: left; cursor: pointer; }
+.main .bs-cand:hover, .main .bs-cand.on { border-color: var(--crit); box-shadow: 0 0 0 2px var(--crit-soft); }
+.main .bs-cand img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 5px; display: block; }
+.main .bs-cand small { font-size: 12px; color: var(--ink); line-height: 1.3; }
+.main .bs-cand i { font-style: normal; font-size: 11px; color: var(--faint); }
+.main .bj-bs-link { margin-top: 8px; }
+@media (max-width: 760px) {
+  .main .bs-row { grid-template-columns: 90px 1fr; }
+  .main .bs-now img, .main .bs-now .bj-bad-none { width: 90px; }
+  .main .bs-cands { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+

@@ -14,6 +14,7 @@
   반드시 찍을 사진 / 있으면 찍을 사진 / 면담·서류로 확인 / 해당없음(사유) / 확인 필요, 현장·면담 답은 contract.facts, 해당없음 넣기 = 손대지 않은 항목에 na + 비고 사유(10/30)
 - `POST /blcm/jobs/{id}/landuse`(토지이용계획확인원 PDF·그림) — 서류/토지이용계획확인원.pdf + 쪽을 도면 모음에(3.5.8 칸), 지정여부 칸에서 방화지구·가로구역 높이·지구단위계획을 읽어
   점검 목록 답으로(server/blcm/doc_facts.py — 대장 승강기·인증·건축주·변동사항도, 점검자 답이 이김, 10/30)
+- `GET  /blcm/bad-samples` · `PUT /blcm/bad-samples` {code, key, file|null, ok} — 부적합 견본 고르기(회사 보고서 후보 server/scripts/scan_blcm_bad_samples.py → 형·민재형이 고름, items.bad_file, 10/30)
 - `GET  /blcm/samples/{file}` — 견본 참고 사진(우리프라자 보고서 현황사진, server/blcm/samples.json·저장소 _건축물관리점검/_참고사진, 10/30)
 - `GET  /blcm/jobs/{id}/check` · `POST /blcm/jobs/{id}/done` {done} — 빠진 것(소항목마다 items.missing + 관리계획·그 밖의 항목·의견)·[✓ 점검 완료](contract.field_done, 10/30)
 - `POST /blcm/jobs/{id}/ai/rewrite` {label, current, note} — 글 한 칸 덧붙인 내용 반영해 다시 쓰기(app.js aiRewrite, 약 10원)
@@ -28,6 +29,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import shutil
 import uuid
 from pathlib import Path
@@ -716,17 +718,71 @@ def set_slot(jid: int, code: str, n: int, body: SlotIn, user: User = Depends(get
     return {"result": r, "eval": _ev(it, r), "progress": progress(j)}
 
 
-@router.get("/samples/{name}")
+@router.get("/samples/{name:path}")
 def sample_photo(name: str, user: User = Depends(get_current_user)):
-    """견본 참고 사진(10/30 사용자 "우리프라자를 기준으로 해당 항목 샘플 참고사진") — 회사 공통."""
+    """견본 참고 사진(10/30 사용자 "우리프라자를 기준으로 해당 항목 샘플 참고사진") — 회사 공통. 후보/… = 부적합 견본 후보(회사 보고서)."""
     import re
 
-    if not re.fullmatch(r"3\.\d\.\d{1,2}_\d{1,2}\.jpg", name):
+    if not re.fullmatch(r"3\.\d\.\d{1,2}_\d{1,2}\.jpg|후보/3\.\d\.\d{1,2}_[0-9a-f]{10}\.jpg", name):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
     f = SAMPLE_DIR / name
     if not f.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "사진이 없습니다.")
     return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+def _cands() -> dict:
+    try:
+        return json.loads((SAMPLE_DIR / "후보" / "candidates.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+@router.get("/bad-samples")
+def get_bad_samples(user: User = Depends(get_current_user)):
+    """부적합 견본 고르기 — 항목마다 부적합 칸(지금 견본·검토 여부)과 회사 보고서 후보(점수 순)."""
+    cands = _cands()
+    out = []
+    for it in I.items():
+        types = I.bad_types(it)
+        if not types:
+            continue
+        out.append({"code": it["code"], "name": it["name"], "big": it["big"],
+                    "types": [{"key": t["key"], "label": t["label"], "pick": (t["samples"] or [None])[0]} for t in types],
+                    "cands": cands.get(it["code"]) or []})
+    return {"items": out}
+
+
+class BadPickIn(BaseModel):
+    code: str
+    key: str
+    file: str | None = None
+    ok: bool = True
+
+
+@router.put("/bad-samples")
+def put_bad_sample(body: BadPickIn, user: User = Depends(get_current_user)):
+    """칸 견본 정하기(후보에서 고르기·지금 것 맞음 확인) / 비우기(file 없음) — 회사 공통."""
+    it = _item(body.code)
+    if not any(t["key"] == body.key for t in I.bad_types(it)):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "그런 부적합 칸이 없습니다.")
+    f = I.bad_file()
+    bad = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+    row = dict(bad.get(body.code) or {})
+    if not body.file:
+        row.pop(body.key, None)
+    else:
+        src = next((c for c in _cands().get(body.code) or [] if f"후보/{c['file']}" == body.file), None)
+        cur = (row.get(body.key) or [None])[0]
+        if src is None and not (cur and cur.get("file") == body.file):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "후보에 없는 그림입니다.")
+        base = {"file": body.file, "caption": src["caption"], "from": src["from"]} if src else {k: cur[k] for k in ("file", "caption", "from") if k in cur}
+        row[body.key] = [{**base, "ok": bool(body.ok), "by": user.display_name or "", "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}]
+    bad[body.code] = row
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(json.dumps({c: v for c, v in bad.items() if v}, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(f)
+    return {"types": [{"key": t["key"], "label": t["label"], "pick": (t["samples"] or [None])[0]} for t in I.bad_types(it)]}
 
 
 def check(j: BlcmJob) -> list[dict]:

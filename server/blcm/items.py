@@ -173,11 +173,34 @@ def _short(name: str) -> str:
     return re.sub(r"\s*(의\s*)?(성능\s*)?(상태\s*)?유지\s*여부.*$|\s*\(.*$", "", name).strip() or name
 
 
+def bad_file() -> Path:
+    """부적합 견본 고른 것(회사 공통, 화면 [🖼 부적합 견본 고르기]) — 저장소 _건축물관리점검/_참고사진/bad.json {code: {칸 key: [{file, caption, from, ok, by, at}]}}."""
+    from core.db import DATA_DIR
+
+    return DATA_DIR / "_건축물관리점검" / "_참고사진" / "bad.json"
+
+
+@lru_cache(maxsize=4)
+def _bad_read(path: str, mtime: int) -> dict:  # noqa: ARG001 — mtime은 캐시 열쇠
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def bad_samples() -> dict:
+    f = bad_file()
+    try:
+        return _bad_read(str(f), f.stat().st_mtime_ns)
+    except OSError:
+        return {}
+
+
 def bad_types(it: dict) -> list[dict]:
     """부적합 칸(10/30 사용자 "적합 견본 / 부적합 실외기·간이 시설물·쓰레기 분리시설 … 견본 — 부적합 칸에 사진을 넣으면 판정 자동") —
     건수형 = "변경 유형" 체크 줄의 체크마다(key "st:l1t0"), 점수형 = 작은 점검마다(key "rt:d0.s1", 작은 점검이 없으면 "rt:d0"), 인증형 = 없음.
     [{key, label, fit(적합/부적합으로 매기는 칸), samples: [{file, caption, from}](samples.json bad[key] — 회사 보고서 부적합 사진)}]."""
-    bad = (samples().get(it["code"]) or {}).get("bad") or {}
+    bad = {**((samples().get(it["code"]) or {}).get("bad") or {}), **(bad_samples().get(it["code"]) or {})}
     out: list[dict] = []
     if it["kind"] == "count":
         ln = change_line(it)

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>부적합 견본 고르기 - 건축물관리점검</title>
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="css/mail.css" />
+<link rel="stylesheet" href="css/sitok.css" />
+<link rel="stylesheet" href="css/blcm.css" />
+</head>
+<!-- 부적합 견본 고르기(2026-10-30 사용자 "견본이 잘못되면 계속 잘못된 사진을 찍어 올 수 있음 — 회사 보고서에서 찾고 형·민재형이 확인") —
+     회사 제출 보고서에서 모은 후보(server/scripts/scan_blcm_bad_samples.py) 중 칸마다 견본을 고름 → 모든 건 현장 점검 카드의 ⚠ 부적합 칸에 나옴.
+     서버 GET|PUT /blcm/bad-samples(server/api/routers/blcm.py), 화면 js/blcm-samples.js -->
+<body data-report-tab="blcm" data-law="sitok">
+<div class="app">
+  <aside class="sidebar" id="gw-sidebar"></aside>
+  <main class="main">
+
+<div class="crumb"><a href="blcm.html">건축물관리점검</a> › <span>부적합 견본 고르기</span></div>
+<div id="error" class="error"></div>
+
+<section class="panel">
+  <div class="panel-head"><h2>🖼 부적합 견본 고르기</h2><span class="panel-count" id="bs-count">불러오는 중…</span></div>
+  <div class="panel-body">
+    <div class="mail-note">회사 제출 보고서에서 모은 부적합 사진 후보 중 칸마다 맞는 견본을 고르세요 — 고른 견본은 모든 건의 현장 점검 카드 ⚠ 부적합 칸에 나옵니다(현장에서 이 사진처럼 찍게 됨).
+      <b>검토 전</b> = 프로그램이 사진 설명으로 미리 넣은 것 — 맞으면 [✓ 맞음], 아니면 [바꾸기]·[비우기].</div>
+    <div class="bs-filter" id="bs-filter"></div>
+    <div id="bs-list"><div class="empty-note">불러오는 중…</div></div>
+  </div>
+</section>
+
+  </main>
+</div>
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="js/blcm-samples.js"></script>
+</body>
+</html>
