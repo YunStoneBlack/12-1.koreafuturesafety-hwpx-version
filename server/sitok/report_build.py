@@ -906,10 +906,11 @@ def _even_tables_safely(root, seismic_fill, skip=()) -> int:
             continue
         cells = [tc for tc in t.iter(f"{{{HP}}}tc")]
         before = [(tc, tc.get("borderFillIDRef"), _visible_sides(tc)) for tc in cells]
+        saved = [(el, el.get("borderFillIDRef")) for el in t.iter() if el.get("borderFillIDRef") is not None]  # 칸 + 칸 영역(cellzone, 상자 옆선) + 표 자신
         got = seismic_fill.even_table(t)
         if got and any(_visible_sides(tc) != vis for tc, _bf, vis in before if id(tc) not in skip):  # 선이 지워지거나 새로 생긴 표
-            for tc, bf, _vis in before:
-                tc.set("borderFillIDRef", bf)
+            for el, bf in saved:
+                el.set("borderFillIDRef", bf)
             print("[표 선 고르게] 선이 바뀌는 표라 그대로 둠", flush=True)
             continue
         n += got
