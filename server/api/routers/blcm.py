@@ -4,7 +4,8 @@
 - `GET  /blcm/jobs` · `POST /blcm/jobs`(form name·address·ledger = 건축물대장 PDF) · `GET|PATCH|DELETE /blcm/jobs/{id}`(지우기 = 회사 삭제 비밀번호)
 - `POST /blcm/jobs/{id}/register`(건축물대장 PDF → 건축물 개요, ai=1이면 스캔도 AI로)
 - `PUT  /blcm/jobs/{id}/items/{code}` — 소항목 결과 저장(판정·점검현황·글) → 판정 계산
-- `POST /blcm/jobs/{id}/items/{code}/photos`(file·kind good|bad·caption) · `PATCH|DELETE …/photos/{pid}` · `GET /blcm/jobs/{id}/photo/{pid}`
+- `POST /blcm/jobs/{id}/items/{code}/photos`(file·kind good|bad·caption·slot·bad = 부적합 칸 key) · `PATCH|DELETE …/photos/{pid}` · `GET /blcm/jobs/{id}/photo/{pid}`
+  — 부적합 칸(items.bad_types) 사진이면 판정·변경 유형 체크를 사진대로(items.apply_photos, 10/30 사용자 "지적 사진을 넣어도 적합으로 표시됨")
 - `POST /blcm/jobs/{id}/items/{code}/ai` {extra} — 사진·대장으로 점검현황·글 채우기(점검자 판정은 그대로, 약 30~60원)
 - `POST /blcm/jobs/{id}/drawings`(file PDF·그림 — PDF는 쪽마다) · `DELETE …/drawings/{did}` · `GET …/drawings/{did}/img` · `POST …/drawings/register`(올린 건축물대장 쪽) —
   📐 도면·서류 그림 모음(files.drawings, 10/30 사용자 "도면 넣는 칸은 따로 빼서 한꺼번에 넣고 해당 위치로") · `PUT /blcm/jobs/{id}/items/{code}/slot/{n}` {drawing}
@@ -119,6 +120,7 @@ def get_items(user: User = Depends(get_current_user)):
     return {"groups": I.groups(), "items": [I.public(it) for it in I.items()], "text_keys": I.TEXT_KEYS,
             "places": I.PLACES, "item_places": I.ITEM_PLACES, "samples": I.samples(),  # 장소별 묶음·견본(10/30)
             "slots": {it["code"]: I.slots(it["code"]) for it in I.items()},  # 견본 칸 — 현장 사진·도면(10/30)
+            "bad_types": {it["code"]: I.bad_types(it) for it in I.items()},  # 부적합 칸 — 변경 유형·작은 점검마다(10/30)
             "plan_rows": I.PLAN_ROWS, "other_rows": I.OTHER_ROWS, "other_values": I.OTHER_VALUES, "opinion_keys": [(k, lab) for k, lab, _ in I.OPINION_KEYS]}
 
 
@@ -428,7 +430,7 @@ def put_item(jid: int, code: str, body: ItemIn, user: User = Depends(get_current
 
 @router.post("/jobs/{jid}/items/{code}/photos")
 def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = Form("good"), caption: str = Form(""), slot: int | None = Form(None),
-              user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+              bad: str = Form(""), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """현황사진 — 사진(폰 원본도)은 긴 변 2000px JPG로(files.save_jpeg). kind = good(양호) | bad(지적). 장수 제한 없음(10/30 사용자).
     slot = 견본 칸 번호(10/30 — 그 칸에 사진이 있으면 바꿈, 설명이 비면 견본 설명)."""
     from server.contract_docs import files
@@ -449,7 +451,13 @@ def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = For
         p["slot"] = slot
         if sl["draw"]:  # 도면 칸을 현장에서 찍은 것(반출이 안 될 때, 10/30) — 도면 그림, 늘 양호
             p["is_draw"], p["kind"] = True, "good"
+        else:  # 견본(적합) 칸 = 양호
+            p["kind"] = "good"
+    bt = _bad_type(it, bad)
+    if bt:  # 부적합 칸(10/30) — 지적 사진 + 그 유형, 설명이 비면 유형 이름
+        p.update(kind="bad", bad={"key": bt["key"], "label": bt["label"]}, caption=caption.strip()[:60] or bt["label"][:60])
     r["photos"] = [*keep, p]
+    r = I.apply_photos(it, r)
     res[code] = r
     j.results = res
     _touch(j, user, "results")
@@ -460,6 +468,16 @@ def add_photo(jid: int, code: str, file: UploadFile = File(...), kind: str = For
 class PhotoIn(BaseModel):
     caption: str | None = None
     kind: str | None = None
+    bad: str | None = None  # 부적합 칸 key("" = 칸 빼기)
+
+
+def _bad_type(it: dict, key: str | None) -> dict | None:
+    if not key:
+        return None
+    bt = next((x for x in I.bad_types(it) if x["key"] == key), None)
+    if bt is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "그런 부적합 칸이 없습니다.")
+    return bt
 
 
 def _take_slot(j: BlcmJob, r: dict, n: int | None) -> tuple[list, list]:
@@ -483,8 +501,20 @@ def _photo(j: BlcmJob, code: str, pid: str) -> tuple[dict, dict, dict]:
 def patch_photo(jid: int, code: str, pid: str, body: PhotoIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     j = _require(db, user, jid)
     res, r, p = _photo(j, code, pid)
-    r["photos"] = [{**x, **({"caption": (body.caption or "").strip()[:60]} if body.caption is not None else {}),
-                    **({"kind": "bad" if body.kind == "bad" else "good"} if body.kind is not None else {})} if x.get("id") == pid else x for x in r["photos"]]
+    it = _item(code)
+    bt = _bad_type(it, body.bad) if body.bad else None
+
+    def upd(x: dict) -> dict:
+        x = {**x, **({"caption": (body.caption or "").strip()[:60]} if body.caption is not None else {}),
+             **({"kind": "bad" if body.kind == "bad" else "good"} if body.kind is not None else {})}
+        if bt:
+            x.update(kind="bad", bad={"key": bt["key"], "label": bt["label"]})
+        elif body.bad == "" or x.get("kind") != "bad":  # 칸 빼기·양호로 바꾸면 유형도 뺌
+            x.pop("bad", None)
+        return x
+
+    r["photos"] = [upd(x) if x.get("id") == pid else x for x in r["photos"]]
+    r = I.apply_photos(it, r)
     res[code] = r
     j.results = res
     _touch(j, user, "results")
@@ -498,6 +528,7 @@ def delete_photo(jid: int, code: str, pid: str, user: User = Depends(get_current
     res, r, p = _photo(j, code, pid)
     (folder(j) / p["rel"]).unlink(missing_ok=True)
     r["photos"] = [x for x in r["photos"] if x.get("id") != pid]
+    r = I.apply_photos(_item(code), r)
     res[code] = r
     j.results = res
     _touch(j, user, "results")

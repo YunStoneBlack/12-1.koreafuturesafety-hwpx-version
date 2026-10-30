@@ -3,6 +3,8 @@
 // 카드마다 고치면 0.6초 뒤 저장(PUT /blcm/jobs/{id}/items/{code}) → 서버가 판정(건수·점수) 계산해 돌려줌. 사진 = 신호 약하면 폰 보관(apiUploadSafe).
 // 10/30 사용자(우리프라자 시험 뒤): 사진 끌어 놓기(버튼 위 = 그 종류, 빈 곳 = 판정대로), [장소별] 보기(외부·옥상·실내·지하·서류 — 보고서는 항목 순서 그대로),
 // 카드 머리 ⚠ 빠진 것(서버 items.missing)·[✓ 점검 완료](빠진 것 목록 → 누르면 그 항목), 카드마다 📎 참고(우리프라자 보고서 사진·글, server/blcm/samples.json).
+// 10/30 재구성(사용자 "서류검토 → 해당없음 분류·이유, 그대로 현장 점검 세팅, 사진 칸 = 적합 견본 + 부적합 유형별 견본, 도면은 관리사무소에서 한꺼번에"):
+// ① 서류검토(법령 판정·질문·[서류검토 확정]) ② 관리사무소 — 도면(같은 도면은 한 줄, 쓰는 항목 모두에) ③ 현장 점검(해당없음은 맨 끝 탭, 부적합 칸에 찍으면 판정 자동 — 서버 items.apply_photos).
 (function () {
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -12,7 +14,7 @@
   let job = null, table = null;
   const openCards = new Set();
   let tab = (() => { try { return localStorage.getItem("bj-tab") || ""; } catch (_) { return ""; } })();
-  let view = (() => { try { return localStorage.getItem("bj-view") === "place" ? "place" : "big"; } catch (_) { return "big"; } })(); // 항목 순서 / 장소별(10/30)
+  let view = (() => { try { return localStorage.getItem("bj-view") === "big" ? "big" : "place"; } catch (_) { return "place"; } })(); // 장소별(기본) / 항목 순서(10/30)
   const RATING = ["양호", "보통", "미흡", "불량", "해당없음"], FIT = ["적합", "부적합", "해당없음"], CERT = ["인증", "재인증", "만료", "해당없음"];
   const CMP = ["개선필요", "해당없음"], DESIGN = ["적합", "부적합", "도면없음", "해당없음"];
   const TEXTS = [["ilglt", "개선사항(위법)"], ["perf", "성능개선사항"], ["basis", "개선방안에 대한 근거 및 관련법령 등"], ["rm", "비고"]];
@@ -118,9 +120,9 @@
       plan = out.plan;
       delete out.plan;
       job = { ...job, ...out };
-      drawTop(); onDrawings(out); drawPlan(); drawItems();
+      drawTop(); onDrawings(out); drawReview(); drawTabs(); drawItems();
       const lu = (plan.docs || {}).landuse;
-      msg.textContent = lu && lu.text_ok ? "✓ 확인원 읽음 — 점검 목록 ④에 답이 채워졌습니다" : "확인원에 글자가 없습니다(그림) — 점검 목록 ④ 질문에 직접 답해 주세요";
+      msg.textContent = lu && lu.text_ok ? "✓ 확인원 읽음 — ① 서류검토에 답이 채워졌습니다" : "확인원에 글자가 없습니다(그림) — ① 서류검토 질문에 직접 답해 주세요";
     } catch (err) { msg.textContent = err.message; }
   });
 
@@ -133,9 +135,14 @@
     return [table.opinion_keys.filter(([key]) => ((op.texts || {})[key] || "").trim()).length, table.opinion_keys.length];
   }
   // 탭 묶음 — 항목 순서 = 대항목(법규유지…), 장소별 = 현장에서 찍는 자리(@out·@roof…, 서버 items.ITEM_PLACES — 한 항목이 여러 자리에 나올 수 있음)
+  // 해당없음 = 점검자가 해당없음으로 넣었거나, 법령상 해당없음이고 아직 손대지 않은 항목(① 서류검토) — 현장 탭에서 빼고 맨 끝 [해당없음] 탭에
+  const isNa = (code) => { const r = (job.results || {})[code] || {}; if (r.na) return true; const p = plan && plan.items[code]; return !!(p && p.state === "na" && !p.touched); };
   function tabGroups() {
-    if (view !== "place") return table.groups;
-    return (table.places || []).map(([k, label]) => ({ key: `@${k}`, label, items: table.items.map((x) => x.code).filter((c) => ((table.item_places || {})[c] || ["out"]).includes(k)) }));
+    const base = view !== "place" ? table.groups
+      : (table.places || []).map(([k, label]) => ({ key: `@${k}`, label, items: table.items.map((x) => x.code).filter((c) => ((table.item_places || {})[c] || ["out"]).includes(k)) }));
+    const out = base.map((g) => ({ ...g, items: g.items.filter((c) => !isNa(c)) })).filter((g) => g.items.length);
+    const na = table.items.map((x) => x.code).filter(isNa);
+    return na.length ? [...out, { key: "@na", label: "해당없음", items: na }] : out;
   }
   const missOf = (c) => { const e = job.eval[c] || {}; return e.state === "empty" ? [] : e.miss || []; }; // 미작성은 "미작성" 칩이 이미 말함
   function tabSmall(g) {
@@ -147,7 +154,7 @@
     const groups = tabGroups();
     if (!tab || !(groups.some((g) => g.key === tab) || EXTRA.some(([k]) => k === tab))) tab = groups[0].key;
     document.querySelectorAll(".bj-view button").forEach((b) => { const on = b.dataset.v === view; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
-    $("bj-view-note").textContent = view === "place" ? "현장에서 찍는 자리대로 묶어 봄 — 보고서·생애이력시스템에는 항목 순서 그대로 들어갑니다" : "매뉴얼(국토교통부 2025.2) 소항목 50개 — 판정·사진을 넣고 🤖 AI로 채우기";
+    $("bj-view-note").textContent = view === "place" ? "현장에서 찍는 자리대로 — 해당없음 항목은 맨 끝 [해당없음] 탭 · 보고서에는 항목 순서 그대로" : "매뉴얼(국토교통부 2025.2) 항목 순서 — 해당없음 항목은 맨 끝 [해당없음] 탭";
     $("bj-tabs").innerHTML = groups.map((g) => `<button type="button" class="bj-tab${g.key === tab ? " on" : ""}" data-k="${esc(g.key)}" role="tab">${esc(g.label)} <small>${tabSmall(g)}</small></button>`).join("") + EXTRA.map(([k, label]) => {
       const [n, t] = extraCount(k);
       return `<button type="button" class="bj-tab extra${k === tab ? " on" : ""}" data-k="${k}" role="tab">${esc(label)} <small>${n}/${t}</small></button>`;
@@ -214,7 +221,7 @@
   }
   function jumpTo(m) { // 빠진 항목 → 그 탭(장소별이면 그 항목의 첫 자리) + 카드 펼치고 거기로
     if (m.code) {
-      tab = view === "place" ? `@${((table.item_places || {})[m.code] || ["out"])[0]}` : m.tab;
+      tab = isNa(m.code) ? "@na" : view === "place" ? `@${((table.item_places || {})[m.code] || ["out"])[0]}` : m.tab;
       openCards.add(m.code);
     } else tab = m.tab;
     drawTabs(); drawItems();
@@ -269,36 +276,53 @@
 
   const sampleSrc = (file) => `${BASE}/api/blcm/samples/${encodeURIComponent(file)}`;
   const slotsOf = (code) => (table.slots || {})[code] || { photo: [], draw: [] };
-  function photosHtml(it, r) { // 10/30 사용자: 견본 칸(왼쪽 우리프라자 견본 | 오른쪽 이번 사진 — 시특법 전회차처럼, 폰도 나란히) + ＋ 더 찍기(장수 제한 없음)
-    const ph = r.photos || [];
-    const sl = slotsOf(it.code);
-    const nums = new Set([...sl.photo, ...sl.draw].map((s) => s.n));
-    const drawNs = new Set(sl.draw.map((s) => s.n));
-    const one = (p) => `<div class="bj-ph ${p.kind === "bad" ? "bad" : "good"}" data-pid="${esc(p.id)}">
-        <a href="${BASE}/api${P}/photo/${esc(p.id)}" target="_blank" rel="noopener"><img loading="lazy" src="${BASE}/api${P}/photo/${esc(p.id)}" alt="" /></a>
-        <div class="bj-ph-b">${drawNs.has(p.slot) ? '<span class="bj-ph-kind" title="도면·서류 그림">도면</span>' : `<button type="button" class="bj-ph-kind" title="양호·지적 바꾸기">${p.kind === "bad" ? "지적" : "양호"}</button>`}${p.slot != null && nums.has(p.slot)
-          ? (drawNs.has(p.slot) ? `<button type="button" class="bj-ph-redo bj-slot-pick" data-slot="${p.slot}" title="모음에서 다른 그림으로">📐 바꾸기</button>` : "")
-            + `<label class="bj-ph-redo" title="다시 찍기">📷 다시<input type="file" accept="image/*" capture="environment" hidden data-kr-file="skip" data-slot="${p.slot}"${drawNs.has(p.slot) ? ' data-draw="1"' : ""} /></label>` : ""}<button type="button" class="bj-ph-del" title="지우기">✕</button></div>
-        <input class="bj-ph-cap" value="${esc(p.caption || "")}" placeholder="사진 설명" maxlength="60" /></div>`;
-    const slotRow = (s, draw) => {
-      const p = ph.find((x) => x.slot === s.n);
-      return `<div class="bj-slot${draw ? " draw" : ""}" data-slot="${s.n}">
+  const badTypes = (code) => (table.bad_types || {})[code] || [];
+  const isDrawPhoto = (code, p) => !!(p.is_draw || p.drawing || (p.slot != null && slotsOf(code).draw.some((s) => s.n === p.slot)));
+  function photoOne(it, p) { // 사진 한 장 — 아래 고르기 = 적합(양호)인지 어떤 부적합인지(바꾸면 판정도 바뀜)
+    const bt = badTypes(it.code);
+    const val = p.kind === "bad" ? ((p.bad || {}).key || "__bad") : "";
+    return `<div class="bj-ph ${p.kind === "bad" ? "bad" : "good"}" data-pid="${esc(p.id)}">
+      <a href="${BASE}/api${P}/photo/${esc(p.id)}" target="_blank" rel="noopener"><img loading="lazy" src="${BASE}/api${P}/photo/${esc(p.id)}" alt="" /></a>
+      <div class="bj-ph-b"><select class="bj-ph-type" title="적합(양호) 사진인지, 어떤 부적합인지 — 바꾸면 판정도 바뀝니다">
+        <option value=""${val === "" ? " selected" : ""}>✅ 적합·양호</option>${bt.map((t) => `<option value="${esc(t.key)}"${val === t.key ? " selected" : ""}>⚠ ${esc(t.label)}</option>`).join("")}
+        ${val === "__bad" || !bt.length ? `<option value="__bad"${val === "__bad" ? " selected" : ""}>⚠ 지적(유형 없음)</option>` : ""}</select>
+        ${p.slot != null && p.kind !== "bad" ? `<label class="bj-ph-redo" title="다시 찍기">📷<input type="file" accept="image/*" capture="environment" hidden data-kr-file="skip" data-slot="${p.slot}" /></label>` : ""}
+        <button type="button" class="bj-ph-del" title="지우기">✕</button></div>
+      <input class="bj-ph-cap" value="${esc(p.caption || "")}" placeholder="사진 설명" maxlength="60" /></div>`;
+  }
+  function photosHtml(it, r) { // 10/30 사용자: ✅ 적합 = 견본 칸(왼쪽 견본 | 오른쪽 이번 사진) + 더 찍기, ⚠ 부적합 = 유형 칸마다 견본 + 📷(찍으면 판정·변경 유형 체크 자동), 도면은 ②에서
+    const all = r.photos || [];
+    const ph = all.filter((p) => !isDrawPhoto(it.code, p));
+    const sl = slotsOf(it.code), bt = badTypes(it.code);
+    const nums = new Set(sl.photo.map((s) => s.n));
+    const okSlot = (s) => {
+      const p = ph.find((x) => x.slot === s.n && x.kind !== "bad");
+      return `<div class="bj-slot" data-slot="${s.n}">
         <div class="bj-slot-ex"><span class="bj-slot-tag">견본</span>${s.file ? `<a href="${sampleSrc(s.file)}" target="_blank" rel="noopener"><img loading="lazy" src="${sampleSrc(s.file)}" alt="" /></a>` : ""}<small>${esc(s.caption || "(설명 없음)")}${s.from ? ` <span class="bj-slot-from">· ${esc(s.from)}</span>` : ""}</small></div>
-        <div class="bj-slot-now">${p ? one(p) : draw
-          ? `<div class="bj-slot-btns"><button type="button" class="bj-slot-pick" data-slot="${s.n}">📐 도면 고르기<small>올린 도면에서</small></button>
-              <label class="bj-slot-shot cam">📷 현장에서 찍기<small>도면 반출이 안 될 때</small><input type="file" accept="image/*" capture="environment" hidden data-kr-file="skip" data-slot="${s.n}" data-draw="1" /></label></div>`
-          : `<label class="bj-slot-shot">📷 이렇게 찍기<small>${esc(s.caption || "")}</small><input type="file" accept="image/*" capture="environment" hidden data-kr-file="skip" data-slot="${s.n}" /></label>`}</div></div>`;
+        <div class="bj-slot-now">${p ? photoOne(it, p) : `<label class="bj-slot-shot">📷 이렇게 찍기<small>${esc(s.caption || "")}</small><input type="file" accept="image/*" capture="environment" hidden data-kr-file="skip" data-slot="${s.n}" /></label>`}</div></div>`;
     };
-    const extra = ph.filter((p) => p.slot == null || !nums.has(p.slot));
-    const has = sl.photo.length + sl.draw.length;
-    return `<div class="bj-photos"><div class="bj-lab">현황사진 <small>(적합·양호 = 양호 사진, 부적합 = 지적 사진 · 끌어 놓기 — 버튼 위 = 그 종류, 빈 곳 = 판정대로)</small></div>
-      ${sl.photo.length ? `<div class="bj-slots-h">왼쪽 견본(회사 제출 보고서)처럼 찍으세요 — 더 찍어도, 덜 찍어도 됩니다</div>
-        <div class="bj-slots">${sl.photo.map((s) => slotRow(s, false)).join("")}</div>` : ""}
-      <div class="bj-ph-add">${has ? '<span class="bj-more">＋ 더 찍기</span>' : ""}<label class="secondary bj-file-btn">📷 양호 사진<input type="file" accept="image/*" multiple hidden data-kr-file="skip" data-kind="good" /></label>
-        <label class="secondary bj-file-btn bad">📷 지적 사진<input type="file" accept="image/*" multiple hidden data-kr-file="skip" data-kind="bad" /></label><span class="mail-note bj-ph-msg">${has ? "장수 제한 없음" : ""}</span></div>
-      <div class="bj-ph-grid">${extra.map(one).join("") || (has ? "" : '<div class="mail-note">사진 없음</div>')}</div>
-      ${sl.draw.length ? `<div class="bj-draw-box"><div class="bj-slots-h">📐 도면·서류 ${sl.draw.length}곳 — 현장 사진이 아니라 따로 첨부(위 [📐 도면·서류 그림]에서 한꺼번에), 반출이 안 되면 현장에서 찍기</div>
-        <div class="bj-slots">${sl.draw.map((s) => slotRow(s, true)).join("")}</div></div>` : ""}</div>`;
+    const goodExtra = ph.filter((p) => p.kind !== "bad" && (p.slot == null || !nums.has(p.slot)));
+    const badRow = (t) => {
+      const mine = ph.filter((p) => p.kind === "bad" && (p.bad || {}).key === t.key);
+      const s0 = (t.samples || [])[0];
+      return `<div class="bj-bad-row${mine.length ? " has" : ""}" data-bad="${esc(t.key)}">
+        <div class="bj-bad-ex">${s0 ? `<a href="${sampleSrc(s0.file)}" target="_blank" rel="noopener"><img loading="lazy" src="${sampleSrc(s0.file)}" alt="" /></a>` : '<span class="bj-bad-none">견본<br>준비 중</span>'}</div>
+        <div class="bj-bad-t"><b>⚠ ${esc(t.label)}</b>${s0 ? `<small>${esc(s0.caption || "")}${s0.from ? ` · ${esc(s0.from)}` : ""}</small>` : ""}
+          <label class="bj-bad-shot">📷 찍기${mine.length ? ` · ${mine.length}장` : ""}<input type="file" accept="image/*" multiple hidden data-kr-file="skip" data-bad="${esc(t.key)}" /></label></div>
+        ${mine.length ? `<div class="bj-ph-grid bj-bad-ph">${mine.map((p) => photoOne(it, p)).join("")}</div>` : ""}</div>`;
+    };
+    const nBad = ph.filter((p) => p.kind === "bad").length;
+    const loose = ph.filter((p) => p.kind === "bad" && !(p.bad && bt.some((t) => t.key === p.bad.key)));
+    const nDraw = sl.draw.length, gotDraw = new Set(all.filter((p) => isDrawPhoto(it.code, p)).map((p) => p.slot)).size;
+    return `<div class="bj-photos">
+      <div class="bj-ok-box"><div class="bj-lab">✅ 적합 <small>${sl.photo.length ? "왼쪽 견본(회사 제출 보고서)처럼 찍으세요 — 더 찍어도, 덜 찍어도 됩니다" : "현장 사진"}</small></div>
+        ${sl.photo.length ? `<div class="bj-slots">${sl.photo.map(okSlot).join("")}</div>` : ""}
+        <div class="bj-ph-add"><label class="secondary bj-file-btn">📷 ${sl.photo.length ? "＋ 더 찍기" : "사진 찍기"}<input type="file" accept="image/*" multiple hidden data-kr-file="skip" data-kind="good" /></label><span class="mail-note bj-ph-msg">장수 제한 없음 · 끌어 놓아도 됩니다</span></div>
+        ${goodExtra.length ? `<div class="bj-ph-grid">${goodExtra.map((p) => photoOne(it, p)).join("")}</div>` : ""}</div>
+      ${bt.length ? `<details class="bj-bad-box"${nBad ? " open" : ""}><summary>⚠ 부적합이 있으면 — 해당 칸에 찍으면 판정이 자동으로 <small>${bt.length}칸${nBad ? ` · 지적 ${nBad}장` : ""} ▾</small></summary>
+        <div class="bj-bad-rows">${bt.map(badRow).join("")}</div></details>` : ""}
+      ${loose.length ? `<div class="bj-lab">⚠ 유형 없는 지적 사진 <small>사진 아래에서 유형을 고르면 판정에 들어갑니다</small></div><div class="bj-ph-grid">${loose.map((p) => photoOne(it, p)).join("")}</div>` : ""}
+      ${nDraw ? `<div class="mail-note bj-draw-note">📐 도면 ${gotDraw}/${nDraw} — 도면은 위 [② 관리사무소 — 도면]에서 한꺼번에 넣습니다</div>` : ""}</div>`;
   }
 
   function aiNote(r, ev) { // 판정을 비워 두고 사진만 넣었으면 AI가 사진을 보고 판정까지(10/30 사용자 "사진을 보고 선택하고 AI 작성까지")
@@ -324,8 +348,15 @@
     const nPh = (r.photos || []).length;
     const miss = missOf(it.code);
     const pl = ((table.item_places || {})[it.code] || []).map((k) => ((table.places || []).find((x) => x[0] === k) || [k, k])[1]);
-    return `<summary class="bj-card-h"><span class="bj-code">${esc(it.code)}</span><b>${esc(it.name)}</b><span class="bj-mid">${esc(view === "place" ? it.big : it.mid)}</span>${chip(ev)}${planChip(it.code)}${miss.length ? `<span class="bj-miss" title="${esc(miss.join(" · "))}">⚠ ${esc(miss[0])}${miss.length > 1 ? ` 외 ${miss.length - 1}` : ""}</span>` : ""}${nPh ? `<span class="bj-nph">📷${nPh}</span>` : ""}${r.ai ? '<span class="bj-nph" title="AI로 채움">🤖</span>' : ""}${view === "place" && pl.length > 1 ? `<span class="bj-places" title="이 항목을 찍는 자리">${esc(pl.join("·"))}</span>` : ""}<span class="sk-fold-arrow">▾</span></summary>
-      <div class="bj-card-b">
+    const th = (slotsOf(it.code).photo[0] || {}).file;
+    const pi = plan && plan.items[it.code];
+    const ask = pi && pi.state === "ask" && pi.cat === "present" ? pi.asks : [];
+    const naWhy = pi && pi.state === "na" && !r.na ? `<div class="mail-note bj-na-why">법령상 해당없음 — ${esc(pi.reason)} <small>([① 서류검토 확정]을 누르면 해당없음·사유가 들어갑니다)</small></div>` : "";
+    return `<summary class="bj-card-h">${th ? `<img class="bj-card-th" loading="lazy" src="${sampleSrc(th)}" alt="" />` : ""}<span class="bj-code">${esc(it.code)}</span><b>${esc(it.name)}</b><span class="bj-mid">${esc(view === "place" ? it.big : it.mid)}</span>${chip(ev)}${planChip(it.code)}${miss.length ? `<span class="bj-miss" title="${esc(miss.join(" · "))}">⚠ ${esc(miss[0])}${miss.length > 1 ? ` 외 ${miss.length - 1}` : ""}</span>` : ""}${nPh ? `<span class="bj-nph">📷${nPh}</span>` : ""}${r.ai ? '<span class="bj-nph" title="AI로 채움">🤖</span>' : ""}${view === "place" && pl.length > 1 ? `<span class="bj-places" title="이 항목을 찍는 자리">${esc(pl.join("·"))}</span>` : ""}<span class="sk-fold-arrow">▾</span></summary>
+      <div class="bj-card-b">${naWhy}
+        ${ask.map((k) => { const q = (plan.questions || []).find((x) => x.key === k) || { label: k };
+          return `<div class="bj-pl-q bj-ask"><span>📍 ${esc(q.label)} <small>법령상 의무는 아니지만 있으면 점검 — 없으면 해당없음으로 넘어갑니다</small></span>
+            <span class="bj-seg bj-fact" data-key="${esc(k)}" data-user="">${["있음", "없음"].map((v) => `<button type="button" data-v="${v}">${v}</button>`).join("")}</span></div>`; }).join("")}
         <label class="bj-na"><input type="checkbox" class="bj-na-in" ${r.na ? "checked" : ""} /> 이 항목 해당없음(적용 대상 아님 — 비고에 사유)</label>
         <div class="bj-judge"${r.na ? " hidden" : ""}>${judgeHtml(it, r, ev)}
           <div class="bj-row"><span class="bj-lab">현행기준과의 비교·검토</span>${seg("cmp", CMP, r.cmp || "")}</div>
@@ -368,7 +399,7 @@
     const done = job.done;
     refreshTabCounts();
     drawDone();
-    drawPlan();
+    drawReview();
     return done;
   }
 
@@ -681,7 +712,7 @@
   // 카드의 지금 값 → 저장 몸통
   function collect(el, it) {
     const body = { na: el.querySelector(".bj-na-in").checked, status: {}, texts: {} };
-    el.querySelectorAll(".bj-seg").forEach((s) => {
+    el.querySelectorAll(".bj-seg:not(.bj-fact)").forEach((s) => { // 있음/없음(현장 질문)은 판정이 아님 — setFact로 따로
       const on = s.querySelector("button.on");
       const v = on ? on.dataset.v : "";
       const n = s.dataset.name;
@@ -712,7 +743,7 @@
       };
       if (now) go(); else timer = setTimeout(go, 600);
     };
-    el.querySelectorAll(".bj-seg button").forEach((b) => b.addEventListener("click", () => {
+    el.querySelectorAll(".bj-seg:not(.bj-fact) button").forEach((b) => b.addEventListener("click", () => {
       const was = b.classList.contains("on");
       b.parentElement.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
       if (!was) b.classList.add("on");
@@ -727,62 +758,45 @@
       t.addEventListener("change", () => save(true, false));
       if (typeof aiRewrite === "function") aiRewrite(t, `${P}/ai/rewrite`, `${it.code} ${it.name} — ${TEXTS.find((x) => x[0] === t.dataset.tx)[1]}`);
     });
-    // 사진 — 끌어 놓기(10/30 사용자 "드래그 안 됨"): 버튼 위 = 그 종류, 사진 칸 빈 곳 = 판정대로(부적합·미흡·불량이면 지적)
-    if (typeof enableFileDrop === "function") {
-      const goodIn = el.querySelector('.bj-ph-add input[data-kind="good"]'), badIn = el.querySelector('.bj-ph-add input[data-kind="bad"]');
-      enableFileDrop(goodIn.closest("label"), goodIn);
-      enableFileDrop(badIn.closest("label"), badIn);
-      enableFileDrop(el.querySelector(".bj-photos"), () => (isBadEval(job.eval[code]) ? badIn : goodIn));
-    }
-    el.querySelectorAll(".bj-ph-add input[type=file]").forEach((inp) => inp.addEventListener("change", async () => {
-      const files = [...inp.files];
-      inp.value = "";
+    // 사진(10/30): 적합 = 견본 칸·더 찍기, 부적합 = 유형 칸(판정 자동), 끌어 놓기 = 놓은 칸대로
+    const upload = async (files, extra, label) => {
       const msg = el.querySelector(".bj-ph-msg");
       let n = 0;
       for (const f of files) {
-        msg.textContent = `올리는 중… ${n + 1}/${files.length}`;
+        if (msg) msg.textContent = `올리는 중… ${n + 1}/${files.length}`;
         const fd = new FormData();
         fd.append("file", f);
-        fd.append("kind", inp.dataset.kind);
-        try {
-          const out = await apiUploadSafe(`${P}/items/${encodeURIComponent(code)}/photos`, fd, { label: `${it.code} ${it.name} ${inp.dataset.kind === "bad" ? "지적" : "양호"} 사진` });
-          apply(code, out);
-          n += 1;
-        } catch (err) { msg.textContent = err.message; if (!err.queued) showError(errorEl, err); }
+        Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
+        try { apply(code, await apiUploadSafe(`${P}/items/${encodeURIComponent(code)}/photos`, fd, { label: `${it.code} ${it.name} ${label}` })); n += 1; }
+        catch (err) { if (msg) msg.textContent = err.message; if (!err.queued) showError(errorEl, err); }
       }
       if (n) redraw(el, it);
-    }));
-    // 견본 칸 📷(10/30) — 그 칸 사진(있으면 바꿈), 양호/지적은 판정대로(사진에서 바꿀 수 있음), 설명은 견본 설명
-    el.querySelectorAll("input[type=file][data-slot]").forEach((inp) => {
-      const zone = inp.closest(".bj-slot-shot");
-      if (zone && typeof enableFileDrop === "function") enableFileDrop(zone, inp);
-      inp.addEventListener("change", async () => {
-        const f = inp.files[0];
-        inp.value = "";
-        if (!f) return;
-        const msg = el.querySelector(".bj-ph-msg");
-        msg.textContent = "올리는 중…";
-        const bad = isBadEval(job.eval[code]);
-        const fd = new FormData();
-        fd.append("file", f);
-        fd.append("kind", bad && !inp.dataset.draw ? "bad" : "good");
-        fd.append("slot", inp.dataset.slot);
-        try {
-          const out = await apiUploadSafe(`${P}/items/${encodeURIComponent(code)}/photos`, fd, { label: `${it.code} ${it.name} 견본 칸 사진` });
-          apply(code, out);
-          redraw(el, it);
-        } catch (err) { msg.textContent = err.message; if (!err.queued) showError(errorEl, err); }
-      });
+    };
+    const drop = (zone, inp) => { if (zone && inp && typeof enableFileDrop === "function") enableFileDrop(zone, inp); };
+    el.querySelectorAll("input[type=file][data-kind]").forEach((inp) => {
+      drop(inp.closest("label"), inp);
+      inp.addEventListener("change", () => { const fs = [...inp.files]; inp.value = ""; if (fs.length) upload(fs, { kind: "good" }, "적합 사진"); });
     });
-    el.querySelectorAll(".bj-slot-pick").forEach((b) => b.addEventListener("click", (ev) => { ev.preventDefault(); pickDrawing(it, Number(b.dataset.slot), () => redraw(el, it)); }));
+    el.querySelectorAll("input[type=file][data-bad]").forEach((inp) => {
+      const row = inp.closest(".bj-bad-row");
+      drop(row, inp);
+      inp.addEventListener("change", () => { const fs = [...inp.files]; inp.value = ""; if (fs.length) upload(fs, { kind: "bad", bad: inp.dataset.bad }, `부적합 ${row.querySelector("b").textContent.replace("⚠ ", "")}`); });
+    });
+    el.querySelectorAll("input[type=file][data-slot]").forEach((inp) => {
+      drop(inp.closest(".bj-slot-shot"), inp);
+      inp.addEventListener("change", () => { const f = inp.files[0]; inp.value = ""; if (f) upload([f], { kind: "good", slot: inp.dataset.slot }, "견본 칸 사진"); });
+    });
+    drop(el.querySelector(".bj-ok-box"), el.querySelector("input[type=file][data-kind]"));
+    wireFacts(el);
     el.querySelectorAll(".bj-ph").forEach((ph) => {
       const pid = ph.dataset.pid;
       ph.querySelector(".bj-ph-cap").addEventListener("change", async (e) => {
         try { const out = await apiPatch(`${P}/items/${encodeURIComponent(code)}/photos/${pid}`, { caption: e.target.value }); apply(code, out); } catch (err) { showError(errorEl, err); }
       });
-      ph.querySelector("button.bj-ph-kind")?.addEventListener("click", async () => { // 도면 칸 그림은 양호·지적 없음(span)
-        const cur = (((job.results[code] || {}).photos || []).find((x) => x.id === pid) || {}).kind;
-        try { const out = await apiPatch(`${P}/items/${encodeURIComponent(code)}/photos/${pid}`, { kind: cur === "bad" ? "good" : "bad" }); apply(code, out); redraw(el, it); } catch (err) { showError(errorEl, err); }
+      ph.querySelector(".bj-ph-type")?.addEventListener("change", async (e) => {
+        const v = e.target.value;
+        const body = v === "" ? { kind: "good", bad: "" } : v === "__bad" ? { kind: "bad", bad: "" } : { kind: "bad", bad: v };
+        try { apply(code, await apiPatch(`${P}/items/${encodeURIComponent(code)}/photos/${pid}`, body)); redraw(el, it); } catch (err) { showError(errorEl, err); }
       });
       ph.querySelector(".bj-ph-del").addEventListener("click", async () => {
         if (!confirm("이 사진을 지울까요?")) return;
@@ -812,61 +826,56 @@
   // ---------- 📋 이 건물 점검 목록(10/30 사용자 "반드시 찍을 사진 / 해당없음이지만 현장에 있으면 찍을 사진 / 면담으로 반드시 확인할 것 — 현장마다, 항목 옆에 예시 사진") ----------
   let plan = null;
   async function loadPlan() {
-    try { plan = await api(`${P}/plan`); drawPlan(); drawItems(); } catch (err) { $("bj-plan-body").innerHTML = `<div class="mail-msg bad">${esc(err.message)}</div>`; }
+    try { plan = await api(`${P}/plan`); drawReview(); drawTabs(); drawItems(); drawPool(); } catch (err) { $("bj-review-body").innerHTML = `<div class="mail-msg bad">${esc(err.message)}</div>`; }
   }
   const groupOf = (code) => (table.groups.find((g) => g.items.includes(code)) || {}).key;
-  function drawPlan() {
-    if (!plan) return;
-    const items = plan.items, c = plan.count;
-    const nm = (code) => (table.byCode[code] || {}).name || code;
-    const nPh = (code) => (((job.results || {})[code] || {}).photos || []).length;
-    const thumb = (code) => { const s = slotsOf(code).photo[0] || slotsOf(code).draw[0]; return s && s.file ? `<img class="bj-pl-th" loading="lazy" src="${sampleSrc(s.file)}" alt="" title="견본 — ${esc(s.caption || "")}" />` : '<span class="bj-pl-th"></span>'; };
-    const row = (code) => `<button type="button" class="bj-pl-row" data-code="${esc(code)}">${thumb(code)}<span class="bj-pl-t"><b>${esc(code)} ${esc(nm(code))}</b><small>${esc(items[code].why || "")}</small></span>
-      <span class="bj-pl-n ${nPh(code) ? "ok" : ""}">${nPh(code) ? `📷${nPh(code)}` : "아직"}</span></button>`;
-    const qOf = (key) => plan.questions.find((x) => x.key === key) || { key, answer: "", label: key, items: [] };
-    const qRow = (key, withItems) => { const q = qOf(key);
-      return `<div class="bj-pl-q"><span>${esc(q.label)}${withItems && q.items.length ? ` <small>· ${esc(q.items.join(", "))}</small>` : ""}</span>
-        <span class="bj-seg bj-fact" data-key="${esc(key)}">${["있음", "없음"].map((v) => `<button type="button" data-v="${v}" class="${q.answer === v ? "on" : ""}">${v}</button>`).join("")}</span></div>`; };
-    const codes = (cat) => Object.keys(items).filter((k) => items[k].cat === cat);
-    const must = codes("must");
-    const places = (table.places || []).filter(([k]) => k !== "doc").map(([k, lab]) => [lab, must.filter((code) => ((table.item_places || {})[code] || ["out"]).includes(k))]).filter(([, l]) => l.length);
-    const present = codes("present");
-    const talkQ = plan.questions.filter((q) => q.kind === "talk" && !q.answer), landQ = plan.questions.filter((q) => q.kind === "land" && !q.answer);
-    const answered = plan.questions.filter((q) => q.answer); // 서류에서 읽은 답·점검자 답(10/30) — 틀리면 다른 답을 눌러 바꿈
-    const srcOf = (q) => q.user ? (q.auto && q.auto.v !== q.user ? `점검자 답(서류는 ${q.auto.v})` : "점검자 답") : q.auto ? `📄 ${q.auto.src}` : "";
-    const lu = (plan.docs || {}).landuse;
-    const shown = new Set(present.flatMap((code) => items[code].asks));
-    const siteRest = plan.questions.filter((q) => q.kind === "site" && !shown.has(q.key) && q.items.length); // 면담 항목에 섞인 현장 질문
-    const na = codes("na"), naLeft = na.filter((k) => !items[k].marked_na && !items[k].touched), chk = codes("check");
-    const sum = [["must", `반드시 찍을 사진 ${c.must}`], ["present", `있으면 찍을 사진 ${c.present}`], ["talk", `면담·서류 ${c.talk + c.doc + c.land}`], ["na", `해당없음 ${c.na}`], ["check", `확인 필요 ${c.check}`]];
-    $("bj-plan-sub").textContent = "건축물대장·현장 답으로 법령상 적용대상을 가름 — 항목을 누르면 그 카드로";
-    $("bj-plan-body").innerHTML = `<div class="bj-pl-sum">${sum.filter(([k]) => k !== "check" || c.check).map(([k, t]) => `<span class="${k}">${esc(t)}</span>`).join("")}</div>
-      <div class="bj-pl-sec">① 반드시 찍을 사진 <small>장소별 — 왼쪽 그림은 견본</small></div>
-      ${places.map(([lab, l]) => `<div class="bj-pl-place">${esc(lab)} ${l.length}</div><div class="bj-pl-grid">${l.map(row).join("")}</div>`).join("") || '<div class="mail-note">없음</div>'}
-      ${present.length || siteRest.length ? `<div class="bj-pl-sec">② 있으면 찍을 사진 <small>법령상 의무는 아니지만 현장에 있으면 점검 — 있음/없음을 눌러 주세요</small></div>
-        <div class="bj-pl-grid">${present.map((code) => `<div>${row(code)}${items[code].asks.map((k) => qRow(k, false)).join("")}</div>`).join("")}</div>
-        ${siteRest.map((q) => qRow(q.key, true)).join("")}` : ""}
-      ${talkQ.length || codes("talk").length ? `<div class="bj-pl-sec">③ 면담으로 확인 <small>관리자에게 물어 답을 눌러 주세요</small></div>
-        ${codes("talk").map(row).join("")}${talkQ.map((q) => qRow(q.key, true)).join("")}
-        <div class="mail-note">점검·검사 이행(소방·저수조·승강기·전기·가스 등)은 [그 밖의 항목] 탭, 관리계획 수립 여부는 [관리계획] 탭</div>` : ""}
-      ${landQ.length || codes("doc").length ? `<div class="bj-pl-sec">④ 서류로 확인 <small>토지이용계획확인원(토지이음)·건축물대장</small></div>
-        ${codes("doc").map(row).join("")}${landQ.map((q) => qRow(q.key, true)).join("")}
-        ${landQ.length ? `<div class="mail-note">${lu ? (lu.text_ok ? "" : "올린 확인원에 글자가 없어(그림) 못 읽었습니다 — 위 질문에 답해 주세요") : "맨 위 [🗺️ 토지이용계획확인원 올리기]로 토지이음 출력 PDF를 올리면 자동으로 답이 채워집니다"}</div>` : ""}` : ""}
-      ${answered.length ? `<div class="bj-pl-sec">📄 서류에서 읽은 답·답한 것 <small>${answered.length}개 — 틀리면 다른 답을 누르세요(점검자 답이 서류보다 앞섬)</small></div>
-        ${answered.map((q) => `<div class="bj-pl-q"><span>${esc(q.label)} <small>· ${esc((q.uses || []).join(", "))}</small><br><small class="bj-pl-src">${esc(srcOf(q))}</small></span>
-          <span class="bj-seg bj-fact" data-key="${esc(q.key)}" data-user="${esc(q.user || "")}">${["있음", "없음"].map((v) => `<button type="button" data-v="${v}" class="${q.answer === v ? "on" : ""}">${v}</button>`).join("")}</span></div>`).join("")}` : ""}
-      ${chk.length ? `<div class="bj-pl-sec">확인 필요 <small>대장 값이 모자라거나 기준일 경계</small></div><div class="bj-pl-grid">${chk.map(row).join("")}</div>` : ""}
-      <div class="bj-pl-sec">⑤ 해당없음 — 안 찍어도 됨 <small>${na.length}개${naLeft.length ? ` · 아직 안 넣은 것 ${naLeft.length}` : ""}</small>
-        ${naLeft.length ? `<button type="button" class="secondary btn-sm bj-pl-na-go">해당없음 ${naLeft.length}개 넣기(비고에 사유)</button>` : ""}</div>
-      <details class="bj-pl-na"><summary>사유 보기 ▾</summary><ul>${na.map((k) => `<li><b>${esc(k)} ${esc(nm(k))}</b>${items[k].marked_na ? " ✓" : ""} — ${esc(items[k].reason)}</li>`).join("")}</ul></details>`;
-    $("bj-plan-body").querySelectorAll(".bj-pl-row").forEach((b) => b.addEventListener("click", () => jumpTo({ code: b.dataset.code, tab: groupOf(b.dataset.code) })));
-    $("bj-plan-body").querySelectorAll(".bj-fact button").forEach((b) => b.addEventListener("click", async () => {
+  function setFact(key, v) {
+    return api(`${P}/facts`, { method: "PUT", body: JSON.stringify({ facts: { [key]: v } }) }).then((p) => { plan = p; drawReview(); drawTabs(); drawItems(); drawPool(); })
+      .catch((err) => showError(errorEl, err));
+  }
+  function wireFacts(root) { // 있음/없음 — 한 번 더 누르면 지움(서류에서 읽은 답이 있으면 그것으로), 서류 답만 있는 줄의 같은 답은 그대로
+    root.querySelectorAll(".bj-fact button").forEach((b) => b.addEventListener("click", (e) => {
+      e.preventDefault();
       const seg = b.closest(".bj-fact"), key = seg.dataset.key;
-      if (b.classList.contains("on") && seg.dataset.user === "" && (plan.questions.find((q) => q.key === key) || {}).auto) return; // 서류에서 읽은 답 — 바꾸려면 다른 답
-      const v = b.classList.contains("on") ? "" : b.dataset.v; // 한 번 더 = 지움(서류 답이 있으면 그것으로 돌아감)
-      try { plan = await api(`${P}/facts`, { method: "PUT", body: JSON.stringify({ facts: { [key]: v } }) }); drawPlan(); drawItems(); } catch (err) { showError(errorEl, err); }
+      if (b.classList.contains("on") && seg.dataset.user === "" && ((plan.questions || []).find((q) => q.key === key) || {}).auto) return;
+      setFact(key, b.classList.contains("on") ? "" : b.dataset.v);
     }));
-    $("bj-plan-body").querySelector(".bj-pl-na-go")?.addEventListener("click", async (e) => {
+  }
+  function drawReview() { // ① 서류검토(10/30 사용자 "서류검토 → 해당없음 분류하고 이유 작성 — 자동이든 버튼이든")
+    if (!plan) return;
+    const items = plan.items;
+    const nm = (code) => (table.byCode[code] || {}).name || code;
+    const codes = (f) => Object.keys(items).filter((k) => f(items[k]));
+    const qOf = (key) => plan.questions.find((x) => x.key === key) || { key, answer: "", label: key, items: [] };
+    const qRow = (key) => { const q = qOf(key);
+      return `<div class="bj-pl-q"><span>${esc(q.label)}${q.items.length ? ` <small>· ${esc(q.items.join(", "))}</small>` : ""}</span>
+        <span class="bj-seg bj-fact" data-key="${esc(key)}" data-user="${esc(q.user || "")}">${["있음", "없음"].map((v) => `<button type="button" data-v="${v}" class="${q.answer === v ? "on" : ""}">${v}</button>`).join("")}</span></div>`; };
+    const na = codes((x) => x.state === "na"), naLeft = na.filter((k) => !items[k].marked_na && !items[k].touched), chk = codes((x) => x.state === "check");
+    const site = codes((x) => x.state === "ask" && x.cat === "present");
+    const nSite = Object.keys(items).length - na.length;
+    const docQ = plan.questions.filter((q) => (q.kind === "land" || q.kind === "talk") && !q.answer);
+    const siteQ = plan.questions.filter((q) => q.kind === "site" && !q.answer && q.items.length);
+    const answered = plan.questions.filter((q) => q.answer);
+    const srcOf = (q) => q.user ? (q.auto && q.auto.v !== q.user ? `점검자 답(서류는 ${q.auto.v})` : "점검자 답") : q.auto ? `📄 ${q.auto.src}` : "";
+    const docs = plan.docs || {}, lu = docs.landuse;
+    $("bj-review-sub").textContent = `현장 점검 ${nSite}항목 · 해당없음 ${na.length}${naLeft.length ? ` (아직 안 넣음 ${naLeft.length})` : " ✓"}`;
+    $("bj-review-body").innerHTML = `<div class="bj-pl-sum"><span class="must">현장 점검 ${nSite - site.length}</span>${site.length ? `<span class="present">있으면 찍기 ${site.length}</span>` : ""}<span class="na">해당없음 ${na.length}</span>${chk.length ? `<span class="check">확인 필요 ${chk.length}</span>` : ""}</div>
+      <div class="bj-rv-docs">🏢 건축물대장 ${docs.register ? "✓" : "— 맨 위 [🏢 건축물대장 올리기]"} · 🗺️ 토지이용계획확인원 ${lu ? (lu.text_ok ? "✓" : "글자 없는 그림 — 아래 질문에 직접 답") : "— 맨 위 [🗺️ 토지이용계획확인원 올리기]로 올리면 아래 질문이 자동으로"}</div>
+      ${docQ.length ? `<div class="bj-pl-sec">서류·면담으로 답할 것 <small>답에 따라 해당없음이 바뀝니다</small></div>${docQ.map((q) => qRow(q.key)).join("")}` : ""}
+      ${siteQ.length ? `<div class="mail-note">현장에서 볼 것 ${siteQ.length}개(${esc(siteQ.map((q) => q.label.replace(/가 있나요\?|이 있나요\?|있나요\?/, "")).join(" · "))}) — ③ 현장 점검 카드에서 있음/없음</div>` : ""}
+      ${answered.length ? `<details class="bj-pl-na"><summary>📄 서류에서 읽은 답·답한 것 ${answered.length}개 ▾ <small class="mail-note">틀리면 다른 답을 누르세요(점검자 답이 서류보다 앞섬)</small></summary>
+        ${answered.map((q) => `<div class="bj-pl-q"><span>${esc(q.label)} <small>· ${esc((q.uses || []).join(", "))}</small><br><small class="bj-pl-src">${esc(srcOf(q))}</small></span>
+          <span class="bj-seg bj-fact" data-key="${esc(q.key)}" data-user="${esc(q.user || "")}">${["있음", "없음"].map((v) => `<button type="button" data-v="${v}" class="${q.answer === v ? "on" : ""}">${v}</button>`).join("")}</span></div>`).join("")}</details>` : ""}
+      ${chk.length ? `<div class="bj-pl-sec">확인 필요 <small>대장 값이 모자라거나 기준일 경계 — 현장 점검 목록에 남겨 둠</small></div>${chk.map((k) => `<button type="button" class="bj-pl-row" data-code="${esc(k)}"><span class="bj-pl-t"><b>${esc(k)} ${esc(nm(k))}</b><small>${esc(items[k].why || "")}</small></span></button>`).join("")}` : ""}
+      <div class="bj-pl-sec">해당없음 ${na.length}개 <small>법령상 적용대상이 아님 — 사유는 비고에 들어갑니다</small></div>
+      <details class="bj-pl-na"><summary>사유 보기 ▾</summary><ul>${na.map((k) => `<li><b>${esc(k)} ${esc(nm(k))}</b>${items[k].marked_na ? " ✓" : ""} — ${esc(items[k].reason)}</li>`).join("")}</ul></details>
+      <div class="bj-rv-go">${naLeft.length ? `<button type="button" class="bj-pl-na-go">✓ 서류검토 확정 — 해당없음 ${naLeft.length}개에 사유 넣기</button>
+        <span class="mail-note">아래 ③ 현장 점검은 이 판정대로 나옵니다(해당없음은 맨 끝 탭) · 현장 답(있음/없음)에 따라 바뀌면 다시 누르세요</span>`
+        : `<b class="bj-done-ok">✓ 서류검토 확정</b><span class="mail-note">해당없음 ${na.length}개 모두 사유를 넣었습니다</span>`}</div>`;
+    const body = $("bj-review-body");
+    body.querySelectorAll(".bj-pl-row").forEach((b) => b.addEventListener("click", () => jumpTo({ code: b.dataset.code, tab: groupOf(b.dataset.code) })));
+    wireFacts(body);
+    body.querySelector(".bj-pl-na-go")?.addEventListener("click", async (e) => {
       const btn = e.currentTarget;
       if (!confirm(`법령상 해당없음 ${naLeft.length}개를 해당없음으로 넣고 비고에 사유를 적을까요?\n(판정·사진을 넣은 항목은 건드리지 않습니다)`)) return;
       btn.disabled = true;
@@ -874,7 +883,7 @@
         const out = await apiPost(`${P}/plan/na`, {});
         plan = out.plan;
         job = { ...job, ...out };
-        drawTop(); drawTabs(); drawItems(); drawDone(); drawPlan();
+        drawTop(); drawTabs(); drawItems(); drawDone(); drawReview(); drawPool();
       } catch (err) { showError(errorEl, err); btn.disabled = false; }
     });
   }
@@ -891,10 +900,10 @@
   const drawSrc = (d) => `${BASE}/api${P}/drawings/${encodeURIComponent(d.id)}/img`;
   const drawLabel = (d) => `${d.name}${d.page ? ` ${d.page}쪽` : ""}`;
   const keyOf = (s) => String(s || "").replace(/\s/g, "").replace(/(도면|표기)/g, ""); // "1층 조경표기도면" → "1층조경", "정면도" → "정면도"
-  function hintFor(caption) { // 쪽 글에서 찾은 도면 이름이 견본 설명과 맞는 그림(추천) — 정면도·배치도 같은 것만 확실
+  function hintFor(caption) { // 쪽 글에서 찾은 도면 이름(또는 올린 서류 이름 — 토지이용계획확인원)이 견본 설명과 맞는 그림(추천)
     const k = keyOf(caption);
     if (!k) return null;
-    return pool().find((d) => (d.hint || "").split(" ").some((h) => h && (keyOf(h) === k || (k.length >= 3 && keyOf(h).includes(k))))) || null;
+    return pool().find((d) => [...(d.hint || "").split(" "), d.name || ""].some((h) => h && (keyOf(h) === k || (k.length >= 3 && keyOf(h).includes(k))))) || null;
   }
   function onDrawings(out) {
     job.files = { ...(job.files || {}), drawings: out.drawings };
@@ -903,36 +912,67 @@
     drawPool();
     refreshTabCounts(); drawDone();
   }
+  function drawNeeds() { // 이 건물에 필요한 도면(10/30 사용자 "도면 자리가 복잡 — 현장 카드에서 빼고 관리사무소에서 한꺼번에") — 같은 도면은 한 줄, 해당없음 항목 것은 뺌
+    const m = new Map();
+    for (const it of table.items) {
+      if (isNa(it.code)) continue;
+      for (const s of slotsOf(it.code).draw) {
+        const k = keyOf(s.caption) || s.caption;
+        if (!m.has(k)) m.set(k, { key: k, caption: s.caption, file: s.file, uses: [] });
+        m.get(k).uses.push({ code: it.code, n: s.n, p: (((job.results || {})[it.code] || {}).photos || []).find((x) => x.slot === s.n) });
+      }
+    }
+    return [...m.values()];
+  }
+  async function putAll(x, drawing) { for (const u of x.uses) await putSlot(u.code, u.n, drawing, true); drawPool(); drawItems(); }
   function drawPool() {
-    const list = pool();
-    $("bj-draw-sub").textContent = list.length ? `그림 ${list.length}장 · 넣은 자리 ${drawRows().filter((x) => x.p).length}/${drawRows().length}` : "도면 PDF를 한꺼번에 올리고 항목 자리(정면도·배치도·조경표기도면 …)에 고르기";
+    if (!table) return;
+    const list = pool(), needs = drawNeeds();
+    const got = (x) => (x.uses.find((u) => u.p) || {}).p;
+    const done = needs.filter((x) => x.uses.every((u) => u.p)).length;
+    $("bj-draw-sub").textContent = needs.length ? `이 건물에 필요한 도면 ${needs.length}가지 · 넣음 ${done}` : "넣을 도면이 없습니다(도면 쓰는 항목이 모두 해당없음)";
+    const sugg = needs.filter((x) => !got(x) && hintFor(x.caption));
+    $("bj-draw-needs").innerHTML = needs.map((x, i) => {
+      const p = got(x);
+      return `<div class="bj-dn${p ? " ok" : ""}" data-i="${i}">
+        <div class="bj-dn-ex">${x.file ? `<a href="${sampleSrc(x.file)}" target="_blank" rel="noopener"><img loading="lazy" src="${sampleSrc(x.file)}" alt="" /></a>` : ""}<span class="bj-slot-tag">견본</span></div>
+        <div class="bj-dn-t"><b>${esc(x.caption)}</b><small>쓰는 항목 ${esc(x.uses.map((u) => u.code).join(" · "))}</small>${!p && hintFor(x.caption) ? '<small class="bj-hint-tag">올린 PDF에 같은 이름 쪽이 있음</small>' : ""}</div>
+        <div class="bj-dn-now">${p ? `<a href="${BASE}/api${P}/photo/${esc(p.id)}" target="_blank" rel="noopener"><img loading="lazy" src="${BASE}/api${P}/photo/${esc(p.id)}" alt="" /></a>` : '<span class="bj-dn-none">아직</span>'}</div>
+        <div class="bj-dn-btns"><label class="secondary bj-file-btn">📷 찍기<input type="file" accept="image/*" capture="environment" hidden data-kr-file="skip" class="bj-dn-cam" /></label>
+          <button type="button" class="secondary bj-dn-pick">📄 올린 PDF에서</button>${p ? '<button type="button" class="secondary bj-dn-clear" title="비우기">✕</button>' : ""}</div></div>`;
+    }).join("") + (sugg.length ? `<div class="bj-top-btns"><button type="button" class="secondary" id="bj-draw-auto">✨ 같은 이름 쪽 ${sugg.length}줄 한꺼번에 넣기</button></div>` : "");
+    $("bj-pool-n").textContent = list.length;
     $("bj-pool").innerHTML = list.map((d) => `<div class="bj-pool-it" data-id="${esc(d.id)}"><a href="${drawSrc(d)}" target="_blank" rel="noopener"><img loading="lazy" src="${drawSrc(d)}" alt="" /></a>
       <b title="${esc(drawLabel(d))}">${esc(drawLabel(d))}</b><small title="${esc(d.hint || "")}">${esc(d.hint || "")}</small>${(d.used || []).length ? `<small>넣은 곳 ${esc(d.used.join(", "))}</small>` : ""}
-      <button type="button" class="bj-pool-del" title="모음에서 지우기(항목에 넣은 것은 그대로)">✕</button></div>`).join("");
+      <button type="button" class="bj-pool-del" title="모음에서 지우기(항목에 넣은 것은 그대로)">✕</button></div>`).join("") || '<div class="mail-note">아직 올린 그림이 없습니다.</div>';
     $("bj-pool").querySelectorAll(".bj-pool-del").forEach((b) => b.addEventListener("click", async () => {
       if (!confirm("이 그림을 모음에서 지울까요? (항목에 이미 넣은 것은 그대로)")) return;
       try { onDrawings(await api(`${P}/drawings/${encodeURIComponent(b.closest(".bj-pool-it").dataset.id)}`, { method: "DELETE" })); } catch (err) { showError(errorEl, err); }
     }));
-    const rows = drawRows();
-    const sugg = rows.filter((x) => !x.p && hintFor(x.s.caption));
-    $("bj-draw-slots").innerHTML = (rows.length ? rows.map((x) => {
-      const h = !x.p ? hintFor(x.s.caption) : null;
-      return `<div class="bj-draw-row" data-code="${esc(x.it.code)}" data-slot="${x.s.n}"><span><span class="bj-code">${esc(x.it.code)}</span>${esc(x.it.name)}</span><span>${esc(x.s.caption)}</span>
-        ${x.p ? `<img src="${BASE}/api${P}/photo/${esc(x.p.id)}" alt="" />` : x.s.file ? `<img src="${sampleSrc(x.s.file)}" alt="" title="견본" style="opacity:.45" />` : "<span></span>"}
-        <select class="bj-draw-sel">${x.p ? `<option value="__keep" selected>${x.p.drawing ? `지금: ${esc(drawLabel(pool().find((d) => d.id === x.p.drawing) || { name: "고른 그림" }))}` : "지금: 📷 현장에서 찍은 사진"}</option><option value="">— 비우기 —</option>`
-          : '<option value="__keep">— 고르기 —</option>'}${pool().map((d) => `<option value="${esc(d.id)}">${esc(drawLabel(d))}${h && h.id === d.id ? " (추천)" : ""}</option>`).join("")}</select></div>`;
-    }).join("") : '<div class="mail-note">견본에 도면 자리가 없습니다.</div>')
-      + (sugg.length ? `<div class="bj-top-btns"><button type="button" class="secondary" id="bj-draw-auto">✨ 추천 ${sugg.length}곳 한꺼번에 넣기</button><span class="mail-note">쪽 글의 도면 이름(정면도·배치도 …)이 견본 설명과 같은 것</span></div>` : "");
-    $("bj-draw-slots").querySelectorAll(".bj-draw-sel").forEach((sel) => sel.addEventListener("change", async () => {
-      const row = sel.closest(".bj-draw-row");
-      if (sel.value === "__keep") return;
-      if (!sel.value && !confirm("이 자리를 비울까요? (그 항목 현황사진에서 빠집니다)")) { drawPool(); return; }
-      await putSlot(row.dataset.code, Number(row.dataset.slot), sel.value || null);
-    }));
+    $("bj-draw-needs").querySelectorAll(".bj-dn").forEach((row) => {
+      const x = needs[Number(row.dataset.i)];
+      const cam = row.querySelector(".bj-dn-cam");
+      cam.addEventListener("change", async () => {
+        const f = cam.files[0];
+        cam.value = "";
+        if (!f) return;
+        $("bj-draw-msg").textContent = `${x.caption} 올리는 중…`;
+        const before = new Set(pool().map((d) => d.id));
+        const fd = new FormData();
+        fd.append("file", f);
+        try {
+          onDrawings(await apiUpload(`${P}/drawings`, fd));
+          const d = pool().find((y) => !before.has(y.id));
+          if (d) await putAll(x, d.id);
+          $("bj-draw-msg").textContent = `✓ ${x.caption} — ${x.uses.map((u) => u.code).join(" · ")}에 넣었습니다`;
+        } catch (err) { $("bj-draw-msg").textContent = err.message; }
+      });
+      row.querySelector(".bj-dn-pick").addEventListener("click", () => pickFor(x));
+      row.querySelector(".bj-dn-clear")?.addEventListener("click", async () => { if (confirm(`${x.caption}을(를) 비울까요? (${x.uses.map((u) => u.code).join(" · ")} 현황사진에서 빠집니다)`)) await putAll(x, null); });
+    });
     $("bj-draw-auto")?.addEventListener("click", async (e) => {
       e.currentTarget.disabled = true;
-      for (const x of sugg) await putSlot(x.it.code, x.s.n, hintFor(x.s.caption).id, true);
-      drawPool(); drawItems();
+      for (const x of sugg) await putAll(x, hintFor(x.caption).id);
     });
   }
   function drawRows() { // 견본 도면 자리 [{it, s, p(넣은 사진)}] — 항목 순서
@@ -956,36 +996,26 @@
       fd.append("file", f);
       try { onDrawings(await apiUpload(`${P}/drawings`, fd)); n += 1; } catch (err) { msg.textContent = `${f.name}: ${err.message}`; return; }
     }
-    msg.textContent = `✓ ${n}개 올림 — 아래 자리마다 고르세요`;
+    const auto = drawNeeds().filter((x) => !x.uses.some((u) => u.p) && hintFor(x.caption)); // 쪽 이름이 같은 줄은 바로 넣음(사람은 확인만)
+    for (const x of auto) await putAll(x, hintFor(x.caption).id);
+    msg.textContent = `✓ ${n}개 올림${auto.length ? ` · 같은 이름 쪽 ${auto.length}줄 자동으로 넣음 — 확인하세요` : " — 줄마다 [📄 올린 PDF에서] 고르세요"}`;
   }
   const drawIn = $("bj-draw-in");
   drawIn.addEventListener("change", () => { const fs = [...drawIn.files]; drawIn.value = ""; if (fs.length) uploadDrawings(fs); });
   if (typeof enableFileDrop === "function") enableFileDrop($("bj-draw-drop"), drawIn);
-  $("bj-draw-reg").addEventListener("click", async (e) => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
-    try { onDrawings(await apiPost(`${P}/drawings/register`, {})); $("bj-draw-msg").textContent = "✓ 건축물대장 쪽을 넣었습니다"; } catch (err) { $("bj-draw-msg").textContent = err.message; }
-    btn.disabled = false;
-  });
-  function pickDrawing(it, n, after) { // 항목 카드 [📐 도면 고르기] — 모음에서 고르거나 바로 올리기
-    const s = slotsOf(it.code).draw.concat(slotsOf(it.code).photo).find((x) => x.n === n) || {};
+  function pickFor(x) { // ② 도면 줄 [📄 올린 PDF에서] — 모음에서 고르면 쓰는 항목 모두에
     const ov = document.createElement("div");
     ov.className = "mail-overlay";
     const draw = () => {
-      const h = hintFor(s.caption);
-      ov.innerHTML = `<div class="mail-box" role="dialog" aria-modal="true"><div class="mail-head"><b>📐 ${esc(it.code)} ${esc(it.name)} — ${esc(s.caption || "도면")}</b>
-        <span class="mail-sub">위 [📐 도면·서류 그림]에 올린 그림에서 고르세요${h ? " — 노란 테두리 = 쪽 글의 도면 이름이 같은 것" : ""}</span></div>
+      const h = hintFor(x.caption);
+      ov.innerHTML = `<div class="mail-box" role="dialog" aria-modal="true"><div class="mail-head"><b>📐 ${esc(x.caption)} <small>· ${esc(x.uses.map((u) => u.code).join(" · "))}</small></b>
+        <span class="mail-sub">올린 그림에서 고르세요${h ? " — 노란 테두리 = 쪽 글의 도면 이름이 같은 것" : ""}</span></div>
         <div class="bj-pick-grid">${pool().map((d) => `<div class="bj-pool-it pick${h && h.id === d.id ? " hint" : ""}" data-id="${esc(d.id)}"><img loading="lazy" src="${drawSrc(d)}" alt="" />
           <b>${esc(drawLabel(d))}</b><small>${h && h.id === d.id ? '<span class="bj-hint-tag">추천 · </span>' : ""}${esc(d.hint || "")}</small></div>`).join("") || '<div class="mail-note">아직 올린 그림이 없습니다 — 아래에서 올리세요.</div>'}</div>
-        <div class="mail-foot"><label class="secondary bj-file-btn">📐 도면 PDF·그림 올리기<input type="file" accept=".pdf,application/pdf,image/*" multiple hidden data-kr-file="skip" class="bj-pick-up" /></label>
+        <div class="mail-foot"><label class="secondary bj-file-btn">📄 도면 PDF·그림 올리기<input type="file" accept=".pdf,application/pdf,image/*" multiple hidden data-kr-file="skip" class="bj-pick-up" /></label>
           <button type="button" class="mail-cancel">닫기</button></div></div>`;
       ov.querySelector(".mail-cancel").addEventListener("click", () => ov.remove());
-      ov.querySelectorAll(".bj-pool-it.pick").forEach((c) => c.addEventListener("click", async () => {
-        ov.remove();
-        await putSlot(it.code, n, c.dataset.id, true);
-        drawPool();
-        after();
-      }));
+      ov.querySelectorAll(".bj-pool-it.pick").forEach((c) => c.addEventListener("click", async () => { ov.remove(); await putAll(x, c.dataset.id); }));
       const up = ov.querySelector(".bj-pick-up");
       up.addEventListener("change", async () => { const fs = [...up.files]; up.value = ""; if (fs.length) { await uploadDrawings(fs); draw(); } });
     };

@@ -8,7 +8,8 @@
   cert: 인증형 {"d0": "인증"|"재인증"|"만료"|"해당없음"}
   status: 점검현황 {"l3t1": True(체크) | "73.21"(빈칸 글)} — 줄 l·조각 t 번호(items.json status)
   texts: {ilglt 개선사항(위법), perf 성능개선사항, basis 개선방안에 대한 근거 및 관련법령 등, rm 비고}
-  photos: [{id, rel, name, kind "good"|"bad", caption}] · ai: {made_at, ok}
+  photos: [{id, rel, name, kind "good"|"bad", caption, slot(견본 칸), bad{key, label}(부적합 칸 — bad_types), drawing·is_draw(도면)}] · ai: {made_at, ok}
+  auto: 사진으로 자동으로 넣은 값 {status: [키], ratings: {키: 값}} — apply_photos가 다시 계산할 때 그대로인 것만 바꿈(10/30)
 """
 from __future__ import annotations
 
@@ -116,7 +117,7 @@ def missing(it: dict, res: dict | None) -> list[str]:
         got = {p.get("slot") for p in photos if p.get("slot") is not None}  # 모음에서 고른 것·현장에서 찍은 것 둘 다(10/30)
         left = [d["caption"] for d in draw if d["n"] not in got]
         if len(left) == len(draw):
-            out.append("도면·서류 그림 없음(📐 도면 칸 — 도면이 없으면 설계도서 적합여부 '도면없음')")
+            out.append("도면 없음(② 관리사무소 — 도면에서 넣기 · 도면이 없으면 설계도서 적합여부 '도면없음')")
     return out
 
 
@@ -166,6 +167,78 @@ def checked_count(it: dict, res: dict) -> int:
         return 0
     st = res.get("status") or {}
     return sum(1 for t, tok in enumerate(it["status"][ln]) if tok["t"] == "check" and st.get(f"l{ln}t{t}") is True)
+
+
+def _short(name: str) -> str:
+    return re.sub(r"\s*(의\s*)?(성능\s*)?(상태\s*)?유지\s*여부.*$|\s*\(.*$", "", name).strip() or name
+
+
+def bad_types(it: dict) -> list[dict]:
+    """부적합 칸(10/30 사용자 "적합 견본 / 부적합 실외기·간이 시설물·쓰레기 분리시설 … 견본 — 부적합 칸에 사진을 넣으면 판정 자동") —
+    건수형 = "변경 유형" 체크 줄의 체크마다(key "st:l1t0"), 점수형 = 작은 점검마다(key "rt:d0.s1", 작은 점검이 없으면 "rt:d0"), 인증형 = 없음.
+    [{key, label, fit(적합/부적합으로 매기는 칸), samples: [{file, caption, from}](samples.json bad[key] — 회사 보고서 부적합 사진)}]."""
+    bad = (samples().get(it["code"]) or {}).get("bad") or {}
+    out: list[dict] = []
+    if it["kind"] == "count":
+        ln = change_line(it)
+        if ln is not None:
+            out = [{"key": f"st:l{ln}t{t}", "label": tok["v"], "fit": False} for t, tok in enumerate(it["status"][ln]) if tok["t"] == "check"]
+    elif it["kind"] != "cert":
+        names = [s["name"] for d in it["details"] for s in d.get("subs") or []]
+        for i, d in enumerate(it["details"]):
+            subs = d.get("subs") or []
+            if not subs:
+                out.append({"key": f"rt:d{i}", "label": _short(d["name"]), "fit": d.get("judge") == "fit"})
+            for k, s in enumerate(subs):
+                lab = s["name"] if names.count(s["name"]) == 1 else f"{_short(d['name'])} — {s['name']}"
+                out.append({"key": f"rt:d{i}.s{k}", "label": lab, "fit": s.get("judge") == "fit"})
+    return [{**x, "samples": bad.get(x["key"]) or []} for x in out]
+
+
+def apply_photos(it: dict, res: dict) -> dict:
+    """사진 → 판정(10/30 사용자 "지적 사진을 넣어도 적합으로 표시됨 — 판단 근거를 모르겠음"): 부적합 칸 사진(photos[].bad.key)이 있으면
+    건수형은 그 변경 유형 체크(판정·건수를 점검자가 '적합'·0으로 두었으면 비움 → 체크 수로 부적합), 점수형은 그 작은 점검을 미흡(적합/부적합 칸이면 부적합)
+    — 점검자가 불량으로 올려 둔 것은 그대로. 현장 사진이 있는데 판정이 빈 작은 점검은 양호(적합).
+    전에 자동으로 넣은 값(auto)이 그대로면 지우고 다시 — 점검자가 바꾼 값은 남음."""
+    r = dict(res or {})
+    if r.get("na") or it["kind"] == "cert":
+        return r
+    photos = [p for p in r.get("photos") or [] if not p.get("is_draw") and not p.get("drawing") and not p.get("evidence")]
+    bad_keys = {(p.get("bad") or {}).get("key") for p in photos if p.get("kind") == "bad"} - {None}
+    prev = r.get("auto") or {}
+    if it["kind"] == "count":
+        st = dict(r.get("status") or {})
+        for k in prev.get("status") or []:
+            if st.get(k) is True:
+                st.pop(k)
+        new = []
+        for key in sorted(bad_keys):
+            k = key[3:]
+            if key.startswith("st:") and st.get(k) is not True:
+                st[k] = True
+                new.append(k)
+        if bad_keys:
+            if r.get("judge") == "적합":
+                r["judge"] = ""
+            if r.get("count") in (0, "0"):
+                r["count"] = None
+        r["status"], r["auto"] = st, {"status": new}
+        return r
+    rt = dict(r.get("ratings") or {})
+    for k, v in (prev.get("ratings") or {}).items():
+        if rt.get(k) == v:
+            rt.pop(k)
+    new = {}
+    for t in bad_types(it):
+        k, cur = t["key"][3:], rt.get(t["key"][3:])
+        if t["key"] in bad_keys:
+            want = "부적합" if t["fit"] else "미흡"
+            if cur in (None, "", "양호", "보통", "적합"):
+                rt[k] = new[k] = want
+        elif photos and not cur:
+            rt[k] = new[k] = "적합" if t["fit"] else "양호"
+    r["ratings"], r["auto"] = rt, {"ratings": new}
+    return r
 
 
 def _ratio_judge(score: float, full: float) -> str:

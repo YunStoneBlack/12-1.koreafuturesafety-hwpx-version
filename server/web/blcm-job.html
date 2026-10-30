@@ -49,30 +49,31 @@
   </div>
 </details>
 
-<!-- 📐 도면·서류 그림(10/30 사용자 "우리프라자에서 도면 넣는 칸 — 따로 빼서 한꺼번에 넣고 해당 위치로 출력") — 여기서 PDF·그림을 한꺼번에 올리고,
-     항목마다 견본 도면 칸(정면도·배치도·조경표기도면·건축물대장 …)에 고르면 그 항목 현황사진으로 들어감 -->
+<!-- ① 서류검토(10/30 사용자 "서류검토 → 해당없음 분류하고 이유 작성, 그 내용대로 현장 점검 세팅") — 건축물대장·토지이용계획확인원·답으로 법령상 적용대상을 가름
+     (server/blcm/applicability.py·doc_facts.py), [서류검토 확정] = 해당없음 항목에 해당없음 + 비고 사유 -->
+<details class="panel sk-fold" id="bj-review" open>
+  <summary class="panel-head"><h2>① 서류검토</h2><span class="panel-count" id="bj-review-sub">건축물대장·토지이용계획확인원으로 해당없음을 가름</span><span class="sk-fold-arrow">▾</span></summary>
+  <div class="panel-body" id="bj-review-body"><div class="mail-note">불러오는 중…</div></div>
+</details>
+
+<!-- ② 관리사무소 — 도면(10/30 사용자 "도면 자리가 복잡 — 현장 점검에서는 도면 칸을 빼고, 관리사무소에서 일괄로") — 이 건물에 필요한 도면만 한 줄씩(같은 도면은 한 줄),
+     넣으면 쓰는 항목 모두의 현황사진으로 -->
 <details class="panel sk-fold" id="bj-draw">
-  <summary class="panel-head"><h2>📐 도면 · 서류 그림</h2><span class="panel-count" id="bj-draw-sub">도면 PDF를 한꺼번에 올리고 항목 자리(정면도·배치도·조경표기도면 …)에 고르기</span><span class="sk-fold-arrow">▾</span></summary>
+  <summary class="panel-head"><h2>② 관리사무소 — 도면</h2><span class="panel-count" id="bj-draw-sub">이 건물에 필요한 도면</span><span class="sk-fold-arrow">▾</span></summary>
   <div class="panel-body">
-    <div class="bj-top-btns"><label class="secondary bj-file-btn" id="bj-draw-drop">📐 도면 PDF·그림 올리기<input type="file" accept=".pdf,application/pdf,image/*" multiple hidden data-kr-file="skip" id="bj-draw-in" /></label>
-      <button type="button" class="secondary" id="bj-draw-reg">🏢 올린 건축물대장 쪽 넣기</button><span class="mail-note" id="bj-draw-msg">PDF는 쪽마다 나눠 원본 화질(200dpi)로 — 끌어 놓아도 됩니다</span></div>
-    <div class="bj-pool" id="bj-pool"></div>
-    <div class="bj-sec-t">항목별 도면 자리 <small class="mail-note">견본(우리프라자)에 도면·서류가 들어간 자리 — 고르면 그 항목 현황사진으로 들어갑니다</small></div>
-    <div class="bj-draw-slots" id="bj-draw-slots"></div>
+    <div class="mail-note">현장 점검 카드에는 도면 칸이 없습니다 — 여기서 한 번 넣으면 쓰는 항목 모두에 들어갑니다(정면도 한 장 → 3.1.9·3.1.11). 반출이 안 되면 [📷 찍기]</div>
+    <div class="bj-dns" id="bj-draw-needs"></div>
+    <div class="bj-top-btns"><label class="secondary bj-file-btn" id="bj-draw-drop">📄 도면 PDF 묶음 올리기<input type="file" accept=".pdf,application/pdf,image/*" multiple hidden data-kr-file="skip" id="bj-draw-in" /></label>
+      <span class="mail-note" id="bj-draw-msg">쪽에 적힌 도면 이름(정면도·배치도 …)으로 맞는 줄에 자동으로 넣습니다 — 끌어 놓아도 됩니다</span></div>
+    <details class="bj-pool-box"><summary>올린 도면 그림 <span id="bj-pool-n">0</span>장 ▾</summary><div class="bj-pool" id="bj-pool"></div></details>
   </div>
 </details>
 
-<!-- 📋 점검 목록(10/30 사용자 "규칙이 정해지면 반드시 찍을 사진 / 해당없음이라 안 찍어도 되지만 현장에 있으면 찍을 사진 / 면담으로 반드시 확인할 것 — 현장마다, 항목 옆에 예시 사진") —
-     건축물대장(층별 다시 읽음)·현장·면담 답으로 법령상 적용대상을 가름(server/blcm/applicability.py, 회사 결정 = 검토 페이지 추천안) -->
-<details class="panel sk-fold" id="bj-plan" open>
-  <summary class="panel-head"><h2>📋 이 건물 점검 목록</h2><span class="panel-count" id="bj-plan-sub">건축물대장·현장 답으로 법령상 적용대상을 가름</span><span class="sk-fold-arrow">▾</span></summary>
-  <div class="panel-body" id="bj-plan-body"><div class="mail-note">불러오는 중…</div></div>
-</details>
-
 <section class="panel" id="bj-items-panel">
-  <!-- 10/30 사용자: [장소별] = 현장에서 찍는 자리(외부·옥상·실내·지하·서류)로 묶어 보기(보고서는 항목 순서 그대로), [✓ 점검 완료] = 빠진 것 알려 주기(시특법 조사 완료처럼) -->
-  <div class="panel-head"><h2>점검 항목</h2>
-    <span class="site-sort bj-view" role="group" aria-label="보기"><button type="button" data-v="big">항목 순서</button><button type="button" data-v="place">장소별</button></span>
+  <!-- 10/30 사용자: [장소별] = 현장에서 찍는 자리(외부·옥상·실내·지하·서류)로 묶어 보기(보고서는 항목 순서 그대로), [✓ 점검 완료] = 빠진 것 알려 주기(시특법 조사 완료처럼),
+       해당없음 항목은 맨 끝 [해당없음] 탭 -->
+  <div class="panel-head"><h2>③ 현장 점검</h2>
+    <span class="site-sort bj-view" role="group" aria-label="보기"><button type="button" data-v="place">장소별</button><button type="button" data-v="big">항목 순서</button></span>
     <span class="panel-count" id="bj-view-note">매뉴얼(국토교통부 2025.2) 소항목 50개 — 판정·사진을 넣고 🤖 AI로 채우기</span></div>
   <div class="panel-body">
     <div class="bj-done" id="bj-done"></div>
