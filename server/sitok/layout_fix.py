@@ -296,6 +296,32 @@ def grade_para_indent(root, keep) -> int:
     return n
 
 
+def result_font(root, borders) -> int:
+    """결과표(안전점검 결과표 — 가. 일반현황 … 라. 참고사항) 글자 크기 통일(10/30 사용자 "가·나·다·라 제목 10p, 나머지 내용 및 소제목 9p") — 제목 줄(칸 하나가 표 폭 전체, "가."~"라."로 시작)은 10pt,
+    그 밖의 칸(항목 이름·값·점검 주요결과·기술자·참고사항 …)은 9pt. 원본·한글 만들기에서 칸마다 9·10·11pt로 섞여 있던 것을 맞춤. 정기 건축(2종·3종 일반·3종 학교) 공통 — 바꾼 글자 칸 수."""
+    if borders is None:
+        return 0
+    flat = lambda t: re.sub(r"\s", "", "".join(t.itertext()))  # noqa: E731
+    tbl = next((t for t in root.iter(f"{{{HP}}}tbl") if "가.일반현황" in flat(t) and "라.참고사항" in flat(t) and "책임" in flat(t)), None)
+    if tbl is None:
+        return 0
+    n = 0
+    for tr in tbl.findall(f"{{{HP}}}tr"):
+        tcs = tr.findall(f"{{{HP}}}tc")
+        for tc in tcs:
+            text = re.sub(r"\s", "", "".join(tc.itertext()))
+            span = int(tc.find(f"{{{HP}}}cellSpan").get("colSpan") or 1)
+            size = 1000 if len(tcs) == 1 and span >= 8 and re.match(r"^[가-라]\.", text) else 900
+            for run in tc.iter(f"{{{HP}}}run"):
+                if run.find(f"{{{HP}}}t") is None or run.get("charPrIDRef") is None:
+                    continue
+                cur = borders.char_size(run.get("charPrIDRef"))
+                if cur is not None and cur != size:
+                    run.set("charPrIDRef", borders.char_height(run.get("charPrIDRef"), size))
+                    n += 1
+    return n
+
+
 def greeting_particle(word: str) -> str:
     """"귀 ○와/과" — ○ 끝 글자 받침이 있으면 과(공단·청·군·기관), 없으면 와(교·사·시·구·도·부대)."""
     last = (word or " ")[-1]
