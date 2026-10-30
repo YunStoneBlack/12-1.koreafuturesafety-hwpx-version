@@ -106,7 +106,7 @@ def pages_of(path: Path) -> int:
     import pymupdf
 
     with pymupdf.open(path) as doc:
-        return doc.page_count
+        return sum(1 for pg in doc if pg.get_drawings() or pg.get_images() or pg.get_text().strip())  # 빈 쪽은 안 끼우니 뺌
 
 
 def insert(pdf: Path, chapters: list[tuple[int, list[Path]]], finder=None) -> list[int]:
@@ -132,8 +132,12 @@ def insert(pdf: Path, chapters: list[tuple[int, list[Path]]], finder=None) -> li
         for p in paths:
             if p.suffix.lower() == ".pdf":
                 with pymupdf.open(p) as src:
-                    doc.insert_pdf(src, start_at=pos + added)
-                    added += src.page_count
+                    for k in range(src.page_count):
+                        pg = src[k]
+                        if not pg.get_drawings() and not pg.get_images() and not pg.get_text().strip():
+                            continue  # 올린 도면 PDF 속 완전히 빈 쪽은 안 끼움(10/31 민재형 "71쪽 빈 쪽")
+                        doc.insert_pdf(src, from_page=k, to_page=k, start_at=pos + added)
+                        added += 1
             else:
                 from PIL import Image
 
