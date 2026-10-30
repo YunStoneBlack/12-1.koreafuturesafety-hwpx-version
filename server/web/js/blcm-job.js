@@ -299,13 +299,19 @@
     const grp = {}; // 하나만 고르는 칸(사이트 라디오, 10/30) → 묶음 번호
     (it.radios || []).forEach((g, gi) => g.forEach((k) => { grp[k] = gi; }));
     const ruled = Object.keys(it.rules || {}).length;
-    return `<div class="bj-status"><div class="bj-lab">세부항목 점검현황${ruled ? ' <small>— 개수·거리·숫자를 고르면 판정이 자동(🔒)</small>' : ""}</div>${it.status.map((ln, li) => `<div class="bj-sline">${ln.map((t, ti) => {
+    const photo = new Set(it.photo_st || []), etc = it.etc_blanks || {}; // 사진과만 연동되는 체크·기타 내용 칸(10/30 사용자 "실제로 써야 될 값이랑 사진 찍으면 선택될 값 구분")
+    return `<div class="bj-status"><div class="bj-lab">세부항목 점검현황${ruled ? ' <small>— 개수·거리·숫자를 고르면 판정이 자동(🔒)</small>' : ""}${photo.size ? ' <small>· 📷 표시는 아래 ⚠ 부적합 칸에 찍으면 체크(사진과만 연동)</small>' : ""}</div>${it.status.map((ln, li) => {
+      const ph = ln.some((t, ti) => photo.has(`l${li}t${ti}`));
+      return `<div class="bj-sline${ph ? " bj-ph-line" : ""}">${ln.map((t, ti) => {
       const key = `l${li}t${ti}`;
+      if (t.t === "check" && photo.has(key)) return `<label class="bj-ck bj-ph-ck${st[key] === true ? " on" : ""}" title="⚠ 부적합 칸에 찍으면 체크 — 사진을 지우면 풀림"><input type="checkbox" disabled data-ph="${key}" ${st[key] === true ? "checked" : ""} /> ${esc(t.v)} <small>📷</small></label>`;
       if (t.t === "check" && grp[key] != null) return `<label class="bj-ck bj-rd"><input type="radio" name="st-${esc(it.code)}-${grp[key]}" data-st="${key}" ${st[key] === true ? "checked" : ""} /> ${esc(t.v)}</label>`;
       if (t.t === "check") return `<label class="bj-ck"><input type="checkbox" data-st="${key}" ${st[key] === true ? "checked" : ""} /> ${esc(t.v)}</label>`;
+      if (t.t === "blank" && etc[key]) { const need = st[etc[key]] === true && !String(st[key] || "").trim(); // 기타 내용 — 크게, 기타가 켜졌는데 비면 강조
+        return `<span class="bj-etc${need ? " need" : ""}"><span class="bj-etc-l">기타 내용${need ? " — 적어 주세요" : ""}</span><input class="bj-blank" data-st="${key}" value="${esc(st[key] === true ? "" : st[key] || "")}" placeholder="기타가 무엇인지(예: 자전거 보관대)" /></span>`; }
       if (t.t === "blank") return `<input class="bj-blank" data-st="${key}" value="${esc(st[key] === true ? "" : st[key] || "")}" />${t.unit ? `<span class="bj-unit">${esc(t.unit)}</span>` : ""}`;
       return `<span class="bj-txt">${esc(t.v)}</span>`;
-    }).join("")}</div>`).join("")}</div>`;
+    }).join("")}</div>`; }).join("")}</div>`;
   }
 
   const sampleSrc = (file) => `${BASE}/api/blcm/samples/${encodeURIComponent(file)}`;

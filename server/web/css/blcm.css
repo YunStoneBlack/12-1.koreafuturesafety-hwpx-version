@@ -408,3 +408,18 @@
   .main .bj-tab { flex: none; white-space: nowrap; }
 }
 
+/* 사진과만 연동되는 체크(10/30 사용자 "실제로 써야 될 값이랑 사진 찍으면 선택될 값 구분") — 손으로 못 누름, 📷. 폰 현장 모드는 사진으로 켜진 것만 */
+.main .bj-ph-ck { cursor: default; color: var(--muted); }
+.main .bj-ph-ck input { opacity: .6; }
+.main .bj-ph-ck small { font-size: 11px; }
+.main .bj-ph-ck.on { color: var(--crit); font-weight: 700; }
+.bj-field .main .bj-ph-ck:not(.on) { display: none; }
+.bj-field .main .bj-ck.bj-ph-ck.on { border-color: var(--crit); background: var(--crit-soft); }  /* 고른 칸 파랑(:has(checked))보다 앞서게 */
+/* 기타 내용 칸 — 잘 보이게, 기타가 켜졌는데 비면 강조 */
+.main .bj-etc { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 260px; min-width: 0; }
+.main .bj-etc-l { font-size: 12.5px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.main .bj-etc .bj-blank { flex: 1; min-width: 0; width: auto; border: 1.5px solid var(--blue); background: #fff; }
+.main .bj-etc.need .bj-etc-l { color: var(--crit); }
+.main .bj-etc.need .bj-blank { border-color: var(--crit); background: #fff8e6; }
+@media (max-width: 760px) { .main .bj-etc { flex-basis: 100%; } }
+

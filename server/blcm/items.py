@@ -98,6 +98,9 @@ def missing(it: dict, res: dict | None) -> list[str]:
     out = ["세부 판정 일부만"] if ev["state"] == "part" else []
     rt = res.get("ratings") or {}
     need = [k for k, rule in (AUTO_RULES.get(it["code"]) or {}).items() if not rt.get(k) and rule_allow(it, res, rule)[0] == []]
+    st = res.get("status") or {}
+    if any(st.get(c) is True and not str(st.get(b) or "").strip() for b, c in etc_blanks(it).items()):
+        out.append("기타 내용 없음(기타 옆 칸에 무엇인지)")
     if need and not res.get("na"):
         out.append(f"점검현황 고르기 — {_sub_name(it, need[0])[:16]}" + (f" 외 {len(need) - 1}" if len(need) > 1 else "") + "(고르면 판정 자동)")
     tx = res.get("texts") or {}
@@ -155,7 +158,8 @@ def by_code() -> dict[str, dict]:
 def public(it: dict) -> dict:
     """화면용 — 원문(raw) 빼고. radios = 하나만 고르는 점검현황 칸 묶음, rules = 점검현황으로 정해지는 작은 점검 {키: 종류}(10/30)."""
     return {**{k: v for k, v in it.items() if k != "raw"}, "radios": RADIOS.get(it["code"]) or [],
-            "rules": {k: r["how"] for k, r in (AUTO_RULES.get(it["code"]) or {}).items()}}
+            "rules": {k: r["how"] for k, r in (AUTO_RULES.get(it["code"]) or {}).items()},
+            "photo_st": sorted(photo_keys(it)), "etc_blanks": etc_blanks(it)}
 
 
 def groups() -> list[dict]:
@@ -210,6 +214,27 @@ def bad_samples() -> dict:
         return _bad_read(str(f), f.stat().st_mtime_ns)
     except OSError:
         return {}
+
+
+TALK_CHECKS = {"3.4.6"}  # 이상징후 청문점검 — 관리자에게 물어 답하는 체크라 사진과 안 묶음(직접 체크)
+
+
+def photo_keys(it: dict) -> set[str]:
+    """사진과만 연동되는 점검현황 체크(10/30 사용자 "실제로 써야 될 값이랑 사진 찍으면 선택될 값 구분 — 사진 찍으면 올라가니 선택할 수 없게") —
+    부적합 칸이 체크인 것(건수형 변경 유형·범죄예방 부적합 유형). 그 유형 부적합 사진이 있을 때만 켜짐(items.normalize)."""
+    if it["code"] in TALK_CHECKS:
+        return set()
+    return {t["key"][3:] for t in bad_types(it) if t["key"].startswith("st:")}
+
+
+def etc_blanks(it: dict) -> dict[str, str]:
+    """기타 내용 칸 {빈칸 키: 바로 앞 '기타' 체크 키} — 화면에서 크게, 기타가 켜졌는데 비면 빠진 것(10/30)."""
+    out = {}
+    for li, ln in enumerate(it.get("status") or []):
+        for ti, tok in enumerate(ln):
+            if tok["t"] == "blank" and ti and ln[ti - 1]["t"] == "check" and ln[ti - 1].get("v", "").strip().startswith("기타"):
+                out[f"l{li}t{ti}"] = f"l{li}t{ti - 1}"
+    return out
 
 
 def bad_types(it: dict) -> list[dict]:
@@ -520,6 +545,12 @@ def normalize(it: dict, res: dict | None, prev: dict | None = None, use: str = "
     prev = prev or {}
     st = dict(r.get("status") or {})
     pst = prev.get("status") or {}
+    bad = {(p.get("bad") or {}).get("key", "")[3:] for p in r.get("photos") or [] if p.get("kind") == "bad"}
+    for k in photo_keys(it):  # 사진과만 연동 — 그 유형 부적합 사진이 있으면 켜고 없으면 끔(손으로 보낸 값은 무시, 10/30)
+        if k in bad:
+            st[k] = True
+        else:
+            st.pop(k, None)
     for grp in RADIOS.get(it["code"]) or []:
         on = [k for k in grp if st.get(k) is True]
         if len(on) > 1:
