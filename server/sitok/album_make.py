@@ -206,7 +206,54 @@ def _zone_page(doc, text: str) -> None:
     _dong_divider_page(doc, _Like, text)
 
 
+def _signature(floors: list[tuple]) -> str:
+    """사진첩 입력의 지문 — 결함 줄 전부 + 쓰는 사진 파일(경로·고친 시각·크기) + 이 파일(album_make.py) 내용(그리는 코드가 바뀌면 다시) + 글꼴."""
+    import hashlib
+    import json
+    import os
+
+    h = hashlib.sha256()
+    h.update(Path(__file__).read_bytes())
+    h.update(json.dumps(floors, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8"))
+    seen: set = set()
+    for x in floors:
+        for row in (x[-1] if isinstance(x[-1], list) else []):
+            for k in ("_photo", "_now_photo", "_prev_photo"):
+                p = row.get(k)
+                if p and p not in seen:
+                    seen.add(p)
+                    try:
+                        st = os.stat(p)
+                        h.update(f"{p}|{st.st_mtime_ns}|{st.st_size}".encode("utf-8"))
+                    except OSError:
+                        h.update(f"{p}|없음".encode("utf-8"))
+    for f in (FONT, FONT_B):
+        try:
+            h.update(str(os.stat(f).st_mtime_ns).encode())
+        except OSError:
+            pass
+    return h.hexdigest()
+
+
 def make(floors: list[tuple], dest: Path) -> int:
+    """사진·결함이 지난번과 같으면 지난 사진첩 PDF를 그대로 씀(10/31 민재형 "사진첩은 부록이라 쪽번호도 없고, 사진에 변화가 없으면 안 만들어도 되지") — 지문(_signature)이 같고
+    dest가 있을 때만. 다르면 새로 만들고 지문을 옆(dest.sig)에 적음. 쪽 수를 돌려준다."""
+    sig = _signature(floors)
+    sigf = dest.with_name(dest.name + ".sig")
+    if dest.exists() and sigf.exists():
+        try:
+            if sigf.read_text(encoding="utf-8").strip() == sig:
+                with pymupdf.open(dest) as d:
+                    print(f"[사진첩 재사용] {dest.name} {len(d)}쪽", flush=True)
+                    return len(d)
+        except Exception:  # noqa: BLE001 — 못 읽으면 새로
+            pass
+    n = _make_uncached(floors, dest)
+    sigf.write_text(sig, encoding="utf-8")
+    return n
+
+
+def _make_uncached(floors: list[tuple], dest: Path) -> int:
     """floors = [(층, [줄 값들 — 번호·구분·…·사진번호 + _photo 경로])] 또는 동이 있으면 [(동, 층, 줄)](sitok_defects.album_floors(zones=True)).
     쪽 수를 돌려준다. 층별 현황표·사진표(동이 바뀌면 "N. 동 이름" 간지) 뒤에 전회차 비교 사진대장."""
     doc = pymupdf.open()
