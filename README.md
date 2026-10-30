@@ -204,6 +204,10 @@
   **보고서 메일(DB 0065 `mail_job`)** — 시특법 회차 [📧 보고서 보내기](합본 내려받기 링크 `/report/share/{토큰}` 로그인 없이·30일·바로/예약·제출 현황 전송 표시,
   `server/api/mail_jobs.py`·`routers/sitok_mail.py`·`routers/share.py`, 그룹웨어 nginx 예외), 산안법 고객사 전송 예약(전송 창 첫 화면 [⏰ 예약 보내기]·목록/제출 현황 "⏰ 예약"),
   작업 프로그램 `server/worker/mail_worker.py`.
+- **258차(10/31)**: md 최신화·리팩토링·디버깅·푸시(요약문 쪽 별도 빈 쪽 처리 제거, 공통 정리로 통합).
+- **254~257차(10/30~31)**: 보고서 만들기 속도 — 사진첩 만들기 308 → 53초(`album_make._font` 글꼴 한 번만 읽기)·사진·결함이 그대로면 사진첩 재사용(`album_make._signature` 지문 `.sig`), 쪽 모양·표 선은 알아서 고치고 알림엔 사용자가 할 수 있는 것만(제목 넘기기 안정될 때까지 반복·시특법 정기 표 선 고르게 `seismic_fill.even_tables`).
+- **250~253차(10/30)**: 결과표 — 참고사항 항목|내용 두 칸 양식(`fix_focus_master.py` 원본 이식·`report_build._set_focus`)·글자 가·나·다·라 제목 10pt/나머지 9pt(`layout_fix.result_font`)·기술등급 한 줄·내진보강시설 점검표는 3종 학교만(`master._drop_seismic_check`), 제출문 귀사(`layout_fix.apply_greeting`).
+- **243~249차(10/30)**: AI 토큰 기록(`core/ai_usage.py`·`server/scripts/ai_usage_report.py`), 사진첩 규칙(`album_make.empty_photo` — 전회차와 동일·보수완료 점선 X), 빈 쪽·제목만 남음 정리(`pagecheck.blank_pages`·`scan` 보강).
 - **242차(10/30)**: 시특법 결함 동 후속 — 동마다 결함 없는 층 탭 숨기기(`sitok-field.js` floors·zoneTabs), 외관망도 파일마다 동 → "N. 동 이름" 간지(`sitok_maps.py` set_map_zone·insert_maps).
 - **241차(10/30)**: 시특법 현장 조사 사진 카드(상태양호·공중이용·기타시설·내진보강·정밀)에 끌어다 놓기 — `app.js cardFileDrop`(전경사진·결함 카드만 있었음).
 - **240차(10/30)**: 시특법 현장 목록 — 번호 같은 시설물(보고서 따로)을 서류 카드처럼 한 카드 "첫 시설물 등 N개소"·보고서 1·2·3 칩(`sitok.js` units/cardKey), 계약 구분은 카드 전체(`card_facilities`).

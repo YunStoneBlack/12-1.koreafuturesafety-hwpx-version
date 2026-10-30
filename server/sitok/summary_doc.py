@@ -287,42 +287,6 @@ def _trim_tail(root) -> None:
         root.remove(tops.pop())
 
 
-def trim_box_tail(hwpx: Path) -> bool:
-    """결언 상자 안 맨 끝 빈 문단을 뺌(10/30 민재형 나라키움대전센터 "한 줄 때문에 쪽이 늘어남") — 결언이 쪽 끝까지 차면 상자 안 끝 빈 문단만 다음 쪽으로 넘어가
-    머리글 + 빈 상자 줄뿐인 쪽이 생김(_trim_tail은 상자 밖 빈 문단만 뺐음). 쪽 끝에 걸릴 때만 부름(평소엔 그 빈 문단이 상자 아래 여백). 뺐으면 True."""
-    with zipfile.ZipFile(hwpx) as z:
-        items = [(i, z.read(i.filename)) for i in z.infolist()]
-    name = next(i.filename for i, _ in items if re.match(r"Contents/section0\.xml$", i.filename))
-    root = etree.fromstring(next(d for i, d in items if i.filename == name))
-    box = next((tbl for tbl in root.iter(f"{{{HP}}}tbl") if re.sub(r"\s", "", _text(tbl)).startswith("금회점검은")), None)
-    sub = box.find(f".//{{{HP}}}subList") if box is not None else None
-    if sub is None:
-        return False
-    ps = sub.findall(f"{{{HP}}}p")
-    cut = 0
-    while len(ps) - cut > 1 and not _text(ps[-1 - cut]).strip() and not any(True for _ in ps[-1 - cut].iter(f"{{{HP}}}tbl", f"{{{HP}}}pic", f"{{{HP}}}ctrl")):
-        cut += 1
-    if not cut:
-        return False
-    for p in ps[len(ps) - cut:]:
-        sub.remove(p)
-    data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
-    tmp = hwpx.with_suffix(".part")
-    with zipfile.ZipFile(tmp, "w") as zo:
-        for info, d in items:
-            zo.writestr(info, data if info.filename == name else d)
-    tmp.replace(hwpx)
-    return True
-
-
-def last_page_empty(pdf: Path) -> bool:
-    """요약문 PDF 맨 끝 쪽에 머리글(보고서 이름·▣ 요약문·등록기관)만 있나 — 글자 100자 미만이고 쪽이 둘 이상."""
-    import pymupdf
-
-    with pymupdf.open(pdf) as d:
-        return d.page_count > 1 and len(d[d.page_count - 1].get_text().strip()) < 100
-
-
 def build(s: Summary, template: Path, out: Path) -> None:
     """요약문 한글(out) — template(정기안전점검_요약문_원본.hwpx)을 s 값으로."""
     with zipfile.ZipFile(template) as z:
