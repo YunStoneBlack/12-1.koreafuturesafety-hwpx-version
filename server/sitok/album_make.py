@@ -18,6 +18,17 @@ PHOTO_COLS = [("사진\n번호", 30), ("결함유형", 58), ("개소", 22), ("�
 ROWS_PER_PAGE = 30
 
 
+_FONT_CACHE: dict = {}
+
+
+def _font(path):
+    """글꼴 파일 읽기는 한 번만(10/30 — 칸 그릴 때마다 pymupdf.Font를 새로 열어 사진첩 만들기 308초 중 243초가 글꼴 읽기였음)."""
+    f = _FONT_CACHE.get(path)
+    if f is None:
+        f = _FONT_CACHE[path] = pymupdf.Font(fontfile=path)
+    return f
+
+
 def _fonts(page):
     page.insert_font(fontname="mg", fontfile=FONT)
     page.insert_font(fontname="mgb", fontfile=FONT_B)
@@ -40,7 +51,7 @@ def _cell(page, rect, text, size=6.5, bold=False, fill=None, max_lines=1):
     if fill:
         page.draw_rect(rect, color=None, fill=fill)
     page.draw_rect(rect, color=(0.35, 0.35, 0.35), width=0.4)
-    f = pymupdf.Font(fontfile=FONT_B if bold else FONT)
+    f = _font(FONT_B if bold else FONT)
     lines = str(text).split("\n")
     if max_lines >= 2 and len(lines) == 1:
         t, k = lines[0], lines[0].find("(D=")
@@ -65,7 +76,7 @@ def empty_photo(page, rect, vals: dict, size: float = 9) -> bool:
     text = "보수완료" if vals.get("_rep") else "전회차와 동일" if vals.get("_same") else ""
     if not text:
         return False
-    f = pymupdf.Font(fontfile=FONT)
+    f = _font(FONT)
     tw = f.text_length(text, fontsize=size)
     cx, cy = rect.x0 + rect.width / 2, rect.y0 + rect.height / 2
     for a, b in ((rect.tl, rect.br), (rect.tr, rect.bl)):  # 두 경우 모두 점선 X(10/30 사용자 "전회차와 동일에도 X 대각선 점선")
