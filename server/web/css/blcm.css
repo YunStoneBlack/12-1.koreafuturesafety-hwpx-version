@@ -399,7 +399,7 @@
 /* ③ 현장 점검 탭 줄 — 스크롤해도 위에 붙음(10/30 사용자 "해당 부분 스크롤 고정"). 그룹웨어 app.css .panel { overflow: hidden }이 sticky를 죽여서 이 칸만 풂.
    폰은 탭 네 줄이 화면 반을 덮어서 한 줄 옆으로 넘김(고른 탭이 보이게 — blcm-job.js drawTabs) */
 #bj-items-panel.panel { overflow: visible; overflow-x: clip; }  /* 좌우만 잘라냄 — 위아래는 풀어야 sticky가 됨(clip은 스크롤 칸이 아니라 sticky를 안 죽임) */
-.main .bj-miss { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }  /* 긴 ⚠ 빠진 것이 카드 밖으로 삐져나와 폰 화면이 좌우로 밀리던 것(10/30) — 전체는 title·[빠진 것 보기] */
+.main .bj-miss { max-width: 100%; min-width: 0; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; line-height: 1.45; }  /* 긴 ⚠ 빠진 것이 카드 밖으로 삐져나와 폰 화면이 좌우로 밀리던 것 — 말줄임 말고 두세 줄로 다 보이게(10/30 사용자) */
 .main .bj-tabs { position: sticky; top: var(--tabs-h, 0px); z-index: 8; margin: -8px -18px 12px; padding: 8px 18px; background: rgba(255, 255, 255, .96); backdrop-filter: blur(6px); }
 .main .bj-tabs.stuck { border-bottom: 1px solid var(--line); box-shadow: 0 8px 12px -10px rgba(20, 30, 60, .35); }
 @media (max-width: 760px) {
