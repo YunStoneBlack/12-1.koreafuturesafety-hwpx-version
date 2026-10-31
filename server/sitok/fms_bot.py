@@ -148,6 +148,17 @@ def _check(fr, name: str, on: bool) -> None:
     fr.evaluate("([n, on]) => { const e = document.getElementsByName(n)[0]; if (e && e.checked !== on) { e.click(); } }", [name, bool(on)])
 
 
+def _fms_busy(page) -> bool:
+    """화면에 "처리 중입니다" 안내(서버 응답 대기)가 떠 있는지 — 어느 틀에든."""
+    try:
+        for fr in page.frames:
+            if fr.evaluate("() => /처리\\s*중입니다/.test((document.body && document.body.innerText) || '')"):
+                return True
+    except Exception:  # noqa: BLE001 — 화면이 넘어가는 중이면 끝난 것으로
+        return False
+    return False
+
+
 def _act(job: Job, where, js: str, label: str, wait_ms: int = 3500, ok: str | None = None) -> None:
     """화면 함수 부르기(확인창은 [확인]) → 새 알림창에 오류 말이 있으면 멈춤(FmsError)."""
     n = len(job.alerts)
@@ -158,6 +169,12 @@ def _act(job: Job, where, js: str, label: str, wait_ms: int = 3500, ok: str | No
             raise FmsError(f"{label}: 화면 함수 오류 {str(e)[:150]}") from e
     page = where.page if hasattr(where, "page") else where
     page.wait_for_timeout(wait_ms)
+    waited = 0
+    while waited < 120000 and _fms_busy(page):  # FMS가 느리면 "처리 중입니다 … 새로고침 하지 마세요" 창이 한참 뜸(10/31 낮) — 끝날 때까지(최대 2분) 기다려야 저장이 끝난 뒤 다음으로 감
+        page.wait_for_timeout(1500)
+        waited += 1500
+    if waited:
+        job.say(f"{label} — FMS 처리 중 창 {waited // 1000}초 기다림" + ("(2분 넘음)" if waited >= 120000 else ""))
     new = job.alerts[n:]
     job.say(f"{label}" + (f" — 알림: {' / '.join(a[:80] for a in new)}" if new else ""))
     bad = [a for a in new if _ERR.search(a) and not (ok and ok in a) and a not in job.confirms]  # 확인 창은 [확인]으로 진행됨 — 막힘 아님
