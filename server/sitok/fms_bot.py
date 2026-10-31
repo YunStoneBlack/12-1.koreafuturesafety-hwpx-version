@@ -597,6 +597,16 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
     if project_no:
         pg.goto(f"{BASE}/maint/any01002_select.do?project_no={project_no}", wait_until="domcontentloaded")
         pg.wait_for_timeout(1500)
+        body = re.sub(r"\s", "", pg.evaluate("() => (document.body && document.body.innerText) || ''") or "")
+        if re.sub(r"\s", "", c["project_nm"])[:10] not in body:  # 그 번호의 계약이 FMS에 없음(민재형이 지웠음, 10/31) — 같은 번호로 계속 들어가지 말고 새로 만듦
+            job.say(f"FMS에 계약 {project_no}이 없음(지워졌음) — 새 계약으로 만듭니다")
+            job.shot(pg, "옛계약_없음")
+            project_no = ""
+            pg.go_back()
+            pg.wait_for_timeout(2000)
+            if not pg.evaluate("typeof window.goWrite === 'function'"):
+                raise FmsError("옛 계약이 없어 새로 만들려 했지만 목록 화면으로 돌아가지 못했습니다 — 다시 한 번 눌러 주세요.")
+    if project_no:
         if not pg.evaluate("typeof window.goEdit === 'function'"):
             raise FmsError(f"FMS 계약 {project_no}을 수정할 수 없습니다(이미 승인요청·승인됐을 수 있음).")
         pg.evaluate("goEdit()")
