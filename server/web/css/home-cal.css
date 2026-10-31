@@ -29,8 +29,7 @@
 #home-cal .hc-day.red .hc-n { color: #c63c3c; } #home-cal .hc-day.blue .hc-n { color: #2a7de1; }
 #home-cal .hc-day.today .hc-n { color: #fff; }
 #home-cal .hc-hol { font-size: 10.5px; color: #c63c3c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-#home-cal .hc-san { margin-left: auto; padding: 0 6px; border-radius: 9px; font-size: 10.5px; font-weight: 700; line-height: 17px; white-space: nowrap; background: #e9f7ef; color: #2e9e5b; }
-#home-cal .hc-san.mid { background: #cdeedb; color: #1c7a43; } #home-cal .hc-san.hi { background: #8fd5ab; color: #0f4d2a; }
+
 #home-cal .hc-ev { display: block; margin-top: 3px; padding: 1px 6px; border-radius: 5px; font-size: 11.5px; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid; text-decoration: none; color: inherit; }
 #home-cal .hc-ev:hover { filter: brightness(.95); text-decoration: underline; }
 #home-cal .e-sitok { background: #eaf2fd; color: #1b5dad; border-color: #2a7de1; }
@@ -45,7 +44,7 @@
   #home-cal .hc-chips { margin-left: 0; }
   #home-cal .hc-day { min-height: 64px; padding: 2px; }
   #home-cal .hc-ev { font-size: 10px; padding: 0 3px; border-left-width: 2px; }
-  #home-cal .hc-san { font-size: 9.5px; padding: 0 4px; }
+
   #home-cal .hc-head h2 { font-size: 17px; }
 }
 
@@ -93,7 +92,7 @@
   #home-today .ht-num { font-size: 26px; }
   #home-cal .hc-day { min-height: 62px; text-align: center; cursor: pointer; }
   #home-cal .hc-day.sel { background: #eaf2fd; outline: 2px solid var(--blue, #2a7de1); outline-offset: -2px; }
-  #home-cal .hc-day .hc-san { display: block; margin: 1px auto 0; width: max-content; font-size: 8.5px; line-height: 12px; padding: 0 4px; }
+
 }
 /* ---------- 날짜별 개수 "산안 N · 시특 N"(10/31 민재형) ---------- */
 #home-cal .hc-cnts { display: inline-flex; gap: 3px; margin-left: auto; }
