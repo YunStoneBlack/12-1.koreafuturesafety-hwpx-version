@@ -86,3 +86,6 @@
 @media (min-width: 901px) {
   .sticky-list .ss-head { position: sticky; top: calc(var(--sticky-h, 0px) + var(--list-head-h, 0px)); z-index: 5; background: var(--surface); }
 }
+/* 합본 출력 칸 옆 🖨 — 합본 PDF를 열어 인쇄(js/print-mark.js, 10/31 민재형) */
+.main button.ss-print { margin: 0 0 0 4px; padding: 1px 6px; border: 1px solid var(--line, #d9dee7); border-radius: 6px; background: var(--card, #fff); font-size: 12px; line-height: 1.4; cursor: pointer; }
+.main button.ss-print:hover { background: #eef3fb; }

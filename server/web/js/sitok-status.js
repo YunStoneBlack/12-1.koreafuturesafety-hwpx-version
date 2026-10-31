@@ -170,10 +170,11 @@
         : `<button type="button" class="ss-cell" data-item="report"><span class="ss-b ${rt}">${r.report.outside ? "완료(밖에서)" : rl}${r.report.at ? ` ${esc(r.report.at)}` : ""}</span></button>`}</div>
       <div class="ss-c" data-label="발주처 이메일"><button type="button" class="ss-cell" data-item="mail">${markBadge(r.mail)}</button></div>
       <div class="ss-c" data-label="FMS"><button type="button" class="ss-cell" data-item="fms">${fmsAuto || markBadge(r.fms.mark)}</button></div>
-      <div class="ss-c" data-label="합본 출력"><button type="button" class="ss-cell" data-item="print">${markBadge(r.print)}</button></div>
+      <div class="ss-c" data-label="합본 출력"><button type="button" class="ss-cell" data-item="print">${markBadge(r.print)}</button>${r.report_id && repDone(r) && !r.report.outside ? '<button type="button" class="ss-print" title="합본 PDF를 새 탭으로 열어 인쇄 — 돌아오면 출력 표시를 물어봅니다">🖨</button>' : ""}</div>
       <div class="ss-c" data-label="택배"><button type="button" class="ss-cell" data-item="parcel">${markBadge(r.parcel)}</button></div>`;
     el.querySelectorAll(".ss-cell").forEach((b) => b.addEventListener("click", () => openMark(r, b.dataset.item)));
     el.querySelectorAll(".ss-t").forEach((b) => b.addEventListener("click", () => fieldToggle(r, b.dataset.act)));
+    el.querySelector(".ss-print")?.addEventListener("click", () => openPrintMerged(r.report_id, `${r.facility.mgmt_no} ${r.facility.name}`, load)); // 10/31 인쇄 → 출력 표시
     return el;
   }
 

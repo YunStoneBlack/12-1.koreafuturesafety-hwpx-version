@@ -116,7 +116,8 @@
     const blocked = !r.past && !!r.build_block; // 보고서 틀이 없는 시설물·회차(교량·수리·옹벽 정밀 — 형 10/21 "준비 중입니다", 만들기 막기)
     const locked = blocked || (!r.past && (r.build_left || []).length > 0); // 10/18 형 요청1 — AI 초안까지 칸을 다 완료해야 보고서 합본(묶음은 동마다)
     $("rd-build").innerHTML = `<div class="sk-rep-foot">${stateText}
-      ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf?v=${v}" target="_blank" rel="noopener">${kind === "정밀" ? "합본 PDF" : "PDF 보기"}</a>` : ""}
+      ${r.has_pdf ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/pdf?v=${v}" target="_blank" rel="noopener">${kind === "정밀" ? "합본 PDF" : "PDF 보기"}</a>
+      <button type="button" class="secondary-link rd-print" title="합본 PDF를 새 탭으로 열어 인쇄 — 돌아오면 제출 현황 '합본 출력' 표시를 물어봅니다">🖨 인쇄</button>` : ""}
       ${r.has_cover ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/cover_pdf?v=${v}" target="_blank" rel="noopener" title="표지 + 책등 — 제본소에 따로 보내는 파일(합본에는 책등 없음)">표지(제본용) PDF</a>` : ""}
       ${r.has_hwpx ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/hwpx?v=${v}">${kind === "정밀" ? "본문 한글" : "한글 받기"}</a>` : ""}
       ${r.has_appendix ? `<a class="secondary-link" href="${BASE}/api/sitok/reports/${r.id}/file/appendix?v=${v}">부록 한글</a>` : ""}
@@ -229,6 +230,7 @@
     opener(".rd-detail", openSitokDetail);
     opener(".rd-survey", openSitokSurvey);
     document.querySelector(".rd-go-period")?.addEventListener("click", goPeriod);
+    document.querySelector(".rd-print")?.addEventListener("click", () => openPrintMerged(r.id, r.facility_name || "")); // 10/31 인쇄 → 제출 현황 합본 출력 표시
     document.querySelector(".sk-rep-build")?.addEventListener("click", async () => {
       if (!(r.period_start && r.period_end) && !autoOk()) { goPeriod(); return; } // 10/20 형 "점검기간을 정하라는데 어디서 적는지 모름" — 자동도 못 하면 그 칸으로
       try { await apiPost(`/sitok/reports/${r.id}/build`); load(); } catch (e) { err(e); }
