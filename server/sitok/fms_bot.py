@@ -589,7 +589,13 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
     job.say(f"관리주체 코드 — 방금 고른 것 {picked_code or '-'} / 화면 칸 {form_code or '-'}")
     job.say(f"일반현황 채움 — FMS 대표자 {gen.get('fms_rep') or '-'}")
     job.shot(pg, "계약_일반현황")
-    _act(job, fr, "goSave()", "일반현황 저장", wait_ms=4000)
+    try:
+        _act(job, fr, "goSave()", "일반현황 저장", wait_ms=4000)
+    except FmsError as e:
+        if not (project_no and "수정권한" in str(e)):
+            raise
+        job.say("일반현황 저장은 FMS가 막음(수정권한 없음) — 이미 저장된 계약이라 건너뛰고 시설물 탭으로 이어감")  # 10/31 이어서 하는 계약만 — 처음 만들 때 막히면 그대로 멈춤
+        job.shot(pg, "일반현황_저장_막힘")
     project_no = project_no or _project_no(pg)
     if not project_no:
         job.shot(pg, "계약번호_못받음")
