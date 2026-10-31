@@ -17,7 +17,8 @@
   const endOf = (v) => v.end || v.date; // 일정 범위(10/19 민재형 "일정을 범위 설정 가능하도록") — 끝이 없으면 하루
   const covers = (v, d) => v.date <= d && d <= endOf(v);
   let data = { visits: [], day_load: {}, day_cap: 4, facilities: [], missing: 0 };
-  let selected = ymd(new Date());
+  let sanan = { total: {}, cap: 0 }; // 산안법 현장 날짜별 수(10/31 민재형 "산안 현장이 적은 날 골라 잡으려고") — 읽기만, GET /calendar의 day_total·day_cap
+  let selected = (/^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get("date") || "") ? new URLSearchParams(location.search).get("date") : ymd(new Date())); // ?date= 로 오면 그 날로(홈 통합 달력에서 일정을 눌렀을 때, 10/31)
   let preFacility = null; // 일정 없는 반기 알림에서 누른 시설물 — [이 날 일정 넣기]에 골라 둠(10/23)
   let flashId = null; // 찾기에서 고른 일정 — 그 막대를 잠깐 깜빡임(10/30)
   const holidays = {};
@@ -43,6 +44,8 @@
       startEditable: !isPhone(), durationEditable: !isPhone(), extendedProps: { v } })); // PC는 막대 끝을 끌어 범위를 늘리고 줄임
   }
   const loadOf = (date) => data.day_load[date] || 0;
+  const sananOf = (date) => sanan.total[date] || 0;
+  const sananLevel = (n) => (!n ? "" : sanan.cap && n / sanan.cap < 0.35 ? "lo" : sanan.cap && n / sanan.cap < 0.7 ? "mid" : "hi"); // 적은 날 연하게·많은 날 진하게
 
   function decorateCells() {
     document.querySelectorAll("#sc-cal .fc-daygrid-day").forEach((cell) => {
@@ -53,12 +56,22 @@
       cell.title = holiday ? holiday.name : "";
       const top = cell.querySelector(".fc-daygrid-day-top");
       if (!top) return;
-      top.querySelectorAll(".holiday-label, .sc-load").forEach((el) => el.remove());
+      top.querySelectorAll(".holiday-label, .sc-load, .sc-sanan").forEach((el) => el.remove());
+      const sn = sananOf(date);
+      cell.classList.remove("san-lo", "san-mid", "san-hi");
+      if (sn) cell.classList.add(`san-${sananLevel(sn)}`);
       if (holiday && holiday.label) {
         const lab = document.createElement("div");
         lab.className = "holiday-label";
         lab.textContent = holiday.name;
         top.appendChild(lab);
+      }
+      if (sn) {
+        const g = document.createElement("span");
+        g.className = `sc-sanan ${sananLevel(sn)}`;
+        g.textContent = `산안 ${sn}`;
+        g.title = `그날 산안법 현장 ${sn}곳${sanan.cap ? ` (하루 한도 ${sanan.cap})` : ""} — 적은 날에 시특법을 잡으세요`;
+        top.appendChild(g);
       }
       const n = loadOf(date);
       if (n) {
@@ -251,7 +264,7 @@
     const n = loadOf(selected);
     const spots = new Set(items.flatMap((v) => (v.facility.members || [v.facility]).map((m) => String(m.address || v.facility.address || "").replace(/\s+/g, "")))).size; // 그날 서로 다른 주소 수(묶음은 안 시설물 전부, 같은 번지는 한 곳)
     body.innerHTML = `<h3 class="dk-day-title${h || dt.getDay() === 0 ? " red" : ""}">${dt.getMonth() + 1}월 ${dt.getDate()}일 (${WEEK[dt.getDay()]})${h ? ` · ${esc(h.name)}` : ""}
-        ${n ? `<span class="sc-load${n > data.day_cap ? " over" : ""}">${n}</span>` : ""}</h3>
+        ${n ? `<span class="sc-load${n > data.day_cap ? " over" : ""}">${n}</span>` : ""}${sananOf(selected) ? `<span class="sc-sanan ${sananLevel(sananOf(selected))}" title="그날 산안법 현장 수">산안 ${sananOf(selected)}</span>` : ""}</h3>
       ${spots >= 2 ? `<div class="sc-day-tools"><button type="button" class="secondary btn-sm sc-route" title="출발지 → 그날 시설물들 → 복귀지, 가장 짧은 순서(산안법 동선 짜기와 같음)">🚗 동선 짜기 (${spots}곳)</button></div>` : ""}
       ${items.length ? items.map(visitCard).join("") : '<div class="empty-note">이 날은 점검 일정이 없습니다.</div>'}
       <div class="sc-add"><select class="sc-add-f" aria-label="시설물"><option value="">+ 이 날 일정 넣기 — 시설물 고르기</option>
@@ -308,12 +321,18 @@
   }
 
   async function fetchRange(start, end) {
-    data = await api(`/sitok/calendar?start=${ymd(start)}&end=${ymd(end)}`);
+    const [d, s] = await Promise.all([
+      api(`/sitok/calendar?start=${ymd(start)}&end=${ymd(end)}`),
+      api(`/calendar?start=${ymd(start)}&end=${ymd(end)}`).catch(() => null), // 산안법 달력을 못 받아도 시특법 달력은 그대로
+    ]);
+    data = d;
+    sanan = { total: (s && s.day_total) || {}, cap: (s && s.day_cap) || 0 };
   }
   const reload = () => cal.refetchEvents(); // events 콜백이 다시 받아 옴
 
   const cal = new FullCalendar.Calendar(document.getElementById("sc-cal"), {
     initialView: "dayGridMonth",
+    initialDate: selected,
     locale: "ko",
     height: "auto",
     fixedWeekCount: false,

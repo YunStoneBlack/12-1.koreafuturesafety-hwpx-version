@@ -17,7 +17,7 @@ const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 
 let data = null; // 마지막으로 받은 달력 데이터
 let dataKey = "";
-let selected = ymd(new Date());
+let selected = (/^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get("date") || "") ? new URLSearchParams(location.search).get("date") : ymd(new Date())); // ?date= 로 오면 그 날로(홈 통합 달력에서 일정을 눌렀을 때, 10/31)
 let holidays = {};
 const holidayYears = {};
 let view = loadPref();
@@ -198,6 +198,7 @@ async function loadHolidays(start, end) {
 
 const cal = new FullCalendar.Calendar(document.getElementById("cal"), {
   initialView: "dayGridMonth",
+  initialDate: selected,
   locale: "ko",
   height: "auto",
   fixedWeekCount: false,

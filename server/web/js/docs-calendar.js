@@ -12,7 +12,7 @@
   const pad = (n) => String(n).padStart(2, "0");
   const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   let contracts = null;
-  let selected = ymd(new Date());
+  let selected = (/^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get("date") || "") ? new URLSearchParams(location.search).get("date") : ymd(new Date())); // ?date= 로 오면 그 날로(홈 통합 달력에서 일정을 눌렀을 때, 10/31)
   const holidays = {};
   const holidayYears = {};
 
@@ -126,6 +126,7 @@
 
   const cal = new FullCalendar.Calendar(document.getElementById("dk-cal"), {
     initialView: "dayGridMonth",
+    initialDate: selected,
     locale: "ko",
     height: "auto",
     fixedWeekCount: false,

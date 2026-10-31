@@ -1,0 +1,50 @@
+/* 그룹웨어 홈 통합 달력(2026-10-31 민재형) — js/home-cal.js. 그룹웨어 app.css 변수(--surface·--line·--blue …)를 그대로 씀. */
+#home-cal { background: var(--surface, #fff); border: 1px solid var(--line, #e3e6f0); border-radius: 16px; box-shadow: var(--shadow-card, 0 1px 8px rgba(27,30,46,.05)); padding: 16px 18px 12px; min-width: 0; }
+#home-cal .hc-loading { padding: 40px; text-align: center; color: var(--muted, #6b7089); }
+#home-cal .hc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+#home-cal .hc-head h2 { margin: 0 6px 0 0; font-size: 20px; font-weight: 700; }
+#home-cal .hc-nav { display: flex; gap: 4px; }
+#home-cal .hc-nav button { border: 1px solid var(--line, #e3e6f0); background: var(--surface, #fff); color: inherit; border-radius: 8px; padding: 5px 11px; font-size: 13px; cursor: pointer; }
+#home-cal .hc-nav button:hover { border-color: var(--blue, #2a7de1); color: var(--blue, #2a7de1); }
+#home-cal .hc-nav .hc-today { font-weight: 600; }
+#home-cal .hc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+#home-cal .hc-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 600; border: 1.5px solid; cursor: pointer; background: var(--surface, #fff); }
+#home-cal .hc-chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+#home-cal .hc-chip small { font-weight: 700; opacity: .75; }
+#home-cal .hc-chip.off { opacity: .55; border-color: var(--line, #e3e6f0) !important; color: var(--muted, #6b7089) !important; background: transparent !important; text-decoration: line-through; }
+.c-sitok { background: #eaf2fd; color: #2a7de1; border-color: #2a7de1; } .c-sitok i { background: #2a7de1; }
+.c-sanan { background: #e9f7ef; color: #2e9e5b; border-color: #2e9e5b; } .c-sanan i { background: #2e9e5b; }
+.c-dsitok { background: #efebfb; color: #6d4bd1; border-color: #6d4bd1; } .c-dsitok i { background: #6d4bd1; }
+.c-dsanan { background: #fbf1e1; color: #b8720f; border-color: #b8720f; } .c-dsanan i { background: #b8720f; }
+#home-cal .hc-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--line, #e3e6f0); border-left: 1px solid var(--line, #e3e6f0); }
+#home-cal .hc-dow { padding: 6px; font-size: 12px; text-align: center; color: var(--muted, #6b7089); border-right: 1px solid var(--line, #e3e6f0); border-bottom: 1px solid var(--line, #e3e6f0); background: rgba(127, 135, 170, .06); }
+#home-cal .hc-dow.red { color: #c63c3c; } #home-cal .hc-dow.blue { color: #2a7de1; }
+#home-cal .hc-day { min-height: 104px; padding: 4px 5px 5px; border-right: 1px solid var(--line, #e3e6f0); border-bottom: 1px solid var(--line, #e3e6f0); min-width: 0; }
+#home-cal .hc-day.dim { opacity: .55; }
+#home-cal .hc-day.today { background: rgba(42, 125, 225, .07); }
+#home-cal .hc-day.san-lo { background: rgba(46, 158, 91, .035); } #home-cal .hc-day.san-mid { background: rgba(46, 158, 91, .09); } #home-cal .hc-day.san-hi { background: rgba(46, 158, 91, .17); }
+#home-cal .hc-top { display: flex; align-items: center; gap: 4px; min-height: 20px; }
+#home-cal .hc-n { font-size: 12.5px; font-weight: 600; }
+#home-cal .hc-day.today .hc-n { background: var(--blue, #2a7de1); color: #fff; border-radius: 999px; padding: 0 7px; }
+#home-cal .hc-day.red .hc-n { color: #c63c3c; } #home-cal .hc-day.blue .hc-n { color: #2a7de1; }
+#home-cal .hc-day.today .hc-n { color: #fff; }
+#home-cal .hc-hol { font-size: 10.5px; color: #c63c3c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#home-cal .hc-san { margin-left: auto; padding: 0 6px; border-radius: 9px; font-size: 10.5px; font-weight: 700; line-height: 17px; white-space: nowrap; background: #e9f7ef; color: #2e9e5b; }
+#home-cal .hc-san.mid { background: #cdeedb; color: #1c7a43; } #home-cal .hc-san.hi { background: #8fd5ab; color: #0f4d2a; }
+#home-cal .hc-ev { display: block; margin-top: 3px; padding: 1px 6px; border-radius: 5px; font-size: 11.5px; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid; text-decoration: none; color: inherit; }
+#home-cal .hc-ev:hover { filter: brightness(.95); text-decoration: underline; }
+#home-cal .e-sitok { background: #eaf2fd; color: #1b5dad; border-color: #2a7de1; }
+#home-cal .e-sanan { background: #e9f7ef; color: #1f7a45; border-color: #2e9e5b; }
+#home-cal .e-dsanan { background: #fbf1e1; color: #8a560a; border-color: #b8720f; }
+#home-cal .e-dsitok { background: #efebfb; color: #553ab0; border-color: #6d4bd1; }
+#home-cal .hc-more { margin-top: 2px; padding: 0; border: 0; background: none; font-size: 11px; color: var(--muted, #6b7089); cursor: pointer; }
+#home-cal .hc-more:hover { color: var(--blue, #2a7de1); text-decoration: underline; }
+#home-cal .hc-foot { margin-top: 8px; font-size: 12px; color: var(--muted, #6b7089); }
+@media (max-width: 760px) {
+  #home-cal { padding: 12px 8px 10px; border-radius: 12px; }
+  #home-cal .hc-chips { margin-left: 0; }
+  #home-cal .hc-day { min-height: 64px; padding: 2px; }
+  #home-cal .hc-ev { font-size: 10px; padding: 0 3px; border-left-width: 2px; }
+  #home-cal .hc-san { font-size: 9.5px; padding: 0 4px; }
+  #home-cal .hc-head h2 { font-size: 17px; }
+}
