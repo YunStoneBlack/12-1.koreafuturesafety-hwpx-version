@@ -95,3 +95,16 @@
   #home-cal .hc-day.sel { background: #eaf2fd; outline: 2px solid var(--blue, #2a7de1); outline-offset: -2px; }
   #home-cal .hc-day .hc-san { display: block; margin: 1px auto 0; width: max-content; font-size: 8.5px; line-height: 12px; padding: 0 4px; }
 }
+/* ---------- 날짜별 개수 "산안 N · 시특 N"(10/31 민재형) ---------- */
+#home-cal .hc-cnts { display: inline-flex; gap: 3px; margin-left: auto; }
+#home-cal .hc-cnt { padding: 0 6px; border-radius: 9px; font-size: 10.5px; font-weight: 700; line-height: 17px; white-space: nowrap; }
+#home-cal .hc-cnt i { font-style: normal; font-weight: 600; margin-right: 2px; opacity: .85; }
+#home-cal .hc-cnt.k-sanan { background: #e9f7ef; color: #2e9e5b; } #home-cal .hc-cnt.k-sanan.mid { background: #cdeedb; color: #1c7a43; } #home-cal .hc-cnt.k-sanan.hi { background: #8fd5ab; color: #0f4d2a; }
+#home-cal .hc-cnt.k-sitok { background: #eaf2fd; color: #2a7de1; } #home-cal .hc-cnt.k-sitok.over { background: #fde8e8; color: #b42318; }
+#home-cal .hc-list h3 .hc-cnts { margin-left: 0; }
+@media (max-width: 760px) {
+  #home-cal .hc-day .hc-cnts { display: flex; flex-direction: column; align-items: center; gap: 1px; margin: 1px 0 0; }
+  #home-cal .hc-day .hc-cnt { font-size: 8.5px; line-height: 12px; padding: 0 3px; }
+  #home-cal .hc-day .hc-cnt i { margin-right: 1px; }
+}
+

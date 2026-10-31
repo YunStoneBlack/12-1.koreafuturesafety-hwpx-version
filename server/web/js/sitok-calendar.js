@@ -56,7 +56,7 @@
       cell.title = holiday ? holiday.name : "";
       const top = cell.querySelector(".fc-daygrid-day-top");
       if (!top) return;
-      top.querySelectorAll(".holiday-label, .sc-load, .sc-sanan").forEach((el) => el.remove());
+      top.querySelectorAll(".holiday-label, .dcnt").forEach((el) => el.remove());
       const sn = sananOf(date);
       cell.classList.remove("san-lo", "san-mid", "san-hi");
       if (sn) cell.classList.add(`san-${sananLevel(sn)}`);
@@ -66,21 +66,8 @@
         lab.textContent = holiday.name;
         top.appendChild(lab);
       }
-      if (sn) {
-        const g = document.createElement("span");
-        g.className = `sc-sanan ${sananLevel(sn)}`;
-        g.textContent = `산안 ${sn}`;
-        g.title = `그날 산안법 현장 ${sn}곳${sanan.cap ? ` (하루 한도 ${sanan.cap})` : ""} — 적은 날에 시특법을 잡으세요`;
-        top.appendChild(g);
-      }
-      const n = loadOf(date);
-      if (n) {
-        const b = document.createElement("span");
-        b.className = `sc-load${n > data.day_cap ? " over" : ""}`;
-        b.textContent = n;
-        b.title = `그날 건물 ${n}개${n > data.day_cap ? ` — 하루 ${data.day_cap}개 넘음` : ""}`;
-        top.appendChild(b);
-      }
+      const dc = dayCountsEl(sn, sanan.cap, loadOf(date), data.day_cap); // 산안 N · 시특 N 한 줄(공통 js/day-counts.js, 폰은 세로)
+      if (dc) top.appendChild(dc);
     });
   }
 

@@ -5,6 +5,8 @@
 //   시특법 현장 = GET /sitok/calendar (방문 일정 범위) · 산안법 현장 = GET /calendar (예정 plans + 다녀온 visits, day_total = 그날 회사 현장 수)
 //   산안법 서류 = GET /contracts (dates.start·done 착수계·완수계) · 시특법 서류 = GET /sitok/docs/contracts (관급 start_date·end_date)
 // 어떤 일정을 볼지는 사람마다(브라우저 localStorage, 키에 이름). 날짜 칸의 "산안 N" = 그날 산안법 현장 수(시특법 날을 정할 때 적은 날 보려고, 현장 칸이 하나라도 켜졌을 때만).
+// **달력 하나를 더하는 법**(건축물관리점검·내진성능평가 등): ① LAYERS에 한 줄(key·name·page·color) ② LOADERS에 같은 key로 읽는 함수 한 개(그 달력의 GET API → {events:[{date,name,text,done?,tag?}], daily?}) —
+// 칩·색·달력 칸·오늘 띠·폰 점/목록·클릭 이동(?date=)은 전부 자동. 그 달력 JS가 `?date=`를 받게(initialDate)만 해 두면 됨. 날짜별 개수(daily)를 주면 칸에 "산안 N·시특 N"처럼 작게 표시.
 // 일정을 누르면 그 원래 달력의 그 날짜로(?date=). 폰(폭 760px 이하)은 칸에 점만 찍고 날짜를 누르면 그날 일정을 아래 목록으로.
 (function () {
   const root = document.getElementById("home-cal");
@@ -35,7 +37,7 @@
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...on])); } catch (_) { /* 저장 못 해도 이번엔 동작 */ } };
 
   let month = new Date(); month.setDate(1);
-  let data = { events: {}, sananTotal: {}, sananCap: 0, failed: new Set() };
+  let data = { events: {}, daily: {}, failed: new Set() };
   let strip = null; // 오늘 띠 데이터(오늘~7일 뒤)
   let holidays = {};
   let selected = ymd(new Date()); // 폰: 눌러 본 날
@@ -71,51 +73,68 @@
 
   const add = (ev, date, e) => { (ev[date] ||= []).push({ ...e, date: e.date || date }); };
 
-  // 네 곳에서 [s, e) 기간의 일정을 받아 날짜별로 모음 → {ev, sananTotal, sananCap, failed}
+  // 달력마다 하나씩: (s, e) 기간의 일정을 읽어 {events:[{date, layer, ...}], daily?:{label, counts:{날짜:개수}, cap, kind}} 로 돌려줌. 새 달력은 여기에 함수 하나만 더하면 됨.
+  const LOADERS = {
+    sitok: async (s, e) => {
+      const d = await get(`/sitok/calendar?start=${s}&end=${e}`);
+      const events = [];
+      for (const v of d.visits || []) {
+        const last = v.end || v.date;
+        for (let day = v.date; day <= last && day < e; day = addDay(day, 1)) {
+          if (day < s) continue;
+          const f = v.facility || {};
+          const done = v.state === "done" || v.state === "field";
+          events.push({ date: day, jump: v.date, name: `${f.mgmt_no || ""} ${f.name || ""}`.trim(), text: `${done ? "✓ " : ""}${f.mgmt_no || ""} ${f.name || ""}`.trim(), done });
+        }
+      }
+      return { events, daily: { label: "시특", counts: d.day_load || {}, cap: d.day_cap || 0, kind: "over" } }; // 하루 건물 수(한도 넘으면 빨강)
+    },
+    sanan: async (s, e) => {
+      const d = await get(`/calendar?start=${s}&end=${e}`);
+      const short = (n) => String(n || "").replace(/^[\w-]+\)_/, "");
+      const events = [];
+      for (const p of d.plans || []) events.push({ date: p.date, name: short(p.site_name), text: `${p.state === "missed" ? "지난 예정 " : p.source === "manual" ? "📌" : ""}${short(p.site_name)}`, missed: p.state === "missed" });
+      for (const v of d.visits || []) events.push({ date: v.date, name: short(v.site_name), text: `${v.state === "submitted" ? "✓ " : ""}${short(v.site_name)}`, done: v.state === "submitted" });
+      return { events, daily: { label: "산안", counts: d.day_total || {}, cap: d.day_cap || 0, kind: "level" } }; // 그날 현장 수(적을수록 연한 초록)
+    },
+    dsanan: async (s, e) => {
+      const d = await get("/contracts");
+      const events = [];
+      for (const c of d.contracts || []) {
+        for (const [k, name] of [["start", "착수계"], ["done", "완수계"]]) {
+          const day = c.dates && c.dates[k];
+          if (!day || day < s || day >= e) continue;
+          const ok = !!(c.made && c.made[k] && c.made[k].submitted);
+          events.push({ date: day, tag: name, name: c.label || c.title || "", text: `${ok ? "✓ " : ""}${name} · ${c.label || c.title || ""}`, done: ok });
+        }
+      }
+      return { events };
+    },
+    dsitok: async (s, e) => {
+      const d = await get("/sitok/docs/contracts");
+      const events = [];
+      for (const c of (d.contracts || []).filter((x) => x.sector === "관급")) {
+        for (const [k, name, day] of [["start", "착수계", c.start_date], ["done", "완수계", c.end_date]]) {
+          if (!day || day < s || day >= e) continue;
+          const g = c.gov && c.gov[k];
+          const ok = !!(g && g.pdf);
+          events.push({ date: day, tag: name, name: c.title || c.client || "", text: `${ok ? "✓ " : ""}${name} · ${c.title || c.client || ""}`, done: ok });
+        }
+      }
+      return { events };
+    },
+  };
+
+  // 모든 달력에서 [s, e) 기간의 일정을 받아 날짜별로 모음 → {ev, daily, failed}. 한 달력이 실패해도 나머지는 그대로(칩에 ⚠).
   async function fetchEvents(s, e) {
     const ev = {};
+    const daily = {};
     const failed = new Set();
-    let sananTotal = {}, sananCap = 0;
-    await Promise.all([
-      get(`/sitok/calendar?start=${s}&end=${e}`).then((d) => {
-        for (const v of d.visits || []) {
-          const last = v.end || v.date;
-          for (let day = v.date; day <= last && day < e; day = addDay(day, 1)) {
-            if (day < s) continue;
-            const f = v.facility || {};
-            const done = v.state === "done" || v.state === "field";
-            add(ev, day, { layer: "sitok", name: `${f.mgmt_no || ""} ${f.name || ""}`.trim(), text: `${done ? "✓ " : ""}${f.mgmt_no || ""} ${f.name || ""}`.trim(), done, date: v.date });
-          }
-        }
-      }).catch(() => failed.add("sitok")),
-      get(`/calendar?start=${s}&end=${e}`).then((d) => {
-        sananTotal = d.day_total || {}; sananCap = d.day_cap || 0;
-        const short = (n) => String(n || "").replace(/^[\w-]+\)_/, "");
-        for (const p of d.plans || []) add(ev, p.date, { layer: "sanan", name: short(p.site_name), text: `${p.state === "missed" ? "지난 예정 " : p.source === "manual" ? "📌" : ""}${short(p.site_name)}`, missed: p.state === "missed" });
-        for (const v of d.visits || []) add(ev, v.date, { layer: "sanan", name: short(v.site_name), text: `${v.state === "submitted" ? "✓ " : ""}${short(v.site_name)}`, done: v.state === "submitted" });
-      }).catch(() => failed.add("sanan")),
-      get("/contracts").then((d) => {
-        for (const c of d.contracts || []) {
-          for (const [k, name] of [["start", "착수계"], ["done", "완수계"]]) {
-            const day = c.dates && c.dates[k];
-            if (!day || day < s || day >= e) continue;
-            const ok = !!(c.made && c.made[k] && c.made[k].submitted);
-            add(ev, day, { layer: "dsanan", tag: name, name: c.label || c.title || "", text: `${ok ? "✓ " : ""}${name} · ${c.label || c.title || ""}`, done: ok });
-          }
-        }
-      }).catch(() => failed.add("dsanan")),
-      get("/sitok/docs/contracts").then((d) => {
-        for (const c of (d.contracts || []).filter((x) => x.sector === "관급")) {
-          for (const [k, name, day] of [["start", "착수계", c.start_date], ["done", "완수계", c.end_date]]) {
-            if (!day || day < s || day >= e) continue;
-            const g = c.gov && c.gov[k];
-            const ok = !!(g && g.pdf);
-            add(ev, day, { layer: "dsitok", tag: name, name: c.title || c.client || "", text: `${ok ? "✓ " : ""}${name} · ${c.title || c.client || ""}`, done: ok });
-          }
-        }
-      }).catch(() => failed.add("dsitok")),
-    ]);
-    return { ev, sananTotal, sananCap, failed };
+    await Promise.all(LAYERS.map((l) => LOADERS[l.key](s, e).then((res) => {
+      for (const x of res.events || []) add(ev, x.date, { ...x, layer: l.key, date: x.jump || x.date });
+      if (res.daily) daily[l.key] = res.daily;
+    }).catch(() => failed.add(l.key))));
+    return { ev, daily, failed };
   }
 
   async function load() {
@@ -123,7 +142,7 @@
     const [start, end] = gridRange();
     const [got] = await Promise.all([fetchEvents(ymd(start), ymd(end)), loadHolidays(start, end)]);
     if (my !== seq) return; // 그 사이 달을 또 옮김
-    data = { events: got.ev, sananTotal: got.sananTotal, sananCap: got.sananCap, failed: got.failed };
+    data = { events: got.ev, daily: got.daily, failed: got.failed };
     render();
   }
 
@@ -136,7 +155,10 @@
     renderStrip();
   }
 
-  const level = (n) => (!n ? "" : data.sananCap && n / data.sananCap < 0.35 ? "lo" : data.sananCap && n / data.sananCap < 0.7 ? "mid" : "hi");
+  // 날짜별 개수 표시(layer.daily): level = 적을수록 연한 초록(산안 현장), over = 한도 넘으면 빨강(시특 건물)
+  const dailyOf = (k, day) => (data.daily[k] && data.daily[k].counts[day]) || 0;
+  const lvOf = (k, n) => { const d = data.daily[k]; if (!d || !n) return ""; if (d.kind === "over") return d.cap && n > d.cap ? "over" : ""; return d.cap && n / d.cap < 0.35 ? "lo" : d.cap && n / d.cap < 0.7 ? "mid" : "hi"; };
+  const pillsOf = (day) => Object.keys(data.daily).map((k) => { const n = dailyOf(k, day); return n ? `<span class="hc-cnt k-${k} ${lvOf(k, n)}" title="그날 ${data.daily[k].label} ${n}${k === "sanan" ? "곳" : "개"}${data.daily[k].cap ? ` (하루 한도 ${data.daily[k].cap})` : ""}"><i>${data.daily[k].label}</i>${n}</span>` : ""; }).join("");
 
   // ---------- 오늘 중요 일정 띠 ----------
   function renderStrip() {
@@ -182,7 +204,7 @@
   function render() {
     const [start, end] = gridRange();
     const today = ymd(new Date());
-    const showSan = on.has("sanan") || on.has("sitok");
+    const showCnt = LAYERS.some((l) => data.daily[l.key] && on.has(l.key)); // 날짜별 개수(산안 N·시특 N)는 개수를 주는 달력(현장)이 하나라도 켜졌을 때만
     const counts = {};
     for (const day of Object.keys(data.events)) for (const e of data.events[day]) counts[e.layer] = (counts[e.layer] || 0) + 1;
     const isPhone = phone();
@@ -194,16 +216,17 @@
       const evs = (data.events[day] || []).filter((e) => on.has(e.layer));
       const open = expanded.has(day);
       const shown = open ? evs : evs.slice(0, max);
-      const sn = showSan ? (data.sananTotal[day] || 0) : 0;
+      const sn = showCnt ? dailyOf("sanan", day) : 0; // 칸 색조 = 그날 산안 현장 수(적은 날 연하게)
+      const pills = showCnt ? pillsOf(day) : "";
       const hol = holidays[day];
-      const cls = `hc-day${other ? " dim" : ""}${day === today ? " today" : ""}${isPhone && day === selected ? " sel" : ""}${hol || d.getDay() === 0 ? " red" : d.getDay() === 6 ? " blue" : ""}${sn ? ` san-${level(sn)}` : ""}`;
+      const cls = `hc-day${other ? " dim" : ""}${day === today ? " today" : ""}${isPhone && day === selected ? " sel" : ""}${hol || d.getDay() === 0 ? " red" : d.getDay() === 6 ? " blue" : ""}${sn ? ` san-${lvOf("sanan", sn)}` : ""}`;
       if (isPhone) { // 칸이 좁아 점만 — 눌러서 아래 목록으로
         const dots = LAYERS.filter((l) => evs.some((e) => e.layer === l.key)).map((l) => `<i style="background:${l.color}"></i>`).join(""); // 일정 종류마다 점 하나(산안 현장이 많아도 다른 일정이 가려지지 않게)
-        cells += `<div class="${cls}" data-pick="${day}" title="${esc(hol || "")}"><span class="hc-n">${d.getDate()}</span>${sn ? `<span class="hc-san ${level(sn)}">산안${sn}</span>` : ""}<div class="hc-dots">${dots}</div></div>`;
+        cells += `<div class="${cls}" data-pick="${day}" title="${esc(hol || "")}"><span class="hc-n">${d.getDate()}</span><div class="hc-cnts">${pills}</div><div class="hc-dots">${dots}</div></div>`;
         continue;
       }
       cells += `<div class="${cls}" title="${esc(hol || "")}">
-        <div class="hc-top"><span class="hc-n">${d.getDate()}</span>${hol ? `<span class="hc-hol">${esc(hol)}</span>` : ""}${sn ? `<span class="hc-san ${level(sn)}" title="그날 산안법 현장 ${sn}곳 — 시특법은 적은 날에">산안 ${sn}</span>` : ""}</div>
+        <div class="hc-top"><span class="hc-n">${d.getDate()}</span>${hol ? `<span class="hc-hol">${esc(hol)}</span>` : ""}<span class="hc-cnts">${pills}</span></div>
         ${shown.map((e) => `<a class="hc-ev e-${e.layer}" href="${href(e)}" title="${esc(e.text)}">${esc(e.text)}</a>`).join("")}
         ${evs.length > shown.length ? `<button type="button" class="hc-more" data-day="${day}">+${evs.length - shown.length}건</button>` : open && evs.length > max ? `<button type="button" class="hc-more" data-day="${day}">접기</button>` : ""}
       </div>`;
@@ -212,14 +235,14 @@
     if (isPhone) {
       const sd = new Date(`${selected}T00:00:00`);
       const evs = (data.events[selected] || []).filter((e) => on.has(e.layer));
-      list = `<div class="hc-list"><h3>${sd.getMonth() + 1}월 ${sd.getDate()}일 (${WEEK[sd.getDay()]}) 일정${showSan && data.sananTotal[selected] ? ` <span class="hc-san ${level(data.sananTotal[selected])}">산안 ${data.sananTotal[selected]}</span>` : ""}</h3>
+      list = `<div class="hc-list"><h3>${sd.getMonth() + 1}월 ${sd.getDate()}일 (${WEEK[sd.getDay()]}) 일정${showCnt ? ` <span class="hc-cnts">${pillsOf(selected)}</span>` : ""}</h3>
         ${evs.length ? evs.map((e) => `<a class="hc-li" href="${href(e)}"><i style="background:${layerOf(e.layer).color}"></i><span>${esc(e.text)}</span><small>${layerOf(e.layer).name}</small></a>`).join("") : '<div class="hc-none">이 날은 일정이 없습니다.</div>'}</div>`;
     }
     root.innerHTML = `<div class="hc-head"><h2>${month.getFullYear()}년 ${month.getMonth() + 1}월</h2>
         <div class="hc-nav"><button type="button" data-nav="-1" aria-label="이전 달">◀</button><button type="button" data-nav="0" class="hc-today">오늘</button><button type="button" data-nav="1" aria-label="다음 달">▶</button></div>
         <div class="hc-chips" role="group" aria-label="보일 일정">${LAYERS.map((l) => `<button type="button" class="hc-chip c-${l.key}${on.has(l.key) ? "" : " off"}" data-layer="${l.key}" aria-pressed="${on.has(l.key)}" title="${data.failed.has(l.key) ? "불러오지 못했습니다" : "누르면 켜고 끕니다 — 내 화면에만 저장"}"><i></i>${l.name}${counts[l.key] ? ` <small>${counts[l.key]}</small>` : ""}${data.failed.has(l.key) ? " ⚠" : ""}</button>`).join("")}</div></div>
       <div class="hc-grid">${WEEK.map((w, i) => `<div class="hc-dow${i === 0 ? " red" : i === 6 ? " blue" : ""}">${w}</div>`).join("")}${cells}</div>${list}
-      <div class="hc-foot">${isPhone ? "날짜를 누르면 그날 일정이 아래에 나옵니다" : "일정을 누르면 그 달력의 그 날짜로 갑니다"} · 보기만 하는 화면(일정 입력·수정은 각 달력에서)${showSan ? " · 초록 \"산안 N\" = 그날 산안법 현장 수" : ""}</div>`;
+      <div class="hc-foot">${isPhone ? "날짜를 누르면 그날 일정이 아래에 나옵니다" : "일정을 누르면 그 달력의 그 날짜로 갑니다"} · 보기만 하는 화면(일정 입력·수정은 각 달력에서)${showCnt ? " · \"산안 N\" = 그날 산안법 현장 수(적을수록 연한 초록), \"시특 N\" = 시특법 건물 수" : ""}</div>`;
     root.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
       const n = Number(b.dataset.nav);
       if (n === 0) { month = new Date(); month.setDate(1); selected = ymd(new Date()); } else month = new Date(month.getFullYear(), month.getMonth() + n, 1);

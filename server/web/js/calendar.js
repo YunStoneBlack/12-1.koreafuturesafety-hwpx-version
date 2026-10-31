@@ -16,6 +16,7 @@ const ymd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDat
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 
 let data = null; // 마지막으로 받은 달력 데이터
+let sitokLoad = { load: {}, cap: 0 }; // 시특법 날짜별 건물 수(칸의 "시특 N", 읽기만)
 let dataKey = "";
 let selected = (/^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get("date") || "") ? new URLSearchParams(location.search).get("date") : ymd(new Date())); // ?date= 로 오면 그 날로(홈 통합 달력에서 일정을 눌렀을 때, 10/31)
 let holidays = {};
@@ -157,7 +158,7 @@ function decorateCells() {
     cell.classList.toggle("cal-selected", date === selected);
     const top = cell.querySelector(".fc-daygrid-day-top");
     if (!top) return;
-    top.querySelectorAll(".holiday-label, .cal-cap").forEach((el) => el.remove());
+    top.querySelectorAll(".holiday-label, .cal-cap, .dcnt").forEach((el) => el.remove());
     if (holiday && holiday.label) {
       const lab = document.createElement("div");
       lab.className = "holiday-label";
@@ -173,6 +174,8 @@ function decorateCells() {
       top.appendChild(cap);
     }
     const total = data?.day_total?.[date] || 0;
+    const dc = data ? dayCountsEl(total, data.day_cap, sitokLoad.load[date] || 0, sitokLoad.cap) : null; // 산안 N · 시특 N 한 줄(공통 js/day-counts.js, 10/31 민재형)
+    if (dc) top.appendChild(dc);
     if (data && total >= data.day_cap) {
       const cap = document.createElement("span");
       cap.className = "cal-cap" + (total > data.day_cap ? " over" : "");
@@ -213,7 +216,8 @@ const cal = new FullCalendar.Calendar(document.getElementById("cal"), {
     const key = `${start}~${end}`;
     try {
       if (key !== dataKey || !data) {
-        const [d] = await Promise.all([api(`/calendar?start=${start}&end=${end}`), loadHolidays(info.start, info.end)]);
+        const [d, st] = await Promise.all([api(`/calendar?start=${start}&end=${end}`), api(`/sitok/calendar?start=${start}&end=${end}`).catch(() => null), loadHolidays(info.start, info.end)]); // 시특 N 표시용(읽기만, 못 받아도 산안 달력은 그대로)
+        sitokLoad = { load: (st && st.day_load) || {}, cap: (st && st.day_cap) || 0 };
         data = d;
         dataKey = key;
         document.getElementById("cal-autoplan").hidden = !data.is_admin; // 요원 단위 자동 배치는 관리자만(2026-10-10)
