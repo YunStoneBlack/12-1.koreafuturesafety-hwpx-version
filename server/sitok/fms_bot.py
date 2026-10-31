@@ -1017,6 +1017,8 @@ def submit(stage: str, payload: dict, cred: tuple[str, str], owner: tuple[str, s
     from playwright.sync_api import sync_playwright
 
     job = Job(shots, real=True)
+    if stage == "contract":
+        project_no = ""  # 계약 등록은 항상 처음부터 새 계약으로(10/31 민재형 "중간부터 가는 건 의미 없음 — 지우고 다시, 한 세트로 딱 합격해야") — 옛 번호로 이어서 하지 않음
     out = {"ok": False, "project_no": project_no, "step": "", "message": ""}
     with sync_playwright() as p:
         b = p.chromium.launch()
