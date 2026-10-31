@@ -40,7 +40,9 @@
   let data = { events: {}, daily: {}, failed: new Set(), pending: new Set(), stale: false };
   let strip = null; // 오늘 띠 데이터(오늘~7일 뒤)
   let holidays = {};
-  let selected = ymd(new Date()); // 폰: 눌러 본 날
+  let selected = ymd(new Date()); // 눌러 본 날(폰은 늘 아래 목록, PC는 날짜를 눌러야 목록이 열림)
+  let listOpen = false; // PC: 달력 아래 "그날 일정" 목록이 열려 있는지(10/31 민재형 "달력 아래로 목록이 뜨게, 그쪽으로 화면 이동")
+  let scrollToList = false;
   const expanded = new Set(); // "더 보기"를 누른 날
   let seq = 0;
   let maxShown = 3; // 한 칸에 보일 일정 수 — PC는 칸 높이에 맞춰 늘림(달력이 화면 남은 높이를 채움, 10/31 민재형 "빈 공간은 달력을 늘려서")
@@ -252,34 +254,36 @@
       const sn = showCnt ? dailyOf("sanan", day) : 0; // 칸 색조 = 그날 산안 현장 수(적은 날 연하게)
       const pills = showCnt ? pillsOf(day) : "";
       const hol = holidays[day];
-      const cls = `hc-day${other ? " dim" : ""}${day === today ? " today" : ""}${isPhone && day === selected ? " sel" : ""}${hol || d.getDay() === 0 ? " red" : d.getDay() === 6 ? " blue" : ""}${sn ? ` san-${lvOf("sanan", sn)}` : ""}`;
+      const cls = `hc-day${other ? " dim" : ""}${day === today ? " today" : ""}${(isPhone || listOpen) && day === selected ? " sel" : ""}${hol || d.getDay() === 0 ? " red" : d.getDay() === 6 ? " blue" : ""}${sn ? ` san-${lvOf("sanan", sn)}` : ""}`;
       if (isPhone) { // 칸이 좁아 점만 — 눌러서 아래 목록으로
         const dots = LAYERS.filter((l) => evs.some((e) => e.layer === l.key)).map((l) => `<i style="background:${l.color}"></i>`).join(""); // 일정 종류마다 점 하나(산안 현장이 많아도 다른 일정이 가려지지 않게)
         cells += `<div class="${cls}" data-pick="${day}" title="${esc(hol || "")}"><span class="hc-n">${d.getDate()}</span><div class="hc-cnts">${pills}</div><div class="hc-dots">${dots}</div></div>`;
         continue;
       }
-      cells += `<div class="${cls}" title="${esc(hol || "")}">
+      cells += `<div class="${cls}" data-pick="${day}" title="${esc(hol || "")}">
         <div class="hc-top"><span class="hc-n">${d.getDate()}</span>${hol ? `<span class="hc-hol">${esc(hol)}</span>` : ""}<span class="hc-cnts">${pills}</span></div>
         ${shown.map((e) => `<a class="hc-ev e-${e.layer}" href="${href(e)}" title="${esc(e.text)}">${esc(e.text)}</a>`).join("")}
         ${evs.length > shown.length ? `<button type="button" class="hc-more" data-day="${day}">+${evs.length - shown.length}건</button>` : open && evs.length > max ? `<button type="button" class="hc-more" data-day="${day}">접기</button>` : ""}
       </div>`;
     }
     let list = "";
-    if (isPhone) {
+    if (isPhone || listOpen) { // 그날 일정 목록 — 폰은 달력 아래 늘, PC는 날짜를 눌렀을 때(두 줄, 제목 옆에 총 건수)
       const sd = new Date(`${selected}T00:00:00`);
       const evs = (data.events[selected] || []).filter((e) => on.has(e.layer));
-      list = `<div class="hc-list"><h3>${sd.getMonth() + 1}월 ${sd.getDate()}일 (${WEEK[sd.getDay()]}) 일정${showCnt ? ` <span class="hc-cnts">${pillsOf(selected)}</span>` : ""}</h3>
-        ${evs.length ? evs.map((e) => `<a class="hc-li" href="${href(e)}"><i style="background:${layerOf(e.layer).color}"></i><span>${esc(e.text)}</span><small>${layerOf(e.layer).name}</small></a>`).join("") : '<div class="hc-none">이 날은 일정이 없습니다.</div>'}</div>`;
+      const li = evs.map((e) => `<a class="hc-li" href="${href(e)}"><i style="background:${layerOf(e.layer).color}"></i><span>${esc(e.text)}</span><small>${layerOf(e.layer).name}</small></a>`).join("");
+      list = `<div class="hc-list" id="hc-list"><h3>${sd.getMonth() + 1}월 ${sd.getDate()}일 (${WEEK[sd.getDay()]}) 일정${showCnt ? ` <span class="hc-cnts">${pillsOf(selected)}</span>` : ""}${isPhone ? "" : `<small class="hc-listnote">총 ${evs.length}건 — 누르면 그 달력의 그 날짜로 · 같은 날짜를 한 번 더 누르면 닫힘</small>`}</h3>
+        ${evs.length ? `<div class="${isPhone ? "" : "hc-cols"}">${li}</div>` : '<div class="hc-none">이 날은 일정이 없습니다.</div>'}</div>`;
     }
     root.innerHTML = `<div class="hc-head"><h2>${month.getFullYear()}년 ${month.getMonth() + 1}월</h2>
         <div class="hc-nav"><button type="button" data-nav="-1" aria-label="이전 달">◀</button><button type="button" data-nav="0" class="hc-today">오늘</button><button type="button" data-nav="1" aria-label="다음 달">▶</button></div>
         <div class="hc-chips" role="group" aria-label="보일 일정">${LAYERS.map((l) => `<button type="button" class="hc-chip c-${l.key}${on.has(l.key) ? "" : " off"}" data-layer="${l.key}" aria-pressed="${on.has(l.key)}" title="${data.failed.has(l.key) ? "불러오지 못했습니다" : "누르면 켜고 끕니다 — 내 화면에만 저장"}"><i></i>${l.name}${data.pending.has(l.key) ? " <small>…</small>" : counts[l.key] ? ` <small>${counts[l.key]}</small>` : ""}${data.failed.has(l.key) ? " ⚠" : ""}</button>`).join("")}</div></div>
       <div class="hc-grid" style="--hc-weeks:${weeks}">${WEEK.map((w, i) => `<div class="hc-dow${i === 0 ? " red" : i === 6 ? " blue" : ""}">${w}</div>`).join("")}${cells}</div>${list}
-      <div class="hc-foot">${data.stale ? '<b class="hc-sync">이전에 본 내용입니다 — 새로 확인하는 중…</b> · ' : data.pending.size ? '<b class="hc-sync">불러오는 중…</b> · ' : ""}${isPhone ? "날짜를 누르면 그날 일정이 아래에 나옵니다" : "일정을 누르면 그 달력의 그 날짜로 갑니다"} · 보기만 하는 화면(일정 입력·수정은 각 달력에서)${showCnt ? " · \"산안 N\" = 그날 산안법 현장 수(적을수록 연한 초록), \"시특 N\" = 시특법 건물 수" : ""}</div>`;
+      <div class="hc-foot">${!isPhone && listOpen ? '<button type="button" class="hc-up" aria-label="달력 맨 위로">▲ 달력으로</button>' : ""}${data.stale ? '<b class="hc-sync">이전에 본 내용입니다 — 새로 확인하는 중…</b> · ' : data.pending.size ? '<b class="hc-sync">불러오는 중…</b> · ' : ""}${isPhone ? "날짜를 누르면 그날 일정이 아래에 나옵니다" : "일정을 누르면 그 달력의 그 날짜로 갑니다"} · 보기만 하는 화면(일정 입력·수정은 각 달력에서)${showCnt ? " · \"산안 N\" = 그날 산안법 현장 수(적을수록 연한 초록), \"시특 N\" = 시특법 건물 수" : ""}</div>`;
     root.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
       const n = Number(b.dataset.nav);
       if (n === 0) { month = new Date(); month.setDate(1); selected = ymd(new Date()); } else month = new Date(month.getFullYear(), month.getMonth() + n, 1);
       expanded.clear();
+      listOpen = false;
       load();
     }));
     root.querySelectorAll("[data-layer]").forEach((b) => b.addEventListener("click", () => {
@@ -294,7 +298,23 @@
       if (expanded.has(day)) expanded.delete(day); else expanded.add(day);
       render();
     }));
-    root.querySelectorAll("[data-pick]").forEach((c) => c.addEventListener("click", () => { selected = c.dataset.pick; render(); }));
+    root.querySelectorAll("[data-pick]").forEach((c) => c.addEventListener("click", (ev) => {
+      if (ev.target.closest("a, button")) return; // 일정 제목·"+N건"은 자기 동작대로
+      const day = c.dataset.pick;
+      if (!phone()) { // PC: 날짜를 누르면 달력 아래에 그날 목록이 열리고 그쪽으로 이동, 같은 날짜를 또 누르면 닫음
+        if (listOpen && selected === day) { listOpen = false; }
+        else {
+          if (!listOpen) { const g = root.querySelector(".hc-grid"); if (g) root.style.setProperty("--hc-grid-h", `${Math.round(g.getBoundingClientRect().height)}px`); } // 열기 전 격자 높이를 고정(달력 크기는 그대로, 아래로 늘어남 → 가운데 영역에 스크롤)
+          selected = day; listOpen = true; scrollToList = true;
+        }
+      } else { selected = day; scrollToList = true; }
+      render();
+    }));
+    const upBtn = root.querySelector(".hc-up");
+    if (upBtn) upBtn.addEventListener("click", () => { const m = document.querySelector(".home-main"); if (m) m.scrollTo({ top: 0, behavior: "smooth" }); });
+    root.classList.toggle("hc-open", !isPhone && listOpen);
+    if (root.parentElement) root.parentElement.classList.toggle("hc-open", !isPhone && listOpen);
+    if (scrollToList) { scrollToList = false; const l = root.querySelector("#hc-list"); if (l) requestAnimationFrame(() => l.scrollIntoView({ behavior: "smooth", block: "start" })); }
     fitCells();
     if (ro) { ro.disconnect(); const g = root.querySelector(".hc-grid"); if (g) ro.observe(g); } // 격자 크기가 바뀌면(오늘 띠가 나중에 그려져 달력이 밀리거나 창 크기가 바뀜) 다시 맞춤
   }

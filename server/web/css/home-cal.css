@@ -121,3 +121,18 @@
   #home-cal .hc-day { min-height: 0; overflow: hidden; }
 }
 #home-cal .hc-sync { color: var(--blue, #2a7de1); font-weight: 700; }
+
+/* ---------- PC: 날짜를 누르면 달력 아래에 그날 목록(10/31 민재형 "달력 아래로 목록이 뜨게, 그쪽으로 화면 이동") ---------- */
+#home-cal .hc-day[data-pick] { cursor: pointer; }
+#home-cal .hc-list { scroll-margin-top: 84px; }
+#home-cal .hc-listnote { margin-left: 4px; font-size: 12px; font-weight: 500; color: var(--muted, #6b7089); }
+#home-cal .hc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+#home-cal .hc-day.sel { background: rgba(42, 125, 225, .09); outline: 2px solid var(--blue, #2a7de1); outline-offset: -2px; }
+#home-cal .hc-up { position: fixed; right: 34px; bottom: 56px; z-index: 15; border: 0; border-radius: 999px; padding: 10px 18px; background: var(--sidebar-bg, #1d2150); color: #fff; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 18px rgba(27, 30, 46, .3); }
+@media (min-width: 761px) {
+  /* 목록이 열리면 달력은 열기 전 크기(--hc-grid-h)를 그대로 두고 아래로 늘어남 → 가운데(main) 영역만 세로 스크롤, 위·아래 남색 줄은 그대로 */
+  body.home-top .home-cal-wrap.hc-open, body.home-top #home-cal.hc-open { flex: none; }
+  #home-cal.hc-open .hc-grid { flex: none; height: var(--hc-grid-h, auto); }
+}
+@media (max-width: 760px) { #home-cal .hc-listnote, #home-cal .hc-up { display: none; } }
+
