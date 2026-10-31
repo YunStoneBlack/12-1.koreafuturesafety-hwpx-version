@@ -175,21 +175,24 @@ def _popup_select(ctx, opener, open_js: str, match, wait_ms: int = 10000, job=No
     _wait_select(w, wait_ms)
     sels = w.evaluate("() => [...document.querySelectorAll('[onclick^=\"goSelect\"], a[href^=\"javascript:goSelect\"]')].map(b => b.getAttribute('onclick') || b.getAttribute('href'))")
     hit = next((s for s in sels if match(re.findall(r"'([^']*)'", s))), None)
-    if hit is None and query:  # 첫 목록에 없으면 찾기 창의 "시설물명" 칸에 이름을 넣어 검색(목록이 여러 쪽이거나 많을 때)
+    if hit is None and query:  # 첫 목록에 없으면 찾기 창의 "시설물명" 칸에 이름을 넣어 검색(전체 22만 건 목록으로 열릴 때, 10/31 첫 실제 건)
         try:
-            w.evaluate("""(q) => { const th = [...document.querySelectorAll('th')].find(t => (t.textContent || '').replace(/\\s/g, '') === '시설물명');
-                const inp = th && th.nextElementSibling && th.nextElementSibling.querySelector('input[type=text], input:not([type])'); if (inp) inp.value = q; }""", query)
-            btn = next((x for x in (w.query_selector("a:has-text('검색')"), w.query_selector("button:has-text('검색')"), w.query_selector("[onclick*='goSearch']")) if x is not None), None)
-            if btn is not None:
-                btn.click()
+            inp = w.locator("xpath=//th[normalize-space()='시설물명']/following-sibling::td[1]//input[not(@type='hidden')]").first
+            inp.fill(query, timeout=5000)
+            btn = w.locator("a:has-text('검색'), button:has-text('검색')").first
+            if btn.count():
+                btn.click(timeout=5000)
             else:
-                w.evaluate("typeof goSearch === 'function' && goSearch()")
+                inp.press("Enter")
             w.wait_for_timeout(2500)
-            _wait_select(w, 5000)
+            _wait_select(w, 6000)
             sels = w.evaluate("() => [...document.querySelectorAll('[onclick^=\"goSelect\"], a[href^=\"javascript:goSelect\"]')].map(b => b.getAttribute('onclick') || b.getAttribute('href'))")
             hit = next((s for s in sels if match(re.findall(r"'([^']*)'", s))), None)
-        except Exception:  # noqa: BLE001 — 검색이 안 돼도 아래에서 못 찾음으로 처리하고 화면을 남김
-            pass
+            if job is not None:
+                job.say(f"시설물명 '{query}' 검색 결과 {len(sels)}줄" + ("" if hit else ": " + " / ".join(re.sub(r"\s+", " ", x)[:40] for x in sels[:3])))
+        except Exception as e:  # noqa: BLE001 — 검색이 안 돼도 아래에서 못 찾음으로 처리하고 화면을 남김
+            if job is not None:
+                job.say(f"시설물명 검색 실패: {str(e)[:120]}")
     if hit is None:
         if job is not None and not w.is_closed():  # 못 찾았을 때 찾기 창 화면·줄 수를 남김(10/31 첫 실제 건 — 왜 없는지 보게)
             job.say(f"찾기 창 결과 {len(sels)}줄: " + " / ".join(re.sub(r"[\s]+", " ", x)[:50] for x in sels[:3]))
