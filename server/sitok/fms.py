@@ -137,12 +137,12 @@ def vent_state(db, r) -> dict:
     return {"has": "있음", "repair": "보수필요" if bad else "보수불필요"}
 
 
-def _fms_contract_ymd(contract_date, start) -> str:
-    """FMS 계약일 — 계약일 연도가 점검기간 연도보다 앞서면(예: 계약 2025-12-31, 점검 2026-08~10) FMS가 "하반기(7~12월)의 점검기간과 맞지 않습니다"로 시설물 저장을 막음.
-    상반기 때도 민재형이 계약일을 그 해 1월 1일로 바꿔 올렸음(10/31) → 점검기간 연도 1월 1일로 맞춤."""
+def _fms_contract_ymd(contract_date, start, half: str = "") -> str:
+    """FMS 계약일 — 상반기 계약은 민재형이 계약일을 그 해 1월 1일로 바꿔 올렸음(10/31) → 상반기이고 계약일 연도가 점검 연도보다 앞서면 점검 연도 1월 1일로.
+    하반기는 실제 계약일 그대로(하반기 시설물 계약이 2025-12-31로 FMS에 올라가 있음). 시설물 저장이 "점검기간과 맞지 않습니다"로 막힌 건 계약 정보가 안 저장돼서였음."""
     if not contract_date:
         return ""
-    if start and contract_date.year < start.year:
+    if half == "상반기" and start and contract_date.year < start.year:  # 하반기는 계약일 2025-12-31로도 FMS에 올라가 있음(캠코캐피탈타워, 10/31) — 상반기 때만
         return datetime.date(start.year, 1, 1).isoformat()
     return contract_date.isoformat()
 
@@ -218,7 +218,7 @@ def payload(db, reports: list) -> dict:
     contract = {
         "project_nm": project_nm,
         "start_ymd": start.isoformat() if start else "", "end_ymd": end.isoformat() if end else "",
-        "contract_ymd": _fms_contract_ymd(c.contract_date if c else None, start),
+        "contract_ymd": _fms_contract_ymd(c.contract_date if c else None, start, r0.half),
         "mng_main_nm": f0.owner_name,
         "owner_hint": f0.address or "", "owner_fac": f0.name or "",  # FMS 관리주체 찾기에 같은 이름이 여러 개(한국자산관리공사 31건)일 때 취합기관·주소로 고르려고(10/31 민재형)
         "const_amt": total, "design_amt": total,
