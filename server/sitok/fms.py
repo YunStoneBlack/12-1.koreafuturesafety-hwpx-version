@@ -159,6 +159,7 @@ def payload(db, reports: list) -> dict:
     name = (grp.name if grp and len(reports) > 1 else f0.name)
     project_nm = (res[0].get("project_nm") or f"{r0.year}년 {r0.half} {name} {KIND_LABEL.get(r0.kind, '정기안전점검')} 용역").strip()
     project_nm = re.sub(r'[\\/:*?"<>|]', " ", project_nm)  # FMS: 용역명에 특수문자 \ / : * ? " < > | 안 됨
+    project_nm = ((r0.fms or {}).get("project_nm_override") or project_nm).strip()  # 회차 FMS 상태에 용역명을 따로 적어 두면 그 이름으로(10/31 민재형 — 계약이 "보고서"를 뺀 이름으로 시험)
     start, end = r0.period_start, r0.period_end
     notes = []
     facs = []
