@@ -204,6 +204,8 @@
   **보고서 메일(DB 0065 `mail_job`)** — 시특법 회차 [📧 보고서 보내기](합본 내려받기 링크 `/report/share/{토큰}` 로그인 없이·30일·바로/예약·제출 현황 전송 표시,
   `server/api/mail_jobs.py`·`routers/sitok_mail.py`·`routers/share.py`, 그룹웨어 nginx 예외), 산안법 고객사 전송 예약(전송 창 첫 화면 [⏰ 예약 보내기]·목록/제출 현황 "⏰ 예약"),
   작업 프로그램 `server/worker/mail_worker.py`.
+- **261차(10/31)**: 시특법 정기 표 선 고르기 안전장치(`report_build._even_tables_safely` — 보이던 선이 지워지거나 새로 생기는 표는 되돌림, 흐름도·조직도·과업내용 상자 복구)·올린 도면 PDF의 빈 쪽 제거(`drawings.has_content`)·**FMS 첫 실제 계약 등록 성공**(`fms_bot` — 관리주체 같은 이름은 시설물명 검색/주소 점수·시설물 탭 대기·"처리 중" 창 대기·저장 확인·계약 등록은 항상 새 계약·계약일 1/1은 상반기만·`project_nm_override`). 핵심기술 58~62절.
+- **259·260차(10/31)**: e-보고서 대가내역서 = 계약 전체(직접 올리기·계약이 더 새로우면 다시 만듦, `fms.contract_files`)·계약 회차 줄에서 같은 반기에도 동마다 점검 종류(`civil.part_kind`, 계약 창 `.r-pkind`). 핵심기술 61절.
 - **258차(10/31)**: md 최신화·리팩토링·디버깅·푸시(요약문 쪽 별도 빈 쪽 처리 제거, 공통 정리로 통합).
 - **254~257차(10/30~31)**: 보고서 만들기 속도 — 사진첩 만들기 308 → 53초(`album_make._font` 글꼴 한 번만 읽기)·사진·결함이 그대로면 사진첩 재사용(`album_make._signature` 지문 `.sig`), 쪽 모양·표 선은 알아서 고치고 알림엔 사용자가 할 수 있는 것만(제목 넘기기 안정될 때까지 반복·시특법 정기 표 선 고르게 `seismic_fill.even_tables`).
 - **250~253차(10/30)**: 결과표 — 참고사항 항목|내용 두 칸 양식(`fix_focus_master.py` 원본 이식·`report_build._set_focus`)·글자 가·나·다·라 제목 10pt/나머지 9pt(`layout_fix.result_font`)·기술등급 한 줄·내진보강시설 점검표는 3종 학교만(`master._drop_seismic_check`), 제출문 귀사(`layout_fix.apply_greeting`).

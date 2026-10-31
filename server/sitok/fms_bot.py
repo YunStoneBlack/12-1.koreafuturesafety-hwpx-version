@@ -190,7 +190,7 @@ def _popup_select(ctx, opener, open_js: str, match, wait_ms: int = 10000, job=No
     w.on("dialog", lambda d: d.accept())
     w.wait_for_load_state("domcontentloaded")
     _wait_select(w, wait_ms)
-    sels = w.evaluate("() => [...document.querySelectorAll('[onclick^=\"goSelect\"], a[href^=\"javascript:goSelect\"]')].map(b => b.getAttribute('onclick') || b.getAttribute('href'))")
+    sels = w.evaluate(_GOSELECT_ROWS)
     hit = next((s for s in sels if match(re.findall(r"'([^']*)'", s))), None)
     if hit is None and query:  # 첫 목록에 없으면 찾기 창의 "시설물명" 칸에 이름을 넣어 검색(전체 22만 건 목록으로 열릴 때, 10/31 첫 실제 건)
         try:
@@ -209,7 +209,7 @@ def _popup_select(ctx, opener, open_js: str, match, wait_ms: int = 10000, job=No
                 inp.press("Enter")
             w.wait_for_timeout(2500)
             _wait_select(w, 6000)
-            sels = w.evaluate("() => [...document.querySelectorAll('[onclick^=\"goSelect\"], a[href^=\"javascript:goSelect\"]')].map(b => b.getAttribute('onclick') || b.getAttribute('href'))")
+            sels = w.evaluate(_GOSELECT_ROWS)
             hit = next((s for s in sels if match(re.findall(r"'([^']*)'", s))), None)
             if job is not None:
                 job.say(f"시설물명 '{query}' 검색 결과 {len(sels)}줄" + ("" if hit else ": " + " / ".join(re.sub(r"\s+", " ", x)[:40] for x in sels[:3])))
@@ -297,6 +297,11 @@ def _owner_score(text: str, hint: str) -> int:
     return score
 
 
+def _owner_candidates(rows: list[dict], want: str) -> list[dict]:
+    """찾기 결과에서 이름이 똑같은 줄들 — 고르기 인자에 이름이 있는 줄, 없으면 첫 칸이 그 이름인 줄."""
+    return [r for r in rows if any(_norm_name(x) == want for x in _js_args(r["sel"]))] or [r for r in rows if _norm_name(r["first"]) == want]
+
+
 def pick_owner(ctx, fr, owner_name: str, job=None, hint: str = "", keep_ceo: str = "", fac_name: str = "") -> dict:
     """관리주체 찾기 팝업에서 이름이 똑같은 줄 고르기 → {ok, code, rows}. 못 찾으면 팝업 화면을 찍어 둠(job이 있으면)."""
     with ctx.expect_page(timeout=15000) as pop:
@@ -310,7 +315,7 @@ def pick_owner(ctx, fr, owner_name: str, job=None, hint: str = "", keep_ceo: str
     for k in range(2):  # 결과가 늦게 뜨는 때가 있음 — 없으면 한 번 더. 시설물명 검색(같은 이름 관리주체가 여럿일 때 그 시설물 것만 나옴, 10/31 민재형)을 먼저, 안 되면 관리주체 이름 + 주소 점수로
         for by_fac in ([fac_name, ""] if fac_name else [""]):
             rows = _owner_search(w, owner_name, by_fac)
-            cands = [r for r in rows if any(_norm_name(x) == want for x in _js_args(r["sel"]))]                 or [r for r in rows if _norm_name(r["first"]) == want]  # 고르기 인자에 이름이 없어도 첫 칸이 그 이름이면
+            cands = _owner_candidates(rows, want)
             hit = max(cands, key=lambda r: _owner_score(r["text"], hint), default=None)  # 여럿이면 시설물 주소와 맞는 줄(동점이면 먼저 나온 것)
             if hit:
                 if job is not None:
@@ -339,6 +344,9 @@ def pick_owner(ctx, fr, owner_name: str, job=None, hint: str = "", keep_ceo: str
     if not w.is_closed():
         w.close()
     return out
+
+
+_GOSELECT_ROWS = "() => [...document.querySelectorAll('[onclick^=\"goSelect\"], a[href^=\"javascript:goSelect\"]')].map(b => b.getAttribute('onclick') || b.getAttribute('href'))"  # 찾기 창의 고르기 줄(onclick·href 둘 다)
 
 
 def _wait_select(w, ms: int = 10000) -> bool:

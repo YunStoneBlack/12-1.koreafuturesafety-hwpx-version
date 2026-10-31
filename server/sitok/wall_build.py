@@ -1898,12 +1898,14 @@ def _drawing_images(path: Path, prior: bool) -> list[tuple[bytes, int | None, bo
 
     from PIL import Image, ImageOps
 
+    from server.sitok.drawings import has_content
+
     out = []
     try:
         if path.suffix.lower() == ".pdf":
             with pymupdf.open(path) as pdf:
                 for k, pg in enumerate(pdf, 1):
-                    if not pg.get_drawings() and not pg.get_images() and not pg.get_text().strip():
+                    if not has_content(pg):
                         continue  # 올린 도면 PDF 속 완전히 빈 쪽은 뺌 — 안 그러면 보고서에 머리말도 없는 빈 쪽이 끼어 나옴(10/31 민재형)
                     r = pg.rect
                     clip = pymupdf.Rect(0, PRIOR_CLIP[0], r.width, r.height - PRIOR_CLIP[1]) if prior else None
