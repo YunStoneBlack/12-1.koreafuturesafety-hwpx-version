@@ -43,6 +43,8 @@
   let selected = ymd(new Date()); // 폰: 눌러 본 날
   const expanded = new Set(); // "더 보기"를 누른 날
   let seq = 0;
+  let maxShown = 3; // 한 칸에 보일 일정 수 — PC는 칸 높이에 맞춰 늘림(달력이 화면 남은 높이를 채움, 10/31 민재형 "빈 공간은 달력을 늘려서")
+  let fitting = false;
 
   const gridRange = () => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1);
@@ -208,7 +210,8 @@
     const counts = {};
     for (const day of Object.keys(data.events)) for (const e of data.events[day]) counts[e.layer] = (counts[e.layer] || 0) + 1;
     const isPhone = phone();
-    const max = 3;
+    const max = isPhone ? 3 : maxShown;
+    const weeks = Math.round((end - start) / 86400000 / 7);
     let cells = "";
     for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
       const day = ymd(d);
@@ -241,7 +244,7 @@
     root.innerHTML = `<div class="hc-head"><h2>${month.getFullYear()}년 ${month.getMonth() + 1}월</h2>
         <div class="hc-nav"><button type="button" data-nav="-1" aria-label="이전 달">◀</button><button type="button" data-nav="0" class="hc-today">오늘</button><button type="button" data-nav="1" aria-label="다음 달">▶</button></div>
         <div class="hc-chips" role="group" aria-label="보일 일정">${LAYERS.map((l) => `<button type="button" class="hc-chip c-${l.key}${on.has(l.key) ? "" : " off"}" data-layer="${l.key}" aria-pressed="${on.has(l.key)}" title="${data.failed.has(l.key) ? "불러오지 못했습니다" : "누르면 켜고 끕니다 — 내 화면에만 저장"}"><i></i>${l.name}${counts[l.key] ? ` <small>${counts[l.key]}</small>` : ""}${data.failed.has(l.key) ? " ⚠" : ""}</button>`).join("")}</div></div>
-      <div class="hc-grid">${WEEK.map((w, i) => `<div class="hc-dow${i === 0 ? " red" : i === 6 ? " blue" : ""}">${w}</div>`).join("")}${cells}</div>${list}
+      <div class="hc-grid" style="--hc-weeks:${weeks}">${WEEK.map((w, i) => `<div class="hc-dow${i === 0 ? " red" : i === 6 ? " blue" : ""}">${w}</div>`).join("")}${cells}</div>${list}
       <div class="hc-foot">${isPhone ? "날짜를 누르면 그날 일정이 아래에 나옵니다" : "일정을 누르면 그 달력의 그 날짜로 갑니다"} · 보기만 하는 화면(일정 입력·수정은 각 달력에서)${showCnt ? " · \"산안 N\" = 그날 산안법 현장 수(적을수록 연한 초록), \"시특 N\" = 시특법 건물 수" : ""}</div>`;
     root.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
       const n = Number(b.dataset.nav);
@@ -262,10 +265,25 @@
       render();
     }));
     root.querySelectorAll("[data-pick]").forEach((c) => c.addEventListener("click", () => { selected = c.dataset.pick; render(); }));
+    fitCells();
+    if (ro) { ro.disconnect(); const g = root.querySelector(".hc-grid"); if (g) ro.observe(g); } // 격자 크기가 바뀌면(오늘 띠가 나중에 그려져 달력이 밀리거나 창 크기가 바뀜) 다시 맞춤
   }
 
+  // PC: 칸 높이에 맞춰 한 칸에 보일 일정 수를 정함(칸 높이는 일정 수가 아니라 남은 화면 높이로 정해지므로 다시 그려도 안정, 값이 달라질 때만 다시 그림)
+  function fitCells() {
+    if (phone() || fitting) return;
+    const g = root.querySelector(".hc-grid"), dow = g && g.querySelector(".hc-dow");
+    if (!g || !dow) return;
+    const weeks = Number(getComputedStyle(g).getPropertyValue("--hc-weeks")) || 5;
+    const cellH = (g.clientHeight - dow.offsetHeight) / weeks;
+    const want = Math.max(3, Math.min(12, Math.floor((cellH - 46) / 22))); // 날짜 줄 20 + "+N건" 줄 16 + 여유 → 일정 한 줄 약 22px
+    if (want !== maxShown) { maxShown = want; fitting = true; try { render(); } finally { fitting = false; } }
+  }
+  const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => requestAnimationFrame(fitCells)) : null;
+
   let wasPhone = phone();
-  addEventListener("resize", () => { if (phone() !== wasPhone) { wasPhone = phone(); render(); } });
+  let rt = null;
+  addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { wasPhone = phone(); render(); }, 150); }); // 폭이 바뀌면(폰↔PC·창 크기) 다시 그림
   root.innerHTML = '<div class="hc-loading">달력을 불러오는 중…</div>';
   load();
   loadStrip();

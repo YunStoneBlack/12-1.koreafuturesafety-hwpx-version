@@ -108,3 +108,15 @@
   #home-cal .hc-day .hc-cnt i { margin-right: 1px; }
 }
 
+/* ---------- PC: 달력이 화면 남은 높이를 채움(10/31 민재형 "빈 공간은 달력을 늘려서") — 그룹웨어 app.css를 건드리지 않고 여기서 덮어씀.
+   위·아래 남색 줄은 화면에 붙이고(body 높이 = 화면), 가운데(main)만 남은 높이를 쓰며 모자라면 main만 스크롤.
+   달력 격자는 flex-basis 0 — 일정이 많아도 격자 높이가 일정 수로 정해지지 않아(안 그러면 칸을 늘려 일정을 더 보이게 할수록 페이지가 계속 길어짐) 높이는 화면이 정함 ---------- */
+@media (min-width: 761px) {
+  body.home-top { height: 100vh; min-height: 0; overflow: hidden; }
+  body.home-top .home-main { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+  body.home-top .home-pad { flex: 1 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 14px; width: 100%; } /* app.css의 grid용 align-items:start를 덮어 띠·달력이 폭을 다 씀 */
+  body.home-top .home-cal-wrap { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  body.home-top #home-cal { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  #home-cal .hc-grid { flex: 1 1 0; min-height: calc(34px + var(--hc-weeks, 5) * 104px); grid-template-rows: auto repeat(var(--hc-weeks, 5), minmax(104px, 1fr)); }
+  #home-cal .hc-day { min-height: 0; overflow: hidden; }
+}
