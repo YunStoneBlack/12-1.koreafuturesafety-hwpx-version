@@ -615,6 +615,16 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
     pg.evaluate("goTabpage('2')")
     fr2 = _frame(pg, "any13001")
     pg.wait_for_timeout(2500)
+    for _ in range(4):  # 일반현황이 정말 저장됐는지 — 시설물 탭 위쪽 계약 정보(용역명)가 채워져 있어야 함. 비어 있으면 저장이 안 된 것이라 시설물 저장이 "점검기간과 맞지 않습니다"로 막힘(10/31)
+        if _cell_after(fr2, "용역명"):
+            break
+        pg.wait_for_timeout(3000)
+        pg.evaluate("goTabpage('2')")
+        fr2 = _frame(pg, "any13001")
+        pg.wait_for_timeout(1500)
+    else:
+        job.shot(pg, "일반현황_저장안됨")
+        raise FmsError(f"일반현황이 FMS에 저장되지 않았습니다(계약 {project_no} 위쪽 용역명·점검기간이 비어 있음). 입찰방식 등 값을 FMS 화면에서 직접 저장해 보세요 — 안내 문구가 나옵니다.")
     have = set(fr2.evaluate("() => [...document.querySelectorAll('tr[facil_no]')].map(t => t.getAttribute('facil_no'))"))
     for f in payload["facilities"]:
         if f["fms_no"] in have:
