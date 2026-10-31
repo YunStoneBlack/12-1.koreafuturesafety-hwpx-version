@@ -702,7 +702,14 @@ def _engineer_rows(ctx, pg, fr3, job: Job, engineers: list[dict], project_no: st
         used.add(idx)
         grade, field = e.get("tech_grade") or "", ""
         if existing.get(str(idx), existing.get(idx)) != e["name"]:
-            hit = _popup_select(ctx, fr3, f"findEngineer('&project_no={project_no}&rownum={idx}')", lambda a, n=e["name"]: len(a) > 1 and a[1] == n)
+            try:
+                hit = _popup_select(ctx, fr3, f"findEngineer('&project_no={project_no}&rownum={idx}')", lambda a, n=e["name"]: len(a) > 1 and a[1] == n)
+            except Exception as err:  # noqa: BLE001 — 찾기 창이 안 열렸음(시간 초과) — 화면을 남기고 3초 뒤 한 번 더
+                job.say(f"기술자 찾기 창이 열리지 않음({str(err)[:60]}) — 3초 뒤 다시")
+                job.shot(pg, f"기술자찾기_안열림_{e['name']}")
+                pg.wait_for_timeout(3000)
+                fr3 = _frame(pg, "any14001") or fr3
+                hit = _popup_select(ctx, fr3, f"findEngineer('&project_no={project_no}&rownum={idx}')", lambda a, n=e["name"]: len(a) > 1 and a[1] == n)
             if not hit:
                 raise FmsError(f"FMS 기술자 찾기에서 {e['name']}를 못 찾았습니다(FMS에 등록된 기술자인지 확인).")
             a = re.findall(r"'([^']*)'", hit)
@@ -1050,6 +1057,10 @@ def submit(stage: str, payload: dict, cred: tuple[str, str], owner: tuple[str, s
         except Exception as e:  # noqa: BLE001
             out["message"] = f"{out['step'] or '시작'} 중 오류: {str(e)[:200]}"
             out["project_no"] = out["project_no"] or job.project_no
+            try:
+                job.shot(pg, "오류_화면")  # noqa: F821 — 어떤 오류에서도 멈춘 화면을 남김(10/31 기술자 찾기 창이 안 열려 멈췄는데 화면이 없었음)
+            except Exception:  # noqa: BLE001
+                pass
         finally:
             b.close()
     out.update(log=job.log, shots=job.shots, alerts=job.alerts)
