@@ -26,7 +26,7 @@ from server.sitok import seasons
 BASE = "https://www.fms.or.kr"
 _WRITE = re.compile(r"(save|insert|update|delete|del\b|regist|reg\.do|apprv|approval|appr|request|req\b|confirm|complete|cmplt|submit|upload|send|trans)", re.I)
 _SAFE = re.compile(r"(list|form|view|search|select|popup|pop|find|sch|redirectEx|loginForm|login\.do|actionLogin|mainForm|menu|code|combo|detail|info)", re.I)
-_ERR = re.compile(r"입력하지|선택하지|일치하지|없습니다|잘못|오류|실패|초과할 수|이전이어야|이후이어야|확인하시기|필수|중복|불가능|주십시오|주세요")  # 주십시오 = "성명을(를) 입력하여 주십시오"(10/29 — 기술자 저장이 거부됐는데 지나감)
+_ERR = re.compile(r"입력하지|선택하지|일치하지|없습니다|잘못|오류|실패|초과할 수|이전이어야|이후이어야|확인하시기|필수|중복|불가능|주십시오|주세요|맞지 않")  # 주십시오 = "성명을(를) 입력하여 주십시오"(10/29 — 기술자 저장이 거부됐는데 지나감)
 GRADE_NAME = {"1": "특급기술인", "2": "고급기술인", "3": "중급기술인", "4": "초급기술인"}
 HALF_CODE = {"상반기": "0106", "하반기": "0712"}
 FOLDERS = ["계약서 및 대가내역서", "과업지시서", "결과표", "보고서", "보고서 부록"]
