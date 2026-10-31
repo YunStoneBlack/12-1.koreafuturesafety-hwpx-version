@@ -120,3 +120,4 @@
   #home-cal .hc-grid { flex: 1 1 0; min-height: calc(34px + var(--hc-weeks, 5) * 104px); grid-template-rows: auto repeat(var(--hc-weeks, 5), minmax(104px, 1fr)); }
   #home-cal .hc-day { min-height: 0; overflow: hidden; }
 }
+#home-cal .hc-sync { color: var(--blue, #2a7de1); font-weight: 700; }

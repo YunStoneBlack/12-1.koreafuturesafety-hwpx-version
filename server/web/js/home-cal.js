@@ -37,7 +37,7 @@
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...on])); } catch (_) { /* 저장 못 해도 이번엔 동작 */ } };
 
   let month = new Date(); month.setDate(1);
-  let data = { events: {}, daily: {}, failed: new Set() };
+  let data = { events: {}, daily: {}, failed: new Set(), pending: new Set(), stale: false };
   let strip = null; // 오늘 띠 데이터(오늘~7일 뒤)
   let holidays = {};
   let selected = ymd(new Date()); // 폰: 눌러 본 날
@@ -128,27 +128,57 @@
   };
 
   // 모든 달력에서 [s, e) 기간의 일정을 받아 날짜별로 모음 → {ev, daily, failed}. 한 달력이 실패해도 나머지는 그대로(칩에 ⚠).
-  async function fetchEvents(s, e) {
+  async function fetchEvents(s, e, onPart) {
     const ev = {};
     const daily = {};
     const failed = new Set();
+    const pending = new Set(LAYERS.map((l) => l.key));
     await Promise.all(LAYERS.map((l) => LOADERS[l.key](s, e).then((res) => {
       for (const x of res.events || []) add(ev, x.date, { ...x, layer: l.key, date: x.jump || x.date });
       if (res.daily) daily[l.key] = res.daily;
-    }).catch(() => failed.add(l.key))));
-    return { ev, daily, failed };
+    }).catch(() => failed.add(l.key)).then(() => { pending.delete(l.key); if (onPart) onPart({ ev, daily, failed, pending }); })));
+    return { ev, daily, failed, pending };
   }
+
+  // 직전에 본 데이터(같은 기간)를 브라우저에 두었다가 먼저 보여 주고 새로 받아 바꿈(10/31 민재형 "달력 불러오는 시간이 너무 길다")
+  const CACHE = `kfsc-home-cal-cache:${user}`;
+  const readCache = (rk) => { try { const c = JSON.parse(localStorage.getItem(`${CACHE}:${rk}`) || "null"); return c && Date.now() - c.at < 6 * 3600 * 1000 ? c : null; } catch (_) { return null; } };
+  const writeCache = (rk, got) => { try { localStorage.setItem(`${CACHE}:${rk}`, JSON.stringify({ at: Date.now(), ev: got.ev, daily: got.daily })); } catch (_) { /* 저장 못 해도 동작 */ } };
 
   async function load() {
     const my = ++seq;
     const [start, end] = gridRange();
-    const [got] = await Promise.all([fetchEvents(ymd(start), ymd(end)), loadHolidays(start, end)]);
+    const t = ymd(new Date());
+    // 이번 달을 볼 때는 오늘 띠가 쓸 오늘~8일 뒤도 같은 요청에 넣어(요청을 두 번 보내지 않음), 다른 달이면 그 달 격자만
+    const todayIn = ymd(start) <= t && t < ymd(end);
+    const s0 = todayIn && t < ymd(start) ? t : ymd(start);
+    const e0 = todayIn && addDay(t, 8) > ymd(end) ? addDay(t, 8) : ymd(end);
+    const rk = `${s0}~${e0}`;
+    const cached = readCache(rk);
+    const holi = loadHolidays(start, end);
+    const keep = (got) => { if (todayIn) { strip = { ...got, today: t }; } };
+    if (cached) { // 직전 데이터를 바로 보여 주고(“새로 확인하는 중”), 다 받으면 통째로 바꿈
+      data = { events: cached.ev, daily: cached.daily, failed: new Set(), pending: new Set(), stale: true };
+      keep({ ev: cached.ev, daily: cached.daily, failed: new Set() }); await holi; if (my !== seq) return; render(); renderStrip();
+    }
+    let raf = 0;
+    const part = cached ? null : (p) => { // 처음 보는 기간: 먼저 온 달력부터 그림(느린 서류 일정을 기다리지 않음)
+      data = { events: p.ev, daily: p.daily, failed: p.failed, pending: p.pending, stale: false };
+      keep(p);
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (my === seq) { render(); renderStrip(); } });
+    };
+    const got = await fetchEvents(s0, e0, part);
+    await holi;
     if (my !== seq) return; // 그 사이 달을 또 옮김
-    data = { events: got.ev, daily: got.daily, failed: got.failed };
+    data = { events: got.ev, daily: got.daily, failed: got.failed, pending: new Set(), stale: false };
+    keep(got);
+    if (!got.failed.size) writeCache(rk, got);
     render();
+    renderStrip();
   }
 
   async function loadStrip() {
+    if (strip) return; // 이번 달 요청에 이미 들어 있음
     const t = ymd(new Date());
     try {
       const got = await fetchEvents(t, addDay(t, 8));
@@ -243,9 +273,9 @@
     }
     root.innerHTML = `<div class="hc-head"><h2>${month.getFullYear()}년 ${month.getMonth() + 1}월</h2>
         <div class="hc-nav"><button type="button" data-nav="-1" aria-label="이전 달">◀</button><button type="button" data-nav="0" class="hc-today">오늘</button><button type="button" data-nav="1" aria-label="다음 달">▶</button></div>
-        <div class="hc-chips" role="group" aria-label="보일 일정">${LAYERS.map((l) => `<button type="button" class="hc-chip c-${l.key}${on.has(l.key) ? "" : " off"}" data-layer="${l.key}" aria-pressed="${on.has(l.key)}" title="${data.failed.has(l.key) ? "불러오지 못했습니다" : "누르면 켜고 끕니다 — 내 화면에만 저장"}"><i></i>${l.name}${counts[l.key] ? ` <small>${counts[l.key]}</small>` : ""}${data.failed.has(l.key) ? " ⚠" : ""}</button>`).join("")}</div></div>
+        <div class="hc-chips" role="group" aria-label="보일 일정">${LAYERS.map((l) => `<button type="button" class="hc-chip c-${l.key}${on.has(l.key) ? "" : " off"}" data-layer="${l.key}" aria-pressed="${on.has(l.key)}" title="${data.failed.has(l.key) ? "불러오지 못했습니다" : "누르면 켜고 끕니다 — 내 화면에만 저장"}"><i></i>${l.name}${data.pending.has(l.key) ? " <small>…</small>" : counts[l.key] ? ` <small>${counts[l.key]}</small>` : ""}${data.failed.has(l.key) ? " ⚠" : ""}</button>`).join("")}</div></div>
       <div class="hc-grid" style="--hc-weeks:${weeks}">${WEEK.map((w, i) => `<div class="hc-dow${i === 0 ? " red" : i === 6 ? " blue" : ""}">${w}</div>`).join("")}${cells}</div>${list}
-      <div class="hc-foot">${isPhone ? "날짜를 누르면 그날 일정이 아래에 나옵니다" : "일정을 누르면 그 달력의 그 날짜로 갑니다"} · 보기만 하는 화면(일정 입력·수정은 각 달력에서)${showCnt ? " · \"산안 N\" = 그날 산안법 현장 수(적을수록 연한 초록), \"시특 N\" = 시특법 건물 수" : ""}</div>`;
+      <div class="hc-foot">${data.stale ? '<b class="hc-sync">이전에 본 내용입니다 — 새로 확인하는 중…</b> · ' : data.pending.size ? '<b class="hc-sync">불러오는 중…</b> · ' : ""}${isPhone ? "날짜를 누르면 그날 일정이 아래에 나옵니다" : "일정을 누르면 그 달력의 그 날짜로 갑니다"} · 보기만 하는 화면(일정 입력·수정은 각 달력에서)${showCnt ? " · \"산안 N\" = 그날 산안법 현장 수(적을수록 연한 초록), \"시특 N\" = 시특법 건물 수" : ""}</div>`;
     root.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
       const n = Number(b.dataset.nav);
       if (n === 0) { month = new Date(); month.setDate(1); selected = ymd(new Date()); } else month = new Date(month.getFullYear(), month.getMonth() + n, 1);
@@ -285,6 +315,5 @@
   let rt = null;
   addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { wasPhone = phone(); render(); }, 150); }); // 폭이 바뀌면(폰↔PC·창 크기) 다시 그림
   root.innerHTML = '<div class="hc-loading">달력을 불러오는 중…</div>';
-  load();
-  loadStrip();
+  load().then(loadStrip); // 이번 달을 보는 중이면 띠 데이터는 이미 있음 — 다른 이유로 못 받았을 때만 따로
 })();
