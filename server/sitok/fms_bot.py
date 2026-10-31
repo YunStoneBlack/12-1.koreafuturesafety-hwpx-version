@@ -177,7 +177,13 @@ def _popup_select(ctx, opener, open_js: str, match, wait_ms: int = 10000, job=No
     hit = next((s for s in sels if match(re.findall(r"'([^']*)'", s))), None)
     if hit is None and query:  # 첫 목록에 없으면 찾기 창의 "시설물명" 칸에 이름을 넣어 검색(전체 22만 건 목록으로 열릴 때, 10/31 첫 실제 건)
         try:
-            inp = w.locator("xpath=//th[normalize-space()='시설물명']/following-sibling::td[1]//input[not(@type='hidden')]").first
+            sel_inputs = "input[type=text]:visible, input:not([type]):visible"
+            info = w.evaluate("""() => [...document.querySelectorAll('input[type=text], input:not([type])')].filter(i => i.offsetParent).map(i => {
+                const c = i.closest('td, th'); const p = c && c.previousElementSibling; return (i.name || i.id || '?') + '←' + ((p && p.textContent) || '').replace(/\\s/g, '').slice(0, 8); })""")
+            if job is not None:
+                job.say("찾기 창 입력칸: " + " / ".join(info[:6]))
+            idx = next((k for k, t in enumerate(info) if "시설물명" in t), 0)  # 이름칸 = 앞 칸 글이 시설물명인 것(없으면 첫 칸)
+            inp = w.locator(sel_inputs).nth(idx)
             inp.fill(query, timeout=5000)
             btn = w.locator("a:has-text('검색'), button:has-text('검색')").first
             if btn.count():
@@ -616,11 +622,15 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
             continue
         fr2.evaluate("goWrite()")
         pg.wait_for_timeout(600)
-        mng = fr2.evaluate("(document.getElementsByName('mng_main_cd')[0] || {}).value || ''")
-        if owner_code and mng != owner_code:  # 이 탭 폼의 관리주체 칸이 비었거나 옛 코드면 찾기 창이 엉뚱한 목록으로 열려 못 찾음(10/31 첫 실제 건) — 일반현황에서 고른 코드를 넣어 줌
-            fr2.evaluate("(c) => { const e = document.getElementsByName('mng_main_cd')[0]; if (e) e.value = c; }", owner_code)
-            mng = owner_code
-            job.say(f"시설물 찾기 관리주체 코드 채움 {owner_code}")
+        read_mng = lambda: fr2.evaluate("(document.getElementsByName('mng_main_cd')[0] || {}).value || ''")  # noqa: E731
+        mng = read_mng()
+        for _ in range(30):  # FMS가 느리면 시설물 탭이 관리주체 칸을 늦게 채움 — 비었을 때 찾기 창을 열면 목록이 전체(22만 건)로 뜸(10/31 첫 실제 건), 채워질 때까지 최대 15초
+            if mng:
+                break
+            pg.wait_for_timeout(500)
+            fr2 = _frame(pg, "any13001") or fr2
+            mng = read_mng()
+        job.say(f"시설물 탭 관리주체 코드 {mng or '비어 있음'}(일반현황 화면 칸 {owner_code or '-'})")
         hit = _popup_select(ctx, fr2, "document.querySelector('#imgFacilFind').click()", lambda a, no=f["fms_no"]: bool(a) and a[0] == no, job=job, query=f["name"])
         if not hit:
             raise FmsError(f"FMS 시설물 찾기에서 {f['name']}({f['fms_no']})를 못 찾았습니다{f' (관리주체 {mng})' if mng else ''}.")
