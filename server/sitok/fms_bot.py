@@ -633,7 +633,8 @@ def _contract_tabs(ctx, pg, job: Job, payload: dict, project_no: str) -> str:
     fr2 = _frame(pg, "any13001")
     pg.wait_for_timeout(2500)
     for _ in range(4):  # 일반현황이 정말 저장됐는지 — 시설물 탭 위쪽 계약 정보(용역명)가 채워져 있어야 함. 비어 있으면 저장이 안 된 것이라 시설물 저장이 "점검기간과 맞지 않습니다"로 막힘(10/31)
-        if _cell_after(fr2, "용역명"):
+        head = re.sub(r"\s", "", fr2.evaluate("() => (document.body && document.body.innerText) || ''") or "")
+        if re.sub(r"\s", "", c["project_nm"])[:10] in head:  # 시설물 탭 위쪽 계약 표에 용역명이 보이면 저장된 것(칸 구조가 일반현황과 달라 글 전체에서 찾음)
             break
         pg.wait_for_timeout(3000)
         pg.evaluate("goTabpage('2')")
